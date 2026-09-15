@@ -2,6 +2,8 @@ module github.com/itchyitchy123/StePanel
 
 go 1.26.0
 
+toolchain go1.26.7
+
 require (
 	golang.org/x/crypto v0.56.0
 	modernc.org/sqlite v1.58.0

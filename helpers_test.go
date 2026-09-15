@@ -26,6 +26,23 @@ func TestRunBoundedCommandHonorsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestRunBoundedCommandKillsPlainCommandOnContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	// exec.Command (unlike exec.CommandContext) carries no deadline of its
+	// own. runBoundedCommand must enforce ctx itself rather than relying on
+	// every caller to have remembered to build cmd with CommandContext.
+	_, err := runBoundedCommand(ctx, exec.Command("sh", "-c", "sleep 5"))
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected cancelled helper command to fail")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("command was not killed promptly on cancellation: took %s", elapsed)
+	}
+}
+
 func TestHelperCommandUsesNonInteractiveSudo(t *testing.T) {
 	config := Config{Sudo: "/usr/bin/sudo"}
 	command := helperCommandContext(context.Background(), config, "/helper", "argument")
