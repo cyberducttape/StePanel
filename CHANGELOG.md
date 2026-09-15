@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- `runBoundedCommand` now enforces its `context.Context` argument itself
+  (start, wait in a goroutine, kill on `ctx.Done()`) instead of relying
+  entirely on the caller having built the command with
+  `exec.CommandContext`. Every current caller already did, so nothing was
+  actually hanging in production, but the function's own signature promised
+  enforcement it did not keep.
+- Pinned `toolchain go1.26.7` in `go.mod`, matching the exact version already
+  pinned in the Dockerfile and `release.yml`.
+
+## [0.7.0] - 2026-09-10
+
+The stabilization release focuses on isolation, recovery, and operational
+consistency. It is intended for controlled single-host operator deployments;
+the shared-hosting beta remains explicitly limited and is not a complete
+multi-tenant hosting platform.
+
+### Post-checkpoint stabilization
+
 - Added per-administrator rate limiting (5 actions/15 minutes) on the
   account-recovery endpoints (MFA reset, credential recovery, recovery-code
   regeneration), bounding the blast radius of a compromised admin session or
@@ -44,13 +62,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   them to backup-alerting and destructive recovery release evidence.
 - Added a process-death site-transaction recovery test and extended N-1
   upgrade smoke coverage to prove installer rollback after a failed candidate.
-
-## [0.7.0] - 2026-09-10
-
-The stabilization release focuses on isolation, recovery, and operational
-consistency. It is intended for controlled single-host operator deployments;
-the shared-hosting beta remains explicitly limited and is not a complete
-multi-tenant hosting platform.
 
 ### Production architecture checkpoint
 
