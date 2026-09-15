@@ -132,7 +132,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		return nil, err
 	}
 
-	_ = AuditAs(a.Config.AuditLog, request.Actor, "site.terminated", request.Site, "verified backup="+backup.Path)
+	_ = ShouldAudit(a.Config.AuditLog, request.Actor, "site.terminated", request.Site, "verified backup="+backup.Path)
 	return json.Marshal(map[string]any{"site": request.Site, "backup": backup, "completed_at": time.Now().UTC()})
 }
 
@@ -145,13 +145,36 @@ func (a *App) terminationBackup(site string, started time.Time) (BackupResult, e
 		if item.VerifiedAt.IsZero() || item.VerifiedAt.Before(started) {
 			continue
 		}
+		if err := a.ensureTerminationOffsiteBackup(item); err != nil {
+			return BackupResult{}, err
+		}
 		return item, nil
 	}
 	result, err := CreateSiteBackup(a.Config, site, true)
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("create verified termination backup: %w", err)
 	}
+	if err := a.ensureTerminationOffsiteBackup(result); err != nil {
+		return BackupResult{}, err
+	}
 	return result, nil
+}
+
+// ensureTerminationOffsiteBackup enforces STEPANEL_REQUIRE_OFFSITE_BACKUP for
+// the one operation where losing a site's only copy is irreversible: deleting
+// its host state. A scheduled/manual backup job already blocks on offsite
+// upload success (see handleSiteBackupJob), but termination can otherwise
+// pick up a locally-verified backup that never left the host, silently
+// defeating the operator's offsite requirement right before the data it
+// protects is destroyed.
+func (a *App) ensureTerminationOffsiteBackup(result BackupResult) error {
+	if !a.Config.RequireOffsiteBackup {
+		return nil
+	}
+	if err := uploadOffsite(a.Config, result); err != nil {
+		return fmt.Errorf("offsite backup is required before site termination: %w", err)
+	}
+	return nil
 }
 
 func runDatabaseTermination(ctx context.Context, cfg Config, database DatabaseResource) error {

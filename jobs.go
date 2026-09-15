@@ -1126,17 +1126,22 @@ func (j *Jobs) persistLocked() error {
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
-	if err = tmp.Chmod(0600); err == nil {
-		_, err = tmp.Write(append(data, '\n'))
+	// Set restrictive permissions immediately to protect job state
+	if err = tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("secure job state file permissions: %w", err)
 	}
-	if err == nil {
-		err = tmp.Sync()
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
+	// Write job data with proper permissions guaranteed
+	if _, err = tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
 		return fmt.Errorf("write job state: %w", err)
+	}
+	if err = tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync job state: %w", err)
+	}
+	if err = tmp.Close(); err != nil {
+		return fmt.Errorf("close job state: %w", err)
 	}
 	if err := os.Rename(tmpName, j.path); err != nil {
 		return fmt.Errorf("replace job state: %w", err)

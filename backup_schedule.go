@@ -132,7 +132,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not persist backup schedule", 500)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.Username, "backup.schedule.updated", in.Site, fmt.Sprintf("every %d minutes; keep last %d", in.IntervalMinutes, in.KeepLast))
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.Username, "backup.schedule.updated", in.Site, fmt.Sprintf("every %d minutes; keep last %d", in.IntervalMinutes, in.KeepLast))
 		writeJSON(w, http.StatusOK, in)
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
@@ -156,7 +156,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not persist backup schedule", 500)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.Username, "backup.schedule.deleted", site, "schedule removed")
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.Username, "backup.schedule.deleted", site, "schedule removed")
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", 405)
@@ -187,7 +187,7 @@ func (a *App) runDueBackups() {
 		}
 		a.Schedules.items[site] = s
 		if err := a.Schedules.persistLocked(); err != nil {
-			_ = AuditAs(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", site, err.Error())
+			_ = ShouldAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", site, err.Error())
 		}
 	}
 }

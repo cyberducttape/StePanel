@@ -313,17 +313,22 @@ func writeAuditState(path string, state auditState) error {
 	}
 	tempName := temp.Name()
 	defer os.Remove(tempName)
-	if err = temp.Chmod(0600); err == nil {
-		_, err = temp.Write(append(data, '\n'))
+	// Set restrictive permissions immediately to protect audit state
+	if err = temp.Chmod(0600); err != nil {
+		temp.Close()
+		return fmt.Errorf("secure audit state file permissions: %w", err)
 	}
-	if err == nil {
-		err = temp.Sync()
+	// Write audit data with proper permissions guaranteed
+	if _, err = temp.Write(append(data, '\n')); err != nil {
+		temp.Close()
+		return fmt.Errorf("write audit state: %w", err)
 	}
-	if closeErr := temp.Close(); err == nil {
-		err = closeErr
+	if err = temp.Sync(); err != nil {
+		temp.Close()
+		return fmt.Errorf("sync audit state: %w", err)
 	}
-	if err != nil {
-		return err
+	if err = temp.Close(); err != nil {
+		return fmt.Errorf("close audit state: %w", err)
 	}
 	if err := os.Rename(tempName, path); err != nil {
 		return err

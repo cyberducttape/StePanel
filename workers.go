@@ -145,7 +145,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "worker action failed", 502)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "worker."+parts[2], site, name)
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "worker."+parts[2], site, name)
 		writeJSON(w, 202, map[string]string{"site": site, "name": name, "action": parts[2]})
 		return
 	}
@@ -227,7 +227,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "worker applied but state update is pending", 503)
 		return
 	}
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "worker.updated", site, name)
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "worker.updated", site, name)
 	writeJSON(w, 202, input)
 }
 

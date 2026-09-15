@@ -546,7 +546,9 @@ func main() {
 		metricsHandler = app.Auth.RequireAdministrator(metricsHandler)
 	}
 	mux.Handle("/metrics", allowMethods(metricsHandler, http.MethodGet, http.MethodHead))
-	server := &http.Server{Addr: cfg.Listen, Handler: logging(normalizeAPIErrors(mux), app.Metrics, cfg.Production), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	// Wrap with security headers middleware (must be outermost)
+	secureHandler := securityHeadersMiddleware(cfg)(logging(normalizeAPIErrors(mux), app.Metrics, cfg.Production))
+	server := &http.Server{Addr: cfg.Listen, Handler: secureHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	go func() {
 		log.Printf("StePanel listening on %s", cfg.Listen)
 		var err error
@@ -813,7 +815,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, err
 	}
 	if err = uploadOffsite(a.Config, result); err != nil {
-		_ = AuditAs(a.Config.AuditLog, request.Actor, "site.backup.offsite_failed", request.Site, err.Error())
+		_ = ShouldAudit(a.Config.AuditLog, request.Actor, "site.backup.offsite_failed", request.Site, err.Error())
 		if request.Scheduled {
 			started := request.StartedAt
 			if started.IsZero() {
@@ -833,7 +835,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		a.Schedules.recordResult(request.Site, started, nil)
 		if err := pruneSiteBackups(a.Config.BackupRoot, request.Site, request.KeepLast); err != nil {
-			_ = AuditAs(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
+			_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
 		}
 	}
 	output, err := json.Marshal(result)
@@ -1034,7 +1036,7 @@ func (a *App) jobStatus(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "job.dead_letter.requeued", id, "operator-approved retry")
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "job.dead_letter.requeued", id, "operator-approved retry")
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "requeued", "job_id": id})
 		return
 	}

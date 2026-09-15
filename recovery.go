@@ -263,17 +263,22 @@ func (t *SiteTransaction) persist() error {
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
-	if err = tmp.Chmod(0600); err == nil {
-		_, err = tmp.Write(append(data, '\n'))
+	// Set restrictive permissions immediately to protect transaction state
+	if err = tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("secure transaction file permissions: %w", err)
 	}
-	if err == nil {
-		err = tmp.Sync()
+	// Write transaction data with proper permissions guaranteed
+	if _, err = tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write transaction state: %w", err)
 	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
+	if err = tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("sync transaction state: %w", err)
 	}
-	if err != nil {
-		return err
+	if err = tmp.Close(); err != nil {
+		return fmt.Errorf("close transaction state: %w", err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return err

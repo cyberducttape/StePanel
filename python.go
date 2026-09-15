@@ -82,7 +82,7 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Python application applied but state update is pending", 503)
 		return
 	}
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python.deployed", app.Site, app.EntryPoint)
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python.deployed", app.Site, app.EntryPoint)
 	writeJSON(w, 202, app)
 }
 
@@ -152,6 +152,6 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Python action failed", 502)
 		return
 	}
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python."+parts[1], parts[0], "systemd action")
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python."+parts[1], parts[0], "systemd action")
 	writeJSON(w, 202, map[string]string{"site": parts[0], "action": parts[1]})
 }

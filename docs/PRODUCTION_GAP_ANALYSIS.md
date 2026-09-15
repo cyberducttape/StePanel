@@ -65,6 +65,9 @@ platform.
   suspended while required host resource enforcement is pending, including
   startup reconciliation failures. Provider
   bandwidth, mail, and runtime Redis isolation still require external adapters.
+- Site termination now enforces `STEPANEL_REQUIRE_OFFSITE_BACKUP=1` directly:
+  it uploads (or re-confirms) the termination backup offsite before host state
+  is destroyed, instead of only requiring a locally verified copy.
 - Administrators can inspect a consolidated read-only Security Center and
   restore verified site files into an isolated, protected, no-index staging
   route, or queue administrator-only files-only/database-only restores with

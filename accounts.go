@@ -915,6 +915,11 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request", http.StatusForbidden)
 			return
 		}
+		if actor := a.Auth.UsernameForRequest(r); !a.Auth.RecoveryActionAllowed(actor) {
+			_ = ShouldAudit(a.Config.AuditLog, actor, "hosting.account.mfa-reset.throttled", actor, "account-recovery rate limit exceeded")
+			http.Error(w, "too many account-recovery actions; try again later", http.StatusTooManyRequests)
+			return
+		}
 		path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/accounts/"), "/mfa")
 		username := safeUser(strings.Trim(path, "/"))
 		if username == "" || strings.Contains(path, "/") {
@@ -932,13 +937,20 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.mfa-reset", username, "TOTP regenerated and sessions revoked")
+		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.mfa-reset", username, "TOTP regenerated and sessions revoked"); err != nil {
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"account": account, "totp_secret": secret})
 		return
 	}
 	if r.Method == http.MethodPost && strings.HasSuffix(strings.Trim(r.URL.Path, "/"), "/recover") {
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid request", http.StatusForbidden)
+			return
+		}
+		if actor := a.Auth.UsernameForRequest(r); !a.Auth.RecoveryActionAllowed(actor) {
+			_ = ShouldAudit(a.Config.AuditLog, actor, "hosting.account.credentials-recovered.throttled", actor, "account-recovery rate limit exceeded")
+			http.Error(w, "too many account-recovery actions; try again later", http.StatusTooManyRequests)
 			return
 		}
 		path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/accounts/"), "/recover")
@@ -958,13 +970,20 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.credentials-recovered", username, "temporary password, new MFA, recovery codes, and session revocation")
+		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.credentials-recovered", username, "temporary password, new MFA, recovery codes, and session revocation"); err != nil {
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"account": account, "temporary_password": password, "totp_secret": totpSecret, "recovery_codes": recoveryCodes})
 		return
 	}
 	if r.Method == http.MethodPost && strings.HasSuffix(strings.Trim(r.URL.Path, "/"), "/recovery-codes") {
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid request", http.StatusForbidden)
+			return
+		}
+		if actor := a.Auth.UsernameForRequest(r); !a.Auth.RecoveryActionAllowed(actor) {
+			_ = ShouldAudit(a.Config.AuditLog, actor, "hosting.account.recovery-codes-generated.throttled", actor, "account-recovery rate limit exceeded")
+			http.Error(w, "too many account-recovery actions; try again later", http.StatusTooManyRequests)
 			return
 		}
 		path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/accounts/"), "/recovery-codes")
@@ -984,7 +1003,9 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.recovery-codes-generated", username, "one-time recovery codes generated and sessions revoked")
+		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.recovery-codes-generated", username, "one-time recovery codes generated and sessions revoked"); err != nil {
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"account": account, "recovery_codes": codes})
 		return
 	}
@@ -1019,7 +1040,9 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			if a.Auth.sessions != nil {
 				_ = a.Auth.sessions.revokeUser(username)
 			}
-			_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.login-removed", username, "customer identity removed after site ownership was cleared")
+			if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.login-removed", username, "customer identity removed after site ownership was cleared"); err != nil {
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -1072,17 +1095,17 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				if _, suspendErr := a.Accounts.SetSuspended(username, true); suspendErr != nil {
 					resourceErr = fmt.Errorf("%w; account suspension failed: %v", resourceErr, suspendErr)
 				}
-				_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.resource-reconciliation-failed", username, resourceErr.Error())
+				_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.resource-reconciliation-failed", username, resourceErr.Error())
 				http.Error(w, "account suspended because resource enforcement could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
-			_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.updated", username, "plan or site assignments changed")
+			_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.updated", username, "plan or site assignments changed")
 			if len(pendingResources) > 0 {
 				if _, suspendErr := a.Accounts.SetSuspended(username, true); suspendErr != nil {
 					http.Error(w, "resource enforcement is pending and account suspension could not be persisted", http.StatusServiceUnavailable)
 					return
 				}
-				_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.suspended", username, "resource enforcement pending for: "+strings.Join(pendingResources, ","))
+				_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.suspended", username, "resource enforcement pending for: "+strings.Join(pendingResources, ","))
 				http.Error(w, "account suspended until resource enforcement is applied", http.StatusServiceUnavailable)
 				return
 			}
@@ -1107,7 +1130,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), event, username, "account lifecycle changed")
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), event, username, "account lifecycle changed")
 		writeJSON(w, http.StatusOK, account)
 		return
 	}
@@ -1152,7 +1175,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			if removeErr := a.Accounts.RemoveLogin(account.Username); removeErr != nil {
 				resourceErr = fmt.Errorf("%w; account rollback failed: %v", resourceErr, removeErr)
 			}
-			_ = AuditAs(a.Config.AuditLog, a.Auth.Username, "hosting.account.resource-profile-failed", account.Username, resourceErr.Error())
+			_ = ShouldAudit(a.Config.AuditLog, a.Auth.Username, "hosting.account.resource-profile-failed", account.Username, resourceErr.Error())
 			http.Error(w, "account creation rolled back because plan resource profiles could not be persisted", http.StatusServiceUnavailable)
 			return
 		}
@@ -1164,7 +1187,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "resource enforcement is pending and account suspension could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
-			_ = AuditAs(a.Config.AuditLog, a.Auth.Username, "hosting.account.suspended", account.Username, "resource enforcement pending for: "+strings.Join(pendingResources, ","))
+			_ = ShouldAudit(a.Config.AuditLog, a.Auth.Username, "hosting.account.suspended", account.Username, "resource enforcement pending for: "+strings.Join(pendingResources, ","))
 			http.Error(w, "account suspended until resource enforcement is applied", http.StatusServiceUnavailable)
 			return
 		}
@@ -1201,7 +1224,7 @@ func (a *App) customerPassword(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	_ = AuditAs(a.Config.AuditLog, username, "hosting.account.password-changed", username, "customer completed password recovery")
+	_ = ShouldAudit(a.Config.AuditLog, username, "hosting.account.password-changed", username, "customer completed password recovery")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1232,6 +1255,6 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	_ = AuditAs(a.Config.AuditLog, username, "hosting.account.mfa-enrolled", username, "customer completed MFA recovery")
+	_ = ShouldAudit(a.Config.AuditLog, username, "hosting.account.mfa-enrolled", username, "customer completed MFA recovery")
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -112,10 +112,10 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, errors.New("unsupported backup restore mode")
 	}
 	if err != nil {
-		_ = AuditAs(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".failed", request.Site, err.Error())
+		_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".failed", request.Site, err.Error())
 		return nil, err
 	}
-	_ = AuditAs(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".completed", request.Site, request.Backup)
+	_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".completed", request.Site, request.Backup)
 	output, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "backup does not belong to site", http.StatusForbidden)
 		return
 	}
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.verify", input.Site, input.Backup)
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.verify", input.Site, input.Backup)
 	writeJSON(w, http.StatusOK, map[string]any{"verified": true, "backup": input.Backup, "site": manifest.Site, "consistency": manifest.Consistency, "archive_verified": manifest.ArchiveVerified, "database_dump_verified": manifest.DatabaseDumpVerified, "application_quiesced": manifest.ApplicationQuiesced, "filesystem_snapshot": manifest.FilesystemSnapshot, "manifest_signed": manifest.SignatureAlgorithm != ""})
 }
 
@@ -226,16 +226,24 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "backup source site is not assigned to this account", http.StatusForbidden)
 		return
 	}
-	hasDatabase := input.Database != "" || input.TargetDatabase != "" || input.TargetUser != "" || input.TargetPassword != ""
-	if hasDatabase {
-		input.Database = strings.ToLower(strings.TrimSpace(input.Database))
-		input.TargetDatabase = strings.ToLower(strings.TrimSpace(input.TargetDatabase))
-		input.TargetUser = strings.ToLower(strings.TrimSpace(input.TargetUser))
-		if a.Config.DBCtl == "" || !validManagedDatabaseIdentifier(input.Database, databaseNameLimit(a.Config)) || !backupContainsDatabase(manifest, input.Database) || !validManagedDatabaseIdentifier(input.TargetDatabase, databaseNameLimit(a.Config)) || !validManagedDatabaseIdentifier(input.TargetUser, 32) || input.TargetUser[0] < 'a' || input.TargetUser[0] > 'z' || !validDatabasePassword(input.TargetPassword) {
-			http.Error(w, "database, target_database, target_user, target_password, and a verified database dump are required", 422)
-			return
-		}
+	// Validate database restore parameters (if provided)
+	input.Database = strings.ToLower(strings.TrimSpace(input.Database))
+	input.TargetDatabase = strings.ToLower(strings.TrimSpace(input.TargetDatabase))
+	input.TargetUser = strings.ToLower(strings.TrimSpace(input.TargetUser))
+
+	dbValidationErrors := ValidateRestoreDatabaseInput(a.Config, RestoreDatabaseInput{
+		Database:       input.Database,
+		TargetDatabase: input.TargetDatabase,
+		TargetUser:     input.TargetUser,
+		TargetPassword: input.TargetPassword,
+	}, manifest)
+	if len(dbValidationErrors) > 0 {
+		http.Error(w, strings.Join(dbValidationErrors, "; "), http.StatusUnprocessableEntity)
+		return
 	}
+
+	// Determine if database restoration is requested
+	hasDatabase := input.Database != "" && input.TargetDatabase != "" && input.TargetUser != "" && input.TargetPassword != ""
 	dest, e := safePath(a.Config.WebRoot, "sites", input.Site, "public")
 	if e != nil {
 		http.Error(w, "invalid destination", 422)
@@ -325,7 +333,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	ok = true
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.restore-to-staging", input.Site, input.Backup)
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.restore-to-staging", input.Site, input.Backup)
 	writeJSON(w, 202, map[string]any{"site": input.Site, "domain": input.Domain, "backup": input.Backup, "source_site": manifest.Site, "files_restored": true, "databases_restored": hasDatabase, "database": input.TargetDatabase, "restore_mode": "staging", "consistency": manifest.Consistency, "created_at": time.Now().UTC()})
 }
 

@@ -34,6 +34,7 @@ type Auth struct {
 	totpSecret                               []byte
 	totpReplay                               *totpReplayState
 	loginLimiter                             *authpolicy.Limiter
+	recoveryLimiter                          *authpolicy.Limiter
 	sessions                                 *sessionRegistry
 	Accounts                                 *AccountStore
 	apiTokens                                *apiTokenStore
@@ -94,7 +95,7 @@ func NewAuth(secureCookies bool) (Auth, error) {
 		passwordDigest := sha256.Sum256([]byte(password))
 		credentialKey = "password-digest:" + hex.EncodeToString(passwordDigest[:])
 	}
-	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}}, nil
+	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiter(), recoveryLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}}, nil
 }
 
 func (a *Auth) ConfigureSessionStore(path string) error {
@@ -184,7 +185,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.loginLimiter != nil && !a.loginLimiter.Allow(authpolicy.ClientIP(r)) {
-		_ = AuditAs(a.AuditLog, "unknown", "auth.login.throttled", authpolicy.ClientIP(r), "login rate limit exceeded")
+		_ = ShouldAudit(a.AuditLog, "unknown", "auth.login.throttled", authpolicy.ClientIP(r), "login rate limit exceeded")
 		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
 		return
 	}
@@ -225,7 +226,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		if actor == "" {
 			actor = "unknown"
 		}
-		_ = AuditAs(a.AuditLog, actor, "auth.login.failed", authpolicy.ClientIP(r), "invalid credentials")
+		_ = ShouldAudit(a.AuditLog, actor, "auth.login.failed", authpolicy.ClientIP(r), "invalid credentials")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(loginPage("Invalid credentials", true)))
@@ -282,7 +283,7 @@ func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	if actor == "" {
 		actor = a.Username
 	}
-	_ = AuditAs(a.AuditLog, actor, "auth.logout", authpolicy.ClientIP(r), "session ended")
+	_ = ShouldAudit(a.AuditLog, actor, "auth.logout", authpolicy.ClientIP(r), "session ended")
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_session", MaxAge: -1, Path: "/", HttpOnly: true, Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", MaxAge: -1, Path: "/", Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -498,6 +499,20 @@ func (a Auth) HasAPIScope(r *http.Request, scope string) bool {
 		}
 	}
 	return false
+}
+
+// RecoveryActionAllowed bounds how many sensitive account-recovery actions
+// (MFA reset, credential recovery, recovery-code regeneration) a single
+// administrator identity may perform within the rate-limit window. These
+// endpoints already require an authenticated administrator session and a
+// CSRF token; this additionally caps the blast radius of a compromised
+// admin session, a CSRF-tricked admin browser, or a runaway automation
+// script working through many customer accounts in a row.
+func (a Auth) RecoveryActionAllowed(actor string) bool {
+	if a.recoveryLimiter == nil {
+		return true
+	}
+	return a.recoveryLimiter.Allow(actor)
 }
 
 func (a Auth) IsAdministrator(r *http.Request) bool {

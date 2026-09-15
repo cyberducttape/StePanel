@@ -137,7 +137,7 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Redis allocation could not be saved", 503)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.redis.updated", site, fmt.Sprintf("database=%d memory_mb=%d", input.Database, input.MemoryMB))
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.redis.updated", site, fmt.Sprintf("database=%d memory_mb=%d", input.Database, input.MemoryMB))
 		writeJSON(w, 200, input)
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
@@ -158,7 +158,7 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Redis allocation could not be saved", 503)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.redis.deleted", site, "allocation removed")
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.redis.deleted", site, "allocation removed")
 		w.WriteHeader(204)
 	}
 }

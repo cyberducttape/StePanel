@@ -122,7 +122,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	result.Previous = previous
 	a.recordDeployment(input.Site, "activation", "completed", "atomic built release activated", result, "")
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.release.pipeline", input.Site, input.Repository+"@"+commit)
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.release.pipeline", input.Site, input.Repository+"@"+commit)
 	writeJSON(w, 202, result)
 }
 

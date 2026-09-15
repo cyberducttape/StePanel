@@ -149,7 +149,7 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "PHP profile applied but state update is pending", 503)
 		return
 	}
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.php.updated", site, p.Version)
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.php.updated", site, p.Version)
 	writeJSON(w, 202, p)
 }
 

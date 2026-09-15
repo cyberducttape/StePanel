@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Added per-administrator rate limiting (5 actions/15 minutes) on the
+  account-recovery endpoints (MFA reset, credential recovery, recovery-code
+  regeneration), bounding the blast radius of a compromised admin session or
+  a runaway automation script working through many customer accounts.
+- Site termination now requires its offsite upload to succeed when
+  `STEPANEL_REQUIRE_OFFSITE_BACKUP=1` is set, closing a gap where a
+  locally-verified-only backup could satisfy the destructive-delete gate.
+- Removed a redundant, never-invoked audit-failure tracker added alongside
+  the security-headers/permission-handling fixes; `MustAudit` now fails
+  closed (HTTP 503) on the account-recovery, API-token, and database-delete
+  endpoints, and the remaining audit call sites log failures loudly via
+  `ShouldAudit` instead of discarding them silently. The pre-existing
+  sticky `audit_state` readiness check (`AuditPersistenceError`) already
+  covered this at the process level and is unchanged.
 - Added the canonical [`STATE.md`](docs/STATE.md) disaster-recovery inventory,
   including control-plane SQLite, TOTP replay, audit, key, journal, and
   provider state.

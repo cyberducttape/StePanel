@@ -12,6 +12,28 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+func TestRecoveryActionAllowedThrottlesPerActorAfterFiveAttempts(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "")
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if !auth.RecoveryActionAllowed("admin") {
+			t.Fatalf("attempt %d unexpectedly throttled", i+1)
+		}
+	}
+	if auth.RecoveryActionAllowed("admin") {
+		t.Fatal("sixth account-recovery action in the window should be throttled")
+	}
+	if !auth.RecoveryActionAllowed("other-admin") {
+		t.Fatal("a distinct actor should not share the throttled actor's window")
+	}
+}
+
 func TestAuthRequiresSessionSecret(t *testing.T) {
 	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
 	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")

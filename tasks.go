@@ -140,7 +140,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "scheduled task removed but state cleanup is pending", 503)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "task.deleted", site, name)
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "task.deleted", site, name)
 		w.WriteHeader(204)
 		return
 	}
@@ -182,7 +182,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "scheduled task applied but state update is pending", 503)
 		return
 	}
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "task.updated", site, name)
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "task.updated", site, name)
 	writeJSON(w, 202, input)
 }
 
@@ -280,7 +280,7 @@ func (a *App) reconcileTasksHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reconciled, failed := a.reconcileTasks(r.Context())
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "tasks.reconciled", "tasks", strings.Join(reconciled, ","))
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "tasks.reconciled", "tasks", strings.Join(reconciled, ","))
 	writeJSON(w, http.StatusOK, map[string]any{"reconciled": reconciled, "failed": failed})
 }
 

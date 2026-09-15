@@ -180,7 +180,9 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
-		_ = AuditAs(a.AuditLog, username, "auth.admin_api_token.created", item.ID, strings.Join(item.Scopes, ","))
+		if err := MustAudit(w, a.AuditLog, username, "auth.admin_api_token.created", item.ID, strings.Join(item.Scopes, ",")); err != nil {
+			return
+		}
 		writeJSON(w, http.StatusCreated, map[string]any{"token": secret, "metadata": item})
 	case http.MethodDelete:
 		id := strings.TrimPrefix(r.URL.Path, "/api/admin/tokens/")
@@ -192,7 +194,9 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		_ = AuditAs(a.AuditLog, username, "auth.admin_api_token.revoked", id, "administrator token revoked")
+		if err := MustAudit(w, a.AuditLog, username, "auth.admin_api_token.revoked", id, "administrator token revoked"); err != nil {
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -257,7 +261,9 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 422)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, username, "auth.api_token.created", item.ID, item.Name)
+		if err := MustAudit(w, a.Config.AuditLog, username, "auth.api_token.created", item.ID, item.Name); err != nil {
+			return
+		}
 		writeJSON(w, http.StatusCreated, map[string]any{"token": secret, "metadata": item})
 	case http.MethodDelete:
 		id := strings.TrimPrefix(r.URL.Path, "/api/account/tokens/")
@@ -269,7 +275,9 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 404)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, username, "auth.api_token.revoked", id, "customer token revoked")
+		if err := MustAudit(w, a.Config.AuditLog, username, "auth.api_token.revoked", id, "customer token revoked"); err != nil {
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

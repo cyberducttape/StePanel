@@ -530,17 +530,22 @@ func writeBackupManifest(root string, manifest BackupManifest, signingKey ...str
 	}
 	tempName := temp.Name()
 	defer os.Remove(tempName)
-	if err = temp.Chmod(0600); err == nil {
-		_, err = temp.Write(append(data, '\n'))
+	// Set restrictive permissions immediately to protect backup manifest
+	if err = temp.Chmod(0600); err != nil {
+		temp.Close()
+		return fmt.Errorf("secure backup manifest file permissions: %w", err)
 	}
-	if err == nil {
-		err = temp.Sync()
+	// Write manifest data with proper permissions guaranteed
+	if _, err = temp.Write(append(data, '\n')); err != nil {
+		temp.Close()
+		return fmt.Errorf("write backup manifest: %w", err)
 	}
-	if closeErr := temp.Close(); err == nil {
-		err = closeErr
+	if err = temp.Sync(); err != nil {
+		temp.Close()
+		return fmt.Errorf("sync backup manifest: %w", err)
 	}
-	if err != nil {
-		return err
+	if err = temp.Close(); err != nil {
+		return fmt.Errorf("close backup manifest: %w", err)
 	}
 	if err := os.Rename(tempName, filepath.Join(root, "manifest.json")); err != nil {
 		return err

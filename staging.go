@@ -286,7 +286,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	ok = true
 	stateCommitted = true
 	result := StagingResult{Source: input.Source, Site: input.Site, Domain: input.Domain, FilesCopied: input.Files, EnvironmentCopied: input.Environment, DatabaseCopied: input.Database, TargetDatabase: input.TargetDatabase, SecretsCopied: false, CreatedAt: time.Now().UTC()}
-	_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "staging.created", input.Site, input.Source+" -> "+input.Domain)
+	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "staging.created", input.Site, input.Source+" -> "+input.Domain)
 	writeJSON(w, 202, result)
 }
 

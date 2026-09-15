@@ -295,7 +295,7 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "environment is pending host reconciliation", 502)
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.environment.updated", site, fmt.Sprintf("%d variables", len(input)))
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.environment.updated", site, fmt.Sprintf("%d variables", len(input)))
 		w.WriteHeader(204)
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
@@ -314,7 +314,7 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		_ = AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.environment.deleted", site, "all variables removed")
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.environment.deleted", site, "all variables removed")
 		w.WriteHeader(204)
 	}
 }

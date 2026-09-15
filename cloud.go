@@ -181,7 +181,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		} else if request.Operation == "loadbalancer" {
 			auditAction = "loadbalancer." + request.Action
 		}
-		_ = AuditAs(a.Config.AuditLog, request.Actor, auditPrefix+auditAction+".failed", result.ID, err.Error())
+		_ = ShouldAudit(a.Config.AuditLog, request.Actor, auditPrefix+auditAction+".failed", result.ID, err.Error())
 		return nil, err
 	}
 	if request.Operation == "dns" && a.DNSDesired != nil {
