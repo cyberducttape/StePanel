@@ -693,7 +693,7 @@ func cliCloudInventory(ctx context.Context, command, provider string) (CloudInve
 	run := func(args ...string) (any, error) {
 		cmd := exec.CommandContext(ctx, command, args...)
 		cmd.Env = cloudCommandEnv()
-		out, err := runBoundedCommandLimit(ctx, cmd, 8<<20)
+		out, err := runBoundedCommandLimit(cmd, 8<<20)
 		if err != nil {
 			return nil, fmt.Errorf("%s command failed: %w", provider, err)
 		}

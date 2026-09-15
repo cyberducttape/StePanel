@@ -37,17 +37,11 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func runBoundedCommand(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
-	return runBoundedCommandLimit(ctx, cmd, maxCommandOutput)
+func runBoundedCommand(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+	return runBoundedCommandLimit(cmd, maxCommandOutput)
 }
 
-// runBoundedCommandLimit enforces ctx itself, independent of how cmd was
-// constructed. Every current caller builds cmd with exec.CommandContext using
-// this same ctx, which already binds the process lifetime to it - but that is
-// a caller convention, not something this function could previously verify.
-// A cmd built with plain exec.Command would silently ignore its deadline
-// here, so cancellation is applied directly rather than trusted implicitly.
-func runBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]byte, error) {
+func runBoundedCommandLimit(cmd *exec.Cmd, limit int) ([]byte, error) {
 	var output boundedBuffer
 	output.limit = limit
 	if limit > maxCommandOutput {
@@ -55,24 +49,11 @@ func runBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 	}
 	cmd.Stdout = &output
 	cmd.Stderr = &output
-	if err := cmd.Start(); err != nil {
+	err := cmd.Run()
+	if err != nil {
 		return output.data, fmt.Errorf("%w: %s", err, string(output.data))
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			return output.data, fmt.Errorf("%w: %s", err, string(output.data))
-		}
-		return output.data, nil
-	case <-ctx.Done():
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		<-done // reap the process so it never lingers as a zombie
-		return output.data, fmt.Errorf("%w: %s", ctx.Err(), string(output.data))
-	}
+	return output.data, nil
 }
 
 func runBoundedCommandInput(ctx context.Context, cmd *exec.Cmd, input io.Reader) ([]byte, error) {
