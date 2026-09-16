@@ -14,11 +14,14 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const controlPlaneSchema = `
+const controlPlaneMigrationsSchema = `
 CREATE TABLE IF NOT EXISTS control_plane_migrations (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+`
+
+const controlPlaneSchema = `
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -109,30 +112,198 @@ func openControlPlaneDB(path string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping control-plane database: %w", err)
 	}
-	if _, err := db.Exec(controlPlaneSchema); err != nil {
+	if err := runControlPlaneMigrations(db, abs); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("migrate control-plane database: %w", err)
-	}
-	// Keep upgrades from pre-queue schemas online. SQLite has no IF NOT EXISTS
-	// form for ADD COLUMN, so the duplicate-column result is intentionally
-	// ignored.
-	if _, err := db.Exec(`ALTER TABLE jobs ADD COLUMN next_attempt_at INTEGER`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
-		_ = db.Close()
-		return nil, fmt.Errorf("upgrade control-plane job schema: %w", err)
-	}
-	if _, err := db.Exec(`ALTER TABLE jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
-		_ = db.Close()
-		return nil, fmt.Errorf("upgrade control-plane cancellation schema: %w", err)
-	}
-	if _, err := db.Exec(`ALTER TABLE api_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
-		_ = db.Close()
-		return nil, fmt.Errorf("upgrade API token scope schema: %w", err)
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO control_plane_migrations (version) VALUES (1)`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("record control-plane schema version: %w", err)
+		return nil, err
 	}
 	return db, nil
+}
+
+// controlPlaneMigration is one ordered, individually tracked schema change.
+// Each migration runs inside its own transaction: either the whole thing
+// commits and its version is recorded, or nothing about the schema changes
+// and the version is not recorded, so a crash or failure between migrations
+// never leaves an ambiguous half-applied schema for the next startup to
+// guess about.
+type controlPlaneMigration struct {
+	version     int
+	description string
+	// alreadyApplied lets a migration detect that its effect already exists
+	// on disk (structurally, not by parsing an error string) so that a
+	// database carried over from the pre-migration-table ad-hoc upgrader -
+	// which recorded a bare "version 1" without tracking each column
+	// individually - can be reconciled by recording the version without
+	// re-running SQL that would now fail against a column that already
+	// exists.
+	alreadyApplied func(tx *sql.Tx) (bool, error)
+	apply          func(tx *sql.Tx) error
+}
+
+func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return false, fmt.Errorf("inspect columns of %s: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+var controlPlaneMigrations = []controlPlaneMigration{
+	{
+		version:     1,
+		description: "initial control-plane schema",
+		apply: func(tx *sql.Tx) error {
+			_, err := tx.Exec(controlPlaneSchema)
+			return err
+		},
+	},
+	{
+		version:     2,
+		description: "add jobs.next_attempt_at for retry backoff",
+		alreadyApplied: func(tx *sql.Tx) (bool, error) {
+			return controlPlaneColumnExists(tx, "jobs", "next_attempt_at")
+		},
+		apply: func(tx *sql.Tx) error {
+			_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN next_attempt_at INTEGER`)
+			return err
+		},
+	},
+	{
+		version:     3,
+		description: "add jobs.cancel_requested for durable cancellation",
+		alreadyApplied: func(tx *sql.Tx) (bool, error) {
+			return controlPlaneColumnExists(tx, "jobs", "cancel_requested")
+		},
+		apply: func(tx *sql.Tx) error {
+			_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0`)
+			return err
+		},
+	},
+	{
+		version:     4,
+		description: "add api_tokens.scopes for scoped automation tokens",
+		alreadyApplied: func(tx *sql.Tx) (bool, error) {
+			return controlPlaneColumnExists(tx, "api_tokens", "scopes")
+		},
+		apply: func(tx *sql.Tx) error {
+			_, err := tx.Exec(`ALTER TABLE api_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT ''`)
+			return err
+		},
+	},
+}
+
+// runControlPlaneMigrations applies every migration newer than the database's
+// recorded version, in order, each in its own transaction. It refuses to open
+// a database stamped with a schema version newer than this binary knows
+// about (a downgrade), and it snapshots the database before applying any
+// migration to an already-populated database so a bad migration has a
+// recovery point.
+func runControlPlaneMigrations(db *sql.DB, path string) error {
+	if _, err := db.Exec(controlPlaneMigrationsSchema); err != nil {
+		return fmt.Errorf("create control-plane migrations table: %w", err)
+	}
+
+	applied := map[int]bool{}
+	var maxApplied int
+	rows, err := db.Query(`SELECT version FROM control_plane_migrations`)
+	if err != nil {
+		return fmt.Errorf("read control-plane schema version: %w", err)
+	}
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			rows.Close()
+			return fmt.Errorf("read control-plane schema version: %w", err)
+		}
+		applied[version] = true
+		if version > maxApplied {
+			maxApplied = version
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read control-plane schema version: %w", err)
+	}
+	rows.Close()
+
+	var latestKnown int
+	for _, migration := range controlPlaneMigrations {
+		if migration.version > latestKnown {
+			latestKnown = migration.version
+		}
+	}
+	if maxApplied > latestKnown {
+		return fmt.Errorf("control-plane database schema version %d is newer than this binary supports (up to %d); refusing to open it with an older build", maxApplied, latestKnown)
+	}
+
+	var pending []controlPlaneMigration
+	for _, migration := range controlPlaneMigrations {
+		if !applied[migration.version] {
+			pending = append(pending, migration)
+		}
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	if maxApplied > 0 {
+		if err := snapshotControlPlaneBeforeMigration(db, path); err != nil {
+			return fmt.Errorf("snapshot control-plane database before migrating: %w", err)
+		}
+	}
+
+	for _, migration := range pending {
+		if err := applyControlPlaneMigration(db, migration); err != nil {
+			return fmt.Errorf("apply control-plane migration %d (%s): %w", migration.version, migration.description, err)
+		}
+	}
+	return nil
+}
+
+func applyControlPlaneMigration(db *sql.DB, migration controlPlaneMigration) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	skip := false
+	if migration.alreadyApplied != nil {
+		skip, err = migration.alreadyApplied(tx)
+		if err != nil {
+			return err
+		}
+	}
+	if !skip {
+		if err := migration.apply(tx); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO control_plane_migrations (version) VALUES (?)`, migration.version); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// snapshotControlPlaneBeforeMigration writes a point-in-time copy of the
+// database next to it before any migration runs against existing data. It
+// uses the already-open handle rather than reopening the file, since the
+// control-plane connection pool is limited to a single connection.
+func snapshotControlPlaneBeforeMigration(db *sql.DB, path string) error {
+	destination := fmt.Sprintf("%s.pre-migration-%d.bak", path, time.Now().UTC().UnixNano())
+	if _, err := db.Exec(`VACUUM INTO ?`, destination); err != nil {
+		return err
+	}
+	return os.Chmod(destination, 0600)
 }
 
 func readControlPlaneBlob(db *sql.DB, name string) ([]byte, bool, error) {
