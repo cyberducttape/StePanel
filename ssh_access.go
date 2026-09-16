@@ -187,6 +187,10 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid CSRF token", 403)
 			return
 		}
+		if !a.Auth.HasRequiredCustomerScope(r, "ssh:write") {
+			http.Error(w, "API token lacks the ssh:write scope", 403)
+			return
+		}
 		var input struct {
 			SFTPEnabled  *bool `json:"sftp_enabled"`
 			ShellEnabled *bool `json:"shell_enabled"`
@@ -223,6 +227,10 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", 403)
+			return
+		}
+		if !a.Auth.HasRequiredCustomerScope(r, "ssh:write") {
+			http.Error(w, "API token lacks the ssh:write scope", 403)
 			return
 		}
 		var input struct {
@@ -281,6 +289,10 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if !a.Auth.CSRF(r) {
 		http.Error(w, "invalid CSRF token", 403)
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "ssh:write") {
+		http.Error(w, "API token lacks the ssh:write scope", 403)
 		return
 	}
 	releaseUnlock := a.siteOperations.Acquire(site)

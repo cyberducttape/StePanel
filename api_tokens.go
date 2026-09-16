@@ -27,11 +27,32 @@ type apiTokenInfo struct {
 type apiTokenStore struct{ db *sql.DB }
 
 func (s *apiTokenStore) create(username, name string, expiresAt *int64) (apiTokenInfo, string, error) {
-	return s.createScoped(username, name, expiresAt, nil)
+	return s.createScoped(username, name, expiresAt, nil, customerAPIScopes)
 }
 
-func normalizeTokenScopes(scopes []string) (string, []string, error) {
-	allowed := map[string]bool{"admin:read": true, "admin:operate": true}
+var adminAPIScopes = map[string]bool{"admin:read": true, "admin:operate": true}
+
+// customerAPIScopes are the capabilities a customer automation token (a
+// CI/CD pipeline, a deploy script) can be granted. They are deliberately
+// narrower than what a logged-in customer browser session can do: a leaked
+// deploy token should not, for example, carry the ability to restore a
+// backup or rewrite a database.
+var customerAPIScopes = map[string]bool{
+	"site:read":         true,
+	"deploy:write":      true,
+	"environment:read":  true,
+	"environment:write": true,
+	"backup:read":       true,
+	"backup:create":     true,
+	"backup:restore":    true,
+	"database:read":     true,
+	"database:write":    true,
+	"ssh:read":          true,
+	"ssh:write":         true,
+	"logs:read":         true,
+}
+
+func normalizeTokenScopes(scopes []string, allowed map[string]bool) (string, []string, error) {
 	set := map[string]bool{}
 	for _, scope := range scopes {
 		scope = strings.TrimSpace(scope)
@@ -51,7 +72,7 @@ func normalizeTokenScopes(scopes []string) (string, []string, error) {
 	return strings.Join(normalized, ","), normalized, nil
 }
 
-func (s *apiTokenStore) createScoped(username, name string, expiresAt *int64, scopes []string) (apiTokenInfo, string, error) {
+func (s *apiTokenStore) createScoped(username, name string, expiresAt *int64, scopes []string, allowed map[string]bool) (apiTokenInfo, string, error) {
 	if s == nil || s.db == nil {
 		return apiTokenInfo{}, "", errors.New("API token store is unavailable")
 	}
@@ -62,7 +83,7 @@ func (s *apiTokenStore) createScoped(username, name string, expiresAt *int64, sc
 	if expiresAt != nil && *expiresAt <= time.Now().Unix() {
 		return apiTokenInfo{}, "", errors.New("token expiry must be in the future")
 	}
-	scopeText, normalizedScopes, err := normalizeTokenScopes(scopes)
+	scopeText, normalizedScopes, err := normalizeTokenScopes(scopes, allowed)
 	if err != nil {
 		return apiTokenInfo{}, "", err
 	}
@@ -175,7 +196,7 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "at least one administrator scope is required", http.StatusUnprocessableEntity)
 			return
 		}
-		item, secret, err := a.apiTokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes)
+		item, secret, err := a.apiTokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes, adminAPIScopes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -253,19 +274,24 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		var request struct {
-			Name      string `json:"name"`
-			ExpiresAt *int64 `json:"expires_at"`
+			Name      string   `json:"name"`
+			ExpiresAt *int64   `json:"expires_at"`
+			Scopes    []string `json:"scopes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			http.Error(w, "invalid token request", 400)
 			return
 		}
-		item, secret, err := a.APITokens.create(username, request.Name, request.ExpiresAt)
+		if len(request.Scopes) == 0 {
+			http.Error(w, "at least one scope is required; a token with no scopes can perform no actions", http.StatusUnprocessableEntity)
+			return
+		}
+		item, secret, err := a.APITokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes, customerAPIScopes)
 		if err != nil {
 			http.Error(w, err.Error(), 422)
 			return
 		}
-		if err := MustAudit(w, a.Config.AuditLog, username, "auth.api_token.created", item.ID, item.Name); err != nil {
+		if err := MustAudit(w, a.Config.AuditLog, username, "auth.api_token.created", item.ID, strings.Join(item.Scopes, ",")); err != nil {
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"token": secret, "metadata": item})

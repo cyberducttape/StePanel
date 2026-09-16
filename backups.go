@@ -131,6 +131,10 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "site is not assigned to this account", http.StatusForbidden)
 			return
 		}
+		if !a.Auth.HasRequiredCustomerScope(r, "backup:create") {
+			http.Error(w, "API token lacks the backup:create scope", http.StatusForbidden)
+			return
+		}
 		if input.IncludeDatabases && a.Config.DBCtl == "" {
 			http.Error(w, "managed database backup requires the local database helper", http.StatusUnprocessableEntity)
 			return

@@ -245,6 +245,10 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
+		if !a.Auth.HasRequiredCustomerScope(r, "environment:read") {
+			http.Error(w, "API token lacks the environment:read scope", 403)
+			return
+		}
 		a.Environments.mu.RLock()
 		vars := a.Environments.values[site]
 		result := map[string]any{}
@@ -260,6 +264,10 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", 403)
+			return
+		}
+		if !a.Auth.HasRequiredCustomerScope(r, "environment:write") {
+			http.Error(w, "API token lacks the environment:write scope", 403)
 			return
 		}
 		var input map[string]environmentValue
@@ -300,6 +308,10 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", 403)
+			return
+		}
+		if !a.Auth.HasRequiredCustomerScope(r, "environment:write") {
+			http.Error(w, "API token lacks the environment:write scope", 403)
 			return
 		}
 		releaseUnlock := a.siteOperations.Acquire(site)

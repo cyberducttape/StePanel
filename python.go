@@ -59,6 +59,10 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site is not assigned to this account", 403)
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "deploy:write") {
+		http.Error(w, "API token lacks the deploy:write scope", 403)
+		return
+	}
 	app.Root = filepath.Join(a.Config.WebRoot, "sites", app.Site, "public")
 	if err := ensureInside(a.Config.WebRoot, app.Root); err != nil {
 		http.Error(w, err.Error(), 422)

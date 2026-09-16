@@ -180,6 +180,10 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "site is not assigned to this account", http.StatusForbidden)
 				return
 			}
+			if !a.Auth.HasRequiredCustomerScope(r, "database:write") {
+				http.Error(w, "API token lacks the database:write scope", http.StatusForbidden)
+				return
+			}
 			account, ok := a.Accounts.Get(a.Auth.UsernameForRequest(r))
 			plan := hostingPlans[account.Plan]
 			if !ok || plan.DatabaseLimit < 1 {
@@ -312,6 +316,10 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 	}
 	if !a.Auth.CSRF(r) {
 		http.Error(w, "invalid request", http.StatusForbidden)
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "database:write") {
+		http.Error(w, "API token lacks the database:write scope", http.StatusForbidden)
 		return
 	}
 	var in struct{ User, Password, Confirm string }

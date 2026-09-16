@@ -501,6 +501,30 @@ func (a Auth) HasAPIScope(r *http.Request, scope string) bool {
 	return false
 }
 
+// HasRequiredCustomerScope reports whether the current request may perform
+// an action requiring the given customer scope. It only constrains customer
+// API token requests: a logged-in customer browser session is unaffected,
+// and a token issued before scoping existed (which has no recorded scopes at
+// all, since scoping was previously not offered) keeps the full access it
+// had when it was issued rather than being silently locked out. Every
+// customer token created going forward is required to name at least one
+// scope, so the empty-scopes case only ever describes a pre-existing token.
+func (a Auth) HasRequiredCustomerScope(r *http.Request, scope string) bool {
+	if !a.IsAPITokenRequest(r) {
+		return true
+	}
+	scopes, _ := r.Context().Value(apiTokenScopesKey{}).([]string)
+	if len(scopes) == 0 {
+		return true
+	}
+	for _, candidate := range scopes {
+		if candidate == scope {
+			return true
+		}
+	}
+	return false
+}
+
 // RecoveryActionAllowed bounds how many sensitive account-recovery actions
 // (MFA reset, credential recovery, recovery-code regeneration) a single
 // administrator identity may perform within the rate-limit window. These

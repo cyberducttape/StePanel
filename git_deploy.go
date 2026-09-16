@@ -128,6 +128,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site is not assigned to this account", http.StatusForbidden)
 		return
 	}
+	if r.Context().Value(gitWebhookContextKey{}) != true && !a.Auth.HasRequiredCustomerScope(r, "deploy:write") {
+		http.Error(w, "API token lacks the deploy:write scope", http.StatusForbidden)
+		return
+	}
 	releaseUnlock := a.siteOperations.Acquire(input.Site)
 	defer releaseUnlock()
 	repository, err := parseGitRepository(input.Repository, a.Config.GitAllowedHosts)

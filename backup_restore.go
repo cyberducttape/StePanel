@@ -201,6 +201,10 @@ func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "invalid or inaccessible source site", http.StatusForbidden)
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "backup:restore") {
+		http.Error(w, "API token lacks the backup:restore scope", http.StatusForbidden)
+		return
+	}
 	root, cleanup, err := downloadOffsiteBackup(a.Config, input.SourceSite, input.Backup)
 	if err != nil {
 		http.Error(w, "could not download offsite backup: "+err.Error(), http.StatusBadGateway)
@@ -213,6 +217,10 @@ func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Reque
 func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request, input RestoreToStagingRequest, backup string) {
 	if input.Site == "" || input.Backup == "." || input.Backup == "" || !domainPattern.MatchString(input.Domain) || !a.canAccessSite(r, input.Site) {
 		http.Error(w, "invalid restore destination", 422)
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "backup:restore") {
+		http.Error(w, "API token lacks the backup:restore scope", http.StatusForbidden)
 		return
 	}
 	releaseUnlock := a.siteOperations.Acquire(input.Site)
