@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+func TestValidWorkerName(t *testing.T) {
+	valid := []string{"worker-1", "queue_two", "ABC123"}
+	for _, name := range valid {
+		if !validWorkerName(name) {
+			t.Errorf("validWorkerName(%q) = false, want true", name)
+		}
+	}
+	invalid := []string{"", "has space", "has/slash", "has.dot", strings.Repeat("a", 33)}
+	for _, name := range invalid {
+		if validWorkerName(name) {
+			t.Errorf("validWorkerName(%q) = true, want false", name)
+		}
+	}
+}
+
 func TestReconcileWorkersRetainsPendingStateWhenHelperFails(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenWorkerStore(filepath.Join(dir, "workers.json"))

@@ -6,6 +6,21 @@ import (
 	"testing"
 )
 
+func TestValidEnvName(t *testing.T) {
+	valid := []string{"PATH", "APP_ENV", "a", "_leading", "MixedCase123"}
+	for _, name := range valid {
+		if !validEnvName(name) {
+			t.Errorf("validEnvName(%q) = false, want true", name)
+		}
+	}
+	invalid := []string{"", "=EQUALS_FIRST", "HAS SPACE", "HAS=EQUALS", "HAS/SLASH", strings.Repeat("A", 129)}
+	for _, name := range invalid {
+		if validEnvName(name) {
+			t.Errorf("validEnvName(%q) = true, want false", name)
+		}
+	}
+}
+
 func TestEnvironmentStoreRequiresKeyForSecretState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "environment.json")
 	store, err := OpenEnvironmentStore(path, "test-environment-key")

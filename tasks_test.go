@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestValidTaskRuntime(t *testing.T) {
+	for _, runtime := range []string{"php", "node", "python", "shell"} {
+		if !validTaskRuntime(runtime) {
+			t.Errorf("validTaskRuntime(%q) = false, want true", runtime)
+		}
+	}
+	for _, runtime := range []string{"", "ruby", "PHP", "shell "} {
+		if validTaskRuntime(runtime) {
+			t.Errorf("validTaskRuntime(%q) = true, want false", runtime)
+		}
+	}
+}
+
 func TestFinalizeTaskDeletionRollsBackMemoryOnPersistFailure(t *testing.T) {
 	root := t.TempDir()
 	store, err := OpenTaskStore(filepath.Join(root, "tasks.json"))

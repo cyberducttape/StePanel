@@ -14,6 +14,41 @@ import (
 
 const testTOTPSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
+func TestAccountStoreOwnerOfSiteAndGetSites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "accounts.json")
+	store, err := OpenAccountStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("alice", "a sufficiently long customer password", testTOTPSecret, "professional", []string{"alice-site", "alice-second"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("bob", "a sufficiently long customer password", testTOTPSecret, "starter", []string{"bob-site"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if owner, ok := store.OwnerOfSite("alice-site"); !ok || owner != "alice" {
+		t.Fatalf("OwnerOfSite(alice-site) = %q, %v", owner, ok)
+	}
+	if owner, ok := store.OwnerOfSite("bob-site"); !ok || owner != "bob" {
+		t.Fatalf("OwnerOfSite(bob-site) = %q, %v", owner, ok)
+	}
+	if _, ok := store.OwnerOfSite("unassigned-site"); ok {
+		t.Fatal("OwnerOfSite reported an owner for an unassigned site")
+	}
+
+	sites := store.GetSites("alice")
+	if len(sites) != 2 || sites[0] != "alice-site" || sites[1] != "alice-second" {
+		t.Fatalf("GetSites(alice) = %#v, want the owned sites", sites)
+	}
+	if sites := store.GetSites("bob"); len(sites) != 1 || sites[0] != "bob-site" {
+		t.Fatalf("GetSites(bob) = %#v", sites)
+	}
+	if sites := store.GetSites("nobody"); sites != nil {
+		t.Fatalf("GetSites(nobody) = %#v, want nil", sites)
+	}
+}
+
 func TestAccountStorePersistsOnlyValidatedAssignments(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "accounts.json")
 	store, err := OpenAccountStore(path)
