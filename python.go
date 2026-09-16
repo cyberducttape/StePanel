@@ -55,6 +55,10 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Python application definition", 422)
 		return
 	}
+	if !a.canAccessSite(r, app.Site) {
+		http.Error(w, "site is not assigned to this account", 403)
+		return
+	}
 	app.Root = filepath.Join(a.Config.WebRoot, "sites", app.Site, "public")
 	if err := ensureInside(a.Config.WebRoot, app.Root); err != nil {
 		http.Error(w, err.Error(), 422)
@@ -148,7 +152,7 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 	}
 	releaseUnlock := a.siteOperations.Acquire(parts[0])
 	defer releaseUnlock()
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, parts[1], parts[0]+"-python"); err != nil {
+	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
 		http.Error(w, "Python action failed", 502)
 		return
 	}

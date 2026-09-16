@@ -64,7 +64,7 @@ func OpenDB(db *sql.DB, legacyPath ...string) (*Registry, error) {
 			delete(registry.Entries, id)
 		}
 	}
-	if err := registry.persistLocked(); err != nil {
+	if err := registry.persistFullSyncLocked(); err != nil {
 		return nil, err
 	}
 	return registry, nil
@@ -102,7 +102,7 @@ func Open(path string) (*Registry, error) {
 			delete(registry.Entries, id)
 		}
 	}
-	if err := registry.persistLocked(); err != nil {
+	if err := registry.persistFullSyncLocked(); err != nil {
 		return nil, err
 	}
 	return registry, nil
@@ -117,6 +117,7 @@ func (r *Registry) Add(id, username string, expiry int64) error {
 			delete(r.Entries, candidate)
 		}
 	}
+	evictedID := ""
 	if len(r.Entries) >= 10000 {
 		oldestID := ""
 		var oldest int64
@@ -127,10 +128,12 @@ func (r *Registry) Add(id, username string, expiry int64) error {
 		}
 		if oldestID != "" {
 			delete(r.Entries, oldestID)
+			evictedID = oldestID
 		}
 	}
-	r.Entries[id] = Entry{Username: username, Expiry: expiry}
-	if err := r.persistLocked(); err != nil {
+	entry := Entry{Username: username, Expiry: expiry}
+	r.Entries[id] = entry
+	if err := r.persistAddLocked(id, entry, now, evictedID); err != nil {
 		delete(r.Entries, id)
 		r.err = err
 		return err
@@ -158,7 +161,7 @@ func (r *Registry) RevokeUser(username string) error {
 			delete(r.Entries, id)
 		}
 	}
-	if err := r.persistLocked(); err != nil {
+	if err := r.persistDeleteByUsernameLocked(username); err != nil {
 		r.Entries = previous
 		r.err = err
 		return err
@@ -172,7 +175,7 @@ func (r *Registry) Revoke(id string) error {
 	defer r.mu.Unlock()
 	previous, existed := r.Entries[id]
 	delete(r.Entries, id)
-	if err := r.persistLocked(); err != nil {
+	if err := r.persistDeleteLocked(id); err != nil {
 		if existed {
 			r.Entries[id] = previous
 		}
@@ -189,7 +192,14 @@ func (r *Registry) PersistenceError() error {
 	return r.err
 }
 
-func (r *Registry) persistLocked() error {
+// persistFullSyncLocked rewrites the entire sessions table to match
+// r.Entries. It is only used once, at startup after Open/OpenDB have loaded
+// and garbage-collected expired entries: every subsequent mutation goes
+// through the targeted persistAddLocked/persistDeleteLocked/
+// persistDeleteByUsernameLocked paths instead, so a login or revocation on a
+// large, active registry no longer deletes and reinserts every other
+// session's row.
+func (r *Registry) persistFullSyncLocked() error {
 	if r.db != nil {
 		tx, err := r.db.Begin()
 		if err != nil {
@@ -207,6 +217,56 @@ func (r *Registry) persistLocked() error {
 		}
 		return tx.Commit()
 	}
+	return r.persistFileLocked()
+}
+
+// persistAddLocked applies exactly the mutations Add just made to r.Entries:
+// the expiry-driven garbage collection cutoff, an optional evicted entry
+// (when the registry was at capacity), and the new/updated entry itself.
+func (r *Registry) persistAddLocked(id string, entry Entry, expiredCutoff int64, evictedID string) error {
+	if r.db != nil {
+		tx, err := r.db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM sessions WHERE expiry <= ?`, expiredCutoff); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if evictedID != "" {
+			if _, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, evictedID); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		if _, err := tx.Exec(`INSERT INTO sessions (id, username, expiry, updated_at) VALUES (?, ?, ?, unixepoch())
+			ON CONFLICT(id) DO UPDATE SET username = excluded.username, expiry = excluded.expiry, updated_at = excluded.updated_at`,
+			id, entry.Username, entry.Expiry); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		return tx.Commit()
+	}
+	return r.persistFileLocked()
+}
+
+func (r *Registry) persistDeleteLocked(id string) error {
+	if r.db != nil {
+		_, err := r.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+		return err
+	}
+	return r.persistFileLocked()
+}
+
+func (r *Registry) persistDeleteByUsernameLocked(username string) error {
+	if r.db != nil {
+		_, err := r.db.Exec(`DELETE FROM sessions WHERE username = ?`, username)
+		return err
+	}
+	return r.persistFileLocked()
+}
+
+func (r *Registry) persistFileLocked() error {
 	if r.path == "" {
 		return nil
 	}

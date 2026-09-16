@@ -598,7 +598,15 @@ if [[ "$WEB_SERVER" == "caddy" ]]; then
 fi
 chown -R root:root "$APP_DIR"
 chmod 0755 "$APP_DIR"
-if [[ -d "$APP_DIR/.nvm" ]]; then chown -R "$APP_USER:$APP_USER" "$APP_DIR/.nvm"; fi
+if [[ -d "$APP_DIR/.nvm" ]]; then
+  chown -R "$APP_USER:$APP_USER" "$APP_DIR/.nvm"
+  # Isolated per-site identities (sp-*) are not members of the $APP_USER
+  # group, so they need read/traverse access to run the managed Node
+  # runtime without being able to write to it. o+rX adds read to every
+  # file and execute/traverse only where owner or group already has it,
+  # so plain data files do not become spuriously executable.
+  chmod -R o+rX "$APP_DIR/.nvm"
+fi
 chown -R "$APP_USER:$APP_USER" "$DATA_DIR"
 chown "$APP_USER:$WEB_GROUP" /var/www/sites
 chmod 2750 /var/www/sites

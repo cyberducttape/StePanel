@@ -613,3 +613,193 @@ body { background: var(--panel-bg); color: var(--panel-text); }
   .workspace-context { display: none; }
   .content { padding: 28px 18px 42px; }
 }
+
+/*
+  Site workspace (tabbed detail view)
+  Added to support opening a site as a workspace with Overview / Domains /
+  Runtime / Deployments / Databases / Backups / Logs / Workers / Tasks /
+  Security / Settings tabs, instead of one long flat list of facts. Matches
+  the existing dark --panel-* token system above.
+*/
+
+.workspace-tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 20px 0 22px;
+  padding: 4px;
+  border: 1px solid var(--panel-line);
+  border-radius: 12px;
+  background: #121c28;
+}
+.workspace-tab {
+  padding: 9px 15px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--panel-muted);
+  font: 650 12px system-ui, -apple-system, "Segoe UI", sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+.workspace-tab:hover { color: #eaf1f8; background: #182535; }
+.workspace-tab:focus-visible { outline: 3px solid #1c938a; outline-offset: 2px; }
+.workspace-tab[aria-selected="true"] {
+  background: #1d4664;
+  color: #fff;
+  border-color: #2c608c;
+}
+.workspace-tabpanel { outline: none; }
+.workspace-tabpanel:focus-visible { outline: 3px solid #1c938a; outline-offset: 4px; }
+.workspace-tabpanel h4 { margin: 0 0 4px; color: #f3f7fb; font-size: 15px; }
+.workspace-tabpanel > .panel-intro { margin: 0 0 16px; color: var(--panel-muted); font-size: 12px; max-width: 560px; }
+
+/* Status badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font: 650 11px system-ui, sans-serif;
+  white-space: nowrap;
+}
+.badge i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.badge-ok { background: rgba(104, 211, 145, .14); color: var(--panel-accent); }
+.badge-ok i { background: var(--panel-accent); }
+.badge-warn { background: rgba(246, 189, 104, .16); color: #f6bd68; }
+.badge-warn i { background: #f6bd68; }
+.badge-off { background: rgba(148, 163, 184, .14); color: #94a3b8; }
+.badge-off i { background: #94a3b8; }
+.badge-danger { background: rgba(248, 113, 113, .16); color: #f87171; }
+.badge-danger i { background: #f87171; }
+
+/* Persistent-label fields: replace placeholder-only inputs so the field's
+   purpose stays visible once the user has typed a value. */
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+.field > label { font: 650 11px system-ui, sans-serif; color: var(--panel-muted); letter-spacing: .02em; }
+.field .hint { font-size: 11px; color: #728299; }
+.field input,
+.field select,
+.field textarea {
+  border: 1px solid #3a4b60;
+  border-radius: 9px;
+  background: #0e1722;
+  color: #edf4fb;
+  padding: 9px 11px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: #5ca8df;
+  outline: 0;
+  box-shadow: 0 0 0 4px rgba(92, 168, 223, .15);
+}
+.field-check { flex-direction: row; align-items: center; gap: 8px; }
+.field-check > label { color: #c6d3e1; font-weight: 600; }
+.field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+
+/* Overview stat grid */
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.overview-stat {
+  border: 1px solid var(--panel-line);
+  border-radius: 12px;
+  background: #121c28;
+  padding: 16px 18px;
+}
+.overview-stat .stat-label { display: block; color: #8fa1b5; font-size: 11px; margin-bottom: 8px; }
+.overview-stat strong { display: block; font-size: 19px; color: #eaf1f8; margin-bottom: 4px; letter-spacing: -.02em; }
+.overview-stat small { color: #8fa1b5; font-size: 11px; }
+
+/* Reusable list of resources within a tab (workers, tasks, keys, backups…) */
+.workspace-panel-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 18px; }
+.resource-list { display: grid; gap: 10px; margin: 0 0 18px; padding: 0; list-style: none; }
+.resource-list-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-line);
+  border-radius: 10px;
+  background: #121c28;
+}
+.resource-list-item .item-meta { display: flex; flex-direction: column; gap: 2px; }
+.resource-list-item .item-meta strong { color: #eaf1f8; font-size: 13px; }
+.resource-list-item .item-meta small { color: #8fa1b5; font-size: 11px; }
+.resource-list-item .item-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.resource-list-item .item-actions button {
+  border: 1px solid #3a4b60;
+  border-radius: 8px;
+  background: #182535;
+  color: #cbd5e1;
+  font: 650 11px system-ui, sans-serif;
+  padding: 7px 11px;
+  cursor: pointer;
+}
+.resource-list-item .item-actions button:hover { border-color: #5ca8df; color: #eaf1f8; }
+.resource-list-item .item-actions button.danger { color: #f87171; border-color: #5a3232; }
+.resource-list-item .item-actions button.danger:hover { background: #2a1518; border-color: #b42318; }
+
+/* Log viewer */
+.log-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 14px; }
+.log-controls .field { margin-bottom: 0; min-width: 140px; }
+.log-viewer {
+  max-height: 440px;
+  overflow: auto;
+  border: 1px solid var(--panel-line);
+  border-radius: 10px;
+  background: #0b131c;
+  padding: 14px 16px;
+  font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #c6d3e1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.log-viewer:empty::before { content: "No log lines to show."; color: #728299; }
+
+/* Confirmation dialog for destructive actions: shows the object's context
+   (what it is, what uses it, when it was last verified) instead of a bare
+   "are you sure?" prompt. */
+dialog.confirm-dialog {
+  border: 1px solid #354459;
+  border-radius: 14px;
+  background: #141f2c;
+  color: #e7eef7;
+  padding: 0;
+  max-width: 440px;
+  width: calc(100% - 40px);
+}
+dialog.confirm-dialog::backdrop { background: rgba(6, 10, 16, .68); }
+.confirm-dialog-body { padding: 24px; }
+.confirm-dialog-body h3 { margin: 0 0 10px; color: #f3f7fb; font-size: 17px; }
+.confirm-dialog-body p { margin: 0 0 14px; color: var(--panel-muted); font-size: 13px; line-height: 1.6; }
+.confirm-dialog-facts {
+  border: 1px solid #2c394a;
+  border-radius: 10px;
+  background: #101925;
+  padding: 4px 14px;
+  margin-bottom: 16px;
+}
+.confirm-dialog-facts div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; font-size: 12px; color: #c6d3e1; border-top: 1px solid #202c3a; }
+.confirm-dialog-facts div:first-child { border-top: 0; }
+.confirm-dialog-facts strong { color: #eaf1f8; }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid #2c394a; }
+.confirm-dialog-actions button { border-radius: 8px; }
+.confirm-dialog-cancel { border: 1px solid #3a4b60; background: transparent; color: #cbd5e1; padding: 9px 14px; font: 650 12px system-ui, sans-serif; cursor: pointer; }
+.confirm-dialog-danger { border: 0; background: #b42318; color: #fff; padding: 9px 14px; font: 650 12px system-ui, sans-serif; cursor: pointer; }
+.confirm-dialog-danger:disabled { opacity: .5; cursor: not-allowed; }
+
+@media (max-width: 720px) {
+  .workspace-tablist { gap: 3px; }
+  .workspace-tab { padding: 8px 11px; font-size: 11px; }
+}

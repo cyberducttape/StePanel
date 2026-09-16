@@ -141,7 +141,14 @@ EOF
     version=$3; root=$4; entry=$5; port=$6; workers=$7
     [[ $version =~ ^3\.(12|13)$ && $root == "/var/www/sites/$site/public" && $entry =~ ^[A-Za-z0-9_./:-]{1,160}$ && $port =~ ^[0-9]+$ && $workers =~ ^[0-9]+$ ]] || { echo 'invalid Python parameters' >&2; exit 1; }
     (( port >= 1024 && port <= 65535 && workers >= 1 && workers <= 64 )) || { echo 'invalid Python limits' >&2; exit 1; }
-    unit="stepanel-app-${site}-python.service"; venv="$root/.venv"; command -v "python$version" >/dev/null || { echo "python$version is not installed" >&2; exit 1; }; "python$version" -m venv "$venv"; [[ -x "$venv/bin/gunicorn" ]] || { echo 'gunicorn is not installed in the site virtualenv' >&2; exit 1; }
+    unit="stepanel-app-${site}-python.service"; venv="$root/.venv"; command -v "python$version" >/dev/null || { echo "python$version is not installed" >&2; exit 1; }
+    "python$version" -m venv "$venv"
+    # A freshly created venv has no Gunicorn. Bootstrap it automatically so a
+    # first deployment does not require an operator to have pre-populated the
+    # virtualenv out of band; this stays well inside the helper's timeout
+    # budget because it installs one small, pre-built package.
+    [[ -x "$venv/bin/gunicorn" ]] || "$venv/bin/pip" install --quiet gunicorn
+    [[ -x "$venv/bin/gunicorn" ]] || { echo 'gunicorn could not be installed in the site virtualenv' >&2; exit 1; }
     cat > "/etc/systemd/system/$unit" <<EOF
 [Unit]
 Description=StePanel Python app $site
@@ -246,7 +253,11 @@ EOF
     systemd-analyze calendar "$on_calendar" >/dev/null || { echo 'invalid systemd calendar expression' >&2; exit 1; }
     root="/var/www/sites/$site/public"; task_root="/var/lib/stepanel/tasks/$site"; install -d -m 0755 -o root -g root /var/lib/stepanel/tasks "$task_root"
     script="$task_root/$name.sh"; staged=$(mktemp "$task_root/.stepanel-task.XXXXXX")
-    { printf '#!/usr/bin/env bash\nset -Eeuo pipefail\ncd %q\nexec /bin/bash -lc ' "$root"; printf '%s' "$command_b64" | base64 -d; printf '\n'; } > "$staged"
+    decoded_command=$(printf '%s' "$command_b64" | base64 -d)
+    # %q quotes the whole decoded command as a single shell word, so
+    # `bash -lc` receives it as ONE argument (its command string) rather than
+    # splitting on whitespace into $0/$1/... positional parameters.
+    { printf '#!/usr/bin/env bash\nset -Eeuo pipefail\ncd %q\n' "$root"; printf 'exec /bin/bash -lc %q\n' "$decoded_command"; } > "$staged"
     chown root:root "$staged"; chmod 0755 "$staged"; mv -f "$staged" "$script"
     unit="stepanel-task-${site}-${name}.service"; timer="stepanel-task-${site}-${name}.timer"
     cat > "/etc/systemd/system/$unit" <<EOF
@@ -315,9 +326,12 @@ EOF
     if (( ${#worker_units[@]} > 0 )); then
       systemctl try-restart "${worker_units[@]}" 2>/dev/null || true
     fi ;;
-  start|stop|restart)
+  python-start|python-stop|python-restart)
     (( $# == 2 )) || { echo "usage: stepanel-appctl $action SITE" >&2; exit 64; }
-    if [[ $site == */* ]]; then site_name=${site##*/}; site=${site%%/*}; [[ $site =~ ^[a-z0-9_-]{1,32}$ && $site_name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid worker target' >&2; exit 1; }; unit="stepanel-worker-${site}-${site_name}.service"; fi
-    systemctl "$action" "$unit" ;;
-  *) echo 'usage: stepanel-appctl apply|start|stop|restart SITE ...' >&2; exit 64 ;;
+    systemctl "${action#python-}" "stepanel-app-${site}-python.service" ;;
+  worker-start|worker-stop|worker-restart)
+    (( $# == 3 )) || { echo "usage: stepanel-appctl $action SITE NAME" >&2; exit 64; }
+    name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid worker name' >&2; exit 1; }
+    systemctl "${action#worker-}" "stepanel-worker-${site}-${name}.service" ;;
+  *) echo 'usage: stepanel-appctl apply|python-start|python-stop|python-restart|worker-start|worker-stop|worker-restart SITE ...' >&2; exit 64 ;;
 esac

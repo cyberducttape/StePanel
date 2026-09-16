@@ -247,6 +247,10 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tokens": items})
 	case http.MethodPost:
+		if !a.Auth.CSRF(r) {
+			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+			return
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		var request struct {
 			Name      string `json:"name"`
@@ -266,6 +270,10 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"token": secret, "metadata": item})
 	case http.MethodDelete:
+		if !a.Auth.CSRF(r) {
+			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+			return
+		}
 		id := strings.TrimPrefix(r.URL.Path, "/api/account/tokens/")
 		if id == "" || strings.Contains(id, "/") {
 			http.Error(w, "token ID is required", 400)

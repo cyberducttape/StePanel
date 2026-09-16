@@ -4,9 +4,72 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestCustomerAPITokenCreationRequiresCSRF(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "")
+	accounts, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", []string{"site-one"}); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.Accounts = accounts
+	secret, err := decodeTOTPSecret(testTOTPSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := totpCode(secret, uint64(time.Now().Unix()/30))
+	login := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=customer&password=a+sufficiently+long+customer+password&totp="+code))
+	login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginResponse := httptest.NewRecorder()
+	auth.Login(loginResponse, login)
+	if loginResponse.Code != http.StatusSeeOther {
+		t.Fatalf("customer login status = %d, want %d", loginResponse.Code, http.StatusSeeOther)
+	}
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	app := &App{Auth: auth, APITokens: &apiTokenStore{db: db}}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/account/tokens", strings.NewReader(`{"name":"automation"}`))
+	request.Header.Set("Content-Type", "application/json")
+	for _, cookie := range loginResponse.Result().Cookies() {
+		// Deliberately drop the CSRF cookie the login response issued: a
+		// cross-site POST carries the session cookie automatically but
+		// never the CSRF cookie/header pair, which is exactly the
+		// scenario this check exists to reject.
+		if cookie.Name == "stepanel_csrf" {
+			continue
+		}
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	app.apiTokens(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("customer token creation without CSRF = %d, want %d", response.Code, http.StatusForbidden)
+	}
+	items, err := app.APITokens.list("customer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("token was created despite missing CSRF proof: %#v", items)
+	}
+}
 
 func TestAuthRejectsInvalidBearerInsteadOfFallingBackToCookie(t *testing.T) {
 	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")

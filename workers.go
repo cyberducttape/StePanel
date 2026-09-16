@@ -141,7 +141,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		}
 		releaseUnlock := a.siteOperations.Acquire(site)
 		defer releaseUnlock()
-		if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, parts[2], site+"/"+name); err != nil {
+		if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "worker-"+parts[2], site, name); err != nil {
 			http.Error(w, "worker action failed", 502)
 			return
 		}

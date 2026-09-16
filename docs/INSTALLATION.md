@@ -127,10 +127,22 @@ sudo STEPANEL_ADMIN_TOTP_SECRET="$totp_secret" ./install.sh
 ```
 
 Test a fresh login before closing the recovery console. If the authenticator is
-lost, a local root operator can rerun the installer with
-`STEPANEL_ADMIN_TOTP_SECRET=''` to remove the requirement. StePanel remains a
-single-administrator system; teams should not share the account when individual
-attribution is required.
+lost, a local root operator recovers by generating a **new** secret and
+enrolling it, the same way as initial setup - not by removing MFA. Production
+installations reject a blank `STEPANEL_ADMIN_TOTP_SECRET` (`install.sh` and
+startup configuration validation both refuse it), so rerunning the installer
+with an empty value will not work and is not the supported recovery path:
+
+```sh
+umask 077
+totp_secret=$(head -c 20 /dev/urandom | base32 | tr -d '=\n')
+sudo STEPANEL_ADMIN_TOTP_SECRET="$totp_secret" ./install.sh
+```
+
+Enroll `$totp_secret` in the operator's authenticator before restarting the
+service, then test a fresh login before closing the recovery console. StePanel
+remains a single-administrator system; teams should not share the account when
+individual attribution is required.
 
 Customer accounts are provisioned after installation by an authenticated
 administrator, not by installer variables. They require their own TOTP seed

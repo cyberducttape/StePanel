@@ -8,7 +8,10 @@ VERSIONS=${3:-20.18.0}
 NVM_COMMIT='179d45050be0a71fd57591b0ed8aedf9b177ba10'
 
 id "$APP_USER" >/dev/null 2>&1 || { echo "user not found: $APP_USER" >&2; exit 1; }
-install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$NVM_DIR"
+# 0755 (not 0750): isolated per-site identities (sp-*) are not members of
+# $APP_USER's group, so they need read/traverse access on the shared Node
+# runtime to source nvm.sh and run node/npm. Only $APP_USER can write here.
+install -d -m 0755 -o "$APP_USER" -g "$APP_USER" "$NVM_DIR"
 if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
   installer=$(mktemp)
   trap 'rm -f "$installer"' EXIT
