@@ -9,7 +9,8 @@
 <body data-is-administrator="{{ if .IsAdministrator }}true{{ else }}false{{ end }}" data-webserver="{{ .Config.WebServer }}">
   <a class="skip-link" href="#main">Skip to main content</a>
   <div class="app-shell">
-    <aside class="workspace-sidebar" aria-label="Workspace navigation">
+    <div class="nav-backdrop" id="navBackdrop" hidden></div>
+    <aside class="workspace-sidebar" id="workspaceSidebar" aria-label="Workspace navigation">
       <a class="brand" href="/" aria-label="StePanel home"><span class="brand-mark">S</span><span>StePanel</span></a>
       <p class="sidebar-label">Workspace</p>
       <nav class="workspace-nav" aria-label="Primary">
@@ -21,6 +22,7 @@
       <div class="sidebar-footer"><span class="pulse" aria-hidden="true"></span><span>Control plane connected</span></div>
     </aside>
     <header class="topbar">
+      <button type="button" class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="workspaceSidebar" aria-label="Open navigation"><span aria-hidden="true">☰</span></button>
       <a class="mobile-brand brand" href="/" aria-label="StePanel home"><span class="brand-mark">S</span><span>StePanel</span></a>
       <div class="workspace-context"><span class="eyebrow">Hosting workspace</span><strong>{{ if .IsAdministrator }}Operator overview{{ else }}Your sites{{ end }}</strong></div>
       <div class="topbar-meta"><time datetime="{{ .Now.Format "2006-01-02" }}">{{ .Now.Format "02 Jan 2006" }}</time>{{ if .AuthEnabled }}<form action="/logout" method="post"><input type="hidden" name="csrf" value="{{ .CSRF }}"><button class="avatar" type="submit" aria-label="Sign out {{ .Username }}">{{ if .Username }}{{ .Username }}{{ else }}admin{{ end }} <span aria-hidden="true">↗</span></button></form>{{ end }}</div>
@@ -88,6 +90,7 @@
       </footer>
     </main>
   </div>
+<script src="/static/nav.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/cpmove.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/deploy.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/certificates.js?v={{ .AssetVersion }}" defer></script>

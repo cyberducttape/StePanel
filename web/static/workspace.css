@@ -450,6 +450,27 @@ body { background: var(--panel-bg); color: var(--panel-text); }
   background: rgba(10, 16, 26, .66);
 }
 .mobile-brand { display: none; }
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  margin-right: 4px;
+  border: 1px solid var(--panel-line);
+  border-radius: 9px;
+  background: #182535;
+  color: #eaf1f8;
+  font-size: 17px;
+  cursor: pointer;
+}
+.nav-toggle:hover { border-color: #5a85ae; }
+.nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  background: rgba(4, 8, 14, .6);
+}
 .workspace-context { display: grid; gap: 2px; }
 .workspace-context .eyebrow { margin: 0; color: #7e91a8; font-size: 9px; }
 .workspace-context strong { color: #eff6ff; font-size: 15px; letter-spacing: -.02em; }
@@ -606,7 +627,30 @@ body { background: var(--panel-bg); color: var(--panel-text); }
 }
 @media (max-width: 720px) {
   .app-shell { display: block; }
-  .workspace-sidebar { display: none; }
+  .nav-toggle { display: inline-flex; }
+  /* Below 1050px .workspace-sidebar is already an icon rail (see the
+     1050px breakpoint above); at this width it instead becomes a full
+     slide-in drawer opened by .nav-toggle (web/static/nav.js), since an
+     icon-only rail this narrow has no room for legible nav labels. */
+  .workspace-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: min(78vw, 280px);
+    padding: 22px 16px 18px;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+    box-shadow: 16px 0 40px rgba(0, 0, 0, .4);
+  }
+  .workspace-sidebar.is-open { transform: translateX(0); }
+  .workspace-sidebar .brand { justify-content: flex-start; padding: 0 10px; }
+  .workspace-sidebar .brand > span:last-child { font-size: 18px; }
+  .sidebar-label { font-size: 10px; }
+  .workspace-nav a { justify-content: flex-start; padding: 0 11px; font-size: 13px; }
+  .workspace-nav a span { width: 14px; font-size: 17px; }
+  .sidebar-footer { justify-content: flex-start; padding: 15px 10px 4px; font-size: 11px; }
   .topbar { padding: 0 18px; }
   .mobile-brand { display: flex; color: #f1f5f9; font-size: 16px; }
   .mobile-brand .brand-mark { border-color: #34465d; background: #1c2c3d; color: #e2f3ff; }
