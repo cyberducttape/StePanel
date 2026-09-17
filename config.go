@@ -107,13 +107,19 @@ func LoadConfig() Config {
 		c.GitCtl = v
 	}
 	if v := os.Getenv("STEPANEL_GIT_RELEASE_RETENTION"); v != "" {
-		c.GitReleaseRetention, _ = strconv.Atoi(v)
+		if parsed, err := strconv.Atoi(v); err == nil {
+			c.GitReleaseRetention = parsed
+		}
 	}
 	if v := os.Getenv("STEPANEL_GIT_RELEASE_MAX_AGE_HOURS"); v != "" {
-		c.GitReleaseMaxAgeHours, _ = strconv.Atoi(v)
+		if parsed, err := strconv.Atoi(v); err == nil {
+			c.GitReleaseMaxAgeHours = parsed
+		}
 	}
 	if v := os.Getenv("STEPANEL_GIT_RELEASE_MAX_BYTES"); v != "" {
-		c.GitReleaseMaxBytes, _ = strconv.ParseInt(v, 10, 64)
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil {
+			c.GitReleaseMaxBytes = parsed
+		}
 	}
 	if v := os.Getenv("STEPANEL_VHOSTCTL"); v != "" {
 		c.VHostCtl = v
