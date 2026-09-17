@@ -45,11 +45,40 @@
   // Small DOM helpers
   // ---------------------------------------------------------------------
 
+  // Disables the clicked button for the duration of an async handler so a
+  // slow request (or an impatient double-click) cannot fire the same
+  // mutation twice. Re-enabling is skipped if the handler already replaced
+  // or removed the button from the document.
+  const withBusyClick = (node, onClick) => async (event) => {
+    if (node.disabled) return;
+    node.disabled = true;
+    try {
+      await onClick(event);
+    } finally {
+      if (node.isConnected) node.disabled = false;
+    }
+  };
+
+  // Same guard for form submissions: disables the form's own submit button
+  // rather than the form itself, so labels/inputs stay interactive.
+  const withBusySubmit = (onSubmit) => async (event) => {
+    const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+    if (submitButton && submitButton.disabled) { event.preventDefault(); return; }
+    if (submitButton) submitButton.disabled = true;
+    try {
+      await onSubmit(event);
+    } finally {
+      if (submitButton && submitButton.isConnected) submitButton.disabled = false;
+    }
+  };
+
   const el = (tag, props = {}, children = []) => {
     const node = document.createElement(tag);
     for (const [key, value] of Object.entries(props)) {
       if (key === 'className') node.className = value;
       else if (key === 'dataset') Object.assign(node.dataset, value);
+      else if (key === 'onClick' && typeof value === 'function') node.addEventListener('click', withBusyClick(node, value));
+      else if (key === 'onSubmit' && typeof value === 'function') node.addEventListener('submit', withBusySubmit(value));
       else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2).toLowerCase(), value);
       else if (value !== undefined && value !== null) node.setAttribute(key, value);
     }
@@ -124,18 +153,36 @@
 
   // A typed-confirmation dialog for destructive actions. Shows the object's
   // context (what it is, what it's used by, when it was last verified)
-  // instead of a bare "are you sure?" prompt.
-  const confirmDangerous = ({ title, message, facts = [], confirmText, actionLabel = 'Confirm' }) => new Promise((resolve) => {
+  // instead of a bare "are you sure?" prompt. When `extraField` is given
+  // (e.g. collecting a staging domain), the dialog resolves to
+  // { confirmed, value } instead of a plain boolean so the caller can read
+  // what was typed without a separate native prompt() breaking the flow.
+  const confirmDangerous = ({ title, message, facts = [], confirmText, actionLabel = 'Confirm', extraField = null }) => new Promise((resolve) => {
     const dialog = el('dialog', { className: 'confirm-dialog' });
     const inputId = `confirm-input-${Math.random().toString(36).slice(2, 8)}`;
     const input = el('input', { id: inputId, type: 'text', autocomplete: 'off', required: true });
     const confirmButton = el('button', { type: 'submit', className: 'confirm-dialog-danger', disabled: true }, actionLabel);
-    input.addEventListener('input', () => { confirmButton.disabled = input.value !== confirmText; });
+    let extraInput = null;
+    const updateConfirmState = () => {
+      confirmButton.disabled = input.value !== confirmText || (extraField ? !extraInput.value.trim() : false);
+    };
+    input.addEventListener('input', updateConfirmState);
+    const extraFieldNode = extraField ? (() => {
+      const extraId = `confirm-extra-${Math.random().toString(36).slice(2, 8)}`;
+      extraInput = el('input', { id: extraId, type: extraField.type || 'text', placeholder: extraField.placeholder || '', required: true });
+      extraInput.addEventListener('input', updateConfirmState);
+      return el('div', { className: 'field' }, [
+        el('label', { for: extraId }, extraField.label),
+        extraInput,
+        extraField.hint ? el('small', { className: 'hint' }, extraField.hint) : null,
+      ]);
+    })() : null;
     const form = el('form', { method: 'dialog', onSubmit: () => { dialog.close('confirm'); } }, [
       el('div', { className: 'confirm-dialog-body' }, [
         el('h3', {}, title),
         el('p', {}, message),
         facts.length ? el('div', { className: 'confirm-dialog-facts' }, facts.map(([label, value]) => el('div', {}, [label, el('strong', {}, value)]))) : null,
+        extraFieldNode,
         el('div', { className: 'field' }, [el('label', { for: inputId }, `Type ${confirmText} to confirm`), input]),
       ]),
       el('div', { className: 'confirm-dialog-actions' }, [
@@ -145,7 +192,8 @@
     ]);
     dialog.append(form);
     dialog.addEventListener('close', () => {
-      resolve(dialog.returnValue === 'confirm');
+      const confirmed = dialog.returnValue === 'confirm';
+      resolve(extraField ? { confirmed, value: extraInput ? extraInput.value.trim() : '' } : confirmed);
       dialog.remove();
     });
     document.body.append(dialog);
@@ -171,18 +219,36 @@
     { id: 'settings', label: 'Settings', render: renderSettingsTab },
   ];
 
-  function openWorkspace(site) {
+  // The open workspace's site/tab is reflected in the URL hash so a refresh,
+  // a bookmark, or the browser back/forward buttons behave the way they do
+  // for any other page instead of always dropping back to the site grid.
+  const workspaceHash = (site, tab) => `#site=${encodeURIComponent(site)}&tab=${encodeURIComponent(tab)}`;
+
+  const parseWorkspaceHash = () => {
+    if (!location.hash.startsWith('#site=')) return null;
+    const params = new URLSearchParams(location.hash.slice(1));
+    const site = params.get('site');
+    if (!site) return null;
+    return { site, tab: params.get('tab') || TABS[0].id };
+  };
+
+  function openWorkspace(site, initialTabId, { pushHistory = true } = {}) {
     detail.hidden = false;
     detail.replaceChildren();
 
     const heading = el('h3', {}, `${site} workspace`);
-    const closeButton = button('Close', () => { detail.hidden = true; detail.replaceChildren(); }, { className: 'quiet-action' });
+    const closeButton = button('Close', () => {
+      detail.hidden = true;
+      detail.replaceChildren();
+      history.pushState(null, '', location.pathname + location.search);
+    }, { className: 'quiet-action' });
     const headingRow = el('div', { className: 'section-heading' }, [heading, closeButton]);
 
     const tablist = el('div', { className: 'workspace-tablist', role: 'tablist', 'aria-label': `${site} sections` });
     const panel = el('div', { className: 'workspace-tabpanel', role: 'tabpanel', tabindex: '0' });
     const tabButtons = [];
-    let activeIndex = 0;
+    const startIndex = Math.max(0, TABS.findIndex((tab) => tab.id === initialTabId));
+    let activeIndex = startIndex;
     let requestToken = 0;
 
     const activate = async (index) => {
@@ -192,6 +258,8 @@
         tabButton.setAttribute('aria-selected', String(selected));
         tabButton.tabIndex = selected ? 0 : -1;
       });
+      panel.setAttribute('aria-labelledby', `tab-${TABS[index].id}`);
+      history.replaceState({ site, tab: TABS[index].id }, '', workspaceHash(site, TABS[index].id));
       const token = ++requestToken;
       panel.replaceChildren(el('p', { className: 'import-note' }, 'Loading…'));
       try {
@@ -207,9 +275,9 @@
         role: 'tab',
         className: 'workspace-tab',
         id: `tab-${tab.id}`,
-        'aria-selected': String(index === 0),
+        'aria-selected': String(index === startIndex),
         'aria-controls': 'workspace-panel',
-        tabindex: index === 0 ? '0' : '-1',
+        tabindex: index === startIndex ? '0' : '-1',
         onClick: () => activate(index),
         onKeydown: (event) => {
           let target = null;
@@ -227,12 +295,23 @@
       tablist.append(tabButton);
     });
     panel.id = 'workspace-panel';
-    panel.setAttribute('aria-labelledby', 'tab-overview');
 
     detail.append(headingRow, tablist, panel);
-    activate(0);
+    if (pushHistory) {
+      history.pushState({ site, tab: TABS[startIndex].id }, '', workspaceHash(site, TABS[startIndex].id));
+    }
+    activate(startIndex);
     detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  window.addEventListener('popstate', (event) => {
+    if (event.state && event.state.site) {
+      openWorkspace(event.state.site, event.state.tab, { pushHistory: false });
+    } else if (!detail.hidden) {
+      detail.hidden = true;
+      detail.replaceChildren();
+    }
+  });
 
   // ---------------------------------------------------------------------
   // Overview tab
@@ -656,16 +735,15 @@
             try { await ctx.postJSON('/api/backups/verify', { site, backup: backup.name }); output.textContent = 'Backup verified.'; } catch (error) { output.textContent = error.message; }
           }),
           ctx.button('Restore to staging', async () => {
-            const confirmed = await ctx.confirmDangerous({
+            const { confirmed, value: domain } = await ctx.confirmDangerous({
               title: 'Restore to staging?',
               message: 'Files are restored into an isolated, no-index staging route. The live site is not touched.',
               facts: [['Backup', backup.name], ['Site', site]],
               confirmText: `RESTORE ${site}`,
               actionLabel: 'Restore to staging',
+              extraField: { label: 'Staging domain to activate', placeholder: 'staging.example.com', hint: 'Must already resolve to this server.' },
             });
             if (!confirmed) return;
-            const domain = prompt('Staging domain to activate (e.g. staging.example.com):');
-            if (!domain) return;
             output.textContent = 'Restoring to staging…';
             try {
               await ctx.postJSON('/api/backups/restore-to-staging', { site, backup: backup.name, domain });
@@ -848,6 +926,14 @@
     const keyList = el('ul', { className: 'resource-list' }, keys.length ? keys.map((key) => el('li', { className: 'resource-list-item' }, [
       el('div', { className: 'item-meta' }, [el('strong', {}, key.label), el('small', {}, key.fingerprint)]),
       el('div', { className: 'item-actions' }, [ctx.button('Remove', async () => {
+        const confirmed = await ctx.confirmDangerous({
+          title: `Remove key "${key.label}"?`,
+          message: 'Anyone who authenticates with this key immediately loses SFTP/shell access to this site.',
+          facts: [['Key', key.label], ['Fingerprint', key.fingerprint], ['Site', site]],
+          confirmText: key.label,
+          actionLabel: 'Remove key',
+        });
+        if (!confirmed) return;
         keyOutput.textContent = 'Removing…';
         try { await ctx.deleteJSON(`/api/sites/access/${encodeURIComponent(site)}/${encodeURIComponent(key.label)}`); keyOutput.textContent = 'Removed.'; renderSecurityTab(site, panel, ctx); } catch (error) { keyOutput.textContent = error.message; }
       }, { className: 'danger' })]),
@@ -995,5 +1081,10 @@
       : 'No managed sites yet. Start by migrating a cPanel backup or deploying a site.';
   }
 
-  loadGrid().catch((error) => { gridStatus.textContent = error.message; });
+  loadGrid()
+    .then(() => {
+      const initial = parseWorkspaceHash();
+      if (initial) openWorkspace(initial.site, initial.tab, { pushHistory: false });
+    })
+    .catch((error) => { gridStatus.textContent = error.message; });
 })();
