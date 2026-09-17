@@ -653,10 +653,64 @@ func totpCode(secret []byte, counter uint64) string {
 	return fmt.Sprintf("%06d", value%1000000)
 }
 
+// loginPage matches the dark workspace theme (see workspace.css's --panel-*
+// tokens) so a successful sign-in does not flash from a light page into a
+// dark dashboard. It stays a single dependency-free HTML string rather than
+// pulling in the dashboard's stylesheet: the sign-in page is unauthenticated
+// surface, and keeping it self-contained avoids adding a static-asset
+// dependency to that boundary.
 func loginPage(message string, totpEnabled bool) string {
+	errorBlock := ""
+	if message != "" {
+		errorBlock = fmt.Sprintf(`<div class="error" role="alert">%s</div>`, message)
+	}
 	totp := ""
 	if totpEnabled {
-		totp = `<input name="totp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" placeholder="Authenticator code, if required">`
+		totp = `<div class="field"><label for="totp">Authenticator code</label><input id="totp" name="totp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" placeholder="6-digit code, if required"></div>`
 	}
-	return fmt.Sprintf(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · StePanel</title><style>body{font:15px system-ui;background:linear-gradient(145deg,#edf6fa,#f7fbfd);color:#172b3a;display:grid;place-items:center;min-height:100vh}main{background:#fbfdff;border:1px solid #c8e3ed;box-shadow:0 16px 40px rgba(45,92,113,.10);padding:36px;width:min(360px,calc(100%% - 40px))}input,button{display:block;width:100%%;height:44px;margin:12px 0;padding:0 12px;box-sizing:border-box}button{background:#17364a;color:#fff;border:0;border-radius:5px}</style></head><body><main><h1>StePanel</h1><p>%s</p><form method="post"><input name="username" autocomplete="username" placeholder="Username" required><input name="password" type="password" autocomplete="current-password" placeholder="Password" required>%s<button>Sign in</button></form></main></body></html>`, message, totp)
+	return fmt.Sprintf(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in · StePanel</title>
+<style>
+:root{--bg:#080e17;--surface:#101925;--line:#293544;--text:#f1f5f9;--muted:#a9b5c5}
+*{box-sizing:border-box}
+body{margin:0;font:15px system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh;padding:20px;display:grid;place-items:center;color:var(--text);background:radial-gradient(circle at 73%% -15%%,rgba(43,92,153,.22),transparent 31rem),linear-gradient(135deg,#0a111c,#0b121d 55%%,#0d1821)}
+main{width:min(380px,100%%);padding:36px;border:1px solid var(--line);border-radius:16px;background:var(--surface);box-shadow:0 24px 60px rgba(0,0,0,.35)}
+.brand{display:flex;align-items:center;gap:11px;margin-bottom:26px}
+.brand-mark{display:grid;place-items:center;width:34px;height:34px;border:1px solid #34465d;border-radius:10px;background:linear-gradient(145deg,#25364b,#172231);color:#dbeafe;font:700 17px Georgia,serif}
+.brand strong{font-size:17px;letter-spacing:-.02em}
+h1{margin:0 0 4px;font-size:20px}
+.lede{margin:0 0 22px;color:var(--muted);font-size:13px}
+.error{margin:0 0 18px;padding:10px 12px;border:1px solid #5a3232;border-radius:8px;background:rgba(248,113,113,.12);color:#fca5a5;font-size:13px}
+label{display:block;margin:0 0 5px;color:var(--muted);font:650 11px system-ui,sans-serif;letter-spacing:.02em}
+.field{margin-bottom:14px}
+.password-row{position:relative}
+input{display:block;width:100%%;height:42px;padding:0 12px;border:1px solid #3a4b60;border-radius:9px;background:#0e1722;color:var(--text);font-size:14px}
+input:focus{outline:0;border-color:#5ca8df;box-shadow:0 0 0 4px rgba(92,168,223,.15)}
+.password-row input{padding-right:48px}
+.toggle-visibility{position:absolute;right:4px;top:4px;height:34px;width:40px;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;font:600 11px system-ui,sans-serif}
+.toggle-visibility:hover{color:var(--text);background:#182535}
+.submit{display:block;width:100%%;height:44px;margin-top:8px;border:0;border-radius:9px;background:#2563a7;color:#f8fbff;font:650 13px system-ui,sans-serif;cursor:pointer}
+.submit:hover{background:#3182ce}
+:focus-visible{outline:3px solid #5ca8df;outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+<div class="brand"><span class="brand-mark" aria-hidden="true">S</span><strong>StePanel</strong></div>
+<h1>Sign in</h1>
+<p class="lede">Hosting control plane</p>
+%s
+<form method="post">
+<div class="field"><label for="username">Username</label><input id="username" name="username" autocomplete="username" autofocus required></div>
+<div class="field"><label for="password">Password</label><div class="password-row"><input id="password" name="password" type="password" autocomplete="current-password" required><button type="button" class="toggle-visibility" aria-label="Show password" onclick="const p=document.getElementById('password'),showing=p.type==='text';p.type=showing?'password':'text';this.textContent=showing?'Show':'Hide';this.setAttribute('aria-label',showing?'Show password':'Hide password')">Show</button></div></div>
+%s
+<button type="submit" class="submit">Sign in</button>
+</form>
+</main>
+</body>
+</html>`, errorBlock, totp)
 }
