@@ -15,14 +15,15 @@ type apiTokenRateLimiter struct {
 	maxKeys int
 }
 
+// tokenBucket tracks the available tokens and last refill time for one API token.
 type tokenBucket struct {
-	tokens    float64   // Current tokens available
-	lastRefill time.Time // When bucket was last refilled
+	tokens float64
+
+	lastRefill time.Time
 }
 
 const (
 	tokensPerMinute = 600.0 // 10 requests per second per token
-	refillInterval  = time.Second
 	maxTokenKeys    = 10_000
 )
 
@@ -63,9 +64,9 @@ func (l *apiTokenRateLimiter) allow(tokenID string) bool {
 			return false
 		}
 		bucket = &tokenBucket{
-			tokens:    tokensPerMinute,
-			lastRefill: now,
+			tokens: tokensPerMinute,
 		}
+		bucket.lastRefill = now
 		l.state[tokenID] = bucket
 	}
 
