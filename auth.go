@@ -38,6 +38,7 @@ type Auth struct {
 	sessions                                 *sessionRegistry
 	Accounts                                 *AccountStore
 	apiTokens                                *apiTokenStore
+	apiTokenLimiter                          *apiTokenRateLimiter
 }
 
 type sessionRegistry struct {
@@ -95,7 +96,7 @@ func NewAuth(secureCookies bool) (Auth, error) {
 		passwordDigest := sha256.Sum256([]byte(password))
 		credentialKey = "password-digest:" + hex.EncodeToString(passwordDigest[:])
 	}
-	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiter(), recoveryLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}}, nil
+	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiter(), recoveryLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}, apiTokenLimiter: newAPITokenRateLimiter()}, nil
 }
 
 func (a *Auth) ConfigureSessionStore(path string) error {
@@ -474,10 +475,18 @@ func (a Auth) validAPITokenWithScopes(r *http.Request) (string, []string, bool) 
 	if len(value) < 8 || !strings.EqualFold(value[:7], "Bearer ") {
 		return "", nil, false
 	}
-	username, scopes, ok := a.apiTokens.authenticateWithScopes(strings.TrimSpace(value[7:]))
+	tokenValue := strings.TrimSpace(value[7:])
+	username, scopes, ok := a.apiTokens.authenticateWithScopes(tokenValue)
 	if !ok {
 		return "", nil, false
 	}
+
+	// Rate limit per API token to prevent abuse of compromised tokens.
+	// Each token gets 600 requests per minute (10 per second).
+	if a.apiTokenLimiter != nil && !a.apiTokenLimiter.allow(tokenValue) {
+		return "", nil, false
+	}
+
 	if subtle.ConstantTimeCompare([]byte(username), []byte(a.Username)) == 1 {
 		return username, scopes, true
 	}
