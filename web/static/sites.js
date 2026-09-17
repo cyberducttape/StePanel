@@ -93,6 +93,28 @@
 
   const statusOutput = () => el('output', { role: 'status', 'aria-live': 'polite' });
 
+  // A high-entropy password so a 20+ character requirement isn't something
+  // the person has to type by hand. crypto.getRandomValues works without a
+  // secure context, unlike crypto.subtle, so this has no HTTPS dependency.
+  const generateSecret = (length = 28) => {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%^&*-_=+';
+    const bytes = new Uint8Array(length);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+  };
+
+  // Adds a "Generate" button next to a password field created by field(),
+  // filling it with generateSecret() and switching it to plain text so the
+  // person can see (and copy) what was generated.
+  const withGenerateButton = (passwordFieldNode) => {
+    const input = passwordFieldNode.querySelector('input');
+    passwordFieldNode.append(button('Generate', () => {
+      input.value = generateSecret();
+      input.type = 'text';
+    }, { className: 'quiet-action' }));
+    return passwordFieldNode;
+  };
+
   // A labeled field: replaces placeholder-only inputs so the field's purpose
   // stays visible once the user has typed a value.
   const field = ({ label, tag = 'input', name, type = 'text', value = '', placeholder = '', hint = '', required = false, pattern, min, max, minlength, options, checked, rows }) => {
@@ -599,7 +621,16 @@
           keyOutput.textContent = 'Generating…';
           try {
             const key = await ctx.postJSON(`/api/sites/git-key/${encodeURIComponent(site)}`);
-            keyOutput.replaceChildren(el('p', {}, 'Add this public key to your Git provider as a read-only deploy key:'), el('pre', { className: 'log-viewer' }, key.public_key));
+            const copyStatus = ctx.statusOutput();
+            keyOutput.replaceChildren(
+              el('p', {}, 'Add this public key to your Git provider as a read-only deploy key:'),
+              el('pre', { className: 'log-viewer' }, key.public_key),
+              el('div', { className: 'workspace-panel-actions' }, [ctx.button('Copy to clipboard', async () => {
+                if (!navigator.clipboard) { copyStatus.textContent = 'Clipboard access is unavailable here — select the text above manually.'; return; }
+                try { await navigator.clipboard.writeText(key.public_key); copyStatus.textContent = 'Copied.'; } catch (error) { copyStatus.textContent = 'Could not copy automatically — select the text above manually.'; }
+              })]),
+              copyStatus,
+            );
           } catch (error) { keyOutput.textContent = error.message; }
         })]),
       keyOutput,
@@ -683,7 +714,7 @@
 
     const nameField = field({ label: 'Database name', name: 'name', pattern: '[a-z0-9_]{1,63}', required: true });
     const userField = field({ label: 'Database user', name: 'user', pattern: '[a-z][a-z0-9_]{0,31}', required: true, hint: 'Must start with a lowercase letter.' });
-    const passwordField = field({ label: 'Password', name: 'password', type: 'password', minlength: 20, required: true, hint: '20+ characters.' });
+    const passwordField = withGenerateButton(field({ label: 'Password', name: 'password', type: 'password', minlength: 20, required: true, hint: '20+ characters.' }));
     const createOutput = ctx.statusOutput();
     panel.append(el('h4', {}, 'Create a database'), el('form', {
       className: 'import-form', onSubmit: async (event) => {
