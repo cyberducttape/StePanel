@@ -80,3 +80,27 @@ func ClientIP(r *http.Request) string {
 	}
 	return "unknown"
 }
+
+// ClientIPWithTrustedProxy extracts the peer address, trusting X-Forwarded-For
+// only when behind a known reverse proxy (indicated by the trustProxy flag).
+// When trustProxy is false, behaves identically to ClientIP().
+func ClientIPWithTrustedProxy(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		// Extract the rightmost IP from X-Forwarded-For (original client is rightmost)
+		// Format: Client, Proxy1, Proxy2, ...
+		if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+			ips := strings.Split(xff, ",")
+			if len(ips) > 0 {
+				if ip := strings.TrimSpace(ips[0]); ip != "" {
+					return ip
+				}
+			}
+		}
+		// Fallback to X-Real-IP if X-Forwarded-For is not present
+		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+			return xri
+		}
+	}
+	// Default behavior: use RemoteAddr (direct connection)
+	return ClientIP(r)
+}

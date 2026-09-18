@@ -172,6 +172,7 @@ func main() {
 		log.Fatal("authentication must be configured in production")
 	}
 	auth.AuditLog = cfg.AuditLog
+	auth.TrustProxy = cfg.TLSAlreadyTerminated
 	for _, directory := range []struct {
 		path string
 		mode os.FileMode
