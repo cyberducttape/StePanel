@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -33,22 +32,3 @@ func TestGenerateSecretIsDifferent(t *testing.T) {
 	}
 }
 
-func TestMaskSecret(t *testing.T) {
-	long := "abcdefghijklmnopqrstuvwxyz"
-	masked := maskSecret(long)
-	if !strings.Contains(masked, "abcd") {
-		t.Fatalf("masked secret should contain first 4 chars")
-	}
-	if !strings.Contains(masked, "wxyz") {
-		t.Fatalf("masked secret should contain last 4 chars")
-	}
-	if strings.Contains(masked, "efgh") {
-		t.Fatalf("masked secret should not contain middle chars")
-	}
-
-	short := "abc"
-	masked = maskSecret(short)
-	if masked != "***" {
-		t.Fatalf("short secret should be masked as ***, got %s", masked)
-	}
-}

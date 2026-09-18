@@ -4,14 +4,24 @@ import (
 	"bufio"
 	"crypto/rand"
 	"encoding/base64"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // runInit is the first-run wizard that guides operators through initial setup.
 func runInit() {
+	outputFile := flag.String("output", "", "write configuration to file (e.g., /etc/stepanel.env)")
+	flag.Parse()
+
+	if *outputFile == "" {
+		fmt.Fprintf(os.Stderr, "Usage: stepanel init --output /path/to/config.env\n")
+		os.Exit(1)
+	}
 	fmt.Print(`
 ╔════════════════════════════════════════════════════════════════╗
 ║              StePanel First-Run Wizard v` + Version + `                    ║
@@ -25,37 +35,29 @@ func runInit() {
 	reader := bufio.NewReader(os.Stdin)
 	state := &initState{reader: reader}
 
-	// Step 1: Check for existing config
-	state.checkExistingConfig()
-
-	// Step 2: Validate environment
-	fmt.Println("\n[1/4] Validating system environment...")
+	// Step 1: Validate environment
+	fmt.Println("\n[1/3] Validating system environment...")
 	if err := state.validateEnvironment(); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ Validation failed: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Println("✓ Environment validation passed")
 
-	// Step 3: Gather required configuration
-	fmt.Println("\n[2/4] Gathering configuration...")
+	// Step 2: Gather required configuration
+	fmt.Println("\n[2/3] Gathering configuration and secrets...")
 	state.gatherConfig()
-
-	// Step 4: Generate secrets
-	fmt.Println("\n[3/4] Generating required secrets...")
 	if err := state.generateSecrets(); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ Secret generation failed: %v\n", err)
 		os.Exit(1)
 	}
+	fmt.Println("✓ Secrets generated")
 
-	// Step 5: Write configuration
-	fmt.Println("\n[4/4] Creating directories and writing configuration...")
-	if err := state.createDirectories(); err != nil {
-		fmt.Fprintf(os.Stderr, "✗ Setup failed: %v\n", err)
+	// Step 3: Validate and write configuration
+	fmt.Println("\n[3/3] Validating and writing configuration...")
+	if err := state.writeAndValidateConfig(*outputFile); err != nil {
+		fmt.Fprintf(os.Stderr, "✗ Configuration validation failed: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Summary
-	state.printSummary()
 }
 
 type initState struct {
@@ -77,20 +79,6 @@ type initState struct {
 	production           bool
 }
 
-func (s *initState) checkExistingConfig() {
-	// Check if critical secrets are already set
-	if os.Getenv("STEPANEL_ACCOUNT_KEY") != "" {
-		fmt.Print(`╔════════════════════════════════════════════════════════════════╗
-║         StePanel Initialization Complete                    ║
-║                                                              ║
-║  Critical secrets are already configured. If you need to     ║
-║  reset or reconfigure, remove the environment variables     ║
-║  and run this wizard again.                                 ║
-╚════════════════════════════════════════════════════════════════╝
-`)
-		os.Exit(0)
-	}
-}
 
 func (s *initState) validateEnvironment() error {
 	// Check for required tools/helpers (optional for first run, warn if missing)
@@ -134,13 +122,14 @@ func (s *initState) gatherConfig() {
 	s.dbHost = s.prompt("Database host", "localhost")
 	s.dbUser = s.prompt("Database user", "stepanel")
 
-	fmt.Print("Database password (will not echo): ")
-	password, err := readPassword()
+	fmt.Print("Database password: ")
+	passwordBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading password: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\n✗ Error reading password: %v\n", err)
 		os.Exit(1)
 	}
-	s.dbPassword = password
+	fmt.Println()
+	s.dbPassword = string(passwordBytes)
 	if s.dbPassword == "" {
 		fmt.Println("⚠ Warning: No database password entered. This is insecure.")
 	}
@@ -155,11 +144,13 @@ func (s *initState) gatherConfig() {
 	}
 
 	fmt.Println("\nAdvanced Configuration:")
+	fmt.Print("Require offsite backup before site termination? [no]: ")
 	s.requireOffsiteBackup = s.readYesNo(false)
 	if s.requireOffsiteBackup {
 		fmt.Println("✓ Offsite backup will be required for site termination")
 	}
 
+	fmt.Print("Enable production mode? [no]: ")
 	s.production = s.readYesNo(false)
 	if s.production {
 		fmt.Println("✓ Production mode enabled")
@@ -193,70 +184,72 @@ func (s *initState) generateSecrets() error {
 	return nil
 }
 
-func (s *initState) createDirectories() error {
-	dirs := []string{
-		s.webRoot,
-		filepath.Join(filepath.Dir("data"), "backups"),
-		filepath.Join(filepath.Dir("data"), "imports"),
-		filepath.Join(filepath.Dir("data"), "mail"),
-		filepath.Join(filepath.Dir("data"), "nvm"),
-		filepath.Join(filepath.Dir("data"), "proxy"),
-		filepath.Join(filepath.Dir("data"), "vhosts"),
-		filepath.Join(filepath.Dir("data"), "apps"),
+func (s *initState) writeAndValidateConfig(outputPath string) error {
+	lines := []string{
+		fmt.Sprintf(`STEPANEL_LISTEN="%s"`, s.listen),
+		fmt.Sprintf(`STEPANEL_WEBSERVER="%s"`, s.webServer),
+		fmt.Sprintf(`STEPANEL_WEB_ROOT="%s"`, s.webRoot),
+		fmt.Sprintf(`STEPANEL_DB_ENGINE="%s"`, s.dbEngine),
+		fmt.Sprintf(`STEPANEL_DB_HOST="%s"`, s.dbHost),
+		fmt.Sprintf(`STEPANEL_DB_USER="%s"`, s.dbUser),
+		fmt.Sprintf(`STEPANEL_DB_PASSWORD="%s"`, s.dbPassword),
+		fmt.Sprintf(`STEPANEL_ACCOUNT_KEY="%s"`, s.accountKey),
+		fmt.Sprintf(`STEPANEL_BACKUP_SIGNING_KEY="%s"`, s.backupSigningKey),
+		fmt.Sprintf(`STEPANEL_ENVIRONMENT_KEY="%s"`, s.environmentKey),
+		fmt.Sprintf(`STEPANEL_GIT_WEBHOOK_SECRET="%s"`, s.gitWebhookSecret),
 	}
-
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0750); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
-	}
-
-	fmt.Println("✓ Directories created")
-	return nil
-}
-
-func (s *initState) printSummary() {
-	fmt.Print(`
-╔════════════════════════════════════════════════════════════════╗
-║         StePanel Setup Complete                               ║
-║                                                                ║
-║  Your StePanel instance is configured and ready to start.     ║
-║  Export the following environment variables before running:   ║
-╚════════════════════════════════════════════════════════════════╝
-
-export STEPANEL_LISTEN="` + s.listen + `"
-export STEPANEL_WEBSERVER="` + s.webServer + `"
-export STEPANEL_WEB_ROOT="` + s.webRoot + `"
-export STEPANEL_DB_ENGINE="` + s.dbEngine + `"
-export STEPANEL_DB_HOST="` + s.dbHost + `"
-export STEPANEL_DB_USER="` + s.dbUser + `"
-export STEPANEL_DB_PASSWORD="` + maskSecret(s.dbPassword) + `"
-export STEPANEL_ACCOUNT_KEY="` + maskSecret(s.accountKey) + `"
-export STEPANEL_BACKUP_SIGNING_KEY="` + maskSecret(s.backupSigningKey) + `"
-export STEPANEL_ENVIRONMENT_KEY="` + maskSecret(s.environmentKey) + `"
-export STEPANEL_GIT_WEBHOOK_SECRET="` + maskSecret(s.gitWebhookSecret) + `"`)
 
 	if s.tlsCertFile != "" {
-		fmt.Printf("export STEPANEL_TLS_CERT_FILE=\"%s\"\n", s.tlsCertFile)
-		fmt.Printf("export STEPANEL_TLS_KEY_FILE=\"%s\"\n", s.tlsKeyFile)
+		lines = append(lines, fmt.Sprintf(`STEPANEL_TLS_CERT_FILE="%s"`, s.tlsCertFile))
+		lines = append(lines, fmt.Sprintf(`STEPANEL_TLS_KEY_FILE="%s"`, s.tlsKeyFile))
 	}
 
 	if s.requireOffsiteBackup {
-		fmt.Println("export STEPANEL_REQUIRE_OFFSITE_BACKUP=1")
+		lines = append(lines, "STEPANEL_REQUIRE_OFFSITE_BACKUP=1")
 	}
 
 	if s.production {
-		fmt.Println("export STEPANEL_PRODUCTION=1")
+		lines = append(lines, "STEPANEL_PRODUCTION=1")
 	}
 
-	fmt.Print(`
-To save these to .env:
-  stepanel init > .env
-  source .env
-  stepanel
+	content := strings.Join(lines, "\n") + "\n"
 
-For documentation: https://github.com/itchyitchy123/StePanel
-`)
+	if err := writeAtomic(outputPath, []byte(content), 0600); err != nil {
+		return fmt.Errorf("write configuration file: %w", err)
+	}
+
+	fmt.Printf("✓ Configuration written to %s\n", outputPath)
+
+	savedEnv := make(map[string]string)
+	for _, line := range lines {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := parts[0]
+			val := strings.Trim(parts[1], `"`)
+			savedEnv[key] = os.Getenv(key)
+			os.Setenv(key, val)
+		}
+	}
+	defer func() {
+		for key, val := range savedEnv {
+			if val == "" {
+				os.Unsetenv(key)
+			} else {
+				os.Setenv(key, val)
+			}
+		}
+	}()
+
+	cfg := LoadConfig()
+	if err := ValidateConfig(cfg); err != nil {
+		return fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	fmt.Println("✓ Configuration validated successfully")
+	fmt.Printf("\nTo activate this configuration:\n")
+	fmt.Printf("  source %s\n", outputPath)
+	fmt.Printf("  stepanel\n")
+	return nil
 }
 
 func (s *initState) prompt(label, defaultVal string) string {
@@ -291,19 +284,3 @@ func generateSecret(length int) (string, error) {
 	return base64.StdEncoding.EncodeToString(buf), nil
 }
 
-func maskSecret(s string) string {
-	if len(s) <= 8 {
-		return "***"
-	}
-	return s[:4] + "..." + s[len(s)-4:]
-}
-
-func readPassword() (string, error) {
-	// TODO: Implement secure password input (disable echo)
-	// For now, simple read with visible input
-	input, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(input), nil
-}
