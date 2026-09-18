@@ -18,7 +18,7 @@ func TestPHPProfileSaveRestoresMemoryOnPersistenceFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &PHPProfileStore{path: filepath.Join(blocked, "profiles.json"), values: map[string]PHPProfile{"demo": testPHPProfile("demo", "applied")}}
-	if err := store.save("demo", testPHPProfile("demo", "pending")); err == nil {
+	if err := store.save(AuthorizedSite{site: "demo"}, testPHPProfile("demo", "pending")); err == nil {
 		t.Fatal("expected persistence failure")
 	}
 	if got := store.values["demo"].State; got != "applied" {

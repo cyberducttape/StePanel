@@ -56,7 +56,14 @@ func OpenPHPProfileStore(path string) (*PHPProfileStore, error) {
 	}
 	return s, nil
 }
-func (s *PHPProfileStore) save(site string, p PHPProfile) error {
+func (s *PHPProfileStore) save(access SiteCapability, p PHPProfile) error {
+	return s.saveLocked(access.Site(), p)
+}
+
+// saveLocked is an internal method for background reconciliation loops that
+// operate on already-persisted desired state. This is intentionally excluded
+// from the capability model since reconciliation has no request/job context.
+func (s *PHPProfileStore) saveLocked(site string, p PHPProfile) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous, existed := s.values[site]
@@ -85,7 +92,8 @@ func (s *PHPProfileStore) save(site string, p PHPProfile) error {
 	}
 	return nil
 }
-func (s *PHPProfileStore) get(site string) (PHPProfile, bool) {
+func (s *PHPProfileStore) get(access SiteCapability) (PHPProfile, bool) {
+	site := access.Site()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	p, ok := s.values[site]
@@ -107,11 +115,12 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site", 422)
 		return
 	}
-	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
+	access, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403)
+	if !ok {
 		return
 	}
 	if r.Method == http.MethodGet {
-		p, ok := a.PHP.get(site)
+		p, ok := a.PHP.get(access)
 		writeJSON(w, 200, map[string]any{"site": site, "profile": p, "configured": ok, "versions": installedPHPVersions(), "extensions": []string{"curl", "gd", "intl", "mbstring", "mysqli", "opcache", "zip"}})
 		return
 	}
@@ -133,18 +142,18 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 	releaseUnlock := a.siteOperations.Acquire(site)
 	defer releaseUnlock()
 	p.State, p.LastError = "pending", ""
-	if e := a.PHP.save(site, p); e != nil {
+	if e := a.PHP.save(access, p); e != nil {
 		http.Error(w, "could not persist desired PHP profile", 503)
 		return
 	}
 	if e := a.applyPHPProfile(r.Context(), p); e != nil {
 		p.State, p.LastError = "pending", e.Error()
-		_ = a.PHP.save(site, p)
+		_ = a.PHP.save(access, p)
 		http.Error(w, "PHP runtime profile is pending reconciliation", 502)
 		return
 	}
 	p.State, p.LastError = "applied", ""
-	if e := a.PHP.save(site, p); e != nil {
+	if e := a.PHP.save(access, p); e != nil {
 		http.Error(w, "PHP profile applied but state update is pending", 503)
 		return
 	}
@@ -173,13 +182,13 @@ func (a *App) reconcilePHPProfiles(ctx context.Context) (reconciled []string, fa
 		releaseUnlock := a.siteOperations.Acquire(profile.Site)
 		if err := a.applyPHPProfile(ctx, profile); err != nil {
 			profile.LastError = err.Error()
-			_ = a.PHP.save(profile.Site, profile)
+			_ = a.PHP.saveLocked(profile.Site, profile)
 			failed[profile.Site] = err.Error()
 			releaseUnlock()
 			continue
 		}
 		profile.State, profile.LastError = "applied", ""
-		if err := a.PHP.save(profile.Site, profile); err != nil {
+		if err := a.PHP.saveLocked(profile.Site, profile); err != nil {
 			failed[profile.Site] = err.Error()
 			releaseUnlock()
 			continue
