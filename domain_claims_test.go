@@ -50,7 +50,7 @@ func TestDomainClaimStorePersistsAndProtectsOwnership(t *testing.T) {
 		t.Fatalf("verified claim was not idempotent: claim=%#v err=%v", got, err)
 	}
 
-	if err := reopened.removeSite("site-a"); err != nil {
+	if err := reopened.removeSite(AuthorizedSite{site: "site-a"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := reopened.get("example.com"); ok {

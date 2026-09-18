@@ -108,7 +108,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	// teardown must never leave startup reconciliation able to recreate a route
 	// for a site whose filesystem is already being removed.
 	if a.Routes != nil {
-		if err := a.Routes.removeSite(request.Site); err != nil {
+		if err := a.Routes.removeSite(access); err != nil {
 			return nil, fmt.Errorf("remove route desired state before termination: %w", err)
 		}
 	}
@@ -259,17 +259,17 @@ func (a *App) removeSiteTasks(ctx context.Context, site SiteCapability) error {
 }
 
 func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
-	siteName := site.Site()
 	if a.Routes != nil {
-		if err := a.Routes.removeSite(siteName); err != nil {
+		if err := a.Routes.removeSite(site); err != nil {
 			return fmt.Errorf("remove route desired state: %w", err)
 		}
 	}
 	if a.Domains != nil {
-		if err := a.Domains.removeSite(siteName); err != nil {
+		if err := a.Domains.removeSite(site); err != nil {
 			return fmt.Errorf("remove domain claim state: %w", err)
 		}
 	}
+	siteName := site.Site()
 	if a.Access != nil {
 		a.Access.mu.Lock()
 		delete(a.Access.values, siteName)

@@ -94,7 +94,8 @@ func (s *RouteStore) remove(name string) error {
 	return nil
 }
 
-func (s *RouteStore) removeSite(site string) error {
+func (s *RouteStore) removeSite(access SiteCapability) error {
+	site := access.Site()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	previous := map[string]RouteDesired{}

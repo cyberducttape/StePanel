@@ -27,7 +27,7 @@ func TestRouteStorePersistsDesiredLifecycle(t *testing.T) {
 	if err := reopened.save(items[0]); err != nil {
 		t.Fatal(err)
 	}
-	if err := reopened.removeSite("demo"); err != nil {
+	if err := reopened.removeSite(AuthorizedSite{site: "demo"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(reopened.list()) != 0 {

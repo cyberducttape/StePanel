@@ -89,7 +89,8 @@ func (s *DomainClaimStore) get(domain string) (DomainClaim, bool) {
 	return claim, ok
 }
 
-func (s *DomainClaimStore) removeSite(site string) error {
+func (s *DomainClaimStore) removeSite(access SiteCapability) error {
+	site := access.Site()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	removed := map[string]DomainClaim{}
