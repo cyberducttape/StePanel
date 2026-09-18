@@ -58,6 +58,10 @@ func main() {
 		_, _ = fmt.Fprintf(os.Stdout, "StePanel %s\ncommit: %s\nbuilt: %s\n", Version, Commit, BuildDate)
 		return
 	}
+	if len(os.Args) == 2 && os.Args[1] == "init" {
+		runInit()
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "convert-htaccess" {
 		content, err := io.ReadAll(io.LimitReader(os.Stdin, maxHTAccessBytes+1))
 		if err != nil || len(content) > maxHTAccessBytes {
