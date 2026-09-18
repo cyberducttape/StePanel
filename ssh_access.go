@@ -165,8 +165,7 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site", 422)
 		return
 	}
-	if !a.canAccessSite(r, site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
 		return
 	}
 	if a.Access == nil {
@@ -283,8 +282,7 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	site, label := parts[0], parts[1]
-	if !a.canAccessSite(r, site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
 		return
 	}
 	if !a.Auth.CSRF(r) {

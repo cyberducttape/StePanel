@@ -6,6 +6,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Tenant isolation at the data-access layer is now enforced by the type system:
+  all site-scoped data-mutation functions (`CreateSiteBackup`,
+  `backupRestoreFiles`, `pruneSiteBackups`, `cloneManagedDatabaseToStaging`,
+  `ComposerStore.save/get`, and the site-lifecycle teardown chain) now accept a
+  `SiteCapability` interface instead of a plain `site string`. This capability
+  can only be obtained from `requireSiteAccess` (HTTP handlers) or
+  `authorizeDurableSiteJob` (durable jobs), making it a compile-time error to
+  call these functions without first verifying the caller's ownership. The
+  HTTP-handler boundary and durable-job execution boundary both produce
+  capabilities now; background reconciliation loops (`reconcileEnvironments`,
+  `reconcilePHPProfiles`) operate on already-persisted desired state and remain
+  on string parameters (documented as "excluded by design"). `handleSiteTermination`
+  now performs the same durable-job ownership recheck as its sibling job handlers
+  (`handleBackupJob`, `handleBackupRestoreJob`), closing a defense-in-depth gap.
+- Added a standalone session-revocation action, independent of any other
+  account mutation. Previously the only way to end a customer's session was
+  as a side effect of changing something else (password, MFA, suspension,
+  deletion). `POST /api/account/sessions/revoke` lets a customer log out
+  every other session while keeping the one making the request active (for a
+  suspected stolen cookie or a lingering session on another device);
+  `POST /api/accounts/{username}/sessions/revoke` lets an administrator
+  force-log-out a customer entirely, without suspending the account or
+  resetting credentials. Added `Registry.RevokeUserExcept` in
+  `internal/session` to back the self-service case.
+- Every customer-facing, site-scoped API handler now records a
+  `tenant.access_denied` audit event when `a.canAccessSite` refuses a
+  request, instead of returning the 403/422 silently. A customer probing
+  another tenant's site across any of the roughly 30 site-scoped endpoints
+  previously left no trace. `handleCPMoveJob` and `handleWPressJob` also now
+  recheck tenant ownership at execution time via `authorizeDurableSiteJob`,
+  matching `handleBackupJob`/`handleBackupRestoreJob`; both are currently
+  reachable only from administrator-only routes, so this is defense-in-depth.
+- Added `tenancy.go`: `a.requireSiteAccess` replaces the raw `a.canAccessSite`
+  check at all ~30 of those call sites with a single call that performs the
+  check, the denial audit, and the HTTP error response together, returning an
+  `AuthorizedSite` capability value. A redundant
+  `!a.Auth.IsAdministrator(r) &&` guard in `siteManage` was simplified away as
+  part of the migration (canAccessSite already returns true for an
+  administrator unconditionally); `siteManage` previously had no test
+  coverage at all, so `TestSiteManageDeniesCrossTenantRouteDeletion` was
+  added alongside it.
 - `runBoundedCommand` now enforces its `context.Context` argument itself
   (start, wait in a goroutine, kill on `ctx.Done()`) instead of relying
   entirely on the caller having built the command with

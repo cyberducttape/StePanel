@@ -88,6 +88,48 @@ func TestRegistryDBBackedIncrementalPersistence(t *testing.T) {
 	}
 }
 
+// TestRevokeUserExceptKeepsOnlyTheGivenSession backs the "log out of all
+// other devices" self-service action: it must revoke every other session
+// for the user, leave the caller's own current session valid, and never
+// touch another user's sessions.
+func TestRevokeUserExceptKeepsOnlyTheGivenSession(t *testing.T) {
+	db := openTestSessionDB(t)
+	registry, err := OpenDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiry := time.Now().Add(time.Hour).Unix()
+	if err := registry.Add("alice-current", "alice", expiry); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Add("alice-other-device", "alice", expiry); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Add("bob-session", "bob", expiry); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RevokeUserExcept("alice", "alice-current"); err != nil {
+		t.Fatal(err)
+	}
+	if !registry.Valid("alice-current", "alice", expiry) {
+		t.Fatal("the caller's own current session was revoked")
+	}
+	if registry.Valid("alice-other-device", "alice", expiry) {
+		t.Fatal("the other device's session survived")
+	}
+	if !registry.Valid("bob-session", "bob", expiry) {
+		t.Fatal("an unrelated user's session was revoked")
+	}
+
+	reopened, err := OpenDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.Valid("alice-current", "alice", expiry) || reopened.Valid("alice-other-device", "alice", expiry) || !reopened.Valid("bob-session", "bob", expiry) {
+		t.Fatal("RevokeUserExcept was not durably persisted")
+	}
+}
+
 func TestRegistryPersistsAndRevokesByUser(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
 	registry, err := Open(path)

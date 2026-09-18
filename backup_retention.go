@@ -8,8 +8,9 @@ import (
 	"sort"
 )
 
-func pruneSiteBackups(root, site string, keep int) error {
-	if safeUser(site) == "" || keep < 1 {
+func pruneSiteBackups(root string, site SiteCapability, keep int) error {
+	siteName := site.Site()
+	if safeUser(siteName) == "" || keep < 1 {
 		return errors.New("invalid backup retention policy")
 	}
 	entries, err := os.ReadDir(root)
@@ -33,7 +34,7 @@ func pruneSiteBackups(root, site string, keep int) error {
 		if readErr == nil {
 			readErr = json.Unmarshal(data, &manifest)
 		}
-		if readErr == nil && manifest.Site == site {
+		if readErr == nil && manifest.Site == siteName {
 			items = append(items, candidate{entry.Name(), path})
 		}
 	}

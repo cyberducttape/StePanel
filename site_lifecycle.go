@@ -72,6 +72,10 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if safeUser(request.Site) == "" || request.Actor == "" {
 		return nil, errors.New("site termination requires site and actor")
 	}
+	access, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false)
+	if err != nil {
+		return nil, err
+	}
 	if a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
 	}
@@ -80,7 +84,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// The backup is the retention and recovery gate. Reuse a verified backup
 	// created after this job started when a prior retry already completed it.
-	backup, err := a.terminationBackup(request.Site, item.StartedAt)
+	backup, err := a.terminationBackup(access, item.StartedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -119,16 +123,16 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		}
 	}
 
-	if err := a.removeSiteTasks(ctx, request.Site); err != nil {
+	if err := a.removeSiteTasks(ctx, access); err != nil {
 		return nil, err
 	}
-	if err := a.removeSiteServices(ctx, request.Site); err != nil {
+	if err := a.removeSiteServices(ctx, access); err != nil {
 		return nil, err
 	}
-	if err := a.removeSiteState(ctx, request.Site); err != nil {
+	if err := a.removeSiteState(ctx, access); err != nil {
 		return nil, err
 	}
-	if err := a.detachSiteOwnership(request.Site); err != nil {
+	if err := a.detachSiteOwnership(access); err != nil {
 		return nil, err
 	}
 
@@ -136,7 +140,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	return json.Marshal(map[string]any{"site": request.Site, "backup": backup, "completed_at": time.Now().UTC()})
 }
 
-func (a *App) terminationBackup(site string, started time.Time) (BackupResult, error) {
+func (a *App) terminationBackup(site SiteCapability, started time.Time) (BackupResult, error) {
 	items, err := listBackupsPage(a.Config.BackupRoot, site, 500, a.Config.BackupSigningKey)
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("inspect retained site backups: %w", err)
@@ -202,10 +206,11 @@ func routeConfigName(cfg Config, route siteRoute) string {
 	return siteVHostConfigName(cfg.WebServer, route.Site, route.Domain)
 }
 
-func (a *App) removeSiteServices(ctx context.Context, site string) error {
+func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error {
+	siteName := site.Site()
 	hasApplication := false
 	for _, app := range managedApps(a.Config.AppRoot) {
-		if app.Site == site {
+		if app.Site == siteName {
 			hasApplication = true
 			break
 		}
@@ -214,58 +219,60 @@ func (a *App) removeSiteServices(ctx context.Context, site string) error {
 		return errors.New("managed application services exist but the application helper is unavailable")
 	}
 	if a.Config.AppCtl != "" {
-		if err := runHelperCommand(ctx, a.Config, a.Config.AppCtl, "delete", site); err != nil {
-			return fmt.Errorf("remove managed application services for %s: %w", site, err)
+		if err := runHelperCommand(ctx, a.Config, a.Config.AppCtl, "delete", siteName); err != nil {
+			return fmt.Errorf("remove managed application services for %s: %w", siteName, err)
 		}
 	}
 	if a.Config.GitCtl != "" {
-		if err := runHelperCommand(ctx, a.Config, a.Config.GitCtl, "delete", site); err != nil {
-			return fmt.Errorf("remove Git deploy key for %s: %w", site, err)
+		if err := runHelperCommand(ctx, a.Config, a.Config.GitCtl, "delete", siteName); err != nil {
+			return fmt.Errorf("remove Git deploy key for %s: %w", siteName, err)
 		}
 	}
 	if a.Config.SiteCtl == "" {
 		return errors.New("site teardown helper is unavailable")
 	}
-	if err := runHelperCommand(ctx, a.Config, a.Config.SiteCtl, "delete", site); err != nil {
-		return fmt.Errorf("remove PHP, SSH, quota, and site filesystem state for %s: %w", site, err)
+	if err := runHelperCommand(ctx, a.Config, a.Config.SiteCtl, "delete", siteName); err != nil {
+		return fmt.Errorf("remove PHP, SSH, quota, and site filesystem state for %s: %w", siteName, err)
 	}
 	return nil
 }
 
-func (a *App) removeSiteTasks(ctx context.Context, site string) error {
+func (a *App) removeSiteTasks(ctx context.Context, site SiteCapability) error {
 	if a.Tasks == nil {
 		return nil
 	}
+	siteName := site.Site()
 	a.Tasks.mu.RLock()
 	tasks := make([]ScheduledTask, 0)
 	for _, task := range a.Tasks.values {
-		if task.Site == site {
+		if task.Site == siteName {
 			tasks = append(tasks, task)
 		}
 	}
 	a.Tasks.mu.RUnlock()
 	for _, task := range tasks {
-		if err := runHelperCommand(ctx, a.Config, a.Config.AppCtl, "task-delete", site, task.Name); err != nil {
-			return fmt.Errorf("remove scheduled task %s/%s: %w", site, task.Name, err)
+		if err := runHelperCommand(ctx, a.Config, a.Config.AppCtl, "task-delete", siteName, task.Name); err != nil {
+			return fmt.Errorf("remove scheduled task %s/%s: %w", siteName, task.Name, err)
 		}
 	}
 	return nil
 }
 
-func (a *App) removeSiteState(_ context.Context, site string) error {
+func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
+	siteName := site.Site()
 	if a.Routes != nil {
-		if err := a.Routes.removeSite(site); err != nil {
+		if err := a.Routes.removeSite(siteName); err != nil {
 			return fmt.Errorf("remove route desired state: %w", err)
 		}
 	}
 	if a.Domains != nil {
-		if err := a.Domains.removeSite(site); err != nil {
+		if err := a.Domains.removeSite(siteName); err != nil {
 			return fmt.Errorf("remove domain claim state: %w", err)
 		}
 	}
 	if a.Access != nil {
 		a.Access.mu.Lock()
-		delete(a.Access.values, site)
+		delete(a.Access.values, siteName)
 		err := a.Access.persistLocked()
 		a.Access.mu.Unlock()
 		if err != nil {
@@ -274,8 +281,8 @@ func (a *App) removeSiteState(_ context.Context, site string) error {
 	}
 	if a.Environments != nil {
 		a.Environments.mu.Lock()
-		had := a.Environments.values[site] != nil
-		delete(a.Environments.values, site)
+		had := a.Environments.values[siteName] != nil
+		delete(a.Environments.values, siteName)
 		err := a.Environments.persistLocked()
 		a.Environments.mu.Unlock()
 		if err != nil && had {
@@ -284,7 +291,7 @@ func (a *App) removeSiteState(_ context.Context, site string) error {
 	}
 	if a.Redis != nil {
 		a.Redis.mu.Lock()
-		delete(a.Redis.values, site)
+		delete(a.Redis.values, siteName)
 		err := a.Redis.persistLocked()
 		a.Redis.mu.Unlock()
 		if err != nil {
@@ -293,7 +300,7 @@ func (a *App) removeSiteState(_ context.Context, site string) error {
 	}
 	if a.Resources != nil {
 		a.Resources.mu.Lock()
-		delete(a.Resources.values, site)
+		delete(a.Resources.values, siteName)
 		err := a.Resources.persistLocked()
 		a.Resources.mu.Unlock()
 		if err != nil {
@@ -302,7 +309,7 @@ func (a *App) removeSiteState(_ context.Context, site string) error {
 	}
 	if a.PHP != nil {
 		a.PHP.mu.Lock()
-		delete(a.PHP.values, site)
+		delete(a.PHP.values, siteName)
 		err := persistPHPProfilesLocked(a.PHP)
 		a.PHP.mu.Unlock()
 		if err != nil {
@@ -311,7 +318,7 @@ func (a *App) removeSiteState(_ context.Context, site string) error {
 	}
 	if a.Composer != nil {
 		a.Composer.mu.Lock()
-		delete(a.Composer.latest, site)
+		delete(a.Composer.latest, siteName)
 		err := persistComposerLocked(a.Composer)
 		a.Composer.mu.Unlock()
 		if err != nil {
@@ -321,7 +328,7 @@ func (a *App) removeSiteState(_ context.Context, site string) error {
 	if a.Workers != nil {
 		a.Workers.mu.Lock()
 		for key, value := range a.Workers.values {
-			if value.Site == site {
+			if value.Site == siteName {
 				delete(a.Workers.values, key)
 			}
 		}
@@ -334,7 +341,7 @@ func (a *App) removeSiteState(_ context.Context, site string) error {
 	if a.Tasks != nil {
 		a.Tasks.mu.Lock()
 		for key, value := range a.Tasks.values {
-			if value.Site == site {
+			if value.Site == siteName {
 				delete(a.Tasks.values, key)
 			}
 		}
@@ -369,21 +376,22 @@ func persistComposerLocked(store *ComposerStore) error {
 	return writeAtomic(store.path, append(data, '\n'), 0600)
 }
 
-func (a *App) detachSiteOwnership(site string) error {
+func (a *App) detachSiteOwnership(site SiteCapability) error {
 	if a.Accounts == nil {
 		return nil
 	}
-	owner, ok := a.Accounts.OwnerOfSite(site)
+	siteName := site.Site()
+	owner, ok := a.Accounts.OwnerOfSite(siteName)
 	if !ok {
 		return nil
 	}
 	account, ok := a.Accounts.Get(owner)
 	if !ok {
-		return fmt.Errorf("site %s has missing owning account %s", site, owner)
+		return fmt.Errorf("site %s has missing owning account %s", siteName, owner)
 	}
 	remaining := make([]string, 0, len(account.Sites))
 	for _, assigned := range account.Sites {
-		if assigned != site {
+		if assigned != siteName {
 			remaining = append(remaining, assigned)
 		}
 	}

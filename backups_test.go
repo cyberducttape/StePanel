@@ -12,7 +12,8 @@ func TestCreateSiteBackupPublishesVerifiedManifest(t *testing.T) {
 	webRoot := filepath.Join(root, "www")
 	backupRoot := filepath.Join(root, "backups")
 	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.php"), "<?php echo 'ok';")
-	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, "account", false)
+	access := AuthorizedSite{site: "account"}
+	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, access, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +38,8 @@ func TestSignedBackupManifestRequiresValidExternalKey(t *testing.T) {
 	webRoot := filepath.Join(root, "www")
 	backupRoot := filepath.Join(root, "backups")
 	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "signed")
-	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot, BackupSigningKey: "a-secret-key-with-enough-entropy"}, "account", false)
+	access := AuthorizedSite{site: "account"}
+	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot, BackupSigningKey: "a-secret-key-with-enough-entropy"}, access, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +57,8 @@ func TestSignedBackupManifestRequiresValidExternalKey(t *testing.T) {
 func TestBackupManifestReportsLogicalConsistency(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "www", "sites", "account", "public", "index.html"), "logical")
-	result, err := CreateSiteBackup(Config{WebRoot: filepath.Join(root, "www"), BackupRoot: filepath.Join(root, "backups")}, "account", false)
+	access := AuthorizedSite{site: "account"}
+	result, err := CreateSiteBackup(Config{WebRoot: filepath.Join(root, "www"), BackupRoot: filepath.Join(root, "backups")}, access, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +72,8 @@ func TestVerifyBackupArchiveRejectsTampering(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")
 	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "original")
-	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups")}, "account", false)
+	access := AuthorizedSite{site: "account"}
+	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups")}, access, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +98,8 @@ func TestBackupListingOmitsUnverifiableArchives(t *testing.T) {
 	root := t.TempDir()
 	backupRoot := filepath.Join(root, "backups")
 	writeTestFile(t, filepath.Join(root, "www", "sites", "account", "public", "index.html"), "listed")
-	result, err := CreateSiteBackup(Config{WebRoot: filepath.Join(root, "www"), BackupRoot: backupRoot}, "account", false)
+	access := AuthorizedSite{site: "account"}
+	result, err := CreateSiteBackup(Config{WebRoot: filepath.Join(root, "www"), BackupRoot: backupRoot}, access, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +132,8 @@ func TestCreateSiteBackupIncludesManagedDatabaseDump(t *testing.T) {
 	if err := os.WriteFile(helper, []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}
-	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), DBCtl: helper}, "account", true)
+	access := AuthorizedSite{site: "account"}
+	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), DBCtl: helper}, access, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,14 +157,16 @@ func TestBackupRestoreFilesPreservesExistingDatabaseBoundary(t *testing.T) {
 	webRoot := filepath.Join(root, "www")
 	backupRoot := filepath.Join(root, "backups")
 	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "restored")
-	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, "account", false)
+	access := AuthorizedSite{site: "account"}
+	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, access, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "live")
 	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "keep.txt"), "keep")
 
-	restored, err := backupRestoreFiles(Config{WebRoot: webRoot, BackupRoot: backupRoot, ImportRoot: filepath.Join(root, "imports"), RecoveryRoot: filepath.Join(root, "recovery")}, filepath.Base(result.Path), "account")
+	access = AuthorizedSite{site: "account"}
+	restored, err := backupRestoreFiles(Config{WebRoot: webRoot, BackupRoot: backupRoot, ImportRoot: filepath.Join(root, "imports"), RecoveryRoot: filepath.Join(root, "recovery")}, filepath.Base(result.Path), access)
 	if err != nil {
 		t.Fatal(err)
 	}

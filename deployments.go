@@ -58,9 +58,10 @@ func (a *App) deployments(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site", 422)
 		return
 	}
-	if site != "" && !a.canAccessSite(r, site) {
-		http.Error(w, "site is not assigned to this account", 403)
-		return
+	if site != "" {
+		if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
+			return
+		}
 	}
 	items := a.Deployments.list(site)
 	if !a.Auth.IsAdministrator(r) && site == "" {

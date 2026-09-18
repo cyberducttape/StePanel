@@ -41,7 +41,15 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	if input.Ref == "" {
 		input.Ref = "main"
 	}
-	if input.Site == "" || !a.canAccessSite(r, input.Site) || !gitRefPattern.MatchString(input.Ref) || !runnerImagePattern.MatchString(input.Image) || len(input.Commands) == 0 || len(input.Commands) > 16 {
+	if input.Site == "" {
+		http.Error(w, "invalid release pipeline", 422)
+		return
+	}
+	access, ok := a.requireSiteAccess(w, r, input.Site, "invalid release pipeline", 422)
+	if !ok {
+		return
+	}
+	if !gitRefPattern.MatchString(input.Ref) || !runnerImagePattern.MatchString(input.Image) || len(input.Commands) == 0 || len(input.Commands) > 16 {
 		http.Error(w, "invalid release pipeline", 422)
 		return
 	}
@@ -77,7 +85,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Repository: input.Repository, Ref: input.Ref}
 	a.recordDeployment(input.Site, "checkout", "running", "pipeline checkout started", result, "")
-	release, commit, err := a.checkoutPipelineRelease(ctx, input.Site, repository, input.Ref, siteRoot)
+	release, commit, err := a.checkoutPipelineRelease(ctx, access, repository, input.Ref, siteRoot)
 	if err != nil {
 		a.recordDeployment(input.Site, "checkout", "failed", err.Error(), result, "")
 		http.Error(w, "Git checkout failed", 502)
@@ -87,7 +95,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	defer os.RemoveAll(release)
 	if input.Backup {
 		a.recordDeployment(input.Site, "backup", "running", "pre-activation backup started", result, "")
-		if _, err := CreateSiteBackup(a.Config, input.Site, true); err != nil {
+		if _, err := CreateSiteBackup(a.Config, access, true); err != nil {
 			a.recordDeployment(input.Site, "backup", "failed", err.Error(), result, "")
 			http.Error(w, "pre-activation backup failed", 502)
 			return
@@ -126,7 +134,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, result)
 }
 
-func (a *App) checkoutPipelineRelease(ctx context.Context, site string, repository gitRepository, ref, siteRoot string) (string, string, error) {
+func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, repository gitRepository, ref, siteRoot string) (string, string, error) {
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
 		return "", "", err
@@ -137,7 +145,7 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site string, reposito
 	}
 	var output []byte
 	if repository.Private {
-		output, err = runBoundedCommand(ctx, helperCommandContext(ctx, a.Config, a.Config.GitCtl, "clone", site, repository.URL, ref, release, a.Config.GitAllowedHosts))
+		output, err = runBoundedCommand(ctx, helperCommandContext(ctx, a.Config, a.Config.GitCtl, "clone", site.Site(), repository.URL, ref, release, a.Config.GitAllowedHosts))
 	} else {
 		cmd := exec.CommandContext(ctx, gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", ref, "--single-branch", "--no-tags", repository.URL, release)
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")

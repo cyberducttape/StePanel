@@ -335,8 +335,11 @@ func (a *App) applyResourceProfile(ctx context.Context, p ResourceProfile, clear
 }
 func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 	site := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/sites/resources/"), "/")
-	if safeUser(site) == "" || strings.Contains(site, "/") || !a.canAccessSite(r, site) {
+	if safeUser(site) == "" || strings.Contains(site, "/") {
 		http.Error(w, "invalid or inaccessible site", 403)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, site, "invalid or inaccessible site", 403); !ok {
 		return
 	}
 	if a.Resources == nil {

@@ -84,7 +84,8 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 				backups := []BackupResult{}
 				if a.Accounts != nil {
 					for _, assignedSite := range a.Accounts.GetSites(username) {
-						items, err := listBackupsPage(a.Config.BackupRoot, assignedSite, limit, a.Config.BackupSigningKey)
+						access, _ := a.authorizeSite(r, assignedSite)
+						items, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.BackupSigningKey)
 						if err != nil {
 							http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
 							return
@@ -98,12 +99,19 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusOK, map[string]any{"backups": backups})
 				return
 			}
-			if !a.canAccessSite(r, site) {
-				http.Error(w, "site is not assigned to this account", http.StatusForbidden)
+			access, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", http.StatusForbidden)
+			if !ok {
 				return
 			}
+			manifests, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.BackupSigningKey)
+			if err != nil {
+				http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"backups": manifests})
+			return
 		}
-		manifests, err := listBackupsPage(a.Config.BackupRoot, site, limit, a.Config.BackupSigningKey)
+		manifests, err := listBackupsPageUnscoped(a.Config.BackupRoot, site, limit, a.Config.BackupSigningKey)
 		if err != nil {
 			http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
 			return
@@ -127,8 +135,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid site", http.StatusUnprocessableEntity)
 			return
 		}
-		if !a.canAccessSite(r, input.Site) {
-			http.Error(w, "site is not assigned to this account", http.StatusForbidden)
+		if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
 			return
 		}
 		if !a.Auth.HasRequiredCustomerScope(r, "backup:create") {
@@ -168,11 +175,12 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func CreateSiteBackup(cfg Config, site string, includeDatabases bool) (result BackupResult, returnErr error) {
-	if safeUser(site) == "" {
+func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (result BackupResult, returnErr error) {
+	siteName := site.Site()
+	if safeUser(siteName) == "" {
 		return result, errors.New("invalid backup site")
 	}
-	publicRoot := filepath.Join(cfg.WebRoot, "sites", site, "public")
+	publicRoot := filepath.Join(cfg.WebRoot, "sites", siteName, "public")
 	if err := ensureInside(cfg.WebRoot, publicRoot); err != nil {
 		return result, err
 	}
@@ -198,7 +206,7 @@ func CreateSiteBackup(cfg Config, site string, includeDatabases bool) (result Ba
 	}
 	gz := gzip.NewWriter(archive)
 	tw := tar.NewWriter(gz)
-	manifest := BackupManifest{Version: 1, Site: site, CreatedAt: time.Now().UTC(), Archive: "backup.tar.gz", Databases: []string{}, Entries: []BackupEntry{}, Consistency: "crash-consistent / logical backup"}
+	manifest := BackupManifest{Version: 1, Site: siteName, CreatedAt: time.Now().UTC(), Archive: "backup.tar.gz", Databases: []string{}, Entries: []BackupEntry{}, Consistency: "crash-consistent / logical backup"}
 	var uncompressedBytes int64
 	closeArchive := func() error {
 		if err := tw.Close(); err != nil {
@@ -225,7 +233,7 @@ func CreateSiteBackup(cfg Config, site string, includeDatabases bool) (result Ba
 		return result, err
 	}
 	if includeDatabases {
-		databases, err := managedDatabasesForSite(cfg, site)
+		databases, err := managedDatabasesForSite(cfg, siteName)
 		if err != nil {
 			_ = closeArchive()
 			return result, err
@@ -278,7 +286,7 @@ func CreateSiteBackup(cfg Config, site string, includeDatabases bool) (result Ba
 	if err := syncDirectory(tempDir); err != nil {
 		return result, err
 	}
-	finalName := manifest.CreatedAt.Format("20060102-150405.000000000") + "-" + site
+	finalName := manifest.CreatedAt.Format("20060102-150405.000000000") + "-" + siteName
 	finalPath := filepath.Join(cfg.BackupRoot, finalName)
 	if err := os.Rename(tempDir, finalPath); err != nil {
 		return result, err
@@ -287,7 +295,7 @@ func CreateSiteBackup(cfg Config, site string, includeDatabases bool) (result Ba
 		_ = os.Rename(finalPath, tempDir)
 		return result, err
 	}
-	result = BackupResult{Site: site, Path: finalPath, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: cfg.BackupSigningKey != ""}
+	result = BackupResult{Site: siteName, Path: finalPath, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: cfg.BackupSigningKey != ""}
 	return result, nil
 }
 
@@ -690,10 +698,14 @@ func VerifySiteBackup(root string, signingKey ...string) (BackupManifest, error)
 }
 
 func listBackups(root string, signingKey ...string) ([]BackupResult, error) {
-	return listBackupsPage(root, "", 0, signingKey...)
+	return listBackupsPageUnscoped(root, "", 0, signingKey...)
 }
 
-func listBackupsPage(root, site string, limit int, signingKey ...string) ([]BackupResult, error) {
+// listBackupsPageUnscoped is an internal helper for listing backups without
+// tenant scoping, used by the unscoped listBackups wrapper (test-only today)
+// and by admin routes that need to list all sites' backups or an unscoped
+// admin listing. Not exported; scoped listing uses listBackupsPage.
+func listBackupsPageUnscoped(root, site string, limit int, signingKey ...string) ([]BackupResult, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return []BackupResult{}, nil
@@ -719,6 +731,45 @@ func listBackupsPage(root, site string, limit int, signingKey ...string) ([]Back
 			continue
 		}
 		if site != "" && manifest.Site != site {
+			continue
+		}
+		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != ""})
+	}
+	sort.Slice(backups, func(i, j int) bool { return backups[i].VerifiedAt.After(backups[j].VerifiedAt) })
+	if limit > 0 && len(backups) > limit {
+		backups = backups[:limit]
+	}
+	return backups, nil
+}
+
+// listBackupsPage lists backups for a specific site using a SiteCapability to
+// enforce tenant scoping. Call this from scoped request handlers; use
+// listBackupsPageUnscoped for admin unscoped listing (not exported).
+func listBackupsPage(root string, site SiteCapability, limit int, signingKey ...string) ([]BackupResult, error) {
+	siteName := site.Site()
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return []BackupResult{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	backups := []BackupResult{}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		path, err := safePath(root, entry.Name())
+		if err != nil {
+			log.Printf("skip backup entry outside backup root %s", entry.Name())
+			continue
+		}
+		manifest, err := VerifySiteBackup(path, signingKey...)
+		if err != nil {
+			log.Printf("skip invalid backup manifest %s: %v", entry.Name(), err)
+			continue
+		}
+		if manifest.Site != siteName {
 			continue
 		}
 		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != ""})

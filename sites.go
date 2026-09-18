@@ -81,8 +81,7 @@ func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site", http.StatusUnprocessableEntity)
 		return
 	}
-	if !a.canAccessSite(r, site) {
-		http.Error(w, "site is not assigned to this account", http.StatusForbidden)
+	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
 	overview := newSiteOverview(a.Config, site)
@@ -192,8 +191,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site or domain", http.StatusUnprocessableEntity)
 		return
 	}
-	if !a.canAccessSite(r, input.Site) {
-		http.Error(w, "site is not assigned to this account", http.StatusForbidden)
+	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
 	if !a.Auth.IsAdministrator(r) {
@@ -285,8 +283,7 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if hasDesired {
-			if !a.Auth.IsAdministrator(r) && !a.canAccessSite(r, desired.Site) {
-				http.Error(w, "site route is not assigned to this account", http.StatusForbidden)
+			if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
 				return
 			}
 			desired.State, desired.LastError, desired.UpdatedAt = "delete-pending", "", time.Now().UTC()
@@ -296,8 +293,11 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if !a.Auth.IsAdministrator(r) && (!hasDesired || !a.canAccessSite(r, desired.Site)) {
+	if !a.Auth.IsAdministrator(r) && !hasDesired {
 		http.Error(w, "site route is not assigned to this account", http.StatusForbidden)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
 	// Route deletion receives the generated filename rather than a separately

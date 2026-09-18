@@ -21,8 +21,7 @@ func (a *App) siteLogs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site", 422)
 		return
 	}
-	if !a.canAccessSite(r, site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
 		return
 	}
 	source := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))

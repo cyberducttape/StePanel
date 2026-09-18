@@ -176,8 +176,7 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 		releaseUnlock := a.siteOperations.AcquireMany(lockKeys...)
 		defer releaseUnlock()
 		if a.Accounts != nil && !a.Auth.IsAdministrator(r) {
-			if !a.canAccessSite(r, in.Site) {
-				http.Error(w, "site is not assigned to this account", http.StatusForbidden)
+			if _, ok := a.requireSiteAccess(w, r, in.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
 				return
 			}
 			if !a.Auth.HasRequiredCustomerScope(r, "database:write") {
@@ -300,9 +299,10 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if customerRequest && !a.canAccessSite(r, owned.Site) {
-		http.Error(w, "database is not assigned to this account", http.StatusForbidden)
-		return
+	if customerRequest {
+		if _, ok := a.requireSiteAccess(w, r, owned.Site, "database is not assigned to this account", http.StatusForbidden); !ok {
+			return
+		}
 	}
 	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !credentialRotation {
 		for _, item := range items {

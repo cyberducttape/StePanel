@@ -10,8 +10,11 @@ import (
 // under /etc/stepanel/git-keys; neither the API nor the panel process reads it.
 func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 	site := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/sites/git-key/"), "/")
-	if site == "" || strings.Contains(site, "/") || safeUser(site) == "" || !a.canAccessSite(r, site) {
+	if site == "" || strings.Contains(site, "/") || safeUser(site) == "" {
 		http.Error(w, "invalid or inaccessible site", http.StatusForbidden)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, site, "invalid or inaccessible site", http.StatusForbidden); !ok {
 		return
 	}
 	if a.Config.GitCtl == "" {

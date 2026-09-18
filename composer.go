@@ -40,10 +40,11 @@ func OpenComposerStore(path string) (*ComposerStore, error) {
 	}
 	return s, nil
 }
-func (s *ComposerStore) save(site string, op ComposerOperation) error {
+func (s *ComposerStore) save(site SiteCapability, op ComposerOperation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.latest[site] = op
+	siteName := site.Site()
+	s.latest[siteName] = op
 	data, err := json.MarshalIndent(s.latest, "", "  ")
 	if err != nil {
 		return err
@@ -53,10 +54,10 @@ func (s *ComposerStore) save(site string, op ComposerOperation) error {
 	}
 	return writeAtomic(s.path, append(data, '\n'), 0600)
 }
-func (s *ComposerStore) get(site string) (ComposerOperation, bool) {
+func (s *ComposerStore) get(site SiteCapability) (ComposerOperation, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	v, ok := s.latest[site]
+	v, ok := s.latest[site.Site()]
 	return v, ok
 }
 func composerVersion() string {
@@ -96,8 +97,8 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	site := parts[0]
-	if !a.canAccessSite(r, site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	access, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403)
+	if !ok {
 		return
 	}
 	root := filepath.Join(a.Config.WebRoot, "sites", site, "public")
@@ -108,7 +109,7 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet && len(parts) == 1 {
 		_, jsonErr := os.Stat(filepath.Join(root, "composer.json"))
 		_, lockErr := os.Stat(filepath.Join(root, "composer.lock"))
-		op, ok := a.Composer.get(site)
+		op, ok := a.Composer.get(access)
 		writeJSON(w, 200, map[string]any{"site": site, "composer_version": composerVersion(), "composer_json": jsonErr == nil, "composer_lock": lockErr == nil, "last_operation": op, "has_last_operation": ok})
 		return
 	}
@@ -143,7 +144,7 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 		command += " --optimize-autoloader"
 	}
 	op := ComposerOperation{Site: site, Command: command, Completed: time.Now().UTC(), DurationMS: time.Since(started).Milliseconds(), Commit: gitHead(root)}
-	if err := a.Composer.save(site, op); err != nil {
+	if err := a.Composer.save(access, op); err != nil {
 		http.Error(w, "Composer succeeded but operation state could not be saved", 503)
 		return
 	}

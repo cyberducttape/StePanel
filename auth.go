@@ -159,6 +159,10 @@ func (s *sessionRegistry) revoke(id string) error {
 	return s.inner.Revoke(id)
 }
 
+func (s *sessionRegistry) revokeUserExcept(username, keepID string) error {
+	return s.inner.RevokeUserExcept(username, keepID)
+}
+
 func (a Auth) SessionPersistenceError() error {
 	if a.sessions == nil {
 		return nil

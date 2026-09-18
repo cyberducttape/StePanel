@@ -1009,6 +1009,38 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"account": account, "recovery_codes": codes})
 		return
 	}
+	if r.Method == http.MethodPost && strings.HasSuffix(strings.Trim(r.URL.Path, "/"), "/sessions/revoke") {
+		if !a.Auth.CSRF(r) {
+			http.Error(w, "invalid request", http.StatusForbidden)
+			return
+		}
+		if actor := a.Auth.UsernameForRequest(r); !a.Auth.RecoveryActionAllowed(actor) {
+			_ = ShouldAudit(a.Config.AuditLog, actor, "hosting.account.sessions-revoked-by-admin.throttled", actor, "account-recovery rate limit exceeded")
+			http.Error(w, "too many account-recovery actions; try again later", http.StatusTooManyRequests)
+			return
+		}
+		path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/accounts/"), "/sessions/revoke")
+		username := safeUser(strings.Trim(path, "/"))
+		if username == "" || strings.Contains(path, "/") {
+			http.Error(w, "invalid account", http.StatusBadRequest)
+			return
+		}
+		if _, exists := a.Accounts.Get(username); !exists {
+			http.Error(w, "account not found", http.StatusNotFound)
+			return
+		}
+		if a.Auth.sessions != nil {
+			if err := a.Auth.sessions.revokeUser(username); err != nil {
+				http.Error(w, "session revocation could not be persisted", http.StatusServiceUnavailable)
+				return
+			}
+		}
+		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.sessions-revoked-by-admin", username, "administrator forced logout"); err != nil {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method == http.MethodPatch || r.Method == http.MethodDelete {
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid request", http.StatusForbidden)
@@ -1256,5 +1288,32 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = ShouldAudit(a.Config.AuditLog, username, "hosting.account.mfa-enrolled", username, "customer completed MFA recovery")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// customerSessionsRevoke is the self-service "log out of all other devices"
+// action. Unlike password/MFA changes, which revoke every session for the
+// account including the one making the request, this deliberately keeps the
+// caller's own current session valid - it exists for a customer who suspects
+// a stolen cookie or a lingering session on another device, without forcing
+// themselves to log back in immediately.
+func (a *App) customerSessionsRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
+		http.Error(w, "invalid request", http.StatusForbidden)
+		return
+	}
+	username := a.Auth.UsernameForRequest(r)
+	if username == "" || a.Auth.IsAdministrator(r) || a.Auth.IsAPITokenRequest(r) || a.Accounts == nil {
+		http.Error(w, "customer account required", http.StatusForbidden)
+		return
+	}
+	if a.Auth.sessions != nil {
+		currentID := a.Auth.sessionID(r)
+		if err := a.Auth.sessions.revokeUserExcept(username, currentID); err != nil {
+			http.Error(w, "sessions could not be revoked", http.StatusServiceUnavailable)
+			return
+		}
+	}
+	_ = ShouldAudit(a.Config.AuditLog, username, "hosting.account.sessions-revoked", username, "customer logged out other sessions")
 	w.WriteHeader(http.StatusNoContent)
 }

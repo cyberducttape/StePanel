@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -512,6 +513,137 @@ func TestSuspensionRevokesExistingCustomerSessions(t *testing.T) {
 	}
 	if !registry.valid("admin-session", "admin", expiry) {
 		t.Fatal("unrelated session was revoked")
+	}
+}
+
+// TestCustomerSessionsRevokeKeepsCallerButEndsOtherDevices exercises the
+// self-service "log out of all other devices" endpoint through a real login
+// flow (session cookies are HMAC-signed against the account's credential
+// generation, so they cannot be hand-constructed). It must revoke a second,
+// independently logged-in session while leaving the session making the
+// request valid - the opposite of password/MFA change, which intentionally
+// end every session including the caller's.
+func TestCustomerSessionsRevokeKeepsCallerButEndsOtherDevices(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "")
+	store, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", nil); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.Accounts = store
+	a := &App{Config: Config{AuditLog: filepath.Join(t.TempDir(), "audit.log")}, Auth: auth, Accounts: store}
+
+	secret, err := decodeTOTPSecret(testTOTPSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := totpCode(secret, uint64(time.Now().Unix()/30))
+	loginReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=customer&password=a+sufficiently+long+customer+password&totp="+code))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginResp := httptest.NewRecorder()
+	a.Auth.Login(loginResp, loginReq)
+	if loginResp.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d, want %d", loginResp.Code, http.StatusSeeOther)
+	}
+	currentDevice := loginResp.Result().Cookies()
+
+	// A second device's session, seeded directly in the registry: a real TOTP
+	// code cannot be reused for a second login within the same 30-second
+	// window (replay protection), so a genuine second login race isn't
+	// reproducible here. The registry entry is what customerSessionsRevoke
+	// actually acts on, so this still exercises the real revocation path.
+	expiry := time.Now().Add(time.Hour).Unix()
+	if err := auth.sessions.inner.Add("other-device-session", "customer", expiry); err != nil {
+		t.Fatal(err)
+	}
+
+	withSession := func(method, path string, cookies []*http.Cookie) *http.Request {
+		r := httptest.NewRequest(method, path, nil)
+		for _, cookie := range cookies {
+			r.AddCookie(cookie)
+			if cookie.Name == "stepanel_csrf" {
+				r.Header.Set("X-CSRF-Token", cookie.Value)
+			}
+		}
+		return r
+	}
+
+	w := httptest.NewRecorder()
+	a.customerSessionsRevoke(w, withSession(http.MethodPost, "/api/account/sessions/revoke", currentDevice))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("revoke status = %d %s", w.Code, w.Body.String())
+	}
+
+	if auth.sessions.valid("other-device-session", "customer", expiry) {
+		t.Fatal("the other device's session should have been revoked")
+	}
+	if !a.Auth.validSession(withSession(http.MethodGet, "/", currentDevice)) {
+		t.Fatal("the caller's own session should still be valid")
+	}
+}
+
+// TestAdminSessionsRevokeEndsAllCustomerSessions exercises the administrator
+// force-logout endpoint (/api/accounts/{username}/sessions/revoke), which -
+// unlike the self-service version - has no "current session" of the target
+// to preserve, so it must end every session for that customer.
+func TestAdminSessionsRevokeEndsAllCustomerSessions(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "")
+	store, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", nil); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.Accounts = store
+	a := &App{Config: Config{AuditLog: filepath.Join(t.TempDir(), "audit.log")}, Auth: auth, Accounts: store}
+
+	secret, err := decodeTOTPSecret(testTOTPSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := totpCode(secret, uint64(time.Now().Unix()/30))
+	login := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=customer&password=a+sufficiently+long+customer+password&totp="+code))
+	login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginResponse := httptest.NewRecorder()
+	a.Auth.Login(loginResponse, login)
+	if loginResponse.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d, want %d", loginResponse.Code, http.StatusSeeOther)
+	}
+	customerCookies := loginResponse.Result().Cookies()
+
+	adminRequest := httptest.NewRequest(http.MethodPost, "/api/accounts/customer/sessions/revoke", nil)
+	adminRequest = adminRequest.WithContext(context.WithValue(adminRequest.Context(), apiTokenUsernameKey{}, "admin"))
+	adminRequest.AddCookie(&http.Cookie{Name: "stepanel_csrf", Value: "test-csrf-token"})
+	adminRequest.Header.Set("X-CSRF-Token", "test-csrf-token")
+	w := httptest.NewRecorder()
+	a.accounts(w, adminRequest)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("admin session revocation status = %d %s", w.Code, w.Body.String())
+	}
+
+	sessionRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, cookie := range customerCookies {
+		sessionRequest.AddCookie(cookie)
+	}
+	if a.Auth.validSession(sessionRequest) {
+		t.Fatal("customer session should have been revoked by the administrator action")
 	}
 }
 

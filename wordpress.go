@@ -36,8 +36,7 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site", 422)
 		return
 	}
-	if !a.canAccessSite(r, site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
 		return
 	}
 	var input wordpressAction
@@ -87,8 +86,7 @@ func (a *App) wordpressStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site", 422)
 		return
 	}
-	if !a.canAccessSite(r, site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
 		return
 	}
 	root := filepath.Join(a.Config.WebRoot, "sites", site, "public")

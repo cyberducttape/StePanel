@@ -35,8 +35,7 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid build definition", 422)
 		return
 	}
-	if !a.canAccessSite(r, input.Site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403); !ok {
 		return
 	}
 	releaseUnlock := a.siteOperations.Acquire(input.Site)

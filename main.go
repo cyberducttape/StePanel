@@ -535,6 +535,7 @@ func main() {
 	mux.Handle("/api/accounts/", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.accounts)), http.MethodPatch, http.MethodDelete, http.MethodPost))
 	mux.Handle("/api/account/password", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerPassword)), http.MethodPost))
 	mux.Handle("/api/account/mfa", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerMFA)), http.MethodPost))
+	mux.Handle("/api/account/sessions/revoke", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerSessionsRevoke)), http.MethodPost))
 	mux.Handle("/api/account/tokens", allowMethods(app.Auth.Require(http.HandlerFunc(app.apiTokens)), http.MethodGet, http.MethodPost))
 	mux.Handle("/api/account/tokens/", allowMethods(app.Auth.Require(http.HandlerFunc(app.apiTokens)), http.MethodDelete))
 	mux.Handle("/api/admin/tokens", allowMethods(app.Auth.Require(http.HandlerFunc(app.Auth.adminAPITokens)), http.MethodGet, http.MethodPost))
@@ -745,6 +746,10 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if safeUser(request.User) == "" || request.Filename == "" || request.Size < 0 || ensureInside(a.Config.ImportRoot, request.TempPath) != nil {
 		return nil, errors.New("invalid durable cpmove job payload")
 	}
+	_, err := a.authorizeDurableSiteJob(request.User, request.Actor, false)
+	if err != nil {
+		return nil, err
+	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -792,7 +797,8 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if safeUser(request.Site) == "" || request.Actor == "" || (request.Scheduled && request.KeepLast < 1) {
 		return nil, errors.New("invalid durable backup job payload")
 	}
-	if err := a.authorizeDurableSiteJob(request.Site, request.Actor, request.Scheduled); err != nil {
+	access, err := a.authorizeDurableSiteJob(request.Site, request.Actor, request.Scheduled)
+	if err != nil {
 		return nil, err
 	}
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
@@ -800,7 +806,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	}
 	releaseUnlock := a.siteOperations.Acquire(request.Site)
 	defer releaseUnlock()
-	result, err := CreateSiteBackup(a.Config, request.Site, request.IncludeDatabases)
+	result, err := CreateSiteBackup(a.Config, access, request.IncludeDatabases)
 	if err != nil {
 		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "site.backup.failed", request.Site, err.Error()); auditErr != nil {
 			return nil, fmt.Errorf("%w; audit persistence failed: %v", err, auditErr)
@@ -834,7 +840,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 			started = time.Now()
 		}
 		a.Schedules.recordResult(request.Site, started, nil)
-		if err := pruneSiteBackups(a.Config.BackupRoot, request.Site, request.KeepLast); err != nil {
+		if err := pruneSiteBackups(a.Config.BackupRoot, access, request.KeepLast); err != nil {
 			_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
 		}
 	}
@@ -877,6 +883,10 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 		if err == nil {
 			err = errors.New("invalid WordPress job payload")
 		}
+		return nil, err
+	}
+	_, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false)
+	if err != nil {
 		return nil, err
 	}
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
@@ -1050,8 +1060,7 @@ func (a *App) jobStatus(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !a.Auth.IsAdministrator(r) && !a.canAccessSite(r, job.User) {
-		http.Error(w, "job is not assigned to this account", http.StatusForbidden)
+	if _, ok := a.requireSiteAccess(w, r, job.User, "job is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
 	if r.Method == http.MethodPost {

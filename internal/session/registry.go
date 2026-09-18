@@ -170,6 +170,36 @@ func (r *Registry) RevokeUser(username string) error {
 	return nil
 }
 
+// RevokeUserExcept revokes every session for username except keepID. It
+// backs the "log out of all other devices" self-service action, which must
+// not invalidate the session making the request.
+func (r *Registry) RevokeUserExcept(username, keepID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	previous := make(map[string]Entry, len(r.Entries))
+	for id, entry := range r.Entries {
+		previous[id] = entry
+	}
+	var revoked []string
+	for id, entry := range r.Entries {
+		if entry.Username == username && id != keepID {
+			delete(r.Entries, id)
+			revoked = append(revoked, id)
+		}
+	}
+	if len(revoked) == 0 {
+		r.err = nil
+		return nil
+	}
+	if err := r.persistDeleteManyLocked(revoked); err != nil {
+		r.Entries = previous
+		r.err = err
+		return err
+	}
+	r.err = nil
+	return nil
+}
+
 func (r *Registry) Revoke(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -254,6 +284,23 @@ func (r *Registry) persistDeleteLocked(id string) error {
 	if r.db != nil {
 		_, err := r.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
 		return err
+	}
+	return r.persistFileLocked()
+}
+
+func (r *Registry) persistDeleteManyLocked(ids []string) error {
+	if r.db != nil {
+		tx, err := r.db.Begin()
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if _, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, id); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		return tx.Commit()
 	}
 	return r.persistFileLocked()
 }

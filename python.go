@@ -55,8 +55,7 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Python application definition", 422)
 		return
 	}
-	if !a.canAccessSite(r, app.Site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, app.Site, "site is not assigned to this account", 403); !ok {
 		return
 	}
 	if !a.Auth.HasRequiredCustomerScope(r, "deploy:write") {
@@ -150,8 +149,7 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Python action", 422)
 		return
 	}
-	if !a.canAccessSite(r, parts[0]) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, parts[0], "site is not assigned to this account", 403); !ok {
 		return
 	}
 	releaseUnlock := a.siteOperations.Acquire(parts[0])

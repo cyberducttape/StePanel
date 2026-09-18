@@ -89,7 +89,14 @@ func validTaskRuntime(v string) bool {
 
 func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/"), "/")
-	if len(parts) < 1 || safeUser(parts[0]) == "" || !a.canAccessSite(r, parts[0]) || a.Tasks == nil {
+	if len(parts) < 1 || safeUser(parts[0]) == "" {
+		http.Error(w, "invalid or inaccessible site", 403)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, parts[0], "invalid or inaccessible site", 403); !ok {
+		return
+	}
+	if a.Tasks == nil {
 		http.Error(w, "invalid or inaccessible site", 403)
 		return
 	}

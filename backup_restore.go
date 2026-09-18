@@ -63,7 +63,8 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	if safeUser(request.Site) == "" || !validBackupName(request.Backup) || request.Actor == "" {
 		return nil, errors.New("invalid durable backup restore payload")
 	}
-	if err := a.authorizeDurableSiteJob(request.Site, request.Actor, false); err != nil {
+	access, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false)
+	if err != nil {
 		return nil, err
 	}
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
@@ -72,48 +73,48 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	releaseUnlock := a.siteOperations.Acquire(request.Site)
 	defer releaseUnlock()
 	var result BackupRestoreResult
-	var err error
+	var restoreErr error
 	switch request.Mode {
 	case "files":
-		result, err = backupRestoreFiles(a.Config, request.Backup, request.Site)
+		result, restoreErr = backupRestoreFiles(a.Config, request.Backup, access)
 	case "database":
 		var safety BackupResult
-		safety, err = CreateSiteBackup(a.Config, request.Site, true)
-		if err == nil {
-			result, err = restoreManagedDatabase(a.Config, request.Backup, request.Site, request.Database)
+		safety, restoreErr = CreateSiteBackup(a.Config, access, true)
+		if restoreErr == nil {
+			result, restoreErr = restoreManagedDatabase(a.Config, request.Backup, request.Site, request.Database)
 			result.SafetyBackup = safety.Path
 		}
 	case "offsite-files":
 		var root string
 		var cleanup func()
-		root, cleanup, err = downloadOffsiteBackup(a.Config, request.Site, request.Backup)
-		if err == nil {
+		root, cleanup, restoreErr = downloadOffsiteBackup(a.Config, request.Site, request.Backup)
+		if restoreErr == nil {
 			defer cleanup()
 			cfg := a.Config
 			cfg.BackupRoot = root
-			result, err = backupRestoreFiles(cfg, request.Backup, request.Site)
+			result, restoreErr = backupRestoreFiles(cfg, request.Backup, access)
 		}
 	case "offsite-database":
 		var root string
 		var cleanup func()
-		root, cleanup, err = downloadOffsiteBackup(a.Config, request.Site, request.Backup)
-		if err == nil {
+		root, cleanup, restoreErr = downloadOffsiteBackup(a.Config, request.Site, request.Backup)
+		if restoreErr == nil {
 			defer cleanup()
 			var safety BackupResult
-			safety, err = CreateSiteBackup(a.Config, request.Site, true)
-			if err == nil {
+			safety, restoreErr = CreateSiteBackup(a.Config, access, true)
+			if restoreErr == nil {
 				cfg := a.Config
 				cfg.BackupRoot = root
-				result, err = restoreManagedDatabase(cfg, request.Backup, request.Site, request.Database)
+				result, restoreErr = restoreManagedDatabase(cfg, request.Backup, request.Site, request.Database)
 				result.SafetyBackup = safety.Path
 			}
 		}
 	default:
 		return nil, errors.New("unsupported backup restore mode")
 	}
-	if err != nil {
-		_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".failed", request.Site, err.Error())
-		return nil, err
+	if restoreErr != nil {
+		_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".failed", request.Site, restoreErr.Error())
+		return nil, restoreErr
 	}
 	_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".completed", request.Site, request.Backup)
 	output, err := json.Marshal(result)
@@ -140,8 +141,11 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
-	if input.Site == "" || !validBackupName(input.Backup) || !a.canAccessSite(r, input.Site) {
+	if input.Site == "" || !validBackupName(input.Backup) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, input.Site, "invalid backup", http.StatusUnprocessableEntity); !ok {
 		return
 	}
 	path, err := safePath(a.Config.BackupRoot, input.Backup)
@@ -197,8 +201,11 @@ func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Reque
 	input.Site = safeUser(input.Site)
 	input.Backup = strings.TrimSpace(input.Backup)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	if input.SourceSite == "" || !validBackupName(input.Backup) || !a.canAccessSite(r, input.SourceSite) {
+	if input.SourceSite == "" || !validBackupName(input.Backup) {
 		http.Error(w, "invalid or inaccessible source site", http.StatusForbidden)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, input.SourceSite, "invalid or inaccessible source site", http.StatusForbidden); !ok {
 		return
 	}
 	if !a.Auth.HasRequiredCustomerScope(r, "backup:restore") {
@@ -215,8 +222,11 @@ func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request, input RestoreToStagingRequest, backup string) {
-	if input.Site == "" || input.Backup == "." || input.Backup == "" || !domainPattern.MatchString(input.Domain) || !a.canAccessSite(r, input.Site) {
+	if input.Site == "" || input.Backup == "." || input.Backup == "" || !domainPattern.MatchString(input.Domain) {
 		http.Error(w, "invalid restore destination", 422)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, input.Site, "invalid restore destination", 422); !ok {
 		return
 	}
 	if !a.Auth.HasRequiredCustomerScope(r, "backup:restore") {
@@ -230,8 +240,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "backup verification failed", 422)
 		return
 	}
-	if !a.canAccessSite(r, manifest.Site) {
-		http.Error(w, "backup source site is not assigned to this account", http.StatusForbidden)
+	if _, ok := a.requireSiteAccess(w, r, manifest.Site, "backup source site is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
 	// Validate database restore parameters (if provided)
@@ -383,7 +392,8 @@ func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStaging
 // backupRestoreFiles replaces only the managed site files. It deliberately
 // leaves databases untouched and uses the normal site recovery journal so an
 // interrupted extraction can be resumed or rolled back by the operator.
-func backupRestoreFiles(cfg Config, backupName, site string) (BackupRestoreResult, error) {
+func backupRestoreFiles(cfg Config, backupName string, site SiteCapability) (BackupRestoreResult, error) {
+	siteName := site.Site()
 	if !validBackupName(backupName) {
 		return BackupRestoreResult{}, errors.New("invalid backup path")
 	}
@@ -395,7 +405,7 @@ func backupRestoreFiles(cfg Config, backupName, site string) (BackupRestoreResul
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("verify backup: %w", err)
 	}
-	if manifest.Site != site {
+	if manifest.Site != siteName {
 		return BackupRestoreResult{}, errors.New("backup does not belong to destination site")
 	}
 	if err := os.MkdirAll(cfg.ImportRoot, 0700); err != nil {
@@ -420,11 +430,11 @@ func backupRestoreFiles(cfg Config, backupName, site string) (BackupRestoreResul
 	if info, err := os.Stat(source); err != nil || !info.IsDir() {
 		return BackupRestoreResult{}, errors.New("backup has no site files")
 	}
-	dest, err := safePath(cfg.WebRoot, "sites", site, "public")
+	dest, err := safePath(cfg.WebRoot, "sites", siteName, "public")
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, dest, "backup.restore-files", site)
+	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, dest, "backup.restore-files", siteName)
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
@@ -434,20 +444,20 @@ func backupRestoreFiles(cfg Config, backupName, site string) (BackupRestoreResul
 			_ = txn.Rollback()
 		}
 	}()
-	if err := siteHelper(cfg, "prepare", site); err != nil {
+	if err := siteHelper(cfg, "prepare", siteName); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("prepare site: %w", err)
 	}
 	if err := copyTree(source, dest); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("restore site files: %w", err)
 	}
-	if err := siteHelper(cfg, "seal", site); err != nil {
+	if err := siteHelper(cfg, "seal", siteName); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("seal site: %w", err)
 	}
 	if err := txn.Commit(); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("commit restore journal: %w", err)
 	}
 	ok = true
-	return BackupRestoreResult{Site: site, Backup: filepath.Base(backup), Mode: "files-only", FilesRestored: true, DatabasePreserved: true, Consistency: manifest.Consistency, CompletedAt: time.Now().UTC()}, nil
+	return BackupRestoreResult{Site: siteName, Backup: filepath.Base(backup), Mode: "files-only", FilesRestored: true, DatabasePreserved: true, Consistency: manifest.Consistency, CompletedAt: time.Now().UTC()}, nil
 }
 
 func (a *App) backupRestoreFilesHTTP(w http.ResponseWriter, r *http.Request) {

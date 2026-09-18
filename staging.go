@@ -63,8 +63,11 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid staging source, site, or domain", 422)
 		return
 	}
-	if !a.canAccessSite(r, input.Source) || !a.canAccessSite(r, input.Site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, input.Source, "site is not assigned to this account", 403); !ok {
+		return
+	}
+	targetAccess, okTarget := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403)
+	if !okTarget {
 		return
 	}
 	if !a.Auth.IsAdministrator(r) {
@@ -224,7 +227,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not begin staging transaction", 503)
 		return
 	}
-	ok := false
+	var ok bool
 	defer func() {
 		if !ok {
 			_ = txn.Rollback()
@@ -260,7 +263,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Database {
-		createdDatabase, err = cloneManagedDatabaseToStaging(a.Config, input.SourceDatabase, input.TargetDatabase, input.TargetUser, input.TargetPassword, input.Site)
+		createdDatabase, err = cloneManagedDatabaseToStaging(a.Config, input.SourceDatabase, input.TargetDatabase, input.TargetUser, input.TargetPassword, targetAccess)
 		if err != nil {
 			http.Error(w, "could not clone staging database: "+err.Error(), 502)
 			return
@@ -290,7 +293,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, result)
 }
 
-func cloneManagedDatabaseToStaging(cfg Config, source, target, user, password, site string) (bool, error) {
+func cloneManagedDatabaseToStaging(cfg Config, source, target, user, password string, site SiteCapability) (bool, error) {
 	root, err := os.MkdirTemp(cfg.ImportRoot, "staging-db-")
 	if err != nil {
 		return false, err
@@ -304,7 +307,7 @@ func cloneManagedDatabaseToStaging(cfg Config, source, target, user, password, s
 	if cfg.DBEngine == "postgresql" {
 		encoding = "UTF8"
 	}
-	if _, err := runDatabaseHelper(cfg, time.Minute, password, "provision", target, user, site, encoding); err != nil {
+	if _, err := runDatabaseHelper(cfg, time.Minute, password, "provision", target, user, site.Site(), encoding); err != nil {
 		return false, fmt.Errorf("provision staging database: %w", err)
 	}
 	file, err := os.Open(dump)
@@ -314,7 +317,7 @@ func cloneManagedDatabaseToStaging(cfg Config, source, target, user, password, s
 	defer file.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", target, site)
+	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", target, site.Site())
 	cmd.Stdin = file
 	output, err := runBoundedCommand(ctx, cmd)
 	if err != nil {

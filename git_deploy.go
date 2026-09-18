@@ -124,9 +124,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site or Git ref", http.StatusUnprocessableEntity)
 		return
 	}
-	if r.Context().Value(gitWebhookContextKey{}) != true && !a.canAccessSite(r, input.Site) {
-		http.Error(w, "site is not assigned to this account", http.StatusForbidden)
-		return
+	if r.Context().Value(gitWebhookContextKey{}) != true {
+		if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
+			return
+		}
 	}
 	if r.Context().Value(gitWebhookContextKey{}) != true && !a.Auth.HasRequiredCustomerScope(r, "deploy:write") {
 		http.Error(w, "API token lacks the deploy:write scope", http.StatusForbidden)

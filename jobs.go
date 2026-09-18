@@ -27,22 +27,24 @@ var ErrJobBusy = errors.New("too many long-running jobs or target is already act
 
 // authorizeDurableSiteJob rechecks tenant policy at execution time. Queue
 // admission is not sufficient because an account can be suspended or detached
-// from a site while a worker is waiting on another job.
-func (a *App) authorizeDurableSiteJob(site, actor string, scheduled bool) error {
+// from a site while a worker is waiting on another job. On success, returns
+// an AuthorizedDurableSite capability that can be passed to data-access
+// functions expecting SiteCapability.
+func (a *App) authorizeDurableSiteJob(site, actor string, scheduled bool) (AuthorizedDurableSite, error) {
 	if safeUser(site) == "" || strings.TrimSpace(actor) == "" {
-		return errors.New("durable site job has invalid ownership data")
+		return AuthorizedDurableSite{}, errors.New("durable site job has invalid ownership data")
 	}
 	if scheduled || actor == a.Auth.Username {
-		return nil
+		return AuthorizedDurableSite{site: site}, nil
 	}
 	if a.Accounts == nil {
-		return errors.New("tenant ownership state is unavailable")
+		return AuthorizedDurableSite{}, errors.New("tenant ownership state is unavailable")
 	}
 	account, ok := a.Accounts.Get(actor)
 	if !ok || account.Suspended || !a.Accounts.OwnsSite(actor, site) {
-		return errors.New("durable job actor no longer owns the site")
+		return AuthorizedDurableSite{}, errors.New("durable job actor no longer owns the site")
 	}
-	return nil
+	return AuthorizedDurableSite{site: site}, nil
 }
 
 const maxJobStateBytes = 16 << 20

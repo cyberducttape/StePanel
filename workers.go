@@ -109,8 +109,11 @@ func validWorkerName(v string) bool {
 }
 func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/workers/"), "/"), "/")
-	if len(parts) < 1 || safeUser(parts[0]) == "" || !a.canAccessSite(r, parts[0]) {
+	if len(parts) < 1 || safeUser(parts[0]) == "" {
 		http.Error(w, "invalid or inaccessible site", 403)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, parts[0], "invalid or inaccessible site", 403); !ok {
 		return
 	}
 	site := parts[0]

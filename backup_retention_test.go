@@ -18,7 +18,8 @@ func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := pruneSiteBackups(root, "demo", 2); err != nil {
+	access := AuthorizedSite{site: "demo"}
+	if err := pruneSiteBackups(root, access, 2); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "20260101-000000.000000000-demo")); !os.IsNotExist(err) {

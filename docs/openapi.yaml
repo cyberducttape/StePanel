@@ -295,6 +295,14 @@ paths:
         - {name: username, in: path, required: true, schema: {type: string}}
       responses:
         '200': {description: Temporary password, new TOTP seed, and recovery codes returned once}
+  /api/accounts/{username}/sessions/revoke:
+    post:
+      summary: Force-log-out every session for a customer without changing credentials, plan, or suspension state (administrator only)
+      parameters:
+        - {name: username, in: path, required: true, schema: {type: string}}
+      responses:
+        '204': {description: All sessions for the account revoked}
+        '404': {description: Account not found}
   /api/account/password:
     post:
       summary: Complete the authenticated customer's required password change
@@ -305,6 +313,11 @@ paths:
       summary: Complete the authenticated customer's required MFA enrollment
       responses:
         '204': {description: TOTP enrollment saved and session revoked}
+  /api/account/sessions/revoke:
+    post:
+      summary: Log out every other session for the authenticated customer, keeping the current one active
+      responses:
+        '204': {description: Other sessions revoked; the calling session remains valid}
   /api/account/tokens:
     get:
       summary: List the authenticated customer's API token metadata

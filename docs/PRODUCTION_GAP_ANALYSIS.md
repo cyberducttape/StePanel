@@ -74,6 +74,44 @@ platform.
   safety verification. Verified backup-dump restore into a newly provisioned
   staging database is available; transactional/live snapshot cloning,
   promotion, and outbound-email blocking remain unavailable.
+- Every customer-facing, site-scoped HTTP handler now audits a denied
+  cross-tenant access attempt (`tenant.access_denied`) at the exact branch
+  that failed `a.canAccessSite`, not just the handlers that happened to call
+  an audit helper already; see `TestCrossTenantDenialIsAudited` and the
+  expanded `TestTenantIsolationMatrix`. This closes the observability gap
+  where a customer probing every other tenant's site through any of the
+  ~30 site-scoped endpoints left no record. The two durable job handlers that
+  lacked the worker-side ownership recheck present on `handleBackupJob` and
+  `handleBackupRestoreJob` (`handleCPMoveJob`, `handleWPressJob`) now call
+  `authorizeDurableSiteJob` too, for consistency; both are currently reachable
+  only from administrator-only routes, so this is defense-in-depth rather than
+  a fix to a reachable gap today. All ~30 of those handlers were then migrated
+  from a raw `a.canAccessSite` boolean check to `a.requireSiteAccess`
+  (`tenancy.go`), which returns an `AuthorizedSite` capability value and
+  performs the check, the denial audit, and the HTTP error response as one
+  call. This removes the duplicated three-line check/audit/error block a new
+  handler would otherwise have to copy correctly, and one redundant
+  `!a.Auth.IsAdministrator(r) &&` guard in `siteManage` was simplified away in
+  the process (canAccessSite already returns true for an administrator
+  unconditionally; `TestSiteManageDeniesCrossTenantRouteDeletion` now covers
+  the function, which previously had none). The `AuthorizedSite` capability is
+  now threaded into every site-scoped data-mutation function that touches site
+  state: `CreateSiteBackup`, `backupRestoreFiles`, `pruneSiteBackups`,
+  `cloneManagedDatabaseToStaging`, `ComposerStore.save/get`, and the entire
+  site-lifecycle teardown chain (`removeSiteServices`, `removeSiteTasks`,
+  `removeSiteState`, `detachSiteOwnership`, `terminationBackup`). All accept a
+  `SiteCapability` interface (sealed, with only two implementations:
+  `AuthorizedSite` from HTTP handlers and `AuthorizedDurableSite` from
+  durable-job execution); `handleSiteTermination` now performs the same
+  durable-job ownership recheck as its sibling handlers. Background
+  reconciliation loops (`reconcileEnvironments`, `reconcilePHPProfiles`) are
+  explicitly excluded from the capability interface because they operate on
+  already-persisted desired state, not request-supplied input. A new handler
+  can still forget to call `requireSiteAccess` entirely (the type system does
+  not forbid calling unscoped or admin-bypass paths), but all data-access call
+  sites that were reachable are now guaranteed to have an authorization proof.
+  The per-object data-access-boundary enforcement, durable tenant/account
+  ownership, and scoped RBAC described below remain unimplemented.
 
 ## Required before exposing the panel to customers
 
@@ -84,11 +122,17 @@ authorization. Durable customer API tokens now provide hashed, expiring,
 revocable automation credentials scoped to the owning account. Add durable
 tenant/account ownership for every object, scoped support/reseller RBAC,
 administrator token policy beyond the shipped read/operate scopes, OIDC/WebAuthn,
-session revocation,
 approval workflows for destructive actions, and tenant-aware audit/event
 records. Every object and background job must be authorized against the tenant
 at the data-access boundary, not only in HTTP handlers. Customer usernames are
 also rejected when they collide with the configured administrator identity.
+Session revocation on credential/lifecycle change (password reset, MFA reset,
+suspension, deletion, admin credential recovery) and a standalone force-logout
+action (`/api/account/sessions/revoke` self-service,
+`/api/accounts/{username}/sessions/revoke` administrator) are implemented; an
+operator or customer cannot yet see what sessions exist to choose which one to
+end (no listing, no per-session metadata such as IP, user agent, or creation
+time) - only "all" or "all except the caller's own" are expressible today.
 
 ### Durable control plane
 

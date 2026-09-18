@@ -31,8 +31,7 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "action or package manager is not supported", 422)
 		return
 	}
-	if !a.canAccessSite(r, input.Site) {
-		http.Error(w, "site is not assigned to this account", 403)
+	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403); !ok {
 		return
 	}
 	root := filepath.Join(a.Config.WebRoot, "sites", input.Site, "public")

@@ -212,8 +212,11 @@ func (a *App) domainClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Site = safeUser(input.Site)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	if input.Site == "" || !domainPattern.MatchString(input.Domain) || !a.canAccessSite(r, input.Site) {
+	if input.Site == "" || !domainPattern.MatchString(input.Domain) {
 		http.Error(w, "invalid or inaccessible site", http.StatusForbidden)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, input.Site, "invalid or inaccessible site", http.StatusForbidden); !ok {
 		return
 	}
 	claim, err := a.Domains.claim(input.Site, input.Domain)
@@ -239,8 +242,11 @@ func (a *App) domainVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Site = safeUser(input.Site)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	if input.Site == "" || !domainPattern.MatchString(input.Domain) || !a.canAccessSite(r, input.Site) {
+	if input.Site == "" || !domainPattern.MatchString(input.Domain) {
 		http.Error(w, "invalid or inaccessible site", http.StatusForbidden)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, input.Site, "invalid or inaccessible site", http.StatusForbidden); !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
