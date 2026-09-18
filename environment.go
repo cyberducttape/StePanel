@@ -18,7 +18,14 @@ import (
 	"sync"
 )
 
-func (a *App) applyEnvironment(ctx context.Context, site string, vars map[string]environmentValue) error {
+func (a *App) applyEnvironment(ctx context.Context, access SiteCapability, vars map[string]environmentValue) error {
+	return a.applyEnvironmentLocked(ctx, access.Site(), vars)
+}
+
+// applyEnvironmentLocked is an internal method for background reconciliation loops
+// that operate on already-persisted desired state. This is intentionally excluded
+// from the capability model since reconciliation has no request/job context.
+func (a *App) applyEnvironmentLocked(ctx context.Context, site string, vars map[string]environmentValue) error {
 	lines := make([]string, 0, len(vars))
 	for name, value := range vars {
 		if strings.ContainsAny(value.Value, "\x00\r\n") {
@@ -43,7 +50,7 @@ func (a *App) reconcileEnvironments(ctx context.Context) (reconciled []string, f
 	a.Environments.mu.RUnlock()
 	for site, vars := range desired {
 		releaseUnlock := a.siteOperations.Acquire(site)
-		if err := a.applyEnvironment(ctx, site, vars); err != nil {
+		if err := a.applyEnvironmentLocked(ctx, site, vars); err != nil {
 			failed[site] = err.Error()
 			releaseUnlock()
 			continue
@@ -190,7 +197,14 @@ func cloneEnvironmentValues(values map[string]environmentValue) map[string]envir
 	return copy
 }
 
-func (a *App) removeEnvironment(ctx context.Context, site string) error {
+func (a *App) removeEnvironment(ctx context.Context, access SiteCapability) error {
+	return a.removeEnvironmentLocked(ctx, access.Site())
+}
+
+// removeEnvironmentLocked is an internal method for background reconciliation
+// and site lifecycle operations. This is intentionally excluded from the
+// capability model for internal cleanup operations.
+func (a *App) removeEnvironmentLocked(ctx context.Context, site string) error {
 	a.Environments.mu.RLock()
 	_, existed := a.Environments.values[site]
 	a.Environments.mu.RUnlock()
@@ -213,7 +227,7 @@ func (a *App) removeEnvironment(ctx context.Context, site string) error {
 	if err != nil {
 		return fmt.Errorf("environment desired state save failed: %w", err)
 	}
-	if err := a.applyEnvironment(ctx, site, empty); err != nil {
+	if err := a.applyEnvironmentLocked(ctx, site, empty); err != nil {
 		return fmt.Errorf("remove environment from host: %w", err)
 	}
 	a.Environments.mu.Lock()
@@ -235,7 +249,8 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site", 422)
 		return
 	}
-	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
+	access, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403)
+	if !ok {
 		return
 	}
 	if a.Environments == nil || len(a.Environments.key) == 0 {
@@ -298,7 +313,7 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "environment state could not be saved", 503)
 			return
 		}
-		if err := a.applyEnvironment(r.Context(), site, input); err != nil {
+		if err := a.applyEnvironment(r.Context(), access, input); err != nil {
 			http.Error(w, "environment is pending host reconciliation", 502)
 			return
 		}
@@ -315,7 +330,7 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 		}
 		releaseUnlock := a.siteOperations.Acquire(site)
 		defer releaseUnlock()
-		if err := a.removeEnvironment(r.Context(), site); err != nil {
+		if err := a.removeEnvironment(r.Context(), access); err != nil {
 			if strings.Contains(err.Error(), "desired state save failed") {
 				http.Error(w, "environment state could not be saved", 503)
 			} else if strings.Contains(err.Error(), "metadata cleanup pending") {
