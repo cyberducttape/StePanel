@@ -279,6 +279,12 @@ Container deployments must either mount application TLS certificates or set
 Kubernetes, Helm, and Terraform examples assume that trusted ingress boundary;
 generic Docker deployments still require the operator to provide it explicitly.
 
+**Important:** When proxying StePanel, configure your reverse proxy to allow
+long-running uploads (20 GB at typical bandwidth requires 30 minutes). Set
+timeouts accordingly: Apache's `ProxyTimeout 1800`, Nginx's `proxy_read_timeout
+1800s`, or Caddy's `timeout 30m`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+for configuration examples.
+
 ### Database engine and administration UI
 
 Set `STEPANEL_DB_ENGINE=postgresql` to install PostgreSQL instead of MySQL or
