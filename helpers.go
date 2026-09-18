@@ -37,11 +37,16 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func runBoundedCommand(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
-	return runBoundedCommandLimit(cmd, maxCommandOutput)
+func runBoundedCommand(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
+	return runBoundedCommandLimit(ctx, cmd, maxCommandOutput)
 }
 
-func runBoundedCommandLimit(cmd *exec.Cmd, limit int) ([]byte, error) {
+// runBoundedCommandLimit enforces ctx directly, independent of how cmd was
+// constructed. All current callers build cmd with exec.CommandContext, which
+// already enforces the deadline—but that is a caller convention. This function
+// now verifies it, so a cmd built with plain exec.Command cannot silently
+// ignore its deadline here.
+func runBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]byte, error) {
 	var output boundedBuffer
 	output.limit = limit
 	if limit > maxCommandOutput {
@@ -49,11 +54,36 @@ func runBoundedCommandLimit(cmd *exec.Cmd, limit int) ([]byte, error) {
 	}
 	cmd.Stdout = &output
 	cmd.Stderr = &output
-	err := cmd.Run()
-	if err != nil {
+	if err := cmd.Start(); err != nil {
 		return output.data, fmt.Errorf("%w: %s", err, string(output.data))
 	}
-	return output.data, nil
+
+	// Use a buffered channel so the goroutine can always send, preventing
+	// goroutine leak if we cancel before the process finishes. The buffered
+	// nature ensures the goroutine doesn't block after process completion.
+	waitErr := make(chan error, 1)
+	go func() {
+		waitErr <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-waitErr:
+		// Process finished before context deadline.
+		if err != nil {
+			return output.data, fmt.Errorf("%w: %s", err, string(output.data))
+		}
+		return output.data, nil
+	case <-ctx.Done():
+		// Context cancelled or deadline exceeded while process was running.
+		// Kill the process and wait for it to finish to avoid leaving
+		// a zombie, then return the context error.
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		// Wait for the process to actually finish (goroutine will exit).
+		<-waitErr
+		return output.data, fmt.Errorf("%w: %s", ctx.Err(), string(output.data))
+	}
 }
 
 func runBoundedCommandInput(ctx context.Context, cmd *exec.Cmd, input io.Reader) ([]byte, error) {
