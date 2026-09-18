@@ -126,7 +126,7 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	return info, nil
 }
 
-func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader, user string, databases bool) (ImportResult, error) {
+func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader, site SiteCapability, databases bool) (ImportResult, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return ImportResult{}, err
 	}
@@ -140,6 +140,7 @@ func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("create import staging ID: %w", err)
 	}
+	user := site.Site()
 	id := time.Now().UTC().Format("20060102-150405") + "-" + user + "-" + randomID[:12]
 	stage := filepath.Join(cfg.ImportRoot, id)
 	if err := os.MkdirAll(stage, 0700); err != nil {
@@ -163,7 +164,7 @@ func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader
 		return ImportResult{}, err
 	}
 	home := filepath.Join(cfg.WebRoot, "sites", user, "public")
-	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, home, "cpmove.restore", user)
+	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, home, "cpmove.restore", site)
 	if err != nil {
 		return ImportResult{}, err
 	}

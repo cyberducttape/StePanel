@@ -214,7 +214,8 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": filepath.Join("/api/jobs", job.ID)})
 }
 
-func RestoreWPress(cfg Config, archive, site, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix string, force bool) (WPressResult, error) {
+func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix string, force bool) (WPressResult, error) {
+	site := access.Site()
 	if err := validateWPressInput(site, dbSuffix, dbUserSuffix, dbPassword, targetPrefix, siteURL); err != nil {
 		return WPressResult{}, err
 	}
@@ -270,7 +271,7 @@ func RestoreWPress(cfg Config, archive, site, dbSuffix, dbUserSuffix, dbPassword
 	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return WPressResult{}, fmt.Errorf("inspect destination site: %w", statErr)
 	}
-	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, home, "wordpress.restore", site)
+	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, home, "wordpress.restore", access)
 	if err != nil {
 		return WPressResult{}, err
 	}

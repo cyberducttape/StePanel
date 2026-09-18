@@ -226,7 +226,8 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "invalid restore destination", 422)
 		return
 	}
-	if _, ok := a.requireSiteAccess(w, r, input.Site, "invalid restore destination", 422); !ok {
+	access, ok := a.requireSiteAccess(w, r, input.Site, "invalid restore destination", 422)
+	if !ok {
 		return
 	}
 	if !a.Auth.HasRequiredCustomerScope(r, "backup:restore") {
@@ -307,15 +308,15 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "could not apply restore indexing protection", 503)
 		return
 	}
-	txn, e := BeginSiteTransaction(a.Config.RecoveryRoot, dest, "backup.restore-to-staging", input.Site)
+	txn, e := BeginSiteTransaction(a.Config.RecoveryRoot, dest, "backup.restore-to-staging", access)
 	if e != nil {
 		http.Error(w, "could not journal restore", 503)
 		return
 	}
-	ok := false
+	committed := false
 	createdDatabase := false
 	defer func() {
-		if !ok {
+		if !committed {
 			_ = txn.Rollback()
 			if createdDatabase {
 				if _, cleanupErr := runDatabaseHelper(a.Config, time.Minute, "", "drop-managed", input.TargetDatabase, input.TargetUser); cleanupErr != nil {
@@ -349,7 +350,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "could not commit restore", 503)
 		return
 	}
-	ok = true
+	committed = true
 	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.restore-to-staging", input.Site, input.Backup)
 	writeJSON(w, 202, map[string]any{"site": input.Site, "domain": input.Domain, "backup": input.Backup, "source_site": manifest.Site, "files_restored": true, "databases_restored": hasDatabase, "database": input.TargetDatabase, "restore_mode": "staging", "consistency": manifest.Consistency, "created_at": time.Now().UTC()})
 }
@@ -434,7 +435,7 @@ func backupRestoreFiles(cfg Config, backupName string, site SiteCapability) (Bac
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, dest, "backup.restore-files", siteName)
+	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, dest, "backup.restore-files", site)
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}

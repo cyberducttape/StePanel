@@ -13,7 +13,7 @@ func TestRecoverSiteTransactionAfterProcessDeath(t *testing.T) {
 	recovery := filepath.Join(root, ".stepanel-recovery")
 	home := filepath.Join(root, "site", "public")
 	writeTestFile(t, filepath.Join(home, "index.html"), "old")
-	if _, err := BeginSiteTransaction(recovery, home, "test.process-death", "site"); err != nil {
+	if _, err := BeginSiteTransaction(recovery, home, "test.process-death", AuthorizedSite{site: "site"}); err != nil {
 		t.Fatal(err)
 	}
 	// Leave the journal uncommitted, matching the state a process death or
@@ -30,7 +30,7 @@ func TestRecoverTransactionDatabasesCleansJournalBeforeSiteRollback(t *testing.T
 	recovery := filepath.Join(root, ".stepanel-recovery")
 	home := filepath.Join(root, "site", "public")
 	writeTestFile(t, filepath.Join(home, "index.html"), "old")
-	txn, err := BeginSiteTransaction(recovery, home, "test.restore", "site")
+	txn, err := BeginSiteTransaction(recovery, home, "test.restore", AuthorizedSite{site: "site"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestRecoverTransactionDatabasesCleansJournalBeforeSiteRollback(t *testing.T
 
 func TestManagedDatabaseValidationRejectsUnsafeJournalEntry(t *testing.T) {
 	root := t.TempDir()
-	txn, err := BeginSiteTransaction(filepath.Join(root, "recovery"), filepath.Join(root, "site", "public"), "test.restore", "site")
+	txn, err := BeginSiteTransaction(filepath.Join(root, "recovery"), filepath.Join(root, "site", "public"), "test.restore", AuthorizedSite{site: "site"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestSiteTransactionRollbackRestoresPreviousSite(t *testing.T) {
 	recovery := filepath.Join(root, ".stepanel-recovery")
 	home := filepath.Join(root, "site", "public")
 	writeTestFile(t, filepath.Join(home, "index.html"), "old")
-	txn, err := BeginSiteTransaction(recovery, home, "test.restore", "site")
+	txn, err := BeginSiteTransaction(recovery, home, "test.restore", AuthorizedSite{site: "site"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestRecoverSiteTransactionsRollsBackInterruptedSite(t *testing.T) {
 	recovery := filepath.Join(root, ".stepanel-recovery")
 	home := filepath.Join(root, "site", "public")
 	writeTestFile(t, filepath.Join(home, "index.html"), "old")
-	txn, err := BeginSiteTransaction(recovery, home, "test.restore", "site")
+	txn, err := BeginSiteTransaction(recovery, home, "test.restore", AuthorizedSite{site: "site"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestRecoverSiteTransactionsQuarantinesMalformedEntryAndContinues(t *testing
 	}
 	home := filepath.Join(root, "site", "public")
 	writeTestFile(t, filepath.Join(home, "index.html"), "old")
-	txn, err := BeginSiteTransaction(recovery, home, "test.restore", "site")
+	txn, err := BeginSiteTransaction(recovery, home, "test.restore", AuthorizedSite{site: "site"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestSiteTransactionRollbackReconcilesRestoredBackup(t *testing.T) {
 	recovery := filepath.Join(root, ".stepanel-recovery")
 	home := filepath.Join(root, "site", "public")
 	writeTestFile(t, filepath.Join(home, "index.html"), "old")
-	txn, err := BeginSiteTransaction(recovery, home, "test.restore", "site")
+	txn, err := BeginSiteTransaction(recovery, home, "test.restore", AuthorizedSite{site: "site"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestCommittedSiteTransactionRetainsBackupUntilCleanup(t *testing.T) {
 	recovery := filepath.Join(root, ".stepanel-recovery")
 	home := filepath.Join(root, "site", "public")
 	writeTestFile(t, filepath.Join(home, "index.html"), "old")
-	txn, err := BeginSiteTransaction(recovery, home, "test.restore", "site")
+	txn, err := BeginSiteTransaction(recovery, home, "test.restore", AuthorizedSite{site: "site"})
 	if err != nil {
 		t.Fatal(err)
 	}

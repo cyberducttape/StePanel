@@ -37,7 +37,8 @@ type ManagedDatabase struct {
 	Kind string `json:"kind"`
 }
 
-func BeginSiteTransaction(root, home, kind, site string) (*SiteTransaction, error) {
+func BeginSiteTransaction(root, home, kind string, access SiteCapability) (*SiteTransaction, error) {
+	site := access.Site()
 	if safeUser(site) == "" {
 		return nil, errors.New("invalid recovery site")
 	}

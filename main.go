@@ -750,7 +750,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if safeUser(request.User) == "" || request.Filename == "" || request.Size < 0 || ensureInside(a.Config.ImportRoot, request.TempPath) != nil {
 		return nil, errors.New("invalid durable cpmove job payload")
 	}
-	_, err := a.authorizeDurableSiteJob(request.User, request.Actor, false)
+	access, err := a.authorizeDurableSiteJob(request.User, request.Actor, false)
 	if err != nil {
 		return nil, err
 	}
@@ -774,7 +774,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	releaseUnlock := a.siteOperations.Acquire(request.User)
 	defer releaseUnlock()
 	a.Metrics.RestoreStarted()
-	result, restoreErr := RestoreCPMove(a.Config, staged, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, request.User, request.RestoreDBs)
+	result, restoreErr := RestoreCPMove(a.Config, staged, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs)
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
 		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "cpmove.restore.failed", request.User, restoreErr.Error()); auditErr != nil {
@@ -889,7 +889,7 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		return nil, err
 	}
-	_, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false)
+	access, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false)
 	if err != nil {
 		return nil, err
 	}
@@ -905,7 +905,7 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	releaseUnlock := a.siteOperations.Acquire(request.Site)
 	defer releaseUnlock()
 	a.Metrics.RestoreStarted()
-	result, restoreErr := RestoreWPress(a.Config, request.TempPath, request.Site, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force)
+	result, restoreErr := RestoreWPress(a.Config, request.TempPath, access, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force)
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
 		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "wordpress.restore.failed", request.Site, restoreErr.Error()); auditErr != nil {
