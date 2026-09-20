@@ -2,16 +2,12 @@ package main
 
 import (
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/backup"
 	"strings"
 )
 
-// RestoreDatabaseInput encapsulates database restore parameters
-type RestoreDatabaseInput struct {
-	Database       string
-	TargetDatabase string
-	TargetUser     string
-	TargetPassword string
-}
+// Type alias for backward compatibility
+type RestoreDatabaseInput = backup.RestoreDatabaseInput
 
 // ValidateRestoreDatabaseInput checks all database restore parameters
 // Returns a slice of validation errors (empty if valid)

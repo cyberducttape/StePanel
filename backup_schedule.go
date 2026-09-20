@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/backup"
 	"log"
 	"net/http"
 	"os"
@@ -13,19 +14,8 @@ import (
 	"time"
 )
 
-type BackupSchedule struct {
-	Site             string     `json:"site"`
-	IntervalMinutes  int        `json:"interval_minutes"`
-	KeepLast         int        `json:"keep_last"`
-	IncludeDatabases bool       `json:"include_databases"`
-	Enabled          bool       `json:"enabled"`
-	NextRun          time.Time  `json:"next_run"`
-	LastRun          *time.Time `json:"last_run,omitempty"`
-	LastSuccess      *time.Time `json:"last_success,omitempty"`
-	LastError        string     `json:"last_error,omitempty"`
-	LastDurationMS   int64      `json:"last_duration_ms,omitempty"`
-	ConsecutiveFails int        `json:"consecutive_failures"`
-}
+// Type alias for backward compatibility
+type BackupSchedule = backup.BackupSchedule
 
 type backupSchedules struct {
 	mu    sync.Mutex

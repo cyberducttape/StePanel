@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/backup"
 	"log"
 	"net/http"
 	"os"
@@ -13,38 +14,13 @@ import (
 	"time"
 )
 
-type RestoreToStagingRequest struct {
-	Backup         string `json:"backup"`
-	SourceSite     string `json:"source_site,omitempty"`
-	Site           string `json:"site"`
-	Domain         string `json:"domain"`
-	Database       string `json:"database,omitempty"`
-	TargetDatabase string `json:"target_database,omitempty"`
-	TargetUser     string `json:"target_user,omitempty"`
-	TargetPassword string `json:"target_password,omitempty"`
-}
+// Type aliases for backward compatibility
+type RestoreToStagingRequest = backup.RestoreToStagingRequest
+type BackupRestoreResult = backup.BackupRestoreResult
+type DurableBackupRestoreRequest = backup.DurableBackupRestoreRequest
 
-type BackupRestoreResult struct {
-	Site              string    `json:"site"`
-	Backup            string    `json:"backup"`
-	Mode              string    `json:"mode"`
-	Database          string    `json:"database,omitempty"`
-	FilesRestored     bool      `json:"files_restored"`
-	DatabaseRestored  bool      `json:"database_restored"`
-	DatabasePreserved bool      `json:"database_preserved"`
-	SafetyBackup      string    `json:"safety_backup,omitempty"`
-	Consistency       string    `json:"consistency"`
-	SchemaRollback    string    `json:"schema_rollback"`
-	CompletedAt       time.Time `json:"completed_at"`
-}
-
-type durableBackupRestoreRequest struct {
-	Mode     string `json:"mode"`
-	Site     string `json:"site"`
-	Backup   string `json:"backup"`
-	Database string `json:"database,omitempty"`
-	Actor    string `json:"actor"`
-}
+// Lowercase alias for backward compatibility with existing code
+type durableBackupRestoreRequest = backup.DurableBackupRestoreRequest
 
 func (a *App) enqueueBackupRestoreJob(request durableBackupRestoreRequest) (Job, error) {
 	payload, err := json.Marshal(request)

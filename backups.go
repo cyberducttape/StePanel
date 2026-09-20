@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/backup"
 	"io"
 	"log"
 	"net/http"
@@ -21,42 +22,12 @@ import (
 	"time"
 )
 
-const maxBackupBytes int64 = 20 << 30
+// Type aliases for backward compatibility
+type BackupEntry = backup.BackupEntry
+type BackupManifest = backup.BackupManifest
+type BackupResult = backup.BackupResult
 
-type BackupEntry struct {
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
-	SHA256 string `json:"sha256"`
-}
-
-type BackupManifest struct {
-	Version              int           `json:"version"`
-	Site                 string        `json:"site"`
-	CreatedAt            time.Time     `json:"created_at"`
-	VerifiedAt           time.Time     `json:"verified_at"`
-	Archive              string        `json:"archive"`
-	ArchiveSHA256        string        `json:"archive_sha256"`
-	Bytes                int64         `json:"bytes"`
-	Databases            []string      `json:"databases"`
-	Entries              []BackupEntry `json:"entries"`
-	Consistency          string        `json:"consistency"`
-	ArchiveVerified      bool          `json:"archive_verified"`
-	DatabaseDumpVerified bool          `json:"database_dump_verified"`
-	ApplicationQuiesced  bool          `json:"application_quiesced"`
-	FilesystemSnapshot   bool          `json:"filesystem_snapshot"`
-	SignatureAlgorithm   string        `json:"signature_algorithm,omitempty"`
-}
-
-type BackupResult struct {
-	Site           string    `json:"site"`
-	Path           string    `json:"path"`
-	ArchiveSHA256  string    `json:"archive_sha256"`
-	Bytes          int64     `json:"bytes"`
-	Databases      []string  `json:"databases"`
-	VerifiedAt     time.Time `json:"verified_at"`
-	Consistency    string    `json:"consistency"`
-	ManifestSigned bool      `json:"manifest_signed"`
-}
+const maxBackupBytes = backup.MaxBackupBytes
 
 func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
