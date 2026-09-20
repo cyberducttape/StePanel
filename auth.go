@@ -306,10 +306,16 @@ func (a Auth) Require(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if username, scopes, ok := a.validAPITokenWithScopes(r); ok {
+		if username, scopes, isLegacyUnscoped, ok := a.validAPITokenWithScopesAndLegacy(r); ok {
 			r = r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, username))
 			r = r.WithContext(context.WithValue(r.Context(), apiTokenScopesKey{}, scopes))
-			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			// Log all token requests, with special tracking for legacy unscoped tokens
+			if isLegacyUnscoped {
+				if err := AuditAs(a.AuditLog, username, "token.legacy_unscoped_access", r.URL.Path, a.ClientIP(r)); err != nil {
+					http.Error(w, "audit persistence is unavailable", 503)
+					return
+				}
+			} else if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 				if err := AuditAs(a.AuditLog, username, "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
 					http.Error(w, "audit persistence is unavailable", 503)
 					return
@@ -482,30 +488,35 @@ func (a Auth) validAPIToken(r *http.Request) (string, bool) {
 }
 
 func (a Auth) validAPITokenWithScopes(r *http.Request) (string, []string, bool) {
+	username, scopes, _, ok := a.validAPITokenWithScopesAndLegacy(r)
+	return username, scopes, ok
+}
+
+func (a Auth) validAPITokenWithScopesAndLegacy(r *http.Request) (string, []string, bool, bool) {
 	value := strings.TrimSpace(r.Header.Get("Authorization"))
 	if len(value) < 8 || !strings.EqualFold(value[:7], "Bearer ") {
-		return "", nil, false
+		return "", nil, false, false
 	}
 	tokenValue := strings.TrimSpace(value[7:])
-	username, scopes, ok := a.apiTokens.authenticateWithScopes(tokenValue)
+	username, scopes, isLegacyUnscoped, ok := a.apiTokens.authenticateWithScopesAndLegacy(tokenValue)
 	if !ok {
-		return "", nil, false
+		return "", nil, false, false
 	}
 
 	// Rate limit per API token to prevent abuse of compromised tokens.
 	// Each token gets 600 requests per minute (10 per second).
 	if a.apiTokenLimiter != nil && !a.apiTokenLimiter.allow(tokenValue) {
-		return "", nil, false
+		return "", nil, false, false
 	}
 
 	if subtle.ConstantTimeCompare([]byte(username), []byte(a.Username)) == 1 {
-		return username, scopes, true
+		return username, scopes, isLegacyUnscoped, true
 	}
 	if a.Accounts == nil {
-		return "", nil, false
+		return "", nil, false, false
 	}
 	account, exists := a.Accounts.Get(username)
-	return username, scopes, exists && !account.Suspended
+	return username, scopes, isLegacyUnscoped, exists && !account.Suspended
 }
 
 func (a Auth) HasAPIScope(r *http.Request, scope string) bool {
