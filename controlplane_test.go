@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"github.com/itchyitchy123/StePanel/internal/migration"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,7 +142,7 @@ func TestControlPlaneMigrationsReconcileAdHocLegacyVersion(t *testing.T) {
 	if _, err := raw.Exec(controlPlaneSchema); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Exec(controlPlaneMigrationsSchema); err != nil {
+	if _, err := raw.Exec(migration.SchemaMigrationsTable); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := raw.Exec(`INSERT INTO control_plane_migrations (version) VALUES (1)`); err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/migration"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,13 +14,6 @@ import (
 
 	_ "modernc.org/sqlite"
 )
-
-const controlPlaneMigrationsSchema = `
-CREATE TABLE IF NOT EXISTS control_plane_migrations (
-    version INTEGER PRIMARY KEY,
-    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-`
 
 const controlPlaneSchema = `
 CREATE TABLE IF NOT EXISTS jobs (
@@ -119,24 +113,39 @@ func openControlPlaneDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// controlPlaneMigration is one ordered, individually tracked schema change.
-// Each migration runs inside its own transaction: either the whole thing
-// commits and its version is recorded, or nothing about the schema changes
-// and the version is not recorded, so a crash or failure between migrations
-// never leaves an ambiguous half-applied schema for the next startup to
-// guess about.
-type controlPlaneMigration struct {
-	version     int
-	description string
-	// alreadyApplied lets a migration detect that its effect already exists
-	// on disk (structurally, not by parsing an error string) so that a
-	// database carried over from the pre-migration-table ad-hoc upgrader -
-	// which recorded a bare "version 1" without tracking each column
-	// individually - can be reconciled by recording the version without
-	// re-running SQL that would now fail against a column that already
-	// exists.
-	alreadyApplied func(tx *sql.Tx) (bool, error)
-	apply          func(tx *sql.Tx) error
+// controlPlaneMigrations returns the list of database schema migrations
+var controlPlaneMigrations = []*migration.Migration{
+	migration.NewMigration(1, "initial control-plane schema", func(tx *sql.Tx) error {
+		_, err := tx.Exec(controlPlaneSchema)
+		return err
+	}),
+	migration.NewMigrationWithCheck(2, "add jobs.next_attempt_at for retry backoff",
+		func(tx *sql.Tx) (bool, error) {
+			return controlPlaneColumnExists(tx, "jobs", "next_attempt_at")
+		},
+		func(tx *sql.Tx) error {
+			_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN next_attempt_at INTEGER`)
+			return err
+		},
+	),
+	migration.NewMigrationWithCheck(3, "add jobs.cancel_requested for durable cancellation",
+		func(tx *sql.Tx) (bool, error) {
+			return controlPlaneColumnExists(tx, "jobs", "cancel_requested")
+		},
+		func(tx *sql.Tx) error {
+			_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0`)
+			return err
+		},
+	),
+	migration.NewMigrationWithCheck(4, "add api_tokens.scopes for scoped automation tokens",
+		func(tx *sql.Tx) (bool, error) {
+			return controlPlaneColumnExists(tx, "api_tokens", "scopes")
+		},
+		func(tx *sql.Tx) error {
+			_, err := tx.Exec(`ALTER TABLE api_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT ''`)
+			return err
+		},
+	),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
@@ -157,50 +166,6 @@ func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
 	return false, rows.Err()
 }
 
-var controlPlaneMigrations = []controlPlaneMigration{
-	{
-		version:     1,
-		description: "initial control-plane schema",
-		apply: func(tx *sql.Tx) error {
-			_, err := tx.Exec(controlPlaneSchema)
-			return err
-		},
-	},
-	{
-		version:     2,
-		description: "add jobs.next_attempt_at for retry backoff",
-		alreadyApplied: func(tx *sql.Tx) (bool, error) {
-			return controlPlaneColumnExists(tx, "jobs", "next_attempt_at")
-		},
-		apply: func(tx *sql.Tx) error {
-			_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN next_attempt_at INTEGER`)
-			return err
-		},
-	},
-	{
-		version:     3,
-		description: "add jobs.cancel_requested for durable cancellation",
-		alreadyApplied: func(tx *sql.Tx) (bool, error) {
-			return controlPlaneColumnExists(tx, "jobs", "cancel_requested")
-		},
-		apply: func(tx *sql.Tx) error {
-			_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0`)
-			return err
-		},
-	},
-	{
-		version:     4,
-		description: "add api_tokens.scopes for scoped automation tokens",
-		alreadyApplied: func(tx *sql.Tx) (bool, error) {
-			return controlPlaneColumnExists(tx, "api_tokens", "scopes")
-		},
-		apply: func(tx *sql.Tx) error {
-			_, err := tx.Exec(`ALTER TABLE api_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT ''`)
-			return err
-		},
-	},
-}
-
 // runControlPlaneMigrations applies every migration newer than the database's
 // recorded version, in order, each in its own transaction. It refuses to open
 // a database stamped with a schema version newer than this binary knows
@@ -208,7 +173,7 @@ var controlPlaneMigrations = []controlPlaneMigration{
 // migration to an already-populated database so a bad migration has a
 // recovery point.
 func runControlPlaneMigrations(db *sql.DB, path string) error {
-	if _, err := db.Exec(controlPlaneMigrationsSchema); err != nil {
+	if _, err := db.Exec(migration.SchemaMigrationsTable); err != nil {
 		return fmt.Errorf("create control-plane migrations table: %w", err)
 	}
 
@@ -236,19 +201,19 @@ func runControlPlaneMigrations(db *sql.DB, path string) error {
 	rows.Close()
 
 	var latestKnown int
-	for _, migration := range controlPlaneMigrations {
-		if migration.version > latestKnown {
-			latestKnown = migration.version
+	for _, m := range controlPlaneMigrations {
+		if m.Version() > latestKnown {
+			latestKnown = m.Version()
 		}
 	}
 	if maxApplied > latestKnown {
 		return fmt.Errorf("control-plane database schema version %d is newer than this binary supports (up to %d); refusing to open it with an older build", maxApplied, latestKnown)
 	}
 
-	var pending []controlPlaneMigration
-	for _, migration := range controlPlaneMigrations {
-		if !applied[migration.version] {
-			pending = append(pending, migration)
+	var pending []*migration.Migration
+	for _, m := range controlPlaneMigrations {
+		if !applied[m.Version()] {
+			pending = append(pending, m)
 		}
 	}
 	if len(pending) == 0 {
@@ -261,15 +226,15 @@ func runControlPlaneMigrations(db *sql.DB, path string) error {
 		}
 	}
 
-	for _, migration := range pending {
-		if err := applyControlPlaneMigration(db, migration); err != nil {
-			return fmt.Errorf("apply control-plane migration %d (%s): %w", migration.version, migration.description, err)
+	for _, m := range pending {
+		if err := applyControlPlaneMigration(db, m); err != nil {
+			return fmt.Errorf("apply control-plane migration %d (%s): %w", m.Version(), m.Description(), err)
 		}
 	}
 	return nil
 }
 
-func applyControlPlaneMigration(db *sql.DB, migration controlPlaneMigration) error {
+func applyControlPlaneMigration(db *sql.DB, m *migration.Migration) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -277,18 +242,18 @@ func applyControlPlaneMigration(db *sql.DB, migration controlPlaneMigration) err
 	defer tx.Rollback()
 
 	skip := false
-	if migration.alreadyApplied != nil {
-		skip, err = migration.alreadyApplied(tx)
+	if m.AlreadyApplied != nil {
+		skip, err = m.AlreadyApplied(tx)
 		if err != nil {
 			return err
 		}
 	}
 	if !skip {
-		if err := migration.apply(tx); err != nil {
+		if err := m.Apply(tx); err != nil {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO control_plane_migrations (version) VALUES (?)`, migration.version); err != nil {
+	if _, err := tx.Exec(`INSERT INTO control_plane_migrations (version) VALUES (?)`, m.Version()); err != nil {
 		return err
 	}
 	return tx.Commit()
