@@ -13,6 +13,15 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	h "github.com/itchyitchy123/StePanel/internal/helper"
+)
+
+const (
+	maxArchiveSize        = 5 * 1024 * 1024 * 1024 // 5GB
+	maxDecompressedSize   = 50 * 1024 * 1024 * 1024 // 50GB (archive bomb protection)
+	maxFilesInArchive     = 1000000
+	maxIndividualFileSize = 10 * 1024 * 1024 * 1024 // 10GB per file
 )
 
 // Executor performs actual archive import (extraction, DB restore, etc.)
@@ -225,7 +234,43 @@ func (e *Executor) extractArchive(ctx context.Context, url string, job *ImportJo
 	return e.extractZip(resp.Body, job, onProgress)
 }
 
-// extractTarGz extracts a tar.gz archive
+// safeTarExtractPath validates and sanitizes a tar entry path to prevent traversal
+func safeTarExtractPath(webRoot, filename string) (string, error) {
+	// Reject absolute paths and suspicious patterns
+	if filepath.IsAbs(filename) {
+		return "", errors.New("archive contains absolute path")
+	}
+	if strings.Contains(filename, "..") {
+		return "", errors.New("archive contains .. path traversal")
+	}
+	if strings.HasPrefix(filename, "/") {
+		return "", errors.New("archive path cannot start with /")
+	}
+
+	// Clean the path to remove any remaining issues
+	cleaned := filepath.Clean(filename)
+	targetPath := filepath.Join(webRoot, cleaned)
+
+	// Verify the resolved path is still within webRoot
+	realTarget, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve path: %w", err)
+	}
+
+	realRoot, err := filepath.Abs(webRoot)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve root: %w", err)
+	}
+
+	// Use helper package's path validation for symlink safety
+	if err := h.EnsureInside(realRoot, realTarget); err != nil {
+		return "", fmt.Errorf("path validation failed: %w", err)
+	}
+
+	return targetPath, nil
+}
+
+// extractTarGz extracts a tar.gz archive with security checks
 func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress func(*ImportJob)) error {
 	gz, err := gzip.NewReader(reader)
 	if err != nil {
@@ -234,6 +279,7 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 	defer gz.Close()
 
 	tr := tar.NewReader(gz)
+	var totalDecompressed int64
 
 	for {
 		header, err := tr.Next()
@@ -244,27 +290,51 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 			return fmt.Errorf("tar read error: %w", err)
 		}
 
-		// Extract file path
-		targetPath := filepath.Join(job.WebRoot, header.Name)
+		// Archive bomb protection: check decompressed size
+		totalDecompressed += header.Size
+		if totalDecompressed > maxDecompressedSize {
+			return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
+		}
 
-		// Prevent path traversal
-		if !strings.HasPrefix(targetPath, job.WebRoot) {
+		// Check file count
+		if job.FilesExtracted >= maxFilesInArchive {
+			return fmt.Errorf("archive exceeds file limit (%d files)", maxFilesInArchive)
+		}
+
+		// Check individual file size
+		if header.Size > maxIndividualFileSize {
+			return fmt.Errorf("file %s exceeds size limit (%d bytes)", header.Name, maxIndividualFileSize)
+		}
+
+		// Safely validate path
+		targetPath, err := safeTarExtractPath(job.WebRoot, header.Name)
+		if err != nil {
+			// Log suspicious path but continue (skip this file)
+			job.Message = fmt.Sprintf("Skipped suspicious path: %s (%v)", header.Name, err)
+			continue
+		}
+
+		// Reject symlinks to prevent escape
+		if header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeLink {
+			job.Message = fmt.Sprintf("Rejected symlink/hardlink: %s", header.Name)
 			continue
 		}
 
 		if header.Typeflag == tar.TypeDir {
-			os.MkdirAll(targetPath, os.FileMode(header.Mode))
+			os.MkdirAll(targetPath, os.FileMode(header.Mode&0755))
 		} else {
 			// Create parent directory
 			os.MkdirAll(filepath.Dir(targetPath), 0755)
 
-			// Extract file
+			// Extract file with limited size
 			file, err := os.Create(targetPath)
 			if err != nil {
 				return fmt.Errorf("failed to create %s: %w", header.Name, err)
 			}
 
-			copied, err := io.CopyN(file, tr, header.Size)
+			// Use LimitReader to prevent oversized files
+			limitedReader := io.LimitReader(tr, maxIndividualFileSize)
+			copied, err := io.Copy(file, limitedReader)
 			file.Close()
 
 			if err != nil && err != io.EOF {
@@ -287,7 +357,7 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 	return nil
 }
 
-// extractZip extracts a zip archive
+// extractZip extracts a zip archive with security checks
 func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(*ImportJob)) error {
 	// For zip files, we need random access, so save to temp file first
 	tempFile, err := os.CreateTemp("", "import-*.zip")
@@ -308,11 +378,29 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 	}
 	defer zr.Close()
 
-	for _, file := range zr.File {
-		targetPath := filepath.Join(job.WebRoot, file.Name)
+	var totalDecompressed int64
 
-		// Prevent path traversal
-		if !strings.HasPrefix(targetPath, job.WebRoot) {
+	for _, file := range zr.File {
+		// Archive bomb protection
+		totalDecompressed += file.FileInfo().Size()
+		if totalDecompressed > maxDecompressedSize {
+			return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
+		}
+
+		// Check file count
+		if job.FilesExtracted >= maxFilesInArchive {
+			return fmt.Errorf("archive exceeds file limit (%d files)", maxFilesInArchive)
+		}
+
+		// Check individual file size
+		if file.FileInfo().Size() > maxIndividualFileSize {
+			return fmt.Errorf("file %s exceeds size limit (%d bytes)", file.Name, maxIndividualFileSize)
+		}
+
+		// Safely validate path
+		targetPath, err := safeTarExtractPath(job.WebRoot, file.Name)
+		if err != nil {
+			job.Message = fmt.Sprintf("Skipped suspicious path: %s (%v)", file.Name, err)
 			continue
 		}
 
@@ -332,7 +420,9 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 				return fmt.Errorf("failed to create %s: %w", file.Name, err)
 			}
 
-			copied, err := io.Copy(destFile, srcFile)
+			// Use LimitReader for security
+			limitedReader := io.LimitReader(srcFile, maxIndividualFileSize)
+			copied, err := io.Copy(destFile, limitedReader)
 			destFile.Close()
 			srcFile.Close()
 
