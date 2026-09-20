@@ -196,7 +196,7 @@ func (a *App) deleteManagedRoute(ctx context.Context, helper, name string) error
 	if helper == "" {
 		return fmt.Errorf("cannot remove managed route %s: helper is unavailable", name)
 	}
-	if err := runHelperCommand(ctx, a.Config, helper, "delete", name); err != nil {
+	if err := runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, helper, "delete", name); err != nil {
 		return fmt.Errorf("remove managed route %s: %w", name, err)
 	}
 	return nil
@@ -219,19 +219,19 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 		return errors.New("managed application services exist but the application helper is unavailable")
 	}
 	if a.Config.AppCtl != "" {
-		if err := runHelperCommand(ctx, a.Config, a.Config.AppCtl, "delete", siteName); err != nil {
+		if err := runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "delete", siteName); err != nil {
 			return fmt.Errorf("remove managed application services for %s: %w", siteName, err)
 		}
 	}
 	if a.Config.GitCtl != "" {
-		if err := runHelperCommand(ctx, a.Config, a.Config.GitCtl, "delete", siteName); err != nil {
+		if err := runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.GitCtl, "delete", siteName); err != nil {
 			return fmt.Errorf("remove Git deploy key for %s: %w", siteName, err)
 		}
 	}
 	if a.Config.SiteCtl == "" {
 		return errors.New("site teardown helper is unavailable")
 	}
-	if err := runHelperCommand(ctx, a.Config, a.Config.SiteCtl, "delete", siteName); err != nil {
+	if err := runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.SiteCtl, "delete", siteName); err != nil {
 		return fmt.Errorf("remove PHP, SSH, quota, and site filesystem state for %s: %w", siteName, err)
 	}
 	return nil
@@ -251,7 +251,7 @@ func (a *App) removeSiteTasks(ctx context.Context, site SiteCapability) error {
 	}
 	a.Tasks.mu.RUnlock()
 	for _, task := range tasks {
-		if err := runHelperCommand(ctx, a.Config, a.Config.AppCtl, "task-delete", siteName, task.Name); err != nil {
+		if err := runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "task-delete", siteName, task.Name); err != nil {
 			return fmt.Errorf("remove scheduled task %s/%s: %w", siteName, task.Name, err)
 		}
 	}

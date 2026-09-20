@@ -208,7 +208,7 @@ func (a *App) finalizeTaskDeletionLocked(key string, task ScheduledTask) error {
 
 func (a *App) applyTask(ctx context.Context, task ScheduledTask) error {
 	if task.Deleted {
-		return runHelperCommand(ctx, a.Config, a.Config.AppCtl, "task-delete", task.Site, task.Name)
+		return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "task-delete", task.Site, task.Name)
 	}
 	encodedCommand := base64.RawStdEncoding.EncodeToString([]byte(task.Command))
 	// Keep task limits aligned with the site's desired resource profile. The
@@ -222,7 +222,7 @@ func (a *App) applyTask(ctx context.Context, task ScheduledTask) error {
 			args = append(args, strconv.Itoa(profile.CPUPercent), strconv.Itoa(profile.MemoryMB), strconv.Itoa(profile.TasksMax))
 		}
 	}
-	return runHelperCommand(ctx, a.Config, a.Config.AppCtl, args...)
+	return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, args...)
 }
 
 func (a *App) recordTaskError(key string, applyErr error) {
