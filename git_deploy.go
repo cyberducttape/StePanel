@@ -20,11 +20,81 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 var gitRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
 var gitCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// WebhookReplayCache prevents replay attacks on webhook deliveries
+type WebhookReplayCache struct {
+	mu      sync.RWMutex
+	cache   map[string]time.Time // deliveryID -> timestamp
+	maxAge  time.Duration
+}
+
+// NewWebhookReplayCache creates a cache with bounded lifetime
+func NewWebhookReplayCache(maxAge time.Duration) *WebhookReplayCache {
+	rc := &WebhookReplayCache{
+		cache:  make(map[string]time.Time),
+		maxAge: maxAge,
+	}
+	// Periodically clean up old entries
+	go rc.cleanupLoop()
+	return rc
+}
+
+// Check verifies if deliveryID has been seen before and is within the time window
+func (rc *WebhookReplayCache) Check(deliveryID string, timestamp time.Time) bool {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+
+	if _, exists := rc.cache[deliveryID]; exists {
+		// Duplicate delivery (already seen)
+		return false
+	}
+
+	// Check if timestamp is too old (stale)
+	if time.Since(timestamp) > rc.maxAge {
+		return false
+	}
+
+	return true
+}
+
+// Store records a new delivery ID with its timestamp
+func (rc *WebhookReplayCache) Store(deliveryID string, timestamp time.Time) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.cache[deliveryID] = timestamp
+
+	// Prune if cache exceeds 10K entries
+	if len(rc.cache) > 10000 {
+		rc.pruneOldEntriesLocked()
+	}
+}
+
+// pruneOldEntriesLocked removes entries older than maxAge
+func (rc *WebhookReplayCache) pruneOldEntriesLocked() {
+	now := time.Now()
+	for id, ts := range rc.cache {
+		if now.Sub(ts) > rc.maxAge {
+			delete(rc.cache, id)
+		}
+	}
+}
+
+// cleanupLoop periodically cleans up old entries
+func (rc *WebhookReplayCache) cleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		rc.mu.Lock()
+		rc.pruneOldEntriesLocked()
+		rc.mu.Unlock()
+	}
+}
 
 type gitDeployRequest struct {
 	Site       string `json:"site"`
@@ -117,6 +187,18 @@ func verifyWebhookSignature(body []byte, signature string, webhookSecret string)
 	return hmac.Equal(provided, digest.Sum(nil))
 }
 
+// verifyWebhookTimestamp checks if the timestamp is recent (prevents stale/old replays)
+func verifyWebhookTimestamp(timestamp string, maxAge time.Duration) (time.Time, error) {
+	ts, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if time.Since(ts) > maxAge {
+		return time.Time{}, errors.New("webhook timestamp too old")
+	}
+	return ts, nil
+}
+
 func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 	// Extract site from URL path: /git/webhook/:site
 	site := gitWebhookSitePath(r.URL.Path)
@@ -159,6 +241,27 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Replay protection: verify timestamp is recent and delivery ID hasn't been seen
+	deliveryID := r.Header.Get("X-StePanel-Delivery-ID")
+	timestamp := r.Header.Get("X-StePanel-Delivery-Timestamp")
+	if deliveryID == "" || timestamp == "" {
+		http.Error(w, "missing delivery ID or timestamp", 400)
+		return
+	}
+
+	ts, err := verifyWebhookTimestamp(timestamp, 5*time.Minute)
+	if err != nil {
+		http.Error(w, "invalid or stale webhook timestamp", 400)
+		return
+	}
+
+	if !a.webhookReplayCache.Check(deliveryID, ts) {
+		http.Error(w, "duplicate or stale webhook delivery", 409)
+		return
+	}
+
+	a.webhookReplayCache.Store(deliveryID, ts)
+
 	// Mark this webhook as authenticated by global secret (temporary fallback)
 	request := r.Clone(context.WithValue(r.Context(), gitWebhookContextKey{}, true))
 	request.Body = io.NopCloser(bytes.NewReader(body))
@@ -174,6 +277,29 @@ func containsString(list []string, value string) bool {
 		}
 	}
 	return false
+}
+
+// sanitizeGitError returns a customer-safe error message without leaking infrastructure details
+func sanitizeGitError(output string) string {
+	output = strings.ToLower(output)
+	switch {
+	case strings.Contains(output, "repository not found"):
+		return "Repository not found. Check your repository URL."
+	case strings.Contains(output, "permission denied"), strings.Contains(output, "authentication failed"):
+		return "Authentication failed. Check your repository credentials."
+	case strings.Contains(output, "could not read"):
+		return "Could not read repository. Check your credentials and try again."
+	case strings.Contains(output, "not a git repository"):
+		return "Invalid Git repository. Check your repository URL."
+	case strings.Contains(output, "timed out"), strings.Contains(output, "connection timeout"):
+		return "Repository connection timed out. The server may be temporarily unavailable."
+	case strings.Contains(output, "connection refused"):
+		return "Could not connect to repository server. Check that the repository is accessible."
+	case strings.Contains(output, "no such file"):
+		return "Repository or branch not found."
+	default:
+		return "Git operation failed. Please check your repository details and try again."
+	}
 }
 
 // gitDeploy intentionally does not evaluate repository-provided build scripts.
@@ -251,7 +377,8 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		cloneOutput, err = runBoundedCommand(ctx, clone)
 	}
 	if err != nil {
-		http.Error(w, "Git checkout failed: "+strings.TrimSpace(string(cloneOutput)), http.StatusBadGateway)
+		log.Printf("Git clone failed for site %s (repo %s): %v\nOutput: %s", input.Site, input.Repository, err, strings.TrimSpace(string(cloneOutput)))
+		http.Error(w, sanitizeGitError(string(cloneOutput)), http.StatusBadGateway)
 		return
 	}
 	commitOutput, err := runBoundedCommand(ctx, exec.CommandContext(ctx, gitPath, "-C", release, "rev-parse", "HEAD"))
