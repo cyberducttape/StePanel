@@ -79,31 +79,110 @@ type gitRollbackRequest struct {
 
 type gitWebhookContextKey struct{}
 
+// GitWebhookConfig stores per-site webhook configuration.
+// Each site can have its own webhook secret, allowed repositories, and allowed refs.
+// This prevents a single leaked secret from compromising all sites.
+type GitWebhookConfig struct {
+	Site          string    `json:"site"`
+	Repositories  []string  `json:"repositories"` // allowed repository URLs
+	AllowedRefs   []string  `json:"allowed_refs"` // allowed Git refs (branches/tags)
+	WebhookSecret string    `json:"webhook_secret"`
+	EnabledAt     time.Time `json:"enabled_at"`
+	LastWebhookAt time.Time `json:"last_webhook_at,omitempty"`
+}
+
+// gitWebhookSitePath extracts site from webhook URL: /api/sites/git-webhook/:site
+func gitWebhookSitePath(path string) string {
+	// Path format: /api/sites/git-webhook/:site
+	prefix := "/api/sites/git-webhook/"
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+	site := strings.TrimPrefix(path, prefix)
+	// Remove any trailing slashes or query parameters
+	if idx := strings.IndexAny(site, "/?"); idx >= 0 {
+		site = site[:idx]
+	}
+	return site
+}
+
+// verifyWebhookSignature verifies HMAC-SHA256 signature using per-site webhook secret
+func verifyWebhookSignature(body []byte, signature string, webhookSecret string) bool {
+	provided, err := hex.DecodeString(strings.TrimSpace(strings.TrimPrefix(signature, "sha256=")))
+	if err != nil {
+		return false
+	}
+	digest := hmac.New(sha256.New, []byte(webhookSecret))
+	_, _ = digest.Write(body)
+	return hmac.Equal(provided, digest.Sum(nil))
+}
+
 func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
-	if a.Config.GitWebhookSecret == "" {
-		http.Error(w, "Git webhooks are not configured", http.StatusNotFound)
+	// Extract site from URL path: /git/webhook/:site
+	site := gitWebhookSitePath(r.URL.Path)
+	if site == "" {
+		http.Error(w, "site name required in webhook URL path", http.StatusBadRequest)
 		return
 	}
+	site = safeUser(site)
+
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<10))
 	if err != nil {
 		http.Error(w, "invalid webhook body", 400)
 		return
 	}
-	signature := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("X-StePanel-Signature"), "sha256="))
-	provided, err := hex.DecodeString(signature)
-	digest := hmac.New(sha256.New, []byte(a.Config.GitWebhookSecret))
-	_, _ = digest.Write(body)
-	if err != nil || !hmac.Equal(provided, digest.Sum(nil)) {
+
+	// TODO: Phase 2 - Load per-site webhook config from database:
+	// config := a.getWebhookConfigForSite(site)
+	// if config == nil {
+	//     http.Error(w, "webhook not configured for this site", http.StatusNotFound)
+	//     return
+	// }
+	// if !verifyWebhookSignature(body, r.Header.Get("X-StePanel-Signature"), config.WebhookSecret) {
+	//     http.Error(w, "invalid webhook signature", 401)
+	//     return
+	// }
+	// Validate repository and ref against site's configuration
+	// if !containsString(config.Repositories, input.Repository) { ... }
+	// if !containsString(config.AllowedRefs, input.Ref) { ... }
+
+	// For now, fall back to global secret for backward compatibility
+	// DEPRECATED: Global webhook secret provides no isolation. Use per-site configs.
+	if a.Config.GitWebhookSecret == "" {
+		http.Error(w, "Git webhooks are not configured", http.StatusNotFound)
+		return
+	}
+
+	signature := r.Header.Get("X-StePanel-Signature")
+	if !verifyWebhookSignature(body, signature, a.Config.GitWebhookSecret) {
 		http.Error(w, "invalid webhook signature", 401)
 		return
 	}
+
+	// Mark this webhook as authenticated by global secret (temporary fallback)
 	request := r.Clone(context.WithValue(r.Context(), gitWebhookContextKey{}, true))
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	a.gitDeploy(w, request)
 }
 
+// containsString checks if a string is in a list (case-insensitive for URLs)
+func containsString(list []string, value string) bool {
+	valueLower := strings.ToLower(value)
+	for _, item := range list {
+		if strings.ToLower(item) == valueLower {
+			return true
+		}
+	}
+	return false
+}
+
 // gitDeploy intentionally does not evaluate repository-provided build scripts.
 // Build execution belongs in a separately sandboxed runner.
+//
+// SECURITY: Webhook requests (gitWebhookContextKey == true) bypass per-site authorization
+// checks because the webhook signature verification is site-specific (Phase 2).
+// Until per-site webhook configs are implemented, webhooks must use the global
+// GitWebhookSecret and have full access to the site they target.
 func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || (!a.Auth.CSRF(r) && r.Context().Value(gitWebhookContextKey{}) != true) {
 		http.Error(w, "invalid request", http.StatusForbidden)
