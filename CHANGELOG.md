@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security Fixes (Critical)
+
+- **Python deployment privilege escalation (CRITICAL)**: Fixed root privilege
+  escalation vulnerability in `deploy/integrations/stepanel-appctl` where
+  root was executing `pip install` without version pinning or hash verification.
+  Now: virtualenv ownership transferred to $site_user immediately after creation,
+  pip install executed as $site_user with `runuser`, Gunicorn pinned to v23.0.0
+  with PyPI hash verification. Matches Node deployment security model.
+
+- **Archive extraction hardening**: Comprehensive security validation for
+  site import archives to prevent path traversal, symlink escapes, and zip bombs:
+  - New `safeTarExtractPath()` prevents absolute paths, .. sequences, symlink traversal
+  - Reject tar symlinks/hardlinks entirely during extraction
+  - Archive bomb protection: 50GB decompressed size limit, 10GB per-file limit, 1M file limit
+  - Use `io.LimitReader` for bounded extraction to prevent DoS
+  - Both tar.gz and zip formats use identical validation
+
 ### Production Readiness Improvements
 
 - **Archive Importer interface (Phase 1)**: New separate interface for importing
