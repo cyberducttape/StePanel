@@ -217,8 +217,23 @@ func RunHelperCommand(ctx context.Context, sudo, path string, args ...string) er
 		return errors.New("helper is not configured")
 	}
 	// Use ConfigMutationTimeout as default for backward compatibility.
-	// Callers should use HelperContextWithTimeout for operation-appropriate timeouts.
+	// Callers should use RunHelperCommandWithTimeout for operation-appropriate timeouts.
 	commandCtx, cancel := context.WithTimeout(ctx, ConfigMutationTimeout)
+	defer cancel()
+	_, err := RunBoundedCommand(commandCtx, HelperCommandContext(commandCtx, sudo, path, args...))
+	return err
+}
+
+// RunHelperCommandWithTimeout runs a helper with an operation-specific timeout.
+// Use this for long-running operations like package builds, database operations, etc.
+func RunHelperCommandWithTimeout(ctx context.Context, sudo, path string, timeout time.Duration, args ...string) error {
+	if path == "" {
+		return errors.New("helper is not configured")
+	}
+	if timeout == 0 {
+		timeout = ConfigMutationTimeout // default
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	_, err := RunBoundedCommand(commandCtx, HelperCommandContext(commandCtx, sudo, path, args...))
 	return err

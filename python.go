@@ -94,7 +94,10 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) applyPythonApp(ctx context.Context, app PythonApp) error {
-	return runHelperCommand(ctx, a.Config, a.Config.AppCtl, "python-apply", app.Site, app.Version, app.Root, app.EntryPoint, strconv.Itoa(app.Port), strconv.Itoa(app.Workers))
+	// Python setup can take 10-30 minutes depending on dependencies.
+	// Note: reconciliation context may have shorter deadline; consider moving
+	// to async jobs for long-running operations (see docs/STARTUP_READINESS.md).
+	return runHelperCommandWithTimeout(ctx, a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "python-apply", app.Site, app.Version, app.Root, app.EntryPoint, strconv.Itoa(app.Port), strconv.Itoa(app.Workers))
 }
 
 func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, failed map[string]string) {

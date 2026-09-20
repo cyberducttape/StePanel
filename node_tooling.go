@@ -45,7 +45,7 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 	}
 	releaseUnlock := a.siteOperations.Acquire(input.Site)
 	defer releaseUnlock()
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "node-tool", input.Site, input.Action, input.PackageManager, root); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "node-tool", input.Site, input.Action, input.PackageManager, root); err != nil {
 		http.Error(w, "Node tooling action failed", 502)
 		return
 	}

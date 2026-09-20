@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"time"
 )
 
 // Type aliases for backward compatibility
@@ -51,6 +52,10 @@ func safePath(root string, parts ...string) (string, error) {
 
 func runHelperCommand(ctx context.Context, cfg Config, path string, args ...string) error {
 	return h.RunHelperCommand(ctx, cfg.Sudo, path, args...)
+}
+
+func runHelperCommandWithTimeout(ctx context.Context, cfg Config, timeout time.Duration, path string, args ...string) error {
+	return h.RunHelperCommandWithTimeout(ctx, cfg.Sudo, path, timeout, args...)
 }
 
 func siteHelper(cfg Config, action, site string) error {
