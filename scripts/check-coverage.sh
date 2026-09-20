@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 profile=${1:-coverage.out}
-minimum=${COVERAGE_MINIMUM:-40}
+minimum=${COVERAGE_MINIMUM:-60}
 
 [[ -f "$profile" ]] || { echo "coverage profile not found: $profile" >&2; exit 1; }
 total=$(go tool cover -func="$profile" | awk '/^total:/ {gsub("%", "", $3); print $3}')
