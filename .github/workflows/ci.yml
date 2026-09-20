@@ -48,11 +48,11 @@ jobs:
         run: go test -p 1 -race -timeout 10m ./...
       - name: Recovery drills
         run: bash deploy/lab/run-recovery-drills.sh /tmp/stepanel-recovery-drills.md
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: recovery-drill-results
           path: /tmp/stepanel-recovery-drills.md
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: go-coverage
           path: coverage.out
