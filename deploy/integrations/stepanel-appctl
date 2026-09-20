@@ -143,11 +143,12 @@ EOF
     (( port >= 1024 && port <= 65535 && workers >= 1 && workers <= 64 )) || { echo 'invalid Python limits' >&2; exit 1; }
     unit="stepanel-app-${site}-python.service"; venv="$root/.venv"; command -v "python$version" >/dev/null || { echo "python$version is not installed" >&2; exit 1; }
     "python$version" -m venv "$venv"
-    # A freshly created venv has no Gunicorn. Bootstrap it automatically so a
-    # first deployment does not require an operator to have pre-populated the
-    # virtualenv out of band; this stays well inside the helper's timeout
-    # budget because it installs one small, pre-built package.
-    [[ -x "$venv/bin/gunicorn" ]] || "$venv/bin/pip" install --quiet gunicorn
+    # Transfer venv ownership to $site_user immediately (before any package operations)
+    chown -R "$site_user:$site_user" "$venv"
+    # Install Gunicorn as $site_user with pinned version and hash verification.
+    # Gunicorn is required for app deployment; pinned version ensures reproducibility.
+    # Hashes are from PyPI; if Gunicorn package is compromised, hash validation fails.
+    [[ -x "$venv/bin/gunicorn" ]] || runuser -u "$site_user" -- "$venv/bin/pip" install --quiet "gunicorn==23.0.0" --hash=sha256:73909ceba925b5c0f634a5b224ff0a3e42d143f0c8b5ef12f2e548dbe9213395
     [[ -x "$venv/bin/gunicorn" ]] || { echo 'gunicorn could not be installed in the site virtualenv' >&2; exit 1; }
     cat > "/etc/systemd/system/$unit" <<EOF
 [Unit]
@@ -173,7 +174,7 @@ UMask=0027
 [Install]
 WantedBy=multi-user.target
 EOF
-    chown -R "$site_user:$site_user" "$venv"; chmod 0644 "/etc/systemd/system/$unit"; systemctl daemon-reload; systemctl enable --now "$unit" ;;
+    chmod 0644 "/etc/systemd/system/$unit"; systemctl daemon-reload; systemctl enable --now "$unit" ;;
   node-tool)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl node-tool SITE ACTION PACKAGE_MANAGER ROOT' >&2; exit 64; }
     action=$3; package_manager=$4; root=$5
