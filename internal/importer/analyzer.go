@@ -35,17 +35,27 @@ func isAllowedURL(urlStr string) bool {
 		return false
 	}
 
-	// Reject localhost and private IPs
+	// Reject reserved hostnames
+	lowerHost := strings.ToLower(host)
+	reservedHosts := map[string]bool{
+		"localhost":      true,
+		"127.0.0.1":      true,
+		"::1":            true,
+		"0.0.0.0":        true,
+		"169.254.169.254": true, // AWS metadata
+	}
+	if reservedHosts[lowerHost] {
+		return false
+	}
+
+	// Validate IP addresses
 	ip := net.ParseIP(host)
 	if ip != nil {
+		// Reject loopback, private, and link-local addresses
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
 			return false
 		}
-	}
-
-	// Reject numeric IPs unless they're public
-	if net.ParseIP(host) != nil {
-		ip := net.ParseIP(host)
+		// Reject non-global unicast IPs (multicast, unspecified, etc.)
 		if !ip.IsGlobalUnicast() {
 			return false
 		}

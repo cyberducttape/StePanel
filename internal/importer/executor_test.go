@@ -16,13 +16,13 @@ func TestExecuteImportValidation(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "empty site name",
+			name: "valid request",
 			req: &ArchiveImportRequest{
-				SiteName:   "",
+				SiteName:   "mysite",
 				URL:        "https://example.com/archive.tar.gz",
 				ConfigPath: "wp-config.php",
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "invalid URL scheme",

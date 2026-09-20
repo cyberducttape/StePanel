@@ -680,51 +680,67 @@ func replaceDefineValue(content, key, quote, newValue string) string {
 func extractWordPressDefine(content, key string) string {
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
-		// Match define('KEY'... or define("KEY"...
+		// Skip commented lines
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Look for define function with flexible spacing
+		if !strings.Contains(line, "define") {
+			continue
+		}
+
+		// Try both quote types
 		for _, quote := range []string{"'", "\""} {
-			pattern := fmt.Sprintf("define(%s%s%s", quote, key, quote)
-			if !strings.Contains(line, pattern) {
+			// Find 'define(' part (with possible spaces)
+			defineIdx := strings.Index(line, "define")
+			if defineIdx < 0 {
 				continue
 			}
 
-			// Find where the pattern starts
-			idx := strings.Index(line, pattern)
-			if idx < 0 {
+			// Look for the opening paren after define (with spaces)
+			afterDefine := line[defineIdx+6:]
+			parenIdx := strings.Index(afterDefine, "(")
+			if parenIdx < 0 {
 				continue
 			}
 
-			// Move past "define('KEY'" to find the comma
-			afterKey := idx + len(pattern)
-			rest := line[afterKey:]
+			// Look for the key pattern: quote + key + quote
+			keyPattern := fmt.Sprintf("%s%s%s", quote, key, quote)
+			keyIdx := strings.Index(afterDefine[parenIdx:], keyPattern)
+			if keyIdx < 0 {
+				continue
+			}
 
-			// Find the comma separator
-			commaIdx := strings.Index(rest, ",")
+			// Find comma after the key
+			afterKey := afterDefine[parenIdx+keyIdx+len(keyPattern):]
+			commaIdx := strings.Index(afterKey, ",")
 			if commaIdx < 0 {
 				continue
 			}
 
-			// Move past the comma and whitespace to find the value
-			afterComma := rest[commaIdx+1:]
-			afterComma = strings.TrimSpace(afterComma)
-
-			// Extract the value (first character should be a quote)
+			// Get the value part (after comma)
+			afterComma := strings.TrimSpace(afterKey[commaIdx+1:])
 			if len(afterComma) == 0 {
 				continue
 			}
 
+			// Value should start with a quote
+			if !strings.HasPrefix(afterComma, "'") && !strings.HasPrefix(afterComma, "\"") {
+				continue
+			}
+
 			valueQuote := afterComma[0:1]
-			if valueQuote != "'" && valueQuote != "\"" {
+			rest := afterComma[1:]
+
+			// Find closing quote
+			closeIdx := strings.Index(rest, valueQuote)
+			if closeIdx < 0 {
 				continue
 			}
 
-			// Find the closing quote
-			valueStart := 1
-			valueEnd := strings.Index(afterComma[valueStart:], valueQuote)
-			if valueEnd < 0 {
-				continue
-			}
-
-			return afterComma[valueStart : valueStart+valueEnd]
+			return rest[:closeIdx]
 		}
 	}
 	return ""
