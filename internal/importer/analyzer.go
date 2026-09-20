@@ -38,10 +38,10 @@ func isAllowedURL(urlStr string) bool {
 	// Reject reserved hostnames
 	lowerHost := strings.ToLower(host)
 	reservedHosts := map[string]bool{
-		"localhost":      true,
-		"127.0.0.1":      true,
-		"::1":            true,
-		"0.0.0.0":        true,
+		"localhost":       true,
+		"127.0.0.1":       true,
+		"::1":             true,
+		"0.0.0.0":         true,
 		"169.254.169.254": true, // AWS metadata
 	}
 	if reservedHosts[lowerHost] {
