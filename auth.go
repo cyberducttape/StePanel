@@ -163,6 +163,20 @@ func (a *Auth) ConfigureTOTPReplayDB(db *sql.DB) error {
 	return nil
 }
 
+// ConfigureLegacyTokenDeprecation sets up the deprecation tracking for legacy unscoped tokens.
+// Must be called after control-plane database is available.
+func (a *Auth) ConfigureLegacyTokenDeprecation(db *sql.DB) error {
+	if db == nil {
+		return errors.New("legacy token deprecation database is nil")
+	}
+	ltd := authpolicy.NewLegacyTokenDeprecation(db)
+	if err := ltd.InitializeSchema(); err != nil {
+		return fmt.Errorf("initialize legacy token deprecation schema: %w", err)
+	}
+	a.legacyTokenDeprecation = ltd
+	return nil
+}
+
 func (s *sessionRegistry) add(id, username string, expiry int64) error {
 	return s.inner.Add(id, username, expiry)
 }

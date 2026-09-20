@@ -206,6 +206,9 @@ func main() {
 	if err := auth.ConfigureTOTPReplayDB(controlPlaneDB); err != nil {
 		log.Fatalf("open persistent TOTP replay state: %v", err)
 	}
+	if err := auth.ConfigureLegacyTokenDeprecation(controlPlaneDB); err != nil {
+		log.Fatalf("configure legacy token deprecation tracking: %v", err)
+	}
 	auth.apiTokens = &apiTokenStore{db: controlPlaneDB}
 	accounts, err := OpenAccountStoreDB(controlPlaneDB, cfg.AccountState, cfg.AccountKey)
 	if err != nil {
