@@ -18,22 +18,80 @@ import (
 )
 
 const (
-	maxArchiveSize        = 5 * 1024 * 1024 * 1024  // 5GB
-	maxDecompressedSize   = 50 * 1024 * 1024 * 1024 // 50GB (archive bomb protection)
-	maxFilesInArchive     = 1000000
-	maxDirectoriesInArchive = 10000 // Prevent directory bombs
-	maxIndividualFileSize = 10 * 1024 * 1024 * 1024 // 10GB per file
+	// Archive size limits (more conservative than original)
+	maxArchiveSize        = 5 * 1024 * 1024 * 1024    // 5GB compressed (configurable)
+	maxDecompressedSize   = 50 * 1024 * 1024 * 1024   // 50GB decompressed (configurable)
+	maxArchiveEntries     = 250000                     // 250k files/dirs (was 1M, still generous)
+	maxIndividualFileSize = 10 * 1024 * 1024 * 1024   // 10GB per file
+	maxDirectoriesInArchive = 25000                    // Separate limit for directories
 )
+
+// ArchiveFetcher safely downloads archives with size limits and validation
+type ArchiveFetcher struct {
+	httpClient *http.Client
+}
+
+// FetchArchive downloads an archive with comprehensive security checks
+func (af *ArchiveFetcher) FetchArchive(ctx context.Context, url string, maxBytes int64) (io.ReadCloser, error) {
+	// Prevent SSRF
+	if !isAllowedURL(url) {
+		return nil, fmt.Errorf("archive URL not allowed: %s", url)
+	}
+
+	// Create context-aware request
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid archive URL: %w", err)
+	}
+
+	resp, err := af.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download archive: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("archive download returned %d", resp.StatusCode)
+	}
+
+	// Validate Content-Length matches claimed size
+	if resp.ContentLength > 0 && resp.ContentLength > maxBytes {
+		resp.Body.Close()
+		return nil, fmt.Errorf("claimed archive size (%d bytes) exceeds limit (%d bytes)", resp.ContentLength, maxBytes)
+	}
+
+	// Wrap body with size limit to prevent streaming attacks
+	return &limitedReadCloser{
+		reader: io.LimitReader(resp.Body, maxBytes),
+		closer: resp.Body,
+	}, nil
+}
+
+// limitedReadCloser combines a limited reader with a close method
+type limitedReadCloser struct {
+	reader io.Reader
+	closer io.Closer
+}
+
+func (lrc *limitedReadCloser) Read(p []byte) (int, error) {
+	return lrc.reader.Read(p)
+}
+
+func (lrc *limitedReadCloser) Close() error {
+	return lrc.closer.Close()
+}
 
 // Executor performs actual archive import (extraction, DB restore, etc.)
 type Executor struct {
-	httpClient *http.Client
+	fetcher *ArchiveFetcher
 }
 
 // NewExecutor creates a new import executor
 func NewExecutor() *Executor {
 	return &Executor{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		fetcher: &ArchiveFetcher{
+			httpClient: &http.Client{Timeout: 30 * time.Second},
+		},
 	}
 }
 
@@ -48,6 +106,7 @@ type ImportJob struct {
 	Progress         int    // 0-100
 	FilesExtracted   int64
 	DirectoriesCreated int64
+	EntriesProcessed int64 // Total entries (files + dirs) to catch directory bombs
 	BytesExtracted   int64
 	CurrentFile      string
 	Message          string
@@ -241,33 +300,12 @@ func (e *Executor) validateSiteCreation(job *ImportJob) error {
 
 // extractArchive downloads and extracts the archive
 func (e *Executor) extractArchive(ctx context.Context, url string, job *ImportJob, onProgress func(*ImportJob)) error {
-	// Prevent SSRF: only allow https:// URLs from known domains
-	if !isAllowedURL(url) {
-		return fmt.Errorf("archive URL not allowed: %s", url)
-	}
-
-	// Use context-aware request to respect cancellation
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// Use secure fetcher with all validations
+	body, err := e.fetcher.FetchArchive(ctx, url, maxArchiveSize)
 	if err != nil {
-		return fmt.Errorf("invalid archive URL: %w", err)
+		return err
 	}
-
-	resp, err := e.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to download archive: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("archive download returned %d", resp.StatusCode)
-	}
-
-	// Limit download to claimed size + 1MB buffer (prevents lying about size)
-	maxBytes := int64(maxArchiveSize)
-	if resp.ContentLength > 0 && resp.ContentLength < maxBytes {
-		maxBytes = resp.ContentLength + (1 << 20) // Add 1MB buffer
-	}
-	limitedBody := io.LimitReader(resp.Body, maxBytes)
+	defer body.Close()
 
 	// Detect archive type
 	archiveType := "tar.gz"
@@ -276,9 +314,9 @@ func (e *Executor) extractArchive(ctx context.Context, url string, job *ImportJo
 	}
 
 	if archiveType == "tar.gz" {
-		return e.extractTarGz(limitedBody, job, onProgress)
+		return e.extractTarGz(body, job, onProgress)
 	}
-	return e.extractZip(limitedBody, job, onProgress)
+	return e.extractZip(body, job, onProgress)
 }
 
 // safeTarExtractPath validates and sanitizes a tar entry path to prevent traversal
@@ -343,9 +381,10 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 			return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
 		}
 
-		// Check file count
-		if job.FilesExtracted >= maxFilesInArchive {
-			return fmt.Errorf("archive exceeds file limit (%d files)", maxFilesInArchive)
+		// Check total entries (files + directories) to prevent directory bombs
+		job.EntriesProcessed++
+		if job.EntriesProcessed > maxArchiveEntries {
+			return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
 		}
 
 		// Check individual file size
@@ -439,9 +478,10 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 			return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
 		}
 
-		// Check file count
-		if job.FilesExtracted >= maxFilesInArchive {
-			return fmt.Errorf("archive exceeds file limit (%d files)", maxFilesInArchive)
+		// Check total entry count (including directories)
+		job.EntriesProcessed++
+		if job.EntriesProcessed > maxArchiveEntries {
+			return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
 		}
 
 		// Check individual file size

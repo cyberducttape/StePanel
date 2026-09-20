@@ -408,10 +408,14 @@ func (a *Analyzer) extractLargestFiles(files []struct {
 	name string
 	size int64
 }, inspection *ArchiveInspection) {
-	// Simple sort (production code would use proper sorting)
+	// Files are already sorted by size (largest first) from inspectTarGz/inspectZip
+	// Extract top 5 largest files
 	count := 0
 	for _, file := range files {
-		if count < 5 && !strings.HasPrefix(filepath.Base(file.name), ".") {
+		if count >= 5 {
+			break
+		}
+		if !strings.HasPrefix(filepath.Base(file.name), ".") {
 			inspection.Structure.LargestFiles = append(inspection.Structure.LargestFiles, file.name)
 			inspection.Structure.EstimatedStorageGB += file.size / (1024 * 1024 * 1024)
 			count++
