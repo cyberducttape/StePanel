@@ -47,7 +47,7 @@ encrypted environment metadata, builds, staging, logs, and workers.
 For cloud inventory/actions, DNS adapters, SSH inventory, WAF capability
 constraints, off-site backups, and operational configuration, see the
 [integration guide](docs/INTEGRATIONS.md), [installation guide](docs/INSTALLATION.md),
-and [operations runbook](docs/OPERATIONS.md).
+[operations runbook](docs/OPERATIONS.md), and [customer workflows](docs/CUSTOMER_WORKFLOWS.md).
 
 > **Status:** StePanel includes a constrained single-host shared-hosting beta. It is not yet a complete multi-tenant hosting platform: plans enforce aggregate account and per-site application CPU, memory, process, PHP-worker, disk, and inode ceilings when the host quota prerequisites are available. Bandwidth, mail, file, external-provider teardown, and Redis runtime enforcement remain provider/operator boundaries; database lifecycle, local site termination, and plan caps are available on supported local engines. Administrator resource profiles, security posture, verified restores, and restore-to-staging are available with explicit beta/operator boundaries. Run it behind authenticated HTTPS and test restores against a disposable server before using production data.
 
