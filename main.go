@@ -63,6 +63,10 @@ func main() {
 		runInit()
 		return
 	}
+	if len(os.Args) == 2 && os.Args[1] == "setup" {
+		runSetupWizard()
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "convert-htaccess" {
 		content, err := io.ReadAll(io.LimitReader(os.Stdin, maxHTAccessBytes+1))
 		if err != nil || len(content) > maxHTAccessBytes {
