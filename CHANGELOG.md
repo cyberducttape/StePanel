@@ -17,6 +17,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security Fixes (HIGH)
 
+- **Build runner registry allowlist and image size limits (HIGH)**: Implemented essential
+  security controls to prevent arbitrary image execution. Now restricts container images
+  to allowlisted registries only (STEPANEL_RUNNER_ALLOWED_REGISTRIES, default: docker.io,
+  ghcr.io, quay.io) and enforces image size limits (STEPANEL_MAX_IMAGE_SIZE, default: 5GB).
+  Network disabled by default (STEPANEL_RUNNER_NETWORK_ENABLED controls explicit opt-in).
+  Helper parameters updated to enforce limits during image pull. Phase 2 will add explicit
+  seccomp profiles, SELinux/AppArmor context, and storage quotas.
+
 - **Process group cleanup on timeout (HIGH)**: Fixed resource leak where timeouts/
   cancellations killed parent helper process but left child processes running
   indefinitely. Now all helpers configure process group (Setpgid=true) and timeout
