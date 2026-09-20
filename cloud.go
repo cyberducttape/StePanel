@@ -119,6 +119,10 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		err = executeSSHAction(workerCtx, request.ID, request.Action, request.Service)
 		result = CloudActionResult{Provider: "ssh", Action: request.Action, ID: request.ID, CompletedAt: time.Now().UTC()}
 	case "dns":
+		// Validate DNS IDs to prevent SSRF attacks
+		if !cloudNumericID.MatchString(request.DNS.DomainID) || !cloudNumericID.MatchString(request.DNS.RecordID) {
+			return nil, fmt.Errorf("invalid domain or record ID format")
+		}
 		request.DNS.Type = strings.ToUpper(request.DNS.Type)
 		var path, method string
 		var body any
@@ -147,6 +151,10 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		result = CloudActionResult{Provider: "linode", Action: "dns." + request.Action, ID: request.DNS.DomainID, CompletedAt: time.Now().UTC()}
 	case "loadbalancer":
+		// Validate load balancer IDs to prevent SSRF attacks
+		if !cloudNumericID.MatchString(request.LB.NodeBalancerID) || !cloudNumericID.MatchString(request.LB.ConfigID) || !cloudNumericID.MatchString(request.LB.NodeID) {
+			return nil, fmt.Errorf("invalid nodebalancer, config, or node ID format")
+		}
 		var path, method string
 		var body any
 		if request.LB.Action == "remove" {
@@ -160,6 +168,10 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		_, err = linodeAPIRequest(ctx, method, path, body)
 		result = CloudActionResult{Provider: "linode", Action: "loadbalancer." + request.LB.Action, ID: request.LB.NodeBalancerID, CompletedAt: time.Now().UTC()}
 	case "snapshot.delete":
+		// Validate snapshot ID to prevent SSRF attacks
+		if !cloudNumericID.MatchString(request.ID) {
+			return nil, fmt.Errorf("invalid snapshot ID format")
+		}
 		_, err = linodeAPIRequest(ctx, http.MethodDelete, "/account/linode/backups/"+request.ID, nil)
 		result = CloudActionResult{Provider: "linode", Action: "snapshot.delete", ID: request.ID, CompletedAt: time.Now().UTC()}
 	default:
@@ -540,6 +552,11 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 var cloudIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 func executeCloudAction(ctx context.Context, provider, action, id string) error {
+	// Validate ID to prevent SSRF attacks via URL manipulation
+	if !cloudIDPattern.MatchString(id) {
+		return fmt.Errorf("invalid instance ID format: %s", id)
+	}
+
 	switch provider {
 	case "linode":
 		token := os.Getenv("STEPANEL_LINODE_TOKEN")
