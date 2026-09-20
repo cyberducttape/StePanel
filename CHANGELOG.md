@@ -8,6 +8,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness Improvements
 
+- **Security claims verification documentation**: Created
+  [`docs/SECURITY_CLAIMS_VERIFICATION.md`](docs/SECURITY_CLAIMS_VERIFICATION.md)
+  mapping all product claims ("safety-first", "tenant isolation", "durable jobs",
+  etc.) to their code implementations, line numbers, and test coverage. Serves as
+  audit checklist and grounds marketing claims in implementation.
+
+- **Release artifact verification**: Added `scripts/verify-release-artifacts.sh`
+  to validate packaging integrity in CI/CD pipeline, checking for:
+  - Actual gzip compression (prevents mislabeled archives)
+  - SHA256 checksum validity
+  - SBOM presence and JSON validity
+  - Required files in archives (LICENSE, README, SECURITY, binary)
+  
+  Integrated into `release.yml` GitHub Actions workflow to catch packaging
+  defects before publication.
+
+- **Helper package extraction (Phase 3)**: Migrated privileged helper command
+  execution and file system safety utilities to `internal/helper/helpers.go`,
+  including bounded command execution, safe path validation, symlink protection,
+  and atomic writes. Maintains backward compatibility via root-level wrapper
+  functions, enabling broader reuse of safety-critical utilities.
+
 - **Package extraction (Phase 1-2)**: Migrated backup type definitions to
   `internal/backup/types.go` and database migration system to
   `internal/migration/schema.go` to improve code organization, testability, and
