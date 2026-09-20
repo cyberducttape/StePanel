@@ -17,7 +17,29 @@ import (
 )
 
 const MaxCommandOutput = 64 << 10
-const HelperCommandTimeout = 2 * time.Minute
+
+// Operation-specific timeout classes for helper invocations.
+// These should be used instead of a universal timeout to ensure
+// operations complete without timing out prematurely.
+const (
+	// ConfigMutationTimeout: fast config reloads, ACL updates, pool creation (~30 sec)
+	ConfigMutationTimeout = 30 * time.Second
+
+	// ServiceLifecycleTimeout: systemd operations, user creation, filesystem setup (~60 sec)
+	ServiceLifecycleTimeout = 60 * time.Second
+
+	// PackageBuildTimeout: npm/yarn/pnpm install, pip install, cargo build, composer update (~15 min)
+	PackageBuildTimeout = 15 * time.Minute
+
+	// DatabaseOperationTimeout: database dumps, restores, migrations (~60 min)
+	DatabaseOperationTimeout = 60 * time.Minute
+
+	// ContainerOperationTimeout: image pulls, loads, prune operations (~30 min)
+	ContainerOperationTimeout = 30 * time.Minute
+
+	// BackupRestoreTimeout: full site backups, restores, archives (~120 min)
+	BackupRestoreTimeout = 120 * time.Minute
+)
 
 type BoundedBuffer struct {
 	data  []byte
@@ -100,6 +122,16 @@ func configureProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
+// HelperContextWithTimeout creates a context with the specified timeout class.
+// Use this when invoking helper commands to ensure operation-appropriate timeouts.
+// Example: ctx, cancel := HelperContextWithTimeout(parentCtx, PackageBuildTimeout)
+func HelperContextWithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout == 0 {
+		timeout = ConfigMutationTimeout // default to fast timeout
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
 // HelperCommand runs narrowly scoped privileged helpers through sudo when the
 // packaged installation configures it. Development and test configurations can
 // leave Sudo empty and execute their helper directly.
@@ -108,6 +140,10 @@ func configureProcessGroup(cmd *exec.Cmd) {
 // that timeout/cancellation kills the entire process tree, not just the parent.
 // This prevents orphaned child processes (pip, npm, podman, containers, etc.)
 // from continuing execution after their parent timeout.
+//
+// DEPRECATED: Use HelperCommandContext with HelperContextWithTimeout for
+// operation-appropriate timeouts. This function is kept for backward compatibility
+// but should not be used for new code.
 func HelperCommand(sudo string, path string, args ...string) *exec.Cmd {
 	var cmd *exec.Cmd
 	if sudo == "" {
@@ -180,7 +216,9 @@ func RunHelperCommand(ctx context.Context, sudo, path string, args ...string) er
 	if path == "" {
 		return errors.New("helper is not configured")
 	}
-	commandCtx, cancel := context.WithTimeout(ctx, HelperCommandTimeout)
+	// Use ConfigMutationTimeout as default for backward compatibility.
+	// Callers should use HelperContextWithTimeout for operation-appropriate timeouts.
+	commandCtx, cancel := context.WithTimeout(ctx, ConfigMutationTimeout)
 	defer cancel()
 	_, err := RunBoundedCommand(commandCtx, HelperCommandContext(commandCtx, sudo, path, args...))
 	return err

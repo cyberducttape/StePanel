@@ -12,7 +12,18 @@ import (
 type boundedBuffer = h.BoundedBuffer
 
 const maxCommandOutput = h.MaxCommandOutput
-const helperCommandTimeout = h.HelperCommandTimeout
+
+// Operation-specific timeout classes (re-exported from internal/helper)
+const (
+	helperConfigMutationTimeout    = h.ConfigMutationTimeout
+	helperServiceLifecycleTimeout  = h.ServiceLifecycleTimeout
+	helperPackageBuildTimeout      = h.PackageBuildTimeout
+	helperDatabaseOperationTimeout = h.DatabaseOperationTimeout
+	helperContainerOperationTimeout = h.ContainerOperationTimeout
+	helperBackupRestoreTimeout     = h.BackupRestoreTimeout
+	// helperCommandTimeout is deprecated - use operation-specific timeouts instead
+	helperCommandTimeout = h.ConfigMutationTimeout // default for backward compatibility
+)
 
 func runBoundedCommand(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 	return h.RunBoundedCommand(ctx, cmd)
