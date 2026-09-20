@@ -22,16 +22,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@5ba2889ada762081db2c4f32a729827dce632c7b # v3
+        uses: github/codeql-action/init@e675ced7a364adc01df007f132e3ce2d798d37f9 # v4
         with:
           languages: go
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@3041bf56c941b39c61721b86cd82f6f55fc0cf6e # v5
         with:
           go-version: '1.26.x'
           cache: true
       - name: Build
         run: go build -trimpath ./...
       - name: Analyze
-        uses: github/codeql-action/analyze@5ba2889ada762081db2c4f32a729827dce632c7b # v3
+        uses: github/codeql-action/analyze@e675ced7a364adc01df007f132e3ce2d798d37f9 # v4
