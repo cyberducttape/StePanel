@@ -372,7 +372,9 @@ func main() {
 	// host/helper operation in an early domain to starve every later domain.
 	// Each domain remains bounded, and failures are retained in its own report.
 	reconcile := func(name string, fn func(context.Context) ([]string, map[string]string)) {
-		reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), helperCommandTimeout)
+		// Use ServiceLifecycleTimeout for reconciliation operations (config mutations, user setup, etc.)
+		// This gives each domain up to 60 seconds to reconcile, allowing for slower helper operations.
+		reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), helperServiceLifecycleTimeout)
 		defer cancelReconcile()
 		reconciled, failed := fn(reconcileCtx)
 		if len(failed) > 0 {

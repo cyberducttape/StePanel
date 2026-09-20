@@ -106,7 +106,7 @@ func (a *App) applySiteAccess(ctx context.Context, access SiteAccess) error {
 	if payload != "" {
 		payload += "\n"
 	}
-	commandCtx, cancel := context.WithTimeout(ctx, helperCommandTimeout)
+	commandCtx, cancel := context.WithTimeout(ctx, helperConfigMutationTimeout)
 	defer cancel()
 	_, err := runBoundedCommandInput(commandCtx, helperCommandContext(commandCtx, a.Config, a.Config.SiteCtl, "access", access.Site, stringBool(access.SFTPEnabled), stringBool(access.ShellEnabled)), strings.NewReader(payload))
 	return err
