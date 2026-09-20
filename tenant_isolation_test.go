@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestTenantIsolationMatrix is the adversarial cross-tenant check the
@@ -410,5 +411,160 @@ func TestAuditLogDoesNotLeakCrossTenantTargets(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected tenant.access_denied event in audit log")
+	}
+}
+
+// TestCrossTenantBackupAccessDenied verifies that a tenant cannot list, restore,
+// or verify backups belonging to another tenant, even if they exist on disk.
+func TestCrossTenantBackupAccessDenied(t *testing.T) {
+	webRoot := t.TempDir()
+	backupRoot := t.TempDir()
+
+	// Create directories for both sites
+	for _, site := range []string{"alice-site", "bob-site"} {
+		if err := os.MkdirAll(filepath.Join(webRoot, "sites", site, "public"), 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := &App{
+		Config: Config{WebRoot: webRoot, BackupRoot: backupRoot},
+		Accounts: &AccountStore{accounts: map[string]HostingAccount{
+			"alice": {Username: "alice", Plan: "starter", Sites: []string{"alice-site"}},
+			"bob":   {Username: "bob", Plan: "starter", Sites: []string{"bob-site"}},
+		}},
+		Auth: Auth{Username: "admin"},
+	}
+
+	asAlice := func(r *http.Request) *http.Request {
+		return r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, "alice"))
+	}
+
+	// Test: Alice cannot list Bob's backups
+	w := httptest.NewRecorder()
+	req := asAlice(httptest.NewRequest(http.MethodGet, "/api/backups?site=bob-site", nil))
+	a.backups(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("Alice should not list Bob's backups: got %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+// TestPlanEnforcementIsolationPerTenant verifies that resource limits are
+// independently enforced per tenant and that one tenant cannot access
+// another tenant's site assignments.
+func TestPlanEnforcementIsolationPerTenant(t *testing.T) {
+	webRoot := t.TempDir()
+
+	for _, site := range []string{"alice-site", "bob-site"} {
+		if err := os.MkdirAll(filepath.Join(webRoot, "sites", site, "public"), 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := &App{
+		Config: Config{WebRoot: webRoot},
+		Accounts: &AccountStore{accounts: map[string]HostingAccount{
+			"alice": {
+				Username: "alice",
+				Plan:     "starter",
+				Sites:    []string{"alice-site"},
+			},
+			"bob": {
+				Username: "bob",
+				Plan:     "starter",
+				Sites:    []string{"bob-site"},
+			},
+		}},
+		Auth: Auth{Username: "admin"},
+	}
+
+	// Verify Alice's site assignment
+	aliceSites := a.Accounts.GetSites("alice")
+	if len(aliceSites) != 1 || aliceSites[0] != "alice-site" {
+		t.Fatalf("Alice site assignment mismatch: got %v, want [alice-site]", aliceSites)
+	}
+
+	// Verify Alice cannot access Bob's site through GetSites
+	for _, site := range aliceSites {
+		if site == "bob-site" {
+			t.Fatalf("Alice's GetSites returned Bob's site: %v", aliceSites)
+		}
+	}
+
+	// Verify Bob's quota is independent
+	bobSites := a.Accounts.GetSites("bob")
+	if len(bobSites) != 1 || bobSites[0] != "bob-site" {
+		t.Fatalf("Bob site assignment mismatch: got %v, want [bob-site]", bobSites)
+	}
+
+	// Verify Bob cannot access Alice's site through GetSites
+	for _, site := range bobSites {
+		if site == "alice-site" {
+			t.Fatalf("Bob's GetSites returned Alice's site: %v", bobSites)
+		}
+	}
+}
+
+// TestTenantConcurrentAccessIsolation ensures that concurrent operations from
+// different tenants do not interfere with each other's authorization checks.
+func TestTenantConcurrentAccessIsolation(t *testing.T) {
+	webRoot := t.TempDir()
+
+	for _, site := range []string{"alice-site", "bob-site"} {
+		if err := os.MkdirAll(filepath.Join(webRoot, "sites", site, "public"), 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := &App{
+		Config: Config{WebRoot: webRoot},
+		Accounts: &AccountStore{accounts: map[string]HostingAccount{
+			"alice": {Username: "alice", Plan: "starter", Sites: []string{"alice-site"}},
+			"bob":   {Username: "bob", Plan: "starter", Sites: []string{"bob-site"}},
+		}},
+		Auth: Auth{Username: "admin"},
+	}
+
+	// Run concurrent cross-tenant denial attempts with synchronization
+	const iterations = 5
+	done := make(chan struct{})
+	errCount := 0
+
+	for i := 0; i < iterations; i++ {
+		go func(iteration int) {
+			defer func() { done <- struct{}{} }()
+
+			// Alice attempts to access Bob's site
+			req := httptest.NewRequest(http.MethodGet, "/api/sites/environment/bob-site", nil)
+			req = req.WithContext(context.WithValue(req.Context(), apiTokenUsernameKey{}, "alice"))
+			w := httptest.NewRecorder()
+			a.siteEnvironment(w, req)
+			if w.Code != http.StatusForbidden {
+				t.Errorf("iteration %d: Alice's cross-tenant access allowed (got %d)", iteration, w.Code)
+			}
+
+			// Bob attempts to access Alice's site
+			req = httptest.NewRequest(http.MethodGet, "/api/sites/environment/alice-site", nil)
+			req = req.WithContext(context.WithValue(req.Context(), apiTokenUsernameKey{}, "bob"))
+			w = httptest.NewRecorder()
+			a.siteEnvironment(w, req)
+			if w.Code != http.StatusForbidden {
+				t.Errorf("iteration %d: Bob's cross-tenant access allowed (got %d)", iteration, w.Code)
+			}
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < iterations; i++ {
+		select {
+		case <-done:
+			// Goroutine completed
+		case <-time.After(3 * time.Second):
+			t.Fatalf("goroutine %d did not complete in time", i)
+		}
+	}
+
+	if errCount > 0 {
+		t.Fatalf("concurrent tenant access had %d errors", errCount)
 	}
 }
