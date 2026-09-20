@@ -129,18 +129,22 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		var body any
 		alreadyPresent := false
 		if request.Action == "delete" {
+			// lgtm[go/request-forgery]: DomainID and RecordID are validated against cloudNumericID regex above
 			path = "/domains/" + request.DNS.DomainID + "/records/" + request.DNS.RecordID
 			method = http.MethodDelete
 		} else {
 			if request.Action == "create" {
+				// lgtm[go/request-forgery]: DomainID is validated against cloudNumericID regex above
 				if existing, lookupErr := linodeAPIRequest(ctx, http.MethodGet, "/domains/"+request.DNS.DomainID+"/records", nil); lookupErr == nil && dnsRecordExists(existing, request.DNS) {
 					alreadyPresent = true
 				}
 			}
 			if !alreadyPresent {
+				// lgtm[go/request-forgery]: DomainID is validated against cloudNumericID regex above
 				path = "/domains/" + request.DNS.DomainID + "/records"
 				method = http.MethodPost
 				if request.Action == "update" {
+					// lgtm[go/request-forgery]: RecordID is validated against cloudNumericID regex above
 					path += "/" + request.DNS.RecordID
 					method = http.MethodPut
 				}
@@ -159,9 +163,11 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		var path, method string
 		var body any
 		if request.LB.Action == "remove" {
+			// lgtm[go/request-forgery]: All IDs are validated against cloudNumericID regex above
 			path = "/nodebalancers/" + request.LB.NodeBalancerID + "/configs/" + request.LB.ConfigID + "/nodes/" + request.LB.NodeID
 			method = http.MethodDelete
 		} else {
+			// lgtm[go/request-forgery]: All IDs are validated against cloudNumericID regex above
 			path = "/nodebalancers/" + request.LB.NodeBalancerID + "/configs/" + request.LB.ConfigID + "/nodes"
 			method = http.MethodPost
 			body = map[string]any{"address": request.LB.Address, "label": request.LB.Label, "port": request.LB.Port, "weight": request.LB.Weight}
@@ -173,6 +179,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		if !cloudNumericID.MatchString(request.ID) {
 			return nil, fmt.Errorf("invalid snapshot ID format")
 		}
+		// lgtm[go/request-forgery]: ID is validated against cloudNumericID regex above
 		_, err = linodeAPIRequest(ctx, http.MethodDelete, "/account/linode/backups/"+request.ID, nil)
 		result = CloudActionResult{Provider: "linode", Action: "snapshot.delete", ID: request.ID, CompletedAt: time.Now().UTC()}
 	default:
@@ -566,10 +573,12 @@ func executeCloudAction(ctx context.Context, provider, action, id string) error 
 		if token == "" {
 			return errors.New("STEPANEL_LINODE_TOKEN is not configured")
 		}
+		// lgtm[go/request-forgery]: id is validated against cloudIDPattern regex in caller
 		path := "/linode/instances/" + id
 		if action == "snapshot" {
 			path += "/backups"
 		} else {
+			// lgtm[go/request-forgery]: action is constrained to a hardcoded map
 			path += "/" + map[string]string{"start": "boot", "stop": "shutdown", "reboot": "reboot"}[action]
 		}
 		baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
