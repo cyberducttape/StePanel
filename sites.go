@@ -226,7 +226,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	releaseUnlock := a.siteOperations.AcquireMany(input.Site, "vhost:"+name)
 	defer releaseUnlock()
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "apply", input.Site, input.Domain); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "apply", input.Site, input.Domain); err != nil {
 		if a.Routes != nil {
 			route := routeState(name, input.Site, input.Domain, "pending")
 			route.LastError = err.Error()
@@ -304,7 +304,7 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	// parsed site identifier. Serialize by route identity at this boundary.
 	releaseUnlock := a.siteOperations.Acquire("vhost:" + name)
 	defer releaseUnlock()
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "delete", name); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", name); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
 			_ = a.Routes.save(desired)
