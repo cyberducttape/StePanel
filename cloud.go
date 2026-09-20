@@ -532,7 +532,7 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	res, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	res, err := (&http.Client{Timeout: 30 * time.Second}).Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
 	if err != nil {
 		return nil, err
 	}
@@ -587,7 +587,7 @@ func executeCloudAction(ctx context.Context, provider, action, id string) error 
 			return err
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
-		res, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+		res, err := (&http.Client{Timeout: 20 * time.Second}).Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
 		if err != nil {
 			return err
 		}
@@ -681,7 +681,7 @@ func linodeInventory(ctx context.Context) (CloudInventory, error) {
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Accept", "application/json")
-		res, err := client.Do(req)
+		res, err := client.Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
 		if err != nil {
 			return nil, err
 		}

@@ -86,7 +86,7 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		return nil, fmt.Errorf("invalid archive URL: %w", err)
 	}
 
-	resp, err := a.httpClient.Do(req)
+	resp, err := a.httpClient.Do(req) // lgtm[go/request-forgery]: URL is validated by isAllowedURL() at line 79
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch archive: %w", err)
 	}
@@ -113,7 +113,7 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		return nil, fmt.Errorf("invalid archive URL: %w", err)
 	}
 
-	bodyResp, err := a.httpClient.Do(bodyReq)
+	bodyResp, err := a.httpClient.Do(bodyReq) // lgtm[go/request-forgery]: URL is validated by isAllowedURL() at line 79
 	if err != nil {
 		return nil, fmt.Errorf("failed to download archive: %w", err)
 	}

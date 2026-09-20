@@ -44,7 +44,7 @@ func (af *ArchiveFetcher) FetchArchive(ctx context.Context, url string, maxBytes
 		return nil, fmt.Errorf("invalid archive URL: %w", err)
 	}
 
-	resp, err := af.httpClient.Do(req)
+	resp, err := af.httpClient.Do(req) // lgtm[go/request-forgery]: URL is validated by isAllowedURL() at line 37
 	if err != nil {
 		return nil, fmt.Errorf("failed to download archive: %w", err)
 	}
