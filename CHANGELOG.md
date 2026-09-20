@@ -6,6 +6,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Production Readiness Improvements
+
+- **Package extraction (Phase 1-2)**: Migrated backup type definitions to
+  `internal/backup/types.go` and database migration system to
+  `internal/migration/schema.go` to improve code organization, testability, and
+  reduce root package complexity (~27k LOC). Types are imported and aliased in
+  root package for backward compatibility. See
+  [`docs/PACKAGE_EXTRACTION_PLAN.md`](docs/PACKAGE_EXTRACTION_PLAN.md).
+
+- **Expanded adversarial tenant isolation test coverage**: Added three new test
+  scenarios (`TestCrossTenantBackupAccessDenied`, `TestPlanEnforcementIsolationPerTenant`,
+  `TestTenantConcurrentAccessIsolation`) to verify multi-tenant authorization
+  enforcement and catch race conditions in `SiteCapability` enforcement.
+
+- **Customer-facing restore-to-staging documentation**: Created
+  [`docs/CUSTOMER_WORKFLOWS.md`](docs/CUSTOMER_WORKFLOWS.md) with comprehensive
+  guide for customers to safely test backup restoration before promoting to
+  production, including step-by-step API examples, best practices checklist,
+  and troubleshooting procedures.
+
+- **Plan enforcement and account suspension workflows**: Added three new
+  operator API endpoints for managing shared-hosting customer limits:
+  - `GET /api/admin/plan-status` — Monitor customer usage vs. plan limits
+  - `POST /api/admin/suspend` — Suspend account with audit logging (manual or automatic)
+  - `POST /api/admin/unsuspend` — Lift account suspension
+  
+  Implements automatic suspension when customers exceed resource limits
+  (sites, databases), automatic lifting when usage drops, temporary vs.
+  permanent suspension modes, and full audit trail integration. Added
+  [`docs/PLAN_ENFORCEMENT.md`](docs/PLAN_ENFORCEMENT.md) operator runbook with
+  daily review procedures, customer upgrade workflows, and best practices.
+
 - Tenant isolation at the data-access layer is now enforced by the type system:
   all site-scoped data-mutation functions (`CreateSiteBackup`,
   `backupRestoreFiles`, `pruneSiteBackups`, `cloneManagedDatabaseToStaging`,
