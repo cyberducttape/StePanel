@@ -6,9 +6,20 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Commit=docker -X main.BuildDate=container" -o /out/stepanel .
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
+
+# REPRODUCIBILITY: Package versions are pinned to ensure identical builds across
+# different times and environments. The base image digest is fixed, and all
+# runtime packages must use explicit versions from Debian Bookworm.
+#
+# To update package versions, see docker/apt-pins.txt for instructions.
+# Never use apt-get upgrade, which pulls untested/unreviewed versions.
+# Track version updates in git with CVE or improvement justification.
 RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends ca-certificates curl mariadb-client rclone \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates=20240110-1 \
+        curl=7.88.1-14+0~deb12u5 \
+        mariadb-client=1:10.11.7-1 \
+        rclone=1:1.64.2-1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --user-group --home-dir /opt/stepanel --shell /usr/sbin/nologin stepanel \
     && mkdir -p /opt/stepanel/web/static /var/lib/ste-panel/imports /var/www/sites \
