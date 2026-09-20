@@ -78,45 +78,45 @@ func TestExtractWordPressDefine(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "simple single quotes",
-			content: "define('DB_NAME', 'wordpress_db');\n",
-			key: "DB_NAME",
+			name:     "simple single quotes",
+			content:  "define('DB_NAME', 'wordpress_db');\n",
+			key:      "DB_NAME",
 			expected: "wordpress_db",
 		},
 		{
-			name: "simple double quotes",
-			content: `define("DB_USER", "wp_user");` + "\n",
-			key: "DB_USER",
+			name:     "simple double quotes",
+			content:  `define("DB_USER", "wp_user");` + "\n",
+			key:      "DB_USER",
 			expected: "wp_user",
 		},
 		{
-			name: "mixed quotes (single key, double value)",
-			content: `define('DB_PASSWORD', "secret123");` + "\n",
-			key: "DB_PASSWORD",
+			name:     "mixed quotes (single key, double value)",
+			content:  `define('DB_PASSWORD', "secret123");` + "\n",
+			key:      "DB_PASSWORD",
 			expected: "secret123",
 		},
 		{
-			name: "whitespace handling",
-			content: "define( 'DB_HOST' , 'localhost' ) ;\n",
-			key: "DB_HOST",
+			name:     "whitespace handling",
+			content:  "define( 'DB_HOST' , 'localhost' ) ;\n",
+			key:      "DB_HOST",
 			expected: "localhost",
 		},
 		{
-			name: "key not found",
-			content: "define('DB_NAME', 'wordpress_db');\n",
-			key: "NONEXISTENT",
+			name:     "key not found",
+			content:  "define('DB_NAME', 'wordpress_db');\n",
+			key:      "NONEXISTENT",
 			expected: "",
 		},
 		{
-			name: "value with special chars",
-			content: `define('DB_PASSWORD', 'p@$$w0rd!#');` + "\n",
-			key: "DB_PASSWORD",
+			name:     "value with special chars",
+			content:  `define('DB_PASSWORD', 'p@$$w0rd!#');` + "\n",
+			key:      "DB_PASSWORD",
 			expected: "p@$$w0rd!#",
 		},
 		{
-			name: "commented line ignored",
-			content: "// define('DB_NAME', 'old_db');\ndefine('DB_NAME', 'new_db');\n",
-			key: "DB_NAME",
+			name:     "commented line ignored",
+			content:  "// define('DB_NAME', 'old_db');\ndefine('DB_NAME', 'new_db');\n",
+			key:      "DB_NAME",
 			expected: "new_db",
 		},
 	}
@@ -134,7 +134,7 @@ func TestExtractWordPressDefine(t *testing.T) {
 
 func TestArchiveEntryLimits(t *testing.T) {
 	job := &ImportJob{
-		ID: "test-job",
+		ID:               "test-job",
 		EntriesProcessed: 0,
 	}
 

@@ -64,11 +64,11 @@ func TestExtractLargestFilesUsesPreSortedData(t *testing.T) {
 		name string
 		size int64
 	}{
-		{"large-file.bin", 5000000},     // 5 MB
-		{"medium-file.zip", 2000000},    // 2 MB
-		{"small-file.txt", 100000},      // 100 KB
-		{".hidden-file", 50000},         // Should be skipped
-		{"tiny.log", 1000},              // 1 KB
+		{"large-file.bin", 5000000},  // 5 MB
+		{"medium-file.zip", 2000000}, // 2 MB
+		{"small-file.txt", 100000},   // 100 KB
+		{".hidden-file", 50000},      // Should be skipped
+		{"tiny.log", 1000},           // 1 KB
 	}
 
 	analyzer.extractLargestFiles(files, inspection)

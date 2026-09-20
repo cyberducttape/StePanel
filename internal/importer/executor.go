@@ -19,11 +19,11 @@ import (
 
 const (
 	// Archive size limits (more conservative than original)
-	maxArchiveSize        = 5 * 1024 * 1024 * 1024    // 5GB compressed (configurable)
-	maxDecompressedSize   = 50 * 1024 * 1024 * 1024   // 50GB decompressed (configurable)
-	maxArchiveEntries     = 250000                     // 250k files/dirs (was 1M, still generous)
-	maxIndividualFileSize = 10 * 1024 * 1024 * 1024   // 10GB per file
-	maxDirectoriesInArchive = 25000                    // Separate limit for directories
+	maxArchiveSize          = 5 * 1024 * 1024 * 1024  // 5GB compressed (configurable)
+	maxDecompressedSize     = 50 * 1024 * 1024 * 1024 // 50GB decompressed (configurable)
+	maxArchiveEntries       = 250000                  // 250k files/dirs (was 1M, still generous)
+	maxIndividualFileSize   = 10 * 1024 * 1024 * 1024 // 10GB per file
+	maxDirectoriesInArchive = 25000                   // Separate limit for directories
 )
 
 // ArchiveFetcher safely downloads archives with size limits and validation
@@ -97,25 +97,25 @@ func NewExecutor() *Executor {
 
 // ImportJob tracks an in-progress import
 type ImportJob struct {
-	ID               string
-	SiteName         string
-	ArchiveURL       string
-	ConfigPath       string
-	WebRoot          string
-	Status           string // "validating", "extracting", "restoring-db", "finalizing", "done", "failed"
-	Progress         int    // 0-100
-	FilesExtracted   int64
+	ID                 string
+	SiteName           string
+	ArchiveURL         string
+	ConfigPath         string
+	WebRoot            string
+	Status             string // "validating", "extracting", "restoring-db", "finalizing", "done", "failed"
+	Progress           int    // 0-100
+	FilesExtracted     int64
 	DirectoriesCreated int64
-	EntriesProcessed int64 // Total entries (files + dirs) to catch directory bombs
-	BytesExtracted   int64
-	CurrentFile      string
-	Message          string
-	StartedAt        time.Time
-	UpdatedAt        time.Time
-	Error            string
-	DatabaseName     string
-	DatabaseUser     string
-	DatabasePassword string
+	EntriesProcessed   int64 // Total entries (files + dirs) to catch directory bombs
+	BytesExtracted     int64
+	CurrentFile        string
+	Message            string
+	StartedAt          time.Time
+	UpdatedAt          time.Time
+	Error              string
+	DatabaseName       string
+	DatabaseUser       string
+	DatabasePassword   string
 }
 
 // ExecuteImport performs the full import workflow
