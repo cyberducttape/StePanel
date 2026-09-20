@@ -136,7 +136,7 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 	releaseUnlock := a.siteOperations.Acquire(site)
 	defer releaseUnlock()
 	started := time.Now()
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "composer-install", site, root, boolString(input.Development), boolString(input.OptimizeAutoloader)); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "composer-install", site, root, boolString(input.Development), boolString(input.OptimizeAutoloader)); err != nil {
 		http.Error(w, "Composer install failed", 502)
 		return
 	}

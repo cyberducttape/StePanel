@@ -371,7 +371,7 @@ func addBackupFileExpected(tw *tar.Writer, source, name string, totalBytes *int6
 }
 
 func managedDatabasesForSite(cfg Config, site string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), helperConfigMutationTimeout)
 	defer cancel()
 	output, err := runBoundedCommand(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, "list", site))
 	if err != nil {
@@ -400,7 +400,7 @@ func dumpManagedDatabase(cfg Config, database, destination string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), helperBackupRestoreTimeout)
 	defer cancel()
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "dump", database)
 	var stderr strings.Builder

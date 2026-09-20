@@ -318,7 +318,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			return
 		}
 	}
-	if e = runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "apply", input.Site, input.Domain); e != nil {
+	if e = runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "apply", input.Site, input.Domain); e != nil {
 		http.Error(w, "could not activate restored staging route", 502)
 		return
 	}
@@ -355,7 +355,7 @@ func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStaging
 		return true, err
 	}
 	defer file.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), helperBackupRestoreTimeout)
 	defer cancel()
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", input.TargetDatabase, input.Site)
 	cmd.Stdin = file
@@ -533,7 +533,7 @@ func restoreManagedDatabase(cfg Config, backupName, site, database string) (Back
 		return BackupRestoreResult{}, err
 	}
 	defer input.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), helperBackupRestoreTimeout)
 	defer cancel()
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", database, site)
 	cmd.Stdin = input

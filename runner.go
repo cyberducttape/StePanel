@@ -139,7 +139,7 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	maxImageSizeStr := strconv.FormatInt(a.Config.MaxImageSize, 10)
 
-	if err = runHelperCommand(r.Context(), a.Config, a.Config.RunnerCtl, "build", input.Site, input.Image, root, scriptPath, strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax), networkFlag, maxImageSizeStr); err != nil {
+	if err = runHelperCommandWithTimeout(r.Context(), a.Config, helperPackageBuildTimeout, a.Config.RunnerCtl, "build", input.Site, input.Image, root, scriptPath, strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax), networkFlag, maxImageSizeStr); err != nil {
 		http.Error(w, "sandboxed build failed", 502)
 		return
 	}
