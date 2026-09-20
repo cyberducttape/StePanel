@@ -17,6 +17,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security Fixes (HIGH)
 
+- **Process group cleanup on timeout (HIGH)**: Fixed resource leak where timeouts/
+  cancellations killed parent helper process but left child processes running
+  indefinitely. Now all helpers configure process group (Setpgid=true) and timeout
+  kills entire process group with SIGKILL (-PGID) instead of just parent PID.
+  Prevents accumulation of orphaned pip/npm/podman/systemctl/git processes and
+  concurrent mutations outside StePanel's lock lifecycle.
+
 - **Git webhook secret isolation (HIGH)**: Fixed webhook authentication blast radius
   where single global `GitWebhookSecret` could deploy any repository to any site.
   Implemented per-site webhook configuration framework:
