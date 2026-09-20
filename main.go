@@ -1193,6 +1193,11 @@ func limitConcurrent(next http.Handler, slots chan struct{}) http.Handler {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, destination any) error {
+	// Validate limit to prevent potential DoS. All callers use hardcoded constants.
+	const maxLimit = 1 << 20 // 1 MiB max
+	if limit <= 0 || limit > maxLimit {
+		return fmt.Errorf("invalid decode limit: %d", limit)
+	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
