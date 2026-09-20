@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -516,7 +517,9 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 		}
 		reader = bytes.NewReader(data)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "https://api.linode.com/v4"+path, reader)
+	// Build URL safely using url.URL to prevent SSRF attacks
+	baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
+	req, err := http.NewRequestWithContext(ctx, method, baseURL.String(), reader)
 	if err != nil {
 		return nil, err
 	}
