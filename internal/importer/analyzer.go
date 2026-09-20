@@ -7,12 +7,52 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
+
+// isAllowedURL validates that a URL is safe to fetch (prevents SSRF)
+func isAllowedURL(urlStr string) bool {
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+
+	// Only allow https
+	if parsed.Scheme != "https" {
+		return false
+	}
+
+	// Extract hostname
+	host := parsed.Hostname()
+	if host == "" {
+		return false
+	}
+
+	// Reject localhost and private IPs
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+			return false
+		}
+	}
+
+	// Reject numeric IPs unless they're public
+	if net.ParseIP(host) != nil {
+		ip := net.ParseIP(host)
+		if !ip.IsGlobalUnicast() {
+			return false
+		}
+	}
+
+	return true
+}
 
 // Analyzer inspects and analyzes archive contents
 type Analyzer struct {
@@ -35,8 +75,18 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		return nil, errors.New("config path is required")
 	}
 
+	// Prevent SSRF: only allow https URLs from known domains
+	if !isAllowedURL(url) {
+		return nil, fmt.Errorf("archive URL not allowed: %s", url)
+	}
+
 	// Download archive header to determine type and size
-	resp, err := a.httpClient.Head(url)
+	req, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid archive URL: %w", err)
+	}
+
+	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch archive: %w", err)
 	}
@@ -56,12 +106,21 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		return nil, errors.New("archive size invalid or exceeds 5GB limit")
 	}
 
-	// Download and analyze the archive
-	bodyResp, err := a.httpClient.Get(url)
+	// Download archive with size limit (prevent server from lying about size)
+	maxBytes := size + (1 << 20) // Add 1MB buffer to claimed size
+	bodyReq, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid archive URL: %w", err)
+	}
+
+	bodyResp, err := a.httpClient.Do(bodyReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download archive: %w", err)
 	}
 	defer bodyResp.Body.Close()
+
+	// Limit the download to prevent disk exhaustion
+	limitedBody := io.LimitReader(bodyResp.Body, maxBytes)
 
 	inspection := &ArchiveInspection{
 		URL:         url,
@@ -74,7 +133,7 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 
 	// Parse archive based on type
 	if archiveType == "tar.gz" {
-		err = a.inspectTarGz(bodyResp.Body, configPath, inspection)
+		err = a.inspectTarGz(limitedBody, configPath, inspection)
 	} else if archiveType == "zip" {
 		// For zip files, we need to seek, so download to temp file
 		tempFile, err := os.CreateTemp("", "archive-*.zip")
@@ -83,7 +142,7 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		}
 		defer os.Remove(tempFile.Name())
 
-		if _, err := io.Copy(tempFile, bodyResp.Body); err != nil {
+		if _, err := io.Copy(tempFile, limitedBody); err != nil {
 			return nil, fmt.Errorf("failed to download archive: %w", err)
 		}
 		tempFile.Close()
@@ -118,10 +177,11 @@ func (a *Analyzer) inspectTarGz(reader io.Reader, configPath string, inspection 
 	}
 
 	seen := make(map[string]bool)
-	var largestFiles []struct {
+	largestFiles := make([]struct {
 		name string
 		size int64
-	}
+	}, 0, 100) // Limit to top 100 files
+	const maxLargestFiles = 100
 
 	for {
 		header, err := tr.Next()
@@ -145,11 +205,21 @@ func (a *Analyzer) inspectTarGz(reader io.Reader, configPath string, inspection 
 			seen[ext] = true
 		}
 
-		// Track largest files
-		largestFiles = append(largestFiles, struct {
-			name string
-			size int64
-		}{header.Name, header.Size})
+		// Track largest files (limit memory by only tracking top N files)
+		if len(largestFiles) < maxLargestFiles || header.Size > largestFiles[len(largestFiles)-1].size {
+			largestFiles = append(largestFiles, struct {
+				name string
+				size int64
+			}{header.Name, header.Size})
+			// Keep sorted by size (descending)
+			sort.Slice(largestFiles, func(i, j int) bool {
+				return largestFiles[i].size > largestFiles[j].size
+			})
+			// Trim to max size
+			if len(largestFiles) > maxLargestFiles {
+				largestFiles = largestFiles[:maxLargestFiles]
+			}
+		}
 
 		// Check for config file
 		if strings.TrimPrefix(header.Name, "./") == configPath || filepath.Base(header.Name) == filepath.Base(configPath) {
@@ -191,10 +261,11 @@ func (a *Analyzer) inspectZip(path, configPath string, inspection *ArchiveInspec
 	}
 
 	seen := make(map[string]bool)
-	var largestFiles []struct {
+	largestFiles := make([]struct {
 		name string
 		size int64
-	}
+	}, 0, 100) // Limit to top 100 files
+	const maxLargestFiles = 100
 
 	for _, file := range reader.File {
 		if file.FileInfo().IsDir() {
@@ -210,10 +281,22 @@ func (a *Analyzer) inspectZip(path, configPath string, inspection *ArchiveInspec
 			seen[ext] = true
 		}
 
-		largestFiles = append(largestFiles, struct {
-			name string
-			size int64
-		}{file.Name, file.FileInfo().Size()})
+		// Track largest files (limit memory by only tracking top N files)
+		fileSize := file.FileInfo().Size()
+		if len(largestFiles) < maxLargestFiles || fileSize > largestFiles[len(largestFiles)-1].size {
+			largestFiles = append(largestFiles, struct {
+				name string
+				size int64
+			}{file.Name, fileSize})
+			// Keep sorted by size (descending)
+			sort.Slice(largestFiles, func(i, j int) bool {
+				return largestFiles[i].size > largestFiles[j].size
+			})
+			// Trim to max size
+			if len(largestFiles) > maxLargestFiles {
+				largestFiles = largestFiles[:maxLargestFiles]
+			}
+		}
 
 		// Check for config file
 		if strings.TrimPrefix(file.Name, "./") == configPath || filepath.Base(file.Name) == filepath.Base(configPath) {

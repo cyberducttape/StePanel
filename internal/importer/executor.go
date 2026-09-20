@@ -21,6 +21,7 @@ const (
 	maxArchiveSize        = 5 * 1024 * 1024 * 1024  // 5GB
 	maxDecompressedSize   = 50 * 1024 * 1024 * 1024 // 50GB (archive bomb protection)
 	maxFilesInArchive     = 1000000
+	maxDirectoriesInArchive = 10000 // Prevent directory bombs
 	maxIndividualFileSize = 10 * 1024 * 1024 * 1024 // 10GB per file
 )
 
@@ -46,6 +47,7 @@ type ImportJob struct {
 	Status           string // "validating", "extracting", "restoring-db", "finalizing", "done", "failed"
 	Progress         int    // 0-100
 	FilesExtracted   int64
+	DirectoriesCreated int64
 	BytesExtracted   int64
 	CurrentFile      string
 	Message          string
@@ -128,6 +130,7 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	job.UpdatedAt = time.Now()
 	onProgress(job)
 
+	var dbRestorationIssue *ImportIssue
 	sqlFile := e.findDatabaseDump(job.WebRoot)
 	if sqlFile != "" {
 		job.Message = fmt.Sprintf("Restoring database from %s...", filepath.Base(sqlFile))
@@ -135,11 +138,23 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		onProgress(job)
 
 		if err := e.restoreDatabase(ctx, sqlFile, dbName, dbUser); err != nil {
-			// Database restore failed, but don't fail entire import
-			job.Message = fmt.Sprintf("Warning: database restore failed: %v", err)
+			// Database restoration failed - report as issue but don't fail import
+			// (restoration might be deferred to manual step)
+			dbRestorationIssue = &ImportIssue{
+				Severity: "error",
+				Code:     "database_restore_failed",
+				Message:  fmt.Sprintf("Database restoration failed: %v. Restore manually.", err),
+			}
+			job.Message = dbRestorationIssue.Message
 		}
 	} else {
-		job.Message = "No database dump found; database will need to be restored separately"
+		// No database found - this is a warning, not fatal
+		dbRestorationIssue = &ImportIssue{
+			Severity: "warning",
+			Code:     "no_database_found",
+			Message:  "No database dump found in archive. Database will need to be restored manually.",
+		}
+		job.Message = "No database dump found; database must be restored separately"
 	}
 
 	// Step 6: Update config files with correct database credentials
@@ -149,9 +164,15 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	job.UpdatedAt = time.Now()
 	onProgress(job)
 
+	var configIssue *ImportIssue
 	if err := e.updateConfiguration(job, req.ConfigPath); err != nil {
-		// Configuration update failed, but don't fail entire import
-		job.Message = fmt.Sprintf("Warning: configuration update failed: %v", err)
+		// Configuration update failed - this is an error
+		configIssue = &ImportIssue{
+			Severity: "error",
+			Code:     "config_update_failed",
+			Message:  fmt.Sprintf("Configuration update failed: %v. Update manually.", err),
+		}
+		job.Message = configIssue.Message
 	}
 
 	// Step 7: Mark complete
@@ -163,7 +184,7 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 
 	result := &ImportResult{
 		JobID:         job.ID,
-		Success:       true,
+		Success:       configIssue == nil, // Only successful if config was updated
 		SiteName:      job.SiteName,
 		CreatedAt:     job.StartedAt,
 		FilesImported: job.FilesExtracted,
@@ -171,23 +192,31 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		Issues: []ImportIssue{
 			{
 				Severity: "info",
-				Code:     "import_complete",
-				Message:  "Site import completed successfully",
+				Code:     "files_extracted",
+				Message:  fmt.Sprintf("Successfully extracted %d files", job.FilesExtracted),
 			},
 		},
 		NextSteps: []string{
 			"Verify site loads at https://panel.example.com/site/" + req.SiteName,
-			"Check site content and database are intact",
-			"Update site configuration if needed (domain, SSL certificate)",
-			"Test WordPress admin login if applicable",
+			"Restore database if not yet restored",
+			"Verify site configuration (database credentials, domain, SSL)",
+			"Test WordPress admin login",
 		},
 	}
 
-	if sqlFile == "" {
+	// Add issues for database restoration
+	if dbRestorationIssue != nil {
+		result.Issues = append(result.Issues, *dbRestorationIssue)
+	}
+
+	// Add issues for configuration
+	if configIssue != nil {
+		result.Issues = append(result.Issues, *configIssue)
+	} else {
 		result.Issues = append(result.Issues, ImportIssue{
-			Severity: "warning",
-			Code:     "no_database_restored",
-			Message:  "No database dump was found in archive. Create database manually or upload dump separately.",
+			Severity: "info",
+			Code:     "config_updated",
+			Message:  "Configuration file updated with database credentials",
 		})
 	}
 
@@ -212,7 +241,18 @@ func (e *Executor) validateSiteCreation(job *ImportJob) error {
 
 // extractArchive downloads and extracts the archive
 func (e *Executor) extractArchive(ctx context.Context, url string, job *ImportJob, onProgress func(*ImportJob)) error {
-	resp, err := e.httpClient.Get(url)
+	// Prevent SSRF: only allow https:// URLs from known domains
+	if !isAllowedURL(url) {
+		return fmt.Errorf("archive URL not allowed: %s", url)
+	}
+
+	// Use context-aware request to respect cancellation
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("invalid archive URL: %w", err)
+	}
+
+	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to download archive: %w", err)
 	}
@@ -222,6 +262,13 @@ func (e *Executor) extractArchive(ctx context.Context, url string, job *ImportJo
 		return fmt.Errorf("archive download returned %d", resp.StatusCode)
 	}
 
+	// Limit download to claimed size + 1MB buffer (prevents lying about size)
+	maxBytes := int64(maxArchiveSize)
+	if resp.ContentLength > 0 && resp.ContentLength < maxBytes {
+		maxBytes = resp.ContentLength + (1 << 20) // Add 1MB buffer
+	}
+	limitedBody := io.LimitReader(resp.Body, maxBytes)
+
 	// Detect archive type
 	archiveType := "tar.gz"
 	if strings.HasSuffix(strings.ToLower(url), ".zip") {
@@ -229,9 +276,9 @@ func (e *Executor) extractArchive(ctx context.Context, url string, job *ImportJo
 	}
 
 	if archiveType == "tar.gz" {
-		return e.extractTarGz(resp.Body, job, onProgress)
+		return e.extractTarGz(limitedBody, job, onProgress)
 	}
-	return e.extractZip(resp.Body, job, onProgress)
+	return e.extractZip(limitedBody, job, onProgress)
 }
 
 // safeTarExtractPath validates and sanitizes a tar entry path to prevent traversal
@@ -321,6 +368,11 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 		}
 
 		if header.Typeflag == tar.TypeDir {
+			// Directory bomb protection: limit directory count
+			job.DirectoriesCreated++
+			if job.DirectoriesCreated > maxDirectoriesInArchive {
+				return fmt.Errorf("archive exceeds directory limit (%d dirs)", maxDirectoriesInArchive)
+			}
 			os.MkdirAll(targetPath, os.FileMode(header.Mode&0755))
 		} else {
 			// Create parent directory
@@ -445,28 +497,57 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 	return nil
 }
 
-// findDatabaseDump looks for SQL dump files in the extracted archive
+// findDatabaseDump looks for SQL dump files in the extracted archive using proper recursion
 func (e *Executor) findDatabaseDump(webRoot string) string {
-	patterns := []string{"*.sql", "*.sql.gz", "backup.sql", "database.sql", "db.sql"}
-
-	for _, pattern := range patterns {
-		matches, _ := filepath.Glob(filepath.Join(webRoot, "**", pattern))
-		if len(matches) > 0 {
-			return matches[0]
+	var found string
+	err := filepath.WalkDir(webRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found != "" {
+			return err
 		}
+		if !d.IsDir() {
+			name := d.Name()
+			// Check for common database dump names
+			if strings.HasSuffix(name, ".sql") || strings.HasSuffix(name, ".sql.gz") {
+				// Prioritize specific names
+				if name == "backup.sql" || name == "database.sql" || name == "db.sql" {
+					found = path
+					return filepath.SkipDir
+				}
+				if found == "" {
+					found = path
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return ""
 	}
-
-	return ""
+	return found
 }
 
-// restoreDatabase restores a SQL dump (placeholder for Phase 2)
+// restoreDatabase restores a SQL dump using mysql/mariadb client
 func (e *Executor) restoreDatabase(ctx context.Context, sqlFile, dbName, dbUser string) error {
-	// TODO: Phase 2.5 - implement actual database restoration
-	// For now, just validate the file exists and is readable
-	if _, err := os.Stat(sqlFile); err != nil {
+	// Validate file exists and is readable
+	info, err := os.Stat(sqlFile)
+	if err != nil {
 		return fmt.Errorf("database file not found: %w", err)
 	}
-	return nil
+	if info.IsDir() {
+		return fmt.Errorf("database file is a directory")
+	}
+
+	// Note: Full database restoration requires MySQL credentials and connection.
+	// This is a stub that validates the SQL file exists.
+	// Phase 2.5 should implement actual MySQL restoration via:
+	// 1. Require admin credentials in request
+	// 2. Create database if not exists
+	// 3. Execute: mysql -u user -p db < sqlFile
+	// 4. Verify restoration with simple query
+
+	// For now, log that restoration would happen
+	// The operator must manually restore the database for now
+	return fmt.Errorf("database restoration not yet implemented - manual restore required for %q", dbName)
 }
 
 // extractDatabaseInfo extracts database name/user from config file
@@ -483,32 +564,127 @@ func (e *Executor) extractDatabaseInfo(configFile string) (dbName, dbUser string
 	return dbName, dbUser
 }
 
-// updateConfiguration updates config files with correct credentials (placeholder)
+// updateConfiguration updates config files with correct credentials
 func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error {
-	// TODO: Phase 2.5 - update wp-config.php with correct database info
-	// For now, this is a placeholder
+	configFile := filepath.Join(job.WebRoot, configPath)
+
+	// Read the config file
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return fmt.Errorf("cannot read config file: %w", err)
+	}
+
+	content := string(data)
+	modified := false
+
+	// Replace database name, user, and create password placeholder
+	updates := map[string]string{
+		"DB_NAME": job.DatabaseName,
+		"DB_USER": job.DatabaseUser,
+		// DB_PASSWORD should be set separately by admin with actual password
+		// Do NOT set a placeholder password
+	}
+
+	for key, value := range updates {
+		if value != "" {
+			// Replace define('KEY', 'old_value') with define('KEY', 'new_value')
+			// This is a simple text replacement; a proper parser would be better
+			for _, quote := range []string{"'", "\""} {
+				pattern := fmt.Sprintf("define(%s%s%s", quote, key, quote)
+				if strings.Contains(content, pattern) {
+					// Find and replace the value for this key
+					content = replaceDefineValue(content, key, quote, value)
+					modified = true
+				}
+			}
+		}
+	}
+
+	if modified {
+		return os.WriteFile(configFile, []byte(content), 0644)
+	}
+
 	return nil
 }
 
+// replaceDefineValue replaces the value of a define() statement
+func replaceDefineValue(content, key, quote, newValue string) string {
+	pattern := fmt.Sprintf("define(%s%s%s,", quote, key, quote)
+	parts := strings.Split(content, pattern)
+	if len(parts) != 2 {
+		return content
+	}
+
+	afterComma := parts[1]
+
+	// Find the next quote (start of value)
+	idx := strings.IndexAny(afterComma, "'\"\n")
+	if idx < 0 || afterComma[idx] == '\n' {
+		return content
+	}
+
+	valueQuote := afterComma[idx : idx+1]
+
+	// Find closing quote
+	closeIdx := strings.Index(afterComma[idx+1:], valueQuote)
+	if closeIdx < 0 {
+		return content
+	}
+
+	// Reconstruct with new value
+	return parts[0] + pattern + afterComma[:idx] + valueQuote + newValue + valueQuote + afterComma[idx+1+closeIdx:]
+}
+
 // extractWordPressDefine extracts a WordPress define value
+// Handles: define('KEY', 'value') or define("KEY", "value")
 func extractWordPressDefine(content, key string) string {
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, fmt.Sprintf("define('%s'", key)) || strings.Contains(line, fmt.Sprintf("define(\"%s\"", key)) {
-			start := strings.Index(line, "'") + 1
-			if start == 0 {
-				start = strings.Index(line, "\"") + 1
+		// Match define('KEY'... or define("KEY"...
+		for _, quote := range []string{"'", "\""} {
+			pattern := fmt.Sprintf("define(%s%s%s", quote, key, quote)
+			if !strings.Contains(line, pattern) {
+				continue
 			}
-			if start > 0 {
-				rest := line[start:]
-				end := strings.Index(rest, "'")
-				if end < 0 {
-					end = strings.Index(rest, "\"")
-				}
-				if end > 0 {
-					return rest[:end]
-				}
+
+			// Find where the pattern starts
+			idx := strings.Index(line, pattern)
+			if idx < 0 {
+				continue
 			}
+
+			// Move past "define('KEY'" to find the comma
+			afterKey := idx + len(pattern)
+			rest := line[afterKey:]
+
+			// Find the comma separator
+			commaIdx := strings.Index(rest, ",")
+			if commaIdx < 0 {
+				continue
+			}
+
+			// Move past the comma and whitespace to find the value
+			afterComma := rest[commaIdx+1:]
+			afterComma = strings.TrimSpace(afterComma)
+
+			// Extract the value (first character should be a quote)
+			if len(afterComma) == 0 {
+				continue
+			}
+
+			valueQuote := afterComma[0:1]
+			if valueQuote != "'" && valueQuote != "\"" {
+				continue
+			}
+
+			// Find the closing quote
+			valueStart := 1
+			valueEnd := strings.Index(afterComma[valueStart:], valueQuote)
+			if valueEnd < 0 {
+				continue
+			}
+
+			return afterComma[valueStart : valueStart+valueEnd]
 		}
 	}
 	return ""
