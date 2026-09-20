@@ -157,7 +157,7 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 	}
 	releaseUnlock := a.siteOperations.Acquire(parts[0])
 	defer releaseUnlock()
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
 		http.Error(w, "Python action failed", 502)
 		return
 	}

@@ -264,9 +264,8 @@ func minInt(left, right int) int {
 }
 
 func (a *App) applyAccountResourceEnvelope(account string, plan HostingPlan) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	return runHelperCommand(ctx, a.Config, a.Config.AppCtl, "account-resource-apply", account, strconv.Itoa(plan.CPUPercent), "100", strconv.Itoa(plan.MemoryMB*90/100), strconv.Itoa(plan.MemoryMB), "100", strconv.Itoa(plan.TasksMax))
+	// Account resource envelope is a config mutation (cgroup setup) - use standard timeout
+	return runHelperCommandWithTimeout(context.Background(), a.Config, helperConfigMutationTimeout, a.Config.AppCtl, "account-resource-apply", account, strconv.Itoa(plan.CPUPercent), "100", strconv.Itoa(plan.MemoryMB*90/100), strconv.Itoa(plan.MemoryMB), "100", strconv.Itoa(plan.TasksMax))
 }
 
 func OpenResourceStore(path string) (*ResourceStore, error) {

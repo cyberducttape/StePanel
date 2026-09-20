@@ -184,7 +184,7 @@ func (a *App) runPipelineBuild(ctx context.Context, site, image string, commands
 		return err
 	}
 	cpuPercent, memoryMB, tasksMax := a.pipelineResourceLimits(site)
-	return runHelperCommand(ctx, a.Config, a.Config.RunnerCtl, "build", site, image, root, script.Name(), strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax))
+	return runHelperCommandWithTimeout(ctx, a.Config, helperPackageBuildTimeout, a.Config.RunnerCtl, "build", site, image, root, script.Name(), strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax))
 }
 
 func (a *App) pipelineResourceLimits(site string) (cpuPercent, memoryMB, tasksMax int) {
