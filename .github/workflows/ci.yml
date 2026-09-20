@@ -29,8 +29,8 @@ jobs:
         # after setup-go publishes that version for all runner architectures.
         go_version: ['1.26.x']
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-      - uses: actions/setup-go@3041bf56c941b39c61721b86cd82f6f55fc0cf6e # v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go_version }}
           cache: true
@@ -48,11 +48,11 @@ jobs:
         run: go test -p 1 -race -timeout 10m ./...
       - name: Recovery drills
         run: bash deploy/lab/run-recovery-drills.sh /tmp/stepanel-recovery-drills.md
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v4
         with:
           name: recovery-drill-results
           path: /tmp/stepanel-recovery-drills.md
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v4
         with:
           name: go-coverage
           path: coverage.out
