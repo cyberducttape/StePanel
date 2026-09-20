@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Performance Fixes (HIGH)
+
+- **Backup listing verification DoS fix (HIGH)**: Fixed self-imposed denial-of-service
+  where listing backups re-verified every archive with full SHA256 and file-by-file
+  hashing. Implemented in-memory verification cache (5-minute TTL) to skip expensive
+  archive traversal on listing operations. Restore operations still verify fresh
+  (bypassing cache) to ensure safety before destructive operations. Reduces backup
+  listing time from O(archive hash * count) to O(manifest reads) with LRU-ish cache
+  eviction when exceeding 1000 entries. Phase 2 will add SQLite-backed persistent
+  verification with background re-verification job.
+
 ### Security Fixes (Critical)
 
 - **Python deployment privilege escalation (CRITICAL)**: Fixed root privilege
