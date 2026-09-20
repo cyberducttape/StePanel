@@ -15,6 +15,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   pip install executed as $site_user with `runuser`, Gunicorn pinned to v23.0.0
   with PyPI hash verification. Matches Node deployment security model.
 
+### Security Fixes (HIGH)
+
+- **Git webhook secret isolation (HIGH)**: Fixed webhook authentication blast radius
+  where single global `GitWebhookSecret` could deploy any repository to any site.
+  Implemented per-site webhook configuration framework:
+  - New `GitWebhookConfig` type stores per-site webhook secrets, allowed repos, allowed refs
+  - Webhook URL changed from `/api/sites/git-webhook` to `/api/sites/git-webhook/:site`
+  - Site name now explicit in path, enabling per-site secret lookup (Phase 2)
+  - New helper functions for safe webhook path parsing and signature verification
+  - Temporarily falls back to global secret with deprecation notice
+  - Phase 2 will migrate to database-backed per-site configuration with validation
+  - Reduces blast radius from all sites to single site on secret compromise
+
 - **Archive extraction hardening**: Comprehensive security validation for
   site import archives to prevent path traversal, symlink escapes, and zip bombs:
   - New `safeTarExtractPath()` prevents absolute paths, .. sequences, symlink traversal
