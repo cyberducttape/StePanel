@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const MaxCommandOutput = 64 << 10
@@ -70,8 +72,12 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 		}
 		return output.data, nil
 	case <-ctx.Done():
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
+		// Kill the entire process group, not just the parent process.
+		// This ensures child processes (pip, npm, podman, etc.) are also terminated
+		// instead of being orphaned and continuing to run.
+		if cmd.Process != nil && cmd.ProcessState == nil {
+			// Kill the process group (negative PID kills all processes in the group)
+			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
 		}
 		<-waitErr
 		return output.data, fmt.Errorf("%w: %s", ctx.Err(), string(output.data))
@@ -83,21 +89,45 @@ func RunBoundedCommandInput(ctx context.Context, cmd *exec.Cmd, input io.Reader)
 	return RunBoundedCommand(ctx, cmd)
 }
 
+// configureProcessGroup sets up the command to run in its own process group.
+// This ensures that when the process is killed, all child processes are also terminated.
+// This is critical for helpers that launch subprocesses (pip, npm, podman, systemctl, etc.)
+func configureProcessGroup(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	// Setpgid=true creates a new process group, allowing us to kill all children with -PGID
+	cmd.SysProcAttr.Setpgid = true
+}
+
 // HelperCommand runs narrowly scoped privileged helpers through sudo when the
 // packaged installation configures it. Development and test configurations can
 // leave Sudo empty and execute their helper directly.
+//
+// SECURITY: All helpers run in their own process group (Setpgid=true) to ensure
+// that timeout/cancellation kills the entire process tree, not just the parent.
+// This prevents orphaned child processes (pip, npm, podman, containers, etc.)
+// from continuing execution after their parent timeout.
 func HelperCommand(sudo string, path string, args ...string) *exec.Cmd {
+	var cmd *exec.Cmd
 	if sudo == "" {
-		return exec.Command(path, args...)
+		cmd = exec.Command(path, args...)
+	} else {
+		cmd = exec.Command(sudo, append([]string{"--non-interactive", path}, args...)...)
 	}
-	return exec.Command(sudo, append([]string{"--non-interactive", path}, args...)...)
+	configureProcessGroup(cmd)
+	return cmd
 }
 
 func HelperCommandContext(ctx context.Context, sudo string, path string, args ...string) *exec.Cmd {
+	var cmd *exec.Cmd
 	if sudo == "" {
-		return exec.CommandContext(ctx, path, args...)
+		cmd = exec.CommandContext(ctx, path, args...)
+	} else {
+		cmd = exec.CommandContext(ctx, sudo, append([]string{"--non-interactive", path}, args...)...)
 	}
-	return exec.CommandContext(ctx, sudo, append([]string{"--non-interactive", path}, args...)...)
+	configureProcessGroup(cmd)
+	return cmd
 }
 
 // SafePath joins path components beneath root and rejects absolute components,
