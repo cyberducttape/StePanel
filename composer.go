@@ -92,11 +92,15 @@ func boolString(v bool) string {
 }
 func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/composer/"), "/"), "/")
-	if len(parts) < 1 || safeUser(parts[0]) == "" {
+	if len(parts) < 1 {
 		http.Error(w, "invalid site", 422)
 		return
 	}
-	site := parts[0]
+	site := safeUser(parts[0])
+	if site == "" {
+		http.Error(w, "invalid site", 422)
+		return
+	}
 	access, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403)
 	if !ok {
 		return
