@@ -396,7 +396,7 @@ func main() {
 	defer stop()
 	if workerMode {
 		log.Printf("StePanel durable worker started with pid %d", os.Getpid())
-		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate"}, 500*time.Millisecond, app.handleDurableJob)
+		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis"}, 500*time.Millisecond, app.handleDurableJob)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Fatalf("durable worker stopped: %v", err)
 		}
@@ -407,7 +407,7 @@ func main() {
 	}
 	if cfg.WorkerMode != "external" {
 		go func() {
-			err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate"}, 500*time.Millisecond, app.handleDurableJob)
+			err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis"}, 500*time.Millisecond, app.handleDurableJob)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				log.Printf("durable worker stopped: %v", err)
 			}
@@ -462,7 +462,6 @@ func main() {
 	mux.Handle("/api/security/audit", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.securityAudit)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/security/center", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.securityCenter)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/audit/events", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.auditEvents)), http.MethodGet, http.MethodHead))
-	mux.Handle("/api/doctor", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.doctor)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/cloud", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.cloudInventory)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/cloud/action", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.cloudAction)), http.MethodPost))
 	mux.Handle("/api/cloud/dns", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.cloudDNS)), http.MethodGet, http.MethodHead, http.MethodPost, http.MethodDelete))
@@ -541,6 +540,8 @@ func main() {
 	mux.Handle("/api/admin/plan-status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.accountPlanStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/suspend", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.accountSuspend)), http.MethodPost))
 	mux.Handle("/api/admin/unsuspend", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.accountUnsuspend)), http.MethodPost))
+	mux.Handle("/api/admin/migration-doctor", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationDoctor)), http.MethodPost))
+	mux.Handle("/api/admin/migration-doctor/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationAnalysisStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/account/password", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerPassword)), http.MethodPost))
 	mux.Handle("/api/account/mfa", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerMFA)), http.MethodPost))
 	mux.Handle("/api/account/sessions/revoke", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerSessionsRevoke)), http.MethodPost))
@@ -945,6 +946,8 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleCloudJob(ctx, item)
 	case "site.terminate":
 		return a.handleSiteTermination(ctx, item)
+	case "migration.analysis":
+		return a.handleMigrationAnalysisJob(&item)
 	default:
 		return nil, fmt.Errorf("no durable worker handler for job kind %q", item.Kind)
 	}
