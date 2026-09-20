@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -33,6 +34,11 @@ type ScheduledTask struct {
 	LastRunOutput         []string `json:"last_run_output,omitempty"` // Last N lines of stdout/stderr
 	ConsecutiveFailures   int      `json:"consecutive_failures,omitempty"` // Count failures for auto-disable
 	AutoDisabledAt        int64    `json:"auto_disabled_at,omitempty"` // When task was auto-disabled
+	// Phase 2 safeguards
+	NotifyEmail           string   `json:"notify_email,omitempty"` // Email for failure notifications
+	MinIntervalSeconds    int      `json:"min_interval_seconds,omitempty"` // Rate limiting: min seconds between runs
+	MaxConcurrentRuns     int      `json:"max_concurrent_runs,omitempty"` // Concurrency limit (default 1)
+	CurrentRunCount       int      `json:"current_run_count,omitempty"` // Currently running instances
 }
 
 type TaskStore struct {
@@ -170,6 +176,91 @@ func (a *App) killTask(site, name string) error {
 	return runHelperCommandWithTimeout(context.Background(), a.Config, taskTimeoutDefault, a.Config.TaskCtl, "kill", site, name)
 }
 
+// canExecuteTask checks if task can run based on rate limiting and concurrency limits
+func (s *TaskStore) canExecuteTask(key string) bool {
+	s.mu.RLock()
+	task, exists := s.values[key]
+	s.mu.RUnlock()
+
+	if !exists || !task.Enabled {
+		return false
+	}
+
+	// Check concurrent run limit (default 1)
+	maxConcurrent := task.MaxConcurrentRuns
+	if maxConcurrent < 1 {
+		maxConcurrent = 1
+	}
+	if task.CurrentRunCount >= maxConcurrent {
+		return false
+	}
+
+	// Check rate limit (min interval between runs)
+	if task.MinIntervalSeconds > 0 && task.LastRunAt > 0 {
+		timeSinceLastRun := time.Now().Unix() - task.LastRunAt
+		if timeSinceLastRun < int64(task.MinIntervalSeconds) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// incrementTaskRunCount increments the concurrent run counter
+func (s *TaskStore) incrementTaskRunCount(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.values[key]
+	if !exists {
+		return errors.New("task not found")
+	}
+
+	task.CurrentRunCount++
+	s.values[key] = task
+	return s.persistLocked()
+}
+
+// decrementTaskRunCount decrements the concurrent run counter
+func (s *TaskStore) decrementTaskRunCount(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.values[key]
+	if !exists {
+		return errors.New("task not found")
+	}
+
+	if task.CurrentRunCount > 0 {
+		task.CurrentRunCount--
+	}
+	s.values[key] = task
+	return s.persistLocked()
+}
+
+// sendTaskFailureNotification queues failure notification for task
+// Phase 2: External email service integration (SendGrid, AWS SES, etc.)
+func (a *App) sendTaskFailureNotification(site, name string, task ScheduledTask, exitCode int, output []string) {
+	if task.NotifyEmail == "" {
+		return // notifications disabled
+	}
+
+	if exitCode == 0 {
+		return // only notify on failure
+	}
+
+	details := fmt.Sprintf(
+		"exit_code=%d failures=%d last_run=%s",
+		exitCode,
+		task.ConsecutiveFailures,
+		time.Unix(task.LastRunAt, 0).Format(time.RFC3339),
+	)
+
+	// Log notification event to audit trail
+	// Production implementation would send email via external service
+	_ = ShouldAudit(a.Config.AuditLog, "system", "task.failure.notified", site+"/"+name, details)
+}
+
 func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/"), "/")
 	if len(parts) < 1 || safeUser(parts[0]) == "" {
@@ -294,8 +385,18 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	input.LastError = ""
 	input.Deleted = false
 	input.Command, input.OnCalendar = strings.TrimSpace(input.Command), strings.TrimSpace(input.OnCalendar)
+	input.NotifyEmail = strings.TrimSpace(input.NotifyEmail)
 	if !validTaskRuntime(input.Runtime) || input.Command == "" || len(input.Command) > 1024 || strings.ContainsAny(input.Command, "\x00\r\n") || input.OnCalendar == "" || len(input.OnCalendar) > 128 || strings.ContainsAny(input.OnCalendar, "\x00\r\n") || input.TimeoutSec < 1 || input.TimeoutSec > 86400 {
 		http.Error(w, "invalid scheduled task definition", 422)
+		return
+	}
+	// Validate Phase 2 fields
+	if input.MinIntervalSeconds < 0 || input.MinIntervalSeconds > 86400 {
+		http.Error(w, "min_interval_seconds must be 0-86400", 422)
+		return
+	}
+	if input.MaxConcurrentRuns < 1 || input.MaxConcurrentRuns > 100 {
+		http.Error(w, "max_concurrent_runs must be 1-100", 422)
 		return
 	}
 	releaseUnlock := a.siteOperations.Acquire(site)
