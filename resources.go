@@ -13,6 +13,30 @@ import (
 	"time"
 )
 
+// Validation bounds: syntactically acceptable limits for resource values.
+// These are upper limits for what the API accepts, not operational defaults.
+const (
+	maxValidCPUPercent  = 6400      // Reject >6400% as obviously wrong input
+	maxValidMemoryMB    = 1048576   // Reject >1TB as obviously wrong input
+	maxValidTasksMax    = 100000    // Reject >100K tasks as obviously wrong input
+	maxValidDiskMB      = 1048576   // Reject >1TB disk as obviously wrong input
+	maxValidInodes      = 1000000000 // Reject >1B inodes as obviously wrong input
+)
+
+// Hosting policy defaults: what customers actually get on shared hosting.
+// These are enforced per plan tier via HostingPlan in accounts.go.
+// Examples:
+//   - professional plan: 200% CPU, 1024 MB memory
+//   - starter plan: 100% CPU, 512 MB memory (see accounts.go)
+const (
+	minCPUPercent  = 25   // Minimum is 25% (0.25 cores)
+	minMemoryMB    = 64   // Minimum is 64 MB
+	minTasksMax    = 16   // Minimum is 16 concurrent tasks
+	minPHPWorkers  = 1    // Minimum is 1 PHP-FPM worker
+	minDiskMB      = 64   // Minimum disk quota
+	minInodes      = 1000 // Minimum inodes quota
+)
+
 // ResourceProfile is enforced for managed systemd applications/workers through
 // an optional aggregate account slice and a per-site child slice. PHP workers
 // are separately applied to the isolated FPM pool. Filesystem, network and
@@ -305,7 +329,57 @@ func normalizeResourceProfile(p ResourceProfile) ResourceProfile {
 	return p
 }
 func validResourceProfile(p ResourceProfile) bool {
-	return safeUser(p.Site) != "" && (p.Account == "" || safeUser(p.Account) != "") && p.CPUPercent >= 25 && p.CPUPercent <= 6400 && p.CPUWeight >= 1 && p.CPUWeight <= 10000 && p.MemoryMB >= 64 && p.MemoryHighMB >= 64 && p.MemoryHighMB <= p.MemoryMB && p.MemoryMB <= 1048576 && p.IOWeight >= 1 && p.IOWeight <= 10000 && p.TasksMax >= 16 && p.TasksMax <= 100000 && p.PHPWorkers >= 1 && p.PHPWorkers <= 512 && (p.DiskMB == 0 && p.Inodes == 0 || p.DiskMB >= 64 && p.DiskMB <= 1048576 && p.Inodes >= 1000 && p.Inodes <= 1000000000)
+	// Validate site name and optional account
+	if safeUser(p.Site) == "" || (p.Account != "" && safeUser(p.Account) == "") {
+		return false
+	}
+
+	// Validate CPU: 25% to 6400% (validation bound, not operational default)
+	if p.CPUPercent < minCPUPercent || p.CPUPercent > maxValidCPUPercent {
+		return false
+	}
+
+	// Validate CPU weight (for share ratio): 1 to 10000
+	if p.CPUWeight < 1 || p.CPUWeight > 10000 {
+		return false
+	}
+
+	// Validate memory: 64 MB to 1 TB (validation bound, not operational default)
+	// MemoryHighMB must be between minMemoryMB and MemoryMB
+	if p.MemoryMB < minMemoryMB || p.MemoryMB > maxValidMemoryMB {
+		return false
+	}
+	if p.MemoryHighMB < minMemoryMB || p.MemoryHighMB > p.MemoryMB {
+		return false
+	}
+
+	// Validate I/O weight: 1 to 10000
+	if p.IOWeight < 1 || p.IOWeight > 10000 {
+		return false
+	}
+
+	// Validate tasks max: 16 to 100,000 (validation bound, not operational default)
+	if p.TasksMax < minTasksMax || p.TasksMax > maxValidTasksMax {
+		return false
+	}
+
+	// Validate PHP workers: 1 to 512
+	if p.PHPWorkers < minPHPWorkers || p.PHPWorkers > 512 {
+		return false
+	}
+
+	// Validate disk quota (optional, 0 means no quota)
+	if p.DiskMB == 0 && p.Inodes == 0 {
+		return true // No disk quota configured
+	}
+	if p.DiskMB < minDiskMB || p.DiskMB > maxValidDiskMB {
+		return false
+	}
+	if p.Inodes < minInodes || p.Inodes > maxValidInodes {
+		return false
+	}
+
+	return true
 }
 
 func (p ResourceProfile) hasFilesystemQuota() bool { return p.DiskMB > 0 || p.Inodes > 0 }
