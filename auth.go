@@ -25,6 +25,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// LegacyTokenDeprecation interface for token expiration tracking
+type LegacyTokenDeprecation interface {
+	IsLegacyTokenExpired(tokenHash string) (bool, error)
+	MarkLegacyTokenDeprecated(tokenHash string) (*time.Time, error)
+}
+
+// hashToken creates a consistent hash of an API token for tracking
+func hashToken(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(digest[:])
+}
+
 type Auth struct {
 	Username, PasswordHash, Secret, AuditLog string
 	credentialKey                            string
@@ -40,6 +52,7 @@ type Auth struct {
 	Accounts                                 *AccountStore
 	apiTokens                                *apiTokenStore
 	apiTokenLimiter                          *apiTokenRateLimiter
+	legacyTokenDeprecation                   LegacyTokenDeprecation
 }
 
 type sessionRegistry struct {
@@ -501,6 +514,17 @@ func (a Auth) validAPITokenWithScopesAndLegacy(r *http.Request) (string, []strin
 	username, scopes, isLegacyUnscoped, ok := a.apiTokens.authenticateWithScopesAndLegacy(tokenValue)
 	if !ok {
 		return "", nil, false, false
+	}
+
+	// Check if legacy token has expired
+	if isLegacyUnscoped && a.legacyTokenDeprecation != nil {
+		expired, err := a.legacyTokenDeprecation.IsLegacyTokenExpired(hashToken(tokenValue))
+		if err == nil && expired {
+			// Legacy token has expired
+			return "", nil, false, false
+		}
+		// Mark as deprecated on first use (idempotent)
+		_, _ = a.legacyTokenDeprecation.MarkLegacyTokenDeprecated(hashToken(tokenValue))
 	}
 
 	// Rate limit per API token to prevent abuse of compromised tokens.
