@@ -231,18 +231,3 @@ func localBackend(value string) (string, error) {
 func isCloudMetadataIP(ip net.IP) bool {
 	return ip.Equal(net.ParseIP("169.254.169.254")) || ip.Equal(net.ParseIP("100.100.100.200")) || ip.Equal(net.ParseIP("fd00:ec2::254"))
 }
-
-func ensureInside(root, target string) error {
-	r, err := filepath.Abs(root)
-	if err != nil {
-		return err
-	}
-	t, err := filepath.Abs(target)
-	if err != nil {
-		return err
-	}
-	if t != r && !strings.HasPrefix(t, r+string(os.PathSeparator)) {
-		return errors.New("path escapes configured root")
-	}
-	return rejectSymlinkParents(t, r)
-}
