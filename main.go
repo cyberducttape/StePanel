@@ -556,6 +556,7 @@ func main() {
 	mux.Handle("/api/account/sessions/revoke", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerSessionsRevoke)), http.MethodPost))
 	mux.Handle("/api/account/tokens", allowMethods(app.Auth.Require(http.HandlerFunc(app.apiTokens)), http.MethodGet, http.MethodPost))
 	mux.Handle("/api/account/tokens/", allowMethods(app.Auth.Require(http.HandlerFunc(app.apiTokens)), http.MethodDelete))
+	mux.Handle("/api/account/security", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerSecurityCenter)), http.MethodGet))
 	mux.Handle("/api/admin/tokens", allowMethods(app.Auth.Require(http.HandlerFunc(app.Auth.adminAPITokens)), http.MethodGet, http.MethodPost))
 	mux.Handle("/api/admin/tokens/", allowMethods(app.Auth.Require(http.HandlerFunc(app.Auth.adminAPITokens)), http.MethodDelete))
 	mux.Handle("/api/jobs/", allowMethods(app.Auth.Require(http.HandlerFunc(app.jobStatus)), http.MethodGet, http.MethodHead, http.MethodPost))

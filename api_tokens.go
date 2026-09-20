@@ -15,13 +15,14 @@ import (
 )
 
 type apiTokenInfo struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Prefix    string   `json:"prefix"`
-	CreatedAt int64    `json:"created_at"`
-	ExpiresAt *int64   `json:"expires_at,omitempty"`
-	RevokedAt *int64   `json:"revoked_at,omitempty"`
-	Scopes    []string `json:"scopes,omitempty"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Prefix       string   `json:"prefix"`
+	CreatedAt    int64    `json:"created_at"`
+	ExpiresAt    *int64   `json:"expires_at,omitempty"`
+	RevokedAt    *int64   `json:"revoked_at,omitempty"`
+	Scopes       []string `json:"scopes,omitempty"`
+	LegacyUnscoped bool   `json:"legacy_unscoped"` // True for pre-scope tokens (god-mode for backward compat)
 }
 
 type apiTokenStore struct{ db *sql.DB }
@@ -152,6 +153,8 @@ func (s *apiTokenStore) list(username string) ([]apiTokenInfo, error) {
 				item.Scopes = append(item.Scopes, strings.TrimSpace(scope))
 			}
 		}
+		// Mark tokens created before scope enforcement was added (empty scopes = full access)
+		item.LegacyUnscoped = len(item.Scopes) == 0
 		if expiresAt.Valid {
 			item.ExpiresAt = &expiresAt.Int64
 		}
@@ -266,7 +269,20 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "API token state is unavailable", 503)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"tokens": items})
+		// Compute legacy token warnings for security center
+		hasLegacyTokens := false
+		legacyCount := 0
+		for _, token := range items {
+			if token.LegacyUnscoped && token.RevokedAt == nil {
+				hasLegacyTokens = true
+				legacyCount++
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"tokens":           items,
+			"has_legacy_tokens": hasLegacyTokens,
+			"legacy_count":     legacyCount,
+		})
 	case http.MethodPost:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
@@ -316,4 +332,57 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// customerSecurityCenter returns token security warnings for the customer dashboard
+func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	username := a.Auth.UsernameForRequest(r)
+	if username == "" || a.Auth.IsAdministrator(r) || a.APITokens == nil {
+		http.Error(w, "security center is unavailable", http.StatusForbidden)
+		return
+	}
+	
+	items, err := a.APITokens.list(username)
+	if err != nil {
+		http.Error(w, "API token state is unavailable", 503)
+		return
+	}
+	
+	// Identify legacy unscoped tokens requiring migration
+	type LegacyTokenWarning struct {
+		TokenID      string `json:"token_id"`
+		TokenName    string `json:"token_name"`
+		TokenPrefix  string `json:"token_prefix"`
+		CreatedAt    int64  `json:"created_at"`
+		AccessLevel  string `json:"access_level"`
+		RiskLevel    string `json:"risk_level"`
+		Action       string `json:"action"`
+	}
+	
+	var legacyTokens []LegacyTokenWarning
+	for _, token := range items {
+		if token.LegacyUnscoped && token.RevokedAt == nil {
+			legacyTokens = append(legacyTokens, LegacyTokenWarning{
+				TokenID:     token.ID,
+				TokenName:   token.Name,
+				TokenPrefix: token.Prefix,
+				CreatedAt:   token.CreatedAt,
+				AccessLevel: "Full account access (all scopes)",
+				RiskLevel:   "High",
+				Action:      "Regenerate with specific scopes required by 2026-11-15",
+			})
+		}
+	}
+	
+	writeJSON(w, http.StatusOK, map[string]any{
+		"has_legacy_tokens": len(legacyTokens) > 0,
+		"legacy_count":      len(legacyTokens),
+		"legacy_tokens":     legacyTokens,
+		"migration_deadline": "2026-11-15T00:00:00Z",
+		"warning_message":   "Legacy API tokens with unlimited access were created before scope-based access control was introduced. Regenerate them with specific scopes to limit what they can do.",
+	})
 }
