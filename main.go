@@ -45,6 +45,7 @@ type App struct {
 	APITokens                *apiTokenStore
 	Deployments              *DeploymentStore
 	Resources                *ResourceStore
+	Webhooks                 *WebhookConfigStore
 	databaseDiagnosticsMu    sync.Mutex
 	databaseDiagnosticsCache DatabaseDiagnostics
 	gitActivationMu          sync.Mutex
@@ -208,6 +209,10 @@ func main() {
 	}
 	if err := auth.ConfigureLegacyTokenDeprecation(controlPlaneDB); err != nil {
 		log.Fatalf("configure legacy token deprecation tracking: %v", err)
+	}
+	webhookConfigStore := NewWebhookConfigStore(controlPlaneDB)
+	if err := webhookConfigStore.InitializeSchema(); err != nil {
+		log.Fatalf("initialize webhook configuration schema: %v", err)
 	}
 	auth.apiTokens = &apiTokenStore{db: controlPlaneDB}
 	accounts, err := OpenAccountStoreDB(controlPlaneDB, cfg.AccountState, cfg.AccountKey)
@@ -374,7 +379,7 @@ func main() {
 		log.Fatalf("open backup schedules: %v", err)
 	}
 	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, webhookReplayCache: NewWebhookReplayCache(5*time.Minute), RecoveryError: errors.Join(recoveryFailures...)}
+	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, webhookReplayCache: NewWebhookReplayCache(5*time.Minute), RecoveryError: errors.Join(recoveryFailures...)}
 	// Reconcile domains independently. A single shared deadline allowed a slow
 	// host/helper operation in an early domain to starve every later domain.
 	// Each domain remains bounded, and failures are retained in its own report.

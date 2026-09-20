@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -199,8 +200,36 @@ func verifyWebhookTimestamp(timestamp string, maxAge time.Duration) (time.Time, 
 	return ts, nil
 }
 
+func matchRefPattern(ref string, patterns []string) bool {
+	refLower := strings.ToLower(ref)
+	for _, pattern := range patterns {
+		patternLower := strings.ToLower(pattern)
+		if patternLower == refLower {
+			return true
+		}
+		if strings.HasPrefix(patternLower, "refs/heads/") && strings.HasPrefix(refLower, "refs/heads/") {
+			if matchGlobPattern(refLower[11:], patternLower[11:]) {
+				return true
+			}
+		}
+		if strings.HasPrefix(patternLower, "refs/tags/") && strings.HasPrefix(refLower, "refs/tags/") {
+			if matchGlobPattern(refLower[10:], patternLower[10:]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func matchGlobPattern(ref, pattern string) bool {
+	pattern = strings.ReplaceAll(pattern, "*", "")
+	if pattern == "" {
+		return true
+	}
+	return strings.Contains(ref, pattern)
+}
+
 func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
-	// Extract site from URL path: /git/webhook/:site
 	site := gitWebhookSitePath(r.URL.Path)
 	if site == "" {
 		http.Error(w, "site name required in webhook URL path", http.StatusBadRequest)
@@ -214,30 +243,32 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Phase 2 - Load per-site webhook config from database:
-	// config := a.getWebhookConfigForSite(site)
-	// if config == nil {
-	//     http.Error(w, "webhook not configured for this site", http.StatusNotFound)
-	//     return
-	// }
-	// if !verifyWebhookSignature(body, r.Header.Get("X-StePanel-Signature"), config.WebhookSecret) {
-	//     http.Error(w, "invalid webhook signature", 401)
-	//     return
-	// }
-	// Validate repository and ref against site's configuration
-	// if !containsString(config.Repositories, input.Repository) { ... }
-	// if !containsString(config.AllowedRefs, input.Ref) { ... }
+	var webhookSecret string
 
-	// For now, fall back to global secret for backward compatibility
-	// DEPRECATED: Global webhook secret provides no isolation. Use per-site configs.
-	if a.Config.GitWebhookSecret == "" {
-		http.Error(w, "Git webhooks are not configured", http.StatusNotFound)
-		return
+	if a.Webhooks != nil {
+		config, err := a.Webhooks.GetWebhookConfig(site)
+		if err != nil {
+			http.Error(w, "webhook configuration error", http.StatusInternalServerError)
+			_ = Audit(a.Config.AuditLog, "webhook.auth.error", site, fmt.Sprintf("get webhook config: %v", err))
+			return
+		}
+		if config != nil {
+			webhookSecret = config.WebhookSecret
+		}
+	}
+
+	if webhookSecret == "" {
+		if a.Config.GitWebhookSecret == "" {
+			http.Error(w, "webhook not configured for this site", http.StatusNotFound)
+			return
+		}
+		webhookSecret = a.Config.GitWebhookSecret
 	}
 
 	signature := r.Header.Get("X-StePanel-Signature")
-	if !verifyWebhookSignature(body, signature, a.Config.GitWebhookSecret) {
-		http.Error(w, "invalid webhook signature", 401)
+	if !verifyWebhookSignature(body, signature, webhookSecret) {
+		http.Error(w, "invalid webhook signature", http.StatusUnauthorized)
+		_ = Audit(a.Config.AuditLog, "webhook.auth.failed", site, "invalid signature")
 		return
 	}
 
@@ -337,6 +368,23 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Context().Value(gitWebhookContextKey{}) != true && !a.Auth.HasRequiredCustomerScope(r, "deploy:write") {
 		http.Error(w, "API token lacks the deploy:write scope", http.StatusForbidden)
 		return
+	}
+
+	if r.Context().Value(gitWebhookContextKey{}) == true && a.Webhooks != nil {
+		config, err := a.Webhooks.GetWebhookConfig(input.Site)
+		if err == nil && config != nil {
+			repoLower := strings.ToLower(strings.TrimSpace(input.Repository))
+			if len(config.Repositories) > 0 && !containsString(config.Repositories, repoLower) {
+				http.Error(w, "repository is not authorized for this webhook", http.StatusForbidden)
+				_ = Audit(a.Config.AuditLog, "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("repository not in whitelist: %s", input.Repository))
+				return
+			}
+			if len(config.AllowedRefs) > 0 && !matchRefPattern(input.Ref, config.AllowedRefs) {
+				http.Error(w, "ref is not authorized for this webhook", http.StatusForbidden)
+				_ = Audit(a.Config.AuditLog, "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("ref not in whitelist: %s", input.Ref))
+				return
+			}
+		}
 	}
 	releaseUnlock := a.siteOperations.Acquire(input.Site)
 	defer releaseUnlock()
@@ -714,4 +762,209 @@ func newRequestID() string {
 		return time.Now().UTC().Format("20060102150405.000000000")
 	}
 	return id
+}
+
+// WebhookConfigStore manages per-site webhook configuration in the control-plane database
+type WebhookConfigStore struct {
+	mu sync.RWMutex
+	db *sql.DB
+}
+
+// NewWebhookConfigStore creates a webhook configuration manager
+func NewWebhookConfigStore(database *sql.DB) *WebhookConfigStore {
+	return &WebhookConfigStore{db: database}
+}
+
+// InitializeSchema creates the webhook configuration tables
+func (wcs *WebhookConfigStore) InitializeSchema() error {
+	schema := `
+	CREATE TABLE IF NOT EXISTS webhook_configs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		site TEXT NOT NULL UNIQUE,
+		webhook_secret TEXT NOT NULL,
+		enabled BOOLEAN DEFAULT 1,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS webhook_allowed_repos (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		webhook_id INTEGER NOT NULL,
+		repository_url TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (webhook_id) REFERENCES webhook_configs(id) ON DELETE CASCADE,
+		UNIQUE(webhook_id, repository_url)
+	);
+
+	CREATE TABLE IF NOT EXISTS webhook_allowed_refs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		webhook_id INTEGER NOT NULL,
+		ref_pattern TEXT NOT NULL,
+		pattern_type TEXT DEFAULT 'glob',
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (webhook_id) REFERENCES webhook_configs(id) ON DELETE CASCADE,
+		UNIQUE(webhook_id, ref_pattern)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_webhook_site ON webhook_configs(site);
+	`
+
+	_, err := wcs.db.Exec(schema)
+	return err
+}
+
+// SetWebhookConfig creates or updates a webhook configuration for a site
+func (wcs *WebhookConfigStore) SetWebhookConfig(site, secret string, repos, refPatterns []string) error {
+	wcs.mu.Lock()
+	defer wcs.mu.Unlock()
+
+	tx, err := wcs.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var id int64
+	err = tx.QueryRow("SELECT id FROM webhook_configs WHERE site = ?", site).Scan(&id)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
+	if err == sql.ErrNoRows {
+		result, err := tx.Exec(
+			"INSERT INTO webhook_configs (site, webhook_secret) VALUES (?, ?)",
+			site, secret,
+		)
+		if err != nil {
+			return err
+		}
+		id, _ = result.LastInsertId()
+	} else {
+		_, err := tx.Exec(
+			"UPDATE webhook_configs SET webhook_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+			secret, id,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec("DELETE FROM webhook_allowed_repos WHERE webhook_id = ?", id); err != nil {
+		return err
+	}
+
+	for _, repo := range repos {
+		if repo == "" {
+			continue
+		}
+		_, err := tx.Exec(
+			"INSERT INTO webhook_allowed_repos (webhook_id, repository_url) VALUES (?, ?)",
+			id, strings.TrimSpace(strings.ToLower(repo)),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec("DELETE FROM webhook_allowed_refs WHERE webhook_id = ?", id); err != nil {
+		return err
+	}
+
+	for _, pattern := range refPatterns {
+		if pattern == "" {
+			continue
+		}
+		_, err := tx.Exec(
+			"INSERT INTO webhook_allowed_refs (webhook_id, ref_pattern) VALUES (?, ?)",
+			id, strings.TrimSpace(pattern),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetWebhookConfig retrieves the webhook configuration for a site
+func (wcs *WebhookConfigStore) GetWebhookConfig(site string) (*GitWebhookConfig, error) {
+	wcs.mu.RLock()
+	defer wcs.mu.RUnlock()
+
+	var id int64
+	var secret string
+	var enabledAt time.Time
+
+	err := wcs.db.QueryRow(
+		"SELECT id, webhook_secret, created_at FROM webhook_configs WHERE site = ? AND enabled = 1",
+		site,
+	).Scan(&id, &secret, &enabledAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	config := &GitWebhookConfig{
+		Site:          site,
+		WebhookSecret: secret,
+		EnabledAt:     enabledAt,
+		Repositories:  []string{},
+		AllowedRefs:   []string{},
+	}
+
+	rows, err := wcs.db.Query(
+		"SELECT repository_url FROM webhook_allowed_repos WHERE webhook_id = ? ORDER BY repository_url",
+		id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var repo string
+		if err := rows.Scan(&repo); err != nil {
+			return nil, err
+		}
+		config.Repositories = append(config.Repositories, repo)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err = wcs.db.Query(
+		"SELECT ref_pattern FROM webhook_allowed_refs WHERE webhook_id = ? ORDER BY ref_pattern",
+		id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var pattern string
+		if err := rows.Scan(&pattern); err != nil {
+			return nil, err
+		}
+		config.AllowedRefs = append(config.AllowedRefs, pattern)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+// DisableWebhookConfig disables webhooks for a site
+func (wcs *WebhookConfigStore) DisableWebhookConfig(site string) error {
+	wcs.mu.Lock()
+	defer wcs.mu.Unlock()
+
+	_, err := wcs.db.Exec(
+		"UPDATE webhook_configs SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE site = ?",
+		site,
+	)
+	return err
 }
