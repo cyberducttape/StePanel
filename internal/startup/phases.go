@@ -1,7 +1,6 @@
 package startup
 
 import (
-	"context"
 	"fmt"
 	"time"
 )
@@ -10,22 +9,22 @@ import (
 type Phase string
 
 const (
-	PhaseValidate   Phase = "validate"
-	PhaseOpenState  Phase = "open_state"
-	PhaseRecover    Phase = "recover"
-	PhaseStartAPI   Phase = "start_api"
-	PhaseReconcile  Phase = "reconcile"
-	PhaseReady      Phase = "ready"
+	PhaseValidate  Phase = "validate"
+	PhaseOpenState Phase = "open_state"
+	PhaseRecover   Phase = "recover"
+	PhaseStartAPI  Phase = "start_api"
+	PhaseReconcile Phase = "reconcile"
+	PhaseReady     Phase = "ready"
 )
 
 // Status represents the result of a phase
 type Status struct {
-	Phase       Phase
-	Timestamp   time.Time
-	Duration    time.Duration
-	Success     bool
-	Error       error
-	Details     string
+	Phase         Phase
+	Timestamp     time.Time
+	Duration      time.Duration
+	Success       bool
+	Error         error
+	Details       string
 	Subcomponents []SubcomponentStatus
 }
 
@@ -39,7 +38,7 @@ type SubcomponentStatus struct {
 
 // Timeline tracks all phase completions
 type Timeline struct {
-	phases   []Status
+	phases    []Status
 	startedAt time.Time
 }
 
@@ -114,11 +113,11 @@ func (t *Timeline) JSON() map[string]interface{} {
 	phases := []map[string]interface{}{}
 	for _, phase := range t.phases {
 		phaseData := map[string]interface{}{
-			"phase":      string(phase.Phase),
-			"timestamp":  phase.Timestamp.Unix(),
+			"phase":       string(phase.Phase),
+			"timestamp":   phase.Timestamp.Unix(),
 			"duration_ms": int64(phase.Duration.Milliseconds()),
-			"success":    phase.Success,
-			"details":    phase.Details,
+			"success":     phase.Success,
+			"details":     phase.Details,
 		}
 		if phase.Error != nil {
 			phaseData["error"] = phase.Error.Error()
@@ -127,9 +126,9 @@ func (t *Timeline) JSON() map[string]interface{} {
 			subs := []map[string]interface{}{}
 			for _, sub := range phase.Subcomponents {
 				subs = append(subs, map[string]interface{}{
-					"component":  sub.Component,
-					"status":     sub.Status,
-					"error":      sub.Error,
+					"component":   sub.Component,
+					"status":      sub.Status,
+					"error":       sub.Error,
 					"duration_ms": int64(sub.Duration.Milliseconds()),
 				})
 			}
@@ -139,9 +138,9 @@ func (t *Timeline) JSON() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"phases":         phases,
-		"ready":          t.IsReady(),
+		"phases":            phases,
+		"ready":             t.IsReady(),
 		"total_duration_ms": int64(t.TotalDuration().Milliseconds()),
-		"started_at":     t.startedAt.Unix(),
+		"started_at":        t.startedAt.Unix(),
 	}
 }

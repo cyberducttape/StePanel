@@ -41,13 +41,13 @@ func (al AuditLevel) String() string {
 
 // AuditResult represents the outcome of an audit operation
 type AuditResult struct {
-	Level     AuditLevel
-	Action    string
-	User      string
-	Resource  string
-	Details   string
-	Success   bool
-	Error     error
+	Level    AuditLevel
+	Action   string
+	User     string
+	Resource string
+	Details  string
+	Success  bool
+	Error    error
 }
 
 // AuditHandler defines how different audit levels should be handled

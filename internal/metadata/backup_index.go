@@ -17,17 +17,17 @@ type BackupIndex struct {
 
 // BackupEntry represents indexed backup metadata
 type BackupEntry struct {
-	Site          string
-	Backup        string
-	Path          string
-	ArchiveSHA256 string
-	Bytes         int64
-	CreatedAt     time.Time
-	VerifiedAt    time.Time
-	Consistency   string
+	Site           string
+	Backup         string
+	Path           string
+	ArchiveSHA256  string
+	Bytes          int64
+	CreatedAt      time.Time
+	VerifiedAt     time.Time
+	Consistency    string
 	ManifestSigned bool
-	Databases     []string
-	LastIndexed   time.Time
+	Databases      []string
+	LastIndexed    time.Time
 }
 
 // NewBackupIndex creates or opens the backup index

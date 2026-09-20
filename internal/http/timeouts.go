@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"time"
 )
@@ -123,16 +124,16 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			var timeout time.Duration
 			switch {
 			case startsWith(r.URL.Path, "/api/cpmove/") ||
-				 startsWith(r.URL.Path, "/api/wpress/") ||
-				 startsWith(r.URL.Path, "/api/backup/import"):
+				startsWith(r.URL.Path, "/api/wpress/") ||
+				startsWith(r.URL.Path, "/api/backup/import"):
 				// Uploads need long timeouts
 				timeout = tc.UploadRead
 			case startsWith(r.URL.Path, "/api/backup/download") ||
-				 startsWith(r.URL.Path, "/api/export"):
+				startsWith(r.URL.Path, "/api/export"):
 				// Downloads need long write timeouts
 				timeout = tc.DownloadWrite
 			case startsWith(r.URL.Path, "/api/jobs/") ||
-				 startsWith(r.URL.Path, "/api/activity"):
+				startsWith(r.URL.Path, "/api/activity"):
 				// Activity polling
 				timeout = tc.LongPoll
 			default:
@@ -141,7 +142,7 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			}
 
 			// Create context with timeout
-			ctx, cancel := httpctx.WithTimeout(r.Context(), timeout)
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
 			next.ServeHTTP(w, r.WithContext(ctx))

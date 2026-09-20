@@ -18,27 +18,27 @@ import (
 // writable crontab fragment. Commands execute as the isolated site identity;
 // the helper applies time, process and filesystem restrictions consistently.
 type ScheduledTask struct {
-	Site                  string   `json:"site"`
-	Name                  string   `json:"name"`
-	Runtime               string   `json:"runtime"`
-	Command               string   `json:"command"`
-	OnCalendar            string   `json:"on_calendar"`
-	TimeoutSec            int      `json:"timeout_sec"`
-	Enabled               bool     `json:"enabled"`
-	State                 string   `json:"state,omitempty"`
-	LastError             string   `json:"last_error,omitempty"`
-	Deleted               bool     `json:"deleted,omitempty"`
+	Site       string `json:"site"`
+	Name       string `json:"name"`
+	Runtime    string `json:"runtime"`
+	Command    string `json:"command"`
+	OnCalendar string `json:"on_calendar"`
+	TimeoutSec int    `json:"timeout_sec"`
+	Enabled    bool   `json:"enabled"`
+	State      string `json:"state,omitempty"`
+	LastError  string `json:"last_error,omitempty"`
+	Deleted    bool   `json:"deleted,omitempty"`
 	// Phase 1 safeguards
-	LastRunAt             int64    `json:"last_run_at,omitempty"` // Unix timestamp of last execution
-	LastRunExitCode       int      `json:"last_run_exit_code,omitempty"` // 0 = success, >0 = failure
-	LastRunOutput         []string `json:"last_run_output,omitempty"` // Last N lines of stdout/stderr
-	ConsecutiveFailures   int      `json:"consecutive_failures,omitempty"` // Count failures for auto-disable
-	AutoDisabledAt        int64    `json:"auto_disabled_at,omitempty"` // When task was auto-disabled
+	LastRunAt           int64    `json:"last_run_at,omitempty"`          // Unix timestamp of last execution
+	LastRunExitCode     int      `json:"last_run_exit_code,omitempty"`   // 0 = success, >0 = failure
+	LastRunOutput       []string `json:"last_run_output,omitempty"`      // Last N lines of stdout/stderr
+	ConsecutiveFailures int      `json:"consecutive_failures,omitempty"` // Count failures for auto-disable
+	AutoDisabledAt      int64    `json:"auto_disabled_at,omitempty"`     // When task was auto-disabled
 	// Phase 2 safeguards
-	NotifyEmail           string   `json:"notify_email,omitempty"` // Email for failure notifications
-	MinIntervalSeconds    int      `json:"min_interval_seconds,omitempty"` // Rate limiting: min seconds between runs
-	MaxConcurrentRuns     int      `json:"max_concurrent_runs,omitempty"` // Concurrency limit (default 1)
-	CurrentRunCount       int      `json:"current_run_count,omitempty"` // Currently running instances
+	NotifyEmail        string `json:"notify_email,omitempty"`         // Email for failure notifications
+	MinIntervalSeconds int    `json:"min_interval_seconds,omitempty"` // Rate limiting: min seconds between runs
+	MaxConcurrentRuns  int    `json:"max_concurrent_runs,omitempty"`  // Concurrency limit (default 1)
+	CurrentRunCount    int    `json:"current_run_count,omitempty"`    // Currently running instances
 }
 
 type TaskStore struct {
@@ -102,10 +102,10 @@ func validTaskRuntime(v string) bool {
 
 const (
 	// Phase 1: Output and execution safeguards
-	maxTaskOutputLines      = 100  // Keep last 100 lines of output
-	maxTaskOutputSize       = 1024 * 1024 // 1MB max output
+	maxTaskOutputLines      = 100             // Keep last 100 lines of output
+	maxTaskOutputSize       = 1024 * 1024     // 1MB max output
 	taskTimeoutDefault      = 5 * time.Minute // 5-minute execution limit
-	autoDisableFailureCount = 10  // Disable after 10 consecutive failures
+	autoDisableFailureCount = 10              // Disable after 10 consecutive failures
 )
 
 // recordTaskExecution updates task with execution results
@@ -324,15 +324,15 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response := map[string]any{
-			"site":                  task.Site,
-			"name":                  task.Name,
-			"last_run_at":           task.LastRunAt,
-			"last_run_exit_code":    task.LastRunExitCode,
-			"last_run_output":       task.LastRunOutput,
-			"consecutive_failures":  task.ConsecutiveFailures,
-			"auto_disabled_at":      task.AutoDisabledAt,
-			"enabled":               task.Enabled,
-			"last_error":            task.LastError,
+			"site":                 task.Site,
+			"name":                 task.Name,
+			"last_run_at":          task.LastRunAt,
+			"last_run_exit_code":   task.LastRunExitCode,
+			"last_run_output":      task.LastRunOutput,
+			"consecutive_failures": task.ConsecutiveFailures,
+			"auto_disabled_at":     task.AutoDisabledAt,
+			"enabled":              task.Enabled,
+			"last_error":           task.LastError,
 		}
 		writeJSON(w, 200, response)
 		return

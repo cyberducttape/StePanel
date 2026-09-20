@@ -105,11 +105,11 @@ func (ltd *LegacyTokenDeprecation) IsLegacyTokenExpired(tokenHash string) (bool,
 
 // GetLegacyTokenStatus returns the status of a legacy token
 type LegacyTokenStatus struct {
-	IsDeprecated bool
-	IsExpired    bool
-	ExpiresAt    *time.Time
+	IsDeprecated  bool
+	IsExpired     bool
+	ExpiresAt     *time.Time
 	DaysRemaining int
-	Message      string
+	Message       string
 }
 
 func (ltd *LegacyTokenDeprecation) GetLegacyTokenStatus(tokenHash string) (*LegacyTokenStatus, error) {

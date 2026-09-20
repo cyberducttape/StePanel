@@ -30,9 +30,9 @@ var gitCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // WebhookReplayCache prevents replay attacks on webhook deliveries
 type WebhookReplayCache struct {
-	mu      sync.RWMutex
-	cache   map[string]time.Time // deliveryID -> timestamp
-	maxAge  time.Duration
+	mu     sync.RWMutex
+	cache  map[string]time.Time // deliveryID -> timestamp
+	maxAge time.Duration
 }
 
 // NewWebhookReplayCache creates a cache with bounded lifetime

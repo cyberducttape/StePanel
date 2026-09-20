@@ -212,10 +212,10 @@ func (idx *TaskIndex) GetExecutionHistory(site, taskName string, limit int) ([]m
 		}
 
 		history = append(history, map[string]interface{}{
-			"executed_at":   executedAt,
-			"exit_code":     exitCode,
-			"duration_ms":   durationMs,
-			"output_lines":  outputLines,
+			"executed_at":  executedAt,
+			"exit_code":    exitCode,
+			"duration_ms":  durationMs,
+			"output_lines": outputLines,
 		})
 	}
 

@@ -239,12 +239,11 @@ func getChildProcesses(parentPID int) ([]int, error) {
 func TestConsecutiveFailuresAutoDisable(t *testing.T) {
 	// Simulate a task that fails immediately
 	task := ScheduledTask{
-		Site:                 "testsite",
-		Name:                 "failing-task",
-		Schedule:             "* * * * *",
-		Command:              "false", // Always fails
-		ConsecutiveFailures:  0,
-		AutoDisabledAt:       time.Time{},
+		Site:                "testsite",
+		Name:                "failing-task",
+		OnCalendar:          "* * * * *",
+		Command:             "false", // Always fails
+		ConsecutiveFailures: 0,
 	}
 
 	// Simulate 10 failures
@@ -269,7 +268,7 @@ func TestTaskExecutionRecovery(t *testing.T) {
 	task := ScheduledTask{
 		Site:                "testsite",
 		Name:                "recovering-task",
-		Schedule:            "* * * * *",
+		OnCalendar:          "* * * * *",
 		ConsecutiveFailures: 5,
 	}
 

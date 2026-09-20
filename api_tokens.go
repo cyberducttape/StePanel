@@ -15,16 +15,16 @@ import (
 )
 
 type apiTokenInfo struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Prefix           string   `json:"prefix"`
-	CreatedAt        int64    `json:"created_at"`
-	ExpiresAt        *int64   `json:"expires_at,omitempty"`
-	RevokedAt        *int64   `json:"revoked_at,omitempty"`
-	Scopes           []string `json:"scopes,omitempty"`
-	LegacyUnscoped   bool     `json:"legacy_unscoped"` // True for pre-scope tokens (god-mode for backward compat)
-	DeprecatedAt     *int64   `json:"deprecated_at,omitempty"` // When legacy status detected
-	LegacyExpiresAt  *int64   `json:"legacy_expires_at,omitempty"` // Auto-expiration for legacy tokens (30 days from deprecation)
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Prefix          string   `json:"prefix"`
+	CreatedAt       int64    `json:"created_at"`
+	ExpiresAt       *int64   `json:"expires_at,omitempty"`
+	RevokedAt       *int64   `json:"revoked_at,omitempty"`
+	Scopes          []string `json:"scopes,omitempty"`
+	LegacyUnscoped  bool     `json:"legacy_unscoped"`             // True for pre-scope tokens (god-mode for backward compat)
+	DeprecatedAt    *int64   `json:"deprecated_at,omitempty"`     // When legacy status detected
+	LegacyExpiresAt *int64   `json:"legacy_expires_at,omitempty"` // Auto-expiration for legacy tokens (30 days from deprecation)
 }
 
 type apiTokenStore struct{ db *sql.DB }
@@ -293,9 +293,9 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"tokens":           items,
+			"tokens":            items,
 			"has_legacy_tokens": hasLegacyTokens,
-			"legacy_count":     legacyCount,
+			"legacy_count":      legacyCount,
 		})
 	case http.MethodPost:
 		if !a.Auth.CSRF(r) {
@@ -359,24 +359,24 @@ func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "security center is unavailable", http.StatusForbidden)
 		return
 	}
-	
+
 	items, err := a.APITokens.list(username)
 	if err != nil {
 		http.Error(w, "API token state is unavailable", 503)
 		return
 	}
-	
+
 	// Identify legacy unscoped tokens requiring migration
 	type LegacyTokenWarning struct {
-		TokenID      string `json:"token_id"`
-		TokenName    string `json:"token_name"`
-		TokenPrefix  string `json:"token_prefix"`
-		CreatedAt    int64  `json:"created_at"`
-		AccessLevel  string `json:"access_level"`
-		RiskLevel    string `json:"risk_level"`
-		Action       string `json:"action"`
+		TokenID     string `json:"token_id"`
+		TokenName   string `json:"token_name"`
+		TokenPrefix string `json:"token_prefix"`
+		CreatedAt   int64  `json:"created_at"`
+		AccessLevel string `json:"access_level"`
+		RiskLevel   string `json:"risk_level"`
+		Action      string `json:"action"`
 	}
-	
+
 	var legacyTokens []LegacyTokenWarning
 	daysUntilDeadline := int64(57) // Approximately 57 days until 2026-11-15
 
@@ -421,12 +421,12 @@ func (a *App) sendLegacyTokenNotifications(username string) error {
 	if a.APITokens == nil {
 		return errors.New("API token store unavailable")
 	}
-	
+
 	items, err := a.APITokens.list(username)
 	if err != nil {
 		return err
 	}
-	
+
 	// Find legacy tokens
 	var legacyTokens []apiTokenInfo
 	for _, token := range items {
@@ -434,26 +434,26 @@ func (a *App) sendLegacyTokenNotifications(username string) error {
 			legacyTokens = append(legacyTokens, token)
 		}
 	}
-	
+
 	if len(legacyTokens) == 0 {
 		return nil // No legacy tokens to notify about
 	}
-	
+
 	// Phase 2: Log notification (actual email sending would be configured externally)
 	// In production, this would integrate with an email service (SendGrid, AWS SES, etc.)
-	
+
 	// Log to audit trail that notification was queued
 	if err := AuditAs(a.Config.AuditLog, username, "token.legacy_unscoped.notified", "legacy-tokens", "notification-sent"); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
 // buildLegacyTokenNotificationEmail creates the notification content for legacy tokens
 func buildLegacyTokenNotificationEmail(username string, legacyTokens []apiTokenInfo) string {
 	subject := "Action Required: Regenerate Your API Tokens"
-	
+
 	content := "Dear customer,\n\n"
 	content += "We've identified that your account has API tokens created before scope-based access control was introduced.\n\n"
 	content += "Current Status:\n"
@@ -462,19 +462,19 @@ func buildLegacyTokenNotificationEmail(username string, legacyTokens []apiTokenI
 		content += "  Access level: Full account access (all scopes)\n"
 		content += "  Created: " + time.Unix(token.CreatedAt, 0).Format("2006-01-02") + "\n"
 	}
-	
+
 	content += "\nAction Required:\n"
 	content += "1. Go to Account → API Tokens\n"
 	content += "2. Click 'Regenerate' next to the legacy token\n"
 	content += "3. Select the specific scopes you actually need\n"
 	content += "4. Update your applications to use the new token\n\n"
-	
+
 	content += "Timeline:\n"
 	content += "- Day 0 (Today): This notification\n"
 	content += "- Day 30 (2026-10-15): Final warning with shutdown notice\n"
 	content += "- Day 60 (2026-11-15): Legacy tokens will stop working\n\n"
-	
+
 	content += "Questions? Contact support.\n"
-	
+
 	return "Subject: " + subject + "\n" + content
 }

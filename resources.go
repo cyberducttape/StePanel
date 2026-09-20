@@ -16,11 +16,11 @@ import (
 // Validation bounds: syntactically acceptable limits for resource values.
 // These are upper limits for what the API accepts, not operational defaults.
 const (
-	maxValidCPUPercent  = 6400      // Reject >6400% as obviously wrong input
-	maxValidMemoryMB    = 1048576   // Reject >1TB as obviously wrong input
-	maxValidTasksMax    = 100000    // Reject >100K tasks as obviously wrong input
-	maxValidDiskMB      = 1048576   // Reject >1TB disk as obviously wrong input
-	maxValidInodes      = 1000000000 // Reject >1B inodes as obviously wrong input
+	maxValidCPUPercent = 6400       // Reject >6400% as obviously wrong input
+	maxValidMemoryMB   = 1048576    // Reject >1TB as obviously wrong input
+	maxValidTasksMax   = 100000     // Reject >100K tasks as obviously wrong input
+	maxValidDiskMB     = 1048576    // Reject >1TB disk as obviously wrong input
+	maxValidInodes     = 1000000000 // Reject >1B inodes as obviously wrong input
 )
 
 // Hosting policy defaults: what customers actually get on shared hosting.
@@ -29,12 +29,12 @@ const (
 //   - professional plan: 200% CPU, 1024 MB memory
 //   - starter plan: 100% CPU, 512 MB memory (see accounts.go)
 const (
-	minCPUPercent  = 25   // Minimum is 25% (0.25 cores)
-	minMemoryMB    = 64   // Minimum is 64 MB
-	minTasksMax    = 16   // Minimum is 16 concurrent tasks
-	minPHPWorkers  = 1    // Minimum is 1 PHP-FPM worker
-	minDiskMB      = 64   // Minimum disk quota
-	minInodes      = 1000 // Minimum inodes quota
+	minCPUPercent = 25   // Minimum is 25% (0.25 cores)
+	minMemoryMB   = 64   // Minimum is 64 MB
+	minTasksMax   = 16   // Minimum is 16 concurrent tasks
+	minPHPWorkers = 1    // Minimum is 1 PHP-FPM worker
+	minDiskMB     = 64   // Minimum disk quota
+	minInodes     = 1000 // Minimum inodes quota
 )
 
 // ResourceProfile is enforced for managed systemd applications/workers through

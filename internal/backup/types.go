@@ -92,4 +92,3 @@ type BackupSchedule struct {
 	LastDurationMS   int64      `json:"last_duration_ms,omitempty"`
 	ConsecutiveFails int        `json:"consecutive_failures"`
 }
-

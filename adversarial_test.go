@@ -79,9 +79,9 @@ func TestPathTraversalNullByte(t *testing.T) {
 
 func TestPathTraversalUnicodeEscape(t *testing.T) {
 	testCases := []string{
-		"..%2F..%2Fetc%2Fpasswd",  // URL encoded
-		"..\\..\\etc\\passwd",       // Windows path
-		"..%5c..%5etc%5cwindows",   // Windows URL encoded
+		"..%2F..%2Fetc%2Fpasswd", // URL encoded
+		"..\\..\\etc\\passwd",    // Windows path
+		"..%5c..%5etc%5cwindows", // Windows URL encoded
 	}
 
 	for _, path := range testCases {
@@ -272,7 +272,7 @@ func TestAPITokenNotInLogs(t *testing.T) {
 	// 3. HTTP response bodies
 	// 4. Database records (only hashes)
 
-	token := "stp_test_" + randomSecret() // Fake token
+	token := "stp_test_" + testRandomSecret() // Fake token
 	errorMsg := "authentication failed with token " + token
 
 	// This should NEVER happen in production
@@ -285,11 +285,8 @@ func TestAPITokenExpiration(t *testing.T) {
 	// Legacy tokens should expire after grace period
 	// Test verifies the framework enforces this
 
-	// Create a token that expired 1 day ago
-	expiredToken := "stp_legacy_old"
-
-	// In production: isLegacyTokenExpired(hash) should return true
-	// This test documents the requirement
+	// In production: isLegacyTokenExpired(hash) should return true for tokens
+	// older than 30 days. This test documents the requirement.
 	t.Logf("✓ Token expiration framework verified in legacy_token_deprecation_test.go")
 }
 
@@ -389,8 +386,8 @@ func isValidDatabaseName(name string) bool {
 	return true
 }
 
-// randomSecret generates a random string for testing
-func randomSecret() string {
+// testRandomSecret generates a random string for testing
+func testRandomSecret() string {
 	// In real code, this would use cryptographic randomness
 	// For testing, use a simple pattern
 	return "test_secret_12345"

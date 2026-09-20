@@ -21,15 +21,15 @@ type PlanUsageMetrics struct {
 	DatabasesUsed     int       `json:"databases_used"`
 	DatabaseLimit     int       `json:"database_limit"`
 	DatabasesPercent  int       `json:"databases_percent"`
-	WarningThreshold  int       `json:"warning_threshold_percent"` // 80
+	WarningThreshold  int       `json:"warning_threshold_percent"`  // 80
 	CriticalThreshold int       `json:"critical_threshold_percent"` // 95
 }
 
 // SuspensionRequest holds parameters for account suspension
 type SuspensionRequest struct {
-	Username string `json:"username"`
-	Reason   string `json:"reason"`
-	Permanent bool  `json:"permanent"` // false = temporary, auto-lift on usage drop; true = manual only
+	Username  string `json:"username"`
+	Reason    string `json:"reason"`
+	Permanent bool   `json:"permanent"` // false = temporary, auto-lift on usage drop; true = manual only
 }
 
 // SuspensionAuditEvent logs suspension activities
@@ -38,7 +38,7 @@ type SuspensionAuditEvent struct {
 	Action    string    `json:"action"` // suspend, unsuspend, warn
 	Username  string    `json:"username"`
 	Reason    string    `json:"reason"`
-	Triggered string    `json:"triggered_by"` // admin or automatic
+	Triggered string    `json:"triggered_by"`        // admin or automatic
 	Threshold string    `json:"threshold,omitempty"` // sites_limit, database_limit
 }
 

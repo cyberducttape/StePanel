@@ -189,9 +189,9 @@ func TestImageString(t *testing.T) {
 
 func TestIsPublicRegistry(t *testing.T) {
 	tests := []struct {
-		registry  string
-		isPublic  bool
-		desc      string
+		registry string
+		isPublic bool
+		desc     string
 	}{
 		{"docker.io", true, "docker.io is public"},
 		{"ghcr.io", true, "ghcr.io is public"},

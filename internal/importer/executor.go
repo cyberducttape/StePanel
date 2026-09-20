@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	maxArchiveSize        = 5 * 1024 * 1024 * 1024 // 5GB
+	maxArchiveSize        = 5 * 1024 * 1024 * 1024  // 5GB
 	maxDecompressedSize   = 50 * 1024 * 1024 * 1024 // 50GB (archive bomb protection)
 	maxFilesInArchive     = 1000000
 	maxIndividualFileSize = 10 * 1024 * 1024 * 1024 // 10GB per file
@@ -38,23 +38,23 @@ func NewExecutor() *Executor {
 
 // ImportJob tracks an in-progress import
 type ImportJob struct {
-	ID                string
-	SiteName          string
-	ArchiveURL        string
-	ConfigPath        string
-	WebRoot           string
-	Status            string // "validating", "extracting", "restoring-db", "finalizing", "done", "failed"
-	Progress          int    // 0-100
-	FilesExtracted    int64
-	BytesExtracted    int64
-	CurrentFile       string
-	Message           string
-	StartedAt         time.Time
-	UpdatedAt         time.Time
-	Error             string
-	DatabaseName      string
-	DatabaseUser      string
-	DatabasePassword  string
+	ID               string
+	SiteName         string
+	ArchiveURL       string
+	ConfigPath       string
+	WebRoot          string
+	Status           string // "validating", "extracting", "restoring-db", "finalizing", "done", "failed"
+	Progress         int    // 0-100
+	FilesExtracted   int64
+	BytesExtracted   int64
+	CurrentFile      string
+	Message          string
+	StartedAt        time.Time
+	UpdatedAt        time.Time
+	Error            string
+	DatabaseName     string
+	DatabaseUser     string
+	DatabasePassword string
 }
 
 // ExecuteImport performs the full import workflow

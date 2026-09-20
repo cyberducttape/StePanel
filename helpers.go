@@ -16,12 +16,12 @@ const maxCommandOutput = h.MaxCommandOutput
 
 // Operation-specific timeout classes (re-exported from internal/helper)
 const (
-	helperConfigMutationTimeout    = h.ConfigMutationTimeout
-	helperServiceLifecycleTimeout  = h.ServiceLifecycleTimeout
-	helperPackageBuildTimeout      = h.PackageBuildTimeout
-	helperDatabaseOperationTimeout = h.DatabaseOperationTimeout
+	helperConfigMutationTimeout     = h.ConfigMutationTimeout
+	helperServiceLifecycleTimeout   = h.ServiceLifecycleTimeout
+	helperPackageBuildTimeout       = h.PackageBuildTimeout
+	helperDatabaseOperationTimeout  = h.DatabaseOperationTimeout
 	helperContainerOperationTimeout = h.ContainerOperationTimeout
-	helperBackupRestoreTimeout     = h.BackupRestoreTimeout
+	helperBackupRestoreTimeout      = h.BackupRestoreTimeout
 	// helperCommandTimeout is deprecated - use operation-specific timeouts instead
 	helperCommandTimeout = h.ConfigMutationTimeout // default for backward compatibility
 )
