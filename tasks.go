@@ -10,22 +10,29 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ScheduledTask is intentionally a systemd-timer definition, rather than a
 // writable crontab fragment. Commands execute as the isolated site identity;
 // the helper applies time, process and filesystem restrictions consistently.
 type ScheduledTask struct {
-	Site       string `json:"site"`
-	Name       string `json:"name"`
-	Runtime    string `json:"runtime"`
-	Command    string `json:"command"`
-	OnCalendar string `json:"on_calendar"`
-	TimeoutSec int    `json:"timeout_sec"`
-	Enabled    bool   `json:"enabled"`
-	State      string `json:"state,omitempty"`
-	LastError  string `json:"last_error,omitempty"`
-	Deleted    bool   `json:"deleted,omitempty"`
+	Site                  string   `json:"site"`
+	Name                  string   `json:"name"`
+	Runtime               string   `json:"runtime"`
+	Command               string   `json:"command"`
+	OnCalendar            string   `json:"on_calendar"`
+	TimeoutSec            int      `json:"timeout_sec"`
+	Enabled               bool     `json:"enabled"`
+	State                 string   `json:"state,omitempty"`
+	LastError             string   `json:"last_error,omitempty"`
+	Deleted               bool     `json:"deleted,omitempty"`
+	// Phase 1 safeguards
+	LastRunAt             int64    `json:"last_run_at,omitempty"` // Unix timestamp of last execution
+	LastRunExitCode       int      `json:"last_run_exit_code,omitempty"` // 0 = success, >0 = failure
+	LastRunOutput         []string `json:"last_run_output,omitempty"` // Last N lines of stdout/stderr
+	ConsecutiveFailures   int      `json:"consecutive_failures,omitempty"` // Count failures for auto-disable
+	AutoDisabledAt        int64    `json:"auto_disabled_at,omitempty"` // When task was auto-disabled
 }
 
 type TaskStore struct {
@@ -87,6 +94,82 @@ func validTaskRuntime(v string) bool {
 	return v == "php" || v == "node" || v == "python" || v == "shell"
 }
 
+const (
+	// Phase 1: Output and execution safeguards
+	maxTaskOutputLines      = 100  // Keep last 100 lines of output
+	maxTaskOutputSize       = 1024 * 1024 // 1MB max output
+	taskTimeoutDefault      = 5 * time.Minute // 5-minute execution limit
+	autoDisableFailureCount = 10  // Disable after 10 consecutive failures
+)
+
+// recordTaskExecution updates task with execution results
+func (s *TaskStore) recordTaskExecution(key string, exitCode int, output []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.values[key]
+	if !exists {
+		return errors.New("task not found")
+	}
+
+	task.LastRunAt = time.Now().Unix()
+	task.LastRunExitCode = exitCode
+	task.LastRunOutput = output
+
+	// Track consecutive failures for auto-disable
+	if exitCode == 0 {
+		task.ConsecutiveFailures = 0
+		task.LastError = ""
+	} else {
+		task.ConsecutiveFailures++
+		task.LastError = "task exited with code " + strconv.Itoa(exitCode)
+
+		// Auto-disable after too many consecutive failures
+		if task.ConsecutiveFailures >= autoDisableFailureCount {
+			task.Enabled = false
+			task.AutoDisabledAt = time.Now().Unix()
+			task.LastError = "auto-disabled after " + strconv.Itoa(autoDisableFailureCount) + " consecutive failures"
+		}
+	}
+
+	s.values[key] = task
+	return s.persistLocked()
+}
+
+// captureTaskOutput captures and limits output from task execution
+func captureTaskOutput(output string) []string {
+	lines := strings.Split(output, "\n")
+
+	// Keep only last N lines
+	if len(lines) > maxTaskOutputLines {
+		lines = lines[len(lines)-maxTaskOutputLines:]
+	}
+
+	// Ensure total size doesn't exceed limit
+	var result []string
+	totalSize := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		lineSize := len(lines[i])
+		if totalSize+lineSize > maxTaskOutputSize {
+			break
+		}
+		result = append([]string{lines[i]}, result...)
+		totalSize += lineSize
+	}
+
+	return result
+}
+
+// killTask stops a running scheduled task via systemd
+func (a *App) killTask(site, name string) error {
+	if a.Config.TaskCtl == "" {
+		return errors.New("task control helper not configured")
+	}
+	releaseUnlock := a.siteOperations.Acquire(site)
+	defer releaseUnlock()
+	return runHelperCommandWithTimeout(context.Background(), a.Config, taskTimeoutDefault, a.Config.TaskCtl, "kill", site, name)
+}
+
 func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/"), "/")
 	if len(parts) < 1 || safeUser(parts[0]) == "" {
@@ -113,11 +196,57 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"tasks": result})
 		return
 	}
-	if len(parts) != 2 || !validWorkerName(parts[1]) {
+	if len(parts) < 2 || len(parts) > 3 || !validWorkerName(parts[1]) {
 		http.Error(w, "invalid task", 422)
 		return
 	}
 	name := parts[1]
+
+	// Handle kill/cancel endpoint: POST /api/tasks/{site}/{name}/kill
+	if len(parts) == 3 && parts[2] == "kill" {
+		if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
+			http.Error(w, "invalid request", 403)
+			return
+		}
+		if err := a.killTask(site, name); err != nil {
+			http.Error(w, "could not kill task: "+err.Error(), 502)
+			return
+		}
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "task.killed", site, name)
+		writeJSON(w, 202, map[string]string{"site": site, "name": name, "action": "kill"})
+		return
+	}
+
+	if len(parts) != 2 {
+		http.Error(w, "invalid task", 422)
+		return
+	}
+
+	// Handle GET for task execution history
+	if r.Method == http.MethodGet {
+		key := site + "/" + name
+		a.Tasks.mu.RLock()
+		task, exists := a.Tasks.values[key]
+		a.Tasks.mu.RUnlock()
+		if !exists || task.Deleted {
+			http.Error(w, "task not found", 404)
+			return
+		}
+		response := map[string]any{
+			"site":                  task.Site,
+			"name":                  task.Name,
+			"last_run_at":           task.LastRunAt,
+			"last_run_exit_code":    task.LastRunExitCode,
+			"last_run_output":       task.LastRunOutput,
+			"consecutive_failures":  task.ConsecutiveFailures,
+			"auto_disabled_at":      task.AutoDisabledAt,
+			"enabled":               task.Enabled,
+			"last_error":            task.LastError,
+		}
+		writeJSON(w, 200, response)
+		return
+	}
+
 	if r.Method == http.MethodDelete {
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", 403)
