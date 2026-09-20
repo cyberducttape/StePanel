@@ -572,7 +572,8 @@ func executeCloudAction(ctx context.Context, provider, action, id string) error 
 		} else {
 			path += "/" + map[string]string{"start": "boot", "stop": "shutdown", "reboot": "reboot"}[action]
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.linode.com/v4"+path, nil)
+		baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL.String(), nil)
 		if err != nil {
 			return err
 		}
@@ -664,7 +665,8 @@ func linodeInventory(ctx context.Context) (CloudInventory, error) {
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	get := func(path string) (any, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.linode.com/v4"+path, nil)
+		baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
 		if err != nil {
 			return nil, err
 		}
