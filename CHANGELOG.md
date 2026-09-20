@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness Improvements
 
+- **Archive Importer interface (Phase 1)**: New separate interface for importing
+  websites from compressed archives (`.tar.gz` or `.zip`) stored in cloud storage
+  or HTTP endpoints. Accepts archive URL and config file location as parameters.
+  Analyzes archive structure, detects site type (WordPress, custom), and extracts
+  database requirements, PHP version, and required extensions from config files.
+  Admin-only API endpoints: `POST /api/admin/archive/inspect`,
+  `POST /api/admin/archive/import`. Phase 1 provides inspection and analysis;
+  Phase 2 (planned) will implement actual import with job tracking. See
+  [`docs/ARCHIVE_IMPORTER.md`](docs/ARCHIVE_IMPORTER.md).
+
 - **Security claims verification documentation**: Created
   [`docs/SECURITY_CLAIMS_VERIFICATION.md`](docs/SECURITY_CLAIMS_VERIFICATION.md)
   mapping all product claims ("safety-first", "tenant isolation", "durable jobs",
