@@ -29,6 +29,27 @@ type BackupResult = backup.BackupResult
 
 const maxBackupBytes = backup.MaxBackupBytes
 
+// backupVerificationCache stores recent verification results to avoid re-verifying
+// the same backup on every listing operation. This prevents the "backup listing DoS"
+// where hundreds of backups are fully hashed on each list request.
+//
+// Key: backup directory path
+// Value: verification result + timestamp
+// Cache TTL: 5 minutes
+// Eviction: oldest entries when cache exceeds 1000 entries
+type verificationCacheEntry struct {
+	VerifiedAt  time.Time
+	Consistency string
+	Checksum    string
+	CachedAt    time.Time
+}
+
+var (
+	backupVerificationCache = make(map[string]verificationCacheEntry)
+	verificationCacheTTL    = 5 * time.Minute
+	maxCacheEntries         = 1000
+)
+
 func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -411,6 +432,45 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+// getBackupVerificationFromCache returns cached verification result if valid
+func getBackupVerificationFromCache(path string) (verificationCacheEntry, bool) {
+	entry, ok := backupVerificationCache[path]
+	if !ok {
+		return entry, false
+	}
+	// Check if cache entry is still valid (TTL)
+	if time.Since(entry.CachedAt) > verificationCacheTTL {
+		delete(backupVerificationCache, path)
+		return entry, false
+	}
+	return entry, true
+}
+
+// setBackupVerificationCache stores verification result in cache
+func setBackupVerificationCache(path, consistency, checksum string) {
+	// Simple LRU-ish eviction: delete oldest if cache is full
+	if len(backupVerificationCache) >= maxCacheEntries {
+		var oldest string
+		var oldestTime time.Time
+		for k, v := range backupVerificationCache {
+			if oldestTime.IsZero() || v.CachedAt.Before(oldestTime) {
+				oldest = k
+				oldestTime = v.CachedAt
+			}
+		}
+		if oldest != "" {
+			delete(backupVerificationCache, oldest)
+		}
+	}
+
+	backupVerificationCache[path] = verificationCacheEntry{
+		VerifiedAt:  time.Now(),
+		Consistency: consistency,
+		Checksum:    checksum,
+		CachedAt:    time.Now(),
+	}
+}
+
 func VerifyBackupArchive(path string, manifest BackupManifest) error {
 	if manifest.Version != 1 || safeUser(manifest.Site) == "" || manifest.Archive != "backup.tar.gz" || len(manifest.ArchiveSHA256) != sha256.Size*2 {
 		return errors.New("invalid backup manifest metadata")
@@ -647,8 +707,22 @@ func VerifySiteBackup(root string, signingKey ...string) (BackupManifest, error)
 	if err != nil {
 		return BackupManifest{}, err
 	}
-	if err := VerifyBackupArchive(archivePath, manifest); err != nil {
-		return BackupManifest{}, err
+
+	// PERFORMANCE: Check cache before doing expensive archive verification.
+	// This prevents re-hashing multi-GB archives on every backup list operation.
+	// Cache is valid for 5 minutes; always verify before destructive operations (restore).
+	if cached, ok := getBackupVerificationFromCache(archivePath); ok {
+		// Use cached verification result instead of re-verifying the archive
+		manifest.VerifiedAt = cached.VerifiedAt
+		manifest.Consistency = cached.Consistency
+		manifest.ArchiveSHA256 = cached.Checksum
+	} else {
+		// No cache hit, perform full archive verification
+		if err := VerifyBackupArchive(archivePath, manifest); err != nil {
+			return BackupManifest{}, err
+		}
+		// Cache the verification result for future listing operations
+		setBackupVerificationCache(archivePath, manifest.Consistency, manifest.ArchiveSHA256)
 	}
 	manifestPath, err := safePath(root, "manifest.json")
 	if err != nil {
