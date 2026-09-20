@@ -396,7 +396,7 @@ func main() {
 	defer stop()
 	if workerMode {
 		log.Printf("StePanel durable worker started with pid %d", os.Getpid())
-		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis"}, 500*time.Millisecond, app.handleDurableJob)
+		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis", "archive.import"}, 500*time.Millisecond, app.handleDurableJob)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Fatalf("durable worker stopped: %v", err)
 		}
@@ -407,7 +407,7 @@ func main() {
 	}
 	if cfg.WorkerMode != "external" {
 		go func() {
-			err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis"}, 500*time.Millisecond, app.handleDurableJob)
+			err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis", "archive.import"}, 500*time.Millisecond, app.handleDurableJob)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				log.Printf("durable worker stopped: %v", err)
 			}
@@ -952,6 +952,11 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleSiteTermination(ctx, item)
 	case "migration.analysis":
 		return a.handleMigrationAnalysisJob(&item)
+	case "archive.import":
+		if err := a.handleArchiveImportJob(ctx, &item); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("no durable worker handler for job kind %q", item.Kind)
 	}
