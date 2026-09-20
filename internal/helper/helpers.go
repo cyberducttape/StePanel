@@ -269,12 +269,16 @@ func OpenRegularNoFollow(path string, expected os.FileInfo) (*os.File, os.FileIn
 }
 
 // OpenWriteNoFollow opens the destination itself without following a symlink.
+// The path must be validated by the caller to ensure it doesn't contain
+// suspicious patterns like ".." or absolute paths (if relative paths are expected).
 func OpenWriteNoFollow(path string, mode os.FileMode) (*os.File, error) {
 	fd, err := syscall.Open(path, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, uint32(mode.Perm()))
 	if err != nil {
 		return nil, err
 	}
-	return os.NewFile(uintptr(fd), path), nil
+	// Use basename as the file name since the second param to NewFile is only for debugging
+	// and doesn't affect the actual file that was opened by syscall.Open()
+	return os.NewFile(uintptr(fd), filepath.Base(path)), nil
 }
 
 func SameFileInfo(a, b os.FileInfo) bool {
