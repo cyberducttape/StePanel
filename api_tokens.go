@@ -15,14 +15,16 @@ import (
 )
 
 type apiTokenInfo struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Prefix       string   `json:"prefix"`
-	CreatedAt    int64    `json:"created_at"`
-	ExpiresAt    *int64   `json:"expires_at,omitempty"`
-	RevokedAt    *int64   `json:"revoked_at,omitempty"`
-	Scopes       []string `json:"scopes,omitempty"`
-	LegacyUnscoped bool   `json:"legacy_unscoped"` // True for pre-scope tokens (god-mode for backward compat)
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Prefix           string   `json:"prefix"`
+	CreatedAt        int64    `json:"created_at"`
+	ExpiresAt        *int64   `json:"expires_at,omitempty"`
+	RevokedAt        *int64   `json:"revoked_at,omitempty"`
+	Scopes           []string `json:"scopes,omitempty"`
+	LegacyUnscoped   bool     `json:"legacy_unscoped"` // True for pre-scope tokens (god-mode for backward compat)
+	DeprecatedAt     *int64   `json:"deprecated_at,omitempty"` // When legacy status detected
+	LegacyExpiresAt  *int64   `json:"legacy_expires_at,omitempty"` // Auto-expiration for legacy tokens (30 days from deprecation)
 }
 
 type apiTokenStore struct{ db *sql.DB }
@@ -30,6 +32,10 @@ type apiTokenStore struct{ db *sql.DB }
 func (s *apiTokenStore) create(username, name string, expiresAt *int64) (apiTokenInfo, string, error) {
 	return s.createScoped(username, name, expiresAt, nil, customerAPIScopes)
 }
+
+// Legacy token deprecation timeline
+const legacyTokenGracePeriodDays = 30
+const legacyTokenExpirationErrorMsg = "legacy unscoped API tokens have been deprecated and expired; create a new scoped API token"
 
 var adminAPIScopes = map[string]bool{"admin:read": true, "admin:operate": true}
 
