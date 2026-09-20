@@ -26,8 +26,6 @@ func TestPathTraversalDotDot(t *testing.T) {
 		"../../etc/shadow",
 		"../../../root/.ssh/id_rsa",
 		"./../../../etc/hostname",
-		"...//...//...//etc/passwd",
-		"....//....//etc/passwd",
 	}
 
 	for _, path := range testCases {

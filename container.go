@@ -42,12 +42,21 @@ func ParseContainerImage(image string, allowedRegistries map[string]bool) (*Cont
 	// Split into registry and remainder
 	var registry, remainder string
 
-	// Check if there's an explicit registry (has . or : in first component)
+	// Check if there's an explicit registry
+	// A registry has a dot (domain) or colon (port) in the first component
+	// e.g., docker.io/image or registry:5000/image
+	// But NOT image:tag which is repository:tag
 	parts := strings.Split(image, "/")
-	if len(parts) > 0 && (strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":")) {
+	if len(parts) > 1 && strings.Contains(parts[0], ".") {
+		// Explicit registry with domain (docker.io/image)
+		registry = parts[0]
+		remainder = strings.Join(parts[1:], "/")
+	} else if len(parts) > 1 && strings.Contains(parts[0], ":") {
+		// Possible localhost:port or registry:port format
 		registry = parts[0]
 		remainder = strings.Join(parts[1:], "/")
 	} else {
+		// No registry specified, default to docker.io
 		registry = "docker.io"
 		remainder = image
 	}

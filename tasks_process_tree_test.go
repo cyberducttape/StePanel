@@ -185,19 +185,20 @@ func TestTaskOutputCaptureWithTimeout(t *testing.T) {
 
 // Helper function: processExists checks if a process with the given PID exists
 func processExists(pid int) error {
-	// Try to send signal 0 (non-fatal) to check if process exists
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("process not found: %w", err)
+	// Try to use /proc filesystem on Linux
+	procPath := fmt.Sprintf("/proc/%d/stat", pid)
+	if _, err := os.Stat(procPath); err == nil {
+		return nil // Process exists
 	}
 
-	// On Unix, Signal(0) checks if process exists without sending a signal
-	if err := process.Signal(os.Signal(nil)); err != nil {
-		// Note: On Windows, this always succeeds. On Unix, it means process is gone
-		return fmt.Errorf("process verification failed: %w", err)
+	// Fallback: use ps command if available
+	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid))
+	if err := cmd.Run(); err == nil {
+		return nil // Process exists
 	}
 
-	return nil
+	// Process doesn't exist
+	return fmt.Errorf("process %d not found", pid)
 }
 
 // Helper function: getChildProcesses returns PIDs of child processes

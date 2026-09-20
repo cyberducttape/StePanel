@@ -44,14 +44,14 @@ func TestParseContainerImage(t *testing.T) {
 		},
 		{
 			"docker.io/library/ubuntu:20.04@sha256:" +
-				"a5f43f9da1b8d2a9e77d4a8f4e8f8f8e8f8f8f8e8f8f8e8f8f8e8f8f8f8f8f",
+				"a5f43f9da1b8d2a9e77d4a8f4e8f8f8e8f8f8f8e8f8f8e8f8f8e8f8f8f8f1234",
 			false,
 			&ContainerImageRef{
 				"docker.io",
 				"library",
 				"ubuntu",
 				"20.04",
-				"sha256:a5f43f9da1b8d2a9e77d4a8f4e8f8f8e8f8f8f8e8f8f8e8f8f8e8f8f8f8f8f",
+				"sha256:a5f43f9da1b8d2a9e77d4a8f4e8f8f8e8f8f8f8e8f8f8e8f8f8e8f8f8f8f1234",
 			},
 			"with sha256 hash",
 		},
