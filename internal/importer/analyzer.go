@@ -87,7 +87,12 @@ type Analyzer struct {
 // NewAnalyzer creates a new archive analyzer with secure redirect handling
 func NewAnalyzer() *Analyzer {
 	// Custom transport that validates all IP addresses before connecting
+	// Uses granular timeouts instead of a global timeout to support large files
 	transport := &http.Transport{
+		// Granular timeout controls:
+		// - DNS: 5 second timeout via dialer
+		// - TCP/TLS: 15 second timeout via dialer
+		// - No global body read timeout (prevents 5GB archive timeout issues)
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			// Parse the host and port
 			host, port, err := net.SplitHostPort(addr)
@@ -105,7 +110,10 @@ func NewAnalyzer() *Analyzer {
 			} else {
 				// It's a hostname, resolve and validate each IP
 				resolver := &net.Resolver{}
-				ips, err := resolver.LookupIP(ctx, "ip", host)
+				// DNS resolution with 5-second timeout
+				dnsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				ips, err := resolver.LookupIP(dnsCtx, "ip", host)
+				cancel()
 				if err != nil {
 					return nil, fmt.Errorf("DNS resolution failed: %w", err)
 				}
@@ -124,15 +132,25 @@ func NewAnalyzer() *Analyzer {
 				ip = ips[0]
 			}
 
-			// Connect to the validated IP
-			dialer := net.Dialer{}
+			// Connect with 15-second TCP/TLS timeout
+			dialer := net.Dialer{
+				Timeout:   15 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 		},
+		// Idle timeout (connection kept alive for reuse)
+		IdleConnTimeout: 30 * time.Second,
+		// TLS handshake timeout is applied via DialContext timeout
+		TLSHandshakeTimeout: 15 * time.Second,
+		// Response header timeout (time waiting for headers after sending request)
+		ResponseHeaderTimeout: 30 * time.Second,
 	}
 
 	return &Analyzer{
 		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
+			// No global timeout - allows large file downloads
+			// Context deadline should be set per-request by the caller
 			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				// Validate redirect destination is safe (prevents SSRF via redirect chain)
