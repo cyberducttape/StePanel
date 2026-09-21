@@ -60,6 +60,13 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 422)
 		return
 	}
+	if _, ok := a.requireSiteAccess(w, r, app.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for app deployment", http.StatusForbidden)
+		return
+	}
 	app.Root = filepath.Join(a.Config.WebRoot, "sites", app.Site, "public")
 	if err := ensureInside(a.Config.WebRoot, app.Root); err != nil {
 		http.Error(w, err.Error(), 422)
@@ -132,6 +139,13 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 	allowed := map[string]bool{"start": true, "stop": true, "restart": true, "rollback": true}
 	if len(parts) != 2 || safeUser(parts[0]) == "" || !allowed[parts[1]] {
 		http.Error(w, "invalid app action", 422)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, parts[0], "site is not assigned to this account", http.StatusForbidden); !ok {
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for app operations", http.StatusForbidden)
 		return
 	}
 	releaseUnlock := a.siteOperations.Acquire(parts[0])

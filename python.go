@@ -155,6 +155,10 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, parts[0], "site is not assigned to this account", 403); !ok {
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for Python operations", http.StatusForbidden)
+		return
+	}
 	releaseUnlock := a.siteOperations.Acquire(parts[0])
 	defer releaseUnlock()
 	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {

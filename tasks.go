@@ -299,6 +299,10 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request", 403)
 			return
 		}
+		if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+			http.Error(w, "insufficient token scope for task operations", http.StatusForbidden)
+			return
+		}
 		if err := a.killTask(site, name); err != nil {
 			http.Error(w, "could not kill task: "+err.Error(), 502)
 			return
@@ -343,6 +347,10 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid CSRF token", 403)
 			return
 		}
+		if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+			http.Error(w, "insufficient token scope for task operations", http.StatusForbidden)
+			return
+		}
 		releaseUnlock := a.siteOperations.Acquire(site)
 		defer releaseUnlock()
 		key := site + "/" + name
@@ -373,6 +381,10 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPut || !a.Auth.CSRF(r) {
 		http.Error(w, "invalid request", 403)
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for task operations", http.StatusForbidden)
 		return
 	}
 	var input ScheduledTask

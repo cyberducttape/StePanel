@@ -121,6 +121,10 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", 403)
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for Composer operations", http.StatusForbidden)
+		return
+	}
 	if _, err := os.Stat(filepath.Join(root, "composer.json")); err != nil {
 		http.Error(w, "composer.json is required", 422)
 		return
