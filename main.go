@@ -1327,6 +1327,23 @@ func safeUser(value string) string {
 // Backward compatibility wrappers for audit package
 type AuditEvent = audit.Event
 
+// Test compatibility - auditKeyPath is used by tests to mock the key file location
+// When set, it calls through to the audit package's test helper
+var auditKeyPath string = "/etc/stepanel-audit.key"
+
+// auditMu and auditPersistenceErr are used by tests to interact with audit state
+// For real usage, the audit package manages these internally
+var auditMu sync.Mutex
+var auditPersistenceErr error
+
+// resetAuditPersistenceErr is called by tests to clear persistence error state
+func resetAuditPersistenceErr() {
+	auditMu.Lock()
+	defer auditMu.Unlock()
+	auditPersistenceErr = nil
+	audit.TestResetPersistenceError()
+}
+
 func validateAuditEvent(event AuditEvent) error {
 	if event.Sequence == 0 || strings.TrimSpace(event.Actor) == "" || strings.TrimSpace(event.Action) == "" {
 		return errors.New("audit log contains an event with invalid identity or sequence")
@@ -1338,11 +1355,21 @@ func validateAuditEvent(event AuditEvent) error {
 }
 
 func Audit(path, action, target, detail string) error {
-	return audit.Log(action, target, detail)
+	// Sync root package's mocked auditKeyPath to audit package for tests
+	if auditKeyPath != "/etc/stepanel-audit.key" {
+		audit.TestSetKeyPath(auditKeyPath)
+	}
+	logger := audit.New(path)
+	return logger.Log(context.Background(), action, target, detail)
 }
 
 func AuditAs(path, actor, action, target, detail string) error {
-	return audit.LogAs(actor, action, target, detail)
+	// Sync root package's mocked auditKeyPath to audit package for tests
+	if auditKeyPath != "/etc/stepanel-audit.key" {
+		audit.TestSetKeyPath(auditKeyPath)
+	}
+	logger := audit.New(path)
+	return logger.LogAs(context.Background(), actor, action, target, detail)
 }
 
 func VerifyAuditLog(path string) error {

@@ -56,3 +56,15 @@ func ShouldLog(actor, action, target, detail string) error {
 	}
 	return nil
 }
+
+// TestSetKeyPath allows tests to mock the audit key file path
+func TestSetKeyPath(path string) {
+	auditKeyPath = path
+}
+
+// TestResetPersistenceError allows tests to clear persistence error state
+func TestResetPersistenceError() {
+	mu.Lock()
+	defer mu.Unlock()
+	persistenceErr = nil
+}
