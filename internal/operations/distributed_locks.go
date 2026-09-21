@@ -52,7 +52,6 @@ func (dl *DistributedLocks) Acquire(key string) (func(), error) {
 	pidStr := fmt.Sprintf("%d", pid)
 
 	// Try to acquire lock with exponential backoff
-	var lastErr error
 	deadline := time.Now().Add(5 * time.Minute) // Max wait time
 
 	for {
@@ -93,7 +92,6 @@ func (dl *DistributedLocks) Acquire(key string) (func(), error) {
 			}
 			// Wait before retrying
 			time.Sleep(100 * time.Millisecond)
-			lastErr = err
 			continue
 		}
 

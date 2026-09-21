@@ -18,6 +18,12 @@ type durableArchiveImportRequest struct {
 	WebRoot    string `json:"web_root"`
 }
 
+// durableArchiveInspectionRequest is the job payload for archive inspections
+type durableArchiveInspectionRequest struct {
+	ArchiveURL string `json:"archive_url"`
+	ConfigPath string `json:"config_path"`
+}
+
 // archiveInspectionRequest is the API request to inspect an archive
 type archiveInspectionRequest struct {
 	URL        string `json:"url"`         // URL to archive (S3, HTTP, etc.)
@@ -64,23 +70,26 @@ func (a *App) inspectArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Perform inspection synchronously for now (Phase 1)
-	analyzer := importer.NewAnalyzer()
-	inspection, err := analyzer.InspectArchive(req.URL, req.ConfigPath)
-
-	if err != nil && inspection == nil {
-		http.Error(w, "failed to inspect archive: "+err.Error(), http.StatusBadRequest)
+	// Enqueue inspection as a durable job (asynchronous)
+	payload, err := json.Marshal(durableArchiveInspectionRequest{
+		ArchiveURL: req.URL,
+		ConfigPath: req.ConfigPath,
+	})
+	if err != nil {
+		http.Error(w, "failed to marshal job payload: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response := archiveInspectionStatus{
-		Status:     "done",
-		Inspection: inspection,
+	job, err := a.Jobs.Enqueue("archive.inspect", "admin", "archive-inspection", payload, 3)
+	if err != nil {
+		http.Error(w, "failed to enqueue inspection job: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	if err != nil {
-		response.Status = "failed"
-		response.Error = err.Error()
+	response := map[string]interface{}{
+		"job_id": job.ID,
+		"status": "queued",
+		"url":    req.URL,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -98,14 +107,26 @@ func (a *App) inspectArchiveStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inspectionID := r.URL.Query().Get("id")
-	if inspectionID == "" {
-		http.Error(w, "inspection id required", http.StatusBadRequest)
+	jobID := r.URL.Query().Get("job_id")
+	if jobID == "" {
+		http.Error(w, "job_id required", http.StatusBadRequest)
 		return
 	}
 
-	// TODO: Phase 2 - implement job status tracking
-	http.Error(w, "not yet implemented", http.StatusNotImplemented)
+	job, ok := a.Jobs.Get(jobID)
+	if !ok {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
+
+	response := map[string]interface{}{
+		"job_id": job.ID,
+		"status": job.State,
+		"output": job.Output,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +275,39 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	}
 
 	// Store result in job output (marshal to JSON)
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("failed to marshal result: %w", err)
+	}
+	job.Output = resultJSON
+
+	return nil
+}
+
+// handleArchiveInspectionJob processes an archive inspection durable job
+func (a *App) handleArchiveInspectionJob(ctx context.Context, job *Job) error {
+	var req durableArchiveInspectionRequest
+	if err := json.Unmarshal(job.Payload, &req); err != nil {
+		return fmt.Errorf("failed to parse job payload: %w", err)
+	}
+
+	// Create analyzer and perform inspection
+	analyzer := importer.NewAnalyzer()
+	inspection, err := analyzer.InspectArchive(req.ArchiveURL, req.ConfigPath)
+
+	// Always encode result (even if there was an error)
+	result := map[string]interface{}{
+		"inspection": inspection,
+	}
+
+	if err != nil {
+		result["error"] = err.Error()
+		result["success"] = false
+	} else {
+		result["success"] = true
+	}
+
+	// Store result in job output
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("failed to marshal result: %w", err)
