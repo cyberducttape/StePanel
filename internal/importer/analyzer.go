@@ -69,10 +69,19 @@ type Analyzer struct {
 	httpClient *http.Client
 }
 
-// NewAnalyzer creates a new archive analyzer
+// NewAnalyzer creates a new archive analyzer with secure redirect handling
 func NewAnalyzer() *Analyzer {
 	return &Analyzer{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				// Validate redirect destination is safe (prevents SSRF via redirect chain)
+				if !isAllowedURL(req.URL.String()) {
+					return fmt.Errorf("redirect to disallowed URL: %s", req.URL.String())
+				}
+				return nil
+			},
+		},
 	}
 }
 
@@ -96,7 +105,7 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		return nil, fmt.Errorf("invalid archive URL: %w", err)
 	}
 
-	resp, err := a.httpClient.Do(req) // lgtm[go/request-forgery]: URL is validated by isAllowedURL() at line 79
+	resp, err := a.httpClient.Do(req) // URL validated at line 89; redirects checked via CheckRedirect policy
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch archive: %w", err)
 	}
@@ -123,7 +132,7 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		return nil, fmt.Errorf("invalid archive URL: %w", err)
 	}
 
-	bodyResp, err := a.httpClient.Do(bodyReq) // lgtm[go/request-forgery]: URL is validated by isAllowedURL() at line 79
+	bodyResp, err := a.httpClient.Do(bodyReq) // URL validated at line 89; redirects checked via CheckRedirect policy
 	if err != nil {
 		return nil, fmt.Errorf("failed to download archive: %w", err)
 	}

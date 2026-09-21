@@ -42,6 +42,7 @@ type auditState struct {
 	FirstPreviousHash string `json:"first_previous_hash"`
 	KeyCheck          string `json:"key_check"`
 	Signature         string `json:"signature"`
+	LastValidatedSize int64  `json:"last_validated_size,omitempty"` // Cache: file size when last fully validated
 }
 
 func Audit(path, action, target, detail string) error {
@@ -137,9 +138,22 @@ func appendAuditEvent(path, actor, action, target, detail string) error {
 		}
 		state = auditState{Version: 1, KeyCheck: keyCheck}
 	}
-	state, err = reconcileAuditTail(path, state)
-	if err != nil {
-		return err
+	// Optimization: skip full reconciliation if file size hasn't changed since last validation
+	// This avoids quadratic work during normal append operations
+	info, statErr := os.Stat(path)
+	if statErr == nil && state.LastValidatedSize == info.Size() && state.LastValidatedSize > 0 {
+		// File size unchanged, trust cached state and skip expensive full scan
+		// Only do full reconciliation at startup, rotation, or corruption detection
+	} else {
+		// File size changed or not yet validated: do full reconciliation
+		state, err = reconcileAuditTail(path, state)
+		if err != nil {
+			return err
+		}
+		// Update cached file size after successful reconciliation
+		if info, statErr := os.Stat(path); statErr == nil {
+			state.LastValidatedSize = info.Size()
+		}
 	}
 	event := AuditEvent{Time: time.Now().UTC().Format(time.RFC3339Nano), Sequence: state.Sequence + 1, Actor: actor, Action: action, Target: target, Detail: detail, PreviousHash: state.Hash}
 	event.Hash, err = hashAuditEvent(event)
@@ -163,7 +177,12 @@ func appendAuditEvent(path, actor, action, target, detail string) error {
 	if err != nil {
 		return err
 	}
-	return writeAuditState(statePath, auditState{Version: 1, Sequence: event.Sequence, Hash: event.Hash, FirstSequence: state.FirstSequence, FirstPreviousHash: state.FirstPreviousHash, KeyCheck: state.KeyCheck})
+	// Cache file size to optimize future appends (avoid quadratic rescanning)
+	finalSize := int64(0)
+	if info, statErr := os.Stat(path); statErr == nil {
+		finalSize = info.Size()
+	}
+	return writeAuditState(statePath, auditState{Version: 1, Sequence: event.Sequence, Hash: event.Hash, FirstSequence: state.FirstSequence, FirstPreviousHash: state.FirstPreviousHash, KeyCheck: state.KeyCheck, LastValidatedSize: finalSize})
 }
 
 func truncateAuditValue(value string, limit int) string {

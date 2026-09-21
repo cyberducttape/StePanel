@@ -263,10 +263,9 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	return nil
 }
 
-// validSiteName checks if a site name is valid
+// validSiteName checks if a site name is valid (matches standard site helpers: 1-32 chars)
 func validSiteName(name string) bool {
-	// Allow lowercase letters, numbers, hyphens
-	// Must be 1-63 characters
-	matched, _ := regexp.MatchString(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`, name)
-	return matched && len(name) > 0 && len(name) <= 63
+	// Must match standard site identity constraints (same as stepanel-appctl)
+	matched, _ := regexp.MatchString(`^[a-z0-9_-]{1,32}$`, name)
+	return matched
 }

@@ -44,7 +44,7 @@ func (af *ArchiveFetcher) FetchArchive(ctx context.Context, url string, maxBytes
 		return nil, fmt.Errorf("invalid archive URL: %w", err)
 	}
 
-	resp, err := af.httpClient.Do(req) // lgtm[go/request-forgery]: URL is validated by isAllowedURL() at line 37
+	resp, err := af.httpClient.Do(req) // URL validated at line 37; redirects checked via CheckRedirect policy
 	if err != nil {
 		return nil, fmt.Errorf("failed to download archive: %w", err)
 	}
@@ -86,11 +86,20 @@ type Executor struct {
 	fetcher *ArchiveFetcher
 }
 
-// NewExecutor creates a new import executor
+// NewExecutor creates a new import executor with secure redirect handling
 func NewExecutor() *Executor {
 	return &Executor{
 		fetcher: &ArchiveFetcher{
-			httpClient: &http.Client{Timeout: 30 * time.Second},
+			httpClient: &http.Client{
+				Timeout: 30 * time.Second,
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					// Validate redirect destination is safe (prevents SSRF via redirect chain)
+					if !isAllowedURL(req.URL.String()) {
+						return fmt.Errorf("redirect to disallowed URL: %s", req.URL.String())
+					}
+					return nil
+				},
+			},
 		},
 	}
 }
@@ -125,7 +134,7 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		SiteName:   req.SiteName,
 		ArchiveURL: req.URL,
 		ConfigPath: req.ConfigPath,
-		WebRoot:    filepath.Join(webRoot, req.SiteName),
+		WebRoot:    filepath.Join(webRoot, "sites", req.SiteName, "public"),
 		Status:     "validating",
 		StartedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -224,14 +233,21 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	onProgress(job)
 
 	var configIssue *ImportIssue
-	if err := e.updateConfiguration(job, req.ConfigPath); err != nil {
-		// Configuration update failed - this is an error
+	var configError error
+	if configError = e.updateConfiguration(job, req.ConfigPath); configError != nil {
+		// Configuration update failed - mark job as failed
 		configIssue = &ImportIssue{
 			Severity: "error",
 			Code:     "config_update_failed",
-			Message:  fmt.Sprintf("Configuration update failed: %v. Update manually.", err),
+			Message:  fmt.Sprintf("Configuration update failed: %v. Site preparation incomplete.", configError),
 		}
+		job.Status = "failed"
+		job.Progress = 100
 		job.Message = configIssue.Message
+		job.UpdatedAt = time.Now()
+		onProgress(job)
+		// Return error with partial result
+		return nil, fmt.Errorf("import incomplete: %w", configError)
 	}
 
 	// Step 7: Mark complete
@@ -243,7 +259,7 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 
 	result := &ImportResult{
 		JobID:         job.ID,
-		Success:       configIssue == nil, // Only successful if config was updated
+		Success:       true,
 		SiteName:      job.SiteName,
 		CreatedAt:     job.StartedAt,
 		FilesImported: job.FilesExtracted,
@@ -263,21 +279,17 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		},
 	}
 
-	// Add issues for database restoration
+	// Add issues for database restoration (warning, not failure)
 	if dbRestorationIssue != nil {
 		result.Issues = append(result.Issues, *dbRestorationIssue)
 	}
 
-	// Add issues for configuration
-	if configIssue != nil {
-		result.Issues = append(result.Issues, *configIssue)
-	} else {
-		result.Issues = append(result.Issues, ImportIssue{
-			Severity: "info",
-			Code:     "config_updated",
-			Message:  "Configuration file updated with database credentials",
-		})
-	}
+	// Configuration was successful
+	result.Issues = append(result.Issues, ImportIssue{
+		Severity: "info",
+		Code:     "config_updated",
+		Message:  "Configuration file updated with database credentials",
+	})
 
 	return result, nil
 }
