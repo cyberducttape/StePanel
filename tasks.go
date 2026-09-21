@@ -166,7 +166,9 @@ func captureTaskOutput(output string) []string {
 	return result
 }
 
-// killTask stops a running scheduled task via systemd
+// killTask stops a running scheduled task via systemd.
+// Requires stepanel-taskctl helper (installed at /usr/local/sbin/stepanel-taskctl)
+// and invoked through the privileged root wrapper.
 func (a *App) killTask(site, name string) error {
 	if a.Config.TaskCtl == "" {
 		return errors.New("task control helper not configured")
@@ -238,28 +240,11 @@ func (s *TaskStore) decrementTaskRunCount(key string) error {
 	return s.persistLocked()
 }
 
-// sendTaskFailureNotification queues failure notification for task
-// Phase 2: External email service integration (SendGrid, AWS SES, etc.)
-func (a *App) sendTaskFailureNotification(site, name string, task ScheduledTask, exitCode int, output []string) {
-	if task.NotifyEmail == "" {
-		return // notifications disabled
-	}
-
-	if exitCode == 0 {
-		return // only notify on failure
-	}
-
-	details := fmt.Sprintf(
-		"exit_code=%d failures=%d last_run=%s",
-		exitCode,
-		task.ConsecutiveFailures,
-		time.Unix(task.LastRunAt, 0).Format(time.RFC3339),
-	)
-
-	// Log notification event to audit trail
-	// Production implementation would send email via external service
-	_ = ShouldAudit(a.Config.AuditLog, "system", "task.failure.notified", site+"/"+name, details)
-}
+// TODO: Phase 2 safeguards not yet implemented
+// - NotifyEmail field: email notifications require external service integration (SendGrid, AWS SES, etc.)
+// - MinIntervalSeconds: rate limiting/deduplication
+// - MaxConcurrentRuns: admission control for concurrent task executions
+// These fields are accepted in the API for future compatibility but not currently enforced.
 
 func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/"), "/")
