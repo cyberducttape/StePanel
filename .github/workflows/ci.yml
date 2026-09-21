@@ -73,7 +73,7 @@ jobs:
           STEPANEL_AUDIT_KEY=ci-audit-key-012345678901234567890123456789 \
           STEPANEL_ENVIRONMENT_KEY=ci-environment-key-012345678901234567890123456789 \
           STEPANEL_BACKUP_SIGNING_KEY=ci-backup-signing-key-012345678901234567890123456789 \
-          STEPANEL_OFFSITE_TARGET=s3:stepanel-ci \
+          STEPANEL_OFFSITE_TARGET=local:$smoke_root/offsite \
           STEPANEL_REQUIRE_OFFSITE_BACKUP=1 \
           STEPANEL_IMPORT_ROOT="$smoke_root/imports" \
           STEPANEL_BACKUP_ROOT="$smoke_root/backups" \
@@ -94,9 +94,18 @@ jobs:
           ready=0
           for _ in $(seq 1 20); do
             if curl --fail --silent --max-time 1 http://127.0.0.1:18090/livez >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$smoke_pid" 2>/dev/null; then
+              echo "stepanel exited before becoming ready"
+              cat "$smoke_root/service.log"
+              exit 1
+            fi
             sleep 1
           done
-          test "$ready" = 1
+          if [ "$ready" != 1 ]; then
+            echo "stepanel did not become ready"
+            cat "$smoke_root/service.log"
+            exit 1
+          fi
       - run: bash -n install.sh
       - run: bash -n scripts/check-release.sh
       - run: bash -n deploy/integrations/install-fail2ban.sh
