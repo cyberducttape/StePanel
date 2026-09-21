@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -659,6 +660,12 @@ func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error 
 		return fmt.Errorf("cannot read config file: %w", err)
 	}
 
+	// Preserve original file permissions and ownership
+	info, err := os.Stat(configFile)
+	if err != nil {
+		return fmt.Errorf("cannot stat config file: %w", err)
+	}
+
 	content := string(data)
 	modified := false
 
@@ -686,38 +693,104 @@ func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error 
 	}
 
 	if modified {
-		return os.WriteFile(configFile, []byte(content), 0644)
+		// Write atomically: create temp file, write, then rename
+		tempFile, err := os.CreateTemp(filepath.Dir(configFile), "."+filepath.Base(configFile)+".*")
+		if err != nil {
+			return fmt.Errorf("cannot create temp file: %w", err)
+		}
+		defer os.Remove(tempFile.Name())
+
+		// Write content to temp file
+		if _, err := tempFile.WriteString(content); err != nil {
+			tempFile.Close()
+			return fmt.Errorf("cannot write temp file: %w", err)
+		}
+
+		// Preserve original file permissions and ownership
+		if err := tempFile.Chmod(info.Mode()); err != nil {
+			tempFile.Close()
+			return fmt.Errorf("cannot set temp file permissions: %w", err)
+		}
+		tempFile.Close()
+
+		// Atomic rename
+		if err := os.Rename(tempFile.Name(), configFile); err != nil {
+			return fmt.Errorf("cannot replace config file: %w", err)
+		}
 	}
 
 	return nil
 }
 
 // replaceDefineValue replaces the value of a define() statement
+// Handles formats like: define('KEY', 'value') or define ( 'KEY', 'value' )
+// Does NOT replace if value comes from a function call (getenv, env, etc)
 func replaceDefineValue(content, key, quote, newValue string) string {
-	pattern := fmt.Sprintf("define(%s%s%s,", quote, key, quote)
-	parts := strings.Split(content, pattern)
-	if len(parts) != 2 {
+	// Pattern: define (with optional spaces) ( KEY (with optional spaces) ,
+	// Use regex to be more flexible with whitespace
+	escapedQuote := regexp.QuoteMeta(quote)
+	escapedKey := regexp.QuoteMeta(key)
+	pattern := fmt.Sprintf(`define\s*\(\s*%s%s%s\s*,`, escapedQuote, escapedKey, escapedQuote)
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
 		return content
 	}
 
-	afterComma := parts[1]
+	matches := re.FindAllStringIndex(content, -1)
+	if len(matches) == 0 {
+		return content
+	}
 
-	// Find the next quote (start of value)
-	idx := strings.IndexAny(afterComma, "'\"\n")
-	if idx < 0 || afterComma[idx] == '\n' {
+	// Process the last match (most likely the one we want to replace)
+	match := matches[len(matches)-1]
+	matchEnd := match[1]
+
+	afterComma := content[matchEnd:]
+
+	// Skip whitespace after comma
+	idx := 0
+	for idx < len(afterComma) && (afterComma[idx] == ' ' || afterComma[idx] == '\t' || afterComma[idx] == '\n') {
+		idx++
+	}
+
+	// Check if value comes from a function call - if so, don't replace
+	// Look for patterns like getenv(), env(), etc.
+	remainingContent := afterComma[idx:]
+	if idx < len(afterComma) && afterComma[idx] == 'g' ||
+		(idx+3 < len(afterComma) && strings.HasPrefix(remainingContent, "env(")) ||
+		(idx+7 < len(afterComma) && strings.HasPrefix(remainingContent, "getenv(")) {
+		// Value comes from function - don't replace
+		return content
+	}
+
+	// Find the opening quote
+	if idx >= len(afterComma) || (afterComma[idx] != '\'' && afterComma[idx] != '"') {
 		return content
 	}
 
 	valueQuote := afterComma[idx : idx+1]
 
-	// Find closing quote
-	closeIdx := strings.Index(afterComma[idx+1:], valueQuote)
-	if closeIdx < 0 {
+	// Find closing quote (skip escaped quotes)
+	closeIdx := idx + 1
+	for closeIdx < len(afterComma) {
+		if afterComma[closeIdx] == '\\' && closeIdx+1 < len(afterComma) {
+			closeIdx += 2 // Skip escaped character
+			continue
+		}
+		if afterComma[closeIdx:closeIdx+1] == valueQuote {
+			break
+		}
+		closeIdx++
+	}
+
+	if closeIdx >= len(afterComma) {
 		return content
 	}
 
-	// Reconstruct with new value
-	return parts[0] + pattern + afterComma[:idx] + valueQuote + newValue + valueQuote + afterComma[idx+1+closeIdx:]
+	// Replace the value
+	newContent := content[:matchEnd+idx] + valueQuote + newValue + valueQuote + afterComma[closeIdx+1:]
+	return newContent
 }
 
 // extractWordPressDefine extracts a WordPress define value
