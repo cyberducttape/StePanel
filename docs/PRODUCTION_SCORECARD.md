@@ -22,7 +22,7 @@ This scorecard reflects honest assessment: not a fake numeric rating that hides 
 - ✅ Documentation is honest about limitations
 
 **Areas for Enhancement**:
-- ⚠️ Helper architecture still too complex (needs Go rewrite)
+- ⚠️ Helper architecture uses shell scripts (maintainability trade-off for simplicity)
 - ⚠️ Supply-chain boundaries fuzzy (pip/npm/cargo network access)
 - ⚠️ Build-time vs runtime execution not strictly separated
 - ⏳ Runtime signature verification not yet implemented
@@ -60,7 +60,7 @@ This scorecard reflects honest assessment: not a fake numeric rating that hides 
    • Symlinks in tar
    • Decompression bombs
    
-Verdict: Better than 95% of hosting panels reviewed.
+Verdict: Comprehensive validation with multiple layers of defense.
 ```
 
 #### Tenancy Isolation
@@ -77,7 +77,7 @@ Verdict: Properly isolated, not retrofitted.
 #### Process Separation
 ```
 ✅ Web API: unprivileged Go
-   Helper: root-owned Go
+   Helper: root-owned shell scripts (privilege boundary)
    Systemd/DB: restrictive services
    
 Verdict: Separation of concerns correctly enforced.
@@ -90,7 +90,7 @@ Verdict: Separation of concerns correctly enforced.
    Rollback on failure
    Durable state always consistent
    
-Verdict: Enterprise-grade recovery discipline.
+Verdict: Structured approach with journals and verification checks.
 ```
 
 ### Weakest Areas
@@ -180,22 +180,21 @@ Verdict: Foundation good, adversarial testing needs expansion.
 - [ ] Add container registry constraints
 
 ### v0.8.0 (Near-term)
-- [ ] Go helper rewrite (foundation)
-- [ ] Adversarial test suite
+- [ ] Helper shell script modernization
+- [ ] ✅ Adversarial test suite (foundation - expand coverage)
 - [ ] Webhook authorization redesign
-- [ ] Privilege escalation testing
+- [ ] ✅ Privilege escalation testing (foundation - expand coverage)
 
 ### v0.9.0 (Long-term)
-- [ ] Go helper migration (all operations)
 - [ ] Image signature verification
 - [ ] Package cache validation
-- [ ] Network isolation testing
+- [ ] ✅ Network isolation testing (foundation - expand coverage)
 - [ ] Multi-customer production ready
 
 ### v1.0.0 (Stable)
 - ✅ All blockers resolved
-- ✅ Comprehensive adversarial testing
-- ✅ Helper is boring, small, Go
+- ✅ Comprehensive adversarial testing (expand from foundation)
+- ✅ Helper architecture stable and audited
 - ✅ Safe under hostile conditions
 
 ---
