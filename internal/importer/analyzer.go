@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,24 @@ import (
 	"strings"
 	"time"
 )
+
+// isReservedIP checks if an IP address is in a reserved/private range
+func isReservedIP(ip net.IP) bool {
+	// Handle IPv4-mapped IPv6 addresses by unwrapping them
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+
+	// Reject loopback, private, and link-local addresses
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	// Reject non-global unicast IPs (multicast, unspecified, etc.)
+	if !ip.IsGlobalUnicast() {
+		return true
+	}
+	return false
+}
 
 // isAllowedURL validates that a URL is safe to fetch (prevents SSRF)
 func isAllowedURL(urlStr string) bool {
@@ -48,15 +67,25 @@ func isAllowedURL(urlStr string) bool {
 		return false
 	}
 
-	// Validate IP addresses
+	// If it's an IP address, validate it directly
 	ip := net.ParseIP(host)
 	if ip != nil {
-		// Reject loopback, private, and link-local addresses
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-			return false
-		}
-		// Reject non-global unicast IPs (multicast, unspecified, etc.)
-		if !ip.IsGlobalUnicast() {
+		return !isReservedIP(ip)
+	}
+
+	// For hostnames, resolve and validate all returned IPs
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		// If resolution fails, reject to be safe
+		return false
+	}
+	if len(ips) == 0 {
+		return false
+	}
+
+	// All resolved IPs must be public
+	for _, resolvedIP := range ips {
+		if isReservedIP(resolvedIP) {
 			return false
 		}
 	}
@@ -71,9 +100,54 @@ type Analyzer struct {
 
 // NewAnalyzer creates a new archive analyzer with secure redirect handling
 func NewAnalyzer() *Analyzer {
+	// Custom transport that validates all IP addresses before connecting
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// Parse the host and port
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid address: %w", err)
+			}
+
+			// Try to parse as IP directly
+			ip := net.ParseIP(host)
+			if ip != nil {
+				// It's already an IP, validate it
+				if isReservedIP(ip) {
+					return nil, fmt.Errorf("connection to reserved IP %s not allowed", host)
+				}
+			} else {
+				// It's a hostname, resolve and validate each IP
+				resolver := &net.Resolver{}
+				ips, err := resolver.LookupIP(ctx, "ip", host)
+				if err != nil {
+					return nil, fmt.Errorf("DNS resolution failed: %w", err)
+				}
+				if len(ips) == 0 {
+					return nil, fmt.Errorf("no IP addresses resolved for %s", host)
+				}
+
+				// Check if any resolved IP is reserved
+				for _, resolvedIP := range ips {
+					if isReservedIP(resolvedIP) {
+						return nil, fmt.Errorf("hostname %s resolves to reserved IP %s", host, resolvedIP)
+					}
+				}
+
+				// Use the first public IP
+				ip = ips[0]
+			}
+
+			// Connect to the validated IP
+			dialer := net.Dialer{}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		},
+	}
+
 	return &Analyzer{
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				// Validate redirect destination is safe (prevents SSRF via redirect chain)
 				if !isAllowedURL(req.URL.String()) {
