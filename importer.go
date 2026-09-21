@@ -32,9 +32,9 @@ type archiveInspectionRequest struct {
 
 // archiveImportRequest is the API request to start importing from archive
 type archiveImportRequest struct {
-	URL        string `json:"url"`        // URL to archive
+	URL        string `json:"url"`         // URL to archive
 	ConfigPath string `json:"config_path"` // path to config file
-	SiteName   string `json:"site_name"`  // name for new site
+	SiteName   string `json:"site_name"`   // name for new site
 }
 
 // archiveInspectionStatus is the response showing inspection results

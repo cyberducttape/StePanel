@@ -384,7 +384,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 
 	// Apply defaults for fields the browser form may not send
 	if input.MaxConcurrentRuns == 0 {
-		input.MaxConcurrentRuns = 1  // Default: one concurrent run at a time
+		input.MaxConcurrentRuns = 1 // Default: one concurrent run at a time
 	}
 
 	input.Command, input.OnCalendar = strings.TrimSpace(input.Command), strings.TrimSpace(input.OnCalendar)

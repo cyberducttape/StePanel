@@ -34,8 +34,8 @@ type BackupResult struct {
 	ArchiveSHA256  string    `json:"archive_sha256"`
 	Bytes          int64     `json:"bytes"`
 	Databases      []string  `json:"databases"`
-	CreatedAt      time.Time `json:"created_at"`       // When backup was created (immutable)
-	VerifiedAt     time.Time `json:"verified_at"`      // When backup was last verified
+	CreatedAt      time.Time `json:"created_at"`  // When backup was created (immutable)
+	VerifiedAt     time.Time `json:"verified_at"` // When backup was last verified
 	Consistency    string    `json:"consistency"`
 	ManifestSigned bool      `json:"manifest_signed"`
 }

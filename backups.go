@@ -46,7 +46,7 @@ type verificationCacheEntry struct {
 
 var (
 	backupVerificationCache = make(map[string]verificationCacheEntry)
-	backupCacheMu           sync.Mutex  // Protects concurrent access to cache
+	backupCacheMu           sync.Mutex // Protects concurrent access to cache
 	verificationCacheTTL    = 5 * time.Minute
 	maxCacheEntries         = 1000
 )
