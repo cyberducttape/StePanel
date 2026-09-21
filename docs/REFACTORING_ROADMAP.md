@@ -343,7 +343,7 @@ After all four phases complete:
 ## How to Read This Roadmap
 
 **For new developers:**
-1. Read [CLAUDE.md](CLAUDE.md) — Code quality standards
+1. Read [CLAUDE.md](../CLAUDE.md) — Code quality standards
 2. Read [ARCHITECTURE_ROADMAP.md](ARCHITECTURE_ROADMAP.md) — Planned structure
 3. Pick one domain, understand its interface
 4. Code within that domain following CLAUDE.md patterns
@@ -390,7 +390,6 @@ After all four phases complete:
 - [CLAUDE.md](../CLAUDE.md) — Code quality standards (Phase 1 output)
 - [ARCHITECTURE_ROADMAP.md](ARCHITECTURE_ROADMAP.md) — Package structure vision
 - [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — Deployment guide
-- [PHASE1_GOVERNANCE.md](PHASE1_GOVERNANCE.md) — Governance standards completed
 - [PHASE2_EXTRACTION_PLAN.md](PHASE2_EXTRACTION_PLAN.md) — Audit extraction + 3 pending domains
 - [PHASE3_EXTRACTION_PLAN.md](PHASE3_EXTRACTION_PLAN.md) — Site operations domains
 - [PHASE4_EXTRACTION_PLAN.md](PHASE4_EXTRACTION_PLAN.md) — Infrastructure foundation

@@ -429,7 +429,7 @@ github.com/itchyitchy123/StePanel/
 
 ## Related Documents
 
-- [PHASE1_GOVERNANCE.md](PHASE1_GOVERNANCE.md) — Governance standards (CLAUDE.md)
+- [PHASE1_GOVERNANCE.md](PHASE1_GOVERNANCE.md) — Governance standards (see [CLAUDE.md](../CLAUDE.md))
 - [PHASE2_EXTRACTION_PLAN.md](PHASE2_EXTRACTION_PLAN.md) — Audit extraction
 - [PHASE3_EXTRACTION_PLAN.md](PHASE3_EXTRACTION_PLAN.md) — Sites operations
 - [CLAUDE.md](../CLAUDE.md) — Code quality standards
