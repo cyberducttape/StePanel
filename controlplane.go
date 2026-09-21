@@ -288,10 +288,21 @@ func writeControlPlaneBlob(db *sql.DB, name string, payload []byte) error {
 	return err
 }
 
+type controlPlaneStateSnapshot struct {
+	revision int64
+	payload  []byte
+}
+
+var controlPlaneStateRevisions sync.Map // Tracks read revisions per store
+
 // bindControlPlaneState makes a legacy JSON-backed store use a transactional
 // database blob as its live authority. The target must be a pointer to the
 // store's persisted value (normally a map). Existing database state wins;
 // callers persist the current value after binding to import legacy state.
+//
+// IMPORTANT: This binding requires careful handling of concurrent panel/worker
+// updates. Callers MUST use compareAndSwapControlPlaneState when persisting
+// to detect conflicts with concurrent updates from other processes.
 func bindControlPlaneState(store any, db *sql.DB, name string, target any) (bool, error) {
 	controlPlaneStateBindings.Store(store, controlPlaneStateBinding{db: db, name: name})
 	payload, found, err := readControlPlaneBlob(db, name)
@@ -304,6 +315,54 @@ func bindControlPlaneState(store any, db *sql.DB, name string, target any) (bool
 	if err := json.Unmarshal(payload, target); err != nil {
 		return false, fmt.Errorf("decode control-plane state %s: %w", name, err)
 	}
+
+	// Record the revision at read time for later conflict detection
+	// Get current revision from database
+	var revision int64
+	db.QueryRow(`SELECT CAST(updated_at AS INTEGER) FROM state_blobs WHERE name = ?`, name).Scan(&revision)
+	controlPlaneStateRevisions.Store(store, revision)
+
+	return true, nil
+}
+
+// compareAndSwapControlPlaneState persists state while detecting concurrent
+// updates. Returns an error if the database state changed since this process
+// read it (indicating a concurrent write from another process).
+//
+// Callers should reload state from database and retry on conflict.
+func compareAndSwapControlPlaneState(store any, name string, payload []byte, db *sql.DB) (bool, error) {
+	binding, ok := controlPlaneStateBindings.Load(store)
+	if !ok {
+		return false, nil
+	}
+	state := binding.(controlPlaneStateBinding)
+
+	// Get the revision this process read
+	readRevisionAny, hasRevision := controlPlaneStateRevisions.Load(store)
+	readRevision := int64(0)
+	if hasRevision {
+		readRevision = readRevisionAny.(int64)
+	}
+
+	// Check if database has been updated since our read
+	// If so, our snapshot is stale - don't overwrite
+	var currentRevision int64
+	err := db.QueryRow(`SELECT CAST(updated_at AS INTEGER) FROM state_blobs WHERE name = ?`, name).Scan(&currentRevision)
+	if err == nil && readRevision != 0 && currentRevision > readRevision {
+		// Conflict: database was updated by another process
+		// Return error indicating conflict - caller should reload
+		return true, fmt.Errorf("control-plane state %s was updated by another process (expected revision %d, current %d)", name, readRevision, currentRevision)
+	}
+
+	// No conflict: write our state
+	if err := writeControlPlaneBlob(state.db, state.name, payload); err != nil {
+		return true, fmt.Errorf("write control-plane state %s: %w", state.name, err)
+	}
+
+	// Update our recorded revision after successful write
+	db.QueryRow(`SELECT CAST(updated_at AS INTEGER) FROM state_blobs WHERE name = ?`, name).Scan(&currentRevision)
+	controlPlaneStateRevisions.Store(store, currentRevision)
+
 	return true, nil
 }
 
@@ -313,10 +372,10 @@ func persistBoundControlPlaneState(store any, payload []byte) (bool, error) {
 		return false, nil
 	}
 	state := binding.(controlPlaneStateBinding)
-	if err := writeControlPlaneBlob(state.db, state.name, payload); err != nil {
-		return true, fmt.Errorf("write control-plane state %s: %w", state.name, err)
-	}
-	return true, nil
+
+	// Use compare-and-swap to detect concurrent updates from other processes
+	_, err := compareAndSwapControlPlaneState(store, state.name, payload, state.db)
+	return true, err
 }
 
 func backupControlPlane(source, destination string) error {
