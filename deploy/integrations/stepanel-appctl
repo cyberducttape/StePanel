@@ -267,7 +267,7 @@ EOF
       build:yarn) command=(yarn run build --if-present);;
       build:pnpm) command=(pnpm run build --if-present);;
     esac
-    runuser -u "$site_user" -- sh -c "cd '$root' && env HOME='$root' NODE_ENV=production PATH='/usr/local/bin:/usr/bin:/bin' '${command[@]}'" ;;
+    runuser -u "$site_user" -- sh -c 'cd "$1" && shift && exec env HOME="$1" NODE_ENV=production PATH="/usr/local/bin:/usr/bin:/bin" "$@"' sh "$root" "$root" "${command[@]}" ;;
   composer-install)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl composer-install SITE ROOT DEVELOPMENT OPTIMIZE' >&2; exit 64; }
     root=$3; development=$4; optimize=$5
@@ -276,7 +276,7 @@ EOF
     args=(install --no-interaction --no-progress --no-scripts --no-plugins)
     [[ $development == 1 ]] || args+=(--no-dev)
     [[ $optimize == 1 ]] && args+=(--optimize-autoloader)
-    runuser -u "$site_user" -- sh -c "cd '$root' && env HOME='$root' COMPOSER_HOME='$root/.composer' PATH='/usr/local/bin:/usr/bin:/bin' composer '${args[@]}'" ;;
+    runuser -u "$site_user" -- sh -c 'cd "$1" && shift && exec env HOME="$1" COMPOSER_HOME="$1/.composer" PATH="/usr/local/bin:/usr/bin:/bin" composer "$@"' sh "$root" "$root" "${args[@]}" ;;
   resource-apply)
     (( $# == 8 || $# == 9 )) || { echo 'usage: stepanel-appctl resource-apply SITE CPU_PERCENT CPU_WEIGHT MEMORY_HIGH_MB MEMORY_MAX_MB IO_WEIGHT TASKS_MAX [ACCOUNT]' >&2; exit 64; }
     cpu=$3; cpu_weight=$4; memory_high=$5; memory=$6; io_weight=$7; tasks=$8; account=${9:-}
