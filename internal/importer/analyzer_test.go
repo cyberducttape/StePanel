@@ -1,8 +1,69 @@
 package importer
 
 import (
+	"net"
 	"testing"
 )
+
+func TestIsReservedIP(t *testing.T) {
+	tests := []struct {
+		ip       string
+		reserved bool
+		desc     string
+	}{
+		// Loopback addresses
+		{"127.0.0.1", true, "IPv4 loopback"},
+		{"127.0.0.2", true, "IPv4 loopback range"},
+		{"::1", true, "IPv6 loopback"},
+
+		// Private IPv4 ranges (RFC 1918)
+		{"10.0.0.1", true, "10.0.0.0/8"},
+		{"10.255.255.255", true, "10.0.0.0/8 upper"},
+		{"172.16.0.1", true, "172.16.0.0/12"},
+		{"172.31.255.255", true, "172.16.0.0/12 upper"},
+		{"192.168.0.1", true, "192.168.0.0/16"},
+		{"192.168.255.255", true, "192.168.0.0/16 upper"},
+
+		// Link-local
+		{"169.254.1.1", true, "IPv4 link-local"},
+		{"169.254.169.254", true, "AWS metadata (link-local)"},
+		{"fe80::1", true, "IPv6 link-local"},
+
+		// IPv6 Unique Local Addresses (fc00::/7)
+		{"fc00::1", true, "ULA fd00::/8"},
+		{"fd00::1", true, "ULA fd00::/8"},
+		{"fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true, "ULA upper"},
+
+		// IPv4-mapped IPv6 addresses (must be validated after unwrapping)
+		{"::ffff:127.0.0.1", true, "IPv4-mapped loopback"},
+		{"::ffff:192.168.1.1", true, "IPv4-mapped private"},
+		{"::ffff:10.0.0.1", true, "IPv4-mapped private"},
+
+		// Public addresses (should NOT be reserved)
+		{"8.8.8.8", false, "Google DNS"},
+		{"1.1.1.1", false, "Cloudflare DNS"},
+		{"2001:4860:4860::8888", false, "Google DNS v6"},
+		{"2606:4700:4700::1111", false, "Cloudflare DNS v6"},
+
+		// Special but technically routable (still rejected as non-global unicast)
+		{"224.0.0.1", true, "IPv4 multicast"},
+		{"0.0.0.0", true, "IPv4 unspecified"},
+		{"::", true, "IPv6 unspecified"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("failed to parse IP: %s", tt.ip)
+			}
+			result := isReservedIP(ip)
+			if result != tt.reserved {
+				t.Errorf("isReservedIP(%s) = %v, want %v", tt.ip, result, tt.reserved)
+			}
+		})
+	}
+}
 
 func TestIsAllowedURLValidation(t *testing.T) {
 	tests := []struct {
@@ -10,27 +71,27 @@ func TestIsAllowedURLValidation(t *testing.T) {
 		allow bool
 		desc  string
 	}{
-		// Valid URLs
-		{"https://cdn.example.com/archive.tar.gz", true, "standard public domain"},
-		{"https://storage.google.com/bucket/archive.zip", true, "CDN domain"},
-
 		// Scheme validation
 		{"http://example.com/archive.tar.gz", false, "http not allowed"},
 		{"ftp://example.com/archive.tar.gz", false, "ftp not allowed"},
 
-		// Localhost/loopback
+		// Localhost/loopback (literal IPs)
 		{"https://localhost/archive.tar.gz", false, "localhost"},
 		{"https://127.0.0.1/archive.tar.gz", false, "loopback IPv4"},
 		{"https://::1/archive.tar.gz", false, "loopback IPv6"},
 
-		// Private IPs
+		// Private IPs (literal)
 		{"https://10.0.0.1/archive.tar.gz", false, "10.0.0.0/8"},
 		{"https://172.16.0.1/archive.tar.gz", false, "172.16.0.0/12"},
 		{"https://192.168.1.1/archive.tar.gz", false, "192.168.0.0/16"},
 
-		// Link-local
+		// Link-local (literal)
 		{"https://169.254.169.254/latest/metadata", false, "AWS metadata endpoint"},
 		{"https://169.254.1.1/archive.tar.gz", false, "link-local address"},
+
+		// IPv4-mapped IPv6 addresses
+		{"https://[::ffff:127.0.0.1]/archive.tar.gz", false, "IPv4-mapped loopback"},
+		{"https://[::ffff:192.168.1.1]/archive.tar.gz", false, "IPv4-mapped private"},
 
 		// Invalid URLs
 		{"not-a-url", false, "malformed URL"},

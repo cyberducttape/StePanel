@@ -73,23 +73,9 @@ func isAllowedURL(urlStr string) bool {
 		return !isReservedIP(ip)
 	}
 
-	// For hostnames, resolve and validate all returned IPs
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		// If resolution fails, reject to be safe
-		return false
-	}
-	if len(ips) == 0 {
-		return false
-	}
-
-	// All resolved IPs must be public
-	for _, resolvedIP := range ips {
-		if isReservedIP(resolvedIP) {
-			return false
-		}
-	}
-
+	// For hostnames, we'll validate resolved IPs in the DialContext layer.
+	// This allows us to handle DNS failures gracefully and validates all
+	// addresses including those returned by redirects.
 	return true
 }
 
