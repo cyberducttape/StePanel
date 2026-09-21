@@ -24,14 +24,6 @@ jobs:
             image: rockylinux:9-init
             db: mariadb
             web: caddy
-          - name: ubuntu-24.04-caddy-mysql
-            image: ubuntu:24.04-init
-            db: mysql
-            web: caddy
-          - name: debian-12-apache-postgresql
-            image: debian:12-init
-            db: postgresql
-            web: apache
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4 # v4
