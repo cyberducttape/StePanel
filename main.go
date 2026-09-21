@@ -1373,7 +1373,9 @@ func AuditAs(path, actor, action, target, detail string) error {
 }
 
 func VerifyAuditLog(path string) error {
-	return audit.Verify(path)
+	// Create a temporary logger for the specific path to verify it
+	logger := audit.New(path)
+	return logger.Verify(path)
 }
 
 func AuditPersistenceError() error {
@@ -1381,9 +1383,28 @@ func AuditPersistenceError() error {
 }
 
 func MustAudit(w http.ResponseWriter, auditLog, actor, action, target, detail string) error {
-	return audit.MustLog(w, actor, action, target, detail)
+	// Sync root package's mocked auditKeyPath to audit package for tests
+	if auditKeyPath != "/etc/stepanel-audit.key" {
+		audit.TestSetKeyPath(auditKeyPath)
+	}
+	logger := audit.New(auditLog)
+	if err := logger.LogAs(context.Background(), actor, action, target, detail); err != nil {
+		log.Printf("[CRITICAL] audit persistence unavailable during %s for %s/%s: %v", action, actor, target, err)
+		http.Error(w, "audit system unavailable; the operation was applied but could not be recorded, contact an administrator", http.StatusServiceUnavailable)
+		return err
+	}
+	return nil
 }
 
 func ShouldAudit(auditLog, actor, action, target, detail string) error {
-	return audit.ShouldLog(actor, action, target, detail)
+	// Sync root package's mocked auditKeyPath to audit package for tests
+	if auditKeyPath != "/etc/stepanel-audit.key" {
+		audit.TestSetKeyPath(auditKeyPath)
+	}
+	logger := audit.New(auditLog)
+	if err := logger.LogAs(context.Background(), actor, action, target, detail); err != nil {
+		log.Printf("[ERROR] audit persistence failed during %s/%s: %v (operator should investigate)", action, target, err)
+		return err
+	}
+	return nil
 }
