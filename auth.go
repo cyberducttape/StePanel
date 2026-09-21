@@ -31,6 +31,7 @@ type Auth struct {
 	credentialHash                           string
 	Enabled, SecureCookies                   bool
 	TOTPEnabled                              bool
+	TrustProxy                               bool
 	totpSecret                               []byte
 	totpReplay                               *totpReplayState
 	loginLimiter                             *authpolicy.Limiter
@@ -39,6 +40,7 @@ type Auth struct {
 	Accounts                                 *AccountStore
 	apiTokens                                *apiTokenStore
 	apiTokenLimiter                          *apiTokenRateLimiter
+	legacyTokenDeprecation                   *authpolicy.LegacyTokenDeprecation
 }
 
 type sessionRegistry struct {
@@ -141,6 +143,26 @@ func (a *Auth) ConfigureTOTPReplayDB(db *sql.DB) error {
 	}
 	a.totpReplay.db = db
 	return nil
+}
+
+// ConfigureLegacyTokenDeprecation sets up the deprecation tracking for legacy unscoped tokens.
+// Must be called after control-plane database is available.
+func (a *Auth) ConfigureLegacyTokenDeprecation(db *sql.DB) error {
+	if db == nil {
+		return errors.New("legacy token deprecation database is nil")
+	}
+	ltd := authpolicy.NewLegacyTokenDeprecation(db)
+	if err := ltd.InitializeSchema(); err != nil {
+		return fmt.Errorf("initialize legacy token deprecation schema: %w", err)
+	}
+	a.legacyTokenDeprecation = ltd
+	return nil
+}
+
+// ClientIP returns the origin IP address for a request, trusting X-Forwarded-For
+// headers only when TrustProxy is true (set when STEPANEL_TLS_TERMINATED=1).
+func (a *Auth) ClientIP(r *http.Request) string {
+	return authpolicy.ClientIPWithTrustedProxy(r, a.TrustProxy)
 }
 
 func (s *sessionRegistry) add(id, username string, expiry int64) error {
