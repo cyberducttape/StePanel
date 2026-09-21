@@ -401,6 +401,45 @@ func safeTarExtractPath(webRoot, filename string) (string, error) {
 	return targetPath, nil
 }
 
+// validateConfigPath validates that a config path is safe (no traversal, not absolute, stays within webRoot)
+func validateConfigPath(webRoot, configPath string) error {
+	// Reject absolute paths
+	if filepath.IsAbs(configPath) {
+		return errors.New("config path cannot be absolute")
+	}
+
+	// Reject path traversal attempts
+	if strings.Contains(configPath, "..") {
+		return errors.New("config path contains .. traversal")
+	}
+
+	// Reject paths starting with /
+	if strings.HasPrefix(configPath, "/") {
+		return errors.New("config path cannot start with /")
+	}
+
+	// Clean and validate the path stays within webRoot
+	cleaned := filepath.Clean(configPath)
+	targetPath := filepath.Join(webRoot, cleaned)
+
+	realTarget, err := filepath.Abs(targetPath)
+	if err != nil {
+		return fmt.Errorf("cannot resolve config path: %w", err)
+	}
+
+	realRoot, err := filepath.Abs(webRoot)
+	if err != nil {
+		return fmt.Errorf("cannot resolve root: %w", err)
+	}
+
+	// Ensure the path stays within webRoot and resolve symlinks safely
+	if err := h.EnsureInside(realRoot, realTarget); err != nil {
+		return fmt.Errorf("config path escapes site root: %w", err)
+	}
+
+	return nil
+}
+
 // extractTarGz extracts a tar.gz archive with security checks
 func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress func(*ImportJob)) error {
 	gz, err := gzip.NewReader(reader)
@@ -476,6 +515,15 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 
 			if err != nil && err != io.EOF {
 				return fmt.Errorf("failed to write %s: %w", header.Name, err)
+			}
+
+			// Restore file permissions from archive
+			// Preserve executable bits but mask out dangerous bits (setuid/setgid/sticky)
+			archiveMode := os.FileMode(header.Mode)
+			safeMode := 0644 | (archiveMode & 0111) // Preserve executable bits, allow read for others
+			if err := os.Chmod(targetPath, os.FileMode(safeMode)); err != nil {
+				// Log but don't fail on permission restore
+				job.Message = fmt.Sprintf("Warning: could not restore permissions for %s", header.Name)
 			}
 
 			job.FilesExtracted++
@@ -568,6 +616,15 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 				return fmt.Errorf("failed to write %s: %w", file.Name, err)
 			}
 
+			// Restore file permissions from zip entry
+			// Preserve executable bits but mask out dangerous bits
+			archiveMode := file.FileInfo().Mode()
+			safeMode := 0644 | (archiveMode & 0111) // Preserve executable bits
+			if err := os.Chmod(targetPath, safeMode); err != nil {
+				// Log but don't fail on permission restore
+				job.Message = fmt.Sprintf("Warning: could not restore permissions for %s", file.Name)
+			}
+
 			job.FilesExtracted++
 			job.BytesExtracted += copied
 			job.CurrentFile = file.Name
@@ -652,18 +709,26 @@ func (e *Executor) extractDatabaseInfo(configFile string) (dbName, dbUser string
 
 // updateConfiguration updates config files with correct credentials
 func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error {
+	// Validate config path is safe (no traversal, not absolute)
+	if err := validateConfigPath(job.WebRoot, configPath); err != nil {
+		return fmt.Errorf("invalid config path: %w", err)
+	}
+
 	configFile := filepath.Join(job.WebRoot, configPath)
+
+	// Verify the file exists and is a regular file (not symlink/directory/etc)
+	info, err := os.Stat(configFile)
+	if err != nil {
+		return fmt.Errorf("cannot access config file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("config path is not a regular file")
+	}
 
 	// Read the config file
 	data, err := os.ReadFile(configFile)
 	if err != nil {
 		return fmt.Errorf("cannot read config file: %w", err)
-	}
-
-	// Preserve original file permissions and ownership
-	info, err := os.Stat(configFile)
-	if err != nil {
-		return fmt.Errorf("cannot stat config file: %w", err)
 	}
 
 	content := string(data)
