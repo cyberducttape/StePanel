@@ -193,7 +193,7 @@ parse_config_file() {
         display_errors="$value"
         ;;
       error_reporting)
-        [[ $value =~ ^[A-Z0-9_~& |]{1,80}$ ]] || { echo "invalid error_reporting in $filepath: $value" >&2; return 1; }
+        [[ $value =~ ^[A-Z0-9_~\ \&\|]{1,80}$ ]] || { echo "invalid error_reporting in $filepath: $value" >&2; return 1; }
         error_reporting="$value"
         ;;
       php_max_children)
