@@ -396,6 +396,12 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	input.State = "pending"
 	input.LastError = ""
 	input.Deleted = false
+
+	// Apply defaults for fields the browser form may not send
+	if input.MaxConcurrentRuns == 0 {
+		input.MaxConcurrentRuns = 1  // Default: one concurrent run at a time
+	}
+
 	input.Command, input.OnCalendar = strings.TrimSpace(input.Command), strings.TrimSpace(input.OnCalendar)
 	input.NotifyEmail = strings.TrimSpace(input.NotifyEmail)
 	if !validTaskRuntime(input.Runtime) || input.Command == "" || len(input.Command) > 1024 || strings.ContainsAny(input.Command, "\x00\r\n") || input.OnCalendar == "" || len(input.OnCalendar) > 128 || strings.ContainsAny(input.OnCalendar, "\x00\r\n") || input.TimeoutSec < 1 || input.TimeoutSec > 86400 {
@@ -452,7 +458,9 @@ func (a *App) applyTask(ctx context.Context, task ScheduledTask) error {
 	if task.Deleted {
 		return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "task-delete", task.Site, task.Name)
 	}
-	encodedCommand := base64.RawStdEncoding.EncodeToString([]byte(task.Command))
+	// Use standard Base64 with padding for cross-platform compatibility
+	// RawStdEncoding (without padding) fails on GNU base64 -d for commands needing padding
+	encodedCommand := base64.StdEncoding.EncodeToString([]byte(task.Command))
 	// Keep task limits aligned with the site's desired resource profile. The
 	// helper retains a conservative fallback for sites that have no profile.
 	args := []string{"task-apply", task.Site, task.Name, task.Runtime, task.OnCalendar, stringBool(task.Enabled), itoa(task.TimeoutSec), encodedCommand}

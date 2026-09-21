@@ -254,7 +254,8 @@ EOF
   task-apply)
     (( $# == 8 || $# == 11 )) || { echo 'usage: stepanel-appctl task-apply SITE NAME RUNTIME ON_CALENDAR ENABLED TIMEOUT COMMAND_B64 [CPU_PERCENT MEMORY_MB TASKS_MAX]' >&2; exit 64; }
     name=$3; runtime=$4; on_calendar=$5; enabled=$6; timeout=$7; command_b64=$8
-    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $runtime =~ ^(php|node|python|shell)$ && $enabled =~ ^[01]$ && $timeout =~ ^[0-9]+$ && $command_b64 =~ ^[A-Za-z0-9+/]+$ ]] || { echo 'invalid scheduled task parameters' >&2; exit 1; }
+    # Accept standard Base64 with optional padding (=) for cross-platform compatibility
+    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $runtime =~ ^(php|node|python|shell)$ && $enabled =~ ^[01]$ && $timeout =~ ^[0-9]+$ && $command_b64 =~ ^[A-Za-z0-9+/]+=*$ ]] || { echo 'invalid scheduled task parameters' >&2; exit 1; }
     (( timeout >= 1 && timeout <= 86400 )) || { echo 'invalid scheduled task timeout' >&2; exit 1; }
     task_cpu=100; task_memory=1024; task_tasks=256
     if (( $# == 11 )); then
@@ -265,6 +266,7 @@ EOF
     systemd-analyze calendar "$on_calendar" >/dev/null || { echo 'invalid systemd calendar expression' >&2; exit 1; }
     root="/var/www/sites/$site/public"; task_root="/var/lib/stepanel/tasks/$site"; install -d -m 0755 -o root -g root /var/lib/stepanel/tasks "$task_root"
     script="$task_root/$name.sh"; staged=$(mktemp "$task_root/.stepanel-task.XXXXXX")
+    # Decode base64 command (supports both padded and unpadded variants)
     decoded_command=$(printf '%s' "$command_b64" | base64 -d)
     # %q quotes the whole decoded command as a single shell word, so
     # `bash -lc` receives it as ONE argument (its command string) rather than
