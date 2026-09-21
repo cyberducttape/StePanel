@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 
 	"github.com/itchyitchy123/StePanel/internal/importer"
@@ -146,6 +147,13 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 
 	if req.URL == "" || req.ConfigPath == "" {
 		http.Error(w, "url and config_path are required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate archive URL is HTTPS (prevents SSRF to unencrypted/local services)
+	u, err := url.Parse(req.URL)
+	if err != nil || u.Scheme != "https" {
+		http.Error(w, "archive URL must be a valid HTTPS URL", http.StatusBadRequest)
 		return
 	}
 
