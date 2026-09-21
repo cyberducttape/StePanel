@@ -15,7 +15,9 @@ import (
 	"time"
 )
 
-var auditMu sync.Mutex
+var auditMu sync.Mutex  // Process-local mutex for goroutine safety
+var auditDistMu map[string]string = make(map[string]string)  // Track distributed lock files
+var auditDistMuLock sync.Mutex  // Protect auditDistMu map
 var auditPersistenceErr error
 var auditKeyPath = "/etc/stepanel-audit.key"
 
@@ -67,10 +69,41 @@ func AuditPersistenceError() error {
 	return auditPersistenceErr
 }
 
+// acquireAuditLock creates a distributed lock for the audit file.
+// This ensures that the read-reconcile-append-state transaction is atomic
+// even across multiple processes (panel and worker).
+func acquireAuditLock(path string) (lockFile string, unlock func() error, err error) {
+	lockFile = path + ".lock"
+
+	// Try to create lock file exclusively (atomic across processes)
+	for attempts := 0; attempts < 300; attempts++ {  // 30 second timeout
+		file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err == nil {
+			fmt.Fprintf(file, "%d", os.Getpid())
+			file.Close()
+			return lockFile, func() error { return os.Remove(lockFile) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", nil, fmt.Errorf("acquire audit lock: %w", err)
+		}
+		// Lock exists, wait and retry
+		time.Sleep(100 * time.Millisecond)
+	}
+	return "", nil, errors.New("timeout acquiring audit lock")
+}
+
 func appendAuditEvent(path, actor, action, target, detail string) error {
 	if actor == "" || action == "" {
 		return errors.New("audit actor and action are required")
 	}
+
+	// Acquire distributed lock to serialize audit across processes
+	_, unlock, err := acquireAuditLock(path)
+	if err != nil {
+		return fmt.Errorf("audit lock: %w", err)
+	}
+	defer unlock()
+
 	actor = truncateAuditValue(actor, 128)
 	action = truncateAuditValue(action, 128)
 	target = truncateAuditValue(target, 512)

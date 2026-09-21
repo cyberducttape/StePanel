@@ -46,6 +46,7 @@ type verificationCacheEntry struct {
 
 var (
 	backupVerificationCache = make(map[string]verificationCacheEntry)
+	backupCacheMu           sync.Mutex  // Protects concurrent access to cache
 	verificationCacheTTL    = 5 * time.Minute
 	maxCacheEntries         = 1000
 )
@@ -434,6 +435,9 @@ func fileSHA256(path string) (string, error) {
 
 // getBackupVerificationFromCache returns cached verification result if valid
 func getBackupVerificationFromCache(path string) (verificationCacheEntry, bool) {
+	backupCacheMu.Lock()
+	defer backupCacheMu.Unlock()
+
 	entry, ok := backupVerificationCache[path]
 	if !ok {
 		return entry, false
@@ -448,6 +452,9 @@ func getBackupVerificationFromCache(path string) (verificationCacheEntry, bool) 
 
 // setBackupVerificationCache stores verification result in cache
 func setBackupVerificationCache(path, consistency, checksum string) {
+	backupCacheMu.Lock()
+	defer backupCacheMu.Unlock()
+
 	// Simple LRU-ish eviction: delete oldest if cache is full
 	if len(backupVerificationCache) >= maxCacheEntries {
 		var oldest string
