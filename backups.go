@@ -288,7 +288,7 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 		_ = os.Rename(finalPath, tempDir)
 		return result, err
 	}
-	result = BackupResult{Site: siteName, Path: finalPath, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: cfg.BackupSigningKey != ""}
+	result = BackupResult{Site: siteName, Path: finalPath, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: cfg.BackupSigningKey != ""}
 	return result, nil
 }
 
@@ -718,11 +718,13 @@ func VerifySiteBackup(root string, signingKey ...string) (BackupManifest, error)
 	// PERFORMANCE: Check cache before doing expensive archive verification.
 	// This prevents re-hashing multi-GB archives on every backup list operation.
 	// Cache is valid for 5 minutes; always verify before destructive operations (restore).
+	// CRITICAL: Cache is ONLY for Consistency and Checksum. NEVER use cached timestamps
+	// for VerifiedAt or CreatedAt - these come from the manifest and are immutable.
 	if cached, ok := getBackupVerificationFromCache(archivePath); ok {
 		// Use cached verification result instead of re-verifying the archive
-		manifest.VerifiedAt = cached.VerifiedAt
 		manifest.Consistency = cached.Consistency
 		manifest.ArchiveSHA256 = cached.Checksum
+		// DO NOT update VerifiedAt or CreatedAt from cache - they come from manifest file
 	} else {
 		// No cache hit, perform full archive verification
 		if err := VerifyBackupArchive(archivePath, manifest); err != nil {
@@ -785,9 +787,9 @@ func listBackupsPageUnscoped(root, site string, limit int, signingKey ...string)
 		if site != "" && manifest.Site != site {
 			continue
 		}
-		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != ""})
+		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != ""})
 	}
-	sort.Slice(backups, func(i, j int) bool { return backups[i].VerifiedAt.After(backups[j].VerifiedAt) })
+	sort.Slice(backups, func(i, j int) bool { return backups[i].CreatedAt.After(backups[j].CreatedAt) })
 	if limit > 0 && len(backups) > limit {
 		backups = backups[:limit]
 	}
@@ -824,9 +826,9 @@ func listBackupsPage(root string, site SiteCapability, limit int, signingKey ...
 		if manifest.Site != siteName {
 			continue
 		}
-		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != ""})
+		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != ""})
 	}
-	sort.Slice(backups, func(i, j int) bool { return backups[i].VerifiedAt.After(backups[j].VerifiedAt) })
+	sort.Slice(backups, func(i, j int) bool { return backups[i].CreatedAt.After(backups[j].CreatedAt) })
 	if limit > 0 && len(backups) > limit {
 		backups = backups[:limit]
 	}
