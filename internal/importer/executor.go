@@ -304,7 +304,7 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 
 	// Build next steps based on what was accomplished
 	nextSteps := []string{
-		"Verify site loads at https://panel.example.com/site/" + req.SiteName,
+		"View the imported site in the StePanel site overview at /sites",
 	}
 	if hasCriticalIssues {
 		nextSteps = append(nextSteps, "REQUIRED: Restore database manually using the SQL dump from the archive")
@@ -485,22 +485,24 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 			continue
 		}
 
-		// Reject symlinks to prevent escape
-		if header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeLink {
-			job.Message = fmt.Sprintf("Rejected symlink/hardlink: %s", header.Name)
-			continue
-		}
-
-		if header.Typeflag == tar.TypeDir {
+		// Explicitly handle only supported tar entry types
+		switch header.Typeflag {
+		case tar.TypeDir:
 			// Directory bomb protection: limit directory count
 			job.DirectoriesCreated++
 			if job.DirectoriesCreated > maxDirectoriesInArchive {
 				return fmt.Errorf("archive exceeds directory limit (%d dirs)", maxDirectoriesInArchive)
 			}
-			os.MkdirAll(targetPath, os.FileMode(header.Mode&0755))
-		} else {
+			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode&0755)); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", header.Name, err)
+			}
+
+		case tar.TypeReg, tar.TypeRegA:
+			// Regular file extraction
 			// Create parent directory
-			os.MkdirAll(filepath.Dir(targetPath), 0755)
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory for %s: %w", header.Name, err)
+			}
 
 			// Extract file with limited size
 			file, err := os.Create(targetPath)
@@ -529,13 +531,28 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 			job.FilesExtracted++
 			job.BytesExtracted += copied
 			job.CurrentFile = header.Name
-			job.Progress = 20 + int(job.FilesExtracted%40) // Show progress 20-60%
+			// Progress from 20-60% for extraction phase (linear with logarithmic cap)
+			// Avoids going backwards and caps at 60% until completion
+			fileProgress := job.FilesExtracted
+			if fileProgress > 1000 {
+				fileProgress = 1000 // Cap denominator to avoid slow growth at high file counts
+			}
+			job.Progress = 20 + int(40*fileProgress/1000)
 			job.UpdatedAt = time.Now()
 
 			// Report progress periodically
 			if job.FilesExtracted%100 == 0 {
 				onProgress(job)
 			}
+
+		case tar.TypeSymlink, tar.TypeLink:
+			// Reject symlinks and hardlinks to prevent escape
+			job.Message = fmt.Sprintf("Rejected symlink/hardlink: %s", header.Name)
+			continue
+
+		default:
+			// Reject all other entry types (devices, FIFOs, sockets, sparse, etc.)
+			return fmt.Errorf("unsupported tar entry type %v for %s", header.Typeflag, header.Name)
 		}
 	}
 
@@ -591,9 +608,13 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 		}
 
 		if file.FileInfo().IsDir() {
-			os.MkdirAll(targetPath, 0755)
+			if err := os.MkdirAll(targetPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", file.Name, err)
+			}
 		} else {
-			os.MkdirAll(filepath.Dir(targetPath), 0755)
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory for %s: %w", file.Name, err)
+			}
 
 			srcFile, err := file.Open()
 			if err != nil {
@@ -628,7 +649,13 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 			job.FilesExtracted++
 			job.BytesExtracted += copied
 			job.CurrentFile = file.Name
-			job.Progress = 20 + int(job.FilesExtracted%40)
+			// Progress from 20-60% for extraction phase (linear with logarithmic cap)
+			// Avoids going backwards and caps at 60% until completion
+			fileProgress := job.FilesExtracted
+			if fileProgress > 1000 {
+				fileProgress = 1000 // Cap denominator to avoid slow growth at high file counts
+			}
+			job.Progress = 20 + int(40*fileProgress/1000)
 			job.UpdatedAt = time.Now()
 
 			if job.FilesExtracted%100 == 0 {
