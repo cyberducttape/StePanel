@@ -31,21 +31,17 @@ class DashboardUpdater {
       return '—';
     });
 
-    // Update domain count
-    this.updateMetric('domainCount', '/api/domains', data => {
-      if (data.domains) {
-        return data.domains.filter(d => d.managed).length;
-      }
-      return '—';
-    });
+    // Domain count will be computed from site overview data
+    // (No separate /api/domains endpoint; domains are managed per-site)
 
     // Update backup freshness
     this.updateMetric('backupFreshness', '/api/backups?limit=1', data => {
       if (data.backups && data.backups.length > 0) {
         const backup = data.backups[0];
-        return this.formatTimeAgo(new Date(backup.verified_at));
+        // Use created_at (immutable) for freshness, not verified_at (cache-dependent)
+        return this.formatTimeAgo(new Date(backup.created_at));
       }
-      return 'No backups yet';
+      return 'No backups created yet';
     });
 
     // Set up periodic refresh
@@ -75,6 +71,7 @@ class DashboardUpdater {
       // Update with animation
       element.textContent = value;
       element.classList.remove('loading');
+      element.classList.remove('unavailable');
 
       // Flash animation on change
       element.style.animation = 'bounce-in 0.3s ease';
@@ -83,7 +80,9 @@ class DashboardUpdater {
       }, 300);
     } catch (error) {
       console.error(`Failed to update ${elementId}:`, error);
+      element.textContent = `Unavailable (${error.message})`;
       element.classList.remove('loading');
+      element.classList.add('unavailable');
     }
   }
 
@@ -98,9 +97,10 @@ class DashboardUpdater {
     this.updateMetric('backupFreshness', '/api/backups?limit=1', data => {
       if (data.backups && data.backups.length > 0) {
         const backup = data.backups[0];
-        return this.formatTimeAgo(new Date(backup.verified_at));
+        // Use created_at (immutable) for freshness, not verified_at (cache-dependent)
+        return this.formatTimeAgo(new Date(backup.created_at));
       }
-      return 'No backups yet';
+      return 'No backups created yet';
     });
   }
 
