@@ -6,10 +6,8 @@ action=${1:-}; site=${2:-}
 command -v flock >/dev/null 2>&1 || { echo 'flock is required for application lifecycle locking' >&2; exit 1; }
 exec 9>/run/lock/stepanel-app.lock
 flock -x 9
-unit="stepanel-app-${site}.service"
-hash=$(printf '%s' "$site" | sha256sum); hash=${hash%% *}
-prefix=${site:0:18}; prefix=${prefix//_/-}
-site_user="sp-${prefix}-${hash:0:8}"
+
+# Dispatch actions that don't require site-user validation first
 if [[ $action == delete ]]; then
   (( $# == 2 )) || { echo 'usage: stepanel-appctl delete SITE' >&2; exit 64; }
   systemctl disable --now "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
@@ -20,6 +18,34 @@ if [[ $action == delete ]]; then
   systemctl daemon-reload
   exit 0
 fi
+
+# Account operations use second parameter as account name, not site name
+if [[ $action == account-resource-apply ]]; then
+  (( $# == 8 )) || { echo 'usage: stepanel-appctl account-resource-apply ACCOUNT CPU_PERCENT CPU_WEIGHT MEMORY_HIGH_MB MEMORY_MAX_MB IO_WEIGHT TASKS_MAX' >&2; exit 64; }
+  account=$2; cpu=$3; cpu_weight=$4; memory_high=$5; memory=$6; io_weight=$7; tasks=$8
+  [[ $account =~ ^[a-z0-9_-]{1,32}$ && $cpu =~ ^[0-9]+$ && $cpu_weight =~ ^[0-9]+$ && $memory_high =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ && $io_weight =~ ^[0-9]+$ && $tasks =~ ^[0-9]+$ ]] || { echo 'invalid account resource limits' >&2; exit 1; }
+  (( cpu >= 25 && cpu <= 6400 && cpu_weight >= 1 && cpu_weight <= 10000 && memory_high >= 64 && memory_high <= memory && memory <= 1048576 && io_weight >= 1 && io_weight <= 10000 && tasks >= 16 && tasks <= 100000 )) || { echo 'account resource limits out of range' >&2; exit 1; }
+  slice="/etc/systemd/system/stepanel-account-$account.slice"
+  cat > "$slice" <<EOF
+[Unit]
+Description=StePanel aggregate resource boundary for $account
+[Slice]
+CPUQuota=${cpu}%
+CPUWeight=$cpu_weight
+MemoryHigh=${memory_high}M
+MemoryMax=${memory}M
+IOWeight=$io_weight
+TasksMax=$tasks
+EOF
+  chmod 0644 "$slice"; chown root:root "$slice"; systemctl daemon-reload; systemctl start "stepanel-account-$account.slice"
+  exit 0
+fi
+
+# All other actions require a valid site user
+unit="stepanel-app-${site}.service"
+hash=$(printf '%s' "$site" | sha256sum); hash=${hash%% *}
+prefix=${site:0:18}; prefix=${prefix//_/-}
+site_user="sp-${prefix}-${hash:0:8}"
 id "$site_user" >/dev/null 2>&1 || { echo 'isolated site user does not exist' >&2; exit 1; }
 case "$action" in
   apply)
@@ -86,7 +112,26 @@ EOF
     chmod 0644 "$staged"
     chown root:root "$staged"
     mv -f "$staged" "$path"
-    if ! systemctl daemon-reload || ! systemctl enable --now "$unit"; then
+    if ! systemctl daemon-reload; then
+      rollback
+      exit 1
+    fi
+    # Distinguish first activation from configuration update
+    if (( was_active )); then
+      # Service was running: restart to apply new configuration
+      if ! systemctl restart "$unit"; then
+        rollback
+        exit 1
+      fi
+    else
+      # Service was not running: enable and start for the first time
+      if ! systemctl enable --now "$unit"; then
+        rollback
+        exit 1
+      fi
+    fi
+    # Verify the service is active
+    if ! systemctl is-active --quiet "$unit"; then
       rollback
       exit 1
     fi
@@ -107,6 +152,9 @@ EOF
       celery) exec_start="/usr/bin/celery -A app worker --loglevel=INFO";;
       rq) exec_start="/usr/bin/rq worker";;
     esac
+    # Track whether service was active before update
+    was_active=0
+    if systemctl is-active --quiet "$unit"; then was_active=1; fi
     cat > "$path" <<EOF
 [Unit]
 Description=StePanel worker $site/$name
@@ -131,7 +179,16 @@ UMask=0027
 [Install]
 WantedBy=multi-user.target
 EOF
-    chmod 0644 "$path"; chown root:root "$path"; systemctl daemon-reload; systemctl enable --now "$unit" ;;
+    chmod 0644 "$path"; chown root:root "$path"; systemctl daemon-reload
+    # Distinguish first creation from configuration update
+    if (( was_active )); then
+      systemctl restart "$unit" || exit 1
+    else
+      systemctl enable --now "$unit" || exit 1
+    fi
+    # Verify the service is active
+    systemctl is-active --quiet "$unit" || exit 1
+    ;;
   worker-delete)
     (( $# == 3 )) || { echo 'usage: stepanel-appctl worker-delete SITE NAME' >&2; exit 64; }
     name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid worker name' >&2; exit 1; }
@@ -143,12 +200,27 @@ EOF
     (( port >= 1024 && port <= 65535 && workers >= 1 && workers <= 64 )) || { echo 'invalid Python limits' >&2; exit 1; }
     unit="stepanel-app-${site}-python.service"; venv="$root/.venv"; command -v "python$version" >/dev/null || { echo "python$version is not installed" >&2; exit 1; }
     "python$version" -m venv "$venv"
-    # A freshly created venv has no Gunicorn. Bootstrap it automatically so a
-    # first deployment does not require an operator to have pre-populated the
-    # virtualenv out of band; this stays well inside the helper's timeout
-    # budget because it installs one small, pre-built package.
-    [[ -x "$venv/bin/gunicorn" ]] || "$venv/bin/pip" install --quiet gunicorn
+    # Transfer venv ownership to $site_user immediately (before any package operations)
+    chown -R "$site_user:$site_user" "$venv"
+    # Install Gunicorn as $site_user with pinned version and hash verification
+    if [[ ! -x "$venv/bin/gunicorn" ]]; then
+        # Create requirements file with hash for secure installation
+        tmp_req=$(mktemp "$venv/.requirements.XXXXXX")
+        cat > "$tmp_req" <<'REQS'
+gunicorn==23.0.0 --hash=sha256:73909ceba925b5c0f634a5b224ff0a3e42d143f0c8b5ef12f2e548dbe9213395
+REQS
+        # Install with hash verification enabled
+        runuser -u "$site_user" -- "$venv/bin/pip" install --quiet --require-hashes -r "$tmp_req" || {
+            echo 'gunicorn could not be installed in the site virtualenv' >&2
+            rm -f "$tmp_req"
+            exit 1
+        }
+        rm -f "$tmp_req"
+    fi
     [[ -x "$venv/bin/gunicorn" ]] || { echo 'gunicorn could not be installed in the site virtualenv' >&2; exit 1; }
+    # Track whether service was active before update
+    was_active=0
+    if systemctl is-active --quiet "$unit"; then was_active=1; fi
     cat > "/etc/systemd/system/$unit" <<EOF
 [Unit]
 Description=StePanel Python app $site
@@ -173,7 +245,16 @@ UMask=0027
 [Install]
 WantedBy=multi-user.target
 EOF
-    chown -R "$site_user:$site_user" "$venv"; chmod 0644 "/etc/systemd/system/$unit"; systemctl daemon-reload; systemctl enable --now "$unit" ;;
+    chmod 0644 "/etc/systemd/system/$unit"; systemctl daemon-reload
+    # Distinguish first creation from configuration update
+    if (( was_active )); then
+      systemctl restart "$unit" || exit 1
+    else
+      systemctl enable --now "$unit" || exit 1
+    fi
+    # Verify the service is active
+    systemctl is-active --quiet "$unit" || exit 1
+    ;;
   node-tool)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl node-tool SITE ACTION PACKAGE_MANAGER ROOT' >&2; exit 64; }
     action=$3; package_manager=$4; root=$5
@@ -186,7 +267,7 @@ EOF
       build:yarn) command=(yarn run build --if-present);;
       build:pnpm) command=(pnpm run build --if-present);;
     esac
-    runuser -u "$site_user" -- env HOME="$root" NODE_ENV=production PATH="/usr/local/bin:/usr/bin:/bin" "${command[@]}" ;;
+    runuser -u "$site_user" -- sh -c 'cd "$1" && shift && exec env HOME="$1" NODE_ENV=production PATH="/usr/local/bin:/usr/bin:/bin" "$@"' sh "$root" "$root" "${command[@]}" ;;
   composer-install)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl composer-install SITE ROOT DEVELOPMENT OPTIMIZE' >&2; exit 64; }
     root=$3; development=$4; optimize=$5
@@ -195,25 +276,7 @@ EOF
     args=(install --no-interaction --no-progress --no-scripts --no-plugins)
     [[ $development == 1 ]] || args+=(--no-dev)
     [[ $optimize == 1 ]] && args+=(--optimize-autoloader)
-    runuser -u "$site_user" -- env HOME="$root" COMPOSER_HOME="$root/.composer" PATH="/usr/local/bin:/usr/bin:/bin" composer "${args[@]}" ;;
-  account-resource-apply)
-    (( $# == 8 )) || { echo 'usage: stepanel-appctl account-resource-apply ACCOUNT CPU_PERCENT CPU_WEIGHT MEMORY_HIGH_MB MEMORY_MAX_MB IO_WEIGHT TASKS_MAX' >&2; exit 64; }
-    account=$2; cpu=$3; cpu_weight=$4; memory_high=$5; memory=$6; io_weight=$7; tasks=$8
-    [[ $account =~ ^[a-z0-9_-]{1,32}$ && $cpu =~ ^[0-9]+$ && $cpu_weight =~ ^[0-9]+$ && $memory_high =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ && $io_weight =~ ^[0-9]+$ && $tasks =~ ^[0-9]+$ ]] || { echo 'invalid account resource limits' >&2; exit 1; }
-    (( cpu >= 25 && cpu <= 6400 && cpu_weight >= 1 && cpu_weight <= 10000 && memory_high >= 64 && memory_high <= memory && memory <= 1048576 && io_weight >= 1 && io_weight <= 10000 && tasks >= 16 && tasks <= 100000 )) || { echo 'account resource limits out of range' >&2; exit 1; }
-    slice="/etc/systemd/system/stepanel-account-$account.slice"
-    cat > "$slice" <<EOF
-[Unit]
-Description=StePanel aggregate resource boundary for $account
-[Slice]
-CPUQuota=${cpu}%
-CPUWeight=$cpu_weight
-MemoryHigh=${memory_high}M
-MemoryMax=${memory}M
-IOWeight=$io_weight
-TasksMax=$tasks
-EOF
-    chmod 0644 "$slice"; chown root:root "$slice"; systemctl daemon-reload; systemctl start "stepanel-account-$account.slice" ;;
+    runuser -u "$site_user" -- sh -c 'cd "$1" && shift && exec env HOME="$1" COMPOSER_HOME="$1/.composer" PATH="/usr/local/bin:/usr/bin:/bin" composer "$@"' sh "$root" "$root" "${args[@]}" ;;
   resource-apply)
     (( $# == 8 || $# == 9 )) || { echo 'usage: stepanel-appctl resource-apply SITE CPU_PERCENT CPU_WEIGHT MEMORY_HIGH_MB MEMORY_MAX_MB IO_WEIGHT TASKS_MAX [ACCOUNT]' >&2; exit 64; }
     cpu=$3; cpu_weight=$4; memory_high=$5; memory=$6; io_weight=$7; tasks=$8; account=${9:-}
@@ -242,7 +305,8 @@ EOF
   task-apply)
     (( $# == 8 || $# == 11 )) || { echo 'usage: stepanel-appctl task-apply SITE NAME RUNTIME ON_CALENDAR ENABLED TIMEOUT COMMAND_B64 [CPU_PERCENT MEMORY_MB TASKS_MAX]' >&2; exit 64; }
     name=$3; runtime=$4; on_calendar=$5; enabled=$6; timeout=$7; command_b64=$8
-    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $runtime =~ ^(php|node|python|shell)$ && $enabled =~ ^[01]$ && $timeout =~ ^[0-9]+$ && $command_b64 =~ ^[A-Za-z0-9+/]+$ ]] || { echo 'invalid scheduled task parameters' >&2; exit 1; }
+    # Accept standard Base64 with optional padding (=) for cross-platform compatibility
+    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $runtime =~ ^(php|node|python|shell)$ && $enabled =~ ^[01]$ && $timeout =~ ^[0-9]+$ && $command_b64 =~ ^[A-Za-z0-9+/]+=*$ ]] || { echo 'invalid scheduled task parameters' >&2; exit 1; }
     (( timeout >= 1 && timeout <= 86400 )) || { echo 'invalid scheduled task timeout' >&2; exit 1; }
     task_cpu=100; task_memory=1024; task_tasks=256
     if (( $# == 11 )); then
@@ -253,6 +317,7 @@ EOF
     systemd-analyze calendar "$on_calendar" >/dev/null || { echo 'invalid systemd calendar expression' >&2; exit 1; }
     root="/var/www/sites/$site/public"; task_root="/var/lib/stepanel/tasks/$site"; install -d -m 0755 -o root -g root /var/lib/stepanel/tasks "$task_root"
     script="$task_root/$name.sh"; staged=$(mktemp "$task_root/.stepanel-task.XXXXXX")
+    # Decode base64 command (supports both padded and unpadded variants)
     decoded_command=$(printf '%s' "$command_b64" | base64 -d)
     # %q quotes the whole decoded command as a single shell word, so
     # `bash -lc` receives it as ONE argument (its command string) rather than

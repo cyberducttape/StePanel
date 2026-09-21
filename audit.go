@@ -15,7 +15,9 @@ import (
 	"time"
 )
 
-var auditMu sync.Mutex
+var auditMu sync.Mutex  // Process-local mutex for goroutine safety
+var auditDistMu map[string]string = make(map[string]string)  // Track distributed lock files
+var auditDistMuLock sync.Mutex  // Protect auditDistMu map
 var auditPersistenceErr error
 var auditKeyPath = "/etc/stepanel-audit.key"
 
@@ -40,6 +42,7 @@ type auditState struct {
 	FirstPreviousHash string `json:"first_previous_hash"`
 	KeyCheck          string `json:"key_check"`
 	Signature         string `json:"signature"`
+	LastValidatedSize int64  `json:"last_validated_size,omitempty"` // Cache: file size when last fully validated
 }
 
 func Audit(path, action, target, detail string) error {
@@ -67,10 +70,41 @@ func AuditPersistenceError() error {
 	return auditPersistenceErr
 }
 
+// acquireAuditLock creates a distributed lock for the audit file.
+// This ensures that the read-reconcile-append-state transaction is atomic
+// even across multiple processes (panel and worker).
+func acquireAuditLock(path string) (lockFile string, unlock func() error, err error) {
+	lockFile = path + ".lock"
+
+	// Try to create lock file exclusively (atomic across processes)
+	for attempts := 0; attempts < 300; attempts++ {  // 30 second timeout
+		file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err == nil {
+			fmt.Fprintf(file, "%d", os.Getpid())
+			file.Close()
+			return lockFile, func() error { return os.Remove(lockFile) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", nil, fmt.Errorf("acquire audit lock: %w", err)
+		}
+		// Lock exists, wait and retry
+		time.Sleep(100 * time.Millisecond)
+	}
+	return "", nil, errors.New("timeout acquiring audit lock")
+}
+
 func appendAuditEvent(path, actor, action, target, detail string) error {
 	if actor == "" || action == "" {
 		return errors.New("audit actor and action are required")
 	}
+
+	// Acquire distributed lock to serialize audit across processes
+	_, unlock, err := acquireAuditLock(path)
+	if err != nil {
+		return fmt.Errorf("audit lock: %w", err)
+	}
+	defer unlock()
+
 	actor = truncateAuditValue(actor, 128)
 	action = truncateAuditValue(action, 128)
 	target = truncateAuditValue(target, 512)
@@ -104,9 +138,22 @@ func appendAuditEvent(path, actor, action, target, detail string) error {
 		}
 		state = auditState{Version: 1, KeyCheck: keyCheck}
 	}
-	state, err = reconcileAuditTail(path, state)
-	if err != nil {
-		return err
+	// Optimization: skip full reconciliation if file size hasn't changed since last validation
+	// This avoids quadratic work during normal append operations
+	info, statErr := os.Stat(path)
+	if statErr == nil && state.LastValidatedSize == info.Size() && state.LastValidatedSize > 0 {
+		// File size unchanged, trust cached state and skip expensive full scan
+		// Only do full reconciliation at startup, rotation, or corruption detection
+	} else {
+		// File size changed or not yet validated: do full reconciliation
+		state, err = reconcileAuditTail(path, state)
+		if err != nil {
+			return err
+		}
+		// Update cached file size after successful reconciliation
+		if info, statErr := os.Stat(path); statErr == nil {
+			state.LastValidatedSize = info.Size()
+		}
 	}
 	event := AuditEvent{Time: time.Now().UTC().Format(time.RFC3339Nano), Sequence: state.Sequence + 1, Actor: actor, Action: action, Target: target, Detail: detail, PreviousHash: state.Hash}
 	event.Hash, err = hashAuditEvent(event)
@@ -130,7 +177,12 @@ func appendAuditEvent(path, actor, action, target, detail string) error {
 	if err != nil {
 		return err
 	}
-	return writeAuditState(statePath, auditState{Version: 1, Sequence: event.Sequence, Hash: event.Hash, FirstSequence: state.FirstSequence, FirstPreviousHash: state.FirstPreviousHash, KeyCheck: state.KeyCheck})
+	// Cache file size to optimize future appends (avoid quadratic rescanning)
+	finalSize := int64(0)
+	if info, statErr := os.Stat(path); statErr == nil {
+		finalSize = info.Size()
+	}
+	return writeAuditState(statePath, auditState{Version: 1, Sequence: event.Sequence, Hash: event.Hash, FirstSequence: state.FirstSequence, FirstPreviousHash: state.FirstPreviousHash, KeyCheck: state.KeyCheck, LastValidatedSize: finalSize})
 }
 
 func truncateAuditValue(value string, limit int) string {

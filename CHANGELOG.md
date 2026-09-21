@@ -6,7 +6,173 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security Fixes (CRITICAL - Archive Import Hardening)
+
+- **SSRF protection with DNS resolution (CRITICAL)**: Fixed incomplete SSRF validation
+  that only rejected literal private IPs in URLs but allowed hostnames resolving to
+  private/reserved addresses. Now validates all DNS-resolved IPs via custom DialContext,
+  preventing DNS rebinding attacks. Rejects private IP ranges (RFC 1918), loopback,
+  link-local, IPv4-mapped IPv6, and validates addresses after HTTP redirects.
+  Added comprehensive test coverage for all reserved ranges.
+
+- **Safe atomic config file updates (CRITICAL)**: Fixed two issues in archive import
+  configuration updates: (1) unconditional permission weakening (hardcoded 0644 replacing
+  0600/0640 on sensitive files), and (2) brittle text replacement breaking on valid
+  config formats. Now: preserves original file mode via atomic temp+rename, detects and
+  skips function-call values (getenv, env), handles whitespace variation, validates paths.
+  Prevents permission escalation and config corruption.
+
+- **Config path traversal validation (CRITICAL)**: Added explicit path validation to
+  config file selection, using same `EnsureInside()` pattern as archive extraction.
+  Rejects absolute paths, `..` sequences, paths escaping site root. Validates path
+  remains regular file (rejects symlinks/directories). Closes attack vector where
+  malformed config path could target files outside site root.
+
+- **Tar archive type validation (CRITICAL)**: Fixed overly broad tar extraction logic
+  that treated unrecognized entry types as normal files. Now explicitly handles only
+  tar.TypeReg, tar.TypeRegA, tar.TypeDir and rejects character devices, block devices,
+  FIFOs, sockets, sparse extensions, and unknown types. Prevents extraction of malicious
+  device nodes or pipe metadata.
+
+- **Node/Composer command execution (CRITICAL)**: Fixed shell array expansion vulnerability
+  in `deploy/integrations/stepanel-appctl` where Bash arrays wrapped in single quotes
+  within `sh -c` prevented proper argument passing. npm/yarn/pnpm/composer commands
+  received entire array as single quoted string, causing failures. Now uses
+  `sh -c 'cd "$1" && shift && exec "$@"'` pattern to properly pass array elements.
+
+### Security Fixes (HIGH - Archive Import)
+
+- **File permission preservation on extraction (HIGH)**: Restored file executable bits
+  during archive extraction (both tar and zip). Previously `os.Create()` applied umask,
+  losing executable bits on scripts/binaries/CGI programs. Now restores archive metadata:
+  tar header mode for .tar.gz, zip entry Mode for .zip. Masks to 0644|executable bits
+  (rejects setuid/setgid/sticky). Prevents application breakage post-migration.
+
+- **Filesystem mutation error checking (HIGH)**: Added error checking to all `os.MkdirAll()`
+  calls in archive extraction paths. Previously ignored directory creation failures,
+  leading to confusing secondary errors or partial extraction state. Now validates every
+  mkdir operation fails early with clear error messages.
+
+### Production Readiness Fixes
+
+- **Archive inspection made asynchronous (PHASE 2)**: Moved archive inspection from
+  synchronous HTTP request handling to durable job system. Inspection can now handle
+  gigabyte-scale archives without blocking requests. POST `/api/admin/archive/inspect`
+  returns immediately with job_id; GET `/api/admin/archive/inspect/status?job_id=...`
+  polls results. Completes half-finished Phase 2 transition already in codebase.
+
+- **Import result semantics (CORRECTNESS)**: Fixed major semantic issue where imports
+  reported `success: true` even when critical database restoration failed. Now:
+  `Success` flag reflects critical failures, status changes to `completed_with_errors`,
+  NextSteps clearly indicate manual restoration required. Database restoration failures
+  no longer hidden in Issues array.
+
+- **Progress calculation fixed (UX)**: Replaced misleading modulo-based progress
+  (20+files%40) that jumped backwards every 40 files with monotonic calculation
+  (20+40*files/1000). Progress now advances linearly 20-60% during extraction without
+  appearing to regress.
+
+- **Production readiness documentation (DOCUMENTATION)**: Created authoritative
+  `docs/PRODUCTION_READINESS.md` consolidating contradictory production status claims.
+  Defines deployment classifications (Development, Beta, Single-Host Candidate, Multi-Tenant,
+  GA), honest capability matrix by workflow (cpmove, WordPress, generic archive, git),
+  prerequisites, blocking issues for multi-tenant, and GA roadmap. Fixes broken link in
+  SECURITY.md.
+
+- **Removed unused SkipAnalysis parameter (API CLEANUP)**: Removed dead code accepting
+  `skip_analysis` parameter in archive import API. Parameter was never used (analysis
+  always performed); created misleading API contract. Security improvement: validation
+  skipping should never be normal feature.
+
+### Performance Fixes (HIGH)
+
+- **Backup listing verification DoS fix (HIGH)**: Fixed self-imposed denial-of-service
+  where listing backups re-verified every archive with full SHA256 and file-by-file
+  hashing. Implemented in-memory verification cache (5-minute TTL) to skip expensive
+  archive traversal on listing operations. Restore operations still verify fresh
+  (bypassing cache) to ensure safety before destructive operations. Reduces backup
+  listing time from O(archive hash * count) to O(manifest reads) with LRU-ish cache
+  eviction when exceeding 1000 entries. Phase 2 will add SQLite-backed persistent
+  verification with background re-verification job.
+
+### Security Fixes (Critical)
+
+- **Python deployment privilege escalation (CRITICAL)**: Fixed root privilege
+  escalation vulnerability in `deploy/integrations/stepanel-appctl` where
+  root was executing `pip install` without version pinning or hash verification.
+  Now: virtualenv ownership transferred to $site_user immediately after creation,
+  pip install executed as $site_user with `runuser`, Gunicorn pinned to v23.0.0
+  with PyPI hash verification. Matches Node deployment security model.
+
+### Security Fixes (HIGH)
+
+- **Build runner registry allowlist and image size limits (HIGH)**: Implemented essential
+  security controls to prevent arbitrary image execution. Now restricts container images
+  to allowlisted registries only (STEPANEL_RUNNER_ALLOWED_REGISTRIES, default: docker.io,
+  ghcr.io, quay.io) and enforces image size limits (STEPANEL_MAX_IMAGE_SIZE, default: 5GB).
+  Network disabled by default (STEPANEL_RUNNER_NETWORK_ENABLED controls explicit opt-in).
+  Helper parameters updated to enforce limits during image pull. Phase 2 will add explicit
+  seccomp profiles, SELinux/AppArmor context, and storage quotas.
+
+- **Process group cleanup on timeout (HIGH)**: Fixed resource leak where timeouts/
+  cancellations killed parent helper process but left child processes running
+  indefinitely. Now all helpers configure process group (Setpgid=true) and timeout
+  kills entire process group with SIGKILL (-PGID) instead of just parent PID.
+  Prevents accumulation of orphaned pip/npm/podman/systemctl/git processes and
+  concurrent mutations outside StePanel's lock lifecycle.
+
+- **Git webhook secret isolation (HIGH)**: Fixed webhook authentication blast radius
+  where single global `GitWebhookSecret` could deploy any repository to any site.
+  Implemented per-site webhook configuration framework:
+  - New `GitWebhookConfig` type stores per-site webhook secrets, allowed repos, allowed refs
+  - Webhook URL changed from `/api/sites/git-webhook` to `/api/sites/git-webhook/:site`
+  - Site name now explicit in path, enabling per-site secret lookup (Phase 2)
+  - New helper functions for safe webhook path parsing and signature verification
+  - Temporarily falls back to global secret with deprecation notice
+  - Phase 2 will migrate to database-backed per-site configuration with validation
+  - Reduces blast radius from all sites to single site on secret compromise
+
+- **Archive extraction hardening**: Comprehensive security validation for
+  site import archives to prevent path traversal, symlink escapes, and zip bombs:
+  - New `safeTarExtractPath()` prevents absolute paths, .. sequences, symlink traversal
+  - Reject tar symlinks/hardlinks entirely during extraction
+  - Archive bomb protection: 50GB decompressed size limit, 10GB per-file limit, 1M file limit
+  - Use `io.LimitReader` for bounded extraction to prevent DoS
+  - Both tar.gz and zip formats use identical validation
+
 ### Production Readiness Improvements
+
+- **Archive Importer interface (Phase 1)**: New separate interface for importing
+  websites from compressed archives (`.tar.gz` or `.zip`) stored in cloud storage
+  or HTTP endpoints. Accepts archive URL and config file location as parameters.
+  Analyzes archive structure, detects site type (WordPress, custom), and extracts
+  database requirements, PHP version, and required extensions from config files.
+  Admin-only API endpoints: `POST /api/admin/archive/inspect`,
+  `POST /api/admin/archive/import`. Phase 1 provides inspection and analysis;
+  Phase 2 (planned) will implement actual import with job tracking. See
+  [`docs/ARCHIVE_IMPORTER.md`](docs/ARCHIVE_IMPORTER.md).
+
+- **Security claims verification documentation**: Created
+  [`docs/SECURITY_CLAIMS_VERIFICATION.md`](docs/SECURITY_CLAIMS_VERIFICATION.md)
+  mapping all product claims ("safety-first", "tenant isolation", "durable jobs",
+  etc.) to their code implementations, line numbers, and test coverage. Serves as
+  audit checklist and grounds marketing claims in implementation.
+
+- **Release artifact verification**: Added `scripts/verify-release-artifacts.sh`
+  to validate packaging integrity in CI/CD pipeline, checking for:
+  - Actual gzip compression (prevents mislabeled archives)
+  - SHA256 checksum validity
+  - SBOM presence and JSON validity
+  - Required files in archives (LICENSE, README, SECURITY, binary)
+  
+  Integrated into `release.yml` GitHub Actions workflow to catch packaging
+  defects before publication.
+
+- **Helper package extraction (Phase 3)**: Migrated privileged helper command
+  execution and file system safety utilities to `internal/helper/helpers.go`,
+  including bounded command execution, safe path validation, symlink protection,
+  and atomic writes. Maintains backward compatibility via root-level wrapper
+  functions, enabling broader reuse of safety-critical utilities.
 
 - **Package extraction (Phase 1-2)**: Migrated backup type definitions to
   `internal/backup/types.go` and database migration system to

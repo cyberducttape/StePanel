@@ -36,7 +36,7 @@ func TestFinalizeTaskDeletionRollsBackMemoryOnPersistFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected task state persistence failure")
 	}
-	if got, ok := store.values[key]; !ok || got != task {
+	if got, ok := store.values[key]; !ok || !tasksEqual(got, task) {
 		t.Fatalf("task state after failed persistence = %#v, found=%v; want %#v", got, ok, task)
 	}
 }
@@ -53,7 +53,21 @@ func TestTaskStoreSaveRollsBackMemoryOnPersistFailure(t *testing.T) {
 	if err := store.save("demo/nightly", ScheduledTask{Site: "demo", Name: "nightly", Runtime: "php", Command: "php artisan schedule:run", State: "pending"}); err == nil {
 		t.Fatal("expected task state persistence failure")
 	}
-	if got := store.values["demo/nightly"]; got != previous {
+	if got := store.values["demo/nightly"]; !tasksEqual(got, previous) {
 		t.Fatalf("task state after failed save = %#v, want %#v", got, previous)
 	}
+}
+
+// tasksEqual compares two ScheduledTask structs accounting for slice comparisons
+func tasksEqual(a, b ScheduledTask) bool {
+	return a.Site == b.Site &&
+		a.Name == b.Name &&
+		a.Runtime == b.Runtime &&
+		a.Command == b.Command &&
+		a.OnCalendar == b.OnCalendar &&
+		a.TimeoutSec == b.TimeoutSec &&
+		a.Enabled == b.Enabled &&
+		a.State == b.State &&
+		a.LastError == b.LastError &&
+		a.Deleted == b.Deleted
 }

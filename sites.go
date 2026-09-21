@@ -194,6 +194,10 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for site deployment", http.StatusForbidden)
+		return
+	}
 	if !a.Auth.IsAdministrator(r) {
 		if a.Domains == nil {
 			http.Error(w, "domain ownership must be verified before route activation", http.StatusConflict)
@@ -284,6 +288,10 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		}
 		if hasDesired {
 			if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
+				return
+			}
+			if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+				http.Error(w, "insufficient token scope for site deployment", http.StatusForbidden)
 				return
 			}
 			desired.State, desired.LastError, desired.UpdatedAt = "delete-pending", "", time.Now().UTC()

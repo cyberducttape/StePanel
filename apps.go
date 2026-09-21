@@ -60,6 +60,13 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 422)
 		return
 	}
+	if _, ok := a.requireSiteAccess(w, r, app.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for app deployment", http.StatusForbidden)
+		return
+	}
 	app.Root = filepath.Join(a.Config.WebRoot, "sites", app.Site, "public")
 	if err := ensureInside(a.Config.WebRoot, app.Root); err != nil {
 		http.Error(w, err.Error(), 422)
@@ -100,7 +107,7 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to save app manifest", 500)
 		return
 	}
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "apply", app.Site, strings.TrimPrefix(app.Version, "v"), app.Root, strconv.Itoa(app.Port)); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", app.Site, strings.TrimPrefix(app.Version, "v"), app.Root, strconv.Itoa(app.Port)); err != nil {
 		var rollbackErr error
 		if hadPrevious {
 			rollbackErr = writeAtomic(manifestPath, previous, 0600)
@@ -134,6 +141,13 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid app action", 422)
 		return
 	}
+	if _, ok := a.requireSiteAccess(w, r, parts[0], "site is not assigned to this account", http.StatusForbidden); !ok {
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for app operations", http.StatusForbidden)
+		return
+	}
 	releaseUnlock := a.siteOperations.Acquire(parts[0])
 	defer releaseUnlock()
 	a.appLifecycleMu.Lock()
@@ -160,25 +174,25 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "current app manifest is invalid", 500)
 			return
 		}
-		if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "apply", previous.Site, strings.TrimPrefix(previous.Version, "v"), previous.Root, strconv.Itoa(previous.Port)); err != nil {
+		if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", previous.Site, strings.TrimPrefix(previous.Version, "v"), previous.Root, strconv.Itoa(previous.Port)); err != nil {
 			http.Error(w, "rollback failed", 502)
 			return
 		}
 		if err := writeAtomic(manifestPath+".bak", current, 0600); err != nil {
-			_ = runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port))
+			_ = runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port))
 			http.Error(w, "rollback state could not be persisted; the previous process configuration was restored", 500)
 			return
 		}
 		if err := writeAtomic(manifestPath, backup, 0600); err != nil {
 			_ = writeAtomic(manifestPath+".bak", backup, 0600)
-			if runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port)) != nil {
+			if runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port)) != nil {
 				http.Error(w, "rollback manifest failed and the prior process configuration could not be restored", 503)
 				return
 			}
 			http.Error(w, "rollback manifest could not be persisted; the previous process configuration was restored", 500)
 			return
 		}
-	} else if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, parts[1], parts[0]); err != nil {
+	} else if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, parts[1], parts[0]); err != nil {
 		http.Error(w, "app action failed", 502)
 		return
 	}

@@ -1,0 +1,573 @@
+package importer
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// isReservedIP checks if an IP address is in a reserved/private range
+func isReservedIP(ip net.IP) bool {
+	// Handle IPv4-mapped IPv6 addresses by unwrapping them
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+
+	// Reject loopback, private, and link-local addresses
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	// Reject non-global unicast IPs (multicast, unspecified, etc.)
+	if !ip.IsGlobalUnicast() {
+		return true
+	}
+	return false
+}
+
+// isAllowedURL validates that a URL is safe to fetch (prevents SSRF)
+func isAllowedURL(urlStr string) bool {
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+
+	// Only allow https
+	if parsed.Scheme != "https" {
+		return false
+	}
+
+	// Extract hostname
+	host := parsed.Hostname()
+	if host == "" {
+		return false
+	}
+
+	// Reject reserved hostnames
+	lowerHost := strings.ToLower(host)
+	reservedHosts := map[string]bool{
+		"localhost":       true,
+		"127.0.0.1":       true,
+		"::1":             true,
+		"0.0.0.0":         true,
+		"169.254.169.254": true, // AWS metadata
+	}
+	if reservedHosts[lowerHost] {
+		return false
+	}
+
+	// If it's an IP address, validate it directly
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return !isReservedIP(ip)
+	}
+
+	// For hostnames, we'll validate resolved IPs in the DialContext layer.
+	// This allows us to handle DNS failures gracefully and validates all
+	// addresses including those returned by redirects.
+	return true
+}
+
+// Analyzer inspects and analyzes archive contents
+type Analyzer struct {
+	httpClient *http.Client
+}
+
+// NewAnalyzer creates a new archive analyzer with secure redirect handling
+func NewAnalyzer() *Analyzer {
+	// Custom transport that validates all IP addresses before connecting
+	// Uses granular timeouts instead of a global timeout to support large files
+	transport := &http.Transport{
+		// Granular timeout controls:
+		// - DNS: 5 second timeout via dialer
+		// - TCP/TLS: 15 second timeout via dialer
+		// - No global body read timeout (prevents 5GB archive timeout issues)
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// Parse the host and port
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid address: %w", err)
+			}
+
+			// Try to parse as IP directly
+			ip := net.ParseIP(host)
+			if ip != nil {
+				// It's already an IP, validate it
+				if isReservedIP(ip) {
+					return nil, fmt.Errorf("connection to reserved IP %s not allowed", host)
+				}
+			} else {
+				// It's a hostname, resolve and validate each IP
+				resolver := &net.Resolver{}
+				// DNS resolution with 5-second timeout
+				dnsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				ips, err := resolver.LookupIP(dnsCtx, "ip", host)
+				cancel()
+				if err != nil {
+					return nil, fmt.Errorf("DNS resolution failed: %w", err)
+				}
+				if len(ips) == 0 {
+					return nil, fmt.Errorf("no IP addresses resolved for %s", host)
+				}
+
+				// Check if any resolved IP is reserved
+				for _, resolvedIP := range ips {
+					if isReservedIP(resolvedIP) {
+						return nil, fmt.Errorf("hostname %s resolves to reserved IP %s", host, resolvedIP)
+					}
+				}
+
+				// Use the first public IP
+				ip = ips[0]
+			}
+
+			// Connect with 15-second TCP/TLS timeout
+			dialer := net.Dialer{
+				Timeout:   15 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		},
+		// Idle timeout (connection kept alive for reuse)
+		IdleConnTimeout: 30 * time.Second,
+		// TLS handshake timeout is applied via DialContext timeout
+		TLSHandshakeTimeout: 15 * time.Second,
+		// Response header timeout (time waiting for headers after sending request)
+		ResponseHeaderTimeout: 30 * time.Second,
+	}
+
+	return &Analyzer{
+		httpClient: &http.Client{
+			// No global timeout - allows large file downloads
+			// Context deadline should be set per-request by the caller
+			Transport: transport,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				// Validate redirect destination is safe (prevents SSRF via redirect chain)
+				if !isAllowedURL(req.URL.String()) {
+					return fmt.Errorf("redirect to disallowed URL: %s", req.URL.String())
+				}
+				return nil
+			},
+		},
+	}
+}
+
+// InspectArchive analyzes an archive at a given URL
+func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, error) {
+	if url == "" {
+		return nil, errors.New("archive URL is required")
+	}
+	if configPath == "" {
+		return nil, errors.New("config path is required")
+	}
+
+	// Prevent SSRF: only allow https URLs from known domains
+	if !isAllowedURL(url) {
+		return nil, fmt.Errorf("archive URL not allowed: %s", url)
+	}
+
+	// Download archive header to determine type and size
+	req, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid archive URL: %w", err)
+	}
+
+	resp, err := a.httpClient.Do(req) // URL validated at line 89; redirects checked via CheckRedirect policy
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch archive: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("archive URL returned %d", resp.StatusCode)
+	}
+
+	archiveType := a.detectArchiveType(url, resp.Header.Get("Content-Type"))
+	if archiveType == "" {
+		return nil, errors.New("could not determine archive type (expected .tar.gz or .zip)")
+	}
+
+	size := resp.ContentLength
+	if size <= 0 || size > 5*1024*1024*1024 { // 5GB limit
+		return nil, errors.New("archive size invalid or exceeds 5GB limit")
+	}
+
+	// Download archive with size limit (prevent server from lying about size)
+	maxBytes := size + (1 << 20) // Add 1MB buffer to claimed size
+	bodyReq, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid archive URL: %w", err)
+	}
+
+	bodyResp, err := a.httpClient.Do(bodyReq) // URL validated at line 89; redirects checked via CheckRedirect policy
+	if err != nil {
+		return nil, fmt.Errorf("failed to download archive: %w", err)
+	}
+	defer bodyResp.Body.Close()
+
+	// Limit the download to prevent disk exhaustion
+	limitedBody := io.LimitReader(bodyResp.Body, maxBytes)
+
+	inspection := &ArchiveInspection{
+		URL:         url,
+		ArchiveType: archiveType,
+		Size:        size,
+		CreatedAt:   time.Now(),
+		ConfigPath:  configPath,
+		Issues:      []ImportIssue{},
+	}
+
+	// Parse archive based on type
+	if archiveType == "tar.gz" {
+		err = a.inspectTarGz(limitedBody, configPath, inspection)
+	} else if archiveType == "zip" {
+		// For zip files, we need to seek, so download to temp file
+		tempFile, err := os.CreateTemp("", "archive-*.zip")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temp file: %w", err)
+		}
+		defer os.Remove(tempFile.Name())
+
+		if _, err := io.Copy(tempFile, limitedBody); err != nil {
+			return nil, fmt.Errorf("failed to download archive: %w", err)
+		}
+		tempFile.Close()
+
+		err = a.inspectZip(tempFile.Name(), configPath, inspection)
+	}
+
+	if err != nil {
+		inspection.Issues = append(inspection.Issues, ImportIssue{
+			Severity: "error",
+			Code:     "archive_read_failed",
+			Message:  fmt.Sprintf("Failed to read archive: %v", err),
+		})
+		return inspection, fmt.Errorf("failed to inspect archive: %w", err)
+	}
+
+	return inspection, nil
+}
+
+// inspectTarGz analyzes a tar.gz archive
+func (a *Analyzer) inspectTarGz(reader io.Reader, configPath string, inspection *ArchiveInspection) error {
+	gz, err := gzip.NewReader(reader)
+	if err != nil {
+		return fmt.Errorf("not a valid gzip file: %w", err)
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+	inspection.Structure = ArchiveStructure{
+		FileExtensions: []string{},
+		LargestFiles:   []string{},
+	}
+
+	seen := make(map[string]bool)
+	largestFiles := make([]struct {
+		name string
+		size int64
+	}, 0, 100) // Limit to top 100 files
+	const maxLargestFiles = 100
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("tar read error: %w", err)
+		}
+
+		if header.Typeflag == tar.TypeDir {
+			inspection.Structure.TotalDirs++
+		} else {
+			inspection.Structure.TotalFiles++
+		}
+
+		// Track file extensions
+		ext := filepath.Ext(header.Name)
+		if ext != "" && !seen[ext] {
+			inspection.Structure.FileExtensions = append(inspection.Structure.FileExtensions, ext)
+			seen[ext] = true
+		}
+
+		// Track largest files (limit memory by only tracking top N files)
+		if len(largestFiles) < maxLargestFiles || header.Size > largestFiles[len(largestFiles)-1].size {
+			largestFiles = append(largestFiles, struct {
+				name string
+				size int64
+			}{header.Name, header.Size})
+			// Keep sorted by size (descending)
+			sort.Slice(largestFiles, func(i, j int) bool {
+				return largestFiles[i].size > largestFiles[j].size
+			})
+			// Trim to max size
+			if len(largestFiles) > maxLargestFiles {
+				largestFiles = largestFiles[:maxLargestFiles]
+			}
+		}
+
+		// Check for config file
+		if strings.TrimPrefix(header.Name, "./") == configPath || filepath.Base(header.Name) == filepath.Base(configPath) {
+			configContent := make([]byte, min(header.Size, 1024*1024)) // limit to 1MB
+			n, _ := io.ReadFull(tr, configContent)
+			a.parseConfig(string(configContent[:n]), inspection)
+		}
+
+		// Detect site type
+		if strings.Contains(header.Name, "wp-content") || strings.Contains(header.Name, "wp-admin") {
+			inspection.Structure.HasWordPressCore = true
+		}
+		if strings.Contains(header.Name, "wp-content/plugins/") && strings.Contains(header.Name, "/mu-") {
+			inspection.Structure.HasWordPressMU = true
+		}
+		if strings.HasSuffix(header.Name, ".sql") || strings.HasSuffix(header.Name, ".sql.gz") {
+			inspection.Structure.HasDatabase = true
+		}
+	}
+
+	// Sort largest files
+	a.extractLargestFiles(largestFiles, inspection)
+	a.validateInspection(inspection)
+
+	return nil
+}
+
+// inspectZip analyzes a zip archive
+func (a *Analyzer) inspectZip(path, configPath string, inspection *ArchiveInspection) error {
+	reader, err := zip.OpenReader(path)
+	if err != nil {
+		return fmt.Errorf("not a valid zip file: %w", err)
+	}
+	defer reader.Close()
+
+	inspection.Structure = ArchiveStructure{
+		FileExtensions: []string{},
+		LargestFiles:   []string{},
+	}
+
+	seen := make(map[string]bool)
+	largestFiles := make([]struct {
+		name string
+		size int64
+	}, 0, 100) // Limit to top 100 files
+	const maxLargestFiles = 100
+
+	for _, file := range reader.File {
+		if file.FileInfo().IsDir() {
+			inspection.Structure.TotalDirs++
+		} else {
+			inspection.Structure.TotalFiles++
+		}
+
+		// Track file extensions
+		ext := filepath.Ext(file.Name)
+		if ext != "" && !seen[ext] {
+			inspection.Structure.FileExtensions = append(inspection.Structure.FileExtensions, ext)
+			seen[ext] = true
+		}
+
+		// Track largest files (limit memory by only tracking top N files)
+		fileSize := file.FileInfo().Size()
+		if len(largestFiles) < maxLargestFiles || fileSize > largestFiles[len(largestFiles)-1].size {
+			largestFiles = append(largestFiles, struct {
+				name string
+				size int64
+			}{file.Name, fileSize})
+			// Keep sorted by size (descending)
+			sort.Slice(largestFiles, func(i, j int) bool {
+				return largestFiles[i].size > largestFiles[j].size
+			})
+			// Trim to max size
+			if len(largestFiles) > maxLargestFiles {
+				largestFiles = largestFiles[:maxLargestFiles]
+			}
+		}
+
+		// Check for config file
+		if strings.TrimPrefix(file.Name, "./") == configPath || filepath.Base(file.Name) == filepath.Base(configPath) {
+			f, _ := file.Open()
+			if f != nil {
+				configContent := make([]byte, min(file.FileInfo().Size(), 1024*1024))
+				n, _ := io.ReadFull(f, configContent)
+				a.parseConfig(string(configContent[:n]), inspection)
+				f.Close()
+			}
+		}
+
+		// Detect site type
+		if strings.Contains(file.Name, "wp-content") || strings.Contains(file.Name, "wp-admin") {
+			inspection.Structure.HasWordPressCore = true
+		}
+		if strings.HasSuffix(file.Name, ".sql") || strings.HasSuffix(file.Name, ".sql.gz") {
+			inspection.Structure.HasDatabase = true
+		}
+	}
+
+	a.extractLargestFiles(largestFiles, inspection)
+	a.validateInspection(inspection)
+
+	return nil
+}
+
+// parseConfig extracts site requirements from a config file
+func (a *Analyzer) parseConfig(content string, inspection *ArchiveInspection) {
+	// Detect config type and parse accordingly
+	if strings.Contains(content, "<?php") || strings.Contains(content, "DB_NAME") {
+		inspection.ConfigType = "wordpress"
+		a.parseWordPressConfig(content, inspection)
+	} else {
+		inspection.ConfigType = "unknown"
+		inspection.Issues = append(inspection.Issues, ImportIssue{
+			Severity: "warning",
+			Code:     "config_type_unknown",
+			Message:  "Could not automatically detect config type. Manual review recommended.",
+		})
+	}
+}
+
+// parseWordPressConfig extracts requirements from wp-config.php
+func (a *Analyzer) parseWordPressConfig(content string, inspection *ArchiveInspection) {
+	req := SiteRequirements{
+		Extensions: []string{},
+	}
+
+	// Extract database credentials
+	req.DatabaseType = "mysql"
+	req.DatabaseName = a.extractDefine(content, "DB_NAME")
+	req.DatabaseUser = a.extractDefine(content, "DB_USER")
+
+	// Estimate storage
+	req.EstimatedStorageGB = 5 // default estimate
+	if inspection.Structure.TotalFiles > 100000 {
+		req.EstimatedStorageGB = 20
+	}
+	if inspection.Structure.TotalFiles > 500000 {
+		req.EstimatedStorageGB = 100
+	}
+
+	// Assume PHP 8.0+ for modern WordPress
+	req.PHPVersion = "8.0+"
+	req.WebServer = "apache" // will be auto-detected or ask user
+
+	// Common WordPress extensions
+	req.Extensions = []string{"mysqli", "curl", "gd", "mbstring", "zip"}
+
+	inspection.Requirements = req
+
+	if req.DatabaseName == "" {
+		inspection.Issues = append(inspection.Issues, ImportIssue{
+			Severity: "error",
+			Code:     "database_name_not_found",
+			Message:  "Could not find DB_NAME in config. Database setup required.",
+		})
+	}
+}
+
+// extractDefine extracts a WordPress define() value
+func (a *Analyzer) extractDefine(content, key string) string {
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, fmt.Sprintf("define('%s'", key)) || strings.Contains(line, fmt.Sprintf("define(\"%s\"", key)) {
+			// Simple extraction
+			start := strings.Index(line, "'") + 1
+			if start == 0 {
+				start = strings.Index(line, "\"") + 1
+			}
+			if start > 0 {
+				rest := line[start:]
+				end := strings.Index(rest, "'")
+				if end < 0 {
+					end = strings.Index(rest, "\"")
+				}
+				if end > 0 {
+					return rest[:end]
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// extractLargestFiles identifies the top files by size
+func (a *Analyzer) extractLargestFiles(files []struct {
+	name string
+	size int64
+}, inspection *ArchiveInspection) {
+	// Files are already sorted by size (largest first) from inspectTarGz/inspectZip
+	// Extract top 5 largest files
+	count := 0
+	for _, file := range files {
+		if count >= 5 {
+			break
+		}
+		if !strings.HasPrefix(filepath.Base(file.name), ".") {
+			inspection.Structure.LargestFiles = append(inspection.Structure.LargestFiles, file.name)
+			inspection.Structure.EstimatedStorageGB += file.size / (1024 * 1024 * 1024)
+			count++
+		}
+	}
+}
+
+// validateInspection checks for issues
+func (a *Analyzer) validateInspection(inspection *ArchiveInspection) {
+	if inspection.Structure.TotalFiles == 0 {
+		inspection.Issues = append(inspection.Issues, ImportIssue{
+			Severity: "error",
+			Code:     "empty_archive",
+			Message:  "Archive appears to be empty.",
+		})
+	}
+
+	if inspection.ConfigType == "unknown" && inspection.Structure.TotalFiles > 0 {
+		inspection.Issues = append(inspection.Issues, ImportIssue{
+			Severity: "warning",
+			Code:     "config_type_unclear",
+			Message:  "Could not auto-detect site type. Verify config path is correct.",
+		})
+	}
+
+	if !inspection.Structure.HasDatabase {
+		inspection.Issues = append(inspection.Issues, ImportIssue{
+			Severity: "info",
+			Code:     "no_database_found",
+			Message:  "No database backup found in archive. Database will need to be restored separately.",
+		})
+	}
+}
+
+// detectArchiveType determines if archive is tar.gz or zip
+func (a *Analyzer) detectArchiveType(url, contentType string) string {
+	urlLower := strings.ToLower(url)
+	if strings.HasSuffix(urlLower, ".tar.gz") || strings.HasSuffix(urlLower, ".tgz") {
+		return "tar.gz"
+	}
+	if strings.HasSuffix(urlLower, ".zip") {
+		return "zip"
+	}
+	if strings.Contains(contentType, "gzip") || strings.Contains(contentType, "x-tar") {
+		return "tar.gz"
+	}
+	if strings.Contains(contentType, "zip") {
+		return "zip"
+	}
+	return ""
+}
+
+func min(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
+}

@@ -936,3 +936,198 @@ dialog.confirm-dialog::backdrop { background: rgba(6, 10, 16, .68); }
   .workspace-tablist { gap: 3px; }
   .workspace-tab { padding: 8px 11px; font-size: 11px; }
 }
+
+/* Dashboard UX Enhancements */
+
+/* Loading animations for real-time metrics */
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+@keyframes spin-fast {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes bounce-in {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Loading state for metrics */
+.metric.loading {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+.metric-skeleton {
+  background: linear-gradient(90deg, #f0f4f8 25%, #e2e8f0 50%, #f0f4f8 75%);
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite;
+  border-radius: 6px;
+  height: 1.2em;
+  margin-bottom: 8px;
+}
+
+/* Better status indicators */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.status-indicator.live {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-indicator.live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #16a34a;
+  animation: pulse-subtle 1.5s ease-in-out infinite;
+}
+
+.status-indicator.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-indicator.pending::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid #f59e0b;
+  animation: spin-fast 1s linear infinite;
+  background: transparent;
+}
+
+.status-indicator.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* Enhanced activity list */
+.activity-item {
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.activity-item:hover {
+  background: rgba(15, 118, 110, 0.08);
+  transform: translateX(2px);
+}
+
+.activity-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: bounce-in 0.4s ease;
+}
+
+.activity-dot.green {
+  background: #16a34a;
+  box-shadow: 0 0 8px rgba(22, 163, 74, 0.3);
+}
+
+.activity-dot.blue {
+  background: #3b82f6;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+.activity-dot.amber {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+}
+
+/* Real-time update notification */
+.update-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: #dbeafe;
+  color: #0c4a6e;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  animation: bounce-in 0.3s ease;
+}
+
+/* Smooth transitions for state changes */
+.metric,
+.activity-item,
+.site-card {
+  transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.site-card:hover {
+  box-shadow: var(--ws-shadow);
+  transform: translateY(-2px);
+}
+
+/* Enhanced button interactions */
+button {
+  transition: all 0.2s ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Better form feedback */
+input:focus,
+select:focus,
+textarea:focus {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
+}
+
+/* Responsive improvements */
+@media (max-width: 1024px) {
+  .hero { flex-direction: column; }
+  .metrics { grid-template-columns: repeat(2, 1fr); }
+  .onboarding-actions { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .metrics { grid-template-columns: 1fr; }
+  .topbar { min-height: 64px; padding: 0 16px; }
+  .content { padding: 16px; }
+
+  .activity-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .site-overview-grid {
+    grid-template-columns: 1fr;
+  }
+}

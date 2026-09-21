@@ -49,6 +49,10 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for release pipelines", http.StatusForbidden)
+		return
+	}
 	if !gitRefPattern.MatchString(input.Ref) || !runnerImagePattern.MatchString(input.Image) || len(input.Commands) == 0 || len(input.Commands) > 16 {
 		http.Error(w, "invalid release pipeline", 422)
 		return

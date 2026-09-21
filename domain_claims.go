@@ -220,6 +220,10 @@ func (a *App) domainClaim(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "invalid or inaccessible site", http.StatusForbidden); !ok {
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for domain operations", http.StatusForbidden)
+		return
+	}
 	claim, err := a.Domains.claim(input.Site, input.Domain)
 	if err != nil {
 		http.Error(w, "could not persist domain claim", http.StatusServiceUnavailable)
@@ -248,6 +252,10 @@ func (a *App) domainVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "invalid or inaccessible site", http.StatusForbidden); !ok {
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for domain operations", http.StatusForbidden)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)

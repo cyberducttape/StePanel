@@ -50,7 +50,7 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 		}
 		releaseUnlock := a.siteOperations.Acquire(site)
 		defer releaseUnlock()
-		if err := runHelperCommand(r.Context(), a.Config, a.Config.GitCtl, "delete", site); err != nil {
+		if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.GitCtl, "delete", site); err != nil {
 			http.Error(w, "could not retire deploy key", http.StatusBadGateway)
 			return
 		}

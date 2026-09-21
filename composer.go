@@ -121,6 +121,10 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", 403)
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for Composer operations", http.StatusForbidden)
+		return
+	}
 	if _, err := os.Stat(filepath.Join(root, "composer.json")); err != nil {
 		http.Error(w, "composer.json is required", 422)
 		return
@@ -136,7 +140,7 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 	releaseUnlock := a.siteOperations.Acquire(site)
 	defer releaseUnlock()
 	started := time.Now()
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "composer-install", site, root, boolString(input.Development), boolString(input.OptimizeAutoloader)); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "composer-install", site, root, boolString(input.Development), boolString(input.OptimizeAutoloader)); err != nil {
 		http.Error(w, "Composer install failed", 502)
 		return
 	}

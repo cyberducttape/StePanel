@@ -41,19 +41,19 @@ func TestAPITokenRateLimiter(t *testing.T) {
 			limiter.allow(token)
 		}
 
-		// Wait for tokens to refill
-		time.Sleep(100 * time.Millisecond)
+		// Wait for tokens to refill (600 per minute = 10 per second = 1 per 100ms)
+		time.Sleep(150 * time.Millisecond)
 
-		// Should have at least 10 new tokens (600 per minute = 10 per 100ms)
+		// Should have at least 1-2 new tokens after 150ms (need ~60ms per token)
 		allowed := 0
-		for i := 0; i < 20; i++ {
+		for i := 0; i < 5; i++ {
 			if limiter.allow(token) {
 				allowed++
 			}
 		}
 
-		if allowed < 9 {
-			t.Fatalf("expected at least 9 refilled tokens, got %d", allowed)
+		if allowed < 1 {
+			t.Fatalf("expected at least 1 refilled token after 150ms, got %d", allowed)
 		}
 	})
 
@@ -77,24 +77,33 @@ func TestAPITokenRateLimiter(t *testing.T) {
 	t.Run("garbage collects unused tokens", func(t *testing.T) {
 		limiter2 := newAPITokenRateLimiter()
 
-		// Create entries for many tokens
+		// Manually populate state with old tokens by direct access
+		limiter2.mu.Lock()
+		now := time.Now()
+		oldTime := now.Add(-10 * time.Minute) // Older than 5-minute threshold
 		for i := 0; i < 100; i++ {
-			limiter2.allow("token-" + string(rune(i)))
+			limiter2.state["token-"+string(rune(i))] = &tokenBucket{
+				tokens:     100.0,
+				lastRefill: oldTime,
+			}
 		}
+		limiter2.lastGC = now.Add(-2 * time.Minute) // Trigger GC on next allow()
+		limiter2.mu.Unlock()
 
+		// Verify we have 100 tokens
 		tracked, _ := limiter2.stats()
 		if tracked != 100 {
 			t.Fatalf("expected 100 tracked tokens, got %d", tracked)
 		}
 
-		// Move time forward past GC threshold and add a new token
-		limiter2.lastGC = time.Now().Add(-2 * time.Minute)
+		// Add a new token - this should trigger GC
 		limiter2.allow("new-token")
 
-		// GC should have cleaned up old tokens
+		// GC should have cleaned up old tokens (all the old ones should be gone)
+		// We should have just the new-token and possibly 1-2 other recently added
 		tracked, _ = limiter2.stats()
-		if tracked > 50 {
-			t.Fatalf("GC should have removed old tokens, still have %d", tracked)
+		if tracked > 10 {
+			t.Fatalf("GC should have removed old tokens, still have %d (expected <10)", tracked)
 		}
 	})
 

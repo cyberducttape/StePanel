@@ -154,7 +154,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	createdDatabase := false
 	stateRollback := func() {
 		if routeApplied {
-			if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "delete", routeName); err != nil {
+			if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", routeName); err != nil {
 				log.Printf("staging route cleanup failed for %s: %v", input.Site, err)
 			}
 		}
@@ -277,7 +277,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	if basicAuth {
 		args = append(args, input.AuthUser, authHash)
 	}
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, args...); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, args...); err != nil {
 		http.Error(w, "could not activate staging route", 502)
 		return
 	}

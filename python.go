@@ -94,7 +94,10 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) applyPythonApp(ctx context.Context, app PythonApp) error {
-	return runHelperCommand(ctx, a.Config, a.Config.AppCtl, "python-apply", app.Site, app.Version, app.Root, app.EntryPoint, strconv.Itoa(app.Port), strconv.Itoa(app.Workers))
+	// Python setup can take 10-30 minutes depending on dependencies.
+	// Note: reconciliation context may have shorter deadline; consider moving
+	// to async jobs for long-running operations (see docs/STARTUP_READINESS.md).
+	return runHelperCommandWithTimeout(ctx, a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "python-apply", app.Site, app.Version, app.Root, app.EntryPoint, strconv.Itoa(app.Port), strconv.Itoa(app.Workers))
 }
 
 func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, failed map[string]string) {
@@ -152,9 +155,13 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, parts[0], "site is not assigned to this account", 403); !ok {
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for Python operations", http.StatusForbidden)
+		return
+	}
 	releaseUnlock := a.siteOperations.Acquire(parts[0])
 	defer releaseUnlock()
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
 		http.Error(w, "Python action failed", 502)
 		return
 	}

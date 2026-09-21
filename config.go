@@ -18,11 +18,12 @@ type Config struct {
 	WebServer                                                                                string
 	Listen, TLSCertFile, TLSKeyFile, ImportRoot, BackupRoot, WebRoot, MailRoot, NVMDir       string
 	ProxyRoot, VHostRoot, AppRoot, MalwareRoot, AppCtl, ProxyCtl                             string
-	SiteCtl, VHostCtl, Certbot, DBCtl, RunnerCtl, GitCtl                                     string
+	SiteCtl, VHostCtl, Certbot, DBCtl, RunnerCtl, GitCtl, TaskCtl                            string
 	WPressExtract, WPCLI, AuditLog, JobState, SessionState, AccountState, RecoveryRoot, Sudo string
 	DBHost, DBUser, DBPassword, DBPasswordFile                                               string
 	DBEngine, DBVersion, DBAdminURL                                                          string
 	GitAllowedHosts, GitWebhookSecret                                                        string
+	RunnerAllowedRegistries                                                                  string
 	EnvironmentState, EnvironmentKey                                                         string
 	ControlPlaneDB                                                                           string
 	AccountKey                                                                               string
@@ -31,10 +32,11 @@ type Config struct {
 	OffsiteTarget                                                                            string
 	CloudProvider                                                                            string
 	RequireOffsiteBackup                                                                     bool
+	RunnerNetworkEnabled                                                                     bool
 	TLSAlreadyTerminated                                                                     bool
 	Production                                                                               bool
 	WorkerMode                                                                               string
-	MaxUpload                                                                                int64
+	MaxUpload, MaxImageSize                                                                  int64
 	MaxEntries, MaxConcurrentJobs, StageRetentionHours, GitReleaseRetention                  int
 	GitReleaseMaxAgeHours                                                                    int
 	GitReleaseMaxBytes                                                                       int64
@@ -43,7 +45,7 @@ type Config struct {
 }
 
 func LoadConfig() Config {
-	c := Config{WebServer: "caddy", Listen: ":8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", MaxUpload: 20 << 30, MaxEntries: 1000000, MaxConcurrentJobs: 2, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, MinFreeBytes: 1 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200}
+	c := Config{WebServer: "caddy", Listen: ":8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", TaskCtl: "/usr/local/sbin/stepanel-taskctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", RunnerAllowedRegistries: "docker.io,ghcr.io,quay.io", MaxUpload: 20 << 30, MaxImageSize: 5 << 30, MaxEntries: 1000000, MaxConcurrentJobs: 2, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, MinFreeBytes: 1 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200}
 	if v := os.Getenv("STEPANEL_WEBSERVER"); v != "" {
 		c.WebServer = strings.ToLower(strings.TrimSpace(v))
 	}
@@ -80,6 +82,17 @@ func LoadConfig() Config {
 		c.GitAllowedHosts = strings.ToLower(strings.TrimSpace(v))
 	}
 	c.GitWebhookSecret = os.Getenv("STEPANEL_GIT_WEBHOOK_SECRET")
+	if v := os.Getenv("STEPANEL_RUNNER_ALLOWED_REGISTRIES"); v != "" {
+		c.RunnerAllowedRegistries = strings.ToLower(strings.TrimSpace(v))
+	}
+	if v := os.Getenv("STEPANEL_RUNNER_NETWORK_ENABLED"); v != "" {
+		c.RunnerNetworkEnabled = strings.ToLower(v) == "1" || strings.ToLower(v) == "true"
+	}
+	if v := os.Getenv("STEPANEL_MAX_IMAGE_SIZE"); v != "" {
+		if size, err := strconv.ParseInt(v, 10, 64); err == nil && size > 0 {
+			c.MaxImageSize = size
+		}
+	}
 	c.EnvironmentState = filepath.Join(filepath.Dir(c.JobState), "site-environments.json")
 	if v := os.Getenv("STEPANEL_ENVIRONMENT_STATE"); v != "" {
 		c.EnvironmentState = v
@@ -105,6 +118,9 @@ func LoadConfig() Config {
 	}
 	if v := os.Getenv("STEPANEL_GITCTL"); v != "" {
 		c.GitCtl = v
+	}
+	if v := os.Getenv("STEPANEL_TASKCTL"); v != "" {
+		c.TaskCtl = v
 	}
 	if v := os.Getenv("STEPANEL_GIT_RELEASE_RETENTION"); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
@@ -378,7 +394,7 @@ func ValidateConfig(c Config) error {
 				problems = append(problems, errors.New("production without application TLS must listen only on loopback"))
 			}
 		}
-		for name, path := range map[string]string{"STEPANEL_APPCTL": c.AppCtl, "STEPANEL_PROXYCTL": c.ProxyCtl, "STEPANEL_SITECTL": c.SiteCtl, "STEPANEL_VHOSTCTL": c.VHostCtl, "STEPANEL_DBCTL": c.DBCtl, "STEPANEL_CERTBOT": c.Certbot, "STEPANEL_RUNNERCTL": c.RunnerCtl, "STEPANEL_GITCTL": c.GitCtl, "STEPANEL_SUDO": c.Sudo} {
+		for name, path := range map[string]string{"STEPANEL_APPCTL": c.AppCtl, "STEPANEL_PROXYCTL": c.ProxyCtl, "STEPANEL_SITECTL": c.SiteCtl, "STEPANEL_VHOSTCTL": c.VHostCtl, "STEPANEL_DBCTL": c.DBCtl, "STEPANEL_CERTBOT": c.Certbot, "STEPANEL_RUNNERCTL": c.RunnerCtl, "STEPANEL_GITCTL": c.GitCtl, "STEPANEL_TASKCTL": c.TaskCtl, "STEPANEL_SUDO": c.Sudo} {
 			if path != "" && (!filepath.IsAbs(path) || strings.ContainsAny(path, "\x00\r\n")) {
 				problems = append(problems, fmt.Errorf("%s must be an absolute executable path in production", name))
 			} else if path != "" {

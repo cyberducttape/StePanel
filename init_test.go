@@ -31,4 +31,3 @@ func TestGenerateSecretIsDifferent(t *testing.T) {
 		t.Fatal("two generated secrets should not be equal")
 	}
 }
-

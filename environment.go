@@ -34,7 +34,7 @@ func (a *App) applyEnvironmentLocked(ctx context.Context, site string, vars map[
 		lines = append(lines, name+"="+value.Value)
 	}
 	sort.Strings(lines)
-	commandCtx, cancel := context.WithTimeout(ctx, helperCommandTimeout)
+	commandCtx, cancel := context.WithTimeout(ctx, helperConfigMutationTimeout)
 	defer cancel()
 	_, err := runBoundedCommandInput(commandCtx, helperCommandContext(commandCtx, a.Config, a.Config.AppCtl, "env-apply", site), strings.NewReader(strings.Join(lines, "\n")+"\n"))
 	return err

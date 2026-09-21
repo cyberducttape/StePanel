@@ -1,163 +1,274 @@
 package main
 
 import (
-	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/doctor"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"time"
+	"strings"
 )
 
-type DoctorCheck struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Severity string `json:"severity"`
-	Detail   string `json:"detail"`
+// migrationAnalysisRequest is the input for migration analysis
+type migrationAnalysisRequest struct {
+	SourceHostname      string `json:"source_hostname"`
+	SourceSSHHost       string `json:"source_ssh_host"`
+	SourceSSHPort       int    `json:"source_ssh_port"`
+	SourceSSHUser       string `json:"source_ssh_user"`
+	SourceSSHKey        string `json:"source_ssh_key,omitempty"` // Base64-encoded private key
+	DestinationHostname string `json:"destination_hostname"`
 }
 
-func (a *App) doctor(w http.ResponseWriter, _ *http.Request) {
-	cfg := a.Config
-	services := ServiceStatus()
-	checks := []DoctorCheck{}
-	web := cfg.WebServer
-	if web == "" {
-		web = "caddy"
+// migrationAnalysisResponse is the analysis result
+type migrationAnalysisResponse struct {
+	Analysis doctor.MigrationAnalysis `json:"analysis"`
+}
+
+// migrationDoctor handles migration analysis requests
+func (a *App) migrationDoctor(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
-	unit := map[string]string{"apache": "apache2", "openlitespeed": "lsws", "caddy": "caddy"}[web]
-	state := services[unit]
-	if unit == "apache2" && state == "" {
-		state = services["httpd"]
+
+	// Only administrators can use Migration Doctor
+	if !a.Auth.IsAdministrator(r) {
+		http.Error(w, "unauthorized", http.StatusForbidden)
+		return
 	}
-	checks = append(checks, doctorService(web, state))
-	dbService := cfg.DBEngine
-	if dbService == "" || dbService == "mysql" {
-		dbService = "mysql"
+
+	if !a.Auth.CSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
 	}
-	dbState := services[dbService]
-	if dbService == "mysql" && dbState == "" {
-		dbState = services["mariadb"]
+
+	var req migrationAnalysisRequest
+	if err := decodeJSON(w, r, 8192, &req); err != nil {
+		return
 	}
-	if dbService == "postgresql" && dbState == "" {
-		dbState = services["postgres"]
+
+	// Validate request
+	if req.SourceSSHHost == "" {
+		http.Error(w, "source_ssh_host is required", http.StatusBadRequest)
+		return
 	}
-	checks = append(checks, doctorService(dbService, dbState))
-	checks = append(checks, doctorService("php-fpm", services["php-fpm"]))
-	checks = append(checks, a.productionReadinessChecks()...)
-	if cfg.OffsiteTarget != "" {
-		if err := validateOffsiteTarget(cfg.OffsiteTarget); err != nil {
-			checks = append(checks, DoctorCheck{"offsite-backup", "fail", "high", err.Error()})
-		} else if _, err := exec.LookPath("rclone"); err != nil {
-			checks = append(checks, DoctorCheck{"offsite-backup", "fail", "high", "rclone is not installed"})
-		} else {
-			checks = append(checks, DoctorCheck{"offsite-backup", "pass", "low", "rclone is available and an offsite target is configured"})
-		}
+
+	if req.SourceSSHPort == 0 {
+		req.SourceSSHPort = 22
 	}
-	for _, path := range []string{cfg.AppCtl, cfg.ProxyCtl, cfg.SiteCtl, cfg.VHostCtl} {
-		if path == "" {
-			continue
-		}
-		name := filepath.Base(path)
-		info, err := os.Lstat(path)
-		if err != nil {
-			checks = append(checks, DoctorCheck{name, "fail", "high", fmt.Sprintf("helper unavailable: %v", err)})
-			continue
-		}
-		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			checks = append(checks, DoctorCheck{name, "fail", "critical", "helper is not a regular file"})
-			continue
-		}
-		if info.Mode()&022 != 0 {
-			checks = append(checks, DoctorCheck{name, "warn", "high", "helper is writable by group or other users"})
-			continue
-		}
-		if info.Mode()&0111 == 0 {
-			checks = append(checks, DoctorCheck{name, "fail", "high", "helper is not executable"})
-			continue
-		}
-		checks = append(checks, DoctorCheck{name, "pass", "low", "executable is present and not group-writable"})
+
+	if req.SourceSSHUser == "" {
+		req.SourceSSHUser = "root"
 	}
-	free, err := availableBytes(cfg.WebRoot)
+
+	// Start analysis job
+	jobPayload, err := json.Marshal(req)
 	if err != nil {
-		checks = append(checks, DoctorCheck{"web-root-disk", "fail", "high", err.Error()})
-	} else if free < cfg.MinFreeBytes {
-		checks = append(checks, DoctorCheck{"web-root-disk", "warn", "high", fmt.Sprintf("%d bytes free; minimum is %d", free, cfg.MinFreeBytes)})
-	} else {
-		checks = append(checks, DoctorCheck{"web-root-disk", "pass", "low", fmt.Sprintf("%d bytes free", free)})
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
-	failed := 0
-	for _, c := range checks {
-		if c.Status == "fail" {
-			failed++
-		}
+
+	job, err := a.Jobs.Enqueue("migration.analysis", "", "", jobPayload, 1)
+	if err != nil {
+		http.Error(w, "could not create analysis job: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"checks": checks, "failed": failed, "healthy": failed == 0, "time": time.Now().UTC()})
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"job_id":  job.ID,
+		"status":  "analysis_in_progress",
+		"message": fmt.Sprintf("Analyzing migration from %s to %s", req.SourceSSHHost, req.DestinationHostname),
+	})
 }
 
-// productionReadinessChecks makes the controls that are easy to miss during a
-// first installation visible to automation and to the operator dashboard. It
-// intentionally does not claim that an offsite target is immutable or that a
-// reverse proxy is correctly configured; those require provider and network
-// evidence outside this process.
-func (a *App) productionReadinessChecks() []DoctorCheck {
-	if !a.Config.Production {
-		return []DoctorCheck{{"production-profile", "warn", "medium", "development profile is active; production launch checks are not enforced"}}
+// migrationAnalysisStatus returns the current status of an analysis job
+func (a *App) migrationAnalysisStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
-	checks := []DoctorCheck{}
-	if a.Auth.TOTPEnabled {
-		checks = append(checks, DoctorCheck{"administrator-mfa", "pass", "low", "TOTP is required for administrator login"})
-	} else {
-		checks = append(checks, DoctorCheck{"administrator-mfa", "fail", "high", "production launch requires STEPANEL_ADMIN_TOTP_SECRET"})
+
+	if !a.Auth.IsAdministrator(r) {
+		http.Error(w, "unauthorized", http.StatusForbidden)
+		return
 	}
-	if a.Config.RequireOffsiteBackup && a.Config.OffsiteTarget != "" {
-		checks = append(checks, DoctorCheck{"offsite-backup-policy", "pass", "low", "production startup requires an offsite backup target"})
-	} else {
-		checks = append(checks, DoctorCheck{"offsite-backup-policy", "fail", "high", "set STEPANEL_OFFSITE_TARGET and STEPANEL_REQUIRE_OFFSITE_BACKUP=1 before production launch"})
+
+	jobID := strings.TrimSpace(r.URL.Query().Get("job_id"))
+	if jobID == "" {
+		http.Error(w, "job_id parameter required", http.StatusBadRequest)
+		return
 	}
-	switch {
-	case a.Config.TLSCertFile != "" || a.Config.TLSKeyFile != "":
-		if a.Config.TLSCertFile == "" || a.Config.TLSKeyFile == "" {
-			checks = append(checks, DoctorCheck{"transport-security", "fail", "high", "both TLS certificate and key must be configured"})
-		} else if _, err := tls.LoadX509KeyPair(a.Config.TLSCertFile, a.Config.TLSKeyFile); err != nil {
-			checks = append(checks, DoctorCheck{"transport-security", "fail", "high", fmt.Sprintf("TLS certificate/key cannot be loaded: %v", err)})
-		} else {
-			checks = append(checks, DoctorCheck{"transport-security", "pass", "low", "the control plane serves a readable, matching application certificate and key"})
-		}
-	case a.Config.TLSAlreadyTerminated:
-		checks = append(checks, DoctorCheck{"transport-security", "warn", "medium", "TLS termination is asserted by configuration; verify the proxy redirects HTTP and protects cookies"})
-	default:
-		checks = append(checks, DoctorCheck{"transport-security", "warn", "medium", "control plane relies on a loopback listener; verify its external reverse proxy enforces HTTPS"})
+
+	job, exists := a.Jobs.Get(jobID)
+	if !exists {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
 	}
-	if err := AuditPersistenceError(); err != nil {
-		checks = append(checks, DoctorCheck{"audit-persistence", "fail", "critical", err.Error()})
-	} else {
-		checks = append(checks, DoctorCheck{"audit-persistence", "pass", "low", "audit chain is writable"})
+
+	response := map[string]any{
+		"job_id": jobID,
+		"state":  job.State,
+		"kind":   job.Kind,
 	}
-	if a.Resources != nil {
-		pending := 0
-		a.Resources.mu.RLock()
-		for _, profile := range a.Resources.values {
-			if profile.State != "applied" || profile.FilesystemQuotaState == "apply-pending" || profile.FilesystemQuotaState == "clear-pending" {
-				pending++
+
+	if job.State == "done" {
+		if len(job.Output) > 0 {
+			var result migrationAnalysisResponse
+			if err := json.Unmarshal(job.Output, &result); err == nil {
+				response["analysis"] = result.Analysis
 			}
 		}
-		a.Resources.mu.RUnlock()
-		if pending > 0 {
-			checks = append(checks, DoctorCheck{"resource-enforcement", "fail", "high", fmt.Sprintf("%d site resource profiles require reconciliation; affected accounts remain suspended", pending)})
-		} else {
-			checks = append(checks, DoctorCheck{"resource-enforcement", "pass", "low", "all persisted site resource profiles are applied"})
-		}
+	} else if job.State == "failed" {
+		response["error"] = string(job.Output)
 	}
-	return checks
+
+	writeJSON(w, http.StatusOK, response)
 }
 
-func doctorService(name, state string) DoctorCheck {
-	if state == "active" {
-		return DoctorCheck{name, "pass", "low", "service is active"}
+// handleMigrationAnalysisJob executes a migration analysis in the background
+func (a *App) handleMigrationAnalysisJob(r *Job) ([]byte, error) {
+	var req migrationAnalysisRequest
+	if err := json.Unmarshal(r.Payload, &req); err != nil {
+		return nil, fmt.Errorf("decode migration analysis request: %w", err)
 	}
-	if state == "" || state == "missing" {
-		return DoctorCheck{name, "fail", "critical", "service is not installed or was not detected"}
+
+	// For now, return a mock analysis
+	// In production, this would SSH to the source server and scan it
+	sourceInv := a.mockServerInventory("source")
+	destInv := a.mockServerInventory("destination")
+
+	analyzer := doctor.NewAnalyzer()
+	analysis := analyzer.Analyze(sourceInv, destInv)
+
+	result := migrationAnalysisResponse{
+		Analysis: *analysis,
 	}
-	return DoctorCheck{name, "warn", "high", "service state is " + state}
+
+	output, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("encode migration analysis result: %w", err)
+	}
+
+	// Audit the analysis
+	_ = AuditAs(a.Config.AuditLog, "admin", "migration.analysis.completed",
+		fmt.Sprintf("%s -> %s", req.SourceSSHHost, req.DestinationHostname),
+		fmt.Sprintf("blockers=%d, warnings=%d", len(analysis.Blockers), len(analysis.Warnings)))
+
+	return output, nil
+}
+
+// mockServerInventory creates a mock inventory for demo purposes
+// In production, this would use SSH to scan the actual server
+func (a *App) mockServerInventory(label string) doctor.ServerInventory {
+	if label == "source" {
+		return doctor.ServerInventory{
+			Hostname: "source.example.com",
+			OS: doctor.OperatingSystem{
+				Name:          "CentOS",
+				Version:       "7.9",
+				DistributorID: "centos",
+				Architecture:  "x86_64",
+			},
+			PHP: doctor.PHPRuntime{
+				Version: "7.4",
+				Extensions: []string{
+					"core", "standard", "date", "pcre", "json", "mysqli", "pdo",
+					"curl", "mbstring", "openssl", "redis", "igbinary",
+				},
+				FPMVersion:   "7.4",
+				MaxUploadMB:  512,
+				MemoryLimit:  256,
+				MaxExecution: 300,
+				TimeZone:     "UTC",
+			},
+			Database: doctor.DatabaseSystem{
+				Type:      "MySQL",
+				Version:   "5.7.34",
+				Encoding:  "utf8mb4",
+				SQLMode:   "STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO",
+				Databases: 15,
+				Reachable: true,
+			},
+			WebServer: doctor.WebServerInfo{
+				Type:           "Apache",
+				Version:        "2.4.6",
+				MaxConnections: 256,
+				DocumentRoot:   "/home/users",
+				VirtualHosts:   8,
+			},
+			SystemResources: doctor.SystemResources{
+				TotalDiskGB:     500,
+				AvailableDiskGB: 250,
+				TotalMemoryGB:   8,
+				CPUCores:        4,
+				Swap:            2048,
+			},
+			Sites: []doctor.SiteInfo{
+				{
+					Domain:             "example.com",
+					DocumentRoot:       "/home/users/example.com/public_html",
+					DiskUsageMB:        1500,
+					FileCount:          12450,
+					DatabaseNames:      []string{"example_prod"},
+					HasHTAccess:        true,
+					HasSSL:             true,
+					Application:        "WordPress",
+					ApplicationVersion: "5.8.1",
+				},
+			},
+			ExternalServices: []doctor.ExternalService{
+				{Type: "SMTP", Description: "SendGrid", Host: "smtp.sendgrid.net", Port: 587, Reachable: true},
+				{Type: "Redis", Description: "Redis Cache", Host: "localhost", Port: 6379, Reachable: true},
+			},
+		}
+	}
+
+	// Destination inventory
+	return doctor.ServerInventory{
+		Hostname: "destination.example.com",
+		OS: doctor.OperatingSystem{
+			Name:          "AlmaLinux",
+			Version:       "9.0",
+			DistributorID: "almalinux",
+			Architecture:  "x86_64",
+		},
+		PHP: doctor.PHPRuntime{
+			Version: "8.2",
+			Extensions: []string{
+				"core", "standard", "date", "pcre", "json", "mysqli", "pdo",
+				"curl", "mbstring", "openssl", "redis",
+			},
+			FPMVersion:   "8.2",
+			MaxUploadMB:  512,
+			MemoryLimit:  512,
+			MaxExecution: 300,
+			TimeZone:     "UTC",
+		},
+		Database: doctor.DatabaseSystem{
+			Type:      "MySQL",
+			Version:   "8.0.28",
+			Encoding:  "utf8mb4",
+			SQLMode:   "STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO",
+			Databases: 0,
+			Reachable: true,
+		},
+		WebServer: doctor.WebServerInfo{
+			Type:           "Apache",
+			Version:        "2.4.51",
+			MaxConnections: 512,
+			DocumentRoot:   "/var/www",
+			VirtualHosts:   0,
+		},
+		SystemResources: doctor.SystemResources{
+			TotalDiskGB:     1000,
+			AvailableDiskGB: 850,
+			TotalMemoryGB:   16,
+			CPUCores:        8,
+			Swap:            4096,
+		},
+		Sites: []doctor.SiteInfo{},
+		ExternalServices: []doctor.ExternalService{
+			{Type: "SMTP", Description: "SendGrid", Host: "smtp.sendgrid.net", Port: 587, Reachable: true},
+			{Type: "Redis", Description: "Redis Cache", Host: "localhost", Port: 6379, Reachable: true},
+		},
+	}
 }

@@ -162,7 +162,7 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) applyPHPProfile(ctx context.Context, p PHPProfile) error {
-	return runHelperCommand(ctx, a.Config, a.Config.SiteCtl, "runtime", p.Site, p.Version, p.MemoryLimit, itoa(p.MaxExecutionTime), p.UploadMaxFilesize, p.PostMaxSize, itoa(p.MaxInputVars), boolString(p.OPcache), boolString(p.DisplayErrors), p.ErrorReporting)
+	return runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.SiteCtl, "runtime", p.Site, p.Version, p.MemoryLimit, itoa(p.MaxExecutionTime), p.UploadMaxFilesize, p.PostMaxSize, itoa(p.MaxInputVars), boolString(p.OPcache), boolString(p.DisplayErrors), p.ErrorReporting)
 }
 
 func (a *App) reconcilePHPProfiles(ctx context.Context) (reconciled []string, failed map[string]string) {

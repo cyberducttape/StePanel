@@ -144,7 +144,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		}
 		releaseUnlock := a.siteOperations.Acquire(site)
 		defer releaseUnlock()
-		if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "worker-"+parts[2], site, name); err != nil {
+		if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "worker-"+parts[2], site, name); err != nil {
 			http.Error(w, "worker action failed", 502)
 			return
 		}
@@ -236,9 +236,9 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) applyWorker(ctx context.Context, worker Worker) error {
 	if worker.Deleted {
-		return runHelperCommand(ctx, a.Config, a.Config.AppCtl, "worker-delete", worker.Site, worker.Name)
+		return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "worker-delete", worker.Site, worker.Name)
 	}
-	return runHelperCommand(ctx, a.Config, a.Config.AppCtl, "worker-apply", worker.Site, worker.Name, worker.Type, worker.Root, strconv.Itoa(worker.Processes), strconv.Itoa(worker.MemoryMB), strconv.Itoa(worker.Retries))
+	return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "worker-apply", worker.Site, worker.Name, worker.Type, worker.Root, strconv.Itoa(worker.Processes), strconv.Itoa(worker.MemoryMB), strconv.Itoa(worker.Retries))
 }
 
 func (a *App) recordWorkerError(key string, applyErr error) {

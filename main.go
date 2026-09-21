@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/metadata"
 	"github.com/itchyitchy123/StePanel/internal/operations"
 	"html/template"
 	"io"
@@ -45,9 +46,12 @@ type App struct {
 	APITokens                *apiTokenStore
 	Deployments              *DeploymentStore
 	Resources                *ResourceStore
+	Webhooks                 *WebhookConfigStore
+	BackupIndex              *metadata.BackupIndex
 	databaseDiagnosticsMu    sync.Mutex
 	databaseDiagnosticsCache DatabaseDiagnostics
 	gitActivationMu          sync.Mutex
+	webhookReplayCache       *WebhookReplayCache
 	siteOperations           operations.Locks
 	appLifecycleMu           sync.Mutex
 }
@@ -60,6 +64,10 @@ func main() {
 	}
 	if len(os.Args) == 2 && os.Args[1] == "init" {
 		runInit()
+		return
+	}
+	if len(os.Args) == 2 && os.Args[1] == "setup" {
+		runSetupWizard()
 		return
 	}
 	if len(os.Args) == 2 && os.Args[1] == "convert-htaccess" {
@@ -200,6 +208,17 @@ func main() {
 	}
 	if err := auth.ConfigureTOTPReplayDB(controlPlaneDB); err != nil {
 		log.Fatalf("open persistent TOTP replay state: %v", err)
+	}
+	if err := auth.ConfigureLegacyTokenDeprecation(controlPlaneDB); err != nil {
+		log.Fatalf("configure legacy token deprecation tracking: %v", err)
+	}
+	webhookConfigStore := NewWebhookConfigStore(controlPlaneDB)
+	if err := webhookConfigStore.InitializeSchema(); err != nil {
+		log.Fatalf("initialize webhook configuration schema: %v", err)
+	}
+	backupIndex, err := metadata.NewBackupIndex(controlPlaneDB)
+	if err != nil {
+		log.Fatalf("initialize backup index: %v", err)
 	}
 	auth.apiTokens = &apiTokenStore{db: controlPlaneDB}
 	accounts, err := OpenAccountStoreDB(controlPlaneDB, cfg.AccountState, cfg.AccountKey)
@@ -366,12 +385,14 @@ func main() {
 		log.Fatalf("open backup schedules: %v", err)
 	}
 	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, RecoveryError: errors.Join(recoveryFailures...)}
+	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, webhookReplayCache: NewWebhookReplayCache(5 * time.Minute), RecoveryError: errors.Join(recoveryFailures...)}
 	// Reconcile domains independently. A single shared deadline allowed a slow
 	// host/helper operation in an early domain to starve every later domain.
 	// Each domain remains bounded, and failures are retained in its own report.
 	reconcile := func(name string, fn func(context.Context) ([]string, map[string]string)) {
-		reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), helperCommandTimeout)
+		// Use ServiceLifecycleTimeout for reconciliation operations (config mutations, user setup, etc.)
+		// This gives each domain up to 60 seconds to reconcile, allowing for slower helper operations.
+		reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), helperServiceLifecycleTimeout)
 		defer cancelReconcile()
 		reconciled, failed := fn(reconcileCtx)
 		if len(failed) > 0 {
@@ -396,7 +417,7 @@ func main() {
 	defer stop()
 	if workerMode {
 		log.Printf("StePanel durable worker started with pid %d", os.Getpid())
-		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate"}, 500*time.Millisecond, app.handleDurableJob)
+		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis", "archive.inspect", "archive.import"}, 500*time.Millisecond, app.handleDurableJob)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Fatalf("durable worker stopped: %v", err)
 		}
@@ -407,7 +428,7 @@ func main() {
 	}
 	if cfg.WorkerMode != "external" {
 		go func() {
-			err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate"}, 500*time.Millisecond, app.handleDurableJob)
+			err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis", "archive.inspect", "archive.import"}, 500*time.Millisecond, app.handleDurableJob)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				log.Printf("durable worker stopped: %v", err)
 			}
@@ -462,7 +483,6 @@ func main() {
 	mux.Handle("/api/security/audit", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.securityAudit)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/security/center", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.securityCenter)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/audit/events", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.auditEvents)), http.MethodGet, http.MethodHead))
-	mux.Handle("/api/doctor", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.doctor)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/cloud", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.cloudInventory)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/cloud/action", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.cloudAction)), http.MethodPost))
 	mux.Handle("/api/cloud/dns", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.cloudDNS)), http.MethodGet, http.MethodHead, http.MethodPost, http.MethodDelete))
@@ -494,7 +514,7 @@ func main() {
 		app.siteAccess(w, r)
 	})), http.MethodGet, http.MethodPatch, http.MethodPost, http.MethodDelete))
 	mux.Handle("/api/workers/", allowMethods(app.Auth.Require(http.HandlerFunc(app.workers)), http.MethodGet, http.MethodPut, http.MethodPost, http.MethodDelete))
-	mux.Handle("/api/tasks/", allowMethods(app.Auth.Require(http.HandlerFunc(app.tasks)), http.MethodGet, http.MethodPut, http.MethodDelete))
+	mux.Handle("/api/tasks/", allowMethods(app.Auth.Require(http.HandlerFunc(app.tasks)), http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete))
 	mux.Handle("/api/python/deploy", allowMethods(app.Auth.Require(http.HandlerFunc(app.pythonDeploy)), http.MethodPost))
 	mux.Handle("/api/python/", allowMethods(app.Auth.Require(http.HandlerFunc(app.pythonAction)), http.MethodPost))
 	mux.Handle("/api/composer/", allowMethods(app.Auth.Require(http.HandlerFunc(app.composer)), http.MethodGet, http.MethodHead, http.MethodPost))
@@ -526,7 +546,9 @@ func main() {
 	mux.Handle("/api/apps/deploy", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.appDeploy)), http.MethodPost))
 	mux.Handle("/api/sites/git-deploy", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.gitDeploy)), http.MethodPost))
 	mux.Handle("/api/sites/git-key/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteGitKey)), http.MethodGet, http.MethodHead, http.MethodPost, http.MethodDelete))
-	mux.Handle("/api/sites/git-webhook", allowMethods(http.HandlerFunc(app.gitWebhook), http.MethodPost))
+	// Webhook endpoint now includes site in path for per-site secret isolation.
+	// Old endpoint /api/sites/git-webhook supported global secret only and is deprecated.
+	mux.Handle("/api/sites/git-webhook/", allowMethods(http.HandlerFunc(app.gitWebhook), http.MethodPost))
 	mux.Handle("/api/sites/git-rollback", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.gitRollback)), http.MethodPost))
 	mux.Handle("/api/caddy/htaccess", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.htaccessMigration)), http.MethodPost))
 	mux.Handle("/api/apps/", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.appAction)), http.MethodPost))
@@ -541,11 +563,18 @@ func main() {
 	mux.Handle("/api/admin/plan-status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.accountPlanStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/suspend", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.accountSuspend)), http.MethodPost))
 	mux.Handle("/api/admin/unsuspend", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.accountUnsuspend)), http.MethodPost))
+	mux.Handle("/api/admin/migration-doctor", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationDoctor)), http.MethodPost))
+	mux.Handle("/api/admin/migration-doctor/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationAnalysisStatus)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/admin/archive/inspect", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.inspectArchive)), http.MethodPost))
+	mux.Handle("/api/admin/archive/inspect/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.inspectArchiveStatus)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/admin/archive/import", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.archiveImportStart)), http.MethodPost))
+	mux.Handle("/api/admin/archive/import/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.archiveImportStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/account/password", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerPassword)), http.MethodPost))
 	mux.Handle("/api/account/mfa", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerMFA)), http.MethodPost))
 	mux.Handle("/api/account/sessions/revoke", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerSessionsRevoke)), http.MethodPost))
 	mux.Handle("/api/account/tokens", allowMethods(app.Auth.Require(http.HandlerFunc(app.apiTokens)), http.MethodGet, http.MethodPost))
 	mux.Handle("/api/account/tokens/", allowMethods(app.Auth.Require(http.HandlerFunc(app.apiTokens)), http.MethodDelete))
+	mux.Handle("/api/account/security", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerSecurityCenter)), http.MethodGet))
 	mux.Handle("/api/admin/tokens", allowMethods(app.Auth.Require(http.HandlerFunc(app.Auth.adminAPITokens)), http.MethodGet, http.MethodPost))
 	mux.Handle("/api/admin/tokens/", allowMethods(app.Auth.Require(http.HandlerFunc(app.Auth.adminAPITokens)), http.MethodDelete))
 	mux.Handle("/api/jobs/", allowMethods(app.Auth.Require(http.HandlerFunc(app.jobStatus)), http.MethodGet, http.MethodHead, http.MethodPost))
@@ -945,6 +974,18 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleCloudJob(ctx, item)
 	case "site.terminate":
 		return a.handleSiteTermination(ctx, item)
+	case "migration.analysis":
+		return a.handleMigrationAnalysisJob(&item)
+	case "archive.inspect":
+		if err := a.handleArchiveInspectionJob(ctx, &item); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	case "archive.import":
+		if err := a.handleArchiveImportJob(ctx, &item); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("no durable worker handler for job kind %q", item.Kind)
 	}
@@ -1157,6 +1198,11 @@ func limitConcurrent(next http.Handler, slots chan struct{}) http.Handler {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, limit int64, destination any) error {
+	// Validate limit to prevent potential DoS. All callers use hardcoded constants.
+	const maxLimit = 1 << 20 // 1 MiB max
+	if limit <= 0 || limit > maxLimit {
+		return fmt.Errorf("invalid decode limit: %d", limit)
+	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {

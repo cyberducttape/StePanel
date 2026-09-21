@@ -29,8 +29,8 @@ jobs:
         # after setup-go publishes that version for all runner architectures.
         go_version: ['1.26.x']
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go_version }}
           cache: true
@@ -48,11 +48,11 @@ jobs:
         run: go test -p 1 -race -timeout 10m ./...
       - name: Recovery drills
         run: bash deploy/lab/run-recovery-drills.sh /tmp/stepanel-recovery-drills.md
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v7
         with:
           name: recovery-drill-results
           path: /tmp/stepanel-recovery-drills.md
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v7
         with:
           name: go-coverage
           path: coverage.out
@@ -104,6 +104,8 @@ jobs:
       - run: bash -n deploy/integrations/*
       - name: Lint shell scripts
         run: shellcheck -S warning install.sh deploy/lab/run.sh deploy/integrations/*
+      - name: Check documentation links
+        run: bash scripts/check-docs-links.sh docs
       - name: Vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: Build container

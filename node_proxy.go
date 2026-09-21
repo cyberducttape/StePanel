@@ -122,7 +122,7 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid proxy path", 422)
 		return
 	}
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.ProxyCtl, "apply", input.Site, strings.ToLower(input.Domain), backend); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "apply", input.Site, strings.ToLower(input.Domain), backend); err != nil {
 		http.Error(w, "proxy helper rejected the configuration or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
@@ -191,7 +191,7 @@ func (a *App) proxyManage(w http.ResponseWriter, r *http.Request) {
 	}
 	releaseUnlock := a.siteOperations.Acquire("proxy:" + name)
 	defer releaseUnlock()
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.ProxyCtl, "delete", name); err != nil {
+	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "delete", name); err != nil {
 		http.Error(w, "proxy was not removed because the helper or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
@@ -230,19 +230,4 @@ func localBackend(value string) (string, error) {
 
 func isCloudMetadataIP(ip net.IP) bool {
 	return ip.Equal(net.ParseIP("169.254.169.254")) || ip.Equal(net.ParseIP("100.100.100.200")) || ip.Equal(net.ParseIP("fd00:ec2::254"))
-}
-
-func ensureInside(root, target string) error {
-	r, err := filepath.Abs(root)
-	if err != nil {
-		return err
-	}
-	t, err := filepath.Abs(target)
-	if err != nil {
-		return err
-	}
-	if t != r && !strings.HasPrefix(t, r+string(os.PathSeparator)) {
-		return errors.New("path escapes configured root")
-	}
-	return rejectSymlinkParents(t, r)
 }

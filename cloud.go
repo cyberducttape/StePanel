@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -119,23 +120,31 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		err = executeSSHAction(workerCtx, request.ID, request.Action, request.Service)
 		result = CloudActionResult{Provider: "ssh", Action: request.Action, ID: request.ID, CompletedAt: time.Now().UTC()}
 	case "dns":
+		// Validate DNS IDs to prevent SSRF attacks
+		if !cloudNumericID.MatchString(request.DNS.DomainID) || !cloudNumericID.MatchString(request.DNS.RecordID) {
+			return nil, fmt.Errorf("invalid domain or record ID format")
+		}
 		request.DNS.Type = strings.ToUpper(request.DNS.Type)
 		var path, method string
 		var body any
 		alreadyPresent := false
 		if request.Action == "delete" {
+			// lgtm[go/request-forgery]: DomainID and RecordID are validated against cloudNumericID regex above
 			path = "/domains/" + request.DNS.DomainID + "/records/" + request.DNS.RecordID
 			method = http.MethodDelete
 		} else {
 			if request.Action == "create" {
+				// lgtm[go/request-forgery]: DomainID is validated against cloudNumericID regex above
 				if existing, lookupErr := linodeAPIRequest(ctx, http.MethodGet, "/domains/"+request.DNS.DomainID+"/records", nil); lookupErr == nil && dnsRecordExists(existing, request.DNS) {
 					alreadyPresent = true
 				}
 			}
 			if !alreadyPresent {
+				// lgtm[go/request-forgery]: DomainID is validated against cloudNumericID regex above
 				path = "/domains/" + request.DNS.DomainID + "/records"
 				method = http.MethodPost
 				if request.Action == "update" {
+					// lgtm[go/request-forgery]: RecordID is validated against cloudNumericID regex above
 					path += "/" + request.DNS.RecordID
 					method = http.MethodPut
 				}
@@ -147,12 +156,18 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		result = CloudActionResult{Provider: "linode", Action: "dns." + request.Action, ID: request.DNS.DomainID, CompletedAt: time.Now().UTC()}
 	case "loadbalancer":
+		// Validate load balancer IDs to prevent SSRF attacks
+		if !cloudNumericID.MatchString(request.LB.NodeBalancerID) || !cloudNumericID.MatchString(request.LB.ConfigID) || !cloudNumericID.MatchString(request.LB.NodeID) {
+			return nil, fmt.Errorf("invalid nodebalancer, config, or node ID format")
+		}
 		var path, method string
 		var body any
 		if request.LB.Action == "remove" {
+			// lgtm[go/request-forgery]: All IDs are validated against cloudNumericID regex above
 			path = "/nodebalancers/" + request.LB.NodeBalancerID + "/configs/" + request.LB.ConfigID + "/nodes/" + request.LB.NodeID
 			method = http.MethodDelete
 		} else {
+			// lgtm[go/request-forgery]: All IDs are validated against cloudNumericID regex above
 			path = "/nodebalancers/" + request.LB.NodeBalancerID + "/configs/" + request.LB.ConfigID + "/nodes"
 			method = http.MethodPost
 			body = map[string]any{"address": request.LB.Address, "label": request.LB.Label, "port": request.LB.Port, "weight": request.LB.Weight}
@@ -160,6 +175,11 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		_, err = linodeAPIRequest(ctx, method, path, body)
 		result = CloudActionResult{Provider: "linode", Action: "loadbalancer." + request.LB.Action, ID: request.LB.NodeBalancerID, CompletedAt: time.Now().UTC()}
 	case "snapshot.delete":
+		// Validate snapshot ID to prevent SSRF attacks
+		if !cloudNumericID.MatchString(request.ID) {
+			return nil, fmt.Errorf("invalid snapshot ID format")
+		}
+		// lgtm[go/request-forgery]: ID is validated against cloudNumericID regex above
 		_, err = linodeAPIRequest(ctx, http.MethodDelete, "/account/linode/backups/"+request.ID, nil)
 		result = CloudActionResult{Provider: "linode", Action: "snapshot.delete", ID: request.ID, CompletedAt: time.Now().UTC()}
 	default:
@@ -504,13 +524,15 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 		}
 		reader = bytes.NewReader(data)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "https://api.linode.com/v4"+path, reader)
+	// Build URL safely using url.URL to prevent SSRF attacks
+	baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
+	req, err := http.NewRequestWithContext(ctx, method, baseURL.String(), reader)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	res, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	res, err := (&http.Client{Timeout: 30 * time.Second}).Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
 	if err != nil {
 		return nil, err
 	}
@@ -540,24 +562,32 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 var cloudIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 func executeCloudAction(ctx context.Context, provider, action, id string) error {
+	// Validate ID to prevent SSRF attacks via URL manipulation
+	if !cloudIDPattern.MatchString(id) {
+		return fmt.Errorf("invalid instance ID format: %s", id)
+	}
+
 	switch provider {
 	case "linode":
 		token := os.Getenv("STEPANEL_LINODE_TOKEN")
 		if token == "" {
 			return errors.New("STEPANEL_LINODE_TOKEN is not configured")
 		}
+		// lgtm[go/request-forgery]: id is validated against cloudIDPattern regex in caller
 		path := "/linode/instances/" + id
 		if action == "snapshot" {
 			path += "/backups"
 		} else {
+			// lgtm[go/request-forgery]: action is constrained to a hardcoded map
 			path += "/" + map[string]string{"start": "boot", "stop": "shutdown", "reboot": "reboot"}[action]
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.linode.com/v4"+path, nil)
+		baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL.String(), nil)
 		if err != nil {
 			return err
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
-		res, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+		res, err := (&http.Client{Timeout: 20 * time.Second}).Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
 		if err != nil {
 			return err
 		}
@@ -644,13 +674,14 @@ func linodeInventory(ctx context.Context) (CloudInventory, error) {
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	get := func(path string) (any, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.linode.com/v4"+path, nil)
+		baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Accept", "application/json")
-		res, err := client.Do(req)
+		res, err := client.Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
 		if err != nil {
 			return nil, err
 		}

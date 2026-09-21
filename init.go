@@ -78,16 +78,15 @@ type initState struct {
 	production           bool
 }
 
-
 func (s *initState) validateEnvironment() error {
 	// Check for required tools/helpers (optional for first run, warn if missing)
 	requiredHelpers := map[string]string{
-		"/usr/local/sbin/stepanel-appctl":     "App lifecycle helper",
-		"/usr/local/sbin/stepanel-vhostctl":   "Virtual host helper",
-		"/usr/local/sbin/stepanel-proxyctl":   "Proxy helper",
-		"/usr/local/sbin/stepanel-sitectl":    "Site lifecycle helper",
-		"/usr/local/bin/wp":                   "WordPress CLI",
-		"/usr/local/sbin/stepanel-certbot":    "Certificate helper",
+		"/usr/local/sbin/stepanel-appctl":   "App lifecycle helper",
+		"/usr/local/sbin/stepanel-vhostctl": "Virtual host helper",
+		"/usr/local/sbin/stepanel-proxyctl": "Proxy helper",
+		"/usr/local/sbin/stepanel-sitectl":  "Site lifecycle helper",
+		"/usr/local/bin/wp":                 "WordPress CLI",
+		"/usr/local/sbin/stepanel-certbot":  "Certificate helper",
 	}
 
 	missing := []string{}
@@ -282,4 +281,3 @@ func generateSecret(length int) (string, error) {
 	}
 	return base64.StdEncoding.EncodeToString(buf), nil
 }
-

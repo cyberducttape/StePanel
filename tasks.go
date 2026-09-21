@@ -5,11 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ScheduledTask is intentionally a systemd-timer definition, rather than a
@@ -26,6 +28,17 @@ type ScheduledTask struct {
 	State      string `json:"state,omitempty"`
 	LastError  string `json:"last_error,omitempty"`
 	Deleted    bool   `json:"deleted,omitempty"`
+	// Phase 1 safeguards
+	LastRunAt           int64    `json:"last_run_at,omitempty"`          // Unix timestamp of last execution
+	LastRunExitCode     int      `json:"last_run_exit_code,omitempty"`   // 0 = success, >0 = failure
+	LastRunOutput       []string `json:"last_run_output,omitempty"`      // Last N lines of stdout/stderr
+	ConsecutiveFailures int      `json:"consecutive_failures,omitempty"` // Count failures for auto-disable
+	AutoDisabledAt      int64    `json:"auto_disabled_at,omitempty"`     // When task was auto-disabled
+	// Phase 2 safeguards
+	NotifyEmail        string `json:"notify_email,omitempty"`         // Email for failure notifications
+	MinIntervalSeconds int    `json:"min_interval_seconds,omitempty"` // Rate limiting: min seconds between runs
+	MaxConcurrentRuns  int    `json:"max_concurrent_runs,omitempty"`  // Concurrency limit (default 1)
+	CurrentRunCount    int    `json:"current_run_count,omitempty"`    // Currently running instances
 }
 
 type TaskStore struct {
@@ -87,6 +100,152 @@ func validTaskRuntime(v string) bool {
 	return v == "php" || v == "node" || v == "python" || v == "shell"
 }
 
+const (
+	// Phase 1: Output and execution safeguards
+	maxTaskOutputLines      = 100             // Keep last 100 lines of output
+	maxTaskOutputSize       = 1024 * 1024     // 1MB max output
+	taskTimeoutDefault      = 5 * time.Minute // 5-minute execution limit
+	autoDisableFailureCount = 10              // Disable after 10 consecutive failures
+)
+
+// recordTaskExecution updates task with execution results
+func (s *TaskStore) recordTaskExecution(key string, exitCode int, output []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.values[key]
+	if !exists {
+		return errors.New("task not found")
+	}
+
+	task.LastRunAt = time.Now().Unix()
+	task.LastRunExitCode = exitCode
+	task.LastRunOutput = output
+
+	// Track consecutive failures for auto-disable
+	if exitCode == 0 {
+		task.ConsecutiveFailures = 0
+		task.LastError = ""
+	} else {
+		task.ConsecutiveFailures++
+		task.LastError = "task exited with code " + strconv.Itoa(exitCode)
+
+		// Auto-disable after too many consecutive failures
+		if task.ConsecutiveFailures >= autoDisableFailureCount {
+			task.Enabled = false
+			task.AutoDisabledAt = time.Now().Unix()
+			task.LastError = "auto-disabled after " + strconv.Itoa(autoDisableFailureCount) + " consecutive failures"
+		}
+	}
+
+	s.values[key] = task
+	return s.persistLocked()
+}
+
+// captureTaskOutput captures and limits output from task execution
+func captureTaskOutput(output string) []string {
+	lines := strings.Split(output, "\n")
+
+	// Keep only last N lines
+	if len(lines) > maxTaskOutputLines {
+		lines = lines[len(lines)-maxTaskOutputLines:]
+	}
+
+	// Ensure total size doesn't exceed limit
+	var result []string
+	totalSize := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		lineSize := len(lines[i])
+		if totalSize+lineSize > maxTaskOutputSize {
+			break
+		}
+		result = append([]string{lines[i]}, result...)
+		totalSize += lineSize
+	}
+
+	return result
+}
+
+// killTask stops a running scheduled task via systemd.
+// Requires stepanel-taskctl helper (installed at /usr/local/sbin/stepanel-taskctl)
+// and invoked through the privileged root wrapper.
+func (a *App) killTask(site, name string) error {
+	if a.Config.TaskCtl == "" {
+		return errors.New("task control helper not configured")
+	}
+	releaseUnlock := a.siteOperations.Acquire(site)
+	defer releaseUnlock()
+	return runHelperCommandWithTimeout(context.Background(), a.Config, taskTimeoutDefault, a.Config.TaskCtl, "kill", site, name)
+}
+
+// canExecuteTask checks if task can run based on rate limiting and concurrency limits
+func (s *TaskStore) canExecuteTask(key string) bool {
+	s.mu.RLock()
+	task, exists := s.values[key]
+	s.mu.RUnlock()
+
+	if !exists || !task.Enabled {
+		return false
+	}
+
+	// Check concurrent run limit (default 1)
+	maxConcurrent := task.MaxConcurrentRuns
+	if maxConcurrent < 1 {
+		maxConcurrent = 1
+	}
+	if task.CurrentRunCount >= maxConcurrent {
+		return false
+	}
+
+	// Check rate limit (min interval between runs)
+	if task.MinIntervalSeconds > 0 && task.LastRunAt > 0 {
+		timeSinceLastRun := time.Now().Unix() - task.LastRunAt
+		if timeSinceLastRun < int64(task.MinIntervalSeconds) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// incrementTaskRunCount increments the concurrent run counter
+func (s *TaskStore) incrementTaskRunCount(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.values[key]
+	if !exists {
+		return errors.New("task not found")
+	}
+
+	task.CurrentRunCount++
+	s.values[key] = task
+	return s.persistLocked()
+}
+
+// decrementTaskRunCount decrements the concurrent run counter
+func (s *TaskStore) decrementTaskRunCount(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.values[key]
+	if !exists {
+		return errors.New("task not found")
+	}
+
+	if task.CurrentRunCount > 0 {
+		task.CurrentRunCount--
+	}
+	s.values[key] = task
+	return s.persistLocked()
+}
+
+// TODO: Phase 2 safeguards not yet implemented
+// - NotifyEmail field: email notifications require external service integration (SendGrid, AWS SES, etc.)
+// - MinIntervalSeconds: rate limiting/deduplication
+// - MaxConcurrentRuns: admission control for concurrent task executions
+// These fields are accepted in the API for future compatibility but not currently enforced.
+
 func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/"), "/")
 	if len(parts) < 1 || safeUser(parts[0]) == "" {
@@ -113,14 +272,68 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"tasks": result})
 		return
 	}
-	if len(parts) != 2 || !validWorkerName(parts[1]) {
+	if len(parts) < 2 || len(parts) > 3 || !validWorkerName(parts[1]) {
 		http.Error(w, "invalid task", 422)
 		return
 	}
 	name := parts[1]
+
+	// Handle kill/cancel endpoint: POST /api/tasks/{site}/{name}/kill
+	if len(parts) == 3 && parts[2] == "kill" {
+		if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
+			http.Error(w, "invalid request", 403)
+			return
+		}
+		if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+			http.Error(w, "insufficient token scope for task operations", http.StatusForbidden)
+			return
+		}
+		if err := a.killTask(site, name); err != nil {
+			http.Error(w, "could not kill task: "+err.Error(), 502)
+			return
+		}
+		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "task.killed", site, name)
+		writeJSON(w, 202, map[string]string{"site": site, "name": name, "action": "kill"})
+		return
+	}
+
+	if len(parts) != 2 {
+		http.Error(w, "invalid task", 422)
+		return
+	}
+
+	// Handle GET for task execution history
+	if r.Method == http.MethodGet {
+		key := site + "/" + name
+		a.Tasks.mu.RLock()
+		task, exists := a.Tasks.values[key]
+		a.Tasks.mu.RUnlock()
+		if !exists || task.Deleted {
+			http.Error(w, "task not found", 404)
+			return
+		}
+		response := map[string]any{
+			"site":                 task.Site,
+			"name":                 task.Name,
+			"last_run_at":          task.LastRunAt,
+			"last_run_exit_code":   task.LastRunExitCode,
+			"last_run_output":      task.LastRunOutput,
+			"consecutive_failures": task.ConsecutiveFailures,
+			"auto_disabled_at":     task.AutoDisabledAt,
+			"enabled":              task.Enabled,
+			"last_error":           task.LastError,
+		}
+		writeJSON(w, 200, response)
+		return
+	}
+
 	if r.Method == http.MethodDelete {
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", 403)
+			return
+		}
+		if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+			http.Error(w, "insufficient token scope for task operations", http.StatusForbidden)
 			return
 		}
 		releaseUnlock := a.siteOperations.Acquire(site)
@@ -155,6 +368,10 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", 403)
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for task operations", http.StatusForbidden)
+		return
+	}
 	var input ScheduledTask
 	if err := decodeJSON(w, r, 8192, &input); err != nil {
 		http.Error(w, "invalid JSON", 400)
@@ -164,9 +381,25 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	input.State = "pending"
 	input.LastError = ""
 	input.Deleted = false
+
+	// Apply defaults for fields the browser form may not send
+	if input.MaxConcurrentRuns == 0 {
+		input.MaxConcurrentRuns = 1  // Default: one concurrent run at a time
+	}
+
 	input.Command, input.OnCalendar = strings.TrimSpace(input.Command), strings.TrimSpace(input.OnCalendar)
+	input.NotifyEmail = strings.TrimSpace(input.NotifyEmail)
 	if !validTaskRuntime(input.Runtime) || input.Command == "" || len(input.Command) > 1024 || strings.ContainsAny(input.Command, "\x00\r\n") || input.OnCalendar == "" || len(input.OnCalendar) > 128 || strings.ContainsAny(input.OnCalendar, "\x00\r\n") || input.TimeoutSec < 1 || input.TimeoutSec > 86400 {
 		http.Error(w, "invalid scheduled task definition", 422)
+		return
+	}
+	// Validate Phase 2 fields
+	if input.MinIntervalSeconds < 0 || input.MinIntervalSeconds > 86400 {
+		http.Error(w, "min_interval_seconds must be 0-86400", 422)
+		return
+	}
+	if input.MaxConcurrentRuns < 1 || input.MaxConcurrentRuns > 100 {
+		http.Error(w, "max_concurrent_runs must be 1-100", 422)
 		return
 	}
 	releaseUnlock := a.siteOperations.Acquire(site)
@@ -208,9 +441,11 @@ func (a *App) finalizeTaskDeletionLocked(key string, task ScheduledTask) error {
 
 func (a *App) applyTask(ctx context.Context, task ScheduledTask) error {
 	if task.Deleted {
-		return runHelperCommand(ctx, a.Config, a.Config.AppCtl, "task-delete", task.Site, task.Name)
+		return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "task-delete", task.Site, task.Name)
 	}
-	encodedCommand := base64.RawStdEncoding.EncodeToString([]byte(task.Command))
+	// Use standard Base64 with padding for cross-platform compatibility
+	// RawStdEncoding (without padding) fails on GNU base64 -d for commands needing padding
+	encodedCommand := base64.StdEncoding.EncodeToString([]byte(task.Command))
 	// Keep task limits aligned with the site's desired resource profile. The
 	// helper retains a conservative fallback for sites that have no profile.
 	args := []string{"task-apply", task.Site, task.Name, task.Runtime, task.OnCalendar, stringBool(task.Enabled), itoa(task.TimeoutSec), encodedCommand}
@@ -222,7 +457,7 @@ func (a *App) applyTask(ctx context.Context, task ScheduledTask) error {
 			args = append(args, strconv.Itoa(profile.CPUPercent), strconv.Itoa(profile.MemoryMB), strconv.Itoa(profile.TasksMax))
 		}
 	}
-	return runHelperCommand(ctx, a.Config, a.Config.AppCtl, args...)
+	return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, args...)
 }
 
 func (a *App) recordTaskError(key string, applyErr error) {
