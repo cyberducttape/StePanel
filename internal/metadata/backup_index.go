@@ -59,10 +59,7 @@ func (idx *BackupIndex) initSchema() error {
 		consistency TEXT,
 		manifest_signed BOOLEAN DEFAULT 0,
 		last_indexed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		UNIQUE(site, backup_name),
-		INDEX idx_site (site),
-		INDEX idx_created (created_at DESC),
-		INDEX idx_verified (verified_at DESC)
+		UNIQUE(site, backup_name)
 	);
 
 	CREATE TABLE IF NOT EXISTS backup_databases (
@@ -81,6 +78,10 @@ func (idx *BackupIndex) initSchema() error {
 		cache_ttl_seconds INTEGER DEFAULT 300,
 		FOREIGN KEY (backup_id) REFERENCES backup_index(id) ON DELETE CASCADE
 	);
+
+	CREATE INDEX IF NOT EXISTS idx_site ON backup_index(site);
+	CREATE INDEX IF NOT EXISTS idx_created ON backup_index(created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_verified ON backup_index(verified_at DESC);
 	`
 
 	_, err := idx.db.Exec(schema)
