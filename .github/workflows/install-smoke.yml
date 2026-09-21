@@ -17,11 +17,11 @@ jobs:
       matrix:
         include:
           - name: almalinux-9-caddy-mariadb
-            image: almalinux:9
+            image: almalinux:9-init
             db: mariadb
             web: caddy
           - name: rocky-9-caddy-mariadb
-            image: rockylinux:9
+            image: rockylinux:9-init
             db: mariadb
             web: caddy
           - name: ubuntu-24.04-caddy-mysql
