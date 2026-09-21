@@ -183,7 +183,7 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		return nil, fmt.Errorf("invalid archive URL: %w", err)
 	}
 
-	resp, err := a.httpClient.Do(req) // URL validated at line 89; redirects checked via CheckRedirect policy
+	resp, err := a.httpClient.Do(req) // URL validated at line 176; redirects checked via CheckRedirect policy
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch archive: %w", err)
 	}
@@ -210,7 +210,7 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		return nil, fmt.Errorf("invalid archive URL: %w", err)
 	}
 
-	bodyResp, err := a.httpClient.Do(bodyReq) // URL validated at line 89; redirects checked via CheckRedirect policy
+	bodyResp, err := a.httpClient.Do(bodyReq) // URL validated at line 176; redirects checked via CheckRedirect policy
 	if err != nil {
 		return nil, fmt.Errorf("failed to download archive: %w", err)
 	}

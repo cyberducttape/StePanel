@@ -97,7 +97,7 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 		// Kill the entire process group, not just the parent process.
 		// This ensures child processes (pip, npm, podman, etc.) are also terminated
 		// instead of being orphaned and continuing to run.
-		if cmd.Process != nil && cmd.ProcessState == nil {
+		if cmd.Process != nil {
 			// Kill the process group (negative PID kills all processes in the group)
 			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
 		}
