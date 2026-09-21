@@ -71,11 +71,9 @@ type ImportIssue struct {
 
 // ArchiveImportRequest is the API request to start an import
 type ArchiveImportRequest struct {
-	URL              string `json:"url"`               // URL to archive (S3, HTTP, etc.)
-	ConfigPath       string `json:"config_path"`       // path to config file in archive
-	SiteName         string `json:"site_name"`         // name for new site
-	SkipAnalysis     bool   `json:"skip_analysis"`     // if true, proceed to import directly
-	ExtractDirectory string `json:"extract_directory"` // where to extract files
+	URL        string `json:"url"`        // URL to archive (S3, HTTP, etc.)
+	ConfigPath string `json:"config_path"` // path to config file in archive
+	SiteName   string `json:"site_name"`  // name for new site
 }
 
 // ArchiveImportResponse is the result of starting an import job

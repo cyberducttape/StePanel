@@ -32,11 +32,9 @@ type archiveInspectionRequest struct {
 
 // archiveImportRequest is the API request to start importing from archive
 type archiveImportRequest struct {
-	URL              string `json:"url"`               // URL to archive
-	ConfigPath       string `json:"config_path"`       // path to config file
-	SiteName         string `json:"site_name"`         // name for new site
-	SkipAnalysis     bool   `json:"skip_analysis"`     // if true, import directly
-	ExtractDirectory string `json:"extract_directory"` // extraction target
+	URL        string `json:"url"`        // URL to archive
+	ConfigPath string `json:"config_path"` // path to config file
+	SiteName   string `json:"site_name"`  // name for new site
 }
 
 // archiveInspectionStatus is the response showing inspection results
@@ -252,11 +250,9 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	progressUpdates := make([]map[string]interface{}, 0)
 
 	result, err := executor.ExecuteImport(ctx, &importer.ArchiveImportRequest{
-		URL:              req.ArchiveURL,
-		ConfigPath:       req.ConfigPath,
-		SiteName:         req.SiteName,
-		SkipAnalysis:     false,
-		ExtractDirectory: "",
+		URL:        req.ArchiveURL,
+		ConfigPath: req.ConfigPath,
+		SiteName:   req.SiteName,
 	}, req.WebRoot, func(importJob *importer.ImportJob) {
 		// Capture progress update
 		progressUpdates = append(progressUpdates, map[string]interface{}{
