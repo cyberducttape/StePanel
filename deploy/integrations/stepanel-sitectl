@@ -150,6 +150,65 @@ max_input_vars=1000
 opcache_enabled=1
 display_errors=0
 error_reporting='E_ALL & ~E_DEPRECATED & ~E_STRICT'
+
+parse_config_file() {
+  local filepath=$1
+  if [[ ! -f $filepath ]] || [[ -L $filepath ]]; then
+    return 0
+  fi
+  local line key value
+  while IFS='=' read -r key value || [[ -n $key ]]; do
+    [[ -z $key || $key =~ ^# ]] && continue
+    case "$key" in
+      php_version)
+        [[ $value =~ ^[0-9]+\.[0-9]+$ ]] || { echo "invalid php_version in $filepath: $value" >&2; return 1; }
+        php_version="$value"
+        ;;
+      memory_limit)
+        [[ $value =~ ^[1-9][0-9]{0,4}M$ ]] || { echo "invalid memory_limit in $filepath: $value" >&2; return 1; }
+        memory_limit="$value"
+        ;;
+      max_execution_time)
+        [[ $value =~ ^[1-9][0-9]{0,4}$ ]] || { echo "invalid max_execution_time in $filepath: $value" >&2; return 1; }
+        max_execution_time="$value"
+        ;;
+      upload_max_filesize)
+        [[ $value =~ ^[1-9][0-9]{0,4}M$ ]] || { echo "invalid upload_max_filesize in $filepath: $value" >&2; return 1; }
+        upload_max_filesize="$value"
+        ;;
+      post_max_size)
+        [[ $value =~ ^[1-9][0-9]{0,4}M$ ]] || { echo "invalid post_max_size in $filepath: $value" >&2; return 1; }
+        post_max_size="$value"
+        ;;
+      max_input_vars)
+        [[ $value =~ ^[1-9][0-9]{0,6}$ ]] || { echo "invalid max_input_vars in $filepath: $value" >&2; return 1; }
+        max_input_vars="$value"
+        ;;
+      opcache_enabled)
+        [[ $value =~ ^[01]$ ]] || { echo "invalid opcache_enabled in $filepath: $value" >&2; return 1; }
+        opcache_enabled="$value"
+        ;;
+      display_errors)
+        [[ $value =~ ^[01]$ ]] || { echo "invalid display_errors in $filepath: $value" >&2; return 1; }
+        display_errors="$value"
+        ;;
+      error_reporting)
+        [[ $value =~ ^[A-Z0-9_~& |]{1,80}$ ]] || { echo "invalid error_reporting in $filepath: $value" >&2; return 1; }
+        error_reporting="$value"
+        ;;
+      php_max_children)
+        [[ $value =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 512 )) || { echo "invalid php_max_children in $filepath: $value" >&2; return 1; }
+        php_max_children="$value"
+        ;;
+      *)
+        echo "unknown configuration key in $filepath: $key" >&2
+        return 1
+        ;;
+    esac
+  done < "$filepath"
+  return 0
+}
+
 if [[ $action == runtime ]]; then
   php_version=$3; memory_limit=$4; max_execution_time=$5; upload_max_filesize=$6; post_max_size=$7; max_input_vars=$8; opcache_enabled=$9; display_errors=${10}; error_reporting=${11}
   error_pattern='^[A-Z0-9_~& |]{1,80}$'
@@ -186,12 +245,11 @@ elif [[ $action == quota-clear ]]; then
   setquota -u "$site_user" 0 0 0 0 "$mount"
   printf 'filesystem_quota_cleared\tmount=%s\n' "$mount"
   exit 0
-elif [[ -f $profile && ! -L $profile ]]; then
-  # shellcheck source=/dev/null
-  source "$profile"
 fi
+
 php_max_children=5
-[[ ! -f $php_state/resources.env || -L $php_state/resources.env ]] || source "$php_state/resources.env"
+parse_config_file "$profile" || { echo 'failed to parse PHP runtime configuration' >&2; exit 1; }
+parse_config_file "$php_state/resources.env" || { echo 'failed to parse PHP resources configuration' >&2; exit 1; }
 
 command -v setfacl >/dev/null 2>&1 || { echo 'setfacl is required for site isolation' >&2; exit 1; }
 setfacl -R -m u:stepanel:rwX "$site_root"

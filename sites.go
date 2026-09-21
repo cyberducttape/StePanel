@@ -194,6 +194,10 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for site deployment", http.StatusForbidden)
+		return
+	}
 	if !a.Auth.IsAdministrator(r) {
 		if a.Domains == nil {
 			http.Error(w, "domain ownership must be verified before route activation", http.StatusConflict)
@@ -226,7 +230,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	releaseUnlock := a.siteOperations.AcquireMany(input.Site, "vhost:"+name)
 	defer releaseUnlock()
-	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "apply", input.Site, input.Domain); err != nil {
+	if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "apply", input.Site, input.Domain); err != nil {
 		if a.Routes != nil {
 			route := routeState(name, input.Site, input.Domain, "pending")
 			route.LastError = err.Error()
@@ -286,6 +290,10 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 			if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
 				return
 			}
+			if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+				http.Error(w, "insufficient token scope for site deployment", http.StatusForbidden)
+				return
+			}
 			desired.State, desired.LastError, desired.UpdatedAt = "delete-pending", "", time.Now().UTC()
 			if err := a.Routes.save(desired); err != nil {
 				http.Error(w, "could not persist route deletion state", http.StatusServiceUnavailable)
@@ -304,7 +312,7 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	// parsed site identifier. Serialize by route identity at this boundary.
 	releaseUnlock := a.siteOperations.Acquire("vhost:" + name)
 	defer releaseUnlock()
-	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", name); err != nil {
+	if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "delete", name); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
 			_ = a.Routes.save(desired)

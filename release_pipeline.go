@@ -49,6 +49,10 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for release pipelines", http.StatusForbidden)
+		return
+	}
 	if !gitRefPattern.MatchString(input.Ref) || !runnerImagePattern.MatchString(input.Image) || len(input.Commands) == 0 || len(input.Commands) > 16 {
 		http.Error(w, "invalid release pipeline", 422)
 		return
@@ -184,7 +188,7 @@ func (a *App) runPipelineBuild(ctx context.Context, site, image string, commands
 		return err
 	}
 	cpuPercent, memoryMB, tasksMax := a.pipelineResourceLimits(site)
-	return runHelperCommandWithTimeout(ctx, a.Config, helperPackageBuildTimeout, a.Config.RunnerCtl, "build", site, image, root, script.Name(), strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax))
+	return runHelperCommand(ctx, a.Config, a.Config.RunnerCtl, "build", site, image, root, script.Name(), strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax))
 }
 
 func (a *App) pipelineResourceLimits(site string) (cpuPercent, memoryMB, tasksMax int) {

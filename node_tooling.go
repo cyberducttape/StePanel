@@ -34,6 +34,10 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403); !ok {
 		return
 	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for Node operations", http.StatusForbidden)
+		return
+	}
 	root := filepath.Join(a.Config.WebRoot, "sites", input.Site, "public")
 	if err := ensureInside(a.Config.WebRoot, root); err != nil {
 		http.Error(w, "invalid site root", 422)
@@ -45,7 +49,7 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 	}
 	releaseUnlock := a.siteOperations.Acquire(input.Site)
 	defer releaseUnlock()
-	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "node-tool", input.Site, input.Action, input.PackageManager, root); err != nil {
+	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "node-tool", input.Site, input.Action, input.PackageManager, root); err != nil {
 		http.Error(w, "Node tooling action failed", 502)
 		return
 	}

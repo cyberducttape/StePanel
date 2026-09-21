@@ -25,25 +25,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// LegacyTokenDeprecation interface for token expiration tracking
-type LegacyTokenDeprecation interface {
-	IsLegacyTokenExpired(tokenHash string) (bool, error)
-	MarkLegacyTokenDeprecated(tokenHash string) (*time.Time, error)
-}
-
-// hashToken creates a consistent hash of an API token for tracking
-func hashToken(token string) string {
-	digest := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(digest[:])
-}
-
 type Auth struct {
 	Username, PasswordHash, Secret, AuditLog string
 	credentialKey                            string
 	credentialHash                           string
 	Enabled, SecureCookies                   bool
 	TOTPEnabled                              bool
-	TrustProxy                               bool
 	totpSecret                               []byte
 	totpReplay                               *totpReplayState
 	loginLimiter                             *authpolicy.Limiter
@@ -52,7 +39,6 @@ type Auth struct {
 	Accounts                                 *AccountStore
 	apiTokens                                *apiTokenStore
 	apiTokenLimiter                          *apiTokenRateLimiter
-	legacyTokenDeprecation                   LegacyTokenDeprecation
 }
 
 type sessionRegistry struct {
@@ -113,12 +99,6 @@ func NewAuth(secureCookies bool) (Auth, error) {
 	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiter(), recoveryLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}, apiTokenLimiter: newAPITokenRateLimiter()}, nil
 }
 
-// ClientIP returns the origin IP address for a request, trusting X-Forwarded-For
-// headers only when TrustProxy is true (set when STEPANEL_TLS_TERMINATED=1).
-func (a *Auth) ClientIP(r *http.Request) string {
-	return authpolicy.ClientIPWithTrustedProxy(r, a.TrustProxy)
-}
-
 func (a *Auth) ConfigureSessionStore(path string) error {
 	if !a.Enabled {
 		return nil
@@ -160,20 +140,6 @@ func (a *Auth) ConfigureTOTPReplayDB(db *sql.DB) error {
 		a.totpReplay = &totpReplayState{lastCounter: make(map[string]uint64)}
 	}
 	a.totpReplay.db = db
-	return nil
-}
-
-// ConfigureLegacyTokenDeprecation sets up the deprecation tracking for legacy unscoped tokens.
-// Must be called after control-plane database is available.
-func (a *Auth) ConfigureLegacyTokenDeprecation(db *sql.DB) error {
-	if db == nil {
-		return errors.New("legacy token deprecation database is nil")
-	}
-	ltd := authpolicy.NewLegacyTokenDeprecation(db)
-	if err := ltd.InitializeSchema(); err != nil {
-		return fmt.Errorf("initialize legacy token deprecation schema: %w", err)
-	}
-	a.legacyTokenDeprecation = ltd
 	return nil
 }
 
@@ -223,8 +189,8 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if a.loginLimiter != nil && !a.loginLimiter.Allow(a.ClientIP(r)) {
-		_ = ShouldAudit(a.AuditLog, "unknown", "auth.login.throttled", a.ClientIP(r), "login rate limit exceeded")
+	if a.loginLimiter != nil && !a.loginLimiter.Allow(authpolicy.ClientIP(r)) {
+		_ = ShouldAudit(a.AuditLog, "unknown", "auth.login.throttled", authpolicy.ClientIP(r), "login rate limit exceeded")
 		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
 		return
 	}
@@ -265,16 +231,16 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		if actor == "" {
 			actor = "unknown"
 		}
-		_ = ShouldAudit(a.AuditLog, actor, "auth.login.failed", a.ClientIP(r), "invalid credentials")
+		_ = ShouldAudit(a.AuditLog, actor, "auth.login.failed", authpolicy.ClientIP(r), "invalid credentials")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(loginPage("Invalid credentials", true)))
 		return
 	}
 	if a.loginLimiter != nil {
-		a.loginLimiter.Reset(a.ClientIP(r))
+		a.loginLimiter.Reset(authpolicy.ClientIP(r))
 	}
-	if err := AuditAs(a.AuditLog, username, "auth.login.succeeded", a.ClientIP(r), "session issued"); err != nil {
+	if err := AuditAs(a.AuditLog, username, "auth.login.succeeded", authpolicy.ClientIP(r), "session issued"); err != nil {
 		http.Error(w, "audit persistence is unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -322,7 +288,7 @@ func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	if actor == "" {
 		actor = a.Username
 	}
-	_ = ShouldAudit(a.AuditLog, actor, "auth.logout", a.ClientIP(r), "session ended")
+	_ = ShouldAudit(a.AuditLog, actor, "auth.logout", authpolicy.ClientIP(r), "session ended")
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_session", MaxAge: -1, Path: "/", HttpOnly: true, Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", MaxAge: -1, Path: "/", Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -333,17 +299,11 @@ func (a Auth) Require(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if username, scopes, isLegacyUnscoped, ok := a.validAPITokenWithScopesAndLegacy(r); ok {
+		if username, scopes, ok := a.validAPITokenWithScopes(r); ok {
 			r = r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, username))
 			r = r.WithContext(context.WithValue(r.Context(), apiTokenScopesKey{}, scopes))
-			// Log all token requests, with special tracking for legacy unscoped tokens
-			if isLegacyUnscoped {
-				if err := AuditAs(a.AuditLog, username, "token.legacy_unscoped_access", r.URL.Path, a.ClientIP(r)); err != nil {
-					http.Error(w, "audit persistence is unavailable", 503)
-					return
-				}
-			} else if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				if err := AuditAs(a.AuditLog, username, "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+				if err := AuditAs(a.AuditLog, username, "http.request", r.URL.Path, authpolicy.ClientIP(r)); err != nil {
 					http.Error(w, "audit persistence is unavailable", 503)
 					return
 				}
@@ -357,7 +317,7 @@ func (a Auth) Require(next http.Handler) http.Handler {
 		}
 		if a.validSession(r) {
 			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				if err := AuditAs(a.AuditLog, a.UsernameForRequest(r), "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
+				if err := AuditAs(a.AuditLog, a.UsernameForRequest(r), "http.request", r.URL.Path, authpolicy.ClientIP(r)); err != nil {
 					http.Error(w, "audit persistence is unavailable", http.StatusServiceUnavailable)
 					return
 				}
@@ -515,46 +475,30 @@ func (a Auth) validAPIToken(r *http.Request) (string, bool) {
 }
 
 func (a Auth) validAPITokenWithScopes(r *http.Request) (string, []string, bool) {
-	username, scopes, _, ok := a.validAPITokenWithScopesAndLegacy(r)
-	return username, scopes, ok
-}
-
-func (a Auth) validAPITokenWithScopesAndLegacy(r *http.Request) (string, []string, bool, bool) {
 	value := strings.TrimSpace(r.Header.Get("Authorization"))
 	if len(value) < 8 || !strings.EqualFold(value[:7], "Bearer ") {
-		return "", nil, false, false
+		return "", nil, false
 	}
 	tokenValue := strings.TrimSpace(value[7:])
-	username, scopes, isLegacyUnscoped, ok := a.apiTokens.authenticateWithScopesAndLegacy(tokenValue)
+	username, scopes, ok := a.apiTokens.authenticateWithScopes(tokenValue)
 	if !ok {
-		return "", nil, false, false
-	}
-
-	// Check if legacy token has expired
-	if isLegacyUnscoped && a.legacyTokenDeprecation != nil {
-		expired, err := a.legacyTokenDeprecation.IsLegacyTokenExpired(hashToken(tokenValue))
-		if err == nil && expired {
-			// Legacy token has expired
-			return "", nil, false, false
-		}
-		// Mark as deprecated on first use (idempotent)
-		_, _ = a.legacyTokenDeprecation.MarkLegacyTokenDeprecated(hashToken(tokenValue))
+		return "", nil, false
 	}
 
 	// Rate limit per API token to prevent abuse of compromised tokens.
 	// Each token gets 600 requests per minute (10 per second).
 	if a.apiTokenLimiter != nil && !a.apiTokenLimiter.allow(tokenValue) {
-		return "", nil, false, false
+		return "", nil, false
 	}
 
 	if subtle.ConstantTimeCompare([]byte(username), []byte(a.Username)) == 1 {
-		return username, scopes, isLegacyUnscoped, true
+		return username, scopes, true
 	}
 	if a.Accounts == nil {
-		return "", nil, false, false
+		return "", nil, false
 	}
 	account, exists := a.Accounts.Get(username)
-	return username, scopes, isLegacyUnscoped, exists && !account.Suspended
+	return username, scopes, exists && !account.Suspended
 }
 
 func (a Auth) HasAPIScope(r *http.Request, scope string) bool {
@@ -670,12 +614,28 @@ func (a Auth) consumeTOTPFor(username string, secret []byte, code string, now ti
 		a.totpReplay.mu.Lock()
 		defer a.totpReplay.mu.Unlock()
 		if a.totpReplay.db != nil {
-			result, err := a.totpReplay.db.Exec(`INSERT INTO totp_replay (username, last_counter, updated_at) VALUES (?, ?, unixepoch()) ON CONFLICT(username) DO UPDATE SET last_counter=excluded.last_counter, updated_at=excluded.updated_at WHERE excluded.last_counter > totp_replay.last_counter`, username, candidate)
+			tx, err := a.totpReplay.db.BeginTx(context.Background(), &sql.TxOptions{Isolation: sql.LevelSerializable})
 			if err != nil {
 				return false
 			}
-			changed, err := result.RowsAffected()
-			return err == nil && changed == 1
+			defer tx.Rollback()
+
+			var lastCounter int64
+			err = tx.QueryRow(`SELECT COALESCE(last_counter, -1) FROM totp_replay WHERE username = ?`, username).Scan(&lastCounter)
+			if err != nil && err != sql.ErrNoRows {
+				return false
+			}
+
+			if candidate <= uint64(lastCounter) {
+				return false
+			}
+
+			_, err = tx.Exec(`INSERT INTO totp_replay (username, last_counter, updated_at) VALUES (?, ?, unixepoch()) ON CONFLICT(username) DO UPDATE SET last_counter=excluded.last_counter, updated_at=excluded.updated_at`, username, candidate)
+			if err != nil {
+				return false
+			}
+
+			return tx.Commit() == nil
 		}
 		if candidate <= a.totpReplay.lastCounter[username] {
 			return false

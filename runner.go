@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,60 +13,12 @@ import (
 // different code after a registry tag is moved.
 var runnerImagePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$`)
 
-// extractRegistry extracts the registry hostname from an image reference
-// Format: registry.com/org/image@sha256:...
-func extractRegistry(image string) string {
-	// Remove digest
-	parts := strings.Split(image, "@")
-	if len(parts) > 0 {
-		image = parts[0]
-	}
-	// Get first component (registry)
-	parts = strings.Split(image, "/")
-	if len(parts) > 0 {
-		return strings.ToLower(parts[0])
-	}
-	return ""
-}
-
-// registryAllowed checks if a registry is in the allowlist
-func registryAllowed(registry string, allowedList string) bool {
-	if allowedList == "" {
-		return false // Explicit denylist by default
-	}
-	allowed := strings.Split(allowedList, ",")
-	registryLower := strings.ToLower(strings.TrimSpace(registry))
-	for _, a := range allowed {
-		if strings.ToLower(strings.TrimSpace(a)) == registryLower {
-			return true
-		}
-	}
-	return false
-}
-
 type BuildRequest struct {
 	Site     string   `json:"site"`
 	Image    string   `json:"image"`
 	Commands []string `json:"commands"`
 }
 
-// runnerBuild executes a sandboxed build operation with security constraints:
-//
-// Security controls:
-// - Registry allowlist: only images from STEPANEL_RUNNER_ALLOWED_REGISTRIES (default: docker.io,ghcr.io,quay.io)
-// - Digest pinning: image must be referenced by SHA256 digest (prevents tag mutation)
-// - Network disabled by default: STEPANEL_RUNNER_NETWORK_ENABLED controls egress
-// - Resource limits: CPU %, memory MB, task count per site plan
-// - Image size limit: STEPANEL_MAX_IMAGE_SIZE prevents decompression bombs (default: 5GB)
-// - Rootless Podman: reduces kernel attack surface
-//
-// TODO: Enhanced constraints for production:
-// - Explicit seccomp profile
-// - SELinux/AppArmor context
-// - Storage quota for image pulls
-// - Egress restrictions (only allow build-network when explicitly enabled)
-// - Cleanup verification after build
-// - No host socket exposure
 func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
 		http.Error(w, "invalid request", 403)
@@ -84,18 +35,11 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid build definition", 422)
 		return
 	}
-
-	// SECURITY: Validate registry is allowed
-	registry := extractRegistry(input.Image)
-	if registry == "" {
-		http.Error(w, "could not extract registry from image", 422)
-		return
-	}
-	if !registryAllowed(registry, a.Config.RunnerAllowedRegistries) {
-		http.Error(w, fmt.Sprintf("registry %q is not in allowed list", registry), 403)
-		return
-	}
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403); !ok {
+		return
+	}
+	if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
+		http.Error(w, "insufficient token scope for build operations", http.StatusForbidden)
 		return
 	}
 	releaseUnlock := a.siteOperations.Acquire(input.Site)
@@ -130,16 +74,7 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cpuPercent, memoryMB, tasksMax := a.pipelineResourceLimits(input.Site)
-
-	// SECURITY: Pass runtime constraints to runner helper
-	// Network is disabled by default unless explicitly enabled
-	networkFlag := "0"
-	if a.Config.RunnerNetworkEnabled {
-		networkFlag = "1"
-	}
-	maxImageSizeStr := strconv.FormatInt(a.Config.MaxImageSize, 10)
-
-	if err = runHelperCommandWithTimeout(r.Context(), a.Config, helperPackageBuildTimeout, a.Config.RunnerCtl, "build", input.Site, input.Image, root, scriptPath, strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax), networkFlag, maxImageSizeStr); err != nil {
+	if err = runHelperCommand(r.Context(), a.Config, a.Config.RunnerCtl, "build", input.Site, input.Image, root, scriptPath, strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax)); err != nil {
 		http.Error(w, "sandboxed build failed", 502)
 		return
 	}

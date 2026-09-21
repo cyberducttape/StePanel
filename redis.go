@@ -72,10 +72,20 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Redis allocation state unavailable", 503)
 		return
 	}
-	if r.Method != http.MethodGet && !a.Auth.IsAdministrator(r) {
-		http.Error(w, "customer Redis mutations require a configured runtime isolation adapter", http.StatusServiceUnavailable)
-		return
+
+	isRead := r.Method == http.MethodGet
+	if isRead {
+		if !a.Auth.HasRequiredCustomerScope(r, "redis:read") && !a.Auth.IsAdministrator(r) {
+			http.Error(w, "insufficient token scope for Redis read", http.StatusForbidden)
+			return
+		}
+	} else {
+		if !a.Auth.HasRequiredCustomerScope(r, "redis:write") && !a.Auth.IsAdministrator(r) {
+			http.Error(w, "insufficient token scope for Redis write", http.StatusForbidden)
+			return
+		}
 	}
+
 	switch r.Method {
 	case http.MethodGet:
 		a.Redis.mu.RLock()
