@@ -1325,6 +1325,18 @@ func safeUser(value string) string {
 }
 
 // Backward compatibility wrappers for audit package
+type AuditEvent = audit.Event
+
+func validateAuditEvent(event AuditEvent) error {
+	if event.Sequence == 0 || strings.TrimSpace(event.Actor) == "" || strings.TrimSpace(event.Action) == "" {
+		return errors.New("audit log contains an event with invalid identity or sequence")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, event.Time); err != nil {
+		return errors.New("audit log contains an invalid event timestamp")
+	}
+	return nil
+}
+
 func Audit(path, action, target, detail string) error {
 	return audit.Log(action, target, detail)
 }
