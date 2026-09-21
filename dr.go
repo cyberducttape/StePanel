@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/audit"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,7 @@ func controlPlaneDRChecks(cfg Config) []DRCheck {
 	addFile("runtime configuration", "preserve", "/etc/ste-panel.env", false)
 	addFile("audit log", "preserve", cfg.AuditLog, true)
 	addFile("audit continuity state", "preserve", cfg.AuditLog+".state", true)
-	addFile("audit HMAC key", "preserve", auditKeyPath, true)
+	addFile("audit HMAC key", "preserve", audit.AuditKeyPath, true)
 	if drPathConfigured(cfg.ControlPlaneDB) {
 		addFile("legacy job state", "preserve-or-regenerate", cfg.JobState, false)
 	} else {

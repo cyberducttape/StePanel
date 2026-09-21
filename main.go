@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/audit"
 	"github.com/itchyitchy123/StePanel/internal/metadata"
 	"github.com/itchyitchy123/StePanel/internal/operations"
 	"html/template"
@@ -97,7 +98,7 @@ func main() {
 		return
 	}
 	if len(os.Args) == 3 && os.Args[1] == "verify-audit" {
-		if err := VerifyAuditLog(os.Args[2]); err != nil {
+		if err := audit.Verify(os.Args[2]); err != nil {
 			log.Fatal(err)
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "audit chain verified: %s\n", os.Args[2])
@@ -180,6 +181,7 @@ func main() {
 		log.Fatal("authentication must be configured in production")
 	}
 	auth.AuditLog = cfg.AuditLog
+	audit.SetDefault(audit.New(cfg.AuditLog))
 	auth.TrustProxy = cfg.TLSAlreadyTerminated
 	for _, directory := range []struct {
 		path string
@@ -1320,4 +1322,29 @@ func safeUser(value string) string {
 		}
 	}
 	return value
+}
+
+// Backward compatibility wrappers for audit package
+func Audit(path, action, target, detail string) error {
+	return audit.Log(action, target, detail)
+}
+
+func AuditAs(path, actor, action, target, detail string) error {
+	return audit.LogAs(actor, action, target, detail)
+}
+
+func VerifyAuditLog(path string) error {
+	return audit.Verify(path)
+}
+
+func AuditPersistenceError() error {
+	return audit.PersistenceError()
+}
+
+func MustAudit(w http.ResponseWriter, auditLog, actor, action, target, detail string) error {
+	return audit.MustLog(w, actor, action, target, detail)
+}
+
+func ShouldAudit(auditLog, actor, action, target, detail string) error {
+	return audit.ShouldLog(actor, action, target, detail)
 }

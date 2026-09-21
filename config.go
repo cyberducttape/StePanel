@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/itchyitchy123/StePanel/internal/audit"
 	"net"
 	"os"
 	"path/filepath"
@@ -414,7 +415,7 @@ func ValidateConfig(c Config) error {
 	if c.Production {
 		key := strings.TrimSpace(os.Getenv("STEPANEL_AUDIT_KEY"))
 		if key == "" {
-			if data, err := os.ReadFile(auditKeyPath); err == nil {
+			if data, err := os.ReadFile(audit.AuditKeyPath); err == nil {
 				key = strings.TrimSpace(string(data))
 			}
 		}
