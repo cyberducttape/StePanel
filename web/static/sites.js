@@ -812,7 +812,7 @@
     };
 
     panel.replaceChildren(
-      el('p', { className: 'panel-intro' }, 'The most recent lines from this site’s logs.'),
+      el('p', { className: 'panel-intro' }, "The most recent lines from this site's logs."),
       el('div', { className: 'log-controls' }, [sourceField, filterField, el('button', { type: 'button', className: 'primary-action', onClick: load }, 'Load')]),
       output,
       viewer,
@@ -893,12 +893,12 @@
     const output = ctx.statusOutput();
 
     panel.replaceChildren(
-      el(‘p’, { className: ‘panel-intro’ }, ‘Scheduled commands run as systemd timers under the site’s isolated identity.’),
-      apiError ? el(‘div’, { className: ‘error-message’ }, [
-        el(‘strong’, {}, ‘Unable to load scheduled tasks’),
-        el(‘p’, {}, `API error: ${apiError.message}. Retry when the API becomes available.`)
+      el('p', { className: 'panel-intro' }, 'Scheduled commands run as systemd timers under the site\'s isolated identity.'),
+      apiError ? el('div', { className: 'error-message' }, [
+        el('strong', {}, 'Unable to load scheduled tasks'),
+        el('p', {}, `API error: ${apiError.message}. Retry when the API becomes available.`)
       ]) : null,
-      el(‘ul’, { className: ‘resource-list’ }, tasks.length ? tasks.map((task) => el(‘li’, { className: ‘resource-list-item’ }, [
+      el('ul', { className: 'resource-list' }, tasks.length ? tasks.map((task) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [el('strong', {}, task.name), el('small', {}, `${task.on_calendar} · ${task.runtime} · ${task.enabled ? 'enabled' : 'disabled'}`)]),
         el('div', { className: 'item-actions' }, [
           ctx.button('Delete', async () => {
