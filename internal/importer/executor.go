@@ -268,46 +268,61 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		return nil, fmt.Errorf("import incomplete: %w", configError)
 	}
 
+	// Determine overall success based on critical issues
+	hasCriticalIssues := dbRestorationIssue != nil && dbRestorationIssue.Severity == "error"
+
 	// Step 7: Mark complete
-	job.Status = "done"
+	if hasCriticalIssues {
+		job.Status = "completed_with_errors"
+		job.Message = "Import completed but database restoration failed - manual intervention required"
+	} else {
+		job.Status = "done"
+		job.Message = "Import complete"
+	}
 	job.Progress = 100
-	job.Message = "Import complete"
 	job.UpdatedAt = time.Now()
 	onProgress(job)
 
+	issues := []ImportIssue{
+		{
+			Severity: "info",
+			Code:     "files_extracted",
+			Message:  fmt.Sprintf("Successfully extracted %d files", job.FilesExtracted),
+		},
+		{
+			Severity: "info",
+			Code:     "config_updated",
+			Message:  "Configuration file updated with database credentials",
+		},
+	}
+
+	// Add database restoration issue (if any)
+	if dbRestorationIssue != nil {
+		issues = append(issues, *dbRestorationIssue)
+	}
+
+	// Build next steps based on what was accomplished
+	nextSteps := []string{
+		"Verify site loads at https://panel.example.com/site/" + req.SiteName,
+	}
+	if hasCriticalIssues {
+		nextSteps = append(nextSteps, "REQUIRED: Restore database manually using the SQL dump from the archive")
+	}
+	nextSteps = append(nextSteps, []string{
+		"Verify site configuration (database credentials, domain, SSL)",
+		"Test application functionality",
+	}...)
+
 	result := &ImportResult{
 		JobID:         job.ID,
-		Success:       true,
+		Success:       !hasCriticalIssues, // Fail if database restoration had critical errors
 		SiteName:      job.SiteName,
 		CreatedAt:     job.StartedAt,
 		FilesImported: job.FilesExtracted,
 		StorageSize:   job.BytesExtracted,
-		Issues: []ImportIssue{
-			{
-				Severity: "info",
-				Code:     "files_extracted",
-				Message:  fmt.Sprintf("Successfully extracted %d files", job.FilesExtracted),
-			},
-		},
-		NextSteps: []string{
-			"Verify site loads at https://panel.example.com/site/" + req.SiteName,
-			"Restore database if not yet restored",
-			"Verify site configuration (database credentials, domain, SSL)",
-			"Test WordPress admin login",
-		},
+		Issues:        issues,
+		NextSteps:     nextSteps,
 	}
-
-	// Add issues for database restoration (warning, not failure)
-	if dbRestorationIssue != nil {
-		result.Issues = append(result.Issues, *dbRestorationIssue)
-	}
-
-	// Configuration was successful
-	result.Issues = append(result.Issues, ImportIssue{
-		Severity: "info",
-		Code:     "config_updated",
-		Message:  "Configuration file updated with database credentials",
-	})
 
 	return result, nil
 }
