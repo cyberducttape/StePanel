@@ -118,6 +118,15 @@ An experienced infrastructure reviewer will:
 - **Recommendation**: Integrate archive import into normal site creation lifecycle instead of direct filesystem manipulation. Consider renaming to "Archive Extraction Assistant" if keeping current design.
 - **Scope**: Architectural refactoring for v0.8+
 
+### ❌ INCOMPLETE FEATURE: Generic Archive Import (Database Restore NOT Implemented)
+- **Problem**: `TestDatabaseRestorationIsNotImplemented()` documents that database restoration returns "not yet implemented" error
+- **Current behavior**: Workflow extracts files, edits config, then requires manual database restore
+- **Expected behavior** (from user perspective): Full website import (files + database + identity + routing)
+- **Product risk**: Feature marketed as "Import website" but cannot complete the import without manual intervention
+- **Comparison**: cpmove and .wpress workflows are end-to-end complete; generic archive import is partial
+- **Recommendation**: Either complete database restoration implementation before promoting as migration feature, OR clearly label as "Archive Extraction Assistant" (files only, DB manual). Don't position as full migration until database workflow is complete.
+- **Scope**: Feature completeness gate for v0.7.0+ releases
+
 ## Testing Recommendations
 
 Add integration tests for:
