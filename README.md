@@ -40,7 +40,6 @@ encrypted environment metadata, builds, staging, logs, and workers.
 | Migration | cPanel `.tar.gz` inspection, safe staging, website, SQL, staged mailbox restore, and fail-closed `.htaccess` conversion for Caddy |
 | Operations | Dashboard, health endpoint, metrics endpoint, audit log, asynchronous restore jobs |
 | Control plane | Durable SQLite state, independently supervised worker, leases/retries/cancellation, dead-letter readiness gate, desired-state reconciliation, and recovery inventory |
-| Shared-hosting beta | Administrator-provisioned customer accounts with independent TOTP MFA, enforced assigned-site limits, and customer-scoped site/backup/job access |
 | Security | bcrypt credentials, signed sessions, CSRF protection, archive traversal checks, restricted service user |
 | Delivery | Dockerfile, ARM64/AMD64 release workflow, checksums, CI, vulnerability scanning |
 
@@ -49,7 +48,7 @@ constraints, off-site backups, and operational configuration, see the
 [integration guide](docs/INTEGRATIONS.md), [installation guide](docs/INSTALLATION.md),
 [operations runbook](docs/OPERATIONS.md), and [customer workflows](docs/CUSTOMER_WORKFLOWS.md).
 
-> **Status:** StePanel includes a constrained single-host shared-hosting beta. It is not yet a complete multi-tenant hosting platform: plans enforce aggregate account and per-site application CPU, memory, process, PHP-worker, disk, and inode ceilings when the host quota prerequisites are available. Bandwidth, mail, file, external-provider teardown, and Redis runtime enforcement remain provider/operator boundaries; database lifecycle, local site termination, and plan caps are available on supported local engines. Administrator resource profiles, security posture, verified restores, and restore-to-staging are available with explicit beta/operator boundaries. Run it behind authenticated HTTPS and test restores against a disposable server before using production data.
+> **Status:** StePanel supports single-host operation with account provisioning features (TOTP MFA, assigned-site limits, scoped access). Multi-tenant production deployment is NOT RECOMMENDED: RBAC-per-customer, audit-log segregation, cross-host session replication, and resource quota enforcement are NOT STARTED. See [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for detailed capability status. For single-host deployments, resource profiles, restore-to-staging, and verified restores are available. Always run behind authenticated HTTPS and test restores against a disposable server before using production data.
 
 ## Architecture at a glance
 
