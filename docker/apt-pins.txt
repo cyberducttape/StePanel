@@ -1,5 +1,5 @@
 # Debian Bookworm package versions pinned for reproducible Docker builds
-# Generated: 2026-09-19
+# Generated: 2026-09-21
 # Base Image: debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 #
 # To update these packages:
@@ -12,7 +12,7 @@
 # Security note: Always update when CVEs are discovered. Track updates in
 # git history with commit messages explaining the CVE or improvement.
 
-ca-certificates=20240110-1
-curl=7.88.1-14+0~deb12u5
-mariadb-client=1:10.11.7-1
-rclone=1:1.64.2-1
+ca-certificates=20240625-1
+curl=8.5.0-2+deb12u5
+mariadb-client=1:10.11.8-1
+rclone=1:1.65.2-2
