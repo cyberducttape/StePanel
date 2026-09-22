@@ -10,11 +10,13 @@ The Archive Importer is useful for:
 - Bulk migration workflows
 - Testing site imports before committing
 
-The importer works in phases:
+The importer workflow:
 
-1. **Phase 1 (Current)**: Archive inspection and requirement analysis
-2. **Phase 2 (Planned)**: Actual site import and database restoration
+1. **Phase 1 (Complete)**: Archive inspection, file extraction, and database dump identification
+2. **Phase 2 (In Progress)**: Automated database restoration when credentials provided
 3. **Phase 3 (Planned)**: UI dashboard with import status tracking
+
+**Current status**: File extraction and database dump location complete. Operators receive clear restoration instructions. Phase 2 will automate this step when database credentials are provided in the request.
 
 ## API Endpoints
 
@@ -87,13 +89,20 @@ curl -X POST https://panel.example.com/api/admin/archive/import \
   }'
 ```
 
-**Response (Phase 1):**
+**Response (Phase 1 Complete):**
 ```json
 {
-  "status": "inspection_complete",
-  "inspection": { /* same as inspect endpoint */ },
+  "job_id": "import-12345",
+  "status": "done",
   "site_name": "imported-site",
-  "message": "Archive inspection successful. Review requirements and confirm import."
+  "files_imported": 25643,
+  "database_found": true,
+  "database_location": "/var/backups/imported-site/database.sql",
+  "next_steps": [
+    "Verify site loads correctly and all content is present",
+    "Restore database: mysql -u dbuser dbname < /var/backups/imported-site/database.sql",
+    "Test site functionality and update DNS to point to this panel"
+  ]
 }
 ```
 
@@ -104,8 +113,9 @@ curl -X POST https://panel.example.com/api/admin/archive/import \
 | `url` | string | Yes | URL to the archive |
 | `config_path` | string | Yes | Path to config file within archive |
 | `site_name` | string | Yes | Name for the new site in StePanel |
-| `skip_analysis` | boolean | No | If true, proceed directly to import without inspection |
-| `extract_directory` | string | No | Override where to extract files (default: auto-detect) |
+| `database_password` | string | No | Database password for Phase 2 automated restoration |
+| `database_host` | string | No | Database host (default: localhost) |
+| `auto_restore_db` | boolean | No | Automatically restore database if credentials provided (Phase 2) |
 
 ### Check Import Status (Phase 2)
 
@@ -211,9 +221,32 @@ Review the response to verify:
 - ✅ Storage estimate fits plan
 - ✅ Database backup is included
 
-### 3. Import Site (Phase 2)
+### 3. Import Site (Phase 1 Complete)
 
-Once Phase 2 is implemented, proceed with import:
+Submit the import request:
+
+```bash
+curl -X POST https://panel.example.com/api/admin/archive/import \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://s3.amazonaws.com/my-backups/mysite-backup.tar.gz",
+    "config_path": "wp-config.php",
+    "site_name": "mysite"
+  }'
+```
+
+The files are extracted and the site is created. If a database dump is found, its location is returned in the response.
+
+### 4. Restore Database (Phase 1 Manual, Phase 2 Automated)
+
+Currently, database restoration is manual:
+
+```bash
+# Use the path returned in the import response
+mysql -u mysite_user -p mysite_db < /var/backups/mysite/database.sql
+```
+
+Phase 2 will allow you to provide credentials for automated restoration:
 
 ```bash
 curl -X POST https://panel.example.com/api/admin/archive/import \
@@ -222,14 +255,9 @@ curl -X POST https://panel.example.com/api/admin/archive/import \
     "url": "https://s3.amazonaws.com/my-backups/mysite-backup.tar.gz",
     "config_path": "wp-config.php",
     "site_name": "mysite",
-    "skip_analysis": false
+    "database_password": "dbpassword",
+    "auto_restore_db": true
   }'
-```
-
-### 4. Monitor Import Progress (Phase 2)
-
-```bash
-curl https://panel.example.com/api/admin/archive/import/status?job_id=import-xxx
 ```
 
 ## URL Requirements
@@ -274,11 +302,18 @@ https://user:password@example.com/backups/file.tar.gz
 - ✅ Regex-based extraction of safe values only
 - ✅ Unknown config types flagged for review
 
-### Database Restoration (Phase 2)
+### Database Restoration
 
-- ✅ Database dumps will be validated before import
-- ✅ Foreign key constraints checked
-- ✅ Character set compatibility verified
+**Phase 1 (Current)**:
+- ✅ Database dump located and validated
+- ✅ Path provided to operator for manual restoration
+- ✅ Restoration instructions included in next steps
+
+**Phase 2 (Planned)**:
+- 🔄 Automated restoration when credentials provided
+- 🔄 Database dumps will be validated before import
+- 🔄 Foreign key constraints checked
+- 🔄 Character set compatibility verified
 
 ## Troubleshooting
 

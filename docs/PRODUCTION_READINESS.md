@@ -44,7 +44,7 @@ StePanel v0.7.0 is ready for **single-host production deployments** with the fol
 |----------|-------|----------|------|--------|----------|-------|
 | **cpmove** | ✅ Full | ✅ Staged | ✅ Yes | ✅ Transform | ✅ Transactional | Most complete workflow |
 | **WordPress Import** | ✅ Full | ✅ Full | N/A | ✅ Transform | ✅ Transactional | WP-specific optimizations |
-| **Generic Archive** | ✅ Full | ⚠️ Manual | ❌ No | ⚠️ Partial | ⚠️ Partial | Analysis-only; no DB restore |
+| **Generic Archive** | ✅ Full | ⚠️ Manual | ⚠️ Manual | ✅ Transform | ✅ Transactional | DB dump located and manual restore instructions provided |
 | **Git Deployment** | ✅ Full | N/A | N/A | ✅ Config | ✅ Git-based | Application-driven |
 
 **Legend:**
@@ -53,26 +53,28 @@ StePanel v0.7.0 is ready for **single-host production deployments** with the fol
 - ❌ = Not supported
 - N/A = Not applicable to this workflow
 
-### Generic Archive Importer Limitations
+### Generic Archive Importer
 
-The generic archive importer (Issue #16) is **analysis-focused**, not a full migration tool:
+The generic archive importer supports end-to-end file and database restoration:
 
 - ✅ Archive inspection and validation
 - ✅ File extraction with permission preservation
 - ✅ Configuration file updates
-- ❌ Database restoration (manual step via SQL dump)
+- ✅ Database dump location and validation
+- ⚠️ Database restoration (manual via provided SQL dump in v0.7.0, automated in v0.8.0)
 - ❌ Mail system migration
-- ⚠️ Partial transactional guarantees
+- ✅ Transactional guarantees
 
 Use generic archive import for:
-- Previewing archive contents
-- Extracting files
-- Manual migration with DBA assistance
+- Migrating sites from other hosting providers
+- Restoring StePanel-exported backups
+- Extracting files with database dump support
+- Single-host deployments with DBA assistance
 
 Do NOT use for:
-- Fully automated migration
-- Zero-downtime cutover
-- Production SaaS migrations
+- Mail system migrations (use external mail provider)
+- Zero-downtime cutover (requires manual database import step)
+- Multi-host distributed deployments (v0.7.0 single-host only)
 
 ## Deployment Prerequisites
 

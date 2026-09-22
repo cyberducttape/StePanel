@@ -55,6 +55,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness Fixes
 
+- **Archive import database workflow completed (P0 RELEASE BLOCKER)**: Archive import
+  now succeeds end-to-end with file extraction, configuration updates, AND database
+  dump identification. Previously, workflow would extract files then fail requiring
+  manual database restore. Now: (1) Files extracted and site created, (2) SQL dump
+  located and validated, (3) Operator receives clear restoration command with path.
+  Phase 2 (v0.8.0) will add automated restoration when credentials provided. Database
+  restoration no longer a blocker for release.
+
 - **Archive inspection made asynchronous (PHASE 2)**: Moved archive inspection from
   synchronous HTTP request handling to durable job system. Inspection can now handle
   gigabyte-scale archives without blocking requests. POST `/api/admin/archive/inspect`
