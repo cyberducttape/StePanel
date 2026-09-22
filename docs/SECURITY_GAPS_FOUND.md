@@ -138,18 +138,17 @@ An experienced infrastructure reviewer will:
   - Added TODO for email service integration
 - **Commit**: `78bda33`
 
-### ❌ DEAD CODE: Scheduled Task Safeguards Not Enforced
-- **Problem**: Phase 2 safeguards commented as "not yet implemented" (tasks.go:242-246) but API accepts them
-- **Exposed but non-functional**:
-  - `MinIntervalSeconds` - Rate limiting between task runs (configured but not enforced)
-  - `MaxConcurrentRuns` - Concurrency limit (configured but not enforced)
-  - `NotifyEmail` - Failure notifications (stored but not sent)
-  - `CurrentRunCount` - Concurrent execution counter (tracked but not used)
-- **Functions exist but unreferenced**: `canExecuteTask()`, `incrementTaskRunCount()`, `decrementTaskRunCount()`, `recordTaskExecution()` are defined but never called
-- **False sense of protection**: Operators configure these values assuming they're enforced, creating operational risk
-- **Architectural problem**: Go state layer can't enforce concurrency if execution is via systemd timers (helper would need to participate)
-- **Recommendation**: Remove these fields from public API until implemented, OR implement helper-level enforcement. Don't expose knobs that are no-ops.
-- **Scope**: API contract cleanup + feature implementation for v0.8+
+### ✅ FIXED: Scheduled Task Safeguards Not Enforced
+- **Problem**: Phase 2 safeguards commented as "not yet implemented" but API accepted them
+- **Impact**: Operators could configure `MinIntervalSeconds`, `MaxConcurrentRuns`, `NotifyEmail` thinking they worked
+- **Fix Applied**:
+  - Removed Phase 2 fields from public API (no longer exposed in JSON)
+  - Deleted unreferenced functions: `canExecuteTask()`, `incrementTaskRunCount()`, `decrementTaskRunCount()`
+  - Removed validation for fields that don't exist
+  - Stopped claiming functionality in defaults
+- **Result**: API no longer exposes non-functional knobs
+- **When Phase 2 implemented**: Fields will be restored to struct with actual enforcement logic
+- **Commit**: `6534a45`
 
 ## Architecture & Maintainability Issues
 
