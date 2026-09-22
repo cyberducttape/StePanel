@@ -47,14 +47,8 @@ type archiveInspectionStatus struct {
 }
 
 func (a *App) inspectArchive(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Only administrators can inspect archives
-	if !a.Auth.IsAdministrator(r) {
-		w.WriteHeader(http.StatusForbidden)
+	if r.Method != http.MethodPost || !a.Auth.IsAdministrator(r) || !a.Auth.CSRF(r) {
+		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
 		return
 	}
 
@@ -129,13 +123,8 @@ func (a *App) inspectArchiveStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if !a.Auth.IsAdministrator(r) {
-		w.WriteHeader(http.StatusForbidden)
+	if r.Method != http.MethodPost || !a.Auth.IsAdministrator(r) || !a.Auth.CSRF(r) {
+		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
 		return
 	}
 

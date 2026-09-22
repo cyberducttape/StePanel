@@ -79,20 +79,16 @@ func isAllowedURL(urlStr string) bool {
 	return true
 }
 
-// Analyzer inspects and analyzes archive contents
-type Analyzer struct {
-	httpClient *http.Client
-}
-
-// NewAnalyzer creates a new archive analyzer with secure redirect handling
-func NewAnalyzer() *Analyzer {
-	// Custom transport that validates all IP addresses before connecting
-	// Uses granular timeouts instead of a global timeout to support large files
-	transport := &http.Transport{
-		// Granular timeout controls:
-		// - DNS: 5 second timeout via dialer
-		// - TCP/TLS: 15 second timeout via dialer
-		// - No global body read timeout (prevents 5GB archive timeout issues)
+// NewSafeArchiveTransport creates an HTTP transport that validates all IP addresses
+// to prevent SSRF attacks. It validates both direct IPs and DNS-resolved addresses.
+// Used by both archive inspection (Analyzer) and import (Executor) to ensure
+// consistent security policies.
+func NewSafeArchiveTransport() *http.Transport {
+	return &http.Transport{
+		// Custom DialContext that validates all IP addresses before connecting
+		// - Direct IPs: checked against reserved ranges
+		// - Hostnames: resolved and each IP checked
+		// Granular timeouts instead of global timeout to support large file transfers
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			// Parse the host and port
 			host, port, err := net.SplitHostPort(addr)
@@ -108,7 +104,8 @@ func NewAnalyzer() *Analyzer {
 					return nil, fmt.Errorf("connection to reserved IP %s not allowed", host)
 				}
 			} else {
-				// It's a hostname, resolve and validate each IP
+				// It's a hostname, resolve and validate each resolved IP
+				// This prevents DNS-rebinding attacks and SSRF via DNS
 				resolver := &net.Resolver{}
 				// DNS resolution with 5-second timeout
 				dnsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -121,7 +118,7 @@ func NewAnalyzer() *Analyzer {
 					return nil, fmt.Errorf("no IP addresses resolved for %s", host)
 				}
 
-				// Check if any resolved IP is reserved
+				// Check if any resolved IP is reserved (prevents SSRF via DNS)
 				for _, resolvedIP := range ips {
 					if isReservedIP(resolvedIP) {
 						return nil, fmt.Errorf("hostname %s resolves to reserved IP %s", host, resolvedIP)
@@ -139,19 +136,24 @@ func NewAnalyzer() *Analyzer {
 			}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 		},
-		// Idle timeout (connection kept alive for reuse)
-		IdleConnTimeout: 30 * time.Second,
-		// TLS handshake timeout is applied via DialContext timeout
-		TLSHandshakeTimeout: 15 * time.Second,
-		// Response header timeout (time waiting for headers after sending request)
+		IdleConnTimeout:       30 * time.Second,
+		TLSHandshakeTimeout:   15 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
+}
 
+// Analyzer inspects and analyzes archive contents
+type Analyzer struct {
+	httpClient *http.Client
+}
+
+// NewAnalyzer creates a new archive analyzer with secure redirect handling
+func NewAnalyzer() *Analyzer {
 	return &Analyzer{
 		httpClient: &http.Client{
 			// No global timeout - allows large file downloads
 			// Context deadline should be set per-request by the caller
-			Transport: transport,
+			Transport: NewSafeArchiveTransport(),
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				// Validate redirect destination is safe (prevents SSRF via redirect chain)
 				if !isAllowedURL(req.URL.String()) {

@@ -35,6 +35,11 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid build definition", 422)
 		return
 	}
+	// Validate container image against registry allowlist and size limits
+	if _, err := ValidateContainerImageForSite(input.Site, input.Image); err != nil {
+		http.Error(w, "container image not allowed: "+err.Error(), 403)
+		return
+	}
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403); !ok {
 		return
 	}

@@ -90,27 +90,14 @@ type Executor struct {
 
 // NewExecutor creates a new import executor with secure redirect handling
 func NewExecutor() *Executor {
-	// Custom transport with granular timeouts for large file transfers
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// 15-second timeout for TCP/TLS handshake
-			dialer := net.Dialer{
-				Timeout:   15 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}
-			return dialer.DialContext(ctx, network, addr)
-		},
-		IdleConnTimeout:       30 * time.Second,
-		TLSHandshakeTimeout:   15 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
-	}
-
 	return &Executor{
 		fetcher: &ArchiveFetcher{
 			httpClient: &http.Client{
 				// No global timeout - allows large file downloads
 				// Context deadline should be set per-request by the caller
-				Transport: transport,
+				// Uses shared NewSafeArchiveTransport to ensure consistent SSRF protection
+				// with inspection path and prevent DNS-rebinding attacks
+				Transport: NewSafeArchiveTransport(),
 				CheckRedirect: func(req *http.Request, via []*http.Request) error {
 					// Validate redirect destination is safe (prevents SSRF via redirect chain)
 					if !isAllowedURL(req.URL.String()) {
