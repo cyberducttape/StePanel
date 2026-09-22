@@ -127,6 +127,19 @@ An experienced infrastructure reviewer will:
 - **Recommendation**: Either complete database restoration implementation before promoting as migration feature, OR clearly label as "Archive Extraction Assistant" (files only, DB manual). Don't position as full migration until database workflow is complete.
 - **Scope**: Feature completeness gate for v0.7.0+ releases
 
+### ❌ DEAD CODE: Scheduled Task Safeguards Not Enforced
+- **Problem**: Phase 2 safeguards commented as "not yet implemented" (tasks.go:242-246) but API accepts them
+- **Exposed but non-functional**:
+  - `MinIntervalSeconds` - Rate limiting between task runs (configured but not enforced)
+  - `MaxConcurrentRuns` - Concurrency limit (configured but not enforced)
+  - `NotifyEmail` - Failure notifications (stored but not sent)
+  - `CurrentRunCount` - Concurrent execution counter (tracked but not used)
+- **Functions exist but unreferenced**: `canExecuteTask()`, `incrementTaskRunCount()`, `decrementTaskRunCount()`, `recordTaskExecution()` are defined but never called
+- **False sense of protection**: Operators configure these values assuming they're enforced, creating operational risk
+- **Architectural problem**: Go state layer can't enforce concurrency if execution is via systemd timers (helper would need to participate)
+- **Recommendation**: Remove these fields from public API until implemented, OR implement helper-level enforcement. Don't expose knobs that are no-ops.
+- **Scope**: API contract cleanup + feature implementation for v0.8+
+
 ## Testing Recommendations
 
 Add integration tests for:
