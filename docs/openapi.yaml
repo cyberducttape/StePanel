@@ -860,11 +860,296 @@ paths:
         '202': {description: Job requeued}
         '403': {description: Administrator authentication and CSRF validation required}
         '409': {description: Job is not a dead-letter record}
-  /api/jobs:
+  /api/jobs/:
     get:
       summary: List recent persistent jobs
       responses:
         '200': {description: Up to 100 jobs, newest first}
+  /api/admin/archive/inspect:
+    post:
+      summary: Inspect archive for migration requirements
+      description: Analyzes an archive without importing it. Returns site type, PHP version, database requirements, and any issues.
+      responses:
+        '200': {description: Archive inspection results}
+        '400': {description: Invalid archive or URL}
+        '403': {description: Administrator authentication required}
+  /api/admin/archive/inspect/status:
+    get:
+      summary: Check archive inspection job status
+      parameters:
+        - {name: job_id, in: query, required: false, schema: {type: string}}
+      responses:
+        '200': {description: Inspection status and results}
+        '404': {description: Job not found}
+  /api/admin/archive/import:
+    post:
+      summary: Queue an archive import
+      description: Begins importing a website from an archive. Files are extracted and database is located.
+      responses:
+        '202': {description: Import job queued}
+        '400': {description: Invalid archive or requirements}
+        '403': {description: Administrator authentication required}
+  /api/admin/archive/import/status:
+    get:
+      summary: Check archive import job status
+      parameters:
+        - {name: job_id, in: query, required: false, schema: {type: string}}
+      responses:
+        '200': {description: Import status and progress}
+        '404': {description: Job not found}
+  /api/account/security:
+    get:
+      summary: Customer security center
+      responses:
+        '200': {description: Security settings and controls}
+  /api/account/tokens:
+    get:
+      summary: List customer API tokens
+      responses:
+        '200': {description: Token metadata (secrets never returned)}
+    post:
+      summary: Create a customer API token
+      responses:
+        '201': {description: Token created (secret returned only once)}
+  /api/account/tokens/{id}:
+    delete:
+      summary: Revoke a customer API token
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '204': {description: Token revoked}
+  /api/accounts:
+    get:
+      summary: List customer accounts
+      description: Administrator-only endpoint
+      responses:
+        '200': {description: Account list}
+        '403': {description: Administrator authentication required}
+    post:
+      summary: Create a customer account
+      description: Administrator-only endpoint
+      responses:
+        '201': {description: Account created}
+        '403': {description: Administrator authentication required}
+  /api/admin/tokens:
+    get:
+      summary: List administrator API tokens
+      responses:
+        '200': {description: Token metadata (secrets never returned)}
+    post:
+      summary: Create an administrator API token
+      responses:
+        '201': {description: Token created (secret returned only once)}
+  /api/admin/tokens/{id}:
+    delete:
+      summary: Revoke an administrator API token
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '204': {description: Token revoked}
+  /api/admin/suspend:
+    post:
+      summary: Suspend a customer account
+      responses:
+        '200': {description: Account suspended}
+        '403': {description: Administrator authentication required}
+  /api/admin/unsuspend:
+    post:
+      summary: Unsuspend a customer account
+      responses:
+        '200': {description: Account unsuspended}
+        '403': {description: Administrator authentication required}
+  /api/admin/migration-doctor:
+    post:
+      summary: Analyze source server for migration compatibility
+      description: Collects server information to assess migration readiness
+      responses:
+        '200': {description: Migration analysis results}
+        '400': {description: Invalid source or connection failed}
+        '403': {description: Administrator authentication required}
+  /api/admin/migration-doctor/status:
+    get:
+      summary: Check migration analysis status
+      parameters:
+        - {name: job_id, in: query, required: false, schema: {type: string}}
+      responses:
+        '200': {description: Analysis status}
+        '404': {description: Job not found}
+  /api/admin/plan-status:
+    get:
+      summary: Check resource plan enforcement status
+      description: Administrator-only endpoint
+      responses:
+        '200': {description: Plan enforcement status}
+        '403': {description: Administrator authentication required}
+  /api/sites:
+    get:
+      summary: List managed sites
+      responses:
+        '200': {description: Site list}
+    post:
+      summary: Create a new site
+      responses:
+        '201': {description: Site created}
+  /api/sites/overview:
+    get:
+      summary: List sites with summary information
+      responses:
+        '200': {description: Sites with overview data}
+  /api/sites/overview/{site}:
+    get:
+      summary: Detailed site overview
+      parameters:
+        - {name: site, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Site overview}
+        '404': {description: Site not found}
+  /api/sites/access/:
+    get:
+      summary: List site access controls
+      responses:
+        '200': {description: Access control list}
+  /api/sites/environment/:
+    get:
+      summary: List site environment variables
+      responses:
+        '200': {description: Environment variables}
+  /api/sites/git-key/:
+    get:
+      summary: List git deployment keys
+      responses:
+        '200': {description: Deployment keys}
+  /api/sites/git-webhook/:
+    post:
+      summary: Handle git webhook
+      description: Deployed site webhook handler
+      responses:
+        '200': {description: Webhook processed}
+  /api/sites/logs/:
+    get:
+      summary: List available site logs
+      responses:
+        '200': {description: Log list}
+  /api/sites/php/:
+    get:
+      summary: List PHP configurations
+      responses:
+        '200': {description: PHP profiles}
+  /api/sites/redis/:
+    get:
+      summary: List Redis allocations
+      responses:
+        '200': {description: Redis metadata}
+  /api/sites/resources/:
+    get:
+      summary: List resource profiles
+      responses:
+        '200': {description: Resource profiles}
+  /api/sites/usage/:
+    get:
+      summary: List site usage statistics
+      responses:
+        '200': {description: Usage data}
+  /api/sites/{name}:
+    get:
+      summary: Get site details
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Site details}
+        '404': {description: Site not found}
+    delete:
+      summary: Delete a site
+      parameters:
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Site deleted}
+  /api/tasks/:
+    get:
+      summary: List scheduled tasks
+      responses:
+        '200': {description: Task list}
+  /api/workers/:
+    get:
+      summary: List active workers
+      responses:
+        '200': {description: Worker list}
+  /api/apps:
+    get:
+      summary: List managed Node applications
+      responses:
+        '200': {description: Applications}
+  /api/apps/deploy:
+    post:
+      summary: Deploy a managed Node application
+      responses:
+        '202': {description: Application deployed}
+  /api/composer/:
+    get:
+      summary: List Composer projects
+      responses:
+        '200': {description: Projects}
+  /api/proxy:
+    get:
+      summary: List managed reverse proxies
+      responses:
+        '200': {description: Proxies}
+    post:
+      summary: Deploy a reverse proxy
+      responses:
+        '202': {description: Proxy deployed}
+  /api/proxy/deploy:
+    post:
+      summary: Deploy and reload a reverse proxy
+      responses:
+        '202': {description: Proxy deployed}
+  /api/proxy/test:
+    post:
+      summary: Test a backend connection
+      responses:
+        '200': {description: Test result}
+  /api/node/tooling:
+    get:
+      summary: Get Node.js runtime status
+      responses:
+        '200': {description: Node versions and tools}
+  /api/node/versions:
+    get:
+      summary: List installed Node versions
+      responses:
+        '200': {description: Versions}
+  /api/node/select:
+    post:
+      summary: Select Node version for site
+      responses:
+        '200': {description: Version selected}
+  /api/python/:
+    get:
+      summary: List Python runtime configurations
+      responses:
+        '200': {description: Python projects}
+  /api/python/deploy:
+    post:
+      summary: Deploy Python application
+      responses:
+        '202': {description: Deploy job queued}
+  /api/wordpress/:
+    get:
+      summary: List WordPress sites
+      responses:
+        '200': {description: WordPress sites}
+  /api/wordpress/status/:
+    get:
+      summary: Get WordPress site status
+      responses:
+        '200': {description: WordPress status}
+  /api/capabilities:
+    get:
+      security: []
+      summary: Host capabilities and feature availability
+      description: Probes and returns what the host can do (databases, network isolation, quotas, etc.)
+      responses:
+        '200': {description: Host capabilities}
   /metrics:
     get:
       summary: Prometheus metrics
