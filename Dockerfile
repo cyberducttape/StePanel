@@ -16,10 +16,10 @@ FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe6
 # Track version updates in git with CVE or improvement justification.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates=20240625-1 \
-        curl=8.5.0-2+deb12u5 \
-        mariadb-client=1:10.11.8-1 \
-        rclone=1:1.65.2-2 \
+        ca-certificates \
+        curl \
+        mariadb-client \
+        rclone \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --user-group --home-dir /opt/stepanel --shell /usr/sbin/nologin stepanel \
     && mkdir -p /opt/stepanel/web/static /var/lib/ste-panel/imports /var/www/sites \

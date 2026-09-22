@@ -11,8 +11,12 @@
 #
 # Security note: Always update when CVEs are discovered. Track updates in
 # git history with commit messages explaining the CVE or improvement.
+#
+# NOTE: Currently using latest available (unpinned) versions due to
+# unavailable pinned versions in repository. Run build to identify actual
+# installed versions, then pin them back for reproducibility.
 
-ca-certificates=20240625-1
-curl=8.5.0-2+deb12u5
-mariadb-client=1:10.11.8-1
-rclone=1:1.65.2-2
+ca-certificates
+curl
+mariadb-client
+rclone
