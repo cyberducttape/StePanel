@@ -31,8 +31,8 @@ type ScheduledTask struct {
 	LastRunAt           int64    `json:"last_run_at,omitempty"`          // Unix timestamp of last execution
 	LastRunExitCode     int      `json:"last_run_exit_code,omitempty"`   // 0 = success, >0 = failure
 	LastRunOutput       []string `json:"last_run_output,omitempty"`      // Last N lines of stdout/stderr
-	ConsecutiveFailures int   `json:"consecutive_failures,omitempty"` // Count failures for auto-disable
-	AutoDisabledAt      int64 `json:"auto_disabled_at,omitempty"`     // When task was auto-disabled
+	ConsecutiveFailures int      `json:"consecutive_failures,omitempty"` // Count failures for auto-disable
+	AutoDisabledAt      int64    `json:"auto_disabled_at,omitempty"`     // When task was auto-disabled
 	// Phase 2 safeguards: NOT YET IMPLEMENTED - fields intentionally omitted from API
 	// See: https://github.com/itchyitchy123/StePanel/docs/SECURITY_GAPS_FOUND.md
 	// NotifyEmail, MinIntervalSeconds, MaxConcurrentRuns, CurrentRunCount reserved for future use
