@@ -44,6 +44,14 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "container image not allowed: "+err.Error(), 403)
 		return
 	}
+
+	// TODO: MaxImageSize enforcement requires fetching image manifest to determine actual size
+	// before launching container. This requires:
+	// 1. Parse image reference (already done by ValidateContainerImageForSite)
+	// 2. Resolve image digest (may require credential handling)
+	// 3. Fetch manifest to get size
+	// 4. Compare against Config.MaxImageSize
+	// For now, size limits are enforced at helper level if supported by podman inspect
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403); !ok {
 		return
 	}
