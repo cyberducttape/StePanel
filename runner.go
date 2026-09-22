@@ -35,8 +35,12 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid build definition", 422)
 		return
 	}
-	// Validate container image against registry allowlist and size limits
-	if _, err := ValidateContainerImageForSite(input.Site, input.Image); err != nil {
+	// Validate container image against registry allowlist and size limits from config
+	allowed := make(map[string]bool)
+	for _, registry := range strings.Split(a.Config.RunnerAllowedRegistries, ",") {
+		allowed[strings.TrimSpace(registry)] = true
+	}
+	if _, err := ValidateContainerImageForSite(input.Image, allowed); err != nil {
 		http.Error(w, "container image not allowed: "+err.Error(), 403)
 		return
 	}
@@ -79,7 +83,7 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cpuPercent, memoryMB, tasksMax := a.pipelineResourceLimits(input.Site)
-	if err = runHelperCommand(r.Context(), a.Config, a.Config.RunnerCtl, "build", input.Site, input.Image, root, scriptPath, strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax)); err != nil {
+	if err = runHelperCommand(r.Context(), a.Config, a.Config.RunnerCtl, "build", input.Site, input.Image, root, scriptPath, strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax), a.Config.RunnerNetworkMode); err != nil {
 		http.Error(w, "sandboxed build failed", 502)
 		return
 	}

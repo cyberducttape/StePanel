@@ -152,10 +152,10 @@ func isValidImageComponent(component string) bool {
 }
 
 // ValidateContainerImageForSite validates a container image for deployment in a site
-func ValidateContainerImageForSite(site, image string) (*ContainerImageRef, error) {
-	// TODO: Load site-specific allowlist from database if available
-	// For now, use default allowlist
-	return ParseContainerImage(image, AllowedContainerRegistries)
+// Uses the provided allowed registries list (typically from config)
+func ValidateContainerImageForSite(image string, allowedRegistries map[string]bool) (*ContainerImageRef, error) {
+	// TODO: Load site-specific allowlist overrides from database if available
+	return ParseContainerImage(image, allowedRegistries)
 }
 
 // ImageString returns the full image reference as a string

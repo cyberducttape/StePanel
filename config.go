@@ -24,7 +24,7 @@ type Config struct {
 	DBHost, DBUser, DBPassword, DBPasswordFile                                               string
 	DBEngine, DBVersion, DBAdminURL                                                          string
 	GitAllowedHosts, GitWebhookSecret                                                        string
-	RunnerAllowedRegistries                                                                  string
+	RunnerAllowedRegistries, RunnerNetworkMode                                               string
 	EnvironmentState, EnvironmentKey                                                         string
 	ControlPlaneDB                                                                           string
 	AccountKey                                                                               string
@@ -33,7 +33,6 @@ type Config struct {
 	OffsiteTarget                                                                            string
 	CloudProvider                                                                            string
 	RequireOffsiteBackup                                                                     bool
-	RunnerNetworkEnabled                                                                     bool
 	TLSAlreadyTerminated                                                                     bool
 	Production                                                                               bool
 	WorkerMode                                                                               string
@@ -46,7 +45,7 @@ type Config struct {
 }
 
 func LoadConfig() Config {
-	c := Config{WebServer: "caddy", Listen: ":8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", TaskCtl: "/usr/local/sbin/stepanel-taskctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", RunnerAllowedRegistries: "docker.io,ghcr.io,quay.io", MaxUpload: 20 << 30, MaxImageSize: 5 << 30, MaxEntries: 1000000, MaxConcurrentJobs: 2, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, MinFreeBytes: 1 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200}
+	c := Config{WebServer: "caddy", Listen: ":8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", TaskCtl: "/usr/local/sbin/stepanel-taskctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", RunnerAllowedRegistries: "docker.io,ghcr.io,quay.io", RunnerNetworkMode: "none", MaxUpload: 20 << 30, MaxImageSize: 5 << 30, MaxEntries: 1000000, MaxConcurrentJobs: 2, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, MinFreeBytes: 1 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200}
 	if v := os.Getenv("STEPANEL_WEBSERVER"); v != "" {
 		c.WebServer = strings.ToLower(strings.TrimSpace(v))
 	}
@@ -86,8 +85,12 @@ func LoadConfig() Config {
 	if v := os.Getenv("STEPANEL_RUNNER_ALLOWED_REGISTRIES"); v != "" {
 		c.RunnerAllowedRegistries = strings.ToLower(strings.TrimSpace(v))
 	}
-	if v := os.Getenv("STEPANEL_RUNNER_NETWORK_ENABLED"); v != "" {
-		c.RunnerNetworkEnabled = strings.ToLower(v) == "1" || strings.ToLower(v) == "true"
+	if v := os.Getenv("STEPANEL_RUNNER_NETWORK_MODE"); v != "" {
+		// Allow "none" (default) or "egress" (enable outbound networking)
+		mode := strings.ToLower(strings.TrimSpace(v))
+		if mode == "none" || mode == "egress" {
+			c.RunnerNetworkMode = mode
+		}
 	}
 	if v := os.Getenv("STEPANEL_MAX_IMAGE_SIZE"); v != "" {
 		if size, err := strconv.ParseInt(v, 10, 64); err == nil && size > 0 {

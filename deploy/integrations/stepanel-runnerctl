@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 [[ $EUID -eq 0 ]] || { echo 'must run as root' >&2; exit 1; }
-[[ $# -eq 8 && $1 == "build" ]] || { echo 'usage: stepanel-runnerctl build SITE IMAGE ROOT SCRIPT CPU_PERCENT MEMORY_MB TASKS_MAX' >&2; exit 64; }
-site=$2 image=$3 root=$4 script=$5 cpu_percent=$6 memory_mb=$7 tasks_max=$8
-[[ $site =~ ^[a-z0-9_-]{1,32}$ && $image =~ ^[a-z0-9][a-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$ && $cpu_percent =~ ^[0-9]+$ && $memory_mb =~ ^[0-9]+$ && $tasks_max =~ ^[0-9]+$ && $cpu_percent -ge 25 && $cpu_percent -le 6400 && $memory_mb -ge 64 && $memory_mb -le 1048576 && $tasks_max -ge 16 && $tasks_max -le 100000 && ( $root == "/var/www/sites/$site/public" || $root =~ ^/var/www/sites/$site/\.stepanel-release-[A-Za-z0-9-]+$ ) ]] || { echo 'invalid build request' >&2; exit 1; }
+[[ $# -eq 9 && $1 == "build" ]] || { echo 'usage: stepanel-runnerctl build SITE IMAGE ROOT SCRIPT CPU_PERCENT MEMORY_MB TASKS_MAX NETWORK_MODE' >&2; exit 64; }
+site=$2 image=$3 root=$4 script=$5 cpu_percent=$6 memory_mb=$7 tasks_max=$8 network_mode=$9
+[[ $site =~ ^[a-z0-9_-]{1,32}$ && $image =~ ^[a-z0-9][a-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$ && $cpu_percent =~ ^[0-9]+$ && $memory_mb =~ ^[0-9]+$ && $tasks_max =~ ^[0-9]+$ && $cpu_percent -ge 25 && $cpu_percent -le 6400 && $memory_mb -ge 64 && $memory_mb -le 1048576 && $tasks_max -ge 16 && $tasks_max -le 100000 && ( $network_mode == "none" || $network_mode == "egress" ) && ( $root == "/var/www/sites/$site/public" || $root =~ ^/var/www/sites/$site/\.stepanel-release-[A-Za-z0-9-]+$ ) ]] || { echo 'invalid build request' >&2; exit 1; }
 site_root="/var/www/sites/$site"
 [[ -d $root && ! -L $root && -f $script && ! -L $script && -d "$site_root" && ! -L "$site_root" ]] || { echo 'invalid build inputs' >&2; exit 1; }
 command -v podman >/dev/null || { echo 'rootless Podman is required' >&2; exit 1; }
@@ -23,4 +23,7 @@ site_gid=$(id -g "$site_user")
 # runs as the site account, so a path race cannot turn cleanup into root deletion.
 runuser -u "$site_user" -- find -P -- "$artifact" -xdev -depth -mindepth 1 -delete
 cpus=$(awk "BEGIN { printf \"%.2f\", $cpu_percent / 100 }")
-runuser -u "$site_user" -- podman run --rm --network slirp4netns --userns keep-id --cap-drop ALL --security-opt no-new-privileges --read-only --cpus "$cpus" --memory "${memory_mb}m" --pids-limit "$tasks_max" --tmpfs /tmp:rw,noexec,nosuid,size=512m -v "$root:/src:ro,Z" -v "$artifact:/artifact:rw,Z" -v "$script:/run/stepanel/build.sh:ro,Z" -w /src "$image" /bin/sh /run/stepanel/build.sh
+# Convert network_mode to podman flag: "none" -> "--network none", "egress" -> "--network slirp4netns"
+network_flag="--network none"
+[[ $network_mode == "egress" ]] && network_flag="--network slirp4netns"
+runuser -u "$site_user" -- podman run --rm $network_flag --userns keep-id --cap-drop ALL --security-opt no-new-privileges --read-only --cpus "$cpus" --memory "${memory_mb}m" --pids-limit "$tasks_max" --tmpfs /tmp:rw,noexec,nosuid,size=512m -v "$root:/src:ro,Z" -v "$artifact:/artifact:rw,Z" -v "$script:/run/stepanel/build.sh:ro,Z" -w /src "$image" /bin/sh /run/stepanel/build.sh

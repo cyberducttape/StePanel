@@ -302,7 +302,7 @@ func TestContainerImageAllowlist(t *testing.T) {
 
 	for _, image := range blockedImages {
 		t.Run("blocked_"+image, func(t *testing.T) {
-			_, err := ValidateContainerImageForSite("testsite", image)
+			_, err := ValidateContainerImageForSite(image, AllowedContainerRegistries)
 			if err == nil {
 				t.Fatalf("malicious registry allowed: %s", image)
 			}
@@ -320,7 +320,7 @@ func TestContainerImageAllowed(t *testing.T) {
 
 	for _, image := range allowedImages {
 		t.Run("allowed_"+image, func(t *testing.T) {
-			_, err := ValidateContainerImageForSite("testsite", image)
+			_, err := ValidateContainerImageForSite(image, AllowedContainerRegistries)
 			if err != nil {
 				t.Fatalf("legitimate image blocked: %s (err: %v)", image, err)
 			}

@@ -158,7 +158,7 @@ func TestValidateContainerImageForSite(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
-			_, err := ValidateContainerImageForSite("testsite", tt.image)
+			_, err := ValidateContainerImageForSite(tt.image, AllowedContainerRegistries)
 			if (err != nil) != tt.shouldFail {
 				t.Errorf("shouldFail=%v, got err=%v", tt.shouldFail, err)
 			}
