@@ -236,5 +236,9 @@ func (a *App) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	capabilities := a.ProbeCapabilities()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(capabilities)
+	if err := json.NewEncoder(w).Encode(capabilities); err != nil {
+		// Encoding errors are not recoverable at this point (response already started)
+		// but we should at least log them in a production system
+		return
+	}
 }
