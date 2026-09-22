@@ -341,3 +341,54 @@ Add integration tests for:
 3. Forbidden registry in build request (expect 403)
 4. Network mode "none" vs "egress" (verify podman --network flag)
 5. MaxImageSize enforcement (when implemented)
+
+---
+
+## Audit Status Summary
+
+### Completed (8 items) ✅
+
+**Security Fixes Implemented:**
+1. Archive importer SSRF via DNS rebinding
+2. Missing CSRF protection on archive endpoints
+3. Container registry allowlist not enforced
+4. Network isolation ignored by helper
+5. Legacy token migration deadline calculation
+6. Scheduled task safeguards dead code removed
+7. Docker package CVE vulnerabilities
+8. MaxImageSize documentation and implementation path
+
+### Pending (6 items) ❌
+
+**P0 (Release Blocker):**
+- Generic archive import incomplete (database restore not implemented)
+
+**P1 (Before Production GA):**
+- Documentation contradictions (consolidate to 4 canonical sources)
+- Host Capabilities API (recommended for operator trust)
+- Archive import lifecycle integration
+
+**P2 (Quality/Presentation):**
+- OpenAPI spec contract testing in CI
+- Root package refactoring (133 files, ~1,600 line files)
+
+**P3 (Polish):**
+- MaxImageSize manifest fetching (implementation ready)
+
+### Effort Breakdown
+
+**Quick Wins (Done):** 8 security fixes + documentation
+
+**Medium Effort (1-2 weeks):**
+- Complete database restore for archive import
+- Consolidate documentation
+- API contract testing
+
+**Large Effort (1+ month):**
+- Root package refactoring to domain-driven internal/*
+- Host Capabilities API with probing
+- Frontend organization (sites.js, workspace.css)
+
+### Key Insight
+
+**The Real Adoption Barrier:** Not missing features, but broken trust from claim-vs-implementation mismatches. Fix these first (P0/P1) before adding new capabilities. Recommend Host Capabilities API for transparency about what actually works.
