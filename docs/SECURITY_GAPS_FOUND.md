@@ -109,6 +109,15 @@ An experienced infrastructure reviewer will:
 - Needs separate work to inspect image size
 - **Status**: Tracked but deferred to separate PR
 
+### 🏗️ ARCHITECTURAL: Archive Import Bypasses Site Lifecycle
+- **Problem**: Archive import uses direct filesystem operations, doesn't provision through stepanel-sitectl
+- **Impact**: "Import complete" ≠ "StePanel-managed site created"
+- **Current flow**: Archive extraction → direct filesystem writes to WEBROOT/sites/*/public
+- **Expected flow**: Archive extraction → typed SiteManager operation → identity provisioning → PHP-FPM pool → resource envelope → routes → database → recovery transaction → account ownership → desired state reconciliation
+- **Risk**: Subtle bugs where imported sites miss critical lifecycle setup (resource accounting, recovery metadata, account isolation, etc.)
+- **Recommendation**: Integrate archive import into normal site creation lifecycle instead of direct filesystem manipulation. Consider renaming to "Archive Extraction Assistant" if keeping current design.
+- **Scope**: Architectural refactoring for v0.8+
+
 ## Testing Recommendations
 
 Add integration tests for:
