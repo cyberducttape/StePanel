@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -220,7 +219,6 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	onProgress(job)
 
 	var dbRestorationIssue *ImportIssue
-	var sqlFilePath string
 	sqlFile := e.findDatabaseDump(job.WebRoot)
 	if sqlFile != "" {
 		// Get file size for reporting
