@@ -378,7 +378,12 @@ func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var legacyTokens []LegacyTokenWarning
-	daysUntilDeadline := int64(57) // Approximately 57 days until 2026-11-15
+	// Calculate days until deadline dynamically (not a hardcoded constant that becomes wrong every day)
+	deadline := time.Date(2026, time.November, 15, 0, 0, 0, 0, time.UTC)
+	daysUntilDeadline := int64(deadline.Sub(time.Now()).Hours() / 24)
+	if daysUntilDeadline < 0 {
+		daysUntilDeadline = 0 // Deadline has passed
+	}
 
 	for _, token := range items {
 		if token.LegacyUnscoped && token.RevokedAt == nil {
@@ -411,7 +416,7 @@ func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
 		"migration_status":    migrationStatus,
 		"phase":               2,
 		"warning_message":     "Legacy API tokens with unlimited access were created before scope-based access control was introduced. Regenerate them with specific scopes to limit what they can do.",
-		"notification_sent":   false, // Phase 2: will be set to true once email is sent
+		"notification_sent":   false, // Phase 2: email notifications not yet implemented
 	})
 }
 
@@ -439,11 +444,13 @@ func (a *App) sendLegacyTokenNotifications(username string) error {
 		return nil // No legacy tokens to notify about
 	}
 
-	// Phase 2: Log notification (actual email sending would be configured externally)
-	// In production, this would integrate with an email service (SendGrid, AWS SES, etc.)
+	// Phase 2: Email notifications not yet implemented
+	// TODO: Integrate with email service (SendGrid, AWS SES, etc.) to send actual notifications
+	// For now, just log that notification is required
 
-	// Log to audit trail that notification was queued
-	if err := AuditAs(a.Config.AuditLog, username, "token.legacy_unscoped.notified", "legacy-tokens", "notification-sent"); err != nil {
+	// Log to audit trail that notification action was triggered
+	// Note: Event name reflects that notification is REQUIRED, not that it was SENT
+	if err := AuditAs(a.Config.AuditLog, username, "token.legacy_unscoped.notification_required", "legacy-tokens", "requires-email-integration"); err != nil {
 		return err
 	}
 
