@@ -151,6 +151,75 @@ An experienced infrastructure reviewer will:
 - **Recommendation**: Remove these fields from public API until implemented, OR implement helper-level enforcement. Don't expose knobs that are no-ops.
 - **Scope**: API contract cleanup + feature implementation for v0.8+
 
+## Architecture & Maintainability Issues
+
+### 🏗️ CODE ORGANIZATION: Root Package Overgrowth Complicates Security Audits
+- **Problem**: Root package contains ~133 Go files with giant monoliths mixing concerns
+- **Largest files**:
+  - `jobs.go` - 1,687 lines
+  - `main.go` - 1,410 lines
+  - `accounts.go` - 1,319 lines
+  - `git_deploy.go` - 970 lines
+  - `backups.go` - 837 lines
+  - `wpress.go` - 794 lines
+  - `cloud.go` - 763 lines
+  - `auth.go` - 758 lines
+  - Plus 11 more files 600+ lines each
+- **Frontend equivalent**:
+  - `web/static/sites.js` - ~1,132 lines
+  - `workspace.css` - ~1,133 lines
+- **Security impact**: Mixed concerns make authorization boundaries hard to audit
+  - HTTP handlers interleave with platform operations
+  - State mutation unclear
+  - Helper invocation scattered
+  - Authorization checks easy to miss in giant functions
+- **Current plan**: REFACTORING_PLAN.md already identifies this need
+- **Recommendation**: Restructure to domain-driven internal packages:
+  ```
+  cmd/stepanel/
+      main.go
+  
+  internal/app/
+      app.go
+      routes.go
+  
+  internal/auth/
+  internal/accounts/
+  internal/sites/
+  internal/backups/
+  internal/migration/
+  internal/deployment/
+  internal/database/
+  internal/tasks/
+  internal/resources/
+  internal/security/
+  internal/platform/
+  internal/jobs/
+  ```
+- **Critical principle**: HTTP handlers should NOT directly perform platform operations
+  ```
+  Current (mixed concerns, hard to audit):
+    HTTP handler → state mutation → helper call
+  
+  Target (clear boundaries, testable):
+    HTTP handler
+        ↓
+    Domain service (business logic)
+        ↓
+    Authorization/capability check
+        ↓
+    Platform interface
+        ↓
+    Helper execution
+  ```
+- **Benefits**:
+  - Stronger test boundaries (mock interfaces)
+  - Security audits focus on interfaces, not giant functions
+  - Clear authorization checkpoints
+  - Easier to identify where secrets/state are handled
+  - Faster code review (smaller files = focused review)
+- **Scope**: Major refactoring for v0.8+ (already planned, needs execution)
+
 ## Documentation & Quality Issues
 
 ### 📚 DOCUMENTATION: Multiple Overlapping Documents Create Confusion
