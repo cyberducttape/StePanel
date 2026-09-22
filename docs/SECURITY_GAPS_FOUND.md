@@ -265,6 +265,68 @@ An experienced infrastructure reviewer will:
   - Makes StePanel appear significantly more mature
 - **Scope**: API contract testing automation for CI
 
+## Strategic Recommendation: Fix Trust Before Adding Features
+
+### 🎯 Core Adoption Barrier: Claim-vs-Reality Mismatch
+- **The Real Problem**: It's not missing features that blocks adoption
+- **StePanel's feature catalog is already substantial** for v0.x
+- **What actually stops experienced operators**: 
+  - Seeing marketing claim: "network disabled by default"
+  - Opening helper script: finds `--network slirp4netns` (always enabled)
+  - Operator reaction: "Can I trust anything else in this product?"
+  
+- **Pattern**: Every mismatch between docs/changelog and code destroys trust across the entire product
+  - Claims: "registry allowlist enforced"
+  - Reality: Only regex pattern validation (no actual allowlist)
+  - Operator: "What else isn't working as advertised?"
+
+- **Fix First Philosophy**:
+  1. ✅ Eliminate claim-vs-implementation gaps (in progress)
+  2. ✅ Make docs/changelog reflect actual behavior (in progress)
+  3. ✅ Fix incomplete features (database restore, etc.)
+  4. **THEN** add new features once trust is established
+
+### 💡 Recommended: Host Capabilities API
+- **Purpose**: Let operators know exactly what their host can do (or can't)
+- **Example response**:
+  ```json
+  {
+    "site.lifecycle": {
+      "available": true
+    },
+    "database.mysql.restore": {
+      "available": true
+    },
+    "runner.network_isolation": {
+      "available": false,
+      "reason": "helper does not support --network none"
+    },
+    "filesystem.quotas": {
+      "available": false,
+      "reason": "/var/www is not mounted with usrquota"
+    }
+  }
+  ```
+- **Benefits**:
+  - UI only exposes what actually works
+  - Transparent about limitations
+  - Operators know exactly what's supported
+  - Very SRE-friendly (expected pattern)
+  - No "Why doesn't this feature work?" surprises
+
+- **Implementation order**:
+  1. Fix known gaps (network, registry, etc.)
+  2. Add capabilities probing to startup
+  3. Expose via `/api/capabilities` endpoint
+  4. Update UI to only show available features
+  5. Help operators understand host configuration requirements
+
+### 📈 This Would Dramatically Improve Perception
+- Changes from: "I see inconsistencies, can't trust this"
+- To: "This is transparent about what it can and can't do"
+- Positions as mature, honest, SRE-focused project
+- Makes StePanel *more* trustworthy despite being v0.x
+
 ## Testing Recommendations
 
 Add integration tests for:
