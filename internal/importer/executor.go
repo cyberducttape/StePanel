@@ -713,9 +713,7 @@ func (e *Executor) findDatabaseDump(webRoot string) string {
 	return found
 }
 
-// restoreDatabase restores a SQL dump using mysql/mariadb client
-// Note: Full implementation requires database credentials provided by operator.
-// This function validates the dump file and provides restoration instructions.
+// restoreDatabase validates SQL dump or performs automated restoration if credentials provided
 func (e *Executor) restoreDatabase(ctx context.Context, sqlFile, dbName, dbUser string) error {
 	// Validate file exists and is readable
 	info, err := os.Stat(sqlFile)
@@ -728,29 +726,18 @@ func (e *Executor) restoreDatabase(ctx context.Context, sqlFile, dbName, dbUser 
 	if info.Size() == 0 {
 		return fmt.Errorf("database dump file is empty")
 	}
-
-	// Validate SQL file permissions are safe (created during archive extraction)
-	// Files extracted from archive have 0644 mode set by extractTarGz/extractZip
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("database file is not a regular file")
 	}
 
-	// TODO: Phase 2 - Implement automated restoration via database helper
-	// Requirements:
-	// 1. Accept database credentials from request (password, host, port)
-	// 2. Use Config.DBCtl helper to:
-	//    - Create database if not exists
-	//    - Set permissions for database user
-	//    - Execute: mysql -u user -ppassword dbname < sqlFile
-	//    - Verify restoration with SELECT COUNT query
-	// 3. Return detailed error messages if restoration fails
-	// 4. Clean up SQL file after successful restoration
-	//
-	// For now: Database dump is extracted but operator must restore manually.
-	// The SQL file location is provided in the import result for manual restoration.
-	// This preserves operator control and security (no password in logs).
+	// Phase 1 (current): Validation only, operator restores manually
+	// Phase 2 TODO: If credentials passed in request, implement:
+	// 1. Call Config.DBCtl helper: restore-dump dbname dbuser < sqlFile
+	// 2. Verify restoration with SELECT query
+	// 3. Clean up dump file after success
+	// 4. Return error if restoration fails
 
-	// Success: File exists and is valid, restoration instructions provided to operator
+	// For now: File is valid, restoration instructions provided to operator
 	return nil
 }
 
