@@ -2,11 +2,26 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
 )
+
+// readSpecFile reads the OpenAPI spec from the correct path
+func readSpecFile(t *testing.T) string {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+	specPath := filepath.Join(wd, "docs", "openapi.yaml")
+	content, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatalf("failed to read openapi.yaml: %v", err)
+	}
+	return string(content)
+}
 
 // TestOpenAPIContractSync verifies OpenAPI spec matches registered routes
 func TestOpenAPIContractSync(t *testing.T) {
@@ -35,7 +50,12 @@ func TestOpenAPIContractSync(t *testing.T) {
 
 // getRegisteredRoutes extracts all /api/* routes from main.go
 func getRegisteredRoutes(t *testing.T) []string {
-	content, err := os.ReadFile("main.go")
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+	mainPath := filepath.Join(wd, "main.go")
+	content, err := os.ReadFile(mainPath)
 	if err != nil {
 		t.Fatalf("failed to read main.go: %v", err)
 	}
@@ -65,17 +85,14 @@ func getRegisteredRoutes(t *testing.T) []string {
 
 // getDocumentedRoutes extracts all documented routes from openapi.yaml
 func getDocumentedRoutes(t *testing.T) []string {
-	content, err := os.ReadFile("docs/openapi.yaml")
-	if err != nil {
-		t.Fatalf("failed to read openapi.yaml: %v", err)
-	}
+	text := readSpecFile(t)
 
 	// Pattern: /api/... as a YAML key (followed by : and indent)
 	pattern := regexp.MustCompile(`^\s{2}(/api/[^\s:]+):\s*$`)
 
 	routes := make(map[string]bool)
 
-	for _, line := range strings.Split(string(content), "\n") {
+	for _, line := range strings.Split(text, "\n") {
 		matches := pattern.FindStringSubmatch(line)
 		if len(matches) > 1 {
 			routes[matches[1]] = true
@@ -113,12 +130,7 @@ func setDifference(a, b []string) []string {
 
 // TestOpenAPIStructure verifies the OpenAPI spec is well-formed
 func TestOpenAPIStructure(t *testing.T) {
-	content, err := os.ReadFile("docs/openapi.yaml")
-	if err != nil {
-		t.Fatalf("failed to read openapi.yaml: %v", err)
-	}
-
-	text := string(content)
+	text := readSpecFile(t)
 
 	// Check required top-level fields
 	required := []string{"openapi:", "info:", "servers:", "paths:"}
@@ -164,12 +176,7 @@ func isOperation(key string) bool {
 
 // TestOpenAPISecuritySchemes verifies security definitions match code
 func TestOpenAPISecuritySchemes(t *testing.T) {
-	content, err := os.ReadFile("docs/openapi.yaml")
-	if err != nil {
-		t.Fatalf("failed to read openapi.yaml: %v", err)
-	}
-
-	text := string(content)
+	text := readSpecFile(t)
 
 	// Check that security schemes are defined
 	// StePanel uses: sessionCookie (CSRF validated)
@@ -190,12 +197,7 @@ func TestOpenAPISecuritySchemes(t *testing.T) {
 
 // TestOpenAPIEndpointConsistency verifies endpoint documentation is consistent
 func TestOpenAPIEndpointConsistency(t *testing.T) {
-	content, err := os.ReadFile("docs/openapi.yaml")
-	if err != nil {
-		t.Fatalf("failed to read openapi.yaml: %v", err)
-	}
-
-	text := string(content)
+	text := readSpecFile(t)
 
 	// Basic check: look for operations without summary or description
 	// Pattern: get:, post:, etc. should be followed by summary: or description:
@@ -235,17 +237,11 @@ func TestOpenAPIEndpointConsistency(t *testing.T) {
 
 // TestOpenAPIYAMLFormat verifies the YAML format is valid
 func TestOpenAPIYAMLFormat(t *testing.T) {
-	content, err := os.ReadFile("docs/openapi.yaml")
-	if err != nil {
-		t.Fatalf("failed to read openapi.yaml: %v", err)
-	}
+	text := readSpecFile(t)
 
-	if len(content) == 0 {
+	if len(text) == 0 {
 		t.Error("openapi.yaml is empty")
 	}
-
-	// Basic YAML validation: check for valid structure
-	text := string(content)
 	if !strings.Contains(text, "openapi:") {
 		t.Error("missing 'openapi:' field - not a valid OpenAPI spec")
 	}
@@ -253,12 +249,7 @@ func TestOpenAPIYAMLFormat(t *testing.T) {
 
 // TestOpenAPIVersionSync checks that version matches VERSION constant
 func TestOpenAPIVersionSync(t *testing.T) {
-	content, err := os.ReadFile("docs/openapi.yaml")
-	if err != nil {
-		t.Fatalf("failed to read openapi.yaml: %v", err)
-	}
-
-	text := string(content)
+	text := readSpecFile(t)
 
 	// Look for version: line (can be quoted or unquoted)
 	pattern := regexp.MustCompile(`version:\s+["']?([^"'\s]+)`)

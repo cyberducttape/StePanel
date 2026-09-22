@@ -86,7 +86,9 @@ func (a *App) inspectArchive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		return
+	}
 }
 
 func (a *App) inspectArchiveStatus(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +121,9 @@ func (a *App) inspectArchiveStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		return
+	}
 }
 
 func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +165,7 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 	analyzer := importer.NewAnalyzer()
 	inspection, err := analyzer.InspectArchive(req.URL, req.ConfigPath)
 
-	if err != nil && inspection == nil {
+	if err != nil {
 		http.Error(w, "failed to inspect archive: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -197,7 +201,9 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		return
+	}
 }
 
 func (a *App) archiveImportStatus(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +236,9 @@ func (a *App) archiveImportStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		return
+	}
 }
 
 // handleArchiveImportJob processes an archive import durable job

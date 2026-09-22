@@ -1297,7 +1297,9 @@ func normalizeAPIErrors(next http.Handler) http.Handler {
 		if status >= 400 && strings.HasPrefix(captured.header.Get("Content-Type"), "text/plain") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(status)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": strings.TrimSpace(captured.body.String())})
+			if err := json.NewEncoder(w).Encode(map[string]string{"error": strings.TrimSpace(captured.body.String())}); err != nil {
+				return
+			}
 			return
 		}
 		w.WriteHeader(status)
@@ -1310,7 +1312,9 @@ func normalizeAPIErrors(next http.Handler) http.Handler {
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		return
+	}
 }
 func safeUser(value string) string {
 	value = strings.TrimSpace(value)
