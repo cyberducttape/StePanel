@@ -127,6 +127,17 @@ An experienced infrastructure reviewer will:
 - **Recommendation**: Either complete database restoration implementation before promoting as migration feature, OR clearly label as "Archive Extraction Assistant" (files only, DB manual). Don't position as full migration until database workflow is complete.
 - **Scope**: Feature completeness gate for v0.7.0+ releases
 
+### 📋 OPERATIONAL: Legacy Token Migration Timeline (Fixed)
+- **Problem**: `daysUntilDeadline` hardcoded to 57 days; becomes wrong every day
+- **Impact**: Migration deadline tracking inaccurate, could confuse operators
+- **Audit Event Issue**: `sendLegacyTokenNotifications()` logged "token.legacy_unscoped.notified" but doesn't send email
+  - Semantically misleading - says notification was sent when it wasn't
+- **Fix Applied**: 
+  - Calculate deadline dynamically from 2026-11-15
+  - Changed audit event to "token.legacy_unscoped.notification_required"
+  - Added TODO for email service integration
+- **Commit**: `78bda33`
+
 ### ❌ DEAD CODE: Scheduled Task Safeguards Not Enforced
 - **Problem**: Phase 2 safeguards commented as "not yet implemented" (tasks.go:242-246) but API accepts them
 - **Exposed but non-functional**:
@@ -139,6 +150,51 @@ An experienced infrastructure reviewer will:
 - **Architectural problem**: Go state layer can't enforce concurrency if execution is via systemd timers (helper would need to participate)
 - **Recommendation**: Remove these fields from public API until implemented, OR implement helper-level enforcement. Don't expose knobs that are no-ops.
 - **Scope**: API contract cleanup + feature implementation for v0.8+
+
+## Documentation & Quality Issues
+
+### 📚 DOCUMENTATION: Multiple Overlapping Documents Create Confusion
+- **Problem**: Version and status information scattered across conflicting sources
+  - `git tag`: 0.8
+  - `version.go`: 0.7.0
+  - `README.md`: v0.7.0 release preparation
+  - `FEATURES.md`: v0.7.0 pending
+  - `PRODUCTION_READINESS.md`: v0.7.0
+  - `PRODUCTION_SCORECARD.md`: Lists blockers as unresolved (contradicts changelog)
+  - `CHANGELOG.md`: Claims resolutions for items still listed as blockers elsewhere
+- **Impact**: Reviewers can't determine which document is authoritative; reader confusion about actual status
+- **Examples of drift**:
+  - Container constraints: Currently overstated in some docs
+  - Root pip: Marked resolved in changelog but flagged elsewhere
+  - Webhook work: Status inconsistent across documents
+- **Recommendation**: Consolidate to 4 canonical documents only:
+  - `README.md` - Project overview and quick start
+  - `SECURITY.md` - Security boundaries and threat model
+  - `FEATURES.md` - Capability matrix (single source of truth)
+  - `ROADMAP.md` - Future direction
+- **Everything else**: Either historical release docs or references the canonical status table
+- **Scope**: Documentation restructuring for v0.8+
+
+### 📋 API SPECIFICATION: OpenAPI Drifts from Registered Routes
+- **Problem**: `docs/openapi.yaml` doesn't match actual routes in `main.go`
+- **Missing from OpenAPI** (actual routes exist):
+  - `/api/admin/archive/*` (archive import/inspect)
+  - `/api/admin/migration-doctor/*` (migration tooling)
+  - `/api/python/*` (language runtime management)
+  - `/api/sites/redis/*` (Redis integration)
+  - `/api/sites/environment/*` (environment variables)
+  - `/api/account/security` (security center)
+  - `/api/node/tooling` (Node.js tools)
+- **Mismatched routes**:
+  - OpenAPI spec: `/api/doctor` 
+  - Actual code: `/api/admin/migration-doctor`
+- **Impact**: API documentation unreliable; clients can't trust spec; appears unprofessional
+- **Recommendation**: Make API contract testing executable in CI:
+  - Scan main.go for registered routes
+  - Match against OpenAPI operations
+  - FAIL CI when they diverge (bidirectional)
+  - Makes StePanel appear significantly more mature
+- **Scope**: API contract testing automation for CI
 
 ## Testing Recommendations
 
