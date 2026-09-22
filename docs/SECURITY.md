@@ -51,8 +51,8 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 ## Known Limitations
 
 ### Archive Import
-- Database restoration not yet implemented (Phase 2.5)
-- Config file updates use text replacement, not proper parsing
+- Database restoration is manual in v0.7.0 (Phase 2 will automate when credentials provided)
+- Config file updates use atomic writes with proper parsing (preserves file permissions)
 - Memory tracking for largest-files limited to 100 entries (to prevent memory bombs)
 - No archive encryption support
 
