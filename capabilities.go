@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Capability represents a single capability and its availability status
@@ -21,6 +23,7 @@ type CapabilitiesResponse struct {
 	Hostname     string                `json:"hostname"`
 	Capabilities map[string]Capability `json:"capabilities"`
 }
+
 
 // ProbeCapabilities detects what the host can actually do
 func (a *App) ProbeCapabilities() CapabilitiesResponse {
@@ -136,8 +139,11 @@ func (a *App) checkDatabaseRestorationCapability() Capability {
 }
 
 func (a *App) checkNetworkIsolationCapability() Capability {
-	// Check if podman supports --network none
-	output, err := exec.Command("podman", "run", "--help").CombinedOutput()
+	// Check if podman supports --network none with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "podman", "run", "--help")
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return Capability{
 			Available: false,
