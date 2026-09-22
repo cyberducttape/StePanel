@@ -166,18 +166,57 @@ to validate a candidate before the guarded maintenance-window restore:
 
 ## Documentation
 
-Start with the [installation guide](docs/INSTALLATION.md), [feature catalog](docs/FEATURES.md),
-[architecture and safety model](docs/ARCHITECTURE.md), [operations runbook](docs/OPERATIONS.md),
-[developer workflows](docs/DEVELOPER_WORKFLOWS.md), or [API contract](docs/openapi.yaml).
+### Core References (Canonical Sources)
 
-The deeper references cover [backups and recovery](docs/CASE_STUDY.md),
-[security](docs/THREAT_MODEL.md), [integrations](docs/INTEGRATIONS.md),
-[release engineering](docs/RELEASING.md), the [incident lab](docs/INCIDENT_LAB.md),
-[measured recovery evidence](docs/lab-results/2026-09-06-recovery-drills.md),
-[observability](observability/README.md), and [contributing](CONTRIBUTING.md).
-See the [ADR index](docs/adr/README.md), [changelog](CHANGELOG.md), and
-[release artifacts](https://github.com/itchyitchy123/StePanel/releases) for
-project history and version-specific material.
+Read these to understand what StePanel is, does, and can do:
+
+- **[docs/FEATURES.md](docs/FEATURES.md)** — Authoritative capability matrix and feature status
+- **[docs/SECURITY.md](docs/SECURITY.md)** — Threat model, security boundaries, known limitations  
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — Medium-term direction and planned work
+
+### Getting Started
+
+- **[docs/INSTALLATION.md](docs/INSTALLATION.md)** — Installation, configuration, production setup
+- **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — Running and managing StePanel
+- **[docs/SECRETS.md](docs/SECRETS.md)** — Backup, rotation, and disaster recovery procedures
+
+### Workflows by Use Case
+
+- **[docs/CPMOVE_IMPORTS.md](docs/CPMOVE_IMPORTS.md)** — Migrate from cPanel
+- **[docs/ARCHIVE_IMPORTER.md](docs/ARCHIVE_IMPORTER.md)** — Import sites from other hosting providers
+- **[docs/GIT_DEPLOYMENTS.md](docs/GIT_DEPLOYMENTS.md)** — Deploy and roll back via Git
+- **[docs/CUSTOMER_WORKFLOWS.md](docs/CUSTOMER_WORKFLOWS.md)** — Multi-tenant operations and workflows
+
+### Architecture & Design
+
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — System design and components
+- **[docs/adr/](docs/adr/)** — Architecture Decision Records (immutable design history)
+- **[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)** — Detailed threat analysis and mitigations
+
+### API & Development
+
+- **[docs/API_GUIDE.md](docs/API_GUIDE.md)** — API authentication, permissions, copyable workflows
+- **[docs/openapi.yaml](docs/openapi.yaml)** — Machine-readable OpenAPI contract
+- **[docs/DEVELOPER_WORKFLOWS.md](docs/DEVELOPER_WORKFLOWS.md)** — Contributor guide and local development
+
+### Evidence & Case Studies
+
+- **[docs/lab-results/2026-09-06-recovery-drills.md](docs/lab-results/2026-09-06-recovery-drills.md)** — Measured recovery RTO/RPO evidence
+- **[docs/CASE_STUDY.md](docs/CASE_STUDY.md)** — Real-world backup and recovery example
+
+### Integrations & Operations
+
+- **[docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)** — Cloud provider, DNS, and third-party integrations
+- **[docs/RELEASING.md](docs/RELEASING.md)** — Release process and artifact generation
+- **[docs/INCIDENT_LAB.md](docs/INCIDENT_LAB.md)** — Incident response procedures and drills
+
+### Other Resources
+
+- **[CHANGELOG.md](CHANGELOG.md)** — Version history and release notes
+- **[docs/DOCUMENTATION_GUIDE.md](docs/DOCUMENTATION_GUIDE.md)** — How documentation is organized and maintained
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines
+- **[observability/README.md](observability/README.md)** — Metrics, logging, and monitoring
+- **[Release artifacts](https://github.com/itchyitchy123/StePanel/releases)** — Binary releases, checksums, SBOM
 
 ## API reference
 
