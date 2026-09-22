@@ -473,6 +473,7 @@ func main() {
 	mux.Handle("/logout", allowMethods(http.HandlerFunc(app.Auth.Logout), http.MethodPost))
 	mux.Handle("/", allowMethods(app.Auth.Require(http.HandlerFunc(app.dashboard)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/health", allowMethods(http.HandlerFunc(app.health), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/capabilities", allowMethods(http.HandlerFunc(app.handleCapabilities), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/services", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.services)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/database", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.database)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/database/diagnostics", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.databaseDiagnostics)), http.MethodGet, http.MethodHead))
