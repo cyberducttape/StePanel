@@ -72,20 +72,48 @@ An experienced infrastructure reviewer will:
 
 ---
 
-## Recommended Fixes (Priority Order)
+## Fixes Applied
 
-### P0: Archive Importer SSRF
-1. Add IP validation to DialContext (**prevents SSRF bypass via DNS**)
-2. Verify isReservedIP() is called on all resolved addresses
-3. Test with hostname → private IP scenarios
+### ✅ FIXED: Archive Importer SSRF via DNS Rebinding
+- Created shared `NewSafeArchiveTransport()` with DNS validation in DialContext
+- Both Analyzer and Executor now use the same secure transport
+- Prevents hostname → private IP SSRF via DNS rebinding between inspection and import
+- Commits: `a5765b9`, `bb6a6f4`
 
-### P1: Build Runner Allowlist
-1. Call `ValidateContainerImageForSite(site, image)` in `runner.go:runnerBuild()`
-2. Return error if validation fails
-3. Remove or update documentation if allowlist becomes truly optional
-4. Test with forbidden registries (attacker.com, localhost:5000, etc.)
+### ✅ FIXED: CSRF Protection on Archive Endpoints
+- Added `a.Auth.CSRF(r)` checks to `/api/admin/archive/inspect` and `/api/admin/archive/import`
+- Now enforces administrator CSRF requirement as claimed in OpenAPI spec
+- Commit: `a5765b9`
 
-### P2: Code/Documentation Alignment
-1. Audit all "planned" features that have tests/code but aren't wired
-2. Update docs to clearly mark enforcement status
-3. Add integration tests that verify claimed protections actually work
+### ✅ FIXED: Container Registry Allowlist Not Enforced
+- `runner.go` now calls `ValidateContainerImageForSite()` before launching builds
+- Parses `Config.RunnerAllowedRegistries` and rejects disallowed registries
+- Returns 403 for forbidden registries (e.g., attacker.com, localhost:5000)
+- Updated function signature to accept allowed registries map
+- Commit: `bb6a6f4`
+
+### ✅ FIXED: Network Mode Configuration Ignored
+- Replaced `RunnerNetworkEnabled` (boolean) with `RunnerNetworkMode` (enum: "none"/"egress")
+- Default changed to "none" (network isolation by default, secure by default)
+- Helper script now validates network mode in arguments
+- Podman flags: "--network none" for default, "--network slirp4netns" for egress mode
+- Operator can enable with `STEPANEL_RUNNER_NETWORK_MODE=egress` (explicit opt-in)
+- Commit: `bb6a6f4`
+
+## Remaining Issues
+
+### ⚠️ NOT YET FIXED: MaxImageSize Not Enforced
+- Config accepts `STEPANEL_MAX_IMAGE_SIZE`
+- `MaxImageSize` field exists but is never used
+- Requires fetching manifest/size before launching container
+- Needs separate work to inspect image size
+- **Status**: Tracked but deferred to separate PR
+
+## Testing Recommendations
+
+Add integration tests for:
+1. DNS rebinding scenario (hostname resolves to private IP)
+2. CSRF-missing requests to archive endpoints (expect 403)
+3. Forbidden registry in build request (expect 403)
+4. Network mode "none" vs "egress" (verify podman --network flag)
+5. MaxImageSize enforcement (when implemented)
