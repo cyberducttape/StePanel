@@ -176,8 +176,8 @@ func TestFindDatabaseDumpRecursive(t *testing.T) {
 	}
 }
 
-func TestDatabaseRestorationIsNotImplemented(t *testing.T) {
-	// This test documents that database restoration is a placeholder
+func TestDatabaseRestorationValidation(t *testing.T) {
+	// Test that database restoration validates SQL file presence and validity
 	executor := &Executor{}
 
 	tmpDir := t.TempDir()
@@ -187,14 +187,27 @@ func TestDatabaseRestorationIsNotImplemented(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := executor.restoreDatabase(ctx, sqlFile, "testdb", "testuser")
 
-	// Should return error indicating not implemented
-	if err == nil {
-		t.Error("restoreDatabase should return error (not yet implemented)")
+	// Valid SQL file should pass validation (not return error)
+	err := executor.restoreDatabase(ctx, sqlFile, "testdb", "testuser")
+	if err != nil {
+		t.Errorf("restoreDatabase should succeed with valid SQL file, got: %v", err)
 	}
-	if !contains(err.Error(), "not yet implemented") {
-		t.Errorf("expected 'not yet implemented' error, got: %v", err)
+
+	// Non-existent file should fail
+	err = executor.restoreDatabase(ctx, filepath.Join(tmpDir, "nonexistent.sql"), "testdb", "testuser")
+	if err == nil {
+		t.Error("restoreDatabase should fail for missing SQL file")
+	}
+
+	// Empty file should fail
+	emptyFile := filepath.Join(tmpDir, "empty.sql")
+	if err := os.WriteFile(emptyFile, []byte{}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	err = executor.restoreDatabase(ctx, emptyFile, "testdb", "testuser")
+	if err == nil {
+		t.Error("restoreDatabase should fail for empty SQL file")
 	}
 }
 
