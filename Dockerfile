@@ -18,6 +18,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        libpcre2-8-0=10.42-1+deb12u1 \
         mariadb-client \
         rclone \
     && rm -rf /var/lib/apt/lists/* \

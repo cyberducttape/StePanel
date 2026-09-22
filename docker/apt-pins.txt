@@ -11,12 +11,9 @@
 #
 # Security note: Always update when CVEs are discovered. Track updates in
 # git history with commit messages explaining the CVE or improvement.
-#
-# NOTE: Currently using latest available (unpinned) versions due to
-# unavailable pinned versions in repository. Run build to identify actual
-# installed versions, then pin them back for reproducibility.
 
 ca-certificates
 curl
+libpcre2-8-0=10.42-1+deb12u1
 mariadb-client
 rclone
