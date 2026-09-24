@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	h "github.com/itchyitchy123/StePanel/internal/helper"
@@ -25,6 +26,9 @@ const (
 	maxArchiveEntries       = 250000                  // 250k files/dirs (was 1M, still generous)
 	maxIndividualFileSize   = 10 * 1024 * 1024 * 1024 // 10GB per file
 	maxDirectoriesInArchive = 25000                   // Separate limit for directories
+
+	// Require 20% free space buffer after import to prevent filesystem exhaustion
+	minFreeSpaceBuffer = 0.20
 )
 
 // formatBytes converts bytes to human-readable format (e.g., "1.5 MB")
@@ -38,6 +42,73 @@ func formatBytes(bytes int64) string {
 		value /= 1024
 	}
 	return fmt.Sprintf("%.1f TB", value)
+}
+
+// DiskSpaceRequirement represents the space needed for an import operation
+type DiskSpaceRequirement struct {
+	CompressedSize   int64
+	ExpandedSize     int64
+	TotalNeeded      int64
+	AvailableSpace   int64
+	RequiredBuffer   int64
+	HasSufficientSpace bool
+	Reason           string
+}
+
+// CheckDiskSpace validates that sufficient space is available for archive import.
+// Ensures enough room for compressed download, expanded extraction, plus 20% buffer.
+func CheckDiskSpace(webRoot string, compressedSize, estimatedExpandedSize int64) DiskSpaceRequirement {
+	result := DiskSpaceRequirement{
+		CompressedSize: compressedSize,
+		ExpandedSize:   estimatedExpandedSize,
+	}
+
+	// Get available space on the filesystem containing webRoot
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(webRoot, &stat); err != nil {
+		result.Reason = fmt.Sprintf("could not check disk space: %v", err)
+		return result
+	}
+
+	// Calculate available space (available blocks * block size)
+	availableBytes := int64(stat.Bavail) * int64(stat.Bsize)
+	result.AvailableSpace = availableBytes
+
+	// Total space needed: compressed + expanded + safety buffer
+	// We need enough for the compressed archive, the expanded files, plus 20% buffer
+	totalNeeded := compressedSize + estimatedExpandedSize
+	requiredBuffer := int64(float64(totalNeeded) * minFreeSpaceBuffer)
+	totalNeeded += requiredBuffer
+
+	result.TotalNeeded = totalNeeded
+	result.RequiredBuffer = requiredBuffer
+
+	if totalNeeded > availableBytes {
+		result.HasSufficientSpace = false
+		shortfall := totalNeeded - availableBytes
+		result.Reason = fmt.Sprintf(
+			"insufficient disk space: need %s (compressed %s + expanded %s + %d%% buffer %s) but only %s available; need %s more",
+			formatBytes(totalNeeded),
+			formatBytes(compressedSize),
+			formatBytes(estimatedExpandedSize),
+			int(minFreeSpaceBuffer*100),
+			formatBytes(requiredBuffer),
+			formatBytes(availableBytes),
+			formatBytes(shortfall),
+		)
+		return result
+	}
+
+	result.HasSufficientSpace = true
+	result.Reason = fmt.Sprintf(
+		"sufficient space available: %s (need %s: compressed %s + expanded %s + buffer %s)",
+		formatBytes(availableBytes),
+		formatBytes(totalNeeded),
+		formatBytes(compressedSize),
+		formatBytes(estimatedExpandedSize),
+		formatBytes(requiredBuffer),
+	)
+	return result
 }
 
 // ArchiveFetcher safely downloads archives with size limits and validation
@@ -170,6 +241,23 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		onProgress(job)
 		return nil, err
 	}
+
+	// Step 1.5: Check disk space availability
+	// Use conservative estimate: assume 10:1 compression ratio if archive is max size
+	// This ensures we have enough space even in worst case
+	estimatedExpanded := maxArchiveSize * 10 // 50 GB for max 5 GB compressed
+	spaceCheck := CheckDiskSpace(filepath.Dir(filepath.Dir(job.WebRoot)), maxArchiveSize, int64(estimatedExpanded))
+	if !spaceCheck.HasSufficientSpace {
+		job.Status = "failed"
+		job.Error = spaceCheck.Reason
+		job.UpdatedAt = time.Now()
+		onProgress(job)
+		return nil, fmt.Errorf("insufficient disk space: %s", spaceCheck.Reason)
+	}
+
+	job.Message = spaceCheck.Reason
+	job.UpdatedAt = time.Now()
+	onProgress(job)
 
 	// Step 2: Create site directory
 	if err := os.MkdirAll(job.WebRoot, 0755); err != nil {
