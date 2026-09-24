@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/itchyitchy123/StePanel/internal/importer"
+	"github.com/itchyitchy123/StePanel/internal/sites"
 )
 
 // durableArchiveImportRequest is the job payload for archive imports
@@ -241,20 +242,22 @@ func (a *App) archiveImportStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleArchiveImportJob processes an archive import durable job
+// handleArchiveImportJob processes an archive import durable job through the canonical site lifecycle
 func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	var req durableArchiveImportRequest
 	if err := json.Unmarshal(job.Payload, &req); err != nil {
 		return fmt.Errorf("failed to parse job payload: %w", err)
 	}
 
-	// Create executor and perform import
+	// Create lifecycle-aware importer
 	executor := importer.NewExecutor()
+	provisioner := sites.NewProvisioner(req.WebRoot)
+	lifecycleImporter := importer.NewLifecycleAwareImporter(executor, provisioner)
 
 	// Wrapper to capture progress updates
 	progressUpdates := make([]map[string]interface{}, 0)
 
-	result, err := executor.ExecuteImport(ctx, &importer.ArchiveImportRequest{
+	result, err := lifecycleImporter.Import(ctx, &importer.ArchiveImportRequest{
 		URL:        req.ArchiveURL,
 		ConfigPath: req.ConfigPath,
 		SiteName:   req.SiteName,
