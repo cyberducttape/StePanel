@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -48,9 +49,36 @@ func (a *App) recordDeployment(site, stage, state, detail string, result gitDepl
 	}
 	id := result.DeploymentID
 	if id == "" {
-		id, _ = newJobID("deployment")
+		var err error
+		id, err = newJobID("deployment")
+		if err != nil {
+			// Failed to generate deployment ID - log but continue.
+			// This is unexpected and indicates state corruption but recording
+			// the deployment is still important for operator visibility.
+			log.Printf("failed to generate deployment ID: %v", err)
+			return
+		}
 	}
-	_ = a.Deployments.add(Deployment{ID: id, Site: site, Repository: result.Repository, Ref: result.Ref, Commit: result.Commit, Stage: stage, State: state, Detail: detail, Artifact: artifact, Previous: result.Previous, CreatedAt: time.Now().UTC()})
+	// Record deployment to persistent store.
+	// State persistence errors are critical - operator history must be accurate.
+	if err := a.Deployments.add(Deployment{
+		ID:         id,
+		Site:       site,
+		Repository: result.Repository,
+		Ref:        result.Ref,
+		Commit:     result.Commit,
+		Stage:      stage,
+		State:      state,
+		Detail:     detail,
+		Artifact:   artifact,
+		Previous:   result.Previous,
+		CreatedAt:  time.Now().UTC(),
+	}); err != nil {
+		// Log persistence failure but do not fail the deployment.
+		// The deployment succeeded on the host but recording failed - operator
+		// must know about this discrepancy.
+		log.Printf("deployment recorded but persistence failed for %s: %v (operator should investigate)", site, err)
+	}
 }
 func (a *App) deployments(w http.ResponseWriter, r *http.Request) {
 	site := safeUser(strings.TrimSpace(r.URL.Query().Get("site")))
