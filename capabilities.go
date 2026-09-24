@@ -24,7 +24,6 @@ type CapabilitiesResponse struct {
 	Capabilities map[string]Capability `json:"capabilities"`
 }
 
-
 // ProbeCapabilities detects what the host can actually do
 func (a *App) ProbeCapabilities() CapabilitiesResponse {
 	hostname, _ := os.Hostname()
