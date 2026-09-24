@@ -70,6 +70,10 @@ func RunBoundedCommand(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 // already enforces the deadline—but that is a caller convention. This function
 // now verifies it, so a cmd built with plain exec.Command cannot silently
 // ignore its deadline here.
+//
+// CRITICAL: Ensures all commands run in their own process group so that
+// timeout/cancellation kills the entire process tree, not just the parent.
+// This is an architectural invariant preventing orphaned child processes.
 func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]byte, error) {
 	var output BoundedBuffer
 	output.limit = limit
@@ -78,6 +82,10 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 	}
 	cmd.Stdout = &output
 	cmd.Stderr = &output
+
+	// Ensure all commands run in their own process group
+	PrepareCommand(cmd)
+
 	if err := cmd.Start(); err != nil {
 		return output.data, fmt.Errorf("%w: %s", err, string(output.data))
 	}
@@ -122,6 +130,14 @@ func configureProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
+// PrepareCommand ensures a command runs in its own process group with proper cleanup.
+// MUST be called on any external command before execution to guarantee that
+// timeout/cancellation kills the entire process tree, not just the parent.
+// This is an architectural invariant: nothing external should execute without this.
+func PrepareCommand(cmd *exec.Cmd) {
+	configureProcessGroup(cmd)
+}
+
 // HelperContextWithTimeout creates a context with the specified timeout class.
 // Use this when invoking helper commands to ensure operation-appropriate timeouts.
 // Example: ctx, cancel := HelperContextWithTimeout(parentCtx, PackageBuildTimeout)
@@ -163,6 +179,16 @@ func HelperCommandContext(ctx context.Context, sudo string, path string, args ..
 		cmd = exec.CommandContext(ctx, sudo, append([]string{"--non-interactive", path}, args...)...)
 	}
 	configureProcessGroup(cmd)
+	return cmd
+}
+
+// NewCommand creates a command with context and proper process group setup.
+// Use this for any external command that needs cancellation/timeout support.
+// The command will automatically run in its own process group so that
+// timeout/cancellation kills the entire process tree.
+func NewCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	PrepareCommand(cmd)
 	return cmd
 }
 

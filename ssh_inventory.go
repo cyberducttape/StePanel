@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	h "github.com/itchyitchy123/StePanel/internal/helper"
 )
 
 type SSHServerStatus struct {
@@ -115,7 +117,7 @@ func executeSSHAction(ctx context.Context, server, action, service string) error
 func inspectSSHServer(ctx context.Context, server string) SSHServerStatus {
 	status := SSHServerStatus{Server: server}
 	command := `printf '%s\n' "$(hostname)"; . /etc/os-release 2>/dev/null && printf '%s\n' "${PRETTY_NAME:-unknown}" || printf '%s\n' unknown; systemctl --failed --no-legend --plain 2>/dev/null | wc -l; df -P -h / 2>/dev/null | tail -n 1`
-	cmd := exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8", server, "sh", "-c", command)
+	cmd := h.NewCommand(ctx, "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8", server, "sh", "-c", command)
 	out, err := cmd.Output()
 	if err != nil {
 		status.Error = fmt.Sprintf("SSH inspection failed: %v", err)
