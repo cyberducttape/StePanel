@@ -34,11 +34,9 @@ paths:
       summary: Active database session metadata without SQL text
       responses:
         '200': {description: Up to 200 sessions with age, state, and wait class}
-  /api/database/sessions/{id}:
+  /api/database/sessions/:
     delete:
       summary: Terminate one database session after exact confirmation
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
       responses:
         '204': {description: Session terminated and action audited}
         '422': {description: Confirmation must exactly match TERMINATE plus the session ID}
@@ -52,22 +50,17 @@ paths:
       responses:
         '201': {description: Database and user created; password is never returned or stored by StePanel}
         '409': {description: Object already exists or provisioning failed safely}
-  /api/databases/{name}:
+  /api/databases/:
     get:
       summary: Inspect one managed database without exposing credentials
-      parameters:
-        - {name: name, in: path, required: true, schema: {type: string, pattern: '^[a-z0-9_]{1,63}$'}}
       responses:
         '200': {description: Database owner, user, encoding, and allocated bytes}
         '404': {description: Managed database not found}
     delete:
       summary: Create a safety dump, then delete a managed database and user
-      parameters:
-        - {name: name, in: path, required: true, schema: {type: string, pattern: '^[a-z0-9_]{1,63}$'}}
       responses:
         '200': {description: Database deleted with safety-backup path and checksum}
         '503': {description: Deletion refused because the safety backup failed}
-  /api/databases/{name}/credentials:
     patch:
       summary: Rotate a managed database user's password
       responses:
@@ -106,6 +99,11 @@ paths:
       summary: Select the Node version for a managed site
       responses:
         '200': {description: Version selected}
+  /api/node/tooling:
+    get:
+      summary: Get Node.js runtime status
+      responses:
+        '200': {description: Node versions and tools}
   /api/proxy:
     get:
       summary: List managed reverse proxies
@@ -121,11 +119,9 @@ paths:
       summary: Test a local or private backend
       responses:
         '200': {description: Backend reachability result}
-  /api/proxy/{name}:
+  /api/proxy/:
     delete:
       summary: Remove a managed reverse proxy
-      parameters:
-        - {name: name, in: path, required: true, schema: {type: string}}
       responses:
         '200': {description: Proxy removed}
   /api/caddy/htaccess:
@@ -146,14 +142,36 @@ paths:
       summary: Deploy a managed Node application
       responses:
         '202': {description: Application deployed}
-  /api/apps/{site}/{action}:
+  /api/apps/:
     post:
       summary: Start, stop, restart, or roll back an application
-      parameters:
-        - {name: site, in: path, required: true, schema: {type: string}}
-        - {name: action, in: path, required: true, schema: {type: string, enum: [start, stop, restart, rollback]}}
       responses:
         '202': {description: Action accepted}
+  /api/composer/:
+    get:
+      summary: Inspect Composer project files and last operation
+      responses:
+        '200': {description: Composer status}
+  /api/python/:
+    get:
+      summary: List Python runtime configurations
+      responses:
+        '200': {description: Python projects}
+  /api/python/deploy:
+    post:
+      summary: Deploy Python application
+      responses:
+        '202': {description: Deploy job queued}
+  /api/wordpress/:
+    get:
+      summary: List WordPress sites
+      responses:
+        '200': {description: WordPress sites}
+  /api/wordpress/status/:
+    get:
+      summary: Get WordPress site status
+      responses:
+        '200': {description: WordPress status}
   /api/ftp:
     get:
       summary: FTP service setup status
@@ -174,11 +192,6 @@ paths:
       responses:
         '200': {description: Bounded events with verified, empty, or unconfigured integrity state}
         '503': {description: Audit-chain integrity verification failed}
-  /api/doctor:
-    get:
-      summary: Run read-only operator diagnostics
-      responses:
-        '200': {description: Webserver, database, PHP-FPM, helper, and disk checks}
   /api/cloud:
     get:
       summary: Read cloud server, DNS, load balancer, and snapshot inventory
@@ -247,62 +260,15 @@ paths:
       responses:
         '201': {description: Customer account created without password or TOTP secret disclosure}
         '422': {description: Invalid plan, assigned sites, password, or TOTP seed}
-  /api/accounts/{username}:
+  /api/accounts/:
     patch:
-      summary: Update plan/site assignments or suspend a shared-hosting customer account (administrator only)
-      parameters:
-        - {name: username, in: path, required: true, schema: {type: string}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                suspended: {type: boolean}
-                plan: {type: string, enum: [starter, professional, agency]}
-                sites:
-                  type: array
-                  maxItems: 25
-                  items: {type: string}
+      summary: Update account plan/assignments or suspend account
       responses:
-        '200': {description: Updated account}
+        '200': {description: Account updated}
     delete:
-      summary: Remove a shared-hosting customer login (administrator only; workloads retained)
-      parameters:
-        - {name: username, in: path, required: true, schema: {type: string}}
+      summary: Remove a customer login
       responses:
-        '204': {description: Customer login removed after all managed sites are detached}
-        '409': {description: Account still owns managed sites}
-  /api/accounts/{username}/mfa:
-    post:
-      summary: Regenerate a customer's TOTP secret and revoke sessions (administrator only)
-      parameters:
-        - {name: username, in: path, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Replacement TOTP secret returned once}
-  /api/accounts/{username}/recovery-codes:
-    post:
-      summary: Generate one-time customer MFA recovery codes and revoke sessions (administrator only)
-      parameters:
-        - {name: username, in: path, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Recovery codes returned once; only bcrypt hashes are persisted}
-  /api/accounts/{username}/recover:
-    post:
-      summary: Reset customer credentials and revoke sessions (administrator only)
-      parameters:
-        - {name: username, in: path, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Temporary password, new TOTP seed, and recovery codes returned once}
-  /api/accounts/{username}/sessions/revoke:
-    post:
-      summary: Force-log-out every session for a customer without changing credentials, plan, or suspension state (administrator only)
-      parameters:
-        - {name: username, in: path, required: true, schema: {type: string}}
-      responses:
-        '204': {description: All sessions for the account revoked}
-        '404': {description: Account not found}
+        '204': {description: Customer login removed}
   /api/account/password:
     post:
       summary: Complete the authenticated customer's required password change
@@ -313,6 +279,11 @@ paths:
       summary: Complete the authenticated customer's required MFA enrollment
       responses:
         '204': {description: TOTP enrollment saved and session revoked}
+  /api/account/security:
+    get:
+      summary: Customer security center
+      responses:
+        '200': {description: Security settings and controls}
   /api/account/sessions/revoke:
     post:
       summary: Log out every other session for the authenticated customer, keeping the current one active
@@ -327,11 +298,9 @@ paths:
       summary: Create a customer-scoped API token; the secret is returned once
       responses:
         '201': {description: Token secret and metadata}
-  /api/account/tokens/{id}:
+  /api/account/tokens/:
     delete:
       summary: Revoke one customer API token
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
       responses:
         '204': {description: Token revoked}
   /api/admin/tokens:
@@ -358,13 +327,36 @@ paths:
                   items: {type: string, enum: [admin:read, admin:operate]}
       responses:
         '201': {description: Token secret and metadata}
-  /api/admin/tokens/{id}:
+  /api/admin/tokens/:
     delete:
       summary: Revoke one administrator API token
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
       responses:
         '204': {description: Token revoked}
+  /api/admin/suspend:
+    post:
+      summary: Suspend a customer account
+      responses:
+        '200': {description: Account suspended}
+  /api/admin/unsuspend:
+    post:
+      summary: Unsuspend a customer account
+      responses:
+        '200': {description: Account unsuspended}
+  /api/admin/plan-status:
+    get:
+      summary: Check resource plan enforcement status
+      responses:
+        '200': {description: Plan enforcement status}
+  /api/admin/migration-doctor:
+    post:
+      summary: Analyze source server for migration compatibility
+      responses:
+        '200': {description: Migration analysis results}
+  /api/admin/migration-doctor/status:
+    get:
+      summary: Check migration analysis status
+      responses:
+        '200': {description: Analysis status}
   /api/security/scan:
     post:
       summary: Scan a managed site for suspicious PHP
@@ -405,11 +397,9 @@ paths:
       summary: List site-centric developer workspaces
       responses:
         '200': {description: Sites with document roots, routes, applications, and managed database counts}
-  /api/sites/overview/{site}:
+  /api/sites/overview/:
     get:
       summary: Inspect one site-centric developer workspace
-      parameters:
-        - {name: site, in: path, required: true, schema: {type: string, pattern: '^[a-z0-9_-]{1,32}$'}}
       responses:
         '200': {description: Site workspace details}
         '404': {description: Site not found}
@@ -430,43 +420,37 @@ paths:
         '202': {description: Vhost validated, activated, and Apache reloaded}
         '422': {description: Invalid route or missing site document root}
         '503': {description: Host validation or Apache reload failed}
-  /api/sites/environment/{site}:
+  /api/sites/environment/:
     get:
       summary: Read site environment metadata with secrets masked
-      parameters:
-        - {name: site, in: path, required: true, schema: {type: string}}
       responses:
         '200': {description: Environment metadata}
     put:
       summary: Replace site environment variables
-      parameters:
-        - {name: site, in: path, required: true, schema: {type: string}}
       requestBody:
         required: true
         content: {application/json: {schema: {type: object, additionalProperties: {type: object}}}}
       responses: {'204': {description: Environment saved}}
     delete:
       summary: Delete all site environment variables
-      parameters:
-        - {name: site, in: path, required: true, schema: {type: string}}
       responses: {'204': {description: Environment deleted}}
-  /api/sites/php/{site}:
+  /api/sites/php/:
     get:
       summary: Inspect a site PHP runtime profile and installed versions
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: Runtime profile and capability inventory}}
     put:
       summary: Apply a validated per-site PHP-FPM runtime profile
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'202': {description: FPM profile validated and applied}}
-  /api/sites/resources/{site}:
+  /api/sites/redis/:
+    get:
+      summary: List Redis allocations
+      responses: {'200': {description: Redis metadata}}
+  /api/sites/resources/:
     get:
       summary: Inspect a per-site resource profile and its enforcement scope
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: Desired/applied resource profile}}
     put:
       summary: Apply CPU, memory, I/O, task and PHP-FPM worker ceilings for a site
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'202': {description: Systemd slice and FPM profile applied}}
   /api/reconcile/resources:
     post:
@@ -476,10 +460,9 @@ paths:
     post:
       summary: Reconcile pending or deleted scheduled-task desired state with systemd
       responses: {'200': {description: Reconciled and failed task lists}}
-  /api/sites/usage/{site}:
+  /api/sites/usage/:
     get:
       summary: Measure bounded regular-file usage for a site without following symlinks
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: Bytes, file count, directory count and completeness}}
   /api/security/center:
     get:
@@ -520,16 +503,6 @@ paths:
       summary: Restore a verified off-site backup into a new staging site
       description: Downloads only the fixed provider-layout objects, verifies the archive and signature, enforces source-site ownership, and uses the recovery-journaled staging flow. Existing destinations are refused; an optional selected dump is imported into a newly provisioned managed staging database.
       responses: {'202': {description: Verified off-site staging restore accepted}}
-  /api/composer/{site}:
-    get:
-      summary: Inspect Composer project files and last operation
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
-      responses: {'200': {description: Composer status}}
-  /api/composer/{site}/install:
-    post:
-      summary: Install Composer dependencies as the isolated site identity
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
-      responses: {'202': {description: Install completed}}
   /api/runner/build:
     post:
       summary: Execute a validated build definition in the rootless Podman runner
@@ -563,53 +536,42 @@ paths:
       summary: Create a recovery-journaled staging site from safe file copies
       description: Staging routes use no-index by default. On Caddy or Apache, set basic_auth with auth_user and auth_password to enable helper-managed Basic Auth; the plaintext password is never persisted. OpenLiteSpeed staging currently rejects Basic Auth rather than silently creating an unprotected route. Set database=true with source_database, target_database, target_user, and target_password to logically clone one managed source database into a newly provisioned destination after ownership validation. Schema rollback and promotion remain manual.
       responses: {'202': {description: Staging site created}}
-  /api/tasks/{site}:
+  /api/tasks/:
     get:
       summary: List bounded systemd-timer scheduled tasks for a site
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: Scheduled task definitions}}
-  /api/tasks/{site}/{name}:
     put:
       summary: Create or replace a site-identity scheduled task
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}, {name: name, in: path, required: true, schema: {type: string}}]
       responses: {'202': {description: Systemd service and timer applied}}
     delete:
       summary: Remove a scheduled task service and timer
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}, {name: name, in: path, required: true, schema: {type: string}}]
       responses: {'204': {description: Scheduled task removed}}
-  /api/sites/logs/{site}:
+  /api/sites/logs/:
     get:
       summary: Read bounded, filtered site logs from allowlisted sources
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: Log lines or downloadable text}}
-  /api/sites/access/{site}:
+  /api/sites/access/:
     get:
       summary: Inspect site SSH/SFTP policy and public-key fingerprints
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: Access policy and application state; private keys are never returned}}
     patch:
       summary: Apply site SSH/SFTP shell policy
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses:
         '200': {description: Access policy applied}
         '502': {description: Desired policy persisted and is pending helper reconciliation}
     post:
       summary: Add a validated SSH public key and apply the site access policy
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses:
         '201': {description: SSH key added and access policy applied}
         '502': {description: Desired key persisted and is pending helper reconciliation}
-  /api/sites/access/{site}/{label}:
     delete:
       summary: Revoke a site SSH public key
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}, {name: label, in: path, required: true, schema: {type: string}}]
       responses:
         '204': {description: SSH key revoked}
         '502': {description: Desired revocation persisted and is pending helper reconciliation}
-  /api/workers/{site}:
+  /api/workers/:
     get:
       summary: List managed background workers for a site
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: Worker definitions}}
   /api/sites/git-deploy:
     post:
@@ -630,20 +592,17 @@ paths:
         '202': {description: Release activated and previous site release preserved}
         '422': {description: Invalid site, repository, or ref}
         '502': {description: Git checkout or commit identification failed}
-  /api/sites/git-key/{site}:
+  /api/sites/git-key/:
     get:
       summary: Inspect whether a site deploy key is configured and return its public key
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: Deploy-key metadata; no private key material is ever returned}}
     post:
       summary: Generate a root-owned ED25519 deploy key and return only its public half
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'201': {description: Public deploy key generated}}
     delete:
       summary: Retire a site deploy key
-      parameters: [{name: site, in: path, required: true, schema: {type: string}}]
       responses: {'204': {description: Deploy key retired}}
-  /api/sites/git-webhook:
+  /api/sites/git-webhook/:
     post:
       summary: Deploy a signed Git webhook payload
       parameters:
@@ -678,11 +637,9 @@ paths:
       responses:
         '200': {description: Previous release activated and replaced release preserved}
         '409': {description: No valid previous release is available}
-  /api/sites/{name}:
+  /api/sites/:
     delete:
       summary: Remove a managed PHP site route owned by the customer or administrator
-      parameters:
-        - {name: name, in: path, required: true, schema: {type: string}}
       responses:
         '200': {description: Vhost removed and the configured webserver reloaded}
         '404': {description: Managed route not found}
@@ -835,36 +792,23 @@ paths:
                 confirm: {type: string, example: WPRESTORE}
       responses:
         '202': {description: WordPress restore job queued}
-  /api/jobs/{id}:
-    get:
-      summary: Read a background job
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Job state}
-        '404': {description: Job not found}
-    post:
-      summary: Request cancellation of a background job
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
-      responses:
-        '202': {description: Cancellation requested}
-        '409': {description: Job is no longer cancellable}
-  /api/jobs/{id}/retry:
-    post:
-      summary: Requeue one dead-letter job after operator remediation
-      description: Administrator-only recovery action. The dead-letter state is changed to queued and the attempt counter is reset.
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
-      responses:
-        '202': {description: Job requeued}
-        '403': {description: Administrator authentication and CSRF validation required}
-        '409': {description: Job is not a dead-letter record}
-  /api/jobs/:
+  /api/jobs:
     get:
       summary: List recent persistent jobs
       responses:
         '200': {description: Up to 100 jobs, newest first}
+  /api/jobs/:
+    get:
+      summary: Read a background job
+      responses:
+        '200': {description: Job state}
+        '404': {description: Job not found}
+    post:
+      summary: Request cancellation of a background job or requeue a dead-letter job
+      responses:
+        '202': {description: Cancellation requested or job requeued}
+        '403': {description: Administrator authentication and CSRF validation required}
+        '409': {description: Job is no longer cancellable or not a dead-letter record}
   /api/admin/archive/inspect:
     post:
       summary: Inspect archive for migration requirements
@@ -897,264 +841,6 @@ paths:
       responses:
         '200': {description: Import status and progress}
         '404': {description: Job not found}
-  /api/account/security:
-    get:
-      summary: Customer security center
-      responses:
-        '200': {description: Security settings and controls}
-  /api/account/tokens:
-    get:
-      summary: List customer API tokens
-      responses:
-        '200': {description: Token metadata (secrets never returned)}
-    post:
-      summary: Create a customer API token
-      responses:
-        '201': {description: Token created (secret returned only once)}
-  /api/account/tokens/{id}:
-    delete:
-      summary: Revoke a customer API token
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
-      responses:
-        '204': {description: Token revoked}
-  /api/accounts:
-    get:
-      summary: List customer accounts
-      description: Administrator-only endpoint
-      responses:
-        '200': {description: Account list}
-        '403': {description: Administrator authentication required}
-    post:
-      summary: Create a customer account
-      description: Administrator-only endpoint
-      responses:
-        '201': {description: Account created}
-        '403': {description: Administrator authentication required}
-  /api/admin/tokens:
-    get:
-      summary: List administrator API tokens
-      responses:
-        '200': {description: Token metadata (secrets never returned)}
-    post:
-      summary: Create an administrator API token
-      responses:
-        '201': {description: Token created (secret returned only once)}
-  /api/admin/tokens/{id}:
-    delete:
-      summary: Revoke an administrator API token
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string}}
-      responses:
-        '204': {description: Token revoked}
-  /api/admin/suspend:
-    post:
-      summary: Suspend a customer account
-      responses:
-        '200': {description: Account suspended}
-        '403': {description: Administrator authentication required}
-  /api/admin/unsuspend:
-    post:
-      summary: Unsuspend a customer account
-      responses:
-        '200': {description: Account unsuspended}
-        '403': {description: Administrator authentication required}
-  /api/admin/migration-doctor:
-    post:
-      summary: Analyze source server for migration compatibility
-      description: Collects server information to assess migration readiness
-      responses:
-        '200': {description: Migration analysis results}
-        '400': {description: Invalid source or connection failed}
-        '403': {description: Administrator authentication required}
-  /api/admin/migration-doctor/status:
-    get:
-      summary: Check migration analysis status
-      parameters:
-        - {name: job_id, in: query, required: false, schema: {type: string}}
-      responses:
-        '200': {description: Analysis status}
-        '404': {description: Job not found}
-  /api/admin/plan-status:
-    get:
-      summary: Check resource plan enforcement status
-      description: Administrator-only endpoint
-      responses:
-        '200': {description: Plan enforcement status}
-        '403': {description: Administrator authentication required}
-  /api/sites:
-    get:
-      summary: List managed sites
-      responses:
-        '200': {description: Site list}
-    post:
-      summary: Create a new site
-      responses:
-        '201': {description: Site created}
-  /api/sites/overview:
-    get:
-      summary: List sites with summary information
-      responses:
-        '200': {description: Sites with overview data}
-  /api/sites/overview/{site}:
-    get:
-      summary: Detailed site overview
-      parameters:
-        - {name: site, in: path, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Site overview}
-        '404': {description: Site not found}
-  /api/sites/access/:
-    get:
-      summary: List site access controls
-      responses:
-        '200': {description: Access control list}
-  /api/sites/environment/:
-    get:
-      summary: List site environment variables
-      responses:
-        '200': {description: Environment variables}
-  /api/sites/git-key/:
-    get:
-      summary: List git deployment keys
-      responses:
-        '200': {description: Deployment keys}
-  /api/sites/git-webhook/:
-    post:
-      summary: Handle git webhook
-      description: Deployed site webhook handler
-      responses:
-        '200': {description: Webhook processed}
-  /api/sites/logs/:
-    get:
-      summary: List available site logs
-      responses:
-        '200': {description: Log list}
-  /api/sites/php/:
-    get:
-      summary: List PHP configurations
-      responses:
-        '200': {description: PHP profiles}
-  /api/sites/redis/:
-    get:
-      summary: List Redis allocations
-      responses:
-        '200': {description: Redis metadata}
-  /api/sites/resources/:
-    get:
-      summary: List resource profiles
-      responses:
-        '200': {description: Resource profiles}
-  /api/sites/usage/:
-    get:
-      summary: List site usage statistics
-      responses:
-        '200': {description: Usage data}
-  /api/sites/{name}:
-    get:
-      summary: Get site details
-      parameters:
-        - {name: name, in: path, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Site details}
-        '404': {description: Site not found}
-    delete:
-      summary: Delete a site
-      parameters:
-        - {name: name, in: path, required: true, schema: {type: string}}
-      responses:
-        '200': {description: Site deleted}
-  /api/tasks/:
-    get:
-      summary: List scheduled tasks
-      responses:
-        '200': {description: Task list}
-  /api/workers/:
-    get:
-      summary: List active workers
-      responses:
-        '200': {description: Worker list}
-  /api/apps:
-    get:
-      summary: List managed Node applications
-      responses:
-        '200': {description: Applications}
-  /api/apps/deploy:
-    post:
-      summary: Deploy a managed Node application
-      responses:
-        '202': {description: Application deployed}
-  /api/composer/:
-    get:
-      summary: List Composer projects
-      responses:
-        '200': {description: Projects}
-  /api/proxy:
-    get:
-      summary: List managed reverse proxies
-      responses:
-        '200': {description: Proxies}
-    post:
-      summary: Deploy a reverse proxy
-      responses:
-        '202': {description: Proxy deployed}
-  /api/proxy/deploy:
-    post:
-      summary: Deploy and reload a reverse proxy
-      responses:
-        '202': {description: Proxy deployed}
-  /api/proxy/test:
-    post:
-      summary: Test a backend connection
-      responses:
-        '200': {description: Test result}
-  /api/node/tooling:
-    get:
-      summary: Get Node.js runtime status
-      responses:
-        '200': {description: Node versions and tools}
-  /api/node/versions:
-    get:
-      summary: List installed Node versions
-      responses:
-        '200': {description: Versions}
-  /api/node/select:
-    post:
-      summary: Select Node version for site
-      responses:
-        '200': {description: Version selected}
-  /api/python/:
-    get:
-      summary: List Python runtime configurations
-      responses:
-        '200': {description: Python projects}
-  /api/python/deploy:
-    post:
-      summary: Deploy Python application
-      responses:
-        '202': {description: Deploy job queued}
-  /api/wordpress/:
-    get:
-      summary: List WordPress sites
-      responses:
-        '200': {description: WordPress sites}
-  /api/wordpress/status/:
-    get:
-      summary: Get WordPress site status
-      responses:
-        '200': {description: WordPress status}
-  /api/capabilities:
-    get:
-      security: []
-      summary: Host capabilities and feature availability
-      description: Probes and returns what the host can do (databases, network isolation, quotas, etc.)
-      responses:
-        '200': {description: Host capabilities}
-  /metrics:
-    get:
-      summary: Prometheus metrics
-      responses:
-        '200': {description: Metrics output}
 components:
   securitySchemes:
     sessionCookie:
