@@ -44,7 +44,7 @@ StePanel v0.7.0 is ready for **single-host production deployments** with the fol
 |----------|-------|----------|------|--------|----------|-------|
 | **cpmove** | ✅ Full | ✅ Staged | ✅ Yes | ✅ Transform | ✅ Transactional | Most complete workflow |
 | **WordPress Import** | ✅ Full | ✅ Full | N/A | ✅ Transform | ✅ Transactional | WP-specific optimizations |
-| **Generic Archive** | ✅ Full | ⚠️ Manual | ⚠️ Manual | ✅ Transform | ✅ Transactional | DB dump located and manual restore instructions provided |
+| **Generic Archive** | ✅ Full | ⚠️ Manual | ⚠️ Manual | ✅ Transform | ✅ Transactional | DB dump located; operator restores manually (automated in v0.8.0) |
 | **Git Deployment** | ✅ Full | N/A | N/A | ✅ Config | ✅ Git-based | Application-driven |
 
 **Legend:**
@@ -55,13 +55,15 @@ StePanel v0.7.0 is ready for **single-host production deployments** with the fol
 
 ### Generic Archive Importer
 
-The generic archive importer supports end-to-end file and database restoration:
+The generic archive importer supports file migration with manual database restoration:
 
 - ✅ Archive inspection and validation
 - ✅ File extraction with permission preservation
 - ✅ Configuration file updates
 - ✅ Database dump location and validation
-- ⚠️ Database restoration (manual via provided SQL dump in v0.7.0, automated in v0.8.0)
+- ✅ Recovery transaction journaling (v0.7.0)
+- ⚠️ Database restoration (manual: operator restores using provided SQL dump in v0.7.0)
+- 🔄 Automated database restoration (planned for v0.8.0 via SiteManager lifecycle)
 - ❌ Mail system migration
 - ✅ Transactional guarantees
 
