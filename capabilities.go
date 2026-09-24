@@ -24,9 +24,9 @@ const (
 
 // Capability represents a single capability and its operational state
 type Capability struct {
-	Available bool             `json:"available"` // Backward compat: true if mode is "available" or "partial"
-	Mode      CapabilityMode   `json:"mode"`      // Operational state: unsupported, manual, partial, available, degraded
-	Reason    string           `json:"reason,omitempty"`
+	Available bool           `json:"available"` // Backward compat: true if mode is "available" or "partial"
+	Mode      CapabilityMode `json:"mode"`      // Operational state: unsupported, manual, partial, available, degraded
+	Reason    string         `json:"reason,omitempty"`
 }
 
 // CapabilitiesResponse is the response from the /api/capabilities endpoint

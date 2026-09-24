@@ -15,15 +15,15 @@ type SiteProvisioner interface {
 
 // LifecycleAwareImporter wraps archive import with the canonical site lifecycle
 type LifecycleAwareImporter struct {
-	executor      *Executor
-	provisioner   SiteProvisioner
+	executor    *Executor
+	provisioner SiteProvisioner
 }
 
 // NewLifecycleAwareImporter creates an importer that uses the full site lifecycle
 func NewLifecycleAwareImporter(executor *Executor, provisioner SiteProvisioner) *LifecycleAwareImporter {
 	return &LifecycleAwareImporter{
-		executor:     executor,
-		provisioner:  provisioner,
+		executor:    executor,
+		provisioner: provisioner,
 	}
 }
 

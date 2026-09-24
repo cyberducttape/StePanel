@@ -46,13 +46,13 @@ func formatBytes(bytes int64) string {
 
 // DiskSpaceRequirement represents the space needed for an import operation
 type DiskSpaceRequirement struct {
-	CompressedSize   int64
-	ExpandedSize     int64
-	TotalNeeded      int64
-	AvailableSpace   int64
-	RequiredBuffer   int64
+	CompressedSize     int64
+	ExpandedSize       int64
+	TotalNeeded        int64
+	AvailableSpace     int64
+	RequiredBuffer     int64
 	HasSufficientSpace bool
-	Reason           string
+	Reason             string
 }
 
 // CheckDiskSpace validates that sufficient space is available for archive import.

@@ -189,10 +189,10 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	response := map[string]interface{}{
-		"status":    "queued",
-		"job_id":    job.ID,
-		"site_name": req.SiteName,
-		"message":   "Archive import job queued. Inspection and restoration proceeding in worker process.",
+		"status":     "queued",
+		"job_id":     job.ID,
+		"site_name":  req.SiteName,
+		"message":    "Archive import job queued. Inspection and restoration proceeding in worker process.",
 		"status_url": "/api/jobs/" + job.ID,
 	}
 	_ = json.NewEncoder(w).Encode(response)
