@@ -1,11 +1,16 @@
 # Product preview
 
 The assets in this document are synchronized with the current development
-administrator dashboard after `0.6.0`, including the managed-sites workspace,
+administrator dashboard (v0.7.0), including the managed-sites workspace,
 resource posture, Security Center, deployment records, and recovery workflows.
 They are deterministic product illustrations, not captures from a live host;
 values are representative and the real dashboard renders service, site,
 database, capability, job state, and user role from the configured server.
+
+**Note:** The preview images may show version numbers for demonstration purposes.
+These are synthetic illustrations; the actual version should match the current
+repository version. When updating previews for future releases, ensure version
+numbers align with the tagged release.
 
 ## Operator workspace
 
