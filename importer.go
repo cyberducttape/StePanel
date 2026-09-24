@@ -54,7 +54,7 @@ func (a *App) inspectArchive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req archiveInspectionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, 4096, &req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
@@ -134,7 +134,7 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req archiveImportRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, 4096, &req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
@@ -162,16 +162,12 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Phase 1: Inspect archive first
-	analyzer := importer.NewAnalyzer()
-	inspection, err := analyzer.InspectArchive(req.URL, req.ConfigPath)
-
-	if err != nil {
-		http.Error(w, "failed to inspect archive: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Phase 2: Enqueue import job
+	// Enqueue import job immediately without blocking on inspection.
+	// The worker process will handle inspection, verification, provisioning,
+	// restoration, and final verification.
+	//
+	// This keeps HTTP handlers responsive and prevents requests from tying up
+	// while analyzing potentially multi-GB archives.
 	payload, err := json.Marshal(durableArchiveImportRequest{
 		ArchiveURL: req.URL,
 		ConfigPath: req.ConfigPath,
@@ -189,22 +185,17 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]interface{}{
-		"status":     "inspection_complete",
-		"job_id":     job.ID,
-		"inspection": inspection,
-		"site_name":  req.SiteName,
-		"message":    "Archive inspection successful and import job queued.",
-	}
-
-	if err != nil {
-		response["warning"] = err.Error()
-	}
-
+	// Return 202 Accepted to indicate the job is queued for processing
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		return
+	w.WriteHeader(http.StatusAccepted)
+	response := map[string]interface{}{
+		"status":    "queued",
+		"job_id":    job.ID,
+		"site_name": req.SiteName,
+		"message":   "Archive import job queued. Inspection and restoration proceeding in worker process.",
+		"status_url": "/api/jobs/" + job.ID,
 	}
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (a *App) archiveImportStatus(w http.ResponseWriter, r *http.Request) {
