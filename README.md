@@ -1,9 +1,9 @@
 # StePanel
 
 > Documentation version: `v0.7.0` release preparation. Previous stable release:
-> [`v0.6.0`](https://github.com/itchyitchy123/StePanel/tree/v0.6.0).
+> [`v0.6.0`](https://github.com/cyberducttape/StePanel/tree/v0.6.0).
 
-![CI](https://github.com/itchyitchy123/StePanel/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/itchyitchy123/StePanel?display_name=tag) ![License](https://img.shields.io/github/license/itchyitchy123/StePanel)
+![CI](https://github.com/cyberducttape/StePanel/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/itchyitchy123/StePanel?display_name=tag) ![License](https://img.shields.io/github/license/itchyitchy123/StePanel)
 
 > A safety-first Linux web and application hosting control plane with cPanel migration tooling.
 
@@ -78,7 +78,7 @@ Operational key backup and rotation procedures are documented in
 Requirements: Go 1.26+.
 
 ```sh
-git clone https://github.com/itchyitchy123/StePanel.git
+git clone https://github.com/cyberducttape/StePanel.git
 cd StePanel
 make check
 go run .
@@ -120,8 +120,8 @@ by `install.sh`:
 ```sh
 release=v0.7.0
 arch=amd64 # use arm64 on aarch64 hosts
-curl -fsSLO "https://github.com/itchyitchy123/StePanel/releases/download/${release}/stepanel_${release#v}_linux_${arch}.tar.gz"
-curl -fsSLO "https://github.com/itchyitchy123/StePanel/releases/download/${release}/SHA256SUMS"
+curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/stepanel_${release#v}_linux_${arch}.tar.gz"
+curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/SHA256SUMS"
 grep "stepanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
 tar -xzf "stepanel_${release#v}_linux_${arch}.tar.gz"
 sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
