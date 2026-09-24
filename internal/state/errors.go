@@ -28,11 +28,11 @@ const (
 
 // StateError wraps errors with categorization for proper handling
 type StateError struct {
-	Category    ErrorCategory
-	Operation   string // What operation failed (e.g., "record_deployment", "audit_trail")
-	Err         error  // Underlying error
-	Message     string // Additional context
-	RequiresAudit bool  // Whether this error itself should be audited
+	Category      ErrorCategory
+	Operation     string // What operation failed (e.g., "record_deployment", "audit_trail")
+	Err           error  // Underlying error
+	Message       string // Additional context
+	RequiresAudit bool   // Whether this error itself should be audited
 }
 
 func (e StateError) Error() string {
@@ -72,10 +72,10 @@ func (e StateError) Handle() {
 // NewPersistenceError creates a persistence error for durable state failures
 func NewPersistenceError(operation string, err error, message string) StateError {
 	return StateError{
-		Category:    Persistence,
-		Operation:   operation,
-		Err:         err,
-		Message:     message,
+		Category:      Persistence,
+		Operation:     operation,
+		Err:           err,
+		Message:       message,
 		RequiresAudit: true,
 	}
 }
@@ -83,10 +83,10 @@ func NewPersistenceError(operation string, err error, message string) StateError
 // NewCorruptionError creates a corruption error
 func NewCorruptionError(operation string, err error, message string) StateError {
 	return StateError{
-		Category:    Corruption,
-		Operation:   operation,
-		Err:         err,
-		Message:     message,
+		Category:      Corruption,
+		Operation:     operation,
+		Err:           err,
+		Message:       message,
 		RequiresAudit: true,
 	}
 }
@@ -94,10 +94,10 @@ func NewCorruptionError(operation string, err error, message string) StateError 
 // NewTemporaryError creates a temporary/retryable error
 func NewTemporaryError(operation string, err error, message string) StateError {
 	return StateError{
-		Category:    Temporary,
-		Operation:   operation,
-		Err:         err,
-		Message:     message,
+		Category:      Temporary,
+		Operation:     operation,
+		Err:           err,
+		Message:       message,
 		RequiresAudit: false,
 	}
 }
@@ -105,10 +105,10 @@ func NewTemporaryError(operation string, err error, message string) StateError {
 // NewCleanupError creates a best-effort cleanup error
 func NewCleanupError(operation string, err error, message string) StateError {
 	return StateError{
-		Category:    Cleanup,
-		Operation:   operation,
-		Err:         err,
-		Message:     message,
+		Category:      Cleanup,
+		Operation:     operation,
+		Err:           err,
+		Message:       message,
 		RequiresAudit: false,
 	}
 }

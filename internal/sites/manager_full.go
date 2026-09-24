@@ -70,7 +70,7 @@ type RestoreRequest struct {
 
 // UpdateRequest specifies parameters for updating site configuration
 type UpdateRequest struct {
-	PHPVersion  string
+	PHPVersion string
 	Resources  *ResourceEnvelope
 	Domains    []string
 }
