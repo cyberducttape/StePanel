@@ -494,7 +494,6 @@ func main() {
 	mux.Handle("/api/cloud/snapshots", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.cloudSnapshots)), http.MethodGet, http.MethodHead, http.MethodDelete))
 	mux.Handle("/api/ssh", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.sshInventory)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/ssh/action", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.sshAction)), http.MethodPost))
-	mux.Handle("/api/capabilities", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.capabilities)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/security/scan", allowMethods(app.Auth.RequireAdministrator(limitConcurrent(http.HandlerFunc(app.malwareScan), expensive)), http.MethodPost))
 	mux.Handle("/api/certificates/issue", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.issueCertificate)), http.MethodPost))
 	mux.Handle("/api/node/versions", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.nodeVersions)), http.MethodGet, http.MethodHead))
