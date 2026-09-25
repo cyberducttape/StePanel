@@ -485,7 +485,11 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	releaseUnlock := a.siteOperations.Acquire(input.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "site is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	repository, err := parseGitRepository(input.Repository, a.Config.GitAllowedHosts)
 	if err != nil {
@@ -618,7 +622,11 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(input.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "site is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	a.gitActivationMu.Lock()
 	defer a.gitActivationMu.Unlock()

@@ -92,7 +92,10 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
 	}
-	release := a.siteOperations.Acquire(request.Site)
+	release, err := a.acquireSiteMutationLock(ctx, request.Site)
+	if err != nil {
+		return nil, fmt.Errorf("acquire durable site lock: %w", err)
+	}
 	defer release()
 
 	journal, err := loadOrCreateTerminationJournal(a.Config.RecoveryRoot, item.ID, request.Site, request.Actor)

@@ -46,7 +46,10 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
 	}
-	releaseUnlock := a.siteOperations.Acquire(request.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, request.Site)
+	if lockErr != nil {
+		return nil, fmt.Errorf("acquire durable site lock: %w", lockErr)
+	}
 	defer releaseUnlock()
 	var result BackupRestoreResult
 	var restoreErr error
