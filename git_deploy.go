@@ -496,9 +496,9 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	publicRoot := filepath.Join(a.Config.WebRoot, "sites", input.Site, "public")
-	if err := ensureInside(a.Config.WebRoot, publicRoot); err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+	publicRoot, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	if err != nil {
+		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
 	}
 	siteRoot := filepath.Dir(publicRoot)
@@ -629,9 +629,13 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "confirmation must exactly match ROLLBACK <site>", http.StatusUnprocessableEntity)
 		return
 	}
-	siteRoot := filepath.Join(a.Config.WebRoot, "sites", input.Site)
-	publicRoot := filepath.Join(siteRoot, "public")
-	if err := ensureInside(a.Config.WebRoot, publicRoot); err != nil {
+	siteRoot, err := safePath(a.Config.WebRoot, "sites", input.Site)
+	if err != nil {
+		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
+		return
+	}
+	publicRoot, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	if err != nil {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
 	}

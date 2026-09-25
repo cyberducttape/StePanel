@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -73,7 +72,11 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	root := filepath.Join(a.Config.WebRoot, "sites", input.Site, "public")
+	root, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	if err != nil {
+		http.Error(w, "invalid site root", 422)
+		return
+	}
 	if _, err := os.Stat(root); err != nil {
 		http.Error(w, "site document root does not exist", 422)
 		return
@@ -102,6 +105,11 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "runner.build", input.Site, input.Image)
-	a.recordDeployment(input.Site, "build", "completed", input.Image, gitDeployResult{}, filepath.Join(a.Config.WebRoot, "sites", input.Site, ".stepanel-artifact"))
-	writeJSON(w, 202, map[string]any{"site": input.Site, "image": input.Image, "commands": len(input.Commands), "artifact": filepath.Join(a.Config.WebRoot, "sites", input.Site, ".stepanel-artifact")})
+	artifact, err := safePath(a.Config.WebRoot, "sites", input.Site, ".stepanel-artifact")
+	if err != nil {
+		http.Error(w, "invalid build artifact path", 500)
+		return
+	}
+	a.recordDeployment(input.Site, "build", "completed", input.Image, gitDeployResult{}, artifact)
+	writeJSON(w, 202, map[string]any{"site": input.Site, "image": input.Image, "commands": len(input.Commands), "artifact": artifact})
 }

@@ -43,9 +43,10 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 - ✅ Git activation and rollback publish through the manager
 - ✅ cPanel, WordPress, and file-backup restores publish through the manager
 - ✅ Staging clone publishes through the manager
+- ✅ Backup restore-to-staging publishes through the manager
 - ✅ Site termination uses the manager for final deletion
-- ⏳ Remaining direct lifecycle paths (generic create/update/suspend/resume and
-      restore-to-staging) still need to be consolidated
+- ⏳ Remaining direct lifecycle paths (generic create/update/suspend/resume)
+      still need to be consolidated
 
 **Acceptance Criteria:**
 - [ ] All site creation operations validated to use SiteManager

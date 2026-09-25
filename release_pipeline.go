@@ -86,10 +86,13 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 422)
 		return
 	}
-	siteRoot := filepath.Join(a.Config.WebRoot, "sites", input.Site)
-	publicRoot := filepath.Join(siteRoot, "public")
-	if err := ensureInside(a.Config.WebRoot, publicRoot); err != nil {
-		http.Error(w, err.Error(), 422)
+	siteRoot, err := safePath(a.Config.WebRoot, "sites", input.Site)
+	if err != nil {
+		http.Error(w, "invalid site root", 422)
+		return
+	}
+	if _, err := safePath(a.Config.WebRoot, "sites", input.Site, "public"); err != nil {
+		http.Error(w, "invalid site root", 422)
 		return
 	}
 	if info, err := os.Stat(siteRoot); err != nil || !info.IsDir() {
