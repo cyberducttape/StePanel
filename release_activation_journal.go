@@ -152,7 +152,7 @@ func findPreviousRelease(webRoot, site string) (string, error) {
 	if safeUser(site) == "" {
 		return "", errors.New("invalid site name")
 	}
-	siteRoot, err := safePath(webRoot, site)
+	siteRoot, err := safePath(webRoot, "sites", site)
 	if err != nil {
 		return "", err
 	}
