@@ -10,6 +10,7 @@ import (
 	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
 	"github.com/cyberducttape/StePanel/internal/metadata"
 	"github.com/cyberducttape/StePanel/internal/operations"
+	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"html/template"
 	"io"
 	"io/fs"
@@ -58,6 +59,7 @@ type App struct {
 	siteOperations           operations.Locks
 	appLifecycleMu           sync.Mutex
 	dbLocks                  *operations.DBLocks
+	siteManager              *siteauthority.DefaultManager
 }
 
 // startupState separates process liveness from control-plane readiness. The
@@ -264,6 +266,10 @@ func main() {
 		log.Fatalf("initialize audit outbox: %v", err)
 	}
 	defaultAuditOutbox = auditOutbox
+	siteManager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	if err != nil {
+		log.Fatalf("initialize site lifecycle manager: %v", err)
+	}
 	hostname, _ := os.Hostname()
 	if hostname == "" {
 		hostname = "localhost"
@@ -412,7 +418,7 @@ func main() {
 		log.Fatalf("open backup schedules: %v", err)
 	}
 	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks}
+	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager}
 	app.startup.begin()
 	// Reconcile domains independently. A single shared deadline allowed a slow
 	// host/helper operation in an early domain to starve every later domain.

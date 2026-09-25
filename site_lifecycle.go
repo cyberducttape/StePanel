@@ -344,6 +344,16 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 	if err := runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.SiteCtl, "delete", siteName); err != nil {
 		return fmt.Errorf("remove PHP, SSH, quota, and site filesystem state for %s: %w", siteName, err)
 	}
+	// The helper tears down host identities and services. The lifecycle
+	// manager owns the final path-safe filesystem cleanup contract, so a
+	// helper implementation cannot silently broaden deletion scope. The
+	// operation is idempotent because the helper may already have removed the
+	// directory.
+	if a.siteManager != nil {
+		if err := a.siteManager.Delete(ctx, siteName); err != nil {
+			return fmt.Errorf("finalize managed site deletion for %s: %w", siteName, err)
+		}
+	}
 	return nil
 }
 
