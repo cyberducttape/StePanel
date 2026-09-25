@@ -40,9 +40,9 @@
 //     provided ctx is cancelled, so a long-running caller does not have to
 //     hand-roll a renewal goroutine.
 //
-// Test with two independent *sql.DB handles (as db_locks_test.go does), not
-// two goroutines sharing one handle. Only the two-handle case actually
-// exercises cross-process behavior.
+// Tests cover two independent *sql.DB handles and separate OS processes (as
+// db_locks_test.go and db_locks_process_test.go do), not merely goroutines
+// sharing one handle.
 
 package operations
 

@@ -83,9 +83,10 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 - ✅ Resource enforcement acquires both site and owning-account fences, so
       resource updates cannot race account suspension.
 - ✅ Two independent SQLite connections now exercise all five conflicting
-      mutation lock scenarios; helper-boundary failure tests remain open.
+      mutation lock scenarios; an OS-process regression test also proves
+      hold/block/reacquire behavior across panel/worker-style processes.
 - ⏳ Adversarial concurrent-operation tests still need to cover the full five
-      scenarios below against real helper boundaries.
+      workflows (not just their lock keys) against real helper boundaries.
 
 **DBLocks fixes (September 2026):**
 
@@ -118,10 +119,10 @@ line above was inaccurate. Rewritten in this cycle:
 - `Hold(ctx, lease)` handles automatic renewal on a `leaseTime/3`
   cadence so callers do not have to hand-roll a renewal goroutine.
 
-Test coverage in `internal/operations/db_locks_test.go` uses **two independent
-`*sql.DB` handles pointed at the same file** (WAL mode), not two goroutines
-on one handle — only the two-handle setup actually exercises cross-process
-behavior. Seven regression tests cover: expired takeover, live-lease
+Test coverage uses **two independent `*sql.DB` handles pointed at the same
+file** (WAL mode) and `TestDBLocksAcrossOSProcesses`, which launches separate
+test processes. It does not rely on two goroutines sharing one handle. Eight
+regression tests cover: expired takeover, live-lease
 protection, fencing on release, waiter freshness, honest context budget,
 Hold renewal past the original lease, and takeover fencing.
 
