@@ -552,6 +552,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	a.gitActivationMu.Lock()
 	defer a.gitActivationMu.Unlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	previous := ""
 	if _, err := os.Stat(publicRoot); err == nil {
 		previous = filepath.Join(siteRoot, ".stepanel-previous-"+strings.ReplaceAll(newRequestID(), "-", ""))
@@ -559,6 +563,13 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unable to preserve the current release", http.StatusInternalServerError)
 			return
 		}
+	}
+	if err := operationCtx.Err(); err != nil {
+		if previous != "" {
+			_ = os.Rename(previous, publicRoot)
+		}
+		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
 	}
 	if err := os.Rename(release, publicRoot); err != nil {
 		if previous != "" {
@@ -570,7 +581,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to activate the new release", http.StatusInternalServerError)
 		return
 	}
-	if err := siteHelper(a.Config, "seal", input.Site); err != nil {
+	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil {
 		if rollbackErr := rollbackGitActivation(publicRoot, previous); rollbackErr != nil {
 			http.Error(w, "site isolation failed and release rollback failed: "+rollbackErr.Error(), http.StatusServiceUnavailable)
 			return
@@ -646,8 +657,17 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	replaced := filepath.Join(siteRoot, ".stepanel-previous-"+strings.ReplaceAll(newRequestID(), "-", ""))
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	if err := os.Rename(publicRoot, replaced); err != nil {
 		http.Error(w, "unable to preserve the active release", http.StatusInternalServerError)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		_ = os.Rename(replaced, publicRoot)
+		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	if err := os.Rename(previous, publicRoot); err != nil {
@@ -655,7 +675,7 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to activate the previous release", http.StatusInternalServerError)
 		return
 	}
-	if err := siteHelper(a.Config, "seal", input.Site); err != nil {
+	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil {
 		_ = os.Rename(publicRoot, previous)
 		_ = os.Rename(replaced, publicRoot)
 		http.Error(w, "rollback could not restore site isolation", http.StatusServiceUnavailable)

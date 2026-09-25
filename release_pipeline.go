@@ -148,7 +148,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.recordDeployment(input.Site, "build", "completed", "validated sandbox artifact", result, release)
-	previous, err := a.activatePipelineRelease(input.Site, siteRoot, publicRoot, release)
+	previous, err := a.activatePipelineRelease(operationCtx, input.Site, siteRoot, publicRoot, release)
 	if err != nil {
 		a.recordDeployment(input.Site, "activation", "failed", err.Error(), result, "")
 		http.Error(w, "atomic activation failed", 503)
@@ -255,15 +255,27 @@ func (a *App) pipelineResourceLimits(site string) (cpuPercent, memoryMB, tasksMa
 	}
 	return cpuPercent, memoryMB, tasksMax
 }
-func (a *App) activatePipelineRelease(site, siteRoot, publicRoot, release string) (string, error) {
+func (a *App) activatePipelineRelease(ctx context.Context, site, siteRoot, publicRoot, release string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	a.gitActivationMu.Lock()
 	defer a.gitActivationMu.Unlock()
 	previous := ""
 	if _, err := os.Stat(publicRoot); err == nil {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		previous = filepath.Join(siteRoot, ".stepanel-previous-"+strings.ReplaceAll(newRequestID(), "-", ""))
 		if err := os.Rename(publicRoot, previous); err != nil {
 			return "", err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		if previous != "" {
+			_ = os.Rename(previous, publicRoot)
+		}
+		return "", err
 	}
 	if err := os.Rename(release, publicRoot); err != nil {
 		if previous != "" {
@@ -271,7 +283,7 @@ func (a *App) activatePipelineRelease(site, siteRoot, publicRoot, release string
 		}
 		return "", err
 	}
-	if err := siteHelper(a.Config, "seal", site); err != nil {
+	if err := siteHelperContext(ctx, a.Config, "seal", site); err != nil {
 		return "", rollbackGitActivation(publicRoot, previous)
 	}
 	return previous, nil

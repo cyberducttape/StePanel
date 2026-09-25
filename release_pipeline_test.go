@@ -1,9 +1,20 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"strconv"
 	"testing"
 )
+
+func TestActivatePipelineReleaseHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := (&App{}).activatePipelineRelease(ctx, "demo", "/tmp/site", "/tmp/site/public", "/tmp/release")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("activatePipelineRelease error = %v, want context.Canceled", err)
+	}
+}
 
 // TestPipelineBuildArgsMatchesRunnerCtlContract asserts that pipelineBuildArgs
 // produces exactly the positional argument list the stepanel-runnerctl helper

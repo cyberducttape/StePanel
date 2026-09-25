@@ -436,7 +436,7 @@ func (a *App) restoreImportedDatabase(ctx context.Context, dumpPath, database, u
 		return nil, fmt.Errorf("provision managed database: %w", err)
 	}
 	cleanup := func() error {
-		_, cleanupErr := runDatabaseHelper(a.Config, time.Minute, "", "drop-managed", database, user)
+		_, cleanupErr := runDatabaseHelperContext(ctx, a.Config, time.Minute, "", "drop-managed", database, user)
 		return cleanupErr
 	}
 	dump, err := os.Open(dumpPath)
