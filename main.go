@@ -429,6 +429,9 @@ func main() {
 	}
 	runStartup := func() {
 		var failures []error
+		if err := auditOutbox.flush(context.Background(), cfg.AuditLog); err != nil {
+			failures = append(failures, fmt.Errorf("flush audit outbox during startup: %w", err))
+		}
 		if cfg.DBCtl != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			output, err := runBoundedCommand(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, "reconcile"))
@@ -702,6 +705,9 @@ func main() {
 	if err := app.Jobs.Wait(jobCtx); err != nil {
 		log.Printf("timed out waiting for active jobs: %v", err)
 	}
+	auditCtx, auditCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	auditOutbox.closePending(auditCtx, app.Config.AuditLog)
+	auditCancel()
 }
 
 func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
