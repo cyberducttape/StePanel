@@ -78,12 +78,16 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to prepare site root", 500)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "Node version mutation is busy", http.StatusConflict)
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Node version mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	nvmrc, err := safePath(siteRoot, ".nvmrc")
 	if err != nil {
 		http.Error(w, "invalid Node version path", 422)

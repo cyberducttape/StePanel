@@ -908,11 +908,14 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 			_ = os.Remove(request.TempPath)
 		}
 	}()
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, request.User)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.User)
 	if lockErr != nil {
 		return nil, fmt.Errorf("acquire cpmove site lock: %w", lockErr)
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		return nil, err
+	}
 	a.Metrics.RestoreStarted()
 	result, restoreErr := RestoreCPMove(a.Config, staged, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs)
 	a.Metrics.RestoreFinished(restoreErr)
@@ -948,11 +951,14 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, request.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.Site)
 	if lockErr != nil {
 		return nil, fmt.Errorf("acquire backup site lock: %w", lockErr)
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		return nil, err
+	}
 	result, err := CreateSiteBackup(a.Config, access, request.IncludeDatabases)
 	if err != nil {
 		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "site.backup.failed", request.Site, err.Error()); auditErr != nil {
@@ -1045,11 +1051,14 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 			_ = os.Remove(request.TempPath)
 		}
 	}()
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, request.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.Site)
 	if lockErr != nil {
 		return nil, fmt.Errorf("acquire WordPress site lock: %w", lockErr)
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		return nil, err
+	}
 	a.Metrics.RestoreStarted()
 	result, restoreErr := RestoreWPress(a.Config, request.TempPath, access, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force)
 	a.Metrics.RestoreFinished(restoreErr)

@@ -168,16 +168,16 @@ func captureTaskOutput(output string) []string {
 // killTask stops a running scheduled task via systemd.
 // Requires stepanel-taskctl helper (installed at /usr/local/sbin/stepanel-taskctl)
 // and invoked through the privileged root wrapper.
-func (a *App) killTask(site, name string) error {
+func (a *App) killTask(ctx context.Context, site, name string) error {
 	if a.Config.TaskCtl == "" {
 		return errors.New("task control helper not configured")
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(context.Background(), site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, site)
 	if lockErr != nil {
 		return fmt.Errorf("acquire task lock: %w", lockErr)
 	}
 	defer releaseUnlock()
-	return runHelperCommandWithTimeout(context.Background(), a.Config, taskTimeoutDefault, a.Config.TaskCtl, "kill", site, name)
+	return runHelperCommandWithTimeout(operationCtx, a.Config, taskTimeoutDefault, a.Config.TaskCtl, "kill", site, name)
 }
 
 // Phase 2 safeguards (canExecuteTask, incrementTaskRunCount, decrementTaskRunCount)
@@ -226,7 +226,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "insufficient token scope for task operations", http.StatusForbidden)
 			return
 		}
-		if err := a.killTask(site, name); err != nil {
+		if err := a.killTask(r.Context(), site, name); err != nil {
 			http.Error(w, "could not kill task: "+err.Error(), 502)
 			return
 		}
