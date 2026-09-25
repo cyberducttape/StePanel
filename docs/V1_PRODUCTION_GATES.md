@@ -79,6 +79,8 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
       SSH access, database operations, and account mutations.
 - ✅ Resource enforcement acquires both site and owning-account fences, so
       resource updates cannot race account suspension.
+- ✅ Two independent SQLite connections now exercise all five conflicting
+      mutation lock scenarios; helper-boundary failure tests remain open.
 - ⏳ Adversarial concurrent-operation tests still need to cover the full five
       scenarios below against real helper boundaries.
 
