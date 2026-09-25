@@ -81,6 +81,10 @@ type Manager interface {
 	Create(ctx context.Context, req *CreateRequest) (*Site, error)
 	CreateStaging(ctx context.Context, prefix string) (string, error)
 	DiscardStaging(ctx context.Context, stagedRoot string) error
+	CreateReleaseStaging(ctx context.Context, name, prefix string) (string, error)
+	DiscardReleaseStaging(ctx context.Context, name, stagedRoot string) error
+	ActivateStagedReplacing(ctx context.Context, name, stagedRoot string) (string, error)
+	RollbackStagedActivation(ctx context.Context, name, previous string) error
 	ImportArchive(ctx context.Context, req *ImportRequest) (*Site, error)
 	Clone(ctx context.Context, req *CloneRequest) (*Site, error)
 	ActivateStaged(ctx context.Context, name, stagedRoot string) (*Site, error)
@@ -182,8 +186,8 @@ func (m *DefaultManager) resolveStagedRoot(name, stagedRoot string) (string, str
 		return "", "", err
 	}
 	if parent == siteRoot {
-		if !strings.HasPrefix(component, ".stepanel-previous-") {
-			return "", "", errors.New("sites.Manager: direct site path is not a rollback release")
+		if !strings.HasPrefix(component, ".stepanel-previous-") && !strings.HasPrefix(component, ".stepanel-release-") {
+			return "", "", errors.New("sites.Manager: direct site path is not a manager-owned release")
 		}
 		if _, err := h.SafePath(siteRoot, component); err != nil {
 			return "", "", err
@@ -219,7 +223,71 @@ func (m *DefaultManager) resolveStagedRoot(name, stagedRoot string) (string, str
 		}
 		return managerRoot, component, nil
 	}
+	if err := h.EnsureInside(sitesRoot, absStaged); err != nil {
+		return "", "", errors.New("sites.Manager: staged path is outside site root")
+	}
 	return "", "", errors.New("sites.Manager: staged path is not in a manager-owned staging root")
+}
+
+// CreateReleaseStaging allocates a temporary release in the existing site's
+// root. The runner helper intentionally accepts this layout so source trees
+// can be mounted with the site's identity and policy.
+func (m *DefaultManager) CreateReleaseStaging(ctx context.Context, name, prefix string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(prefix, ".stepanel-release-") || !validStagingPrefix.MatchString(prefix) {
+		return "", errors.New("sites.Manager: invalid release staging prefix")
+	}
+	siteRoot, err := m.resolveSiteRoot(name)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(siteRoot)
+	if err != nil {
+		return "", fmt.Errorf("sites.Manager: inspect release site root: %w", err)
+	}
+	if !info.IsDir() {
+		return "", errors.New("sites.Manager: release site root is not a directory")
+	}
+	stage, err := os.MkdirTemp(siteRoot, prefix)
+	if err != nil {
+		return "", fmt.Errorf("sites.Manager: create release staging tree: %w", err)
+	}
+	return stage, nil
+}
+
+// DiscardReleaseStaging removes only a release staging tree allocated under
+// the named site's root. Retained previous releases are never accepted.
+func (m *DefaultManager) DiscardReleaseStaging(ctx context.Context, name, stagedRoot string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	parent, component, err := m.resolveStagedRoot(name, stagedRoot)
+	if err != nil {
+		return err
+	}
+	if parent == "" || !strings.HasPrefix(component, ".stepanel-release-") {
+		return errors.New("sites.Manager: path is not a release staging tree")
+	}
+	owned, err := h.SafePath(parent, component)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(owned)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("sites.Manager: inspect release staging tree: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("sites.Manager: refuse to remove symlinked release staging tree")
+	}
+	if err := os.RemoveAll(owned); err != nil {
+		return fmt.Errorf("sites.Manager: discard release staging tree: %w", err)
+	}
+	return nil
 }
 
 // CreateStaging allocates an isolated manager-owned staging directory. The
@@ -296,20 +364,14 @@ func (m *DefaultManager) DiscardStaging(ctx context.Context, stagedRoot string) 
 	return nil
 }
 
-// ActivateStaged publishes a fully prepared public tree under the manager's
-// configured web root. The caller owns any higher-level recovery journal; the
-// manager owns path validation and the final atomic rename.
-func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot string) (*Site, error) {
+func (m *DefaultManager) inspectStaged(name, stagedRoot string) (string, string, string, error) {
 	destination, err := m.resolvePublicRoot(name)
 	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
+		return "", "", "", err
 	}
 	stagedParent, stagedName, err := m.resolveStagedRoot(name, stagedRoot)
 	if err != nil {
-		return nil, err
+		return "", "", "", err
 	}
 	// Resolve the requested component through a directory entry obtained from
 	// the manager-owned parent. The final filesystem call therefore uses a
@@ -319,23 +381,40 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	var stagedInfo os.FileInfo
 	entries, err := os.ReadDir(stagedParent)
 	if err != nil {
-		return nil, fmt.Errorf("sites.Manager: inspect staging parent: %w", err)
+		return "", "", "", fmt.Errorf("sites.Manager: inspect staging parent: %w", err)
 	}
 	for _, entry := range entries {
 		if entry.Name() == stagedName {
 			stagedEntry = filepath.Join(stagedParent, entry.Name())
 			stagedInfo, err = entry.Info()
 			if err != nil {
-				return nil, fmt.Errorf("sites.Manager: inspect staged site: %w", err)
+				return "", "", "", fmt.Errorf("sites.Manager: inspect staged site: %w", err)
 			}
 			break
 		}
 	}
 	if stagedEntry == "" {
-		return nil, errors.New("sites.Manager: staged site does not exist")
+		return "", "", "", errors.New("sites.Manager: staged site does not exist")
 	}
 	if stagedInfo.Mode()&os.ModeSymlink != 0 || !stagedInfo.IsDir() {
-		return nil, errors.New("sites.Manager: staged site must be a directory")
+		return "", "", "", errors.New("sites.Manager: staged site must be a directory")
+	}
+	return filepath.Dir(destination), destination, stagedEntry, nil
+}
+
+// ActivateStaged publishes a fully prepared public tree under the manager's
+// configured web root. The caller owns any higher-level recovery journal; the
+// manager owns path validation and the final atomic rename.
+func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot string) (*Site, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	_, destination, stagedEntry, err := m.inspectStaged(name, stagedRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if _, err := os.Lstat(destination); err == nil {
 		return nil, fmt.Errorf("sites.Manager: destination site %q already exists", name)
@@ -352,6 +431,98 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 		return nil, fmt.Errorf("sites.Manager: activate staged site: %w", err)
 	}
 	return &Site{Name: name, Status: "ready", CreatedAt: time.Now().UTC(), WebRoot: destination}, nil
+}
+
+// ActivateStagedReplacing atomically publishes a staged release while
+// retaining the current public tree at a manager-generated rollback path.
+func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stagedRoot string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	siteRoot, destination, stagedEntry, err := m.inspectStaged(name, stagedRoot)
+	if err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	previous := ""
+	if info, statErr := os.Lstat(destination); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return "", errors.New("sites.Manager: activation destination must be a directory")
+		}
+		previousName := ".stepanel-previous-" + fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+		previous, err = h.SafePath(siteRoot, previousName)
+		if err != nil {
+			return "", err
+		}
+		if err := os.Rename(destination, previous); err != nil {
+			return "", fmt.Errorf("sites.Manager: preserve current release: %w", err)
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return "", fmt.Errorf("sites.Manager: inspect activation destination: %w", statErr)
+	}
+	if err := ctx.Err(); err != nil {
+		if previous != "" {
+			_ = os.Rename(previous, destination)
+		}
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
+		if previous != "" {
+			_ = os.Rename(previous, destination)
+		}
+		return "", fmt.Errorf("sites.Manager: prepare activation parent: %w", err)
+	}
+	if err := os.Rename(stagedEntry, destination); err != nil {
+		if previous != "" {
+			_ = os.Rename(previous, destination)
+		}
+		return "", fmt.Errorf("sites.Manager: activate staged release: %w", err)
+	}
+	return previous, nil
+}
+
+// RollbackStagedActivation removes the active replacement and restores the
+// manager-generated previous release. An empty previous path removes the
+// newly-created site tree.
+func (m *DefaultManager) RollbackStagedActivation(ctx context.Context, name, previous string) error {
+	destination, err := m.resolvePublicRoot(name)
+	if err != nil {
+		return err
+	}
+	siteRoot, err := m.resolveSiteRoot(name)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if info, statErr := os.Lstat(destination); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return errors.New("sites.Manager: refuse to remove non-directory activation")
+		}
+		if err := os.RemoveAll(destination); err != nil {
+			return fmt.Errorf("sites.Manager: remove failed activation: %w", err)
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return fmt.Errorf("sites.Manager: inspect failed activation: %w", statErr)
+	}
+	if previous == "" {
+		return nil
+	}
+	absPrevious, err := filepath.Abs(previous)
+	if err != nil || filepath.Dir(absPrevious) != siteRoot || !strings.HasPrefix(filepath.Base(absPrevious), ".stepanel-previous-") {
+		return errors.New("sites.Manager: invalid previous release path")
+	}
+	previous, err = h.SafePath(siteRoot, filepath.Base(absPrevious))
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(previous, destination); err != nil {
+		return fmt.Errorf("sites.Manager: restore previous release: %w", err)
+	}
+	return nil
 }
 
 // Create provisions a new site's directory structure through a private stage

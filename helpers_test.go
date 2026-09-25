@@ -89,3 +89,49 @@ func TestSafePathRejectsFinalSymlink(t *testing.T) {
 		t.Fatal("final symlink was accepted")
 	}
 }
+
+func TestExistingManagedSiteRootsUseTrustedDirectoryEntries(t *testing.T) {
+	webRoot := t.TempDir()
+	sitesRoot := filepath.Join(webRoot, "sites")
+	if err := os.MkdirAll(filepath.Join(sitesRoot, "demo", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	root, err := existingManagedSiteRoot(webRoot, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != filepath.Join(sitesRoot, "demo") {
+		t.Fatalf("managed root = %q", root)
+	}
+	if _, err := existingManagedSitePublicRoot(webRoot, "missing"); !os.IsNotExist(err) {
+		t.Fatalf("missing site error = %v, want not-exist", err)
+	}
+	if err := os.Symlink(filepath.Join(webRoot, "outside"), filepath.Join(sitesRoot, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existingManagedSiteRoot(webRoot, "linked"); err == nil {
+		t.Fatal("symlinked site root was accepted")
+	}
+}
+
+func TestManagedSiteFileExistsRejectsSymlink(t *testing.T) {
+	webRoot := t.TempDir()
+	public := filepath.Join(webRoot, "sites", "demo", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "wp-config.php")
+	if err := os.WriteFile(target, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(public, "wp-config.php")); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := managedSiteFileExists(webRoot, "demo", "", "wp-config.php")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed {
+		t.Fatal("symlinked managed site file was accepted")
+	}
+}

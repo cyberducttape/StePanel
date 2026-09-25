@@ -97,6 +97,66 @@ func TestDiscardStagingRemovesOnlyManagerOwnedTree(t *testing.T) {
 	}
 }
 
+func TestReleaseStagingPreservesRunnerLayoutAndOwnership(t *testing.T) {
+	m, root := newManager(t)
+	public := filepath.Join(root, "sites", "release-site", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	stage, err := m.CreateReleaseStaging(context.Background(), "release-site", ".stepanel-release-")
+	if err != nil {
+		t.Fatalf("CreateReleaseStaging: %v", err)
+	}
+	if filepath.Dir(stage) != filepath.Dir(public) {
+		t.Fatalf("release staging parent = %q, want site root %q", filepath.Dir(stage), filepath.Dir(public))
+	}
+	if err := os.WriteFile(filepath.Join(stage, "version"), []byte("next"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DiscardReleaseStaging(context.Background(), "release-site", stage); err != nil {
+		t.Fatalf("DiscardReleaseStaging: %v", err)
+	}
+	if _, err := os.Stat(stage); !os.IsNotExist(err) {
+		t.Fatalf("release staging tree still exists: %v", err)
+	}
+	if _, err := m.CreateReleaseStaging(context.Background(), "missing", ".stepanel-release-"); err == nil {
+		t.Fatal("CreateReleaseStaging accepted an unmanaged site")
+	}
+}
+
+func TestActivateStagedReplacingCanRollback(t *testing.T) {
+	m, root := newManager(t)
+	public := filepath.Join(root, "sites", "replace-site", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "version"), []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stage, err := m.CreateReleaseStaging(context.Background(), "replace-site", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "version"), []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := m.ActivateStagedReplacing(context.Background(), "replace-site", stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(public, "version"))
+	if err != nil || string(data) != "new" {
+		t.Fatalf("active release = %q, err=%v", data, err)
+	}
+	if err := m.RollbackStagedActivation(context.Background(), "replace-site", previous); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(filepath.Join(public, "version"))
+	if err != nil || string(data) != "old" {
+		t.Fatalf("rolled back release = %q, err=%v", data, err)
+	}
+}
+
 // TestDeleteRefusesInvalidNames is the direct trust-boundary regression:
 // the manager MUST NOT rm -rf a path derived from a malformed name, even
 // if all HTTP callers claim they pre-validated. Every case below would

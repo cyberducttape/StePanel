@@ -99,12 +99,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "managed database backup requires the local database helper", 422)
 			return
 		}
-		siteRoot, pathErr := safePath(a.Config.WebRoot, "sites", in.Site, "public")
-		if pathErr != nil {
-			http.Error(w, "invalid site root", 422)
-			return
-		}
-		if info, err := os.Stat(siteRoot); err != nil || !info.IsDir() {
+		if _, err := existingManagedSitePublicRoot(a.Config.WebRoot, in.Site); err != nil {
 			http.Error(w, "site document root does not exist", 422)
 			return
 		}

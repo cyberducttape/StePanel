@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	h "github.com/cyberducttape/StePanel/internal/helper"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -48,6 +51,93 @@ func helperCommandContext(ctx context.Context, cfg Config, path string, args ...
 
 func safePath(root string, parts ...string) (string, error) {
 	return h.SafePath(root, parts...)
+}
+
+// existingManagedSiteRoot resolves a site only after discovering its directory
+// entry beneath the configured sites root. This keeps request-derived names out
+// of filesystem lookups and also rejects symlinked site roots.
+func existingManagedSiteRoot(webRoot, site string) (string, error) {
+	if safeUser(site) == "" || strings.Contains(site, string(filepath.Separator)) {
+		return "", errors.New("invalid site name")
+	}
+	sitesRoot, err := safePath(webRoot, "sites")
+	if err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(sitesRoot)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if entry.Name() != site {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return "", errors.New("managed site root is not a directory")
+		}
+		return filepath.Join(sitesRoot, entry.Name()), nil
+	}
+	return "", os.ErrNotExist
+}
+
+func existingManagedSitePublicRoot(webRoot, site string) (string, error) {
+	siteRoot, err := existingManagedSiteRoot(webRoot, site)
+	if err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(siteRoot)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if entry.Name() != "public" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return "", errors.New("managed site public root is not a directory")
+		}
+		return filepath.Join(siteRoot, entry.Name()), nil
+	}
+	return "", os.ErrNotExist
+}
+
+func managedSiteFileExists(webRoot, site, directory, filename string) (bool, error) {
+	if filename == "" || filepath.Base(filename) != filename {
+		return false, errors.New("invalid managed site filename")
+	}
+	root, err := existingManagedSitePublicRoot(webRoot, site)
+	if err != nil {
+		return false, err
+	}
+	if directory != "" {
+		root, err = safePath(root, directory)
+		if err != nil {
+			return false, err
+		}
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.Name() != filename {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return false, err
+		}
+		return info.Mode()&os.ModeSymlink == 0 && !info.IsDir(), nil
+	}
+	return false, nil
 }
 
 func runHelperCommand(ctx context.Context, cfg Config, path string, args ...string) error {

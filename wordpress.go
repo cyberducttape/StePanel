@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -53,12 +51,13 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "wp-cli is not installed", 503)
 		return
 	}
-	root, err := safePath(a.Config.WebRoot, "sites", site, "public")
+	root, err := existingManagedSitePublicRoot(a.Config.WebRoot, site)
 	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}
-	if info, err := os.Stat(filepath.Join(root, "wp-config.php")); err != nil || info.IsDir() {
+	installed, err := managedSiteFileExists(a.Config.WebRoot, site, "", "wp-config.php")
+	if err != nil || !installed {
 		http.Error(w, "WordPress is not installed for this site", 422)
 		return
 	}
@@ -93,16 +92,9 @@ func (a *App) wordpressStatus(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
 		return
 	}
-	root, err := safePath(a.Config.WebRoot, "sites", site, "public")
+	installed, err := managedSiteFileExists(a.Config.WebRoot, site, "", "wp-config.php")
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"site": site, "installed": false, "wp_cli": commandAvailable(a.Config.WPCLI)})
-		return
+		installed = false
 	}
-	configPath, err := safePath(root, "wp-config.php")
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"site": site, "installed": false, "wp_cli": commandAvailable(a.Config.WPCLI)})
-		return
-	}
-	_, err = os.Stat(configPath)
-	writeJSON(w, http.StatusOK, map[string]any{"site": site, "installed": err == nil, "wp_cli": commandAvailable(a.Config.WPCLI)})
+	writeJSON(w, http.StatusOK, map[string]any{"site": site, "installed": installed, "wp_cli": commandAvailable(a.Config.WPCLI)})
 }

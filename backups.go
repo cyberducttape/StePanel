@@ -442,7 +442,11 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	final := filepath.Join(root, result.Created.Format("20060102-150405.000000000")+"-"+database)
+	finalName := result.Created.Format("20060102-150405.000000000") + "-" + database
+	final, err := safePath(root, finalName)
+	if err != nil {
+		return result, fmt.Errorf("invalid database safety backup path: %w", err)
+	}
 	if err := os.Rename(temp, final); err != nil {
 		return result, err
 	}

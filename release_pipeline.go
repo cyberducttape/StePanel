@@ -86,17 +86,13 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 422)
 		return
 	}
-	siteRoot, err := safePath(a.Config.WebRoot, "sites", input.Site)
+	siteRoot, err := existingManagedSiteRoot(a.Config.WebRoot, input.Site)
 	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}
 	if _, err := safePath(a.Config.WebRoot, "sites", input.Site, "public"); err != nil {
 		http.Error(w, "invalid site root", 422)
-		return
-	}
-	if info, err := os.Stat(siteRoot); err != nil || !info.IsDir() {
-		http.Error(w, "site root does not exist", 422)
 		return
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
@@ -114,14 +110,14 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Repository: input.Repository, Ref: input.Ref}
 	a.recordDeployment(input.Site, "checkout", "running", "pipeline checkout started", result, "")
-	release, commit, err := a.checkoutPipelineRelease(ctx, access, repository, input.Ref, siteRoot)
+	release, commit, err := a.checkoutPipelineRelease(ctx, access, repository, input.Ref)
 	if err != nil {
 		a.recordDeployment(input.Site, "checkout", "failed", err.Error(), result, "")
 		http.Error(w, "Git checkout failed", 502)
 		return
 	}
 	result.Commit = commit
-	defer os.RemoveAll(release)
+	defer func() { _ = a.discardSiteReleaseStaging(context.Background(), input.Site, release) }()
 	if input.Backup {
 		a.recordDeployment(input.Site, "backup", "running", "pre-activation backup started", result, "")
 		if _, err := CreateSiteBackup(a.Config, access, true); err != nil {
@@ -142,7 +138,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "build artifact is unsafe", 422)
 		return
 	}
-	if err := os.RemoveAll(release); err != nil {
+	if err := a.discardSiteReleaseStaging(operationCtx, input.Site, release); err != nil {
 		http.Error(w, "could not replace source with artifact", 500)
 		return
 	}
@@ -164,13 +160,13 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, result)
 }
 
-func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, repository gitRepository, ref, siteRoot string) (string, string, error) {
+func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, repository gitRepository, ref string) (string, string, error) {
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
 		return "", "", err
 	}
-	release := filepath.Join(siteRoot, ".stepanel-release-"+strings.ReplaceAll(newRequestID(), "-", ""))
-	if err = os.Mkdir(release, 0700); err != nil {
+	release, err := a.createSiteReleaseStaging(ctx, site.Site(), ".stepanel-release-")
+	if err != nil {
 		return "", "", err
 	}
 	var output []byte
@@ -182,17 +178,17 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 		output, err = runBoundedCommand(ctx, cmd)
 	}
 	if err != nil {
-		os.RemoveAll(release)
+		_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
 		return "", "", err
 	}
 	commitOutput, err := runBoundedCommand(ctx, exec.CommandContext(ctx, gitPath, "-C", release, "rev-parse", "HEAD"))
 	if err != nil {
-		os.RemoveAll(release)
+		_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
 		return "", "", err
 	}
 	commit := strings.TrimSpace(string(commitOutput))
 	if !gitCommitPattern.MatchString(commit) || validateGitRelease(release, a.Config.MaxEntries) != nil || os.RemoveAll(filepath.Join(release, ".git")) != nil {
-		os.RemoveAll(release)
+		_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
 		return "", "", fmt.Errorf("invalid checked-out release: %s", strings.TrimSpace(string(output)))
 	}
 	return release, commit, nil
@@ -262,46 +258,17 @@ func (a *App) activatePipelineRelease(ctx context.Context, site, release string)
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	siteRoot, err := safePath(a.Config.WebRoot, "sites", site)
-	if err != nil {
-		return "", fmt.Errorf("resolve pipeline site root: %w", err)
-	}
-	publicRoot, err := safePath(a.Config.WebRoot, "sites", site, "public")
-	if err != nil {
-		return "", fmt.Errorf("resolve pipeline public root: %w", err)
-	}
-	if err := ensureInside(siteRoot, release); err != nil {
-		return "", fmt.Errorf("pipeline release is outside site root: %w", err)
-	}
 	a.gitActivationMu.Lock()
 	defer a.gitActivationMu.Unlock()
-	previous := ""
 	if err := failureInjection("deploy", "activate"); err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(publicRoot); err == nil {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		previous = filepath.Join(siteRoot, ".stepanel-previous-"+strings.ReplaceAll(newRequestID(), "-", ""))
-		if err := os.Rename(publicRoot, previous); err != nil {
-			return "", err
-		}
-	}
-	if err := ctx.Err(); err != nil {
-		if previous != "" {
-			_ = os.Rename(previous, publicRoot)
-		}
-		return "", err
-	}
-	if err := a.activateStagedSite(ctx, site, release); err != nil {
-		if previous != "" {
-			_ = os.Rename(previous, publicRoot)
-		}
+	previous, err := a.activateReplacingSite(ctx, site, release)
+	if err != nil {
 		return "", err
 	}
 	if err := siteHelperContext(ctx, a.Config, "seal", site); err != nil {
-		return "", rollbackGitActivation(publicRoot, previous)
+		return "", a.rollbackReplacingSite(ctx, site, previous)
 	}
 	return previous, nil
 }

@@ -592,27 +592,23 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	publicRoot, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	publicRoot, err := existingManagedSitePublicRoot(a.Config.WebRoot, input.Site)
 	if err != nil {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
 	}
 	siteRoot := filepath.Dir(publicRoot)
-	if info, err := os.Stat(siteRoot); err != nil || !info.IsDir() {
-		http.Error(w, "site root does not exist", http.StatusUnprocessableEntity)
-		return
-	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
 		http.Error(w, "Git is not installed", http.StatusServiceUnavailable)
 		return
 	}
-	release := filepath.Join(siteRoot, ".stepanel-release-"+strings.ReplaceAll(newRequestID(), "-", ""))
-	if err := os.Mkdir(release, 0700); err != nil {
+	release, err := a.createSiteReleaseStaging(operationCtx, input.Site, ".stepanel-release-")
+	if err != nil {
 		http.Error(w, "unable to create release staging directory", http.StatusInternalServerError)
 		return
 	}
-	defer os.RemoveAll(release)
+	defer func() { _ = a.discardSiteReleaseStaging(context.Background(), input.Site, release) }()
 	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
 	defer cancel()
 	var cloneOutput []byte
@@ -657,32 +653,13 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := os.Stat(publicRoot); err == nil {
-		previous = filepath.Join(siteRoot, ".stepanel-previous-"+strings.ReplaceAll(newRequestID(), "-", ""))
-		if err := os.Rename(publicRoot, previous); err != nil {
-			http.Error(w, "unable to preserve the current release", http.StatusInternalServerError)
-			return
-		}
-	}
-	if err := operationCtx.Err(); err != nil {
-		if previous != "" {
-			_ = os.Rename(previous, publicRoot)
-		}
-		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
-		return
-	}
-	if err := a.activateStagedSite(operationCtx, input.Site, release); err != nil {
-		if previous != "" {
-			if rollbackErr := os.Rename(previous, publicRoot); rollbackErr != nil {
-				http.Error(w, "unable to activate the new release; rollback failed: "+rollbackErr.Error(), http.StatusServiceUnavailable)
-				return
-			}
-		}
+	previous, err = a.activateReplacingSite(operationCtx, input.Site, release)
+	if err != nil {
 		http.Error(w, "unable to activate the new release", http.StatusInternalServerError)
 		return
 	}
 	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil {
-		if rollbackErr := rollbackGitActivation(publicRoot, previous); rollbackErr != nil {
+		if rollbackErr := a.rollbackReplacingSite(operationCtx, input.Site, previous); rollbackErr != nil {
 			http.Error(w, "site isolation failed and release rollback failed: "+rollbackErr.Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -696,18 +673,6 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	a.recordDeployment(input.Site, "activation", "completed", "atomic Git release activated", result, "")
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deployed", input.Site, input.Repository+"@"+commit)
 	writeJSON(w, http.StatusAccepted, result)
-}
-
-func rollbackGitActivation(publicRoot, previous string) error {
-	if err := os.RemoveAll(publicRoot); err != nil {
-		return fmt.Errorf("remove failed release: %w", err)
-	}
-	if previous != "" {
-		if err := os.Rename(previous, publicRoot); err != nil {
-			return fmt.Errorf("restore previous release: %w", err)
-		}
-	}
-	return nil
 }
 
 func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
@@ -726,11 +691,6 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	siteRoot, err := safePath(a.Config.WebRoot, "sites", input.Site)
-	if err != nil {
-		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
-		return
-	}
-	publicRoot, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
 	if err != nil {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
@@ -756,32 +716,17 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "previous release failed safety validation", http.StatusConflict)
 		return
 	}
-	if info, err := os.Stat(publicRoot); err != nil || !info.IsDir() {
+	if _, err := existingManagedSitePublicRoot(a.Config.WebRoot, input.Site); err != nil {
 		http.Error(w, "active site release is unavailable", http.StatusConflict)
 		return
 	}
-	replaced := filepath.Join(siteRoot, ".stepanel-previous-"+strings.ReplaceAll(newRequestID(), "-", ""))
-	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
-		return
-	}
-	if err := os.Rename(publicRoot, replaced); err != nil {
+	replaced, err := a.activateReplacingSite(operationCtx, input.Site, previous)
+	if err != nil {
 		http.Error(w, "unable to preserve the active release", http.StatusInternalServerError)
 		return
 	}
-	if err := operationCtx.Err(); err != nil {
-		_ = os.Rename(replaced, publicRoot)
-		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
-		return
-	}
-	if err := a.activateStagedSite(operationCtx, input.Site, previous); err != nil {
-		_ = os.Rename(replaced, publicRoot)
-		http.Error(w, "unable to activate the previous release", http.StatusInternalServerError)
-		return
-	}
 	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil {
-		_ = os.Rename(publicRoot, previous)
-		_ = os.Rename(replaced, publicRoot)
+		_ = a.rollbackReplacingSite(operationCtx, input.Site, replaced)
 		http.Error(w, "rollback could not restore site isolation", http.StatusServiceUnavailable)
 		return
 	}

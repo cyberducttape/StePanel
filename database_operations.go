@@ -169,12 +169,7 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid database, user, site, or password; passwords must be 20-128 supported characters", http.StatusUnprocessableEntity)
 			return
 		}
-		siteRoot, pathErr := safePath(a.Config.WebRoot, "sites", in.Site, "public")
-		if pathErr != nil {
-			http.Error(w, "invalid owning site root", http.StatusUnprocessableEntity)
-			return
-		}
-		if info, err := os.Stat(siteRoot); err != nil || !info.IsDir() {
+		if _, err := existingManagedSitePublicRoot(a.Config.WebRoot, in.Site); err != nil {
 			http.Error(w, "owning site document root does not exist", http.StatusUnprocessableEntity)
 			return
 		}
@@ -275,7 +270,11 @@ func createDatabaseSafetyBackup(cfg Config, database string) (DatabaseSafetyBack
 	if err := writeSyncedFile(filepath.Join(temp, database+".sql.sha256"), []byte(result.SHA256+"  "+database+".sql\n"), 0600); err != nil {
 		return result, err
 	}
-	final := filepath.Join(root, result.Created.Format("20060102-150405.000000000")+"-"+database)
+	finalName := result.Created.Format("20060102-150405.000000000") + "-" + database
+	final, err := safePath(root, finalName)
+	if err != nil {
+		return result, fmt.Errorf("invalid database safety backup path: %w", err)
+	}
 	if err := os.Rename(temp, final); err != nil {
 		return result, err
 	}

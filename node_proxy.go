@@ -68,9 +68,9 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "requested Node version is not installed", 422)
 		return
 	}
-	siteRoot, err := safePath(a.Config.WebRoot, "sites", input.Site)
+	siteRoot, err := existingManagedSiteRoot(a.Config.WebRoot, input.Site)
 	if err != nil {
-		http.Error(w, err.Error(), 422)
+		http.Error(w, "site document root does not exist", http.StatusUnprocessableEntity)
 		return
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
@@ -81,10 +81,6 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "Node version mutation cancelled because the mutation lock was lost", http.StatusConflict)
-		return
-	}
-	if info, err := os.Stat(siteRoot); err != nil || !info.IsDir() {
-		http.Error(w, "site document root does not exist", http.StatusUnprocessableEntity)
 		return
 	}
 	nvmrc, err := safePath(siteRoot, ".nvmrc")
