@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -186,5 +187,93 @@ func TestAdversarialMutationLockScenariosSerializeAcrossConnections(t *testing.T
 			}
 			reacquired()
 		})
+	}
+}
+
+func TestSiteMutationLockSerializesRealHelperBoundaryAcrossApps(t *testing.T) {
+	root := t.TempDir()
+	marker := filepath.Join(root, "helper-critical-section")
+	overlap := filepath.Join(root, "helper-overlap")
+	helper := filepath.Join(root, "site-helper.sh")
+	script := `#!/bin/sh
+set -eu
+mkdir -p "$STEPANEL_HELPER_MARKER"
+if ! mkdir "$STEPANEL_HELPER_MARKER.lock" 2>/dev/null; then
+  : > "$STEPANEL_HELPER_OVERLAP"
+  exit 97
+fi
+trap 'rmdir "$STEPANEL_HELPER_MARKER.lock"' EXIT
+: > "$STEPANEL_HELPER_MARKER.started"
+sleep 0.2
+`
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STEPANEL_HELPER_MARKER", marker)
+	t.Setenv("STEPANEL_HELPER_OVERLAP", overlap)
+
+	dsn := "file:" + filepath.Join(root, "control-plane.sqlite") + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	dbA, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbA.Close()
+	dbB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbB.Close()
+	locksA, err := operations.NewDBLocks(dbA, "helper-a", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locksB, err := operations.NewDBLocks(dbB, "helper-b", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{Config: Config{SiteCtl: helper}, dbLocks: locksA}
+	b := &App{Config: Config{SiteCtl: helper}, dbLocks: locksB}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		ctx, release, err := a.acquireSiteMutationLockContext(context.Background(), "site:helper-boundary")
+		if err != nil {
+			firstDone <- err
+			return
+		}
+		defer release()
+		firstDone <- siteHelperContext(ctx, a.Config, "seal", "helper-boundary")
+	}()
+
+	started := marker + ".started"
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("first helper did not reach its critical section")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		ctx, release, err := b.acquireSiteMutationLockContext(context.Background(), "site:helper-boundary")
+		if err != nil {
+			secondDone <- err
+			return
+		}
+		defer release()
+		secondDone <- siteHelperContext(ctx, b.Config, "seal", "helper-boundary")
+	}()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first helper mutation failed: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second helper mutation failed: %v", err)
+	}
+	if _, err := os.Stat(overlap); err == nil {
+		t.Fatal("helper critical sections overlapped despite independent durable locks")
 	}
 }
