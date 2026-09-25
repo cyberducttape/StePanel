@@ -97,14 +97,14 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site root does not exist", 422)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Minute)
-	defer cancel()
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "site is busy", http.StatusConflict)
 		return
 	}
 	defer releaseUnlock()
+	ctx, cancel := context.WithTimeout(operationCtx, 20*time.Minute)
+	defer cancel()
 	deploymentID, err := newJobID("deployment")
 	if err != nil {
 		http.Error(w, "could not create deployment identity", http.StatusInternalServerError)

@@ -485,7 +485,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "site is busy", http.StatusConflict)
 		return
@@ -517,7 +517,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer os.RemoveAll(release)
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
 	defer cancel()
 	var cloneOutput []byte
 	if repository.Private {
@@ -622,12 +622,16 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "site is busy", http.StatusConflict)
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	a.gitActivationMu.Lock()
 	defer a.gitActivationMu.Unlock()
 	previous, err := latestPreviousRelease(siteRoot)
