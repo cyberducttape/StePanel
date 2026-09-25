@@ -146,6 +146,16 @@ var controlPlaneMigrations = []*migration.Migration{
 			return err
 		},
 	),
+	migration.NewMigration(5, "add durable webhook delivery replay protection", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS webhook_deliveries (
+            site TEXT NOT NULL,
+            delivery_id TEXT NOT NULL,
+            received_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            PRIMARY KEY (site, delivery_id)
+        ); CREATE INDEX IF NOT EXISTS webhook_deliveries_expiry_idx ON webhook_deliveries(expires_at);`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

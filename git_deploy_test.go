@@ -8,7 +8,35 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestDurableWebhookReplayProtectionIsAtomicAndPersistent(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	first := NewDurableWebhookReplayCache(db, 5*time.Minute)
+	ts := time.Now().UTC()
+	accepted, err := first.Accept("site-a", "delivery-1", ts)
+	if err != nil || !accepted {
+		t.Fatalf("first delivery accepted = %v, error = %v", accepted, err)
+	}
+	if accepted, err := first.Accept("site-a", "delivery-1", ts); err != nil || accepted {
+		t.Fatalf("duplicate delivery accepted = %v, error = %v", accepted, err)
+	}
+	if accepted, err := first.Accept("site-b", "delivery-1", ts); err != nil || !accepted {
+		t.Fatalf("same ID for another site accepted = %v, error = %v", accepted, err)
+	}
+	second := NewDurableWebhookReplayCache(db, 5*time.Minute)
+	if accepted, err := second.Accept("site-a", "delivery-1", ts); err != nil || accepted {
+		t.Fatalf("delivery survived restart = %v, error = %v", accepted, err)
+	}
+	if accepted, err := second.Accept("site-a", "future", ts.Add(6*time.Minute)); err == nil || accepted {
+		t.Fatalf("future delivery accepted = %v, error = %v", accepted, err)
+	}
+}
 
 func TestGitAllowedHostsRejectsUnsafeValues(t *testing.T) {
 	for _, value := range []string{"", "localhost", "127.0.0.1", "github.com:443", "github.com/evil"} {

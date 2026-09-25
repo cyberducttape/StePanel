@@ -32,7 +32,8 @@ var gitCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 // WebhookReplayCache prevents replay attacks on webhook deliveries
 type WebhookReplayCache struct {
 	mu     sync.RWMutex
-	cache  map[string]time.Time // deliveryID -> timestamp
+	db     *sql.DB
+	cache  map[string]time.Time // legacy in-memory fallback for isolated tests
 	maxAge time.Duration
 }
 
@@ -42,60 +43,66 @@ func NewWebhookReplayCache(maxAge time.Duration) *WebhookReplayCache {
 		cache:  make(map[string]time.Time),
 		maxAge: maxAge,
 	}
-	// Periodically clean up old entries
-	go rc.cleanupLoop()
 	return rc
 }
 
-// Check verifies if deliveryID has been seen before and is within the time window
-func (rc *WebhookReplayCache) Check(deliveryID string, timestamp time.Time) bool {
-	rc.mu.RLock()
-	defer rc.mu.RUnlock()
-
-	if _, exists := rc.cache[deliveryID]; exists {
-		// Duplicate delivery (already seen)
-		return false
-	}
-
-	// Check if timestamp is too old (stale)
-	if time.Since(timestamp) > rc.maxAge {
-		return false
-	}
-
-	return true
+func NewDurableWebhookReplayCache(db *sql.DB, maxAge time.Duration) *WebhookReplayCache {
+	rc := NewWebhookReplayCache(maxAge)
+	rc.db = db
+	return rc
 }
 
-// Store records a new delivery ID with its timestamp
-func (rc *WebhookReplayCache) Store(deliveryID string, timestamp time.Time) {
+// Accept atomically admits a delivery ID for one site. The database primary
+// key is the replay gate, so concurrent requests and process restarts cannot
+// accept the same delivery twice.
+func (rc *WebhookReplayCache) Accept(site, deliveryID string, timestamp time.Time) (bool, error) {
+	if rc == nil || strings.TrimSpace(site) == "" || strings.TrimSpace(deliveryID) == "" {
+		return false, errors.New("webhook replay protection requires site and delivery ID")
+	}
+	now := time.Now().UTC()
+	if timestamp.Before(now.Add(-rc.maxAge)) {
+		return false, errors.New("webhook timestamp too old")
+	}
+	if timestamp.After(now.Add(rc.maxAge)) {
+		return false, errors.New("webhook timestamp is too far in the future")
+	}
+	if rc.db != nil {
+		_, err := rc.db.Exec(`DELETE FROM webhook_deliveries WHERE expires_at <= ?`, now.UnixNano())
+		if err != nil {
+			return false, fmt.Errorf("prune webhook deliveries: %w", err)
+		}
+		result, err := rc.db.Exec(`INSERT INTO webhook_deliveries(site, delivery_id, received_at, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(site, delivery_id) DO NOTHING`, site, deliveryID, now.UnixNano(), now.Add(rc.maxAge).UnixNano())
+		if err != nil {
+			return false, fmt.Errorf("record webhook delivery: %w", err)
+		}
+		count, err := result.RowsAffected()
+		return count == 1, err
+	}
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	rc.cache[deliveryID] = timestamp
-
-	// Prune if cache exceeds 10K entries
-	if len(rc.cache) > 10000 {
-		rc.pruneOldEntriesLocked()
+	key := site + "\x00" + deliveryID
+	if previous, exists := rc.cache[key]; exists && previous.After(now) {
+		return false, nil
 	}
-}
-
-// pruneOldEntriesLocked removes entries older than maxAge
-func (rc *WebhookReplayCache) pruneOldEntriesLocked() {
-	now := time.Now()
-	for id, ts := range rc.cache {
-		if now.Sub(ts) > rc.maxAge {
-			delete(rc.cache, id)
+	for existingKey, expiresAt := range rc.cache {
+		if !expiresAt.After(now) {
+			delete(rc.cache, existingKey)
 		}
 	}
-}
-
-// cleanupLoop periodically cleans up old entries
-func (rc *WebhookReplayCache) cleanupLoop() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		rc.mu.Lock()
-		rc.pruneOldEntriesLocked()
-		rc.mu.Unlock()
+	if len(rc.cache) >= 10000 {
+		var oldestKey string
+		var oldest time.Time
+		for existingKey, expiresAt := range rc.cache {
+			if oldestKey == "" || expiresAt.Before(oldest) {
+				oldestKey, oldest = existingKey, expiresAt
+			}
+		}
+		if oldestKey != "" {
+			delete(rc.cache, oldestKey)
+		}
 	}
+	rc.cache[key] = now.Add(rc.maxAge)
+	return true, nil
 }
 
 type gitDeployRequest struct {
@@ -210,8 +217,12 @@ func verifyWebhookTimestamp(timestamp string, maxAge time.Duration) (time.Time, 
 	if err != nil {
 		return time.Time{}, err
 	}
-	if time.Since(ts) > maxAge {
+	now := time.Now()
+	if ts.Before(now.Add(-maxAge)) {
 		return time.Time{}, errors.New("webhook timestamp too old")
+	}
+	if ts.After(now.Add(maxAge)) {
+		return time.Time{}, errors.New("webhook timestamp is too far in the future")
 	}
 	return ts, nil
 }
@@ -352,12 +363,15 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !a.webhookReplayCache.Check(deliveryID, ts) {
+	accepted, err := a.webhookReplayCache.Accept(site, deliveryID, ts)
+	if err != nil {
+		http.Error(w, "webhook replay protection unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !accepted {
 		http.Error(w, "duplicate or stale webhook delivery", 409)
 		return
 	}
-
-	a.webhookReplayCache.Store(deliveryID, ts)
 
 	// Carry the site the signature actually authorized into gitDeploy's context.
 	// gitDeploy treats that value — not input.Site from the body — as the

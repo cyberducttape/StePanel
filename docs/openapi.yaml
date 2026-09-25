@@ -12,6 +12,16 @@ servers:
 security:
   - sessionCookie: []
 paths:
+
+  /api/health/operational:
+    get:
+      summary: Operational health diagnostics
+      description: Administrator-only operational alerts; these do not determine service readiness.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Operational health report
   /api/database:
     get:
       summary: Database engine and administration UI status

@@ -58,6 +58,27 @@ func (a *App) readyz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, map[string]any{"ready": ready, "checks": checks, "time": time.Now().UTC()})
 }
 
+func (a *App) operationalHealth(w http.ResponseWriter, r *http.Request) {
+	checks := operationalChecks(a.Config, a.Jobs)
+	startupInProgress, startupError := a.startup.status()
+	switch {
+	case startupInProgress:
+		checks["startup_reconciliation"] = ReadinessCheck{Ready: false, Detail: "recovery and reconciliation in progress"}
+	case startupError != nil:
+		checks["startup_reconciliation"] = ReadinessCheck{Ready: false, Detail: startupError.Error()}
+	default:
+		checks["startup_reconciliation"] = ReadinessCheck{Ready: true}
+	}
+	operational := true
+	for _, check := range checks {
+		if !check.Ready {
+			operational = false
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "operational": operational, "checks": checks, "time": time.Now().UTC()})
+}
+
 func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 	checks := map[string]ReadinessCheck{}
 	if err := AuditPersistenceError(); err != nil {
@@ -75,19 +96,22 @@ func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 		} else {
 			checks["control_plane_integrity"] = ReadinessCheck{Ready: true}
 		}
-		stats, err := jobs.QueueStats()
-		if err != nil {
-			checks["job_state"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("durable queue unavailable: %v", err)}
-		} else {
-			checks["job_state"] = ReadinessCheck{Ready: true}
-			if stats.DeadLetter > 0 {
-				checks["dead_letter_jobs"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("%d durable jobs require operator review", stats.DeadLetter)}
-			} else {
-				checks["dead_letter_jobs"] = ReadinessCheck{Ready: true}
-			}
-		}
+		checks["job_state"] = ReadinessCheck{Ready: true}
 	} else {
 		checks["job_state"] = ReadinessCheck{Ready: true}
+	}
+	return checks
+}
+
+func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
+	checks := map[string]ReadinessCheck{}
+	if jobs == nil || jobs.db == nil {
+		checks["dead_letter_jobs"] = ReadinessCheck{Ready: false, Detail: "job store is not initialized"}
+	} else if stats, err := jobs.QueueStats(); err != nil {
+		checks["dead_letter_jobs"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("durable queue unavailable: %v", err)}
+	} else if stats.DeadLetter > 0 {
+		checks["dead_letter_jobs"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("%d durable jobs require operator review", stats.DeadLetter)}
+	} else {
 		checks["dead_letter_jobs"] = ReadinessCheck{Ready: true}
 	}
 	roots := map[string]string{

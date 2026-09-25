@@ -398,7 +398,7 @@ func main() {
 		log.Fatalf("open backup schedules: %v", err)
 	}
 	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, webhookReplayCache: NewWebhookReplayCache(5 * time.Minute)}
+	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute)}
 	app.startup.begin()
 	// Reconcile domains independently. A single shared deadline allowed a slow
 	// host/helper operation in an early domain to starve every later domain.
@@ -543,6 +543,7 @@ func main() {
 	mux.Handle("/logout", allowMethods(http.HandlerFunc(app.Auth.Logout), http.MethodPost))
 	mux.Handle("/", allowMethods(app.Auth.Require(http.HandlerFunc(app.dashboard)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/health", allowMethods(http.HandlerFunc(app.health), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/health/operational", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.operationalHealth)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/capabilities", allowMethods(http.HandlerFunc(app.handleCapabilities), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/services", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.services)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/database", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.database)), http.MethodGet, http.MethodHead))
