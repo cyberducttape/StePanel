@@ -38,7 +38,11 @@ func TestPythonDeployRejectsUnassignedCustomerSite(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("cross-tenant Python deploy = %d, want %d", w.Code, http.StatusForbidden)
 	}
-	if _, err := os.Stat(pythonManifestPath(appRoot, "victim")); !os.IsNotExist(err) {
+	victimManifest, err := pythonManifestPath(appRoot, "victim")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(victimManifest); !os.IsNotExist(err) {
 		t.Fatalf("rejected deploy should not have written desired state, stat err = %v", err)
 	}
 }
@@ -54,7 +58,11 @@ func TestReconcilePythonAppsRetainsPendingStateWhenHelperFails(t *testing.T) {
 	if err := os.MkdirAll(appRoot, 0750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(pythonManifestPath(appRoot, app.Site), append(data, '\n'), 0600); err != nil {
+	manifestPath, err := pythonManifestPath(appRoot, app.Site)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, append(data, '\n'), 0600); err != nil {
 		t.Fatal(err)
 	}
 	helper := filepath.Join(dir, "helper")
@@ -66,7 +74,7 @@ func TestReconcilePythonAppsRetainsPendingStateWhenHelperFails(t *testing.T) {
 	if failed[app.Site] == "" {
 		t.Fatalf("failed applications = %#v", failed)
 	}
-	updated, err := os.ReadFile(pythonManifestPath(appRoot, app.Site))
+	updated, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}

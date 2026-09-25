@@ -25,7 +25,9 @@ type PythonApp struct {
 	LastError  string `json:"last_error,omitempty"`
 }
 
-func pythonManifestPath(root, site string) string { return filepath.Join(root, site+"-python.json") }
+func pythonManifestPath(root, site string) (string, error) {
+	return safePath(root, site+"-python.json")
+}
 
 func savePythonApp(root string, app PythonApp) error {
 	if err := os.MkdirAll(root, 0750); err != nil {
@@ -35,7 +37,11 @@ func savePythonApp(root string, app PythonApp) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(pythonManifestPath(root, app.Site), append(data, '\n'), 0600)
+	manifestPath, err := pythonManifestPath(root, app.Site)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(manifestPath, append(data, '\n'), 0600)
 }
 
 func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
