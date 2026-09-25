@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -100,7 +99,12 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "managed database backup requires the local database helper", 422)
 			return
 		}
-		if info, err := os.Stat(filepath.Join(a.Config.WebRoot, "sites", in.Site, "public")); err != nil || !info.IsDir() {
+		siteRoot, pathErr := safePath(a.Config.WebRoot, "sites", in.Site, "public")
+		if pathErr != nil {
+			http.Error(w, "invalid site root", 422)
+			return
+		}
+		if info, err := os.Stat(siteRoot); err != nil || !info.IsDir() {
 			http.Error(w, "site document root does not exist", 422)
 			return
 		}

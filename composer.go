@@ -105,8 +105,8 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	root := filepath.Join(a.Config.WebRoot, "sites", site, "public")
-	if err := ensureInside(a.Config.WebRoot, root); err != nil {
+	root, err := safePath(a.Config.WebRoot, "sites", site, "public")
+	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}

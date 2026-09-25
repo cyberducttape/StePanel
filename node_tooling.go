@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -38,8 +37,8 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for Node operations", http.StatusForbidden)
 		return
 	}
-	root := filepath.Join(a.Config.WebRoot, "sites", input.Site, "public")
-	if err := ensureInside(a.Config.WebRoot, root); err != nil {
+	root, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}

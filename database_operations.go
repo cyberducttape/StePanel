@@ -169,7 +169,12 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid database, user, site, or password; passwords must be 20-128 supported characters", http.StatusUnprocessableEntity)
 			return
 		}
-		if info, err := os.Stat(filepath.Join(a.Config.WebRoot, "sites", in.Site, "public")); err != nil || !info.IsDir() {
+		siteRoot, pathErr := safePath(a.Config.WebRoot, "sites", in.Site, "public")
+		if pathErr != nil {
+			http.Error(w, "invalid owning site root", http.StatusUnprocessableEntity)
+			return
+		}
+		if info, err := os.Stat(siteRoot); err != nil || !info.IsDir() {
 			http.Error(w, "owning site document root does not exist", http.StatusUnprocessableEntity)
 			return
 		}

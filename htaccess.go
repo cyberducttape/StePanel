@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -199,8 +198,8 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, conversion)
 		return
 	}
-	publicRoot := filepath.Join(a.Config.WebRoot, "sites", input.Site, "public")
-	if err := ensureInside(a.Config.WebRoot, publicRoot); err != nil {
+	publicRoot, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	if err != nil {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
 	}

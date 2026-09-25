@@ -62,9 +62,10 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "API token lacks the deploy:write scope", 403)
 		return
 	}
-	app.Root = filepath.Join(a.Config.WebRoot, "sites", app.Site, "public")
-	if err := ensureInside(a.Config.WebRoot, app.Root); err != nil {
-		http.Error(w, err.Error(), 422)
+	var rootErr error
+	app.Root, rootErr = safePath(a.Config.WebRoot, "sites", app.Site, "public")
+	if rootErr != nil {
+		http.Error(w, "invalid site root", 422)
 		return
 	}
 	if info, err := os.Stat(app.Root); err != nil || !info.IsDir() {
