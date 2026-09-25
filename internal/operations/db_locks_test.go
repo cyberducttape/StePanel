@@ -115,6 +115,35 @@ func TestDBLocks_LiveLeaseIsNotTakenOver(t *testing.T) {
 	}
 }
 
+// TestDBLocks_ExpiredLeaseCannotRenew prevents an expired holder from
+// extending its old generation before another process takes it over. The
+// generation check alone is insufficient when the row has expired but has
+// not yet been replaced.
+func TestDBLocks_ExpiredLeaseCannotRenew(t *testing.T) {
+	a, b, cleanup := openTwoHandles(t)
+	defer cleanup()
+
+	owner1, err := NewDBLocks(a, "owner-a", 40*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner2, err := NewDBLocks(b, "owner-b", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := owner1.TryAcquire("site-expired-renew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(90 * time.Millisecond)
+	if _, err := owner1.Renew(lease); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("expired holder renew returned %v, want ErrLeaseLost", err)
+	}
+	if _, err := owner2.TryAcquire("site-expired-renew"); err != nil {
+		t.Fatalf("takeover after rejected renewal failed: %v", err)
+	}
+}
+
 // TestDBLocks_ReleaseRequiresGeneration is the fencing regression: a stale
 // Lease must not remove the current holder's row, even if the resource key
 // and owner_id happen to match. This is the same-process reacquire race

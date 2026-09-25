@@ -287,12 +287,13 @@ func (dl *DBLocks) Renew(lease Lease) (Lease, error) {
 	if lease.ResourceKey == "" {
 		return Lease{}, errors.New("lease has no resource_key")
 	}
+	now := time.Now().UnixNano()
 	newExpiry := time.Now().Add(dl.leaseTime).UnixNano()
 	result, err := dl.db.Exec(`
 		UPDATE resource_locks
 		SET lease_until = ?
-		WHERE resource_key = ? AND owner_id = ? AND generation = ?
-	`, newExpiry, lease.ResourceKey, lease.OwnerID, lease.Generation)
+		WHERE resource_key = ? AND owner_id = ? AND generation = ? AND lease_until > ?
+	`, newExpiry, lease.ResourceKey, lease.OwnerID, lease.Generation, now)
 	if err != nil {
 		return Lease{}, fmt.Errorf("renew lock: %w", err)
 	}
