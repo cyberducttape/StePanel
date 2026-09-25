@@ -1065,7 +1065,7 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, err
 	}
 	a.Metrics.RestoreStarted()
-	result, restoreErr := RestoreWPress(a.Config, request.TempPath, access, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force)
+	result, restoreErr := RestoreWPressContext(operationCtx, a.Config, request.TempPath, access, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force)
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
 		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "wordpress.restore.failed", request.Site, restoreErr.Error()); auditErr != nil {

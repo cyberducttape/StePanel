@@ -1,10 +1,21 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestRestoreWPressContextHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := RestoreWPressContext(ctx, Config{}, "", AuthorizedSite{site: "account"}, "db", "user", "password", "https://example.test", "wp_", false)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RestoreWPressContext error = %v, want context.Canceled", err)
+	}
+}
 
 func TestSQLIdent(t *testing.T) {
 	cases := map[string]string{

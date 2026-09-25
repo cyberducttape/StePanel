@@ -215,6 +215,13 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix string, force bool) (WPressResult, error) {
+	return RestoreWPressContext(context.Background(), cfg, archive, access, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix, force)
+}
+
+func RestoreWPressContext(parent context.Context, cfg Config, archive string, access SiteCapability, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix string, force bool) (WPressResult, error) {
+	if err := parent.Err(); err != nil {
+		return WPressResult{}, err
+	}
 	site := access.Site()
 	if err := validateWPressInput(site, dbSuffix, dbUserSuffix, dbPassword, targetPrefix, siteURL); err != nil {
 		return WPressResult{}, err
@@ -240,7 +247,7 @@ func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, 
 	if err := os.MkdirAll(filepath.Join(stage, "tmp"), 0700); err != nil {
 		return WPressResult{}, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 20*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cfg.WPressExtract, "--out", extracted, archive)
 	cmd.Dir = stage
@@ -284,11 +291,11 @@ func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, 
 			}
 			_ = txn.Rollback()
 			if txn.HadExisting {
-				_ = siteHelper(cfg, "seal", site)
+				_ = siteHelperContext(context.Background(), cfg, "seal", site)
 			}
 		}
 	}()
-	if err := siteHelper(cfg, "prepare", site); err != nil {
+	if err := siteHelperContext(ctx, cfg, "prepare", site); err != nil {
 		return WPressResult{}, fmt.Errorf("prepare isolated site: %w", err)
 	}
 	if err := os.MkdirAll(home, 0750); err != nil {
@@ -298,7 +305,7 @@ func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, 
 	if err != nil {
 		return WPressResult{}, fmt.Errorf("read package metadata: %w", err)
 	}
-	if err := copyWPressTree(source, home); err != nil {
+	if err := copyWPressTreeContext(ctx, source, home); err != nil {
 		return WPressResult{}, fmt.Errorf("restore WordPress files: %w", err)
 	}
 	if metadata.HTAccessPresent {
@@ -312,11 +319,11 @@ func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, 
 		return WPressResult{}, fmt.Errorf("restore blocked: malware scan detected %d suspicious PHP file(s)", len(findings))
 	}
 	if cfg.DBCtl == "" {
-		databaseExists, checkErr := mysqlObjectExists(cfg, "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME="+sqlString(dbName))
+		databaseExists, checkErr := mysqlObjectExistsContext(ctx, cfg, "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME="+sqlString(dbName))
 		if checkErr != nil {
 			return WPressResult{}, fmt.Errorf("check WordPress database: %w", checkErr)
 		}
-		userExists, checkErr := mysqlObjectExists(cfg, "SELECT COUNT(*) FROM mysql.user WHERE User="+sqlString(dbUser)+" AND Host='localhost'")
+		userExists, checkErr := mysqlObjectExistsContext(ctx, cfg, "SELECT COUNT(*) FROM mysql.user WHERE User="+sqlString(dbUser)+" AND Host='localhost'")
 		if checkErr != nil {
 			return WPressResult{}, fmt.Errorf("check WordPress database user: %w", checkErr)
 		}
@@ -328,16 +335,16 @@ func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, 
 		return WPressResult{}, fmt.Errorf("record database recovery state: %w", err)
 	}
 	if cfg.DBCtl != "" {
-		if err := restoreWPressDatabaseWithHelper(cfg, site, dbName, dbUser, dbPassword, filepath.Join(source, "database.sql")); err != nil {
+		if err := restoreWPressDatabaseWithHelperContext(ctx, cfg, site, dbName, dbUser, dbPassword, filepath.Join(source, "database.sql")); err != nil {
 			return WPressResult{}, err
 		}
 	} else {
-		if err := createWPressDatabase(cfg, dbName, dbUser, dbPassword); err != nil {
+		if err := createWPressDatabaseContext(ctx, cfg, dbName, dbUser, dbPassword); err != nil {
 			return WPressResult{}, err
 		}
 	}
 	if cfg.DBCtl == "" {
-		if err := importWPressDatabase(cfg, dbName, filepath.Join(source, "database.sql")); err != nil {
+		if err := importWPressDatabaseContext(ctx, cfg, dbName, filepath.Join(source, "database.sql")); err != nil {
 			return WPressResult{}, err
 		}
 	}
@@ -346,44 +353,44 @@ func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, 
 		siteDBConfig.DBUser = dbUser
 		siteDBConfig.DBPassword = dbPassword
 	}
-	sourcePrefix, err := detectWPressPrefix(siteDBConfig, dbName)
+	sourcePrefix, err := detectWPressPrefixContext(ctx, siteDBConfig, dbName)
 	if err != nil {
 		return WPressResult{}, err
 	}
 	if sourcePrefix != targetPrefix {
-		if err := renameWPressTables(siteDBConfig, dbName, sourcePrefix, targetPrefix); err != nil {
+		if err := renameWPressTablesContext(ctx, siteDBConfig, dbName, sourcePrefix, targetPrefix); err != nil {
 			return WPressResult{}, fmt.Errorf("normalize table prefix: %w", err)
 		}
 	}
-	if err := configureWordPress(cfg, home, dbName, dbUser, dbPassword, targetPrefix); err != nil {
+	if err := configureWordPressContext(ctx, cfg, home, dbName, dbUser, dbPassword, targetPrefix); err != nil {
 		return WPressResult{}, err
 	}
-	if err := applyWPressPackageMetadata(cfg, home, metadata); err != nil {
+	if err := applyWPressPackageMetadataContext(ctx, cfg, home, metadata); err != nil {
 		return WPressResult{}, err
 	}
 	urlReplaced := false
 	if siteURL != "" {
-		oldURL, getErr := runWPOutput(cfg, home, "option", "get", "siteurl")
+		oldURL, getErr := runWPOutputContext(ctx, cfg, home, "option", "get", "siteurl")
 		if getErr == nil && strings.TrimSpace(oldURL) != "" && strings.TrimSpace(oldURL) != siteURL {
-			if err := runWP(cfg, home, "search-replace", strings.TrimSpace(oldURL), siteURL, "--all-tables-with-prefix", "--precise", "--recurse-objects", "--skip-columns=guid", "--quiet"); err != nil {
+			if err := runWPContext(ctx, cfg, home, "search-replace", strings.TrimSpace(oldURL), siteURL, "--all-tables-with-prefix", "--precise", "--recurse-objects", "--skip-columns=guid", "--quiet"); err != nil {
 				return WPressResult{}, fmt.Errorf("replace site URL: %w", err)
 			}
-			if err := runWP(cfg, home, "option", "update", "home", siteURL); err != nil {
+			if err := runWPContext(ctx, cfg, home, "option", "update", "home", siteURL); err != nil {
 				return WPressResult{}, fmt.Errorf("update home URL: %w", err)
 			}
-			if err := runWP(cfg, home, "option", "update", "siteurl", siteURL); err != nil {
+			if err := runWPContext(ctx, cfg, home, "option", "update", "siteurl", siteURL); err != nil {
 				return WPressResult{}, fmt.Errorf("update site URL: %w", err)
 			}
 			urlReplaced = true
 		}
 	}
-	if err := runWP(cfg, home, "rewrite", "flush"); err != nil {
+	if err := runWPContext(ctx, cfg, home, "rewrite", "flush"); err != nil {
 		return WPressResult{}, fmt.Errorf("flush rewrite rules: %w", err)
 	}
-	if err := runWP(cfg, home, "cache", "flush"); err != nil {
+	if err := runWPContext(ctx, cfg, home, "cache", "flush"); err != nil {
 		return WPressResult{}, fmt.Errorf("flush WordPress cache: %w", err)
 	}
-	if err := siteHelper(cfg, "seal", site); err != nil {
+	if err := siteHelperContext(ctx, cfg, "seal", site); err != nil {
 		return WPressResult{}, fmt.Errorf("seal isolated site: %w", err)
 	}
 	if err := txn.Commit(); err != nil {
@@ -460,22 +467,26 @@ func readWPressPackageMetadata(path string) (wpressPackageMetadata, error) {
 }
 
 func applyWPressPackageMetadata(cfg Config, home string, metadata wpressPackageMetadata) error {
+	return applyWPressPackageMetadataContext(context.Background(), cfg, home, metadata)
+}
+
+func applyWPressPackageMetadataContext(ctx context.Context, cfg Config, home string, metadata wpressPackageMetadata) error {
 	if metadata.PluginsPresent {
 		data, err := json.Marshal(metadata.Plugins)
 		if err != nil {
 			return fmt.Errorf("encode active plugins: %w", err)
 		}
-		if err := runWP(cfg, home, "option", "update", "active_plugins", string(data), "--format=json"); err != nil {
+		if err := runWPContext(ctx, cfg, home, "option", "update", "active_plugins", string(data), "--format=json"); err != nil {
 			return fmt.Errorf("restore active plugins: %w", err)
 		}
 	}
 	if metadata.TemplatePresent && metadata.Template != "" {
-		if err := runWP(cfg, home, "option", "update", "template", metadata.Template); err != nil {
+		if err := runWPContext(ctx, cfg, home, "option", "update", "template", metadata.Template); err != nil {
 			return fmt.Errorf("restore active theme: %w", err)
 		}
 	}
 	if metadata.StylesheetPresent && metadata.Stylesheet != "" {
-		if err := runWP(cfg, home, "option", "update", "stylesheet", metadata.Stylesheet); err != nil {
+		if err := runWPContext(ctx, cfg, home, "option", "update", "stylesheet", metadata.Stylesheet); err != nil {
 			return fmt.Errorf("restore active stylesheet: %w", err)
 		}
 	}
@@ -527,7 +538,14 @@ func findWordPressRoot(root string) string {
 }
 
 func copyWPressTree(src, dst string) error {
+	return copyWPressTreeContext(context.Background(), src, dst)
+}
+
+func copyWPressTreeContext(ctx context.Context, src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
@@ -579,7 +597,11 @@ func copyFile(src, dst string, mode os.FileMode) error {
 func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
 
 func runCommand(timeout time.Duration, name string, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	return runCommandContext(context.Background(), timeout, name, args...)
+}
+
+func runCommandContext(parent context.Context, timeout time.Duration, name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, name, args...))
 	if err != nil {
@@ -589,7 +611,11 @@ func runCommand(timeout time.Duration, name string, args ...string) error {
 }
 
 func runCommandInput(timeout time.Duration, name, input string, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	return runCommandInputContext(context.Background(), timeout, name, input, args...)
+}
+
+func runCommandInputContext(parent context.Context, timeout time.Duration, name, input string, args ...string) error {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	output, err := runBoundedCommandInput(ctx, exec.CommandContext(ctx, name, args...), strings.NewReader(input))
 	if err != nil {
@@ -599,46 +625,66 @@ func runCommandInput(timeout time.Duration, name, input string, args ...string) 
 }
 
 func runWP(cfg Config, home string, args ...string) error {
+	return runWPContext(context.Background(), cfg, home, args...)
+}
+
+func runWPContext(ctx context.Context, cfg Config, home string, args ...string) error {
 	base := []string{"--path=" + home, "--skip-plugins", "--skip-themes"}
 	base = append(base, args...)
-	return runCommand(10*time.Minute, cfg.WPCLI, base...)
+	return runCommandContext(ctx, 10*time.Minute, cfg.WPCLI, base...)
 }
 
 func runWPInput(cfg Config, home, input string, args ...string) error {
+	return runWPInputContext(context.Background(), cfg, home, input, args...)
+}
+
+func runWPInputContext(ctx context.Context, cfg Config, home, input string, args ...string) error {
 	base := []string{"--path=" + home, "--skip-plugins", "--skip-themes"}
 	base = append(base, args...)
-	return runCommandInput(10*time.Minute, cfg.WPCLI, input, base...)
+	return runCommandInputContext(ctx, 10*time.Minute, cfg.WPCLI, input, base...)
 }
 
 func runWPOutput(cfg Config, home string, args ...string) (string, error) {
+	return runWPOutputContext(context.Background(), cfg, home, args...)
+}
+
+func runWPOutputContext(parent context.Context, cfg Config, home string, args ...string) (string, error) {
 	base := []string{"--path=" + home, "--skip-plugins", "--skip-themes"}
 	base = append(base, args...)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 	output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, cfg.WPCLI, base...))
 	return string(output), err
 }
 
 func configureWordPress(cfg Config, home, dbName, dbUser, dbPassword, prefix string) error {
+	return configureWordPressContext(context.Background(), cfg, home, dbName, dbUser, dbPassword, prefix)
+}
+
+func configureWordPressContext(ctx context.Context, cfg Config, home, dbName, dbUser, dbPassword, prefix string) error {
 	if !fileExists(filepath.Join(home, "wp-config.php")) {
-		if err := runWPInput(cfg, home, dbPassword+"\n", "config", "create", "--dbname="+dbName, "--dbuser="+dbUser, "--dbhost="+cfg.DBHost, "--dbprefix="+prefix, "--prompt=dbpass", "--skip-check", "--skip-salts"); err != nil {
+		if err := runWPInputContext(ctx, cfg, home, dbPassword+"\n", "config", "create", "--dbname="+dbName, "--dbuser="+dbUser, "--dbhost="+cfg.DBHost, "--dbprefix="+prefix, "--prompt=dbpass", "--skip-check", "--skip-salts"); err != nil {
 			return fmt.Errorf("create wp-config.php: %w", err)
 		}
 	}
 	for _, setting := range [][2]string{{"DB_NAME", dbName}, {"DB_USER", dbUser}, {"DB_HOST", cfg.DBHost}} {
-		if err := runWP(cfg, home, "config", "set", setting[0], setting[1], "--type=constant"); err != nil {
+		if err := runWPContext(ctx, cfg, home, "config", "set", setting[0], setting[1], "--type=constant"); err != nil {
 			return fmt.Errorf("configure %s: %w", setting[0], err)
 		}
 	}
-	if err := runWPInput(cfg, home, dbPassword+"\n", "config", "set", "DB_PASSWORD", "--type=constant", "--prompt=value"); err != nil {
+	if err := runWPInputContext(ctx, cfg, home, dbPassword+"\n", "config", "set", "DB_PASSWORD", "--type=constant", "--prompt=value"); err != nil {
 		return fmt.Errorf("configure DB_PASSWORD: %w", err)
 	}
 	return nil
 }
 
 func detectWPressPrefix(cfg Config, dbName string) (string, error) {
+	return detectWPressPrefixContext(context.Background(), cfg, dbName)
+}
+
+func detectWPressPrefixContext(ctx context.Context, cfg Config, dbName string) (string, error) {
 	query := "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=" + sqlString(dbName) + " ORDER BY TABLE_NAME"
-	output, err := runMySQL(cfg, query)
+	output, err := runMySQLContext(ctx, cfg, query)
 	if err != nil {
 		return "", err
 	}
@@ -657,11 +703,15 @@ func detectWPressPrefix(cfg Config, dbName string) (string, error) {
 }
 
 func renameWPressTables(cfg Config, dbName, sourcePrefix, targetPrefix string) error {
+	return renameWPressTablesContext(context.Background(), cfg, dbName, sourcePrefix, targetPrefix)
+}
+
+func renameWPressTablesContext(ctx context.Context, cfg Config, dbName, sourcePrefix, targetPrefix string) error {
 	if !wpressPrefixPattern.MatchString(sourcePrefix) || !wpressPrefixPattern.MatchString(targetPrefix) {
 		return errors.New("invalid WordPress table prefix")
 	}
 	query := "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=" + sqlString(dbName) + " AND TABLE_NAME LIKE " + sqlString(sourcePrefix+"%") + " ORDER BY TABLE_NAME"
-	output, err := runMySQL(cfg, query)
+	output, err := runMySQLContext(ctx, cfg, query)
 	if err != nil {
 		return err
 	}
@@ -679,35 +729,43 @@ func renameWPressTables(cfg Config, dbName, sourcePrefix, targetPrefix string) e
 	if len(statements) == 0 {
 		return errors.New("no WordPress tables found for the detected prefix")
 	}
-	_, err = runMySQL(cfg, strings.Join(statements, "; ")+";")
+	_, err = runMySQLContext(ctx, cfg, strings.Join(statements, "; ")+";")
 	return err
 }
 
 func createWPressDatabase(cfg Config, dbName, dbUser, password string) error {
-	databaseExists, err := mysqlObjectExists(cfg, "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME="+sqlString(dbName))
+	return createWPressDatabaseContext(context.Background(), cfg, dbName, dbUser, password)
+}
+
+func createWPressDatabaseContext(ctx context.Context, cfg Config, dbName, dbUser, password string) error {
+	databaseExists, err := mysqlObjectExistsContext(ctx, cfg, "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME="+sqlString(dbName))
 	if err != nil {
 		return fmt.Errorf("check WordPress database: %w", err)
 	}
-	userExists, err := mysqlObjectExists(cfg, "SELECT COUNT(*) FROM mysql.user WHERE User="+sqlString(dbUser)+" AND Host='localhost'")
+	userExists, err := mysqlObjectExistsContext(ctx, cfg, "SELECT COUNT(*) FROM mysql.user WHERE User="+sqlString(dbUser)+" AND Host='localhost'")
 	if err != nil {
 		return fmt.Errorf("check WordPress database user: %w", err)
 	}
 	if databaseExists || userExists {
 		return errors.New("database or database user already exists; choose unused names to avoid destructive overwrite")
 	}
-	if _, err := runMySQL(cfg, "CREATE DATABASE "+sqlIdent(dbName)); err != nil {
+	if _, err := runMySQLContext(ctx, cfg, "CREATE DATABASE "+sqlIdent(dbName)); err != nil {
 		return fmt.Errorf("create WordPress database: %w", err)
 	}
 	query := "CREATE USER " + sqlString(dbUser) + "@'localhost' IDENTIFIED BY " + sqlString(password) + "; GRANT ALL PRIVILEGES ON " + sqlIdent(dbName) + ".* TO " + sqlString(dbUser) + "@'localhost'; FLUSH PRIVILEGES;"
-	if _, err := runMySQL(cfg, query); err != nil {
-		_ = cleanupWPressDatabase(cfg, dbName, dbUser)
+	if _, err := runMySQLContext(ctx, cfg, query); err != nil {
+		_ = cleanupWPressDatabaseContext(context.Background(), cfg, dbName, dbUser)
 		return fmt.Errorf("provision WordPress database user: %w", err)
 	}
 	return nil
 }
 
 func mysqlObjectExists(cfg Config, query string) (bool, error) {
-	output, err := runMySQL(cfg, query)
+	return mysqlObjectExistsContext(context.Background(), cfg, query)
+}
+
+func mysqlObjectExistsContext(ctx context.Context, cfg Config, query string) (bool, error) {
+	output, err := runMySQLContext(ctx, cfg, query)
 	if err != nil {
 		return false, err
 	}
@@ -715,8 +773,12 @@ func mysqlObjectExists(cfg Config, query string) (bool, error) {
 }
 
 func cleanupWPressDatabase(cfg Config, dbName, dbUser string) error {
+	return cleanupWPressDatabaseContext(context.Background(), cfg, dbName, dbUser)
+}
+
+func cleanupWPressDatabaseContext(parent context.Context, cfg Config, dbName, dbUser string) error {
 	if cfg.DBCtl != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 		defer cancel()
 		output, err := runBoundedCommand(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, "cleanup-wordpress", dbName, dbUser))
 		if err != nil {
@@ -725,17 +787,21 @@ func cleanupWPressDatabase(cfg Config, dbName, dbUser string) error {
 		return nil
 	}
 	query := "DROP DATABASE IF EXISTS " + sqlIdent(dbName) + "; DROP USER IF EXISTS " + sqlString(dbUser) + "@'localhost'; FLUSH PRIVILEGES;"
-	_, err := runMySQL(cfg, query)
+	_, err := runMySQLContext(parent, cfg, query)
 	return err
 }
 
 func restoreWPressDatabaseWithHelper(cfg Config, site, dbName, dbUser, password, dump string) error {
+	return restoreWPressDatabaseWithHelperContext(context.Background(), cfg, site, dbName, dbUser, password, dump)
+}
+
+func restoreWPressDatabaseWithHelperContext(parent context.Context, cfg Config, site, dbName, dbUser, password, dump string) error {
 	input, err := os.Open(dump)
 	if err != nil {
 		return err
 	}
 	defer input.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 20*time.Minute)
 	defer cancel()
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-wordpress", dbName, dbUser, site)
 	cmd.Stdin = io.MultiReader(strings.NewReader(password+"\n"), input)
@@ -746,13 +812,17 @@ func restoreWPressDatabaseWithHelper(cfg Config, site, dbName, dbUser, password,
 }
 
 func importWPressDatabase(cfg Config, dbName, dump string) error {
+	return importWPressDatabaseContext(context.Background(), cfg, dbName, dump)
+}
+
+func importWPressDatabaseContext(parent context.Context, cfg Config, dbName, dump string) error {
 	input, err := os.Open(dump)
 	if err != nil {
 		return err
 	}
 	defer input.Close()
 	args := append(mysqlArgs(cfg), dbName)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 20*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, mysqlClient(), args...)
 	if cfg.DBPassword != "" {
@@ -766,7 +836,11 @@ func importWPressDatabase(cfg Config, dbName, dump string) error {
 }
 
 func runMySQL(cfg Config, query string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	return runMySQLContext(context.Background(), cfg, query)
+}
+
+func runMySQLContext(parent context.Context, cfg Config, query string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
 	args := append(mysqlArgs(cfg), "--batch", "--skip-column-names")
 	cmd := exec.CommandContext(ctx, mysqlClient(), args...)
