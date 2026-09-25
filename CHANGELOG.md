@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Reliability and Compatibility
+
+- **OCI image reference parsing**: Build-image validation now uses the
+  `distribution/reference` parser, supports multi-level namespaces, requires
+  a SHA-256 digest at deployment boundaries, and applies registry and optional
+  namespace/repository allowlists separately. Image-size enforcement remains
+  unimplemented and is not claimed as a release control.
+
 ### Security Fixes (CRITICAL - Archive Import Hardening)
 
 - **SSRF protection with DNS resolution (CRITICAL)**: Fixed incomplete SSRF validation

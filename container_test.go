@@ -1,8 +1,13 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
+
+func pinnedImage(image string) string {
+	return image + "@sha256:" + strings.Repeat("a", 64)
+}
 
 func TestParseContainerImage(t *testing.T) {
 	tests := []struct {
@@ -35,6 +40,12 @@ func TestParseContainerImage(t *testing.T) {
 			false,
 			&ContainerImageRef{"ghcr.io", "myorg", "myapp", "v1.0.0", ""},
 			"ghcr.io with version",
+		},
+		{
+			"ghcr.io/company/platform/builders/php@sha256:" + strings.Repeat("b", 64),
+			false,
+			&ContainerImageRef{"ghcr.io", "company/platform/builders", "php", "latest", "sha256:" + strings.Repeat("b", 64)},
+			"multi-level OCI namespace with digest",
 		},
 		{
 			"quay.io/coreos/etcd:v3.5.0",
@@ -221,9 +232,9 @@ func TestValidateContainerImageForSite(t *testing.T) {
 		shouldFail bool
 		desc       string
 	}{
-		{"alpine", false, "public image allowed"},
-		{"ghcr.io/kubernetes/kube-apiserver:v1.27.0", false, "kubernetes image allowed"},
-		{"quay.io/prometheus/prometheus:latest", false, "prometheus allowed"},
+		{pinnedImage("alpine"), false, "public image allowed"},
+		{pinnedImage("ghcr.io/kubernetes/kube-apiserver:v1.27.0"), false, "kubernetes image allowed"},
+		{pinnedImage("quay.io/prometheus/prometheus:latest"), false, "prometheus allowed"},
 		{"evil.com/malware:latest", true, "malicious registry blocked"},
 		{"registry.internal/app:v1.0", true, "private registry blocked"},
 	}

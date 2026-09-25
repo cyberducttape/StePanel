@@ -312,10 +312,10 @@ func TestContainerImageAllowlist(t *testing.T) {
 
 func TestContainerImageAllowed(t *testing.T) {
 	allowedImages := []string{
-		"alpine:3.17",
-		"docker.io/library/ubuntu:20.04",
-		"ghcr.io/kubernetes/kube-apiserver:v1.27.0",
-		"quay.io/prometheus/prometheus:latest",
+		pinnedImage("alpine:3.17"),
+		pinnedImage("docker.io/library/ubuntu:20.04"),
+		pinnedImage("ghcr.io/kubernetes/kube-apiserver:v1.27.0"),
+		pinnedImage("quay.io/prometheus/prometheus:latest"),
 	}
 
 	for _, image := range allowedImages {

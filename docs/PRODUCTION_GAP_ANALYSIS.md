@@ -1,5 +1,9 @@
 # Production gap analysis
 
+> Historical gap analysis. The current release-gate authority is
+> [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md); verify every status
+> claim there before approving a release.
+
 This document records what is required to operate StePanel safely and what is
 required to turn it into a shared-hosting customer panel. It prevents a secure
 single-host operator tool from being mistaken for a complete multi-tenant
@@ -22,8 +26,9 @@ platform.
   trust a proxy.
 - Prometheus metrics and alert rules are included for availability, restore
   failures, and stuck jobs.
-- Readiness fails when durable jobs are dead-lettered, preventing an instance
-  with an unreconciled failed mutation from advertising service health.
+- Operational health reports durable dead-letter jobs without removing the
+  administrative control plane from readiness, so operators can inspect and
+  requeue failed work.
 - Readiness also runs a SQLite control-plane quick check, so structural
   corruption cannot be advertised as a healthy queue.
 - Administrators can review and explicitly requeue a dead-letter job through a

@@ -1,9 +1,9 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-09-20  
-**Status:** Single-Host Production Candidate (v0.7.0)
+**Last Updated:** 2026-09-24
+**Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
-This is the authoritative document for StePanel's production readiness status. Other documents (SECURITY.md, PRODUCTION_SCORECARD.md, PRODUCTION_GAP_ANALYSIS.md) reference this.
+This is a deployment-status summary, not a release approval. The sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
 ## Deployment Classification
 
@@ -13,16 +13,16 @@ This is the authoritative document for StePanel's production readiness status. O
 - **Multi-Tenant Production**: Ready for multi-tenant SaaS deployments
 - **GA (General Availability)**: Recommended for all deployment scenarios
 
-## Current Status: Single-Host Production Candidate
+## Current Status: Operator Beta
 
-StePanel v0.7.0 is ready for **single-host production deployments** with the following caveats:
+StePanel v0.7.0 is suitable for controlled evaluation and operator-led staging. It is not approved as a general single-host production release until the open gates in `V1_PRODUCTION_GATES.md` have recorded evidence.
 
 ### ✅ Strengths
 
 - **Security**: Comprehensive TOTP, token rate-limiting, SSRF protection, archive validation
 - **Isolation**: Process-tree isolation, filesystem bounds, symlink rejection, container security
-- **Reliability**: Durable job system, distributed locks, recovery drills, backup verification
-- **Operational**: Audit logging, real-time metrics, site lifecycle management
+- **Reliability**: Durable job system, recovery journals, backup verification
+- **Operational**: Audit logging, real-time metrics, and operator-visible lifecycle workflows
 
 ### ⚠️ Single-Host Limitations
 
@@ -158,5 +158,6 @@ The following must be resolved before multi-tenant deployment:
 ## Related Documents
 
 - [SECURITY.md](./SECURITY.md) - Security features and threat model
-- [PRODUCTION_SCORECARD.md](./PRODUCTION_SCORECARD.md) - v0.7.0 release checklist
-- [PRODUCTION_GAP_ANALYSIS.md](./PRODUCTION_GAP_ANALYSIS.md) - Known limitations and blockers
+- [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) - current release gates and evidence
+- [PRODUCTION_SCORECARD.md](./PRODUCTION_SCORECARD.md) - historical scorecard; not a release gate
+- [PRODUCTION_GAP_ANALYSIS.md](./PRODUCTION_GAP_ANALYSIS.md) - historical gap analysis; verify against the gates

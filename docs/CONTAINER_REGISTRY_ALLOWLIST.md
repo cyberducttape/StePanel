@@ -1,5 +1,11 @@
 # Container Registry Allowlist: Supply Chain Security
 
+> Implementation note (2026-09-24): this document describes the policy and
+> rollout history. The current release gate is
+> [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). The implementation uses
+> `github.com/distribution/reference`, requires SHA-256 digests at deployment
+> boundaries, and does not implement image-size enforcement.
+
 ## Problem
 
 Current implementation (v0.7.0):
@@ -39,14 +45,14 @@ type ContainerImage struct {
     Namespace  string    // library, myorg, coreos
     Repository string    // alpine, postgres, etcd
     Tag        string    // latest, v1.2.3, main-sha123
-    Hash       string    // Optional: sha256:deadbeef...
+    Hash       string    // sha256:deadbeef...
 }
 
 func ValidateContainerImage(image string) (*ContainerImage, error) {
-    // 1. Parse image name
+    // 1. Parse image name with distribution/reference
     // 2. Verify registry is in allowlist
-    // 3. Validate image size limit (optional)
-    // 4. Verify hash if provided (optional)
+    // 3. Require a SHA-256 digest at deployment boundaries
+    // 4. Apply the configured namespace/repository allowlist
     // 5. Return validated image or error
 }
 ```
@@ -301,14 +307,14 @@ container:
 | Typosquatting registry | Whitelisted registries only |
 | Localhost attack | localhost:5000 not in allowlist |
 | Registry enumeration | Admin controls allowlist explicitly |
-| Large image DoS | Size limits prevent disk fill |
+| Large image DoS | Not currently enforced; monitor separately |
 
 ## Phased Implementation
 
 ### v0.7.0 (Blocker Fix)
 - [x] ParseContainerImage() validation
 - [x] Registry allowlist enforcement
-- [x] Image size limits
+- [ ] Image size limits (not implemented)
 - [ ] Site-specific overrides (deferred)
 - [ ] Integration with Dockerfile parsing
 
@@ -319,7 +325,7 @@ container:
 - [ ] Audit logging for blocked images
 
 ### v0.9.0+
-- [ ] Image hash verification (require SHA256)
+- [x] Image hash verification (require SHA256 at deployment boundaries)
 - [ ] Signature verification (cosign/Notary)
 - [ ] Vulnerability scanning integration
 - [ ] Supply chain attestation (SLSA provenance)

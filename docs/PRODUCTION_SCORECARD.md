@@ -1,5 +1,9 @@
 # Production Readiness Scorecard
 
+> Historical assessment. This document is retained for context and trend
+> tracking only. It is not a current release gate; use
+> [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for release approval.
+
 ## Overview
 
 StePanel has progressed from "proof of concept" to "serious infrastructure software." However, operational readiness for multi-customer production requires completing specific hardening items.

@@ -1,8 +1,13 @@
 # StePanel v1.0.0 Production Readiness Gates
 
-**Status:** Specification for production release criteria  
+**Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
+**Last reviewed:** 2026-09-24
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
+
+All release approval decisions must use this document. `PRODUCTION_READINESS.md`
+is a deployment-status summary; `PRODUCTION_SCORECARD.md` and prior audits are
+historical and must not be treated as current approval.
 
 ## Executive Summary
 
@@ -57,7 +62,7 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 - Test suite must include adversarial concurrent scenarios
 
 **Current Status:**
-- ✅ DBLocks implementation redesigned and verified (Nov 2026 — see below)
+- ✅ DBLocks implementation redesigned and verified (see below)
 - ✅ Boot-time reconciliation guarded so only the panel runs it (previous
       behavior let panel and worker concurrently rename recovery journals
       and reconcile host state during startup)
