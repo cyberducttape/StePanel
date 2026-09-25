@@ -225,6 +225,10 @@ func (a *App) runPipelineBuild(ctx context.Context, site, image string, commands
 // without invoking the real helper.
 func (a *App) pipelineBuildArgs(site, image, root, scriptPath string) []string {
 	cpuPercent, memoryMB, tasksMax := a.pipelineResourceLimits(site)
+	maxImageBytes := a.Config.RunnerMaxImageBytes
+	if maxImageBytes <= 0 {
+		maxImageBytes = defaultRunnerMaxImageBytes
+	}
 	return []string{
 		"build",
 		site,
@@ -235,7 +239,7 @@ func (a *App) pipelineBuildArgs(site, image, root, scriptPath string) []string {
 		strconv.Itoa(memoryMB),
 		strconv.Itoa(tasksMax),
 		a.Config.RunnerNetworkMode,
-		strconv.FormatInt(a.Config.RunnerMaxImageBytes, 10),
+		strconv.FormatInt(maxImageBytes, 10),
 	}
 }
 

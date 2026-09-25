@@ -47,6 +47,14 @@ func TestPipelineBuildArgsPassesNetworkMode(t *testing.T) {
 	}
 }
 
+func TestPipelineBuildArgsUsesSafeImageLimitWhenConfigIsZero(t *testing.T) {
+	app := &App{Config: Config{RunnerNetworkMode: "none"}}
+	args := app.pipelineBuildArgs("site", "image@sha256:0", "/root", "/script")
+	if args[9] != strconv.FormatInt(defaultRunnerMaxImageBytes, 10) {
+		t.Fatalf("image limit = %q, want %d", args[9], defaultRunnerMaxImageBytes)
+	}
+}
+
 func TestPipelineResourceLimitsUseSiteProfile(t *testing.T) {
 	app := &App{Resources: &ResourceStore{values: map[string]ResourceProfile{
 		"demo": {Site: "demo", CPUPercent: 200, CPUWeight: 100, MemoryHighMB: 900, MemoryMB: 1024, IOWeight: 100, TasksMax: 256, PHPWorkers: 16},
