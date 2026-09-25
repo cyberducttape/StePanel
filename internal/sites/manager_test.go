@@ -48,13 +48,13 @@ func TestDeleteRefusesInvalidNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{
-		"",           // empty
-		"..",         // parent traversal
-		"../etc",     // relative escape
-		"/etc",       // absolute — not matched by validSiteName
-		"a/b",        // slash — not matched
-		"UPPERCASE",  // uppercase — not matched
-		"has spaces", // whitespace — not matched
+		"",                      // empty
+		"..",                    // parent traversal
+		"../etc",                // relative escape
+		"/etc",                  // absolute — not matched by validSiteName
+		"a/b",                   // slash — not matched
+		"UPPERCASE",             // uppercase — not matched
+		"has spaces",            // whitespace — not matched
 		strings.Repeat("x", 33), // too long
 		"name\x00null",          // NUL
 		"name;rm -rf /",         // shell metacharacters

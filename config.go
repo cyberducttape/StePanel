@@ -30,16 +30,16 @@ type Config struct {
 	// Entries are comma-separated `registry/namespace/repo` patterns
 	// with an optional trailing `/*` wildcard for a whole namespace.
 	// Example: "ghcr.io/anthropic/builder, docker.io/library/*".
-	RunnerAllowedImages                                                                      string
-	EnvironmentState, EnvironmentKey                                                         string
-	ControlPlaneDB                                                                           string
-	AccountKey                                                                               string
-	BackupSigningKey                                                                         string
-	RedisState                                                                               string
-	OffsiteTarget                                                                            string
-	CloudProvider                                                                            string
-	RequireOffsiteBackup                                                                     bool
-	TLSAlreadyTerminated                                                                     bool
+	RunnerAllowedImages              string
+	EnvironmentState, EnvironmentKey string
+	ControlPlaneDB                   string
+	AccountKey                       string
+	BackupSigningKey                 string
+	RedisState                       string
+	OffsiteTarget                    string
+	CloudProvider                    string
+	RequireOffsiteBackup             bool
+	TLSAlreadyTerminated             bool
 	// TrustedProxyCIDRs is a comma-separated list of CIDRs (for example
 	// "127.0.0.1/32,::1/128,10.0.20.0/24") from which forwarded-identity
 	// headers are trusted. Any other peer is treated as a direct client
@@ -47,15 +47,15 @@ type Config struct {
 	// TLSAlreadyTerminated=1 and this is empty, the runtime defaults to
 	// loopback (127.0.0.1/32 and ::1/128) — safe when the reverse proxy
 	// is co-located, and forces explicit configuration when it is not.
-	TrustedProxyCIDRs                                                                        string
-	Production                                                                               bool
-	WorkerMode                                                                               string
-	MaxUpload                                                                                int64
-	MaxEntries, MaxConcurrentJobs, StageRetentionHours, GitReleaseRetention                  int
-	GitReleaseMaxAgeHours                                                                    int
-	GitReleaseMaxBytes                                                                       int64
-	FTPPassiveMin, FTPPassiveMax                                                             int
-	MinFreeBytes                                                                             uint64
+	TrustedProxyCIDRs                                                       string
+	Production                                                              bool
+	WorkerMode                                                              string
+	MaxUpload                                                               int64
+	MaxEntries, MaxConcurrentJobs, StageRetentionHours, GitReleaseRetention int
+	GitReleaseMaxAgeHours                                                   int
+	GitReleaseMaxBytes                                                      int64
+	FTPPassiveMin, FTPPassiveMax                                            int
+	MinFreeBytes                                                            uint64
 }
 
 func LoadConfig() Config {
