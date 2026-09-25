@@ -47,10 +47,14 @@ type DatabaseSession struct {
 }
 
 func runDatabaseHelper(cfg Config, timeout time.Duration, input string, args ...string) ([]byte, error) {
+	return runDatabaseHelperContext(context.Background(), cfg, timeout, input, args...)
+}
+
+func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.Duration, input string, args ...string) ([]byte, error) {
 	if cfg.DBCtl == "" {
 		return nil, errors.New("local database lifecycle helper is unavailable")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, args...)
 	if input == "" {
@@ -173,7 +177,7 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 		if !a.Auth.IsAdministrator(r) {
 			lockKeys = append(lockKeys, "account:"+a.Auth.UsernameForRequest(r))
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLocks(r.Context(), lockKeys...)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), lockKeys...)
 		if lockErr != nil {
 			http.Error(w, "database mutation is busy", http.StatusConflict)
 			return
@@ -220,7 +224,7 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "encoding must be UTF8 for PostgreSQL or utf8mb4 for MySQL/MariaDB", http.StatusUnprocessableEntity)
 			return
 		}
-		if _, err := runDatabaseHelper(a.Config, time.Minute, in.Password, "provision", in.Name, in.User, in.Site, in.Encoding); err != nil {
+		if _, err := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, in.Password, "provision", in.Name, in.User, in.Site, in.Encoding); err != nil {
 			log.Printf("database provision rejected for %s: %v", in.Name, err)
 			http.Error(w, "database or user already exists, or provisioning failed", http.StatusConflict)
 			return
@@ -342,13 +346,13 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "password must contain 20-128 supported characters", http.StatusUnprocessableEntity)
 			return
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), "database:"+name)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "database:"+name)
 		if lockErr != nil {
 			http.Error(w, "database mutation is busy", http.StatusConflict)
 			return
 		}
 		defer releaseUnlock()
-		if _, err := runDatabaseHelper(a.Config, 30*time.Second, in.Password, "rotate", name, in.User); err != nil {
+		if _, err := runDatabaseHelperContext(operationCtx, a.Config, 30*time.Second, in.Password, "rotate", name, in.User); err != nil {
 			http.Error(w, "credential rotation failed", http.StatusConflict)
 			return
 		}
@@ -359,7 +363,7 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "confirmation must exactly match DROP "+name, http.StatusUnprocessableEntity)
 			return
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), "database:"+name)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "database:"+name)
 		if lockErr != nil {
 			http.Error(w, "database mutation is busy", http.StatusConflict)
 			return
@@ -371,7 +375,11 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "database deletion refused because its safety backup failed", http.StatusServiceUnavailable)
 			return
 		}
-		if _, err := runDatabaseHelper(a.Config, time.Minute, "", "drop-managed", name, in.User); err != nil {
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "database deletion cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
+		if _, err := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, "", "drop-managed", name, in.User); err != nil {
 			http.Error(w, "database deletion failed", http.StatusConflict)
 			return
 		}

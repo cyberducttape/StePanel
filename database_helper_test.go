@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRestoreSQLUsesRestrictedHelper(t *testing.T) {
@@ -74,5 +76,22 @@ func TestValidateWPressPasswordPolicy(t *testing.T) {
 	}
 	if err := validateWPressInput("site", "WordPress", "wordpress", "Strong-Database_2026!", "wp_", ""); err == nil {
 		t.Fatal("uppercase database suffix was accepted")
+	}
+}
+
+func TestRunDatabaseHelperContextHonorsCancellation(t *testing.T) {
+	helper := filepath.Join(t.TempDir(), "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nsleep 5\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	_, err := runDatabaseHelperContext(ctx, Config{DBCtl: helper}, time.Minute, "", "provision")
+	if err == nil {
+		t.Fatal("cancelled database helper unexpectedly succeeded")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("cancelled database helper took %v", elapsed)
 	}
 }
