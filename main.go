@@ -420,6 +420,7 @@ func main() {
 	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
 	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager}
 	app.startup.begin()
+	var startupAuditErr error
 	// Reconcile domains independently. A single shared deadline allowed a slow
 	// host/helper operation in an early domain to starve every later domain.
 	// Each domain remains bounded, and failures are retained in its own report.
@@ -435,6 +436,9 @@ func main() {
 	}
 	runStartup := func() {
 		var failures []error
+		if startupAuditErr != nil {
+			failures = append(failures, fmt.Errorf("initialize audit chain: %w", startupAuditErr))
+		}
 		if err := auditOutbox.flush(context.Background(), cfg.AuditLog); err != nil {
 			failures = append(failures, fmt.Errorf("flush audit outbox during startup: %w", err))
 		}
@@ -504,13 +508,14 @@ func main() {
 			log.Printf("startup recovery and reconciliation completed")
 		}
 	}
-	if err := Audit(cfg.AuditLog, "service.started", "stepanel", "control plane initialized"); err != nil {
-		log.Printf("initialize audit chain: %v", err)
+	startupAuditErr = Audit(cfg.AuditLog, "service.started", "stepanel", "control plane initialized")
+	if startupAuditErr != nil {
+		log.Printf("initialize audit chain: %v", startupAuditErr)
 	}
 	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if workerMode {
-		app.startup.finish(nil)
+		app.startup.finish(startupAuditErr)
 		log.Printf("StePanel durable worker started with pid %d", os.Getpid())
 		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis", "archive.inspect", "archive.import"}, 500*time.Millisecond, app.handleDurableJob)
 		if err != nil && !errors.Is(err, context.Canceled) {
