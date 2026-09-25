@@ -330,3 +330,15 @@ func TestCreateProvisionsUnderWebRoot(t *testing.T) {
 		t.Error("second Create for the same name should have failed")
 	}
 }
+
+func TestCreateHonorsCancellationBeforePublication(t *testing.T) {
+	m, root := newManager(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := m.Create(ctx, &CreateRequest{Name: "cancelled"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Create cancellation error = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites", "cancelled")); !os.IsNotExist(err) {
+		t.Fatalf("canceled Create left a site behind: %v", err)
+	}
+}

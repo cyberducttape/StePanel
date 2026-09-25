@@ -267,13 +267,9 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	return &Site{Name: name, Status: "ready", CreatedAt: time.Now().UTC(), WebRoot: destination}, nil
 }
 
-// Create provisions a new site's directory structure. Consolidation note:
-// site provisioning currently happens inside the archive-import
-// orchestrator (see importer.go handleArchiveImportJob), which uses the
-// SiteTransaction primitive to journal-and-atomically-activate. When the
-// full Manager is wired up, Create should route through that same
-// SiteTransaction primitive rather than a bare os.MkdirAll, to keep the
-// mature transaction pattern as the single provisioning path.
+// Create provisions a new site's directory structure through a private stage
+// and one final rename. A caller cannot observe a partially-created public
+// tree, and cancellation before publication removes the stage.
 func (m *DefaultManager) Create(ctx context.Context, req *CreateRequest) (*Site, error) {
 	if req == nil {
 		return nil, errors.New("sites.Manager: nil CreateRequest")
@@ -287,9 +283,40 @@ func (m *DefaultManager) Create(ctx context.Context, req *CreateRequest) (*Site,
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("sites.Manager: inspect target: %w", err)
 	}
-	if err := os.MkdirAll(publicRoot, 0750); err != nil {
-		return nil, fmt.Errorf("sites.Manager: create site directory: %w", err)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
+	sitesRoot, err := h.SafePath(m.webRoot, "sites")
+	if err != nil {
+		return nil, err
+	}
+	stageParent, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(stageParent, 0700); err != nil {
+		return nil, fmt.Errorf("sites.Manager: create site staging root: %w", err)
+	}
+	stage, err := os.MkdirTemp(stageParent, ".create-")
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: create site stage: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.RemoveAll(stage)
+		}
+	}()
+	if err := os.Mkdir(filepath.Join(stage, "public"), 0750); err != nil {
+		return nil, fmt.Errorf("sites.Manager: create staged public directory: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(stage, filepath.Dir(publicRoot)); err != nil {
+		return nil, fmt.Errorf("sites.Manager: publish site directory: %w", err)
+	}
+	committed = true
 	return &Site{
 		Name:       req.Name,
 		Status:     "ready",
