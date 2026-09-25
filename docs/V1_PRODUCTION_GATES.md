@@ -258,11 +258,12 @@ For each critical operation (backup, restore, deploy, terminate):
 failureInjection("restore", "commit")
 ```
 
-The termination journal also has a subprocess regression drill: a child
-process is killed with `SIGKILL` after a destructive step starts and the
-parent reloads and completes the same journal. This proves the journal's
-cross-process persistence, but does not replace the still-open full
-host-kill/restart drills below.
+Subprocess regression drills now cover both termination-journal persistence
+and filesystem transaction recovery: a child process is killed with
+`SIGKILL` after a destructive/replacement step starts, and the parent reloads
+the state, restores the original site, and completes the journal. These prove
+cross-process persistence for those recovery primitives, but do not replace
+the still-open full host-kill/restart drills below.
 
 **Critical Operations to Test:**
 1. Backup (boundary tests: init, archive, verify, commit; host-kill drill remains)
