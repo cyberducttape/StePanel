@@ -4,6 +4,10 @@
 **Issue:** Archive import uses direct filesystem operations instead of normal site provisioning lifecycle  
 **Impact:** Imported sites may miss critical lifecycle setup  
 
+> Historical design document. The current implementation uses the durable
+> `archive.import` job and `SiteTransaction`; verify release status against
+> `docs/V1_PRODUCTION_GATES.md`.
+
 ---
 
 ## Current Architecture (v0.7.0)
@@ -146,7 +150,7 @@ func (i *LifecycleAwareImporter) Import(
         JobID:         result.JobID,
         Success:       true,
         SiteName:      site.Name,
-        SiteStatus:    "ready",
+        SiteStatus:    "needs_database_restore",
         NextSteps: []string{
             "Verify site configuration and SSL certificates",
             "Restore database if needed",
@@ -224,7 +228,8 @@ Archive imports in v0.7.0 created "raw" sites. Path forward:
 4. **Recommended:** Re-export site as backup, then import via v0.8.0 to get full provisioning
 
 ### Breaking Change Considerations
-- Archive import response format changes (adds `site_status: "ready"`)
+- Archive import response format changes (adds an explicit incomplete
+  `site_status`, such as `needs_database_restore`)
 - Clients must update to expect new response
 - v0.7.0 API clients will still work but get different next steps
 
@@ -312,4 +317,3 @@ func TestArchiveImportProgressReporting(t *testing.T) {
 - [x] Documentation updated with new lifecycle
 - [x] Integration tests cover happy path and failure scenarios
 - [x] No regression in import success rate
-

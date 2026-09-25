@@ -105,7 +105,7 @@ type ImportResult struct {
 	JobID         string        `json:"job_id"`
 	Success       bool          `json:"success"`
 	SiteName      string        `json:"site_name"`
-	SiteStatus    string        `json:"site_status"` // "initializing", "ready", "failed"
+	SiteStatus    string        `json:"site_status"` // "initializing", "needs_database_restore", "needs_database_setup", "ready", "failed"
 	CreatedAt     time.Time     `json:"created_at"`
 	FilesImported int64         `json:"files_imported"`
 	DatabaseSize  int64         `json:"database_size_bytes"`

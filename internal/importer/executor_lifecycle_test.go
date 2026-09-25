@@ -88,3 +88,12 @@ func TestValidateSiteCreation_RejectsExistingPath(t *testing.T) {
 		t.Errorf("expected 'already exists' error, got: %v", err)
 	}
 }
+
+func TestImportSiteStatusNeverClaimsReadyWithoutDatabaseWork(t *testing.T) {
+	if got := importSiteStatus("/staging/backup.sql"); got != "needs_database_restore" {
+		t.Fatalf("database dump status = %q", got)
+	}
+	if got := importSiteStatus(""); got != "needs_database_setup" {
+		t.Fatalf("missing database status = %q", got)
+	}
+}

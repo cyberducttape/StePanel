@@ -352,7 +352,9 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	committed = true
 
 	if result != nil {
-		result.SiteStatus = "ready"
+		// ExecuteImport does not restore a database. Preserve its explicit
+		// incomplete status instead of advertising a site as ready when the
+		// imported application still needs database work.
 		result.CreatedAt = time.Now().UTC()
 	}
 

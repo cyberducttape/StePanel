@@ -422,10 +422,12 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 
 	nextSteps = append(nextSteps, "4. Test application functionality")
 
+	siteStatus := importSiteStatus(sqlFile)
 	result := &ImportResult{
 		JobID:         job.ID,
 		Success:       true, // Files and config are done; database is optional/deferred
 		SiteName:      job.SiteName,
+		SiteStatus:    siteStatus,
 		CreatedAt:     job.StartedAt,
 		FilesImported: job.FilesExtracted,
 		StorageSize:   job.BytesExtracted,
@@ -434,6 +436,13 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	}
 
 	return result, nil
+}
+
+func importSiteStatus(databaseDumpPath string) string {
+	if databaseDumpPath != "" {
+		return "needs_database_restore"
+	}
+	return "needs_database_setup"
 }
 
 // validateSiteCreation checks that the extraction target is a fresh directory
