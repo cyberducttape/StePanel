@@ -147,7 +147,11 @@ func (a *App) reconcileSiteAccess(ctx context.Context) (reconciled []string, fai
 	}
 	a.Access.mu.RUnlock()
 	for _, access := range pending {
-		releaseUnlock := a.siteOperations.Acquire(access.Site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, access.Site)
+		if lockErr != nil {
+			failed[access.Site] = lockErr.Error()
+			continue
+		}
 		if _, err := a.applyAndSaveSiteAccess(ctx, access); err != nil {
 			failed[access.Site] = err.Error()
 			releaseUnlock()

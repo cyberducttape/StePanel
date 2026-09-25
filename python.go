@@ -71,7 +71,11 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site document root does not exist", 422)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(app.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), app.Site)
+	if lockErr != nil {
+		http.Error(w, "Python application mutation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	app.State, app.LastError = "pending", ""
 	if err := savePythonApp(a.Config.AppRoot, app); err != nil {
@@ -122,7 +126,11 @@ func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, fai
 		if json.Unmarshal(data, &app) != nil || safeUser(app.Site) == "" || app.State != "pending" {
 			continue
 		}
-		releaseUnlock := a.siteOperations.Acquire(app.Site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, app.Site)
+		if lockErr != nil {
+			failed[app.Site] = lockErr.Error()
+			continue
+		}
 		if err := a.applyPythonApp(ctx, app); err != nil {
 			app.LastError = err.Error()
 			_ = savePythonApp(a.Config.AppRoot, app)
@@ -159,7 +167,11 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for Python operations", http.StatusForbidden)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(parts[0])
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), parts[0])
+	if lockErr != nil {
+		http.Error(w, "Python operation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
 		http.Error(w, "Python action failed", 502)

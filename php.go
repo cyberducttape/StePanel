@@ -139,7 +139,11 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid PHP profile", 422)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	if lockErr != nil {
+		http.Error(w, "PHP profile mutation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	p.State, p.LastError = "pending", ""
 	if e := a.PHP.save(access, p); e != nil {
@@ -179,7 +183,11 @@ func (a *App) reconcilePHPProfiles(ctx context.Context) (reconciled []string, fa
 	}
 	a.PHP.mu.RUnlock()
 	for _, profile := range pending {
-		releaseUnlock := a.siteOperations.Acquire(profile.Site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, profile.Site)
+		if lockErr != nil {
+			failed[profile.Site] = lockErr.Error()
+			continue
+		}
 		if err := a.applyPHPProfile(ctx, profile); err != nil {
 			profile.LastError = err.Error()
 			_ = a.PHP.saveLocked(profile.Site, profile)
