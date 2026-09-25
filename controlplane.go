@@ -67,7 +67,8 @@ CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(username, revoked_a
 CREATE TABLE IF NOT EXISTS state_blobs (
     name TEXT PRIMARY KEY,
     payload BLOB NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS totp_replay (
     username TEXT PRIMARY KEY,
@@ -156,6 +157,15 @@ var controlPlaneMigrations = []*migration.Migration{
         ); CREATE INDEX IF NOT EXISTS webhook_deliveries_expiry_idx ON webhook_deliveries(expires_at);`)
 		return err
 	}),
+	migration.NewMigrationWithCheck(6, "add atomic control-plane state revisions",
+		func(tx *sql.Tx) (bool, error) {
+			return controlPlaneColumnExists(tx, "state_blobs", "revision")
+		},
+		func(tx *sql.Tx) error {
+			_, err := tx.Exec(`ALTER TABLE state_blobs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0`)
+			return err
+		},
+	),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
@@ -294,13 +304,8 @@ func readControlPlaneBlob(db *sql.DB, name string) ([]byte, bool, error) {
 }
 
 func writeControlPlaneBlob(db *sql.DB, name string, payload []byte) error {
-	_, err := db.Exec(`INSERT INTO state_blobs (name, payload, updated_at) VALUES (?, ?, unixepoch()) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at`, name, payload)
+	_, err := db.Exec(`INSERT INTO state_blobs (name, payload, updated_at, revision) VALUES (?, ?, unixepoch(), 1) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at, revision=state_blobs.revision+1`, name, payload)
 	return err
-}
-
-type controlPlaneStateSnapshot struct {
-	revision int64
-	payload  []byte
 }
 
 var controlPlaneStateRevisions sync.Map // Tracks read revisions per store
@@ -320,16 +325,21 @@ func bindControlPlaneState(store any, db *sql.DB, name string, target any) (bool
 		return false, fmt.Errorf("read control-plane state %s: %w", name, err)
 	}
 	if !found {
+		controlPlaneStateRevisions.Store(store, int64(-1))
 		return false, nil
 	}
 	if err := json.Unmarshal(payload, target); err != nil {
 		return false, fmt.Errorf("decode control-plane state %s: %w", name, err)
 	}
 
-	// Record the revision at read time for later conflict detection
-	// Get current revision from database
+	// Record the monotonic revision at read time for later conflict detection.
 	var revision int64
-	db.QueryRow(`SELECT CAST(updated_at AS INTEGER) FROM state_blobs WHERE name = ?`, name).Scan(&revision)
+	if err := db.QueryRow(`SELECT revision FROM state_blobs WHERE name = ?`, name).Scan(&revision); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return false, fmt.Errorf("read control-plane state %s revision: %w", name, err)
+		}
+		revision = -1
+	}
 	controlPlaneStateRevisions.Store(store, revision)
 
 	return true, nil
@@ -341,37 +351,45 @@ func bindControlPlaneState(store any, db *sql.DB, name string, target any) (bool
 //
 // Callers should reload state from database and retry on conflict.
 func compareAndSwapControlPlaneState(store any, name string, payload []byte, db *sql.DB) (bool, error) {
-	binding, ok := controlPlaneStateBindings.Load(store)
+	_, ok := controlPlaneStateBindings.Load(store)
 	if !ok {
 		return false, nil
 	}
-	state := binding.(controlPlaneStateBinding)
 
 	// Get the revision this process read
 	readRevisionAny, hasRevision := controlPlaneStateRevisions.Load(store)
-	readRevision := int64(0)
-	if hasRevision {
-		readRevision = readRevisionAny.(int64)
+	if !hasRevision {
+		return true, errors.New("control-plane state was not bound before persistence")
 	}
+	readRevision := readRevisionAny.(int64)
 
-	// Check if database has been updated since our read
-	// If so, our snapshot is stale - don't overwrite
-	var currentRevision int64
-	err := db.QueryRow(`SELECT CAST(updated_at AS INTEGER) FROM state_blobs WHERE name = ?`, name).Scan(&currentRevision)
-	if err == nil && readRevision != 0 && currentRevision > readRevision {
-		// Conflict: database was updated by another process
-		// Return error indicating conflict - caller should reload
-		return true, fmt.Errorf("control-plane state %s was updated by another process (expected revision %d, current %d)", name, readRevision, currentRevision)
+	if readRevision < 0 {
+		result, err := db.Exec(`INSERT INTO state_blobs (name, payload, updated_at, revision) VALUES (?, ?, unixepoch(), 1) ON CONFLICT(name) DO NOTHING`, name, payload)
+		if err != nil {
+			return true, fmt.Errorf("insert control-plane state %s: %w", name, err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return true, err
+		}
+		if affected != 1 {
+			return true, fmt.Errorf("control-plane state %s was created by another process", name)
+		}
+		controlPlaneStateRevisions.Store(store, int64(1))
+		return true, nil
 	}
-
-	// No conflict: write our state
-	if err := writeControlPlaneBlob(state.db, state.name, payload); err != nil {
-		return true, fmt.Errorf("write control-plane state %s: %w", state.name, err)
+	result, err := db.Exec(`UPDATE state_blobs SET payload = ?, updated_at = unixepoch(), revision = revision + 1 WHERE name = ? AND revision = ?`, payload, name, readRevision)
+	if err != nil {
+		return true, fmt.Errorf("write control-plane state %s: %w", name, err)
 	}
-
-	// Update our recorded revision after successful write
-	db.QueryRow(`SELECT CAST(updated_at AS INTEGER) FROM state_blobs WHERE name = ?`, name).Scan(&currentRevision)
-	controlPlaneStateRevisions.Store(store, currentRevision)
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return true, err
+	}
+	if affected != 1 {
+		return true, fmt.Errorf("control-plane state %s was updated by another process (expected revision %d)", name, readRevision)
+	}
+	controlPlaneStateRevisions.Store(store, readRevision+1)
 
 	return true, nil
 }

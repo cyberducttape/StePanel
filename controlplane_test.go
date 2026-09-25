@@ -40,6 +40,48 @@ func TestControlPlaneStateBlobIsTransactionalAndPersistent(t *testing.T) {
 	}
 }
 
+func TestControlPlaneStateCASRejectsStaleIndependentConnection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-plane.db")
+	firstDB, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstDB.Close()
+	secondDB, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondDB.Close()
+
+	firstStore := &struct{ id int }{id: 1}
+	secondStore := &struct{ id int }{id: 2}
+	first := map[string]string{"owner": "first"}
+	second := map[string]string{}
+	if found, err := bindControlPlaneState(firstStore, firstDB, "cas-test", &first); err != nil || found {
+		t.Fatalf("first bind = found %v err %v", found, err)
+	}
+	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"owner":"seed"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := bindControlPlaneState(secondStore, secondDB, "cas-test", &second); err != nil || !found {
+		t.Fatalf("second bind = found %v err %v", found, err)
+	}
+	first = map[string]string{"owner": "first-update"}
+	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"owner":"first-update"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := persistBoundControlPlaneState(secondStore, []byte(`{"owner":"stale-update"}`)); err == nil {
+		t.Fatal("stale control-plane write unexpectedly succeeded")
+	}
+	var payload string
+	if err := firstDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'cas-test'`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload != `{"owner":"first-update"}` {
+		t.Fatalf("stale write changed state to %s", payload)
+	}
+}
+
 func TestControlPlaneBackupCanBeVerified(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "control-plane.db")

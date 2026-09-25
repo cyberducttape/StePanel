@@ -113,7 +113,7 @@ func (s *Store) persistDB() error {
 }
 
 func (s *Store) persistDBPayload(data []byte) error {
-	_, err := s.db.Exec(`INSERT INTO state_blobs (name, payload, updated_at) VALUES ('deployments', ?, unixepoch()) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at`, data)
+	_, err := s.db.Exec(`INSERT INTO state_blobs (name, payload, updated_at, revision) VALUES ('deployments', ?, unixepoch(), 1) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at, revision=state_blobs.revision+1`, data)
 	return err
 }
 
