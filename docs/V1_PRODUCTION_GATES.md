@@ -245,19 +245,10 @@ For each critical operation (backup, restore, deploy, terminate):
 
 **Test Framework:**
 ```go
-// $STEPANEL_FAIL_AT="backup:50" to inject failures
-// $STEPANEL_RESTART_AT="backup:75" to test recovery
-
-func shouldFailAt(operation string, progress int) bool {
-    failAt := os.Getenv("STEPANEL_FAIL_AT")
-    if failAt == "" { return false }
-    
-    parts := strings.Split(failAt, ":")
-    if parts[0] != operation { return false }
-    
-    reqProgress, _ := strconv.Atoi(parts[1])
-    return progress >= reqProgress
-}
+// $STEPANEL_FAIL_AT="restore:commit" injects a deterministic error.
+// The current universal hooks are transaction init and commit; operation
+// specific progress hooks are added as each critical workflow is covered.
+failureInjection("restore", "commit")
 ```
 
 **Critical Operations to Test:**
@@ -268,7 +259,7 @@ func shouldFailAt(operation string, progress int) bool {
 5. Account suspension (kill at: service stop, config update, state save)
 
 **Acceptance Criteria:**
-- [ ] Failure injection test framework implemented
+- [x] Failure injection framework implemented at transaction init/commit
 - [ ] All 5 operations pass failure tests
 - [ ] No mysterious half-states discovered
 - [ ] Recovery is deterministic

@@ -105,10 +105,19 @@ func BeginSiteTransaction(root, home, kind string, access SiteCapability) (*Site
 			return nil, err
 		}
 	}
+	if err := failureInjection(transactionFailureOperation(kind), "init"); err != nil {
+		if rollbackErr := txn.Rollback(); rollbackErr != nil {
+			return nil, fmt.Errorf("failure injection rollback: %w (injected: %v)", rollbackErr, err)
+		}
+		return nil, err
+	}
 	return txn, nil
 }
 
 func (t *SiteTransaction) Commit() error {
+	if err := failureInjection(transactionFailureOperation(t.Kind), "commit"); err != nil {
+		return err
+	}
 	t.State = "committed"
 	return t.persist()
 }
