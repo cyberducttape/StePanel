@@ -105,19 +105,15 @@ An experienced infrastructure reviewer will:
 
 ## Remaining Issues
 
-### 📋 PARTIAL FIX: MaxImageSize Not Enforced
-- **Problem**: Config accepts `STEPANEL_MAX_IMAGE_SIZE` but is never validated
-- **Current behavior**: Any image with valid digest and registry passes (size ignored)
-- **Why blocked**: Requires image manifest fetch to determine actual size
-- **Implementation path**:
-  1. After registry validation passes, parse image reference
-  2. Resolve image digest (may require credential handling for private registries)
-  3. Fetch manifest to get image size
-  4. Compare against `Config.MaxImageSize`
-  5. Reject if oversized, return 413 Payload Too Large
-- **Added to runner.go**: TODO comment documenting required steps (commit 39ddc22)
-- **Note**: Helper-level enforcement also needed as fallback (podman inspect)
-- **Status**: Documented with implementation steps; ready for v0.8 feature work
+### ✅ HISTORICAL: Image Size Enforcement
+- **Historical problem**: An earlier configuration accepted
+  `STEPANEL_MAX_IMAGE_SIZE` without enforcing it at the control-plane boundary.
+- **Current implementation**: The supported setting is
+  `STEPANEL_RUNNER_MAX_IMAGE_BYTES`. The privileged runner pulls the immutable
+  digest, uses `podman image inspect`, and rejects an image above the configured
+  byte limit before starting the build.
+- **Status**: This item is historical evidence only; verify release approval in
+  `docs/V1_PRODUCTION_GATES.md`.
 
 ### 🏗️ ARCHITECTURAL: Archive Import Bypasses Site Lifecycle
 - **Problem**: Archive import uses direct filesystem operations, doesn't provision through stepanel-sitectl

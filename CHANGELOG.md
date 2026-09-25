@@ -131,13 +131,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   this bounds what a build sandbox can execute.
 
   **Corrections to prior CHANGELOG entry (published claim was stale):**
-  - Image size enforcement (STEPANEL_MAX_IMAGE_SIZE, "default: 5GB") is
-    NOT implemented. config.go documents this ("STEPANEL_MAX_IMAGE_SIZE
-    removed: enforcement not implemented") and runner.go carries a TODO
-    describing the OCI-manifest work required. Deploy planning should not
-    rely on this control.
-  - The env var for network default is STEPANEL_RUNNER_NETWORK_MODE
-    ("none" / "egress"), not STEPANEL_RUNNER_NETWORK_ENABLED as the prior
+  - The old `STEPANEL_MAX_IMAGE_SIZE` claim was removed. The active setting
+    is `STEPANEL_RUNNER_MAX_IMAGE_BYTES`; the privileged runner pulls the
+    pinned digest, inspects the resulting image size, and rejects images
+    above that byte limit before execution.
+  - The env var for network default is `STEPANEL_RUNNER_NETWORK_MODE`
+    ("none" / "egress"), not `STEPANEL_RUNNER_NETWORK_ENABLED` as the prior
     entry named.
 
 - **Build runner image allowlist (HIGH, added Nov 2026)**: New optional
