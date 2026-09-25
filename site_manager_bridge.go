@@ -7,6 +7,14 @@ import (
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
+func newSiteManagerForConfig(cfg Config) (siteauthority.Manager, error) {
+	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	if err != nil {
+		return nil, fmt.Errorf("initialize site manager: %w", err)
+	}
+	return manager, nil
+}
+
 // activateStagedSite keeps release publication behind the lifecycle manager
 // even for older App constructions used by tests and migration tooling.
 func (a *App) activateStagedSite(ctx context.Context, name, stagedRoot string) error {

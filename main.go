@@ -483,6 +483,17 @@ func main() {
 				failures = append(failures, fmt.Errorf("audit site recovery %s: %w", id, err))
 			}
 		}
+		releaseRecoveries, err := recoverReleaseActivationJournals(cfg)
+		if err != nil {
+			failures = append(failures, err)
+			log.Printf("recover interrupted release activations (continuing with isolated failures): %v", err)
+		}
+		for _, id := range releaseRecoveries {
+			log.Printf("recovered interrupted release activation %s", id)
+			if err := Audit(cfg.AuditLog, "release.activation-recovered", id, "release activation reconciled after unclean shutdown"); err != nil {
+				failures = append(failures, fmt.Errorf("audit release recovery %s: %w", id, err))
+			}
+		}
 		if err := CleanupImportStages(cfg.ImportRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
 			log.Printf("import stage cleanup during startup: %v", err)
 		}

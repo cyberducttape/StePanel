@@ -28,7 +28,7 @@ func TestActivatePipelineReleaseFailureInjectionPreservesLiveRelease(t *testing.
 		t.Fatal(err)
 	}
 
-	_, err := (&App{Config: Config{WebRoot: webRoot}}).activatePipelineRelease(context.Background(), "example", release)
+	_, err := (&App{Config: Config{WebRoot: webRoot, RecoveryRoot: filepath.Join(root, "recovery")}}).activatePipelineRelease(context.Background(), "example", release)
 	if err == nil || !strings.Contains(err.Error(), "failure injection") {
 		t.Fatalf("activation error = %v, want injected failure", err)
 	}
@@ -51,7 +51,7 @@ func TestActivatePipelineReleaseRejectsReleaseOutsideSiteRoot(t *testing.T) {
 	if err := os.MkdirAll(outside, 0750); err != nil {
 		t.Fatal(err)
 	}
-	_, err := (&App{Config: Config{WebRoot: webRoot}}).activatePipelineRelease(context.Background(), "example", outside)
+	_, err := (&App{Config: Config{WebRoot: webRoot, RecoveryRoot: filepath.Join(root, "recovery")}}).activatePipelineRelease(context.Background(), "example", outside)
 	if err == nil || !strings.Contains(err.Error(), "outside site root") {
 		t.Fatalf("outside release error = %v, want containment rejection", err)
 	}

@@ -258,17 +258,43 @@ func (a *App) activatePipelineRelease(ctx context.Context, site, release string)
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	journal, err := newReleaseActivationJournal(a.Config.RecoveryRoot, site, release)
+	if err != nil {
+		return "", err
+	}
+	if err := journal.persist(); err != nil {
+		return "", fmt.Errorf("persist release activation journal: %w", err)
+	}
 	a.gitActivationMu.Lock()
 	defer a.gitActivationMu.Unlock()
 	if err := failureInjection("deploy", "activate"); err != nil {
+		_ = journal.cleanup()
 		return "", err
 	}
 	previous, err := a.activateReplacingSite(ctx, site, release)
 	if err != nil {
+		_ = journal.cleanup()
 		return "", err
 	}
+	if err := journal.markActivated(previous); err != nil {
+		if rollbackErr := a.rollbackReplacingSite(ctx, site, previous); rollbackErr != nil {
+			return "", fmt.Errorf("persist release activation state: %w; rollback failed: %v", err, rollbackErr)
+		}
+		_ = journal.cleanup()
+		return "", fmt.Errorf("persist release activation state: %w", err)
+	}
 	if err := siteHelperContext(ctx, a.Config, "seal", site); err != nil {
-		return "", a.rollbackReplacingSite(ctx, site, previous)
+		if rollbackErr := a.rollbackReplacingSite(ctx, site, previous); rollbackErr != nil {
+			return "", fmt.Errorf("seal site after release activation: %w; rollback failed: %v", err, rollbackErr)
+		}
+		_ = journal.cleanup()
+		return "", err
+	}
+	if err := journal.markCommitted(); err != nil {
+		return "", fmt.Errorf("commit release activation journal: %w", err)
+	}
+	if err := journal.cleanup(); err != nil {
+		return "", err
 	}
 	return previous, nil
 }
