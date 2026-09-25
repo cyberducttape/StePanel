@@ -215,7 +215,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.loginLimiter != nil && !a.loginLimiter.Allow(authpolicy.ClientIP(r)) {
-		_ = ShouldAudit(a.AuditLog, "unknown", "auth.login.throttled", authpolicy.ClientIP(r), "login rate limit exceeded")
+		recordAudit(a.AuditLog, "unknown", "auth.login.throttled", authpolicy.ClientIP(r), "login rate limit exceeded")
 		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
 		return
 	}
@@ -256,7 +256,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		if actor == "" {
 			actor = "unknown"
 		}
-		_ = ShouldAudit(a.AuditLog, actor, "auth.login.failed", authpolicy.ClientIP(r), "invalid credentials")
+		recordAudit(a.AuditLog, actor, "auth.login.failed", authpolicy.ClientIP(r), "invalid credentials")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(loginPage("Invalid credentials", true)))
@@ -313,7 +313,7 @@ func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	if actor == "" {
 		actor = a.Username
 	}
-	_ = ShouldAudit(a.AuditLog, actor, "auth.logout", authpolicy.ClientIP(r), "session ended")
+	recordAudit(a.AuditLog, actor, "auth.logout", authpolicy.ClientIP(r), "session ended")
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_session", MaxAge: -1, Path: "/", HttpOnly: true, Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", MaxAge: -1, Path: "/", Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)

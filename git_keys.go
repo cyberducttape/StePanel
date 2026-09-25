@@ -41,7 +41,7 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not generate deploy key", http.StatusBadGateway)
 			return
 		}
-		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deploy-key.created", site, "public key generated")
+		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deploy-key.created", site, "public key generated")
 		writeJSON(w, http.StatusCreated, map[string]any{"site": site, "public_key": strings.TrimSpace(string(output))})
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
@@ -54,7 +54,7 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not retire deploy key", http.StatusBadGateway)
 			return
 		}
-		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deploy-key.deleted", site, "deploy key retired")
+		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deploy-key.deleted", site, "deploy key retired")
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

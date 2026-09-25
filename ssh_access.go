@@ -221,7 +221,7 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "SSH access is pending reconciliation", 502)
 			return
 		}
-		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.ssh-access.updated", site, "access policy changed")
+		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.ssh-access.updated", site, "access policy changed")
 		writeJSON(w, 200, access)
 	case http.MethodPost:
 		if !a.Auth.CSRF(r) {
@@ -270,7 +270,7 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "SSH key is pending reconciliation", 502)
 			return
 		}
-		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.ssh-key.added", site, key.Fingerprint)
+		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.ssh-key.added", site, key.Fingerprint)
 		writeJSON(w, 201, key)
 	}
 }
@@ -331,7 +331,7 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "SSH key revocation is pending reconciliation", 502)
 		return
 	}
-	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.ssh-key.removed", site, label)
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.ssh-key.removed", site, label)
 	w.WriteHeader(204)
 }
 

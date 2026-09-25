@@ -156,6 +156,6 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Composer succeeded but operation state could not be saved", 503)
 		return
 	}
-	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "composer.install", site, command)
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "composer.install", site, command)
 	writeJSON(w, 202, op)
 }

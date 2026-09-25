@@ -72,7 +72,7 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "WordPress action failed: "+strings.TrimSpace(string(output)), 502)
 		return
 	}
-	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "wordpress."+input.Action, site, "WP-CLI action completed")
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "wordpress."+input.Action, site, "WP-CLI action completed")
 	writeJSON(w, http.StatusAccepted, map[string]any{"site": site, "action": input.Action, "output": strings.TrimSpace(string(output))})
 }
 

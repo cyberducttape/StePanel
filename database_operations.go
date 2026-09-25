@@ -221,7 +221,7 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "database or user already exists, or provisioning failed", http.StatusConflict)
 			return
 		}
-		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.provisioned", in.Name, fmt.Sprintf("site=%s user=%s encoding=%s", in.Site, in.User, in.Encoding))
+		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.provisioned", in.Name, fmt.Sprintf("site=%s user=%s encoding=%s", in.Site, in.User, in.Encoding))
 		writeJSON(w, http.StatusCreated, DatabaseResource{Name: in.Name, Site: in.Site, User: in.User, Encoding: in.Encoding})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -344,7 +344,7 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "credential rotation failed", http.StatusConflict)
 			return
 		}
-		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.credentials_rotated", name, "user="+in.User)
+		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.credentials_rotated", name, "user="+in.User)
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodDelete && !credentialRotation:
 		if in.Confirm != "DROP "+name {
@@ -440,6 +440,6 @@ func (a *App) databaseSessionTerminate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session termination failed", http.StatusConflict)
 		return
 	}
-	_ = ShouldAudit(a.Config.AuditLog, a.Auth.Username, "database.session_terminated", id, "explicit operator confirmation")
+	recordAudit(a.Config.AuditLog, a.Auth.Username, "database.session_terminated", id, "explicit operator confirmation")
 	w.WriteHeader(http.StatusNoContent)
 }

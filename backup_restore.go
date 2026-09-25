@@ -89,10 +89,10 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, errors.New("unsupported backup restore mode")
 	}
 	if restoreErr != nil {
-		_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".failed", request.Site, restoreErr.Error())
+		recordAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".failed", request.Site, restoreErr.Error())
 		return nil, restoreErr
 	}
-	_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".completed", request.Site, request.Backup)
+	recordAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".completed", request.Site, request.Backup)
 	output, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
@@ -138,7 +138,7 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "backup does not belong to site", http.StatusForbidden)
 		return
 	}
-	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.verify", input.Site, input.Backup)
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.verify", input.Site, input.Backup)
 	writeJSON(w, http.StatusOK, map[string]any{"verified": true, "backup": input.Backup, "site": manifest.Site, "consistency": manifest.Consistency, "archive_verified": manifest.ArchiveVerified, "database_dump_verified": manifest.DatabaseDumpVerified, "application_quiesced": manifest.ApplicationQuiesced, "filesystem_snapshot": manifest.FilesystemSnapshot, "manifest_signed": manifest.SignatureAlgorithm != ""})
 }
 
@@ -327,7 +327,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	committed = true
-	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.restore-to-staging", input.Site, input.Backup)
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.restore-to-staging", input.Site, input.Backup)
 	writeJSON(w, 202, map[string]any{"site": input.Site, "domain": input.Domain, "backup": input.Backup, "source_site": manifest.Site, "files_restored": true, "databases_restored": hasDatabase, "database": input.TargetDatabase, "restore_mode": "staging", "consistency": manifest.Consistency, "created_at": time.Now().UTC()})
 }
 

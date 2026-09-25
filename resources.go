@@ -526,7 +526,7 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "resource profile applied but state update failed", 503)
 		return
 	}
-	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.resources.applied", site, "cgroup/FPM profile")
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.resources.applied", site, "cgroup/FPM profile")
 	writeJSON(w, 202, p)
 }
 
@@ -560,7 +560,7 @@ func (a *App) reconcileResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reconciled, failed := a.reconcileResourceProfiles(r.Context())
-	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "resources.reconciled", "resources", strings.Join(reconciled, ","))
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "resources.reconciled", "resources", strings.Join(reconciled, ","))
 	writeJSON(w, 200, map[string]any{"reconciled": reconciled, "failed": failed})
 }
 

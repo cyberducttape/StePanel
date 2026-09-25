@@ -20,6 +20,14 @@ func (a *App) livez(w http.ResponseWriter, _ *http.Request) {
 
 func (a *App) readyz(w http.ResponseWriter, r *http.Request) {
 	checks := readinessChecks(a.Config, a.Jobs)
+	startupInProgress, startupError := a.startup.status()
+	if startupInProgress {
+		checks["startup_state"] = ReadinessCheck{Ready: false, Detail: "recovery and reconciliation in progress"}
+	} else if startupError != nil {
+		checks["startup_state"] = ReadinessCheck{Ready: false, Detail: startupError.Error()}
+	} else {
+		checks["startup_state"] = ReadinessCheck{Ready: true}
+	}
 	if a.RecoveryError != nil {
 		checks["recovery_state"] = ReadinessCheck{Ready: false, Detail: a.RecoveryError.Error()}
 	} else {

@@ -53,6 +53,6 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Node tooling action failed", 502)
 		return
 	}
-	_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "node."+input.Action, input.Site, input.PackageManager)
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "node."+input.Action, input.Site, input.PackageManager)
 	writeJSON(w, http.StatusAccepted, input)
 }

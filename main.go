@@ -35,6 +35,7 @@ type App struct {
 	Schedules                *backupSchedules
 	Accounts                 *AccountStore
 	RecoveryError            error
+	startup                  startupState
 	Environments             *EnvironmentStore
 	Redis                    *RedisAllocationStore
 	DNSDesired               *DNSDesiredStore
@@ -56,6 +57,35 @@ type App struct {
 	webhookReplayCache       *WebhookReplayCache
 	siteOperations           operations.Locks
 	appLifecycleMu           sync.Mutex
+}
+
+// startupState separates process liveness from control-plane readiness. The
+// HTTP server can therefore expose /livez and an honest 503 /readyz while
+// recovery and reconciliation are still running.
+type startupState struct {
+	mu         sync.RWMutex
+	inProgress bool
+	err        error
+}
+
+func (s *startupState) begin() {
+	s.mu.Lock()
+	s.inProgress = true
+	s.err = nil
+	s.mu.Unlock()
+}
+
+func (s *startupState) finish(err error) {
+	s.mu.Lock()
+	s.inProgress = false
+	s.err = err
+	s.mu.Unlock()
+}
+
+func (s *startupState) status() (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.inProgress, s.err
 }
 
 func main() {
@@ -341,58 +371,8 @@ func main() {
 	bindState(dnsDesired, "dns-desired", &dnsDesired.values, dnsDesired.persistLocked)
 	bindState(routes, "routes", &routes.values, routes.persistLocked)
 	bindState(domains, "domain-claims", &domains.values, domains.persistLocked)
-	// Boot-time recovery and reconciliation is the panel's responsibility.
-	// The worker skips this whole block: it processes jobs, it does not
-	// mutate host state, run DBCtl reconcile, or rename recovery
-	// transactions on disk. Prior to this guard both processes ran these
-	// steps concurrently, so a rename-race between them could leave the
-	// recovery journal in a partial state or fight over managed-DB cleanup.
-	var recoveryFailures []error
-	if !workerMode {
-		if cfg.DBCtl != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			output, err := runBoundedCommand(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, "reconcile"))
-			cancel()
-			if err != nil {
-				log.Fatalf("reconcile interrupted database operations: %v: %s", err, strings.TrimSpace(string(output)))
-			}
-		}
-		databaseRecoveries, err := RecoverTransactionDatabases(cfg, cfg.RecoveryRoot)
-		if err != nil {
-			recoveryFailures = append(recoveryFailures, err)
-			log.Printf("recover interrupted database transactions (continuing with isolated failures): %v", err)
-		}
-		for _, id := range databaseRecoveries {
-			log.Printf("recovered databases for interrupted site transaction %s", id)
-			_ = Audit(cfg.AuditLog, "restore.database-recovered", id, "managed databases removed after unclean shutdown")
-		}
-		recovered, err := RecoverSiteTransactions(cfg.RecoveryRoot)
-		if err != nil {
-			recoveryFailures = append(recoveryFailures, err)
-			log.Printf("recover interrupted site transactions (continuing with isolated failures): %v", err)
-		}
-		for _, id := range recovered {
-			txn, loadErr := loadSiteTransaction(filepath.Join(cfg.RecoveryRoot, id))
-			if loadErr != nil {
-				recoveryFailures = append(recoveryFailures, fmt.Errorf("load recovered site transaction %s: %w", id, loadErr))
-				log.Printf("load recovered site transaction %s: %v", id, loadErr)
-				continue
-			}
-			if sealErr := siteHelper(cfg, "seal", txn.Site); sealErr != nil {
-				recoveryFailures = append(recoveryFailures, fmt.Errorf("seal recovered site transaction %s: %w", id, sealErr))
-				log.Printf("seal recovered site transaction %s: %v", id, sealErr)
-				continue
-			}
-			log.Printf("recovered interrupted site transaction %s", id)
-			_ = Audit(cfg.AuditLog, "restore.recovered", id, "previous site restored after unclean shutdown")
-		}
-		if err := CleanupImportStages(cfg.ImportRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
-			log.Printf("import stage cleanup during startup: %v", err)
-		}
-		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
-			log.Printf("site recovery cleanup during startup: %v", err)
-		}
-	}
+	// Recovery and reconciliation are started after the HTTP control plane is
+	// listening. Readiness remains false until this work has completed.
 	viewData, err := webAssets.ReadFile("web/index.html")
 	if err != nil {
 		log.Fatalf("load embedded dashboard: %v", err)
@@ -418,7 +398,8 @@ func main() {
 		log.Fatalf("open backup schedules: %v", err)
 	}
 	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, webhookReplayCache: NewWebhookReplayCache(5 * time.Minute), RecoveryError: errors.Join(recoveryFailures...)}
+	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, webhookReplayCache: NewWebhookReplayCache(5 * time.Minute)}
+	app.startup.begin()
 	// Reconcile domains independently. A single shared deadline allowed a slow
 	// host/helper operation in an early domain to starve every later domain.
 	// Each domain remains bounded, and failures are retained in its own report.
@@ -432,17 +413,55 @@ func main() {
 			log.Printf("%s reconciliation incomplete: reconciled=%d failed=%d", name, len(reconciled), len(failed))
 		}
 	}
-	// Only the panel process owns host reconciliation. Prior to this guard,
-	// panel and worker both ran the reconcile() calls between startup and
-	// their mode split at line ~420, so two processes could concurrently
-	// mutate routes, SSH access, PHP profiles, tasks, resource profiles and
-	// environments during boot. The worker unit's After=stepanel.service only
-	// guarantees the panel *started* — not that it finished reconciling —
-	// so a systemd-level ordering rule alone does not prevent the race.
-	// Reconciliation stays on a single process; if a future release adds
-	// hot standby, use a cross-process lease (see internal/operations/db_locks.go)
-	// to elect the reconciliation leader rather than lifting this guard.
-	if !workerMode {
+	runStartup := func() {
+		var failures []error
+		if cfg.DBCtl != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			output, err := runBoundedCommand(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, "reconcile"))
+			cancel()
+			if err != nil {
+				failures = append(failures, fmt.Errorf("reconcile interrupted database operations: %w: %s", err, strings.TrimSpace(string(output))))
+			}
+		}
+		databaseRecoveries, err := RecoverTransactionDatabases(cfg, cfg.RecoveryRoot)
+		if err != nil {
+			failures = append(failures, err)
+			log.Printf("recover interrupted database transactions (continuing with isolated failures): %v", err)
+		}
+		for _, id := range databaseRecoveries {
+			log.Printf("recovered databases for interrupted site transaction %s", id)
+			if err := Audit(cfg.AuditLog, "restore.database-recovered", id, "managed databases removed after unclean shutdown"); err != nil {
+				failures = append(failures, fmt.Errorf("audit database recovery %s: %w", id, err))
+			}
+		}
+		recovered, err := RecoverSiteTransactions(cfg.RecoveryRoot)
+		if err != nil {
+			failures = append(failures, err)
+			log.Printf("recover interrupted site transactions (continuing with isolated failures): %v", err)
+		}
+		for _, id := range recovered {
+			txn, loadErr := loadSiteTransaction(filepath.Join(cfg.RecoveryRoot, id))
+			if loadErr != nil {
+				failures = append(failures, fmt.Errorf("load recovered site transaction %s: %w", id, loadErr))
+				log.Printf("load recovered site transaction %s: %v", id, loadErr)
+				continue
+			}
+			if sealErr := siteHelper(cfg, "seal", txn.Site); sealErr != nil {
+				failures = append(failures, fmt.Errorf("seal recovered site transaction %s: %w", id, sealErr))
+				log.Printf("seal recovered site transaction %s: %v", id, sealErr)
+				continue
+			}
+			log.Printf("recovered interrupted site transaction %s", id)
+			if err := Audit(cfg.AuditLog, "restore.recovered", id, "previous site restored after unclean shutdown"); err != nil {
+				failures = append(failures, fmt.Errorf("audit site recovery %s: %w", id, err))
+			}
+		}
+		if err := CleanupImportStages(cfg.ImportRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
+			log.Printf("import stage cleanup during startup: %v", err)
+		}
+		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
+			log.Printf("site recovery cleanup during startup: %v", err)
+		}
 		reconcile("routes", app.reconcileRoutes)
 		reconcile("SSH access", app.reconcileSiteAccess)
 		reconcile("workers", app.reconcileWorkers)
@@ -451,12 +470,15 @@ func main() {
 		reconcile("scheduled task", app.reconcileTasks)
 		reconcile("resource profile", app.reconcileResourceProfiles)
 		reconcile("environment", app.reconcileEnvironments)
-	}
-	// Git release retention is a mutation over the shared sites tree — panel
-	// only, same reason as the reconciliation block above.
-	if !workerMode {
 		if err := pruneAllGitReleases(cfg); err != nil {
 			log.Printf("Git release retention during startup: %v", err)
+		}
+		startupError := errors.Join(failures...)
+		app.startup.finish(startupError)
+		if startupError != nil {
+			log.Printf("startup recovery completed with degraded readiness: %v", startupError)
+		} else {
+			log.Printf("startup recovery and reconciliation completed")
 		}
 	}
 	if err := Audit(cfg.AuditLog, "service.started", "stepanel", "control plane initialized"); err != nil {
@@ -465,6 +487,7 @@ func main() {
 	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if workerMode {
+		app.startup.finish(nil)
 		log.Printf("StePanel durable worker started with pid %d", os.Getpid())
 		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis", "archive.inspect", "archive.import"}, 500*time.Millisecond, app.handleDurableJob)
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -636,8 +659,10 @@ func main() {
 	// Wrap with security headers middleware (must be outermost)
 	secureHandler := securityHeadersMiddleware(cfg)(logging(normalizeAPIErrors(mux), app.Metrics, cfg.Production))
 	server := &http.Server{Addr: cfg.Listen, Handler: secureHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	serverStarted := make(chan struct{})
 	go func() {
 		log.Printf("StePanel listening on %s", cfg.Listen)
+		close(serverStarted)
 		var err error
 		if cfg.TLSCertFile != "" {
 			err = server.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
@@ -648,6 +673,8 @@ func main() {
 			log.Fatal(err)
 		}
 	}()
+	<-serverStarted
+	go runStartup()
 	<-runCtx.Done()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -907,7 +934,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, err
 	}
 	if err = uploadOffsite(a.Config, result); err != nil {
-		_ = ShouldAudit(a.Config.AuditLog, request.Actor, "site.backup.offsite_failed", request.Site, err.Error())
+		recordAudit(a.Config.AuditLog, request.Actor, "site.backup.offsite_failed", request.Site, err.Error())
 		if request.Scheduled {
 			started := request.StartedAt
 			if started.IsZero() {
@@ -927,7 +954,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		a.Schedules.recordResult(request.Site, started, nil)
 		if err := pruneSiteBackups(a.Config.BackupRoot, access, request.KeepLast); err != nil {
-			_ = ShouldAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
+			recordAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
 		}
 	}
 	output, err := json.Marshal(result)
@@ -1144,7 +1171,7 @@ func (a *App) jobStatus(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		_ = ShouldAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "job.dead_letter.requeued", id, "operator-approved retry")
+		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "job.dead_letter.requeued", id, "operator-approved retry")
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "requeued", "job_id": id})
 		return
 	}
@@ -1458,4 +1485,14 @@ func ShouldAudit(auditLog, actor, action, target, detail string) error {
 		return err
 	}
 	return nil
+}
+
+// recordAudit is for best-effort telemetry and background notifications. It
+// deliberately logs the failure rather than allowing an ignored error to
+// hide an unhealthy audit sink. Mutations whose correctness depends on the
+// audit record must use MustAudit or a durable lifecycle journal.
+func recordAudit(auditLog, actor, action, target, detail string) {
+	if err := ShouldAudit(auditLog, actor, action, target, detail); err != nil {
+		log.Printf("[ERROR] audit record unavailable for %s/%s: %v", action, target, err)
+	}
 }

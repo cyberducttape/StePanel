@@ -315,7 +315,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 		})
 	})
 	if err != nil {
-		_ = ShouldAudit(a.Config.AuditLog, actor, "archive.import.failed", req.SiteName, err.Error())
+		recordAudit(a.Config.AuditLog, actor, "archive.import.failed", req.SiteName, err.Error())
 		return fmt.Errorf("archive extraction failed: %w", err)
 	}
 
@@ -332,7 +332,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 		if !committed {
 			if rbErr := txn.Rollback(); rbErr != nil {
 				// The recovery journal has enough state to finish the rollback on next boot.
-				_ = ShouldAudit(a.Config.AuditLog, actor, "archive.import.rollback-failed", req.SiteName, rbErr.Error())
+				recordAudit(a.Config.AuditLog, actor, "archive.import.rollback-failed", req.SiteName, rbErr.Error())
 			}
 		}
 	}()
@@ -356,7 +356,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 		result.CreatedAt = time.Now().UTC()
 	}
 
-	_ = ShouldAudit(a.Config.AuditLog, actor, "archive.import.completed", req.SiteName, req.ArchiveURL)
+	recordAudit(a.Config.AuditLog, actor, "archive.import.completed", req.SiteName, req.ArchiveURL)
 
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
