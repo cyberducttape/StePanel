@@ -142,13 +142,13 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid worker action", 422)
 			return
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 		if lockErr != nil {
 			http.Error(w, "worker operation is busy", http.StatusConflict)
 			return
 		}
 		defer releaseUnlock()
-		if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "worker-"+parts[2], site, name); err != nil {
+		if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "worker-"+parts[2], site, name); err != nil {
 			http.Error(w, "worker action failed", 502)
 			return
 		}
@@ -166,7 +166,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid CSRF token", 403)
 			return
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 		if lockErr != nil {
 			http.Error(w, "worker mutation is busy", http.StatusConflict)
 			return
@@ -184,7 +184,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "worker state could not be saved", 503)
 			return
 		}
-		if e := a.applyWorker(r.Context(), worker); e != nil {
+		if e := a.applyWorker(operationCtx, worker); e != nil {
 			a.recordWorkerError(key, e)
 			http.Error(w, "worker removal is pending reconciliation", http.StatusBadGateway)
 			return
@@ -218,7 +218,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid worker root", 422)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 	if lockErr != nil {
 		http.Error(w, "worker mutation is busy", http.StatusConflict)
 		return
@@ -230,7 +230,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "worker state could not be saved", 503)
 		return
 	}
-	if e := a.applyWorker(r.Context(), input); e != nil {
+	if e := a.applyWorker(operationCtx, input); e != nil {
 		a.recordWorkerError(key, e)
 		http.Error(w, "worker is pending reconciliation", 502)
 		return
@@ -280,12 +280,12 @@ func (a *App) reconcileWorkers(ctx context.Context) (reconciled []string, failed
 	a.Workers.mu.RUnlock()
 	for _, worker := range pending {
 		key := worker.Site + "/" + worker.Name
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, worker.Site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, worker.Site)
 		if lockErr != nil {
 			failed[key] = lockErr.Error()
 			continue
 		}
-		if err := a.applyWorker(ctx, worker); err != nil {
+		if err := a.applyWorker(operationCtx, worker); err != nil {
 			failed[key] = err.Error()
 			a.recordWorkerError(key, err)
 			releaseUnlock()

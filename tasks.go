@@ -274,7 +274,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "insufficient token scope for task operations", http.StatusForbidden)
 			return
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 		if lockErr != nil {
 			http.Error(w, "task operation is busy", http.StatusConflict)
 			return
@@ -290,7 +290,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not persist task state", 503)
 			return
 		}
-		if err := a.applyTask(r.Context(), task); err != nil {
+		if err := a.applyTask(operationCtx, task); err != nil {
 			a.recordTaskError(key, err)
 			http.Error(w, "scheduled task removal is pending reconciliation", 502)
 			return
@@ -329,7 +329,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid scheduled task definition", 422)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 	if lockErr != nil {
 		http.Error(w, "task mutation is busy", http.StatusConflict)
 		return
@@ -341,7 +341,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not persist task state", 503)
 		return
 	}
-	if err := a.applyTask(r.Context(), input); err != nil {
+	if err := a.applyTask(operationCtx, input); err != nil {
 		a.recordTaskError(key, err)
 		http.Error(w, "scheduled task is pending reconciliation", 502)
 		return
@@ -415,12 +415,12 @@ func (a *App) reconcileTasks(ctx context.Context) (reconciled []string, failed m
 	a.Tasks.mu.RUnlock()
 	for _, task := range pending {
 		key := task.Site + "/" + task.Name
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, task.Site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, task.Site)
 		if lockErr != nil {
 			failed[key] = lockErr.Error()
 			continue
 		}
-		if err := a.applyTask(ctx, task); err != nil {
+		if err := a.applyTask(operationCtx, task); err != nil {
 			failed[key] = err.Error()
 			a.recordTaskError(key, err)
 			releaseUnlock()
