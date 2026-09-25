@@ -41,3 +41,8 @@ The command writes a dated Markdown result under `docs/lab-results/`. These
 tests use synthetic temporary data and document local contracts; they do not
 replace the Docker/systemd failure-injection scenarios or a real disposable
 host screenshot.
+
+`install-smoke.sh` also runs `cpmove-import-smoke.sh`, which logs into the
+installed panel, uploads a synthetic cpmove archive, waits for the durable
+restore job, and verifies the imported file under `/var/www/sites/ci-import`.
+Set `CPMOVE_SMOKE_SITE` to use a different disposable site name.

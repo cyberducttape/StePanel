@@ -57,3 +57,7 @@ if [[ $STEPANEL_WEBSERVER == apache ]]; then
 else
   caddy validate --config /etc/caddy/Caddyfile
 fi
+
+# Exercise the installed HTTP upload and durable cpmove worker path. This
+# creates a separate disposable site so the helper smoke remains intact.
+bash /work/deploy/lab/cpmove-import-smoke.sh

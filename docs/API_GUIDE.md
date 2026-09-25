@@ -103,10 +103,19 @@ curl -fsS "$PANEL/api/health" | jq     # process health
 curl -fsS "$PANEL/metrics"              # Prometheus text format
 ```
 
-`/readyz` returns `503` when persistent storage is unavailable, the control
-plane fails its SQLite integrity check, a durable job is dead-lettered, or
-required resource enforcement remains pending. Treat that as an operational
-gate, not as a request to retry blindly.
+`/readyz` returns `503` only when the control plane cannot safely serve
+requests—for example, while startup recovery is running, persistent storage
+is unavailable, the SQLite integrity check fails, or session persistence is
+unavailable. Dead letters, capacity, backup, reconciliation, and audit-outbox
+backlog are reported separately by the authenticated operational endpoint:
+
+```sh
+curl -fsS -H "Authorization: Bearer $STEPANEL_TOKEN" \
+  "$PANEL/api/health/operational" | jq
+```
+
+That separation keeps the administrative control plane reachable when an
+operator needs to inspect or requeue a failed background job.
 
 Administrator diagnostics and security posture:
 
