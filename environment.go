@@ -49,7 +49,11 @@ func (a *App) reconcileEnvironments(ctx context.Context) (reconciled []string, f
 	}
 	a.Environments.mu.RUnlock()
 	for site, vars := range desired {
-		releaseUnlock := a.siteOperations.Acquire(site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, site)
+		if lockErr != nil {
+			failed[site] = lockErr.Error()
+			continue
+		}
 		if err := a.applyEnvironmentLocked(ctx, site, vars); err != nil {
 			failed[site] = err.Error()
 			releaseUnlock()
@@ -295,7 +299,11 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		releaseUnlock := a.siteOperations.Acquire(site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		if lockErr != nil {
+			http.Error(w, "environment mutation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		a.Environments.mu.Lock()
 		previous, existed := a.Environments.values[site]
@@ -328,7 +336,11 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "API token lacks the environment:write scope", 403)
 			return
 		}
-		releaseUnlock := a.siteOperations.Acquire(site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		if lockErr != nil {
+			http.Error(w, "environment mutation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		if err := a.removeEnvironment(r.Context(), access); err != nil {
 			if strings.Contains(err.Error(), "desired state save failed") {

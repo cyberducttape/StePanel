@@ -142,7 +142,11 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid worker action", 422)
 			return
 		}
-		releaseUnlock := a.siteOperations.Acquire(site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		if lockErr != nil {
+			http.Error(w, "worker operation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "worker-"+parts[2], site, name); err != nil {
 			http.Error(w, "worker action failed", 502)
@@ -162,7 +166,11 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid CSRF token", 403)
 			return
 		}
-		releaseUnlock := a.siteOperations.Acquire(site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		if lockErr != nil {
+			http.Error(w, "worker mutation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		key := site + "/" + name
 		a.Workers.mu.RLock()
@@ -210,7 +218,11 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid worker root", 422)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	if lockErr != nil {
+		http.Error(w, "worker mutation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	key := site + "/" + name
 	e := a.Workers.save(key, input)
@@ -268,7 +280,11 @@ func (a *App) reconcileWorkers(ctx context.Context) (reconciled []string, failed
 	a.Workers.mu.RUnlock()
 	for _, worker := range pending {
 		key := worker.Site + "/" + worker.Name
-		releaseUnlock := a.siteOperations.Acquire(worker.Site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, worker.Site)
+		if lockErr != nil {
+			failed[key] = lockErr.Error()
+			continue
+		}
 		if err := a.applyWorker(ctx, worker); err != nil {
 			failed[key] = err.Error()
 			a.recordWorkerError(key, err)

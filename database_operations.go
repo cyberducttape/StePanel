@@ -342,7 +342,11 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "password must contain 20-128 supported characters", http.StatusUnprocessableEntity)
 			return
 		}
-		releaseUnlock := a.siteOperations.Acquire("database:" + name)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), "database:"+name)
+		if lockErr != nil {
+			http.Error(w, "database mutation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		if _, err := runDatabaseHelper(a.Config, 30*time.Second, in.Password, "rotate", name, in.User); err != nil {
 			http.Error(w, "credential rotation failed", http.StatusConflict)
@@ -355,7 +359,11 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "confirmation must exactly match DROP "+name, http.StatusUnprocessableEntity)
 			return
 		}
-		releaseUnlock := a.siteOperations.Acquire("database:" + name)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), "database:"+name)
+		if lockErr != nil {
+			http.Error(w, "database mutation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		safetyBackup, err := createDatabaseSafetyBackup(a.Config, name)
 		if err != nil {

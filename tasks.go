@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -171,7 +172,10 @@ func (a *App) killTask(site, name string) error {
 	if a.Config.TaskCtl == "" {
 		return errors.New("task control helper not configured")
 	}
-	releaseUnlock := a.siteOperations.Acquire(site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(context.Background(), site)
+	if lockErr != nil {
+		return fmt.Errorf("acquire task lock: %w", lockErr)
+	}
 	defer releaseUnlock()
 	return runHelperCommandWithTimeout(context.Background(), a.Config, taskTimeoutDefault, a.Config.TaskCtl, "kill", site, name)
 }
@@ -270,7 +274,11 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "insufficient token scope for task operations", http.StatusForbidden)
 			return
 		}
-		releaseUnlock := a.siteOperations.Acquire(site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		if lockErr != nil {
+			http.Error(w, "task operation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		key := site + "/" + name
 		a.Tasks.mu.RLock()
@@ -321,7 +329,11 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid scheduled task definition", 422)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	if lockErr != nil {
+		http.Error(w, "task mutation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	key := site + "/" + name
 	err := a.Tasks.save(key, input)
@@ -403,7 +415,11 @@ func (a *App) reconcileTasks(ctx context.Context) (reconciled []string, failed m
 	a.Tasks.mu.RUnlock()
 	for _, task := range pending {
 		key := task.Site + "/" + task.Name
-		releaseUnlock := a.siteOperations.Acquire(task.Site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, task.Site)
+		if lockErr != nil {
+			failed[key] = lockErr.Error()
+			continue
+		}
 		if err := a.applyTask(ctx, task); err != nil {
 			failed[key] = err.Error()
 			a.recordTaskError(key, err)

@@ -479,7 +479,11 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid resource profile", 422)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	if lockErr != nil {
+		http.Error(w, "resource mutation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	a.Resources.mu.Lock()
 	a.Resources.values[site] = p
@@ -590,7 +594,11 @@ func (a *App) reconcileResourceProfiles(ctx context.Context) (reconciled []strin
 		}
 	}
 	for _, p := range pending {
-		releaseUnlock := a.siteOperations.Acquire(p.Site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, p.Site)
+		if lockErr != nil {
+			failed[p.Site] = lockErr.Error()
+			continue
+		}
 		err := a.applyResourceProfile(ctx, p, p.FilesystemQuotaState == "clear-pending")
 		if err != nil {
 			failed[p.Site] = "apply failed"
