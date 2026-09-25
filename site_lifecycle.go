@@ -220,7 +220,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 8: OWNERSHIP_REMOVED.
 	if !journal.isComplete(stepOwnershipRemoved) {
-		if err := a.detachSiteOwnership(access); err != nil {
+		if err := a.detachSiteOwnership(operationCtx, access); err != nil {
 			return nil, err
 		}
 		if err := journal.markComplete(stepOwnershipRemoved); err != nil {
@@ -295,7 +295,7 @@ func runDatabaseTermination(ctx context.Context, cfg Config, database DatabaseRe
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	output, err := runDatabaseHelper(cfg, time.Minute, "", "drop-managed", database.Name, database.User)
+	output, err := runDatabaseHelperContext(ctx, cfg, time.Minute, "", "drop-managed", database.Name, database.User)
 	if err != nil {
 		return fmt.Errorf("drop managed database %s: %w: %s", database.Name, err, strings.TrimSpace(string(output)))
 	}
@@ -378,19 +378,31 @@ func (a *App) removeSiteTasks(ctx context.Context, site SiteCapability) error {
 	return nil
 }
 
-func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
+func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if a.Routes != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := a.Routes.removeSite(site); err != nil {
 			return fmt.Errorf("remove route desired state: %w", err)
 		}
 	}
 	if a.Domains != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := a.Domains.removeSite(site); err != nil {
 			return fmt.Errorf("remove domain claim state: %w", err)
 		}
 	}
 	siteName := site.Site()
 	if a.Access != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.Access.mu.Lock()
 		delete(a.Access.values, siteName)
 		err := a.Access.persistLocked()
@@ -400,6 +412,9 @@ func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
 		}
 	}
 	if a.Environments != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.Environments.mu.Lock()
 		had := a.Environments.values[siteName] != nil
 		delete(a.Environments.values, siteName)
@@ -410,6 +425,9 @@ func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
 		}
 	}
 	if a.Redis != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.Redis.mu.Lock()
 		delete(a.Redis.values, siteName)
 		err := a.Redis.persistLocked()
@@ -419,6 +437,9 @@ func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
 		}
 	}
 	if a.Resources != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.Resources.mu.Lock()
 		delete(a.Resources.values, siteName)
 		err := a.Resources.persistLocked()
@@ -428,6 +449,9 @@ func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
 		}
 	}
 	if a.PHP != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.PHP.mu.Lock()
 		delete(a.PHP.values, siteName)
 		err := persistPHPProfilesLocked(a.PHP)
@@ -437,6 +461,9 @@ func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
 		}
 	}
 	if a.Composer != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.Composer.mu.Lock()
 		delete(a.Composer.latest, siteName)
 		err := persistComposerLocked(a.Composer)
@@ -446,6 +473,9 @@ func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
 		}
 	}
 	if a.Workers != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.Workers.mu.Lock()
 		for key, value := range a.Workers.values {
 			if value.Site == siteName {
@@ -459,6 +489,9 @@ func (a *App) removeSiteState(_ context.Context, site SiteCapability) error {
 		}
 	}
 	if a.Tasks != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.Tasks.mu.Lock()
 		for key, value := range a.Tasks.values {
 			if value.Site == siteName {
@@ -496,7 +529,10 @@ func persistComposerLocked(store *ComposerStore) error {
 	return writeAtomic(store.path, append(data, '\n'), 0600)
 }
 
-func (a *App) detachSiteOwnership(site SiteCapability) error {
+func (a *App) detachSiteOwnership(ctx context.Context, site SiteCapability) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if a.Accounts == nil {
 		return nil
 	}
@@ -515,12 +551,15 @@ func (a *App) detachSiteOwnership(site SiteCapability) error {
 			remaining = append(remaining, assigned)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if _, err := a.Accounts.Update(owner, account.Plan, remaining); err != nil {
 		return fmt.Errorf("detach site ownership: %w", err)
 	}
 	if a.Resources != nil && a.Config.AppCtl != "" {
 		if plan, exists := hostingPlans[account.Plan]; exists && remaining != nil {
-			if err := a.applyAccountResourceEnvelope(owner, plan); err != nil {
+			if err := a.applyAccountResourceEnvelopeContext(ctx, owner, plan); err != nil {
 				return fmt.Errorf("reconcile remaining account resources: %w", err)
 			}
 		}
