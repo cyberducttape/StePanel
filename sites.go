@@ -107,7 +107,10 @@ func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func newSiteOverview(cfg Config, site string) *siteOverview {
-	root := filepath.Join(cfg.WebRoot, "sites", site, "public")
+	root, pathErr := safePath(cfg.WebRoot, "sites", site, "public")
+	if pathErr != nil {
+		return &siteOverview{Site: site, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}}
+	}
 	_, err := os.Stat(root)
 	return &siteOverview{Site: site, DocumentRoot: root, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}, Exists: err == nil}
 }

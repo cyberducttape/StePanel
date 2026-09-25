@@ -217,6 +217,9 @@ func validAppManifest(cfg Config, app AppManifest, site string) bool {
 	if app.Site != site || safeUser(app.Site) == "" || !domainPattern.MatchString(strings.ToLower(app.Domain)) || !nodeVersionPattern.MatchString(app.Version) || app.Port < 1024 || app.Port > 65535 {
 		return false
 	}
-	expected := filepath.Join(cfg.WebRoot, "sites", site, "public")
-	return filepath.Clean(app.Root) == filepath.Clean(expected) && ensureInside(cfg.WebRoot, app.Root) == nil
+	expected, err := safePath(cfg.WebRoot, "sites", site, "public")
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(app.Root) == filepath.Clean(expected)
 }

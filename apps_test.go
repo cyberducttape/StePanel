@@ -83,3 +83,19 @@ func TestValidAppManifestRejectsUnexpectedRoot(t *testing.T) {
 		t.Fatal("manifest outside the managed site root was accepted")
 	}
 }
+
+func TestValidAppManifestRejectsSymlinkedSiteRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	webRoot := filepath.Join(root, "web")
+	if err := os.MkdirAll(filepath.Join(webRoot, "sites"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(webRoot, "sites", "demo")); err != nil {
+		t.Fatal(err)
+	}
+	manifest := AppManifest{Site: "demo", Domain: "demo.example.test", Version: "v22.1.0", Port: 3000, Root: filepath.Join(webRoot, "sites", "demo", "public")}
+	if validAppManifest(Config{WebRoot: webRoot}, manifest, "demo") {
+		t.Fatal("manifest under a symlinked site root was accepted")
+	}
+}
