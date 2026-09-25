@@ -35,6 +35,27 @@ func TestCreateSiteBackupPublishesVerifiedManifest(t *testing.T) {
 	}
 }
 
+func TestCreateSiteBackupFailureInjectionCleansTemporaryArchive(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "backup")
+	t.Setenv("STEPANEL_FAIL_AT", "backup:commit")
+
+	if _, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "account"}, false); err == nil || !strings.Contains(err.Error(), "failure injection") {
+		t.Fatalf("CreateSiteBackup error = %v, want injected failure", err)
+	}
+	entries, err := os.ReadDir(backupRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".backup-") {
+			t.Fatalf("temporary backup survived injected failure: %s", entry.Name())
+		}
+	}
+}
+
 func TestSignedBackupManifestRequiresValidExternalKey(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

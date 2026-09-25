@@ -193,6 +193,9 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 	if err := os.Chmod(tempDir, 0700); err != nil {
 		return result, err
 	}
+	if err := failureInjection("backup", "init"); err != nil {
+		return result, err
+	}
 	archivePath := filepath.Join(tempDir, "backup.tar.gz")
 	archive, err := os.OpenFile(archivePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
@@ -256,6 +259,9 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 	if err := closeArchive(); err != nil {
 		return result, err
 	}
+	if err := failureInjection("backup", "archive"); err != nil {
+		return result, err
+	}
 	archiveInfo, err := os.Stat(archivePath)
 	if err != nil {
 		return result, err
@@ -263,6 +269,9 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 	manifest.Bytes = archiveInfo.Size()
 	manifest.ArchiveSHA256, err = fileSHA256(archivePath)
 	if err != nil {
+		return result, err
+	}
+	if err := failureInjection("backup", "verify"); err != nil {
 		return result, err
 	}
 	if err := VerifyBackupArchive(archivePath, manifest); err != nil {
@@ -282,6 +291,9 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 	}
 	finalName := manifest.CreatedAt.Format("20060102-150405.000000000") + "-" + siteName
 	finalPath := filepath.Join(cfg.BackupRoot, finalName)
+	if err := failureInjection("backup", "commit"); err != nil {
+		return result, err
+	}
 	if err := os.Rename(tempDir, finalPath); err != nil {
 		return result, err
 	}
