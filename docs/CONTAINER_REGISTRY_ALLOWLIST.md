@@ -4,7 +4,8 @@
 > rollout history. The current release gate is
 > [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). The implementation uses
 > `github.com/distribution/reference`, requires SHA-256 digests at deployment
-> boundaries, and does not implement image-size enforcement.
+> boundaries, and enforces the configured image-size ceiling in the
+> privileged runner helper.
 
 ## Problem
 
@@ -307,14 +308,14 @@ container:
 | Typosquatting registry | Whitelisted registries only |
 | Localhost attack | localhost:5000 not in allowlist |
 | Registry enumeration | Admin controls allowlist explicitly |
-| Large image DoS | Not currently enforced; monitor separately |
+| Large image DoS | Runner helper rejects pulled images above `STEPANEL_RUNNER_MAX_IMAGE_BYTES` |
 
 ## Phased Implementation
 
 ### v0.7.0 (Blocker Fix)
 - [x] ParseContainerImage() validation
 - [x] Registry allowlist enforcement
-- [ ] Image size limits (not implemented)
+- [x] Image size limit enforced by the privileged runner helper
 - [ ] Site-specific overrides (deferred)
 - [ ] Integration with Dockerfile parsing
 

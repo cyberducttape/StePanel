@@ -52,10 +52,8 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Image-size enforcement is not implemented. The prior TODO here
-	// described the OCI-manifest fetch that would be required. Do not
-	// claim the size limit in changelog or docs until the fetch is
-	// actually wired.
+	// The privileged runner helper pulls the pinned digest and enforces the
+	// configured byte ceiling immediately before execution.
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403); !ok {
 		return
 	}
