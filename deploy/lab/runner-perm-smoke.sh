@@ -69,7 +69,7 @@ rm -f -- "$artifact/proof" 2>/dev/null || true
 
 /usr/local/sbin/stepanel-runnerctl build \
   "$RUNNER_TEST_SITE" "$RUNNER_TEST_IMAGE" "$site_root/public" "$script" \
-  100 256 128 none
+  100 256 128 none 5368709120
 
 # Post-conditions: helper must have cleaned up the scratch dir (the trap
 # inside stepanel-runnerctl) and the build must actually have run inside the

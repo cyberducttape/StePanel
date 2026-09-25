@@ -235,6 +235,7 @@ func (a *App) pipelineBuildArgs(site, image, root, scriptPath string) []string {
 		strconv.Itoa(memoryMB),
 		strconv.Itoa(tasksMax),
 		a.Config.RunnerNetworkMode,
+		strconv.FormatInt(a.Config.RunnerMaxImageBytes, 10),
 	}
 }
 

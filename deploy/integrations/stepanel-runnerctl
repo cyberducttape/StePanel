@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 [[ $EUID -eq 0 ]] || { echo 'must run as root' >&2; exit 1; }
-[[ $# -eq 9 && $1 == "build" ]] || { echo 'usage: stepanel-runnerctl build SITE IMAGE ROOT SCRIPT CPU_PERCENT MEMORY_MB TASKS_MAX NETWORK_MODE' >&2; exit 64; }
-site=$2 image=$3 root=$4 script=$5 cpu_percent=$6 memory_mb=$7 tasks_max=$8 network_mode=$9
-[[ $site =~ ^[a-z0-9_-]{1,32}$ && $image =~ ^[a-z0-9][a-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$ && $cpu_percent =~ ^[0-9]+$ && $memory_mb =~ ^[0-9]+$ && $tasks_max =~ ^[0-9]+$ && $cpu_percent -ge 25 && $cpu_percent -le 6400 && $memory_mb -ge 64 && $memory_mb -le 1048576 && $tasks_max -ge 16 && $tasks_max -le 100000 && ( $network_mode == "none" || $network_mode == "egress" ) && ( $root == "/var/www/sites/$site/public" || $root =~ ^/var/www/sites/$site/\.stepanel-release-[A-Za-z0-9-]+$ ) ]] || { echo 'invalid build request' >&2; exit 1; }
+[[ $# -eq 10 && $1 == "build" ]] || { echo 'usage: stepanel-runnerctl build SITE IMAGE ROOT SCRIPT CPU_PERCENT MEMORY_MB TASKS_MAX NETWORK_MODE MAX_IMAGE_BYTES' >&2; exit 64; }
+site=$2 image=$3 root=$4 script=$5 cpu_percent=$6 memory_mb=$7 tasks_max=$8 network_mode=$9 max_image_bytes=${10}
+[[ $site =~ ^[a-z0-9_-]{1,32}$ && $image =~ ^[a-z0-9][a-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$ && $cpu_percent =~ ^[0-9]+$ && $memory_mb =~ ^[0-9]+$ && $tasks_max =~ ^[0-9]+$ && $max_image_bytes =~ ^[0-9]+$ && $cpu_percent -ge 25 && $cpu_percent -le 6400 && $memory_mb -ge 64 && $memory_mb -le 1048576 && $tasks_max -ge 16 && $tasks_max -le 100000 && $max_image_bytes -gt 0 && ( $network_mode == "none" || $network_mode == "egress" ) && ( $root == "/var/www/sites/$site/public" || $root =~ ^/var/www/sites/$site/\.stepanel-release-[A-Za-z0-9-]+$ ) ]] || { echo 'invalid build request' >&2; exit 1; }
 site_root="/var/www/sites/$site"
 [[ -d $root && ! -L $root && -f $script && ! -L $script && -d "$site_root" && ! -L "$site_root" ]] || { echo 'invalid build inputs' >&2; exit 1; }
 command -v podman >/dev/null || { echo 'rootless Podman is required' >&2; exit 1; }
 hash=$(printf '%s' "$site" | sha256sum); hash=${hash%% *}; prefix=${site:0:18}; prefix=${prefix//_/-}; site_user="sp-${prefix}-${hash:0:8}"
 id "$site_user" >/dev/null 2>&1 || { echo 'site user is unavailable' >&2; exit 1; }
 artifact="$site_root/.stepanel-artifact"
+# Pull the immutable digest before execution so the size gate cannot be
+# bypassed by a first-use pull during `podman run`.
+runuser -u "$site_user" -- podman pull "$image" >/dev/null
+image_size=$(runuser -u "$site_user" -- podman image inspect --format '{{.Size}}' "$image")
+[[ $image_size =~ ^[0-9]+$ && $image_size -le $max_image_bytes ]] || { echo "container image exceeds configured size limit ($max_image_bytes bytes)" >&2; exit 1; }
 # Keep all customer-tree mutation under the site account. Root validates the
 # final directory but never recursively deletes a customer-controlled path.
 runuser -u "$site_user" -- install -d -m 0750 "$artifact"
