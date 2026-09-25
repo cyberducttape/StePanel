@@ -83,7 +83,11 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	releaseUnlock := a.siteOperations.Acquire(input.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "site is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	input.SourceDatabase = strings.ToLower(strings.TrimSpace(input.SourceDatabase))
 	input.TargetDatabase = strings.ToLower(strings.TrimSpace(input.TargetDatabase))

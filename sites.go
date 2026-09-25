@@ -221,6 +221,12 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := siteVHostConfigName(a.Config.WebServer, input.Site, input.Domain)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "site is busy", http.StatusConflict)
+		return
+	}
+	defer releaseUnlock()
 	if a.Routes != nil {
 		route := routeState(name, input.Site, input.Domain, "pending")
 		if err := a.Routes.save(route); err != nil {
@@ -228,8 +234,6 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	releaseUnlock := a.siteOperations.AcquireMany(input.Site, "vhost:"+name)
-	defer releaseUnlock()
 	if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "apply", input.Site, input.Domain); err != nil {
 		if a.Routes != nil {
 			route := routeState(name, input.Site, input.Domain, "pending")
@@ -277,6 +281,12 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site route not found", http.StatusNotFound)
 		return
 	}
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), "vhost:"+name)
+	if lockErr != nil {
+		http.Error(w, "route is busy", http.StatusConflict)
+		return
+	}
+	defer releaseUnlock()
 	var desired RouteDesired
 	hasDesired := false
 	if a.Routes != nil {
@@ -308,10 +318,6 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
-	// Route deletion receives the generated filename rather than a separately
-	// parsed site identifier. Serialize by route identity at this boundary.
-	releaseUnlock := a.siteOperations.Acquire("vhost:" + name)
-	defer releaseUnlock()
 	if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "delete", name); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
