@@ -239,6 +239,20 @@ func TestActivateStagedRejectsUnsafeOrInvalidTrees(t *testing.T) {
 	if _, err := m.ActivateStaged(context.Background(), "ordinary-target", ordinary); err == nil {
 		t.Fatal("ActivateStaged accepted a non-manager-owned direct site path")
 	}
+	outsideStage := filepath.Join(root, "outside-stage")
+	if err := os.MkdirAll(outsideStage, 0750); err != nil {
+		t.Fatal(err)
+	}
+	symlinkStage := filepath.Join(root, "sites", ".import-staging", "job-link")
+	if err := os.MkdirAll(filepath.Dir(symlinkStage), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideStage, symlinkStage); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ActivateStaged(context.Background(), "symlink-target", symlinkStage); err == nil {
+		t.Fatal("ActivateStaged accepted a symlinked staging tree")
+	}
 
 	parent := filepath.Join(root, "sites", ".import-staging", "job-2")
 	if err := os.MkdirAll(filepath.Join(parent, "public"), 0750); err != nil {

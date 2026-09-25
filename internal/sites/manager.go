@@ -229,6 +229,7 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	// name supplied by the trusted directory listing, not the original request
 	// path expression.
 	var stagedEntry string
+	var stagedInfo os.FileInfo
 	entries, err := os.ReadDir(stagedParent)
 	if err != nil {
 		return nil, fmt.Errorf("sites.Manager: inspect staging parent: %w", err)
@@ -236,16 +237,15 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	for _, entry := range entries {
 		if entry.Name() == stagedName {
 			stagedEntry = filepath.Join(stagedParent, entry.Name())
+			stagedInfo, err = entry.Info()
+			if err != nil {
+				return nil, fmt.Errorf("sites.Manager: inspect staged site: %w", err)
+			}
 			break
 		}
 	}
 	if stagedEntry == "" {
 		return nil, errors.New("sites.Manager: staged site does not exist")
-	}
-	stagedRoot = stagedEntry
-	stagedInfo, err := os.Lstat(stagedRoot)
-	if err != nil {
-		return nil, fmt.Errorf("sites.Manager: inspect staged site: %w", err)
 	}
 	if stagedInfo.Mode()&os.ModeSymlink != 0 || !stagedInfo.IsDir() {
 		return nil, errors.New("sites.Manager: staged site must be a directory")
@@ -261,7 +261,7 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := os.Rename(stagedRoot, destination); err != nil {
+	if err := os.Rename(stagedEntry, destination); err != nil {
 		return nil, fmt.Errorf("sites.Manager: activate staged site: %w", err)
 	}
 	return &Site{Name: name, Status: "ready", CreatedAt: time.Now().UTC(), WebRoot: destination}, nil
