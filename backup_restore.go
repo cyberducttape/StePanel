@@ -378,12 +378,18 @@ func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage st
 	if err != nil || !info.Mode().IsRegular() {
 		return false, errors.New("selected database dump is unavailable")
 	}
+	if err := failureInjection("restore", "provision"); err != nil {
+		return false, err
+	}
 	encoding := "utf8mb4"
 	if cfg.DBEngine == "postgresql" {
 		encoding = "UTF8"
 	}
 	if _, err := runDatabaseHelperContext(ctx, cfg, time.Minute, input.TargetPassword, "provision", input.TargetDatabase, input.TargetUser, input.Site, encoding); err != nil {
 		return false, fmt.Errorf("provision staging database: %w", err)
+	}
+	if err := failureInjection("restore", "provisioned"); err != nil {
+		return true, err
 	}
 	file, err := os.Open(dump)
 	if err != nil {
@@ -392,6 +398,9 @@ func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage st
 	defer file.Close()
 	ctx, cancel := context.WithTimeout(ctx, helperBackupRestoreTimeout)
 	defer cancel()
+	if err := failureInjection("restore", "database"); err != nil {
+		return true, err
+	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", input.TargetDatabase, input.Site)
 	cmd.Stdin = file
 	output, err := runBoundedCommand(ctx, cmd)
@@ -607,6 +616,9 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	info, err := os.Stat(dump)
 	if err != nil || !info.Mode().IsRegular() {
 		return BackupRestoreResult{}, errors.New("selected database dump is unavailable")
+	}
+	if err := failureInjection("restore", "database"); err != nil {
+		return BackupRestoreResult{}, err
 	}
 	input, err := os.Open(dump)
 	if err != nil {

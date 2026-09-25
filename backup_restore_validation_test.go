@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -12,6 +15,29 @@ func TestRestoreDatabaseIntoStagingContextHonorsCancellation(t *testing.T) {
 	_, err := restoreDatabaseIntoStagingContext(ctx, Config{}, "", RestoreToStagingRequest{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("restoreDatabaseIntoStagingContext error = %v, want context.Canceled", err)
+	}
+}
+
+func TestRestoreDatabaseIntoStagingContextInjectsProvisionFailure(t *testing.T) {
+	root := t.TempDir()
+	stage := filepath.Join(root, "stage")
+	if err := os.MkdirAll(filepath.Join(stage, "databases"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "databases", "source.sql"), []byte("CREATE TABLE test (id INT);"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STEPANEL_FAIL_AT", "restore:provision")
+
+	_, err := restoreDatabaseIntoStagingContext(context.Background(), Config{DBCtl: filepath.Join(root, "unused-helper")}, stage, RestoreToStagingRequest{
+		Database:       "source",
+		TargetDatabase: "target",
+		TargetUser:     "targetuser",
+		TargetPassword: "secure-password-1234567890",
+		Site:           "example",
+	})
+	if err == nil || !strings.Contains(err.Error(), "failure injection") {
+		t.Fatalf("database restore error = %v, want provision failure injection", err)
 	}
 }
 
