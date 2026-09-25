@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	usagecalc "github.com/cyberducttape/StePanel/internal/usage"
@@ -23,8 +22,8 @@ func (a *App) siteUsage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, site, "invalid or inaccessible site", 403); !ok {
 		return
 	}
-	root := filepath.Join(a.Config.WebRoot, "sites", site)
-	if err := ensureInside(a.Config.WebRoot, root); err != nil {
+	root, err := safePath(a.Config.WebRoot, "sites", site)
+	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}

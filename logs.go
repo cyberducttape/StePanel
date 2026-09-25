@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -39,8 +38,8 @@ func (a *App) siteLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter := r.URL.Query().Get("filter")
-	path := filepath.Join(a.Config.WebRoot, "sites", site, "logs", filename)
-	if err := ensureInside(a.Config.WebRoot, path); err != nil {
+	path, err := safePath(a.Config.WebRoot, "sites", site, "logs", filename)
+	if err != nil {
 		http.Error(w, "invalid log path", 422)
 		return
 	}
