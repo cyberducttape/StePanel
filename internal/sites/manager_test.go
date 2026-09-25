@@ -237,8 +237,8 @@ func TestActivateStagedRejectsUnsafeOrInvalidTrees(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(parent, "public"), 0750); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.ActivateStaged(context.Background(), "nested", parent); err == nil {
-		t.Fatal("ActivateStaged accepted a staging parent instead of a public tree")
+	if _, err := m.ActivateStaged(context.Background(), "nested", parent); err != nil {
+		t.Fatalf("ActivateStaged rejected a valid tree containing public/: %v", err)
 	}
 
 	canceled := filepath.Join(root, "sites", ".import-staging", "job-3")

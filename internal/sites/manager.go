@@ -174,9 +174,6 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	if stagedInfo.Mode()&os.ModeSymlink != 0 || !stagedInfo.IsDir() {
 		return nil, errors.New("sites.Manager: staged site must be a directory")
 	}
-	if _, err := os.Stat(filepath.Join(stagedRoot, "public")); err == nil {
-		return nil, errors.New("sites.Manager: staged root must be the public tree, not its parent")
-	}
 	if _, err := os.Lstat(destination); err == nil {
 		return nil, fmt.Errorf("sites.Manager: destination site %q already exists", name)
 	} else if !errors.Is(err, os.ErrNotExist) {

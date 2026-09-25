@@ -277,7 +277,7 @@ func (a *App) activatePipelineRelease(ctx context.Context, site, siteRoot, publi
 		}
 		return "", err
 	}
-	if err := os.Rename(release, publicRoot); err != nil {
+	if err := a.activateStagedSite(ctx, site, release); err != nil {
 		if previous != "" {
 			_ = os.Rename(previous, publicRoot)
 		}

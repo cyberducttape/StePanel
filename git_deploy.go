@@ -571,7 +571,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	if err := os.Rename(release, publicRoot); err != nil {
+	if err := a.activateStagedSite(operationCtx, input.Site, release); err != nil {
 		if previous != "" {
 			if rollbackErr := os.Rename(previous, publicRoot); rollbackErr != nil {
 				http.Error(w, "unable to activate the new release; rollback failed: "+rollbackErr.Error(), http.StatusServiceUnavailable)
@@ -670,7 +670,7 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	if err := os.Rename(previous, publicRoot); err != nil {
+	if err := a.activateStagedSite(operationCtx, input.Site, previous); err != nil {
 		_ = os.Rename(replaced, publicRoot)
 		http.Error(w, "unable to activate the previous release", http.StatusInternalServerError)
 		return
