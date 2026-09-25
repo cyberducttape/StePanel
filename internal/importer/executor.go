@@ -256,6 +256,22 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		return nil, err
 	}
 
+	// Validate the caller/archive-selected configuration path before joining
+	// it to the extraction root. Config parsing is an early read boundary and
+	// must have the same containment guarantee as the later rewrite path.
+	configFile := ""
+	if strings.TrimSpace(req.ConfigPath) != "" {
+		var configErr error
+		configFile, configErr = safeConfigPath(job.WebRoot, req.ConfigPath)
+		if configErr != nil {
+			job.Status = "failed"
+			job.Error = fmt.Sprintf("invalid config path: %v", configErr)
+			job.UpdatedAt = time.Now()
+			onProgress(job)
+			return nil, errors.New(job.Error)
+		}
+	}
+
 	// Step 1.5: Check disk space availability
 	// Use conservative estimate: assume 10:1 compression ratio if archive is max size
 	// This ensures we have enough space even in worst case
@@ -302,7 +318,6 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	job.UpdatedAt = time.Now()
 	onProgress(job)
 
-	configFile := filepath.Join(job.WebRoot, req.ConfigPath)
 	dbName, dbUser := e.extractDatabaseInfo(configFile)
 	if dbName == "" {
 		dbName = fmt.Sprintf("%s_db", req.SiteName)
@@ -569,41 +584,36 @@ func safeTarExtractPath(webRoot, filename string) (string, error) {
 
 // validateConfigPath validates that a config path is safe (no traversal, not absolute, stays within webRoot)
 func validateConfigPath(webRoot, configPath string) error {
+	_, err := safeConfigPath(webRoot, configPath)
+	return err
+}
+
+func safeConfigPath(webRoot, configPath string) (string, error) {
+	if strings.TrimSpace(configPath) == "" {
+		return "", errors.New("config path is empty")
+	}
 	// Reject absolute paths
 	if filepath.IsAbs(configPath) {
-		return errors.New("config path cannot be absolute")
+		return "", errors.New("config path cannot be absolute")
 	}
 
 	// Reject path traversal attempts
 	if strings.Contains(configPath, "..") {
-		return errors.New("config path contains .. traversal")
+		return "", errors.New("config path contains .. traversal")
 	}
 
 	// Reject paths starting with /
 	if strings.HasPrefix(configPath, "/") {
-		return errors.New("config path cannot start with /")
+		return "", errors.New("config path cannot start with /")
 	}
 
 	// Clean and validate the path stays within webRoot
 	cleaned := filepath.Clean(configPath)
-	targetPath := filepath.Join(webRoot, cleaned)
-
-	realTarget, err := filepath.Abs(targetPath)
+	targetPath, err := h.SafePath(webRoot, cleaned)
 	if err != nil {
-		return fmt.Errorf("cannot resolve config path: %w", err)
+		return "", fmt.Errorf("config path escapes site root: %w", err)
 	}
-
-	realRoot, err := filepath.Abs(webRoot)
-	if err != nil {
-		return fmt.Errorf("cannot resolve root: %w", err)
-	}
-
-	// Ensure the path stays within webRoot and resolve symlinks safely
-	if err := h.EnsureInside(realRoot, realTarget); err != nil {
-		return fmt.Errorf("config path escapes site root: %w", err)
-	}
-
-	return nil
+	return targetPath, nil
 }
 
 // extractTarGz extracts a tar.gz archive with security checks
@@ -907,11 +917,10 @@ func (e *Executor) extractDatabaseInfo(configFile string) (dbName, dbUser string
 // updateConfiguration updates config files with correct credentials
 func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error {
 	// Validate config path is safe (no traversal, not absolute)
-	if err := validateConfigPath(job.WebRoot, configPath); err != nil {
+	configFile, err := safeConfigPath(job.WebRoot, configPath)
+	if err != nil {
 		return fmt.Errorf("invalid config path: %w", err)
 	}
-
-	configFile := filepath.Join(job.WebRoot, configPath)
 
 	// Verify the file exists and is a regular file (not symlink/directory/etc)
 	info, err := os.Stat(configFile)

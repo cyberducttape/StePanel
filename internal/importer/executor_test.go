@@ -71,6 +71,34 @@ func TestExecuteImportValidation(t *testing.T) {
 	}
 }
 
+func TestExecuteImportRejectsConfigPathBeforeArchiveRead(t *testing.T) {
+	root := t.TempDir()
+	for _, configPath := range []string{"../outside.php", filepath.Join(root, "outside.php"), "/etc/passwd"} {
+		t.Run(configPath, func(t *testing.T) {
+			executor := NewExecutor()
+			_, err := executor.ExecuteImport(context.Background(), &ArchiveImportRequest{
+				SiteName:   "example",
+				URL:        "https://example.com/archive.tar.gz",
+				ConfigPath: configPath,
+			}, filepath.Join(root, "staging-"+strings.ReplaceAll(configPath, "/", "-")), func(*ImportJob) {})
+			if err == nil || !strings.Contains(err.Error(), "invalid config path") {
+				t.Fatalf("ExecuteImport(%q) error = %v, want early config-path rejection", configPath, err)
+			}
+		})
+	}
+}
+
+func TestSafeConfigPathRejectsSymlinkParent(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := safeConfigPath(root, "linked/wp-config.php"); err == nil {
+		t.Fatal("safeConfigPath accepted a symlinked parent")
+	}
+}
+
 func TestExtractWordPressDefine(t *testing.T) {
 	tests := []struct {
 		name     string
