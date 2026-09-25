@@ -147,12 +147,12 @@ func (a *App) reconcileSiteAccess(ctx context.Context) (reconciled []string, fai
 	}
 	a.Access.mu.RUnlock()
 	for _, access := range pending {
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, access.Site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, access.Site)
 		if lockErr != nil {
 			failed[access.Site] = lockErr.Error()
 			continue
 		}
-		if _, err := a.applyAndSaveSiteAccess(ctx, access); err != nil {
+		if _, err := a.applyAndSaveSiteAccess(operationCtx, access); err != nil {
 			failed[access.Site] = err.Error()
 			releaseUnlock()
 			continue
@@ -202,7 +202,7 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON", 400)
 			return
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 		if lockErr != nil {
 			http.Error(w, "SSH access mutation is busy", http.StatusConflict)
 			return
@@ -224,7 +224,7 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "SSH access state could not be saved", 503)
 			return
 		}
-		access, err = a.applyAndSaveSiteAccess(r.Context(), access)
+		access, err = a.applyAndSaveSiteAccess(operationCtx, access)
 		if err != nil {
 			http.Error(w, "SSH access is pending reconciliation", 502)
 			return
@@ -254,7 +254,7 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		key.Label = input.Label
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 		if lockErr != nil {
 			http.Error(w, "SSH key mutation is busy", http.StatusConflict)
 			return
@@ -277,7 +277,7 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "SSH key could not be saved", 503)
 			return
 		}
-		access, err = a.applyAndSaveSiteAccess(r.Context(), access)
+		access, err = a.applyAndSaveSiteAccess(operationCtx, access)
 		if err != nil {
 			http.Error(w, "SSH key is pending reconciliation", 502)
 			return
@@ -305,7 +305,7 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "API token lacks the ssh:write scope", 403)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 	if lockErr != nil {
 		http.Error(w, "SSH key mutation is busy", http.StatusConflict)
 		return
@@ -342,7 +342,7 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "SSH key could not be removed", 503)
 		return
 	}
-	access, err = a.applyAndSaveSiteAccess(r.Context(), access)
+	access, err = a.applyAndSaveSiteAccess(operationCtx, access)
 	if err != nil {
 		http.Error(w, "SSH key revocation is pending reconciliation", 502)
 		return

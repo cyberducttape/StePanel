@@ -62,13 +62,13 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "WordPress is not installed for this site", 422)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 	if lockErr != nil {
 		http.Error(w, "WordPress operation is busy", http.StatusConflict)
 		return
 	}
 	defer releaseUnlock()
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
 	defer cancel()
 	commandArgs := append([]string{"--path=" + root, "--no-color"}, args...)
 	output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, a.Config.WPCLI, commandArgs...))
