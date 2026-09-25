@@ -22,7 +22,6 @@ type durableArchiveImportRequest struct {
 	ArchiveURL       string `json:"archive_url"`
 	ConfigPath       string `json:"config_path"`
 	SiteName         string `json:"site_name"`
-	WebRoot          string `json:"web_root"`
 	DatabasePassword string `json:"database_password,omitempty"`
 	AutoRestoreDB    bool   `json:"auto_restore_db,omitempty"`
 }
@@ -189,7 +188,6 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 		ArchiveURL:       req.URL,
 		ConfigPath:       req.ConfigPath,
 		SiteName:         req.SiteName,
-		WebRoot:          a.Config.WebRoot,
 		DatabasePassword: req.DatabasePassword,
 		AutoRestoreDB:    req.AutoRestoreDB,
 	})
@@ -292,9 +290,9 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	defer releaseSite()
 
 	// WebRoot is deployment authority, never job-payload data. Older queued
-	// jobs retain the field for decoding compatibility, but accepting it here
-	// would let a tampered durable payload redirect lifecycle mutation to a
-	// different tree.
+	// jobs may contain a legacy web_root field, but unknown JSON is ignored;
+	// accepting it here would let a tampered payload redirect lifecycle
+	// mutation to a different tree.
 	canonical, err := safePath(a.Config.WebRoot, "sites", req.SiteName, "public")
 	if err != nil {
 		return fmt.Errorf("resolve canonical site: %w", err)
