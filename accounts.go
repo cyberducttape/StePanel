@@ -1128,7 +1128,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			}
 			pendingResources, resourceErr := a.reconcileAccountResourcePlan(operationCtx, account, updated)
 			if resourceErr != nil {
-				if _, suspendErr := a.Accounts.SetSuspended(username, true); suspendErr != nil {
+				if _, suspendErr := a.setAccountSuspended(operationCtx, username, true); suspendErr != nil {
 					resourceErr = fmt.Errorf("%w; account suspension failed: %v", resourceErr, suspendErr)
 				}
 				recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.resource-reconciliation-failed", username, resourceErr.Error())
@@ -1137,7 +1137,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			}
 			recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.updated", username, "plan or site assignments changed")
 			if len(pendingResources) > 0 {
-				if _, suspendErr := a.Accounts.SetSuspended(username, true); suspendErr != nil {
+				if _, suspendErr := a.setAccountSuspended(operationCtx, username, true); suspendErr != nil {
 					http.Error(w, "resource enforcement is pending and account suspension could not be persisted", http.StatusServiceUnavailable)
 					return
 				}
@@ -1148,7 +1148,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, updated)
 			return
 		}
-		account, err := a.Accounts.SetSuspended(username, *input.Suspended)
+		account, err := a.setAccountSuspended(operationCtx, username, *input.Suspended)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
@@ -1219,7 +1219,13 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			log.Printf("account created but audit persistence is unavailable: %v", err)
 		}
 		if len(pendingResources) > 0 {
-			if _, suspendErr := a.Accounts.SetSuspended(account.Username, true); suspendErr != nil {
+			operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+account.Username)
+			if lockErr != nil {
+				http.Error(w, "account suspension is busy", http.StatusConflict)
+				return
+			}
+			defer releaseAccountLock()
+			if _, suspendErr := a.setAccountSuspended(operationCtx, account.Username, true); suspendErr != nil {
 				http.Error(w, "resource enforcement is pending and account suspension could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
