@@ -269,8 +269,8 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if source == "" || !fileExists(filepath.Join(source, "database.sql")) {
 		return WPressResult{}, errors.New("archive must contain WordPress files and database.sql")
 	}
-	home := filepath.Join(cfg.WebRoot, "sites", site, "public")
-	if err := ensureInside(cfg.WebRoot, home); err != nil {
+	home, err := safePath(cfg.WebRoot, "sites", site, "public")
+	if err != nil {
 		return WPressResult{}, err
 	}
 	if _, statErr := os.Lstat(home); statErr == nil && !force {

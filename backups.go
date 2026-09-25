@@ -140,7 +140,11 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "managed database backup requires the local database helper", http.StatusUnprocessableEntity)
 			return
 		}
-		publicRoot := filepath.Join(a.Config.WebRoot, "sites", input.Site, "public")
+		publicRoot, pathErr := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+		if pathErr != nil {
+			http.Error(w, "invalid site", http.StatusUnprocessableEntity)
+			return
+		}
 		if info, err := os.Stat(publicRoot); err != nil || !info.IsDir() {
 			http.Error(w, "site document root does not exist", http.StatusUnprocessableEntity)
 			return
@@ -174,8 +178,8 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 	if safeUser(siteName) == "" {
 		return result, errors.New("invalid backup site")
 	}
-	publicRoot := filepath.Join(cfg.WebRoot, "sites", siteName, "public")
-	if err := ensureInside(cfg.WebRoot, publicRoot); err != nil {
+	publicRoot, err := safePath(cfg.WebRoot, "sites", siteName, "public")
+	if err != nil {
 		return result, err
 	}
 	if err := os.MkdirAll(cfg.BackupRoot, 0750); err != nil {

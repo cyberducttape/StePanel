@@ -172,7 +172,10 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	if err != nil {
 		return ImportResult{}, err
 	}
-	home := filepath.Join(cfg.WebRoot, "sites", user, "public")
+	home, err := safePath(cfg.WebRoot, "sites", user, "public")
+	if err != nil {
+		return ImportResult{}, err
+	}
 	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("initialize site manager: %w", err)

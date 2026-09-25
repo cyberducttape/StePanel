@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -213,11 +212,12 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid worker definition", 422)
 		return
 	}
-	input.Root = filepath.Join(a.Config.WebRoot, "sites", site, "public")
-	if e := ensureInside(a.Config.WebRoot, input.Root); e != nil {
+	root, pathErr := safePath(a.Config.WebRoot, "sites", site, "public")
+	if pathErr != nil {
 		http.Error(w, "invalid worker root", 422)
 		return
 	}
+	input.Root = root
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 	if lockErr != nil {
 		http.Error(w, "worker mutation is busy", http.StatusConflict)
