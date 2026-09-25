@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -180,6 +181,15 @@ func TestBackupRestoreFilesPreservesExistingDatabaseBoundary(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(webRoot, "sites", "account", "public", "keep.txt")); !os.IsNotExist(err) {
 		t.Fatalf("restore unexpectedly preserved live-only file: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(webRoot, "sites"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".stepanel-backup-") {
+			t.Fatalf("backup manager staging tree was not consumed: %s", entry.Name())
+		}
 	}
 }
 

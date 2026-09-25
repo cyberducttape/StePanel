@@ -12,11 +12,18 @@ import (
 func (a *App) activateStagedSite(ctx context.Context, name, stagedRoot string) error {
 	manager := a.siteManager
 	if manager == nil {
-		var err error
-		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
-		if err != nil {
-			return fmt.Errorf("initialize site manager: %w", err)
-		}
+		return activateStagedSiteWithConfig(ctx, a.Config, name, stagedRoot)
+	}
+	if _, err := manager.ActivateStaged(ctx, name, stagedRoot); err != nil {
+		return err
+	}
+	return nil
+}
+
+func activateStagedSiteWithConfig(ctx context.Context, cfg Config, name, stagedRoot string) error {
+	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	if err != nil {
+		return fmt.Errorf("initialize site manager: %w", err)
 	}
 	if _, err := manager.ActivateStaged(ctx, name, stagedRoot); err != nil {
 		return err

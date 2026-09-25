@@ -435,6 +435,20 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
+	managerStageParent := filepath.Join(cfg.WebRoot, "sites")
+	if err := os.MkdirAll(managerStageParent, 0750); err != nil {
+		return BackupRestoreResult{}, fmt.Errorf("prepare lifecycle staging root: %w", err)
+	}
+	managerStage, err := os.MkdirTemp(managerStageParent, ".stepanel-backup-")
+	if err != nil {
+		return BackupRestoreResult{}, fmt.Errorf("create lifecycle staging tree: %w", err)
+	}
+	managerActivated := false
+	defer func() {
+		if !managerActivated {
+			_ = os.RemoveAll(managerStage)
+		}
+	}()
 	ok := false
 	defer func() {
 		if !ok {
@@ -447,9 +461,13 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err := ctx.Err(); err != nil {
 		return BackupRestoreResult{}, err
 	}
-	if err := copyTreeContext(ctx, source, dest); err != nil {
+	if err := copyTreeContext(ctx, source, managerStage); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("restore site files: %w", err)
 	}
+	if err := activateStagedSiteWithConfig(ctx, cfg, siteName, managerStage); err != nil {
+		return BackupRestoreResult{}, fmt.Errorf("activate restored site through manager: %w", err)
+	}
+	managerActivated = true
 	if err := siteHelperContext(ctx, cfg, "seal", siteName); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("seal site: %w", err)
 	}
