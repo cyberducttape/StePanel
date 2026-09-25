@@ -147,6 +147,18 @@ Test 5: backup + filesystem restore simultaneously
   → Backup must see consistent state
 ```
 
+**Evidence currently available:**
+
+- `TestAdversarialMutationLockScenariosSerializeAcrossConnections` exercises
+  all five lock-key combinations with two independent SQLite connections.
+- `TestSiteMutationLockSerializesRealHelperBoundaryAcrossApps` runs two
+  independent app instances through the same helper boundary and verifies
+  that their critical sections do not overlap.
+
+These tests prove lock acquisition and helper serialization. They do not yet
+prove that every full workflow remains consistent after a conflicting
+operation is interrupted, so the operation-level acceptance item remains open.
+
 **Acceptance Criteria:**
 - [x] Distributed lock acquired before each currently implemented mutation
 - [x] Lock held until operation completes or rolls back
@@ -274,6 +286,12 @@ the still-open full host-kill/restart drills below.
 3. Deploy (boundary test: activation; clone/build/health-check drill remains)
 4. Terminate (boundary test: initiation; backup/cleanup/state-removal drill remains)
 5. Account suspension (boundary test: before persistence; helper/state-save drill remains)
+
+**Evidence currently available:** the repository recovery-drill harness passes
+partial SQL import cleanup, interrupted transaction recovery, configuration
+rollback, and pending runtime reconciliation. Its generated results explicitly
+exclude power-loss recovery, so the five-operation process-kill acceptance
+criteria remain open.
 
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit
