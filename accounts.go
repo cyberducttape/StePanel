@@ -1052,7 +1052,11 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid account", http.StatusBadRequest)
 			return
 		}
-		releaseAccountLock := a.siteOperations.Acquire("account:" + username)
+		releaseAccountLock, lockErr := a.acquireSiteMutationLock(r.Context(), "account:"+username)
+		if lockErr != nil {
+			http.Error(w, "account mutation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseAccountLock()
 		if r.Method == http.MethodDelete {
 			if account, exists := a.Accounts.Get(username); exists && len(account.Sites) > 0 {

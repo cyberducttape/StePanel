@@ -202,7 +202,11 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON", 400)
 			return
 		}
-		releaseUnlock := a.siteOperations.Acquire(site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		if lockErr != nil {
+			http.Error(w, "SSH access mutation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		if input.SFTPEnabled != nil {
 			access.SFTPEnabled = *input.SFTPEnabled
@@ -250,7 +254,11 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		key.Label = input.Label
-		releaseUnlock := a.siteOperations.Acquire(site)
+		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		if lockErr != nil {
+			http.Error(w, "SSH key mutation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		for _, existing := range access.Keys {
 			if existing.Label == key.Label || existing.Fingerprint == key.Fingerprint {
@@ -297,7 +305,11 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "API token lacks the ssh:write scope", 403)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	if lockErr != nil {
+		http.Error(w, "SSH key mutation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	a.Access.mu.Lock()
 	access, ok := a.Access.values[site]

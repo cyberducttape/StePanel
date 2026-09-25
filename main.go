@@ -890,7 +890,10 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 			_ = os.Remove(request.TempPath)
 		}
 	}()
-	releaseUnlock := a.siteOperations.Acquire(request.User)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, request.User)
+	if lockErr != nil {
+		return nil, fmt.Errorf("acquire cpmove site lock: %w", lockErr)
+	}
 	defer releaseUnlock()
 	a.Metrics.RestoreStarted()
 	result, restoreErr := RestoreCPMove(a.Config, staged, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs)
@@ -927,7 +930,10 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
 	}
-	releaseUnlock := a.siteOperations.Acquire(request.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, request.Site)
+	if lockErr != nil {
+		return nil, fmt.Errorf("acquire backup site lock: %w", lockErr)
+	}
 	defer releaseUnlock()
 	result, err := CreateSiteBackup(a.Config, access, request.IncludeDatabases)
 	if err != nil {
@@ -1021,7 +1027,10 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 			_ = os.Remove(request.TempPath)
 		}
 	}()
-	releaseUnlock := a.siteOperations.Acquire(request.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, request.Site)
+	if lockErr != nil {
+		return nil, fmt.Errorf("acquire WordPress site lock: %w", lockErr)
+	}
 	defer releaseUnlock()
 	a.Metrics.RestoreStarted()
 	result, restoreErr := RestoreWPress(a.Config, request.TempPath, access, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force)
