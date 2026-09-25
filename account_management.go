@@ -57,6 +57,16 @@ func (a *App) setAccountSuspended(ctx context.Context, username string, suspende
 	return a.Accounts.SetSuspended(username, suspended)
 }
 
+func (a *App) autoSuspendAccount(ctx context.Context, username string) error {
+	operationCtx, release, err := a.acquireSiteMutationLockContext(ctx, "account:"+username)
+	if err != nil {
+		return err
+	}
+	defer release()
+	_, err = a.setAccountSuspended(operationCtx, username, true)
+	return err
+}
+
 // accountPlanStatus returns the current usage and limits for a customer account
 func (a *App) accountPlanStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -312,7 +322,7 @@ func (a *App) checkPlanLimits() error {
 		if sitesPercent >= criticalThreshold && !account.Suspended {
 			// Auto-suspend if critical
 			if plan.SiteLimit > 0 && sitesUsed >= plan.SiteLimit {
-				if _, err := a.Accounts.SetSuspended(account.Username, true); err != nil {
+				if err := a.autoSuspendAccount(context.Background(), account.Username); err != nil {
 					return fmt.Errorf("auto-suspend account %s for site limit: %w", account.Username, err)
 				}
 				recordAudit(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,
@@ -340,7 +350,7 @@ func (a *App) checkPlanLimits() error {
 
 		if databasesPercent >= criticalThreshold && !account.Suspended {
 			if plan.DatabaseLimit > 0 && databasesUsed >= plan.DatabaseLimit {
-				if _, err := a.Accounts.SetSuspended(account.Username, true); err != nil {
+				if err := a.autoSuspendAccount(context.Background(), account.Username); err != nil {
 					return fmt.Errorf("auto-suspend account %s for database limit: %w", account.Username, err)
 				}
 				recordAudit(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,

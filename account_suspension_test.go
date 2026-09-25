@@ -30,3 +30,23 @@ func TestSetAccountSuspendedFailureInjectionPreservesState(t *testing.T) {
 		t.Fatalf("account state was not persisted: %v", err)
 	}
 }
+
+func TestAutoSuspendAccountFailureInjectionPreservesState(t *testing.T) {
+	root := t.TempDir()
+	store, err := OpenAccountStore(filepath.Join(root, "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", []string{"site-one"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STEPANEL_FAIL_AT", "suspend:before-persist")
+	app := &App{Accounts: store}
+	if err := app.checkPlanLimits(); err == nil || !strings.Contains(err.Error(), "failure injection") {
+		t.Fatalf("checkPlanLimits error = %v, want injected failure", err)
+	}
+	account, ok := store.Get("customer")
+	if !ok || account.Suspended {
+		t.Fatalf("automatic suspension changed state after injected failure: %#v, exists=%v", account, ok)
+	}
+}
