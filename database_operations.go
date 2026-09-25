@@ -270,7 +270,7 @@ func createDatabaseSafetyBackup(cfg Config, database string) (DatabaseSafetyBack
 	if err := writeSyncedFile(filepath.Join(temp, database+".sql.sha256"), []byte(result.SHA256+"  "+database+".sql\n"), 0600); err != nil {
 		return result, err
 	}
-	finalName := result.Created.Format("20060102-150405.000000000") + "-" + database
+	finalName := result.Created.Format("20060102-150405.000000000") + "-" + newRequestID()
 	final, err := safePath(root, finalName)
 	if err != nil {
 		return result, fmt.Errorf("invalid database safety backup path: %w", err)

@@ -1,9 +1,12 @@
 # StePanel Security
 
-**Last Updated:** 2026-09-20  
-**Status:** Production-ready with known limitations
+**Last Updated:** 2026-09-25
+**Status:** Security reference; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
-This document is the authoritative source for StePanel's security posture. See [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md) for full feature matrix.
+This document summarizes implemented security controls and known limitations. It is
+not a production-release approval. See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
+for the sole current release gate and [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md)
+for deployment status.
 
 ## Architecture
 
@@ -51,7 +54,9 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 ## Known Limitations
 
 ### Archive Import
-- Database restoration is manual in v0.7.0 (Phase 2 will automate when credentials provided)
+- Database restoration is optional: automatic restoration requires managed-helper availability,
+  valid archive credentials, and a successful transactional restore; otherwise the SQL dump
+  remains an explicit operator follow-up
 - Config file updates use atomic writes with proper parsing (preserves file permissions)
 - Memory tracking for largest-files limited to 100 entries (to prevent memory bombs)
 - No archive encryption support
@@ -130,7 +135,7 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 
 ## Version History
 
-- **v0.7** (Current): Production-ready, import workflow functional
+- **v0.7** (Historical): import workflow functional for controlled single-host operation
 - **v0.6**: Container registry allowlist, digest pinning
 - **v0.5**: Archive import beta (no DB restoration yet)
 - **v0.4**: Legacy token deprecation, TOTP enforcement

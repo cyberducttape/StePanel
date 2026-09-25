@@ -183,12 +183,7 @@ func (a *App) proxyManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid proxy", 422)
 		return
 	}
-	path, err := safePath(a.Config.ProxyRoot, name)
-	if err != nil {
-		http.Error(w, "invalid proxy path", 422)
-		return
-	}
-	if _, err := os.Stat(path); err != nil {
+	if _, err := existingRegularEntry(a.Config.ProxyRoot, name); err != nil {
 		http.Error(w, "proxy not found", http.StatusNotFound)
 		return
 	}

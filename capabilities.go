@@ -326,17 +326,20 @@ func (a *App) checkOffsiteBackupCapability() Capability {
 // pulls are constrained by the configured allowlist. If any of those
 // pieces is missing, the build path is not usable.
 func (a *App) checkBuildCapability() Capability {
-	if _, err := exec.LookPath("podman"); err != nil {
-		return newCapability(CapabilityUnsupported, "podman not found in PATH")
-	}
 	if a.Config.RunnerCtl == "" {
 		return newCapability(CapabilityUnsupported, "STEPANEL_RUNNERCTL is not configured")
 	}
-	if info, err := os.Stat(a.Config.RunnerCtl); err != nil || info.IsDir() {
+	if info, err := os.Stat(a.Config.RunnerCtl); err != nil || !info.Mode().IsRegular() || info.Mode()&0111 == 0 {
 		return newCapability(CapabilityUnsupported, "STEPANEL_RUNNERCTL is not an executable file")
 	}
 	if a.Config.RunnerAllowedRegistries == "" {
 		return newCapability(CapabilityUnsupported, "STEPANEL_RUNNER_ALLOWED_REGISTRIES is empty; the runner would refuse every image")
+	}
+	if a.Config.RunnerMaxImageBytes <= 0 {
+		return newCapability(CapabilityUnsupported, "STEPANEL_RUNNER_MAX_IMAGE_BYTES must be positive")
+	}
+	if _, err := exec.LookPath("podman"); err != nil {
+		return newCapability(CapabilityUnsupported, "podman not found in PATH")
 	}
 	return newCapability(CapabilityAvailable, "")
 }

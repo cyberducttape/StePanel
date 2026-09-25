@@ -135,3 +135,17 @@ func TestManagedSiteFileExistsRejectsSymlink(t *testing.T) {
 		t.Fatal("symlinked managed site file was accepted")
 	}
 }
+
+func TestExistingRegularEntryRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(t.TempDir(), "outside.conf")
+	if err := os.WriteFile(target, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "proxy.conf")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := existingRegularEntry(root, "proxy.conf"); err == nil {
+		t.Fatal("symlinked proxy entry was accepted")
+	}
+}

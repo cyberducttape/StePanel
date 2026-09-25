@@ -442,7 +442,10 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	finalName := result.Created.Format("20060102-150405.000000000") + "-" + database
+	// The database name remains in the signed result metadata. Keep it out of
+	// the filesystem destination name so the final rename depends only on a
+	// timestamp and a locally generated request identifier.
+	finalName := result.Created.Format("20060102-150405.000000000") + "-" + newRequestID()
 	final, err := safePath(root, finalName)
 	if err != nil {
 		return result, fmt.Errorf("invalid database safety backup path: %w", err)

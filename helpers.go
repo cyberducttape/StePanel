@@ -140,6 +140,33 @@ func managedSiteFileExists(webRoot, site, directory, filename string) (bool, err
 	return false, nil
 }
 
+// existingRegularEntry resolves a named file only through the trusted
+// directory entry returned by ReadDir. It is used for managed configuration
+// roots where the requested basename is still supplied by an HTTP path.
+func existingRegularEntry(root, name string) (string, error) {
+	if name == "" || filepath.Base(name) != name {
+		return "", errors.New("invalid managed filename")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if entry.Name() != name {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return "", errors.New("managed entry is not a regular file")
+		}
+		return filepath.Join(root, entry.Name()), nil
+	}
+	return "", os.ErrNotExist
+}
+
 func runHelperCommand(ctx context.Context, cfg Config, path string, args ...string) error {
 	return h.RunHelperCommand(ctx, cfg.Sudo, path, args...)
 }

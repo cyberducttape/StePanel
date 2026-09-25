@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -225,6 +226,27 @@ func TestBuildCapabilityRequiresRunnerCtl(t *testing.T) {
 	c := app.ProbeCapabilities().Capabilities["deployment.builds"]
 	if c.Available {
 		t.Errorf("deployment.builds must not be Available without RunnerCtl, got Mode=%s reason=%q", c.Mode, c.Reason)
+	}
+}
+
+func TestBuildCapabilityRequiresExecutableRunnerCtlAndImageLimit(t *testing.T) {
+	root := t.TempDir()
+	helper := filepath.Join(root, "runnerctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{RunnerCtl: helper, RunnerAllowedRegistries: "docker.io", RunnerMaxImageBytes: 1}}
+	capability := app.checkBuildCapability()
+	if capability.Available || !strings.Contains(capability.Reason, "executable") {
+		t.Fatalf("non-executable runner helper capability = %#v", capability)
+	}
+	if err := os.Chmod(helper, 0700); err != nil {
+		t.Fatal(err)
+	}
+	app.Config.RunnerMaxImageBytes = 0
+	capability = app.checkBuildCapability()
+	if capability.Available || !strings.Contains(capability.Reason, "MAX_IMAGE_BYTES") {
+		t.Fatalf("invalid image limit capability = %#v", capability)
 	}
 }
 
