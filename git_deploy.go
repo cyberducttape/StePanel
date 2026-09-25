@@ -557,6 +557,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	previous := ""
+	if err := failureInjection("deploy", "activate"); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	if _, err := os.Stat(publicRoot); err == nil {
 		previous = filepath.Join(siteRoot, ".stepanel-previous-"+strings.ReplaceAll(newRequestID(), "-", ""))
 		if err := os.Rename(publicRoot, previous); err != nil {

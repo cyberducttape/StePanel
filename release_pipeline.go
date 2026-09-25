@@ -148,7 +148,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.recordDeployment(input.Site, "build", "completed", "validated sandbox artifact", result, release)
-	previous, err := a.activatePipelineRelease(operationCtx, input.Site, siteRoot, publicRoot, release)
+	previous, err := a.activatePipelineRelease(operationCtx, input.Site, release)
 	if err != nil {
 		a.recordDeployment(input.Site, "activation", "failed", err.Error(), result, "")
 		http.Error(w, "atomic activation failed", 503)
@@ -255,13 +255,27 @@ func (a *App) pipelineResourceLimits(site string) (cpuPercent, memoryMB, tasksMa
 	}
 	return cpuPercent, memoryMB, tasksMax
 }
-func (a *App) activatePipelineRelease(ctx context.Context, site, siteRoot, publicRoot, release string) (string, error) {
+func (a *App) activatePipelineRelease(ctx context.Context, site, release string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
+	}
+	siteRoot, err := safePath(a.Config.WebRoot, "sites", site)
+	if err != nil {
+		return "", fmt.Errorf("resolve pipeline site root: %w", err)
+	}
+	publicRoot, err := safePath(a.Config.WebRoot, "sites", site, "public")
+	if err != nil {
+		return "", fmt.Errorf("resolve pipeline public root: %w", err)
+	}
+	if err := ensureInside(siteRoot, release); err != nil {
+		return "", fmt.Errorf("pipeline release is outside site root: %w", err)
 	}
 	a.gitActivationMu.Lock()
 	defer a.gitActivationMu.Unlock()
 	previous := ""
+	if err := failureInjection("deploy", "activate"); err != nil {
+		return "", err
+	}
 	if _, err := os.Stat(publicRoot); err == nil {
 		if err := ctx.Err(); err != nil {
 			return "", err
