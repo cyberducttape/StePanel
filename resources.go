@@ -151,7 +151,7 @@ func (a *App) ensurePlanResources(account HostingAccount) ([]string, error) {
 // values above the new plan ceiling are clamped. Host changes happen only after
 // the complete desired set is persisted, and failed applications remain
 // pending for the normal reconciliation path.
-func (a *App) reconcileAccountResourcePlan(previous, account HostingAccount) ([]string, error) {
+func (a *App) reconcileAccountResourcePlan(ctx context.Context, previous, account HostingAccount) ([]string, error) {
 	if a.Resources == nil {
 		return nil, nil
 	}
@@ -217,24 +217,24 @@ func (a *App) reconcileAccountResourcePlan(previous, account HostingAccount) ([]
 	a.Resources.mu.Unlock()
 
 	if len(changed) == 0 {
-		return nil, a.applyAccountResourceEnvelope(account.Username, plan)
+		return nil, a.applyAccountResourceEnvelopeContext(ctx, account.Username, plan)
 	}
-	unlock, lockErr := a.acquireSiteMutationLocks(context.Background(), account.Sites...)
+	operationCtx, unlock, lockErr := a.acquireSiteMutationLocksContext(ctx, account.Sites...)
 	if lockErr != nil {
 		return nil, fmt.Errorf("acquire account resource locks: %w", lockErr)
 	}
 	defer unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	operationCtx, cancel := context.WithTimeout(operationCtx, 5*time.Minute)
 	defer cancel()
 	pending := make([]string, 0, len(changed))
-	if err := a.applyAccountResourceEnvelope(account.Username, plan); err != nil {
+	if err := a.applyAccountResourceEnvelopeContext(operationCtx, account.Username, plan); err != nil {
 		for _, profile := range changed {
 			pending = append(pending, profile.Site)
 		}
 		return pending, nil
 	}
 	for _, profile := range changed {
-		if err := a.applyResourceProfile(ctx, profile, false); err != nil {
+		if err := a.applyResourceProfile(operationCtx, profile, false); err != nil {
 			pending = append(pending, profile.Site)
 			continue
 		}
@@ -267,8 +267,12 @@ func minInt(left, right int) int {
 }
 
 func (a *App) applyAccountResourceEnvelope(account string, plan HostingPlan) error {
+	return a.applyAccountResourceEnvelopeContext(context.Background(), account, plan)
+}
+
+func (a *App) applyAccountResourceEnvelopeContext(ctx context.Context, account string, plan HostingPlan) error {
 	// Account resource envelope is a config mutation (cgroup setup) - use standard timeout
-	return runHelperCommandWithTimeout(context.Background(), a.Config, helperConfigMutationTimeout, a.Config.AppCtl, "account-resource-apply", account, strconv.Itoa(plan.CPUPercent), "100", strconv.Itoa(plan.MemoryMB*90/100), strconv.Itoa(plan.MemoryMB), "100", strconv.Itoa(plan.TasksMax))
+	return runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.AppCtl, "account-resource-apply", account, strconv.Itoa(plan.CPUPercent), "100", strconv.Itoa(plan.MemoryMB*90/100), strconv.Itoa(plan.MemoryMB), "100", strconv.Itoa(plan.TasksMax))
 }
 
 func OpenResourceStore(path string) (*ResourceStore, error) {

@@ -1052,7 +1052,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid account", http.StatusBadRequest)
 			return
 		}
-		releaseAccountLock, lockErr := a.acquireSiteMutationLock(r.Context(), "account:"+username)
+		operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
 		if lockErr != nil {
 			http.Error(w, "account mutation is busy", http.StatusConflict)
 			return
@@ -1126,7 +1126,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 				return
 			}
-			pendingResources, resourceErr := a.reconcileAccountResourcePlan(account, updated)
+			pendingResources, resourceErr := a.reconcileAccountResourcePlan(operationCtx, account, updated)
 			if resourceErr != nil {
 				if _, suspendErr := a.Accounts.SetSuspended(username, true); suspendErr != nil {
 					resourceErr = fmt.Errorf("%w; account suspension failed: %v", resourceErr, suspendErr)

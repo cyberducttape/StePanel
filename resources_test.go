@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +86,7 @@ func TestReconcileAccountResourcePlanRollsBackMemoryOnPersistFailure(t *testing.
 
 	app := &App{Resources: store}
 	_, err = app.reconcileAccountResourcePlan(
+		context.Background(),
 		HostingAccount{Username: "customer", Plan: "agency", Sites: []string{"demo"}},
 		HostingAccount{Username: "customer", Plan: "starter", Sites: []string{"demo"}},
 	)
