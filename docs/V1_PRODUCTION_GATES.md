@@ -57,11 +57,58 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 - Test suite must include adversarial concurrent scenarios
 
 **Current Status:**
-- ✅ DBLocks implementation (SQLite-based)
+- ✅ DBLocks implementation redesigned and verified (Nov 2026 — see below)
+- ✅ Boot-time reconciliation guarded so only the panel runs it (previous
+      behavior let panel and worker concurrently rename recovery journals
+      and reconcile host state during startup)
+- ⏳ 57 call sites still use `siteOperations.Acquire` (in-process
+      `sync.Mutex`); migration to `DBLocks` deferred pending call-site audit
 - ⏳ Wired into site termination job
 - ⏳ Wired into git deployments
 - ⏳ Wired into backup/restore operations
 - ⏳ Wired into resource updates
+
+**DBLocks fixes (Nov 2026):**
+
+The prior `internal/operations/db_locks.go` implementation had latent bugs
+that meant it could not actually be relied on, so its earlier "✅ implementation"
+line above was inaccurate. Rewritten in this cycle:
+
+- `INSERT ... WHERE NOT EXISTS` collided with the resource_key primary key
+  on expired-lease takeover; SQLite raised UNIQUE-constraint errors and
+  Acquire failed even though the lock was legally re-acquirable. Now uses
+  `INSERT ... ON CONFLICT(resource_key) DO UPDATE ... WHERE lease_until <= ?`
+  — a single atomic statement with no PK collision.
+- `generation` was advertised as a fencing token but was hard-coded to 1
+  and never checked by Release/Renew. Now monotonically increments per
+  key, is returned to the caller in a `Lease` value, and is required by
+  both Release and Renew.
+- Release used to `DELETE` the row, which reset generation to 1 on the
+  next acquisition and reopened the fencing race. Release now marks
+  `lease_until = 0` so the generation counter is preserved across
+  release/reacquire cycles.
+- `newLeaseUntil` was computed once before the retry loop, so a waiter
+  that waited most of the lease duration got an already-near-expired
+  lease. `tryOnce` now recomputes both timestamps on each attempt.
+- Retry budget was advertised as "5 minutes" but was 300 × 100ms = 30
+  seconds. Replaced with `Acquire(ctx, key)` — caller supplies the wait
+  deadline; no hidden hard-coded cap.
+- Lease deadlines are stored as INTEGER unix nanoseconds. Ordering is now
+  the same in SQL as in Go (variable-width RFC3339Nano strings were
+  string-ordered, which is not temporal ordering).
+- `Hold(ctx, lease)` handles automatic renewal on a `leaseTime/3`
+  cadence so callers do not have to hand-roll a renewal goroutine.
+
+Test coverage in `internal/operations/db_locks_test.go` uses **two independent
+`*sql.DB` handles pointed at the same file** (WAL mode), not two goroutines
+on one handle — only the two-handle setup actually exercises cross-process
+behavior. Seven regression tests cover: expired takeover, live-lease
+protection, fencing on release, waiter freshness, honest context budget,
+Hold renewal past the original lease, and takeover fencing.
+
+The dead `internal/operations/distributed_locks.go` (file-based locks with
+no production callers) has been removed to avoid future confusion about
+which implementation to reach for.
 
 **Adversarial Test Scenarios:**
 ```

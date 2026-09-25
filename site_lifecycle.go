@@ -64,6 +64,19 @@ func (a *App) siteTermination(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID})
 }
 
+// handleSiteTermination executes the destructive site-termination step
+// sequence with roll-forward recovery. Each step consults a persistent
+// step journal (site_lifecycle_journal.go): if the step is already
+// recorded as complete, it is skipped; otherwise the step runs and, on
+// success, is journaled before the next step begins. A process crash
+// between steps therefore never re-runs a committed step, and a crash
+// during a step retries only that step. The journal is removed only
+// after every step commits — the persisted audit trail becomes the
+// durable record of the termination from that point.
+//
+// The gate before any destructive work is BACKUP_VERIFIED. All later
+// steps are roll-forward: retries after that point drive the sequence
+// to completion rather than trying to un-do anything.
 func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, error) {
 	var request durableSiteTerminationRequest
 	if err := json.Unmarshal(item.Payload, &request); err != nil {
@@ -82,62 +95,156 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	release := a.siteOperations.Acquire(request.Site)
 	defer release()
 
-	// The backup is the retention and recovery gate. Reuse a verified backup
-	// created after this job started when a prior retry already completed it.
-	backup, err := a.terminationBackup(access, item.StartedAt)
+	journal, err := loadOrCreateTerminationJournal(a.Config.RecoveryRoot, item.ID, request.Site, request.Actor)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("prepare termination journal: %w", err)
+	}
+
+	// Announce the operation before any destructive work, so an audit
+	// entry exists even if the job then crashes before COMPLETED. This
+	// is the "operation initiated" record irreversible operations should
+	// leave behind — a persistence failure here fails the job because
+	// the whole point is the durable record.
+	if !journal.isComplete(stepBackupVerified) {
+		if err := AuditAs(a.Config.AuditLog, request.Actor, "site.termination.initiated", request.Site, "job="+item.ID); err != nil {
+			return nil, fmt.Errorf("record termination initiation: %w", err)
+		}
+	}
+
+	// Step 1: BACKUP_VERIFIED. The verified backup is the sole
+	// recovery gate; every later step is roll-forward.
+	var backupPath string
+	if journal.isComplete(stepBackupVerified) {
+		backupPath = journal.BackupPath
+	} else {
+		backup, err := a.terminationBackup(access, item.StartedAt)
+		if err != nil {
+			return nil, err
+		}
+		backupPath = backup.Path
+		journal.setBackupPath(backupPath)
+		if err := journal.markComplete(stepBackupVerified); err != nil {
+			return nil, fmt.Errorf("journal BACKUP_VERIFIED: %w", err)
+		}
 	}
 
 	if a.Config.DBCtl == "" {
 		return nil, errors.New("site termination requires the managed database helper")
 	}
-	databases, err := managedDatabaseInventory(a.Config)
-	if err != nil {
-		return nil, fmt.Errorf("inspect managed databases before termination: %w", err)
-	}
-	for _, database := range databases {
-		if database.Site != request.Site {
-			continue
+
+	// Step 2: DATABASES_REMOVED. runDatabaseTermination invokes the
+	// managed-database helper's "drop-managed" verb, which is
+	// idempotent on the DB side; a retry after a crash mid-step is safe.
+	if !journal.isComplete(stepDatabasesRemoved) {
+		databases, err := managedDatabaseInventory(a.Config)
+		if err != nil {
+			return nil, fmt.Errorf("inspect managed databases before termination: %w", err)
 		}
-		if err := runDatabaseTermination(ctx, a.Config, database); err != nil {
-			return nil, err
+		for _, database := range databases {
+			if database.Site != request.Site {
+				continue
+			}
+			if err := runDatabaseTermination(ctx, a.Config, database); err != nil {
+				return nil, err
+			}
 		}
-	}
-	// Remove route desired state before deleting the host objects. A failed
-	// teardown must never leave startup reconciliation able to recreate a route
-	// for a site whose filesystem is already being removed.
-	if a.Routes != nil {
-		if err := a.Routes.removeSite(access); err != nil {
-			return nil, fmt.Errorf("remove route desired state before termination: %w", err)
-		}
-	}
-	for _, route := range siteRoutesFor(a.Config.VHostRoot, request.Site) {
-		if err := a.deleteManagedRoute(ctx, a.Config.VHostCtl, routeConfigName(a.Config, route)); err != nil {
-			return nil, err
-		}
-	}
-	for _, proxy := range siteProxiesFor(a.Config.ProxyRoot, request.Site) {
-		if err := a.deleteManagedRoute(ctx, a.Config.ProxyCtl, filepath.Base(proxy.Config)); err != nil {
-			return nil, err
+		if err := journal.markComplete(stepDatabasesRemoved); err != nil {
+			return nil, fmt.Errorf("journal DATABASES_REMOVED: %w", err)
 		}
 	}
 
-	if err := a.removeSiteTasks(ctx, access); err != nil {
-		return nil, err
-	}
-	if err := a.removeSiteServices(ctx, access); err != nil {
-		return nil, err
-	}
-	if err := a.removeSiteState(ctx, access); err != nil {
-		return nil, err
-	}
-	if err := a.detachSiteOwnership(access); err != nil {
-		return nil, err
+	// Step 3: ROUTES_REMOVED. Desired-state removal MUST precede live
+	// route deletion so a crash between them cannot leave the startup
+	// reconciler able to recreate a route for a site whose filesystem
+	// is already gone.
+	if !journal.isComplete(stepRoutesRemoved) {
+		if a.Routes != nil {
+			if err := a.Routes.removeSite(access); err != nil {
+				return nil, fmt.Errorf("remove route desired state before termination: %w", err)
+			}
+		}
+		for _, route := range siteRoutesFor(a.Config.VHostRoot, request.Site) {
+			if err := a.deleteManagedRoute(ctx, a.Config.VHostCtl, routeConfigName(a.Config, route)); err != nil {
+				return nil, err
+			}
+		}
+		if err := journal.markComplete(stepRoutesRemoved); err != nil {
+			return nil, fmt.Errorf("journal ROUTES_REMOVED: %w", err)
+		}
 	}
 
-	_ = ShouldAudit(a.Config.AuditLog, request.Actor, "site.terminated", request.Site, "verified backup="+backup.Path)
-	return json.Marshal(map[string]any{"site": request.Site, "backup": backup, "completed_at": time.Now().UTC()})
+	// Step 4: PROXIES_REMOVED.
+	if !journal.isComplete(stepProxiesRemoved) {
+		for _, proxy := range siteProxiesFor(a.Config.ProxyRoot, request.Site) {
+			if err := a.deleteManagedRoute(ctx, a.Config.ProxyCtl, filepath.Base(proxy.Config)); err != nil {
+				return nil, err
+			}
+		}
+		if err := journal.markComplete(stepProxiesRemoved); err != nil {
+			return nil, fmt.Errorf("journal PROXIES_REMOVED: %w", err)
+		}
+	}
+
+	// Step 5: TASKS_REMOVED.
+	if !journal.isComplete(stepTasksRemoved) {
+		if err := a.removeSiteTasks(ctx, access); err != nil {
+			return nil, err
+		}
+		if err := journal.markComplete(stepTasksRemoved); err != nil {
+			return nil, fmt.Errorf("journal TASKS_REMOVED: %w", err)
+		}
+	}
+
+	// Step 6: SERVICES_REMOVED.
+	if !journal.isComplete(stepServicesRemoved) {
+		if err := a.removeSiteServices(ctx, access); err != nil {
+			return nil, err
+		}
+		if err := journal.markComplete(stepServicesRemoved); err != nil {
+			return nil, fmt.Errorf("journal SERVICES_REMOVED: %w", err)
+		}
+	}
+
+	// Step 7: SITE_STATE_REMOVED.
+	if !journal.isComplete(stepSiteStateRemoved) {
+		if err := a.removeSiteState(ctx, access); err != nil {
+			return nil, err
+		}
+		if err := journal.markComplete(stepSiteStateRemoved); err != nil {
+			return nil, fmt.Errorf("journal SITE_STATE_REMOVED: %w", err)
+		}
+	}
+
+	// Step 8: OWNERSHIP_REMOVED.
+	if !journal.isComplete(stepOwnershipRemoved) {
+		if err := a.detachSiteOwnership(access); err != nil {
+			return nil, err
+		}
+		if err := journal.markComplete(stepOwnershipRemoved); err != nil {
+			return nil, fmt.Errorf("journal OWNERSHIP_REMOVED: %w", err)
+		}
+	}
+
+	// COMPLETED. Emit the terminal audit event durably before removing
+	// the journal — if audit persistence fails here, we prefer to keep
+	// the journal on disk (retries then re-emit the audit event) rather
+	// than lose the record. Upgraded from the previous `_ = ShouldAudit`
+	// to a checked AuditAs call so a persistence failure fails the job.
+	if err := AuditAs(a.Config.AuditLog, request.Actor, "site.terminated", request.Site, "verified backup="+backupPath); err != nil {
+		return nil, fmt.Errorf("record termination completion: %w", err)
+	}
+	if err := journal.cleanup(); err != nil {
+		// The termination is complete and audited; a leftover journal
+		// file is a housekeeping issue, not a correctness one. Report
+		// it as a job error so the operator notices, but the returned
+		// error does not undo the termination.
+		return nil, fmt.Errorf("cleanup termination journal: %w", err)
+	}
+	return json.Marshal(map[string]any{
+		"site":         request.Site,
+		"backup":       map[string]string{"path": backupPath},
+		"completed_at": time.Now().UTC(),
+	})
 }
 
 func (a *App) terminationBackup(site SiteCapability, started time.Time) (BackupResult, error) {

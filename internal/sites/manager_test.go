@@ -1,0 +1,183 @@
+package sites
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func newManager(t *testing.T) (*DefaultManager, string) {
+	t.Helper()
+	root := t.TempDir()
+	m, err := NewDefaultManager(root)
+	if err != nil {
+		t.Fatalf("NewDefaultManager: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "sites"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	return m, root
+}
+
+func TestNewDefaultManagerRejectsUnsafeRoot(t *testing.T) {
+	for _, bad := range []string{"", ".", "relative/path", "./relative"} {
+		if _, err := NewDefaultManager(bad); err == nil {
+			t.Errorf("NewDefaultManager(%q) should have failed", bad)
+		}
+	}
+	if _, err := NewDefaultManager("/tmp"); err != nil {
+		t.Errorf("NewDefaultManager on absolute path failed: %v", err)
+	}
+}
+
+// TestDeleteRefusesInvalidNames is the direct trust-boundary regression:
+// the manager MUST NOT rm -rf a path derived from a malformed name, even
+// if all HTTP callers claim they pre-validated. Every case below would
+// have been caught by validSiteName; we still verify Delete rejects them
+// because a regression in the HTTP validator must not turn into
+// filesystem damage.
+func TestDeleteRefusesInvalidNames(t *testing.T) {
+	m, root := newManager(t)
+	// Pre-populate a real site so a valid-name Delete has something to remove
+	// and we can prove invalid-name Deletes leave it alone.
+	sentinelDir := filepath.Join(root, "sites", "alpha")
+	if err := os.MkdirAll(sentinelDir, 0750); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{
+		"",           // empty
+		"..",         // parent traversal
+		"../etc",     // relative escape
+		"/etc",       // absolute — not matched by validSiteName
+		"a/b",        // slash — not matched
+		"UPPERCASE",  // uppercase — not matched
+		"has spaces", // whitespace — not matched
+		strings.Repeat("x", 33), // too long
+		"name\x00null",          // NUL
+		"name;rm -rf /",         // shell metacharacters
+	} {
+		err := m.Delete(context.Background(), bad)
+		if err == nil {
+			t.Errorf("Delete(%q) should have refused", bad)
+		}
+		if _, statErr := os.Stat(sentinelDir); statErr != nil {
+			t.Fatalf("Delete(%q) removed unrelated site: %v", bad, statErr)
+		}
+	}
+	// The valid site is still removable.
+	if err := m.Delete(context.Background(), "alpha"); err != nil {
+		t.Errorf("Delete of valid site failed: %v", err)
+	}
+	if _, err := os.Stat(sentinelDir); !os.IsNotExist(err) {
+		t.Errorf("Delete did not remove the site directory: %v", err)
+	}
+}
+
+// TestDeleteRefusesSymlinkedSite is the second half of the trust boundary:
+// if the site directory has been replaced with a symlink between
+// provisioning and deletion, the manager MUST NOT follow it into another
+// tree. helper.SafePath rejects symlink *parents*, and the leaf check in
+// Delete rejects the site path itself being a symlink.
+func TestDeleteRefusesSymlinkedSite(t *testing.T) {
+	m, root := newManager(t)
+	// Create a "target" tree the attacker would like us to rm -rf.
+	target := t.TempDir()
+	victim := filepath.Join(target, "important")
+	if err := os.WriteFile(victim, []byte("do not delete"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Replace the site dir with a symlink to that other tree.
+	sitePath := filepath.Join(root, "sites", "malicious")
+	if err := os.Symlink(target, sitePath); err != nil {
+		t.Fatal(err)
+	}
+	err := m.Delete(context.Background(), "malicious")
+	if err == nil {
+		t.Fatal("Delete followed a symlink; should have refused")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("error should mention symlink refusal, got: %v", err)
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatalf("Delete followed symlink and touched target: %v", err)
+	}
+}
+
+// TestDeleteAbsentSiteIsIdempotent — deleting a site that does not exist
+// is a no-op, not an error. Matches how the reconciler-style callers use it.
+func TestDeleteAbsentSiteIsIdempotent(t *testing.T) {
+	m, _ := newManager(t)
+	if err := m.Delete(context.Background(), "never-existed"); err != nil {
+		t.Errorf("Delete of absent site should be nil, got: %v", err)
+	}
+}
+
+// TestPlaceholdersReturnErrNotImplemented — Clone/Restore/Update/Suspend/
+// Resume no longer silently succeed. A caller that treated the old nil
+// return as "done" would have been actively lied to. ErrNotImplemented
+// forces that call to fail loudly.
+func TestPlaceholdersReturnErrNotImplemented(t *testing.T) {
+	m, root := newManager(t)
+	if err := os.MkdirAll(filepath.Join(root, "sites", "existing", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	if _, err := m.Clone(ctx, &CloneRequest{SourceName: "existing", DestName: "copy"}); !errors.Is(err, ErrNotImplemented) {
+		t.Errorf("Clone: want ErrNotImplemented, got %v", err)
+	}
+	if _, err := m.Restore(ctx, &RestoreRequest{Name: "existing"}); !errors.Is(err, ErrNotImplemented) {
+		t.Errorf("Restore: want ErrNotImplemented, got %v", err)
+	}
+	if _, err := m.ImportArchive(ctx, &ImportRequest{Name: "new"}); !errors.Is(err, ErrNotImplemented) {
+		t.Errorf("ImportArchive: want ErrNotImplemented, got %v", err)
+	}
+	if err := m.UpdateConfiguration(ctx, "existing", &UpdateRequest{}); !errors.Is(err, ErrNotImplemented) {
+		t.Errorf("UpdateConfiguration: want ErrNotImplemented, got %v", err)
+	}
+	if err := m.Suspend(ctx, "existing", "test"); !errors.Is(err, ErrNotImplemented) {
+		t.Errorf("Suspend: want ErrNotImplemented, got %v", err)
+	}
+	if err := m.Resume(ctx, "existing"); !errors.Is(err, ErrNotImplemented) {
+		t.Errorf("Resume: want ErrNotImplemented, got %v", err)
+	}
+}
+
+// TestPlaceholdersStillValidateName — a placeholder returning ErrNotImplemented
+// must still refuse a malformed name up front, so a caller that catches
+// ErrNotImplemented specifically doesn't mask input validation errors.
+func TestPlaceholdersStillValidateName(t *testing.T) {
+	m, _ := newManager(t)
+	ctx := context.Background()
+	if err := m.UpdateConfiguration(ctx, "../etc", &UpdateRequest{}); err == nil || errors.Is(err, ErrNotImplemented) {
+		t.Errorf("UpdateConfiguration with bad name should fail on validation, got %v", err)
+	}
+	if err := m.Suspend(ctx, "UPPERCASE", "test"); err == nil || errors.Is(err, ErrNotImplemented) {
+		t.Errorf("Suspend with bad name should fail on validation, got %v", err)
+	}
+}
+
+// TestCreateProvisionsUnderWebRoot — end-to-end smoke test for the one
+// method that does real work. Also confirms the WebRoot returned in the
+// Site value is under the manager's configured root, not caller-supplied.
+func TestCreateProvisionsUnderWebRoot(t *testing.T) {
+	m, root := newManager(t)
+	site, err := m.Create(context.Background(), &CreateRequest{Name: "fresh"})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	expected := filepath.Join(root, "sites", "fresh", "public")
+	if site.WebRoot != expected {
+		t.Errorf("Site.WebRoot = %q, want %q", site.WebRoot, expected)
+	}
+	if _, err := os.Stat(expected); err != nil {
+		t.Errorf("Create did not produce the public/ directory: %v", err)
+	}
+	// A second Create for the same name must fail (no accidental overwrite).
+	if _, err := m.Create(context.Background(), &CreateRequest{Name: "fresh"}); err == nil {
+		t.Error("second Create for the same name should have failed")
+	}
+}
