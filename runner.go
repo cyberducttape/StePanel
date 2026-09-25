@@ -63,7 +63,7 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for build operations", http.StatusForbidden)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "site build is busy", http.StatusConflict)
 		return
@@ -99,7 +99,7 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args := a.pipelineBuildArgs(input.Site, input.Image, root, scriptPath)
-	if err = runHelperCommand(r.Context(), a.Config, a.Config.RunnerCtl, args...); err != nil {
+	if err = runHelperCommand(operationCtx, a.Config, a.Config.RunnerCtl, args...); err != nil {
 		http.Error(w, "sandboxed build failed", 502)
 		return
 	}
