@@ -71,7 +71,7 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site document root does not exist", 422)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), app.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), app.Site)
 	if lockErr != nil {
 		http.Error(w, "Python application mutation is busy", http.StatusConflict)
 		return
@@ -82,7 +82,7 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not persist desired Python application", 503)
 		return
 	}
-	if err := a.applyPythonApp(r.Context(), app); err != nil {
+	if err := a.applyPythonApp(operationCtx, app); err != nil {
 		app.LastError = err.Error()
 		_ = savePythonApp(a.Config.AppRoot, app)
 		http.Error(w, "Python application is pending reconciliation", 502)
@@ -126,12 +126,12 @@ func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, fai
 		if json.Unmarshal(data, &app) != nil || safeUser(app.Site) == "" || app.State != "pending" {
 			continue
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, app.Site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, app.Site)
 		if lockErr != nil {
 			failed[app.Site] = lockErr.Error()
 			continue
 		}
-		if err := a.applyPythonApp(ctx, app); err != nil {
+		if err := a.applyPythonApp(operationCtx, app); err != nil {
 			app.LastError = err.Error()
 			_ = savePythonApp(a.Config.AppRoot, app)
 			failed[app.Site] = err.Error()
@@ -167,13 +167,13 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for Python operations", http.StatusForbidden)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), parts[0])
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), parts[0])
 	if lockErr != nil {
 		http.Error(w, "Python operation is busy", http.StatusConflict)
 		return
 	}
 	defer releaseUnlock()
-	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
+	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
 		http.Error(w, "Python action failed", 502)
 		return
 	}
