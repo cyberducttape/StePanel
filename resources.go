@@ -479,7 +479,7 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid resource profile", 422)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 	if lockErr != nil {
 		http.Error(w, "resource mutation is busy", http.StatusConflict)
 		return
@@ -500,7 +500,7 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not persist desired resource profile", 503)
 		return
 	}
-	e = a.applyResourceProfile(r.Context(), p, p.FilesystemQuotaState == "clear-pending")
+	e = a.applyResourceProfile(operationCtx, p, p.FilesystemQuotaState == "clear-pending")
 	if e != nil {
 		http.Error(w, "resource profile is pending reconciliation", 502)
 		return
@@ -594,12 +594,12 @@ func (a *App) reconcileResourceProfiles(ctx context.Context) (reconciled []strin
 		}
 	}
 	for _, p := range pending {
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, p.Site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, p.Site)
 		if lockErr != nil {
 			failed[p.Site] = lockErr.Error()
 			continue
 		}
-		err := a.applyResourceProfile(ctx, p, p.FilesystemQuotaState == "clear-pending")
+		err := a.applyResourceProfile(operationCtx, p, p.FilesystemQuotaState == "clear-pending")
 		if err != nil {
 			failed[p.Site] = "apply failed"
 			if p.Account != "" && a.Accounts != nil {

@@ -49,12 +49,12 @@ func (a *App) reconcileEnvironments(ctx context.Context) (reconciled []string, f
 	}
 	a.Environments.mu.RUnlock()
 	for site, vars := range desired {
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, site)
 		if lockErr != nil {
 			failed[site] = lockErr.Error()
 			continue
 		}
-		if err := a.applyEnvironmentLocked(ctx, site, vars); err != nil {
+		if err := a.applyEnvironmentLocked(operationCtx, site, vars); err != nil {
 			failed[site] = err.Error()
 			releaseUnlock()
 			continue
@@ -299,7 +299,7 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 		if lockErr != nil {
 			http.Error(w, "environment mutation is busy", http.StatusConflict)
 			return
@@ -321,7 +321,7 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "environment state could not be saved", 503)
 			return
 		}
-		if err := a.applyEnvironment(r.Context(), access, input); err != nil {
+		if err := a.applyEnvironment(operationCtx, access, input); err != nil {
 			http.Error(w, "environment is pending host reconciliation", 502)
 			return
 		}
@@ -336,13 +336,13 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "API token lacks the environment:write scope", 403)
 			return
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 		if lockErr != nil {
 			http.Error(w, "environment mutation is busy", http.StatusConflict)
 			return
 		}
 		defer releaseUnlock()
-		if err := a.removeEnvironment(r.Context(), access); err != nil {
+		if err := a.removeEnvironment(operationCtx, access); err != nil {
 			if strings.Contains(err.Error(), "desired state save failed") {
 				http.Error(w, "environment state could not be saved", 503)
 			} else if strings.Contains(err.Error(), "metadata cleanup pending") {
