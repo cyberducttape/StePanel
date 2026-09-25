@@ -67,9 +67,10 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for app deployment", http.StatusForbidden)
 		return
 	}
-	app.Root = filepath.Join(a.Config.WebRoot, "sites", app.Site, "public")
-	if err := ensureInside(a.Config.WebRoot, app.Root); err != nil {
-		http.Error(w, err.Error(), 422)
+	var rootErr error
+	app.Root, rootErr = safePath(a.Config.WebRoot, "sites", app.Site, "public")
+	if rootErr != nil {
+		http.Error(w, "invalid site root", 422)
 		return
 	}
 	if info, err := os.Stat(app.Root); err != nil || !info.IsDir() {
@@ -88,7 +89,11 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to create app state directory", 500)
 		return
 	}
-	manifestPath := filepath.Join(a.Config.AppRoot, app.Site+".json")
+	manifestPath, err := safePath(a.Config.AppRoot, app.Site+".json")
+	if err != nil {
+		http.Error(w, "invalid app manifest path", 422)
+		return
+	}
 	previous, previousErr := os.ReadFile(manifestPath)
 	if previousErr != nil && !os.IsNotExist(previousErr) {
 		http.Error(w, "unable to read existing app manifest", 500)

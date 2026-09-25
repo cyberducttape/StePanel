@@ -232,6 +232,13 @@ func TestActivateStagedRejectsUnsafeOrInvalidTrees(t *testing.T) {
 	if _, err := m.ActivateStaged(context.Background(), "outside", outside); err == nil {
 		t.Fatal("ActivateStaged accepted a staged path outside the web root")
 	}
+	ordinary := filepath.Join(root, "sites", "ordinary")
+	if err := os.MkdirAll(ordinary, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ActivateStaged(context.Background(), "ordinary-target", ordinary); err == nil {
+		t.Fatal("ActivateStaged accepted a non-manager-owned direct site path")
+	}
 
 	parent := filepath.Join(root, "sites", ".import-staging", "job-2")
 	if err := os.MkdirAll(filepath.Join(parent, "public"), 0750); err != nil {
@@ -252,6 +259,25 @@ func TestActivateStagedRejectsUnsafeOrInvalidTrees(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "sites", "canceled")); !os.IsNotExist(err) {
 		t.Fatalf("canceled activation published a destination: %v", err)
+	}
+}
+
+func TestActivateStagedAcceptsManagerOwnedRollbackRelease(t *testing.T) {
+	m, root := newManager(t)
+	siteRoot := filepath.Join(root, "sites", "rollback", "public")
+	previous := filepath.Join(root, "sites", "rollback", ".stepanel-previous-old")
+	if err := os.MkdirAll(previous, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(previous, "index.html"), []byte("previous"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ActivateStaged(context.Background(), "rollback", previous); err != nil {
+		t.Fatalf("ActivateStaged rejected manager-owned rollback release: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(siteRoot, "index.html"))
+	if err != nil || string(data) != "previous" {
+		t.Fatalf("rollback activation content = %q, error = %v", data, err)
 	}
 }
 

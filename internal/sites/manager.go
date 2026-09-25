@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	h "github.com/cyberducttape/StePanel/internal/helper"
@@ -47,6 +48,12 @@ var ErrNotImplemented = errors.New("sites.Manager: operation not yet implemented
 // the manager is a trust boundary and cannot rely on the caller having
 // already validated.
 var validSiteName = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+
+// Staged trees may only be direct children of sites/ or children of the
+// importer staging directory. Restricting the final component prevents a
+// caller from smuggling a path expression through ActivateStaged while still
+// supporting the two staging layouts used by the application.
+var validStagedComponent = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,127}|\.stepanel-[A-Za-z0-9._-]{1,127})$`)
 
 // ResourceEnvelope describes resource limits for a site.
 type ResourceEnvelope struct {
@@ -153,6 +160,55 @@ func (m *DefaultManager) resolvePublicRoot(name string) (string, error) {
 	return h.SafePath(m.webRoot, "sites", name, "public")
 }
 
+func (m *DefaultManager) resolveStagedRoot(name, stagedRoot string) (string, string, error) {
+	sitesRoot, err := h.SafePath(m.webRoot, "sites")
+	if err != nil {
+		return "", "", fmt.Errorf("sites.Manager: resolve sites root: %w", err)
+	}
+	absStaged, err := filepath.Abs(stagedRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("sites.Manager: resolve staged path: %w", err)
+	}
+	component := filepath.Base(absStaged)
+	if !validStagedComponent.MatchString(component) {
+		return "", "", errors.New("sites.Manager: invalid staged path component")
+	}
+	parent := filepath.Dir(absStaged)
+	siteRoot, err := m.resolveSiteRoot(name)
+	if err != nil {
+		return "", "", err
+	}
+	if parent == siteRoot {
+		if !strings.HasPrefix(component, ".stepanel-previous-") {
+			return "", "", errors.New("sites.Manager: direct site path is not a rollback release")
+		}
+		if _, err := h.SafePath(siteRoot, component); err != nil {
+			return "", "", err
+		}
+		return siteRoot, component, nil
+	}
+	if parent == sitesRoot {
+		if !strings.HasPrefix(component, ".stepanel-") {
+			return "", "", errors.New("sites.Manager: direct staged path must be manager-owned")
+		}
+		if _, err := h.SafePath(sitesRoot, component); err != nil {
+			return "", "", err
+		}
+		return sitesRoot, component, nil
+	}
+	importRoot, err := h.SafePath(sitesRoot, ".import-staging")
+	if err != nil {
+		return "", "", fmt.Errorf("sites.Manager: resolve importer staging root: %w", err)
+	}
+	if parent == importRoot {
+		if _, err := h.SafePath(importRoot, component); err != nil {
+			return "", "", err
+		}
+		return importRoot, component, nil
+	}
+	return "", "", errors.New("sites.Manager: staged path is not in a manager-owned staging root")
+}
+
 // ActivateStaged publishes a fully prepared public tree under the manager's
 // configured web root. The caller owns any higher-level recovery journal; the
 // manager owns path validation and the final atomic rename.
@@ -164,9 +220,29 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := h.EnsureInside(m.webRoot, stagedRoot); err != nil {
-		return nil, fmt.Errorf("sites.Manager: staged path is outside web root: %w", err)
+	stagedParent, stagedName, err := m.resolveStagedRoot(name, stagedRoot)
+	if err != nil {
+		return nil, err
 	}
+	// Resolve the requested component through a directory entry obtained from
+	// the manager-owned parent. The final filesystem call therefore uses a
+	// name supplied by the trusted directory listing, not the original request
+	// path expression.
+	var stagedEntry string
+	entries, err := os.ReadDir(stagedParent)
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: inspect staging parent: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == stagedName {
+			stagedEntry = filepath.Join(stagedParent, entry.Name())
+			break
+		}
+	}
+	if stagedEntry == "" {
+		return nil, errors.New("sites.Manager: staged site does not exist")
+	}
+	stagedRoot = stagedEntry
 	stagedInfo, err := os.Lstat(stagedRoot)
 	if err != nil {
 		return nil, fmt.Errorf("sites.Manager: inspect staged site: %w", err)

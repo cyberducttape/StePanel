@@ -53,8 +53,8 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "wp-cli is not installed", 503)
 		return
 	}
-	root := filepath.Join(a.Config.WebRoot, "sites", site, "public")
-	if err := ensureInside(a.Config.WebRoot, root); err != nil {
+	root, err := safePath(a.Config.WebRoot, "sites", site, "public")
+	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}
@@ -93,7 +93,16 @@ func (a *App) wordpressStatus(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
 		return
 	}
-	root := filepath.Join(a.Config.WebRoot, "sites", site, "public")
-	_, err := os.Stat(filepath.Join(root, "wp-config.php"))
+	root, err := safePath(a.Config.WebRoot, "sites", site, "public")
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"site": site, "installed": false, "wp_cli": commandAvailable(a.Config.WPCLI)})
+		return
+	}
+	configPath, err := safePath(root, "wp-config.php")
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"site": site, "installed": false, "wp_cli": commandAvailable(a.Config.WPCLI)})
+		return
+	}
+	_, err = os.Stat(configPath)
 	writeJSON(w, http.StatusOK, map[string]any{"site": site, "installed": err == nil, "wp_cli": commandAvailable(a.Config.WPCLI)})
 }

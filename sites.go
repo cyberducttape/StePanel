@@ -211,9 +211,9 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	publicRoot := filepath.Join(a.Config.WebRoot, "sites", input.Site, "public")
-	if err := ensureInside(a.Config.WebRoot, publicRoot); err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+	publicRoot, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	if err != nil {
+		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
 	}
 	if info, err := os.Stat(publicRoot); err != nil || !info.IsDir() {
@@ -274,7 +274,11 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site route", http.StatusUnprocessableEntity)
 		return
 	}
-	path := filepath.Join(a.Config.VHostRoot, name)
+	path, err := safePath(a.Config.VHostRoot, name)
+	if err != nil {
+		http.Error(w, "invalid site route", http.StatusUnprocessableEntity)
+		return
+	}
 	if _, err := os.Stat(path); err != nil {
 		http.Error(w, "site route not found", http.StatusNotFound)
 		return
