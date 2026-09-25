@@ -152,6 +152,47 @@ func (m *DefaultManager) resolvePublicRoot(name string) (string, error) {
 	return h.SafePath(m.webRoot, "sites", name, "public")
 }
 
+// ActivateStaged publishes a fully prepared public tree under the manager's
+// configured web root. The caller owns any higher-level recovery journal; the
+// manager owns path validation and the final atomic rename.
+func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot string) (*Site, error) {
+	destination, err := m.resolvePublicRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := h.EnsureInside(m.webRoot, stagedRoot); err != nil {
+		return nil, fmt.Errorf("sites.Manager: staged path is outside web root: %w", err)
+	}
+	stagedInfo, err := os.Lstat(stagedRoot)
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: inspect staged site: %w", err)
+	}
+	if stagedInfo.Mode()&os.ModeSymlink != 0 || !stagedInfo.IsDir() {
+		return nil, errors.New("sites.Manager: staged site must be a directory")
+	}
+	if _, err := os.Stat(filepath.Join(stagedRoot, "public")); err == nil {
+		return nil, errors.New("sites.Manager: staged root must be the public tree, not its parent")
+	}
+	if _, err := os.Lstat(destination); err == nil {
+		return nil, fmt.Errorf("sites.Manager: destination site %q already exists", name)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("sites.Manager: inspect activation destination: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
+		return nil, fmt.Errorf("sites.Manager: prepare activation parent: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(stagedRoot, destination); err != nil {
+		return nil, fmt.Errorf("sites.Manager: activate staged site: %w", err)
+	}
+	return &Site{Name: name, Status: "ready", CreatedAt: time.Now().UTC(), WebRoot: destination}, nil
+}
+
 // Create provisions a new site's directory structure. Consolidation note:
 // site provisioning currently happens inside the archive-import
 // orchestrator (see importer.go handleArchiveImportJob), which uses the

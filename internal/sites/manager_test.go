@@ -200,6 +200,61 @@ func TestCloneRejectsSymlinkWithoutPublishingDestination(t *testing.T) {
 	}
 }
 
+func TestActivateStagedPublishesPublicTree(t *testing.T) {
+	m, root := newManager(t)
+	staged := filepath.Join(root, "sites", ".import-staging", "job-1")
+	if err := os.MkdirAll(staged, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staged, "index.html"), []byte("imported"), 0640); err != nil {
+		t.Fatal(err)
+	}
+
+	site, err := m.ActivateStaged(context.Background(), "imported", staged)
+	if err != nil {
+		t.Fatalf("ActivateStaged failed: %v", err)
+	}
+	expected := filepath.Join(root, "sites", "imported", "public")
+	if site.WebRoot != expected {
+		t.Fatalf("activated WebRoot = %q, want %q", site.WebRoot, expected)
+	}
+	if data, err := os.ReadFile(filepath.Join(expected, "index.html")); err != nil || string(data) != "imported" {
+		t.Fatalf("activated content = %q, err = %v", data, err)
+	}
+	if _, err := os.Stat(staged); !os.IsNotExist(err) {
+		t.Fatalf("staged tree still exists: %v", err)
+	}
+}
+
+func TestActivateStagedRejectsUnsafeOrInvalidTrees(t *testing.T) {
+	m, root := newManager(t)
+	outside := t.TempDir()
+	if _, err := m.ActivateStaged(context.Background(), "outside", outside); err == nil {
+		t.Fatal("ActivateStaged accepted a staged path outside the web root")
+	}
+
+	parent := filepath.Join(root, "sites", ".import-staging", "job-2")
+	if err := os.MkdirAll(filepath.Join(parent, "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ActivateStaged(context.Background(), "nested", parent); err == nil {
+		t.Fatal("ActivateStaged accepted a staging parent instead of a public tree")
+	}
+
+	canceled := filepath.Join(root, "sites", ".import-staging", "job-3")
+	if err := os.MkdirAll(canceled, 0750); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := m.ActivateStaged(ctx, "canceled", canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled activation error = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites", "canceled")); !os.IsNotExist(err) {
+		t.Fatalf("canceled activation published a destination: %v", err)
+	}
+}
+
 // TestPlaceholdersStillValidateName — a placeholder returning ErrNotImplemented
 // must still refuse a malformed name up front, so a caller that catches
 // ErrNotImplemented specifically doesn't mask input validation errors.
