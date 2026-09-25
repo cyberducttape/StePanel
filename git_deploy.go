@@ -642,28 +642,13 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to remove Git metadata from release", http.StatusInternalServerError)
 		return
 	}
-	a.gitActivationMu.Lock()
-	defer a.gitActivationMu.Unlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	previous := ""
-	if err := failureInjection("deploy", "activate"); err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-	previous, err = a.activateReplacingSite(operationCtx, input.Site, release)
+	previous, err := a.activatePipelineRelease(operationCtx, input.Site, release)
 	if err != nil {
 		http.Error(w, "unable to activate the new release", http.StatusInternalServerError)
-		return
-	}
-	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil {
-		if rollbackErr := a.rollbackReplacingSite(operationCtx, input.Site, previous); rollbackErr != nil {
-			http.Error(w, "site isolation failed and release rollback failed: "+rollbackErr.Error(), http.StatusServiceUnavailable)
-			return
-		}
-		http.Error(w, "site isolation could not be restored", http.StatusServiceUnavailable)
 		return
 	}
 	result := gitDeployResult{Site: input.Site, Repository: input.Repository, Ref: input.Ref, Commit: commit, Previous: previous}
@@ -705,8 +690,6 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	a.gitActivationMu.Lock()
-	defer a.gitActivationMu.Unlock()
 	previous, err := latestPreviousRelease(siteRoot)
 	if err != nil {
 		http.Error(w, "no previous Git release is available", http.StatusConflict)
@@ -720,14 +703,9 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "active site release is unavailable", http.StatusConflict)
 		return
 	}
-	replaced, err := a.activateReplacingSite(operationCtx, input.Site, previous)
+	replaced, err := a.activatePipelineRelease(operationCtx, input.Site, previous)
 	if err != nil {
 		http.Error(w, "unable to preserve the active release", http.StatusInternalServerError)
-		return
-	}
-	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil {
-		_ = a.rollbackReplacingSite(operationCtx, input.Site, replaced)
-		http.Error(w, "rollback could not restore site isolation", http.StatusServiceUnavailable)
 		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.Username, "site.git-rolled-back", input.Site, filepath.Base(previous))

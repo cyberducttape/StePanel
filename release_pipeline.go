@@ -258,7 +258,11 @@ func (a *App) activatePipelineRelease(ctx context.Context, site, release string)
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	journal, err := newReleaseActivationJournal(a.Config.RecoveryRoot, site, release)
+	recoveryRoot := a.Config.RecoveryRoot
+	if recoveryRoot == "" {
+		recoveryRoot = filepath.Join(a.Config.WebRoot, "sites", ".stepanel-recovery")
+	}
+	journal, err := newReleaseActivationJournal(recoveryRoot, site, release)
 	if err != nil {
 		return "", err
 	}
