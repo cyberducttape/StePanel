@@ -278,6 +278,22 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "backup has no site files", 422)
 		return
 	}
+	managerStageParent := filepath.Join(a.Config.WebRoot, "sites")
+	if e = os.MkdirAll(managerStageParent, 0750); e != nil {
+		http.Error(w, "could not prepare lifecycle staging root", 503)
+		return
+	}
+	managerStage, stageErr := os.MkdirTemp(managerStageParent, ".stepanel-backup-restore-")
+	if stageErr != nil {
+		http.Error(w, "could not create lifecycle staging tree", 503)
+		return
+	}
+	managerActivated := false
+	defer func() {
+		if !managerActivated {
+			_ = os.RemoveAll(managerStage)
+		}
+	}()
 	if e = siteHelperContext(operationCtx, a.Config, "prepare", input.Site); e != nil {
 		http.Error(w, "could not prepare isolated staging site", 502)
 		return
@@ -308,10 +324,15 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			}
 		}
 	}()
-	if e = copyTreeContext(operationCtx, source, dest); e != nil {
+	if e = copyTreeContext(operationCtx, source, managerStage); e != nil {
 		http.Error(w, "could not restore site files", 502)
 		return
 	}
+	if e = a.activateStagedSite(operationCtx, input.Site, managerStage); e != nil {
+		http.Error(w, "could not publish restored site through lifecycle manager", 503)
+		return
+	}
+	managerActivated = true
 	if e = siteHelperContext(operationCtx, a.Config, "seal", input.Site); e != nil {
 		http.Error(w, "could not seal restored site", 502)
 		return
