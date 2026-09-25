@@ -115,7 +115,7 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 		if !a.Auth.IsAdministrator(r) {
 			lockKeys = append(lockKeys, "account:"+a.Auth.UsernameForRequest(r))
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLocks(r.Context(), lockKeys...)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), lockKeys...)
 		if lockErr != nil {
 			http.Error(w, "Redis allocation is busy", http.StatusConflict)
 			return
@@ -142,6 +142,10 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "Redis allocation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		a.Redis.mu.Lock()
 		a.Redis.values[site] = input
 		err := a.Redis.persistLocked()
@@ -161,12 +165,16 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 		if !a.Auth.IsAdministrator(r) {
 			lockKeys = append(lockKeys, "account:"+a.Auth.UsernameForRequest(r))
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLocks(r.Context(), lockKeys...)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), lockKeys...)
 		if lockErr != nil {
 			http.Error(w, "Redis allocation is busy", http.StatusConflict)
 			return
 		}
 		defer releaseUnlock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "Redis allocation deletion cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		a.Redis.mu.Lock()
 		delete(a.Redis.values, site)
 		err := a.Redis.persistLocked()
