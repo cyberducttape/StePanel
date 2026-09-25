@@ -268,8 +268,8 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	if !validSiteName(req.SiteName) {
 		return errors.New("invalid site name in archive import payload")
 	}
-	if req.WebRoot == "" {
-		return errors.New("archive import payload is missing web root")
+	if a.Config.WebRoot == "" {
+		return errors.New("archive import requires a configured web root")
 	}
 
 	actor := job.User
@@ -291,7 +291,11 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	}
 	defer releaseSite()
 
-	canonical, err := safePath(req.WebRoot, "sites", req.SiteName, "public")
+	// WebRoot is deployment authority, never job-payload data. Older queued
+	// jobs retain the field for decoding compatibility, but accepting it here
+	// would let a tampered durable payload redirect lifecycle mutation to a
+	// different tree.
+	canonical, err := safePath(a.Config.WebRoot, "sites", req.SiteName, "public")
 	if err != nil {
 		return fmt.Errorf("resolve canonical site: %w", err)
 	}
@@ -303,7 +307,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 
 	manager := a.siteManager
 	if manager == nil {
-		manager, err = siteauthority.NewDefaultManager(req.WebRoot)
+		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
 		if err != nil {
 			return fmt.Errorf("initialize site manager for staging: %w", err)
 		}
