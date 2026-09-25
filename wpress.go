@@ -282,6 +282,20 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if err != nil {
 		return WPressResult{}, err
 	}
+	managerStageParent := filepath.Join(cfg.WebRoot, "sites")
+	if err := os.MkdirAll(managerStageParent, 0750); err != nil {
+		return WPressResult{}, fmt.Errorf("prepare lifecycle staging root: %w", err)
+	}
+	managerStage, err := os.MkdirTemp(managerStageParent, ".stepanel-wpress-")
+	if err != nil {
+		return WPressResult{}, fmt.Errorf("create lifecycle staging tree: %w", err)
+	}
+	managerActivated := false
+	defer func() {
+		if !managerActivated {
+			_ = os.RemoveAll(managerStage)
+		}
+	}()
 	committed := false
 	defer func() {
 		if !committed {
@@ -298,16 +312,22 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if err := siteHelperContext(ctx, cfg, "prepare", site); err != nil {
 		return WPressResult{}, fmt.Errorf("prepare isolated site: %w", err)
 	}
-	if err := os.MkdirAll(home, 0750); err != nil {
-		return WPressResult{}, err
-	}
 	metadata, err := readWPressPackageMetadata(filepath.Join(source, "package.json"))
 	if err != nil {
 		return WPressResult{}, fmt.Errorf("read package metadata: %w", err)
 	}
-	if err := copyWPressTreeContext(ctx, source, home); err != nil {
+	if err := copyWPressTreeContext(ctx, source, managerStage); err != nil {
 		return WPressResult{}, fmt.Errorf("restore WordPress files: %w", err)
 	}
+	if findings, err := scanPHP(managerStage); err != nil {
+		return WPressResult{}, fmt.Errorf("scan restored WordPress files: %w", err)
+	} else if len(findings) > 0 {
+		return WPressResult{}, fmt.Errorf("restore blocked: malware scan detected %d suspicious PHP file(s)", len(findings))
+	}
+	if err := activateStagedSiteWithConfig(ctx, cfg, site, managerStage); err != nil {
+		return WPressResult{}, fmt.Errorf("activate restored site through manager: %w", err)
+	}
+	managerActivated = true
 	if metadata.HTAccessPresent {
 		if err := writeAtomic(filepath.Join(home, ".htaccess"), metadata.HTAccess, 0644); err != nil {
 			return WPressResult{}, fmt.Errorf("restore .htaccess: %w", err)
