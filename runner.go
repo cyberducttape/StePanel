@@ -63,7 +63,11 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for build operations", http.StatusForbidden)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(input.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "site build is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	for _, line := range input.Commands {
 		if len(line) == 0 || len(line) > 1024 || strings.ContainsAny(line, "\x00\r\n") {

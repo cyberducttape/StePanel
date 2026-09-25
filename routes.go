@@ -144,7 +144,13 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 			}
 			route.State = "pending"
 		}
-		release := a.siteOperations.AcquireMany(route.Site, "vhost:"+route.Name)
+		release, lockErr := a.acquireSiteMutationLocks(ctx, route.Site, "vhost:"+route.Name)
+		if lockErr != nil {
+			route.LastError = lockErr.Error()
+			failed[route.Name] = lockErr.Error()
+			_ = a.Routes.save(route)
+			continue
+		}
 		var err error
 		if route.State == "delete-pending" {
 			err = runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", route.Name)

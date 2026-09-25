@@ -269,7 +269,10 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 		return context.Canceled
 	}
 
-	releaseSite := a.siteOperations.Acquire(req.SiteName)
+	releaseSite, lockErr := a.acquireSiteMutationLock(ctx, req.SiteName)
+	if lockErr != nil {
+		return fmt.Errorf("acquire site mutation lock: %w", lockErr)
+	}
 	defer releaseSite()
 
 	canonical := filepath.Join(req.WebRoot, "sites", req.SiteName, "public")

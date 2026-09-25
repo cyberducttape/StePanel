@@ -219,7 +219,10 @@ func (a *App) reconcileAccountResourcePlan(previous, account HostingAccount) ([]
 	if len(changed) == 0 {
 		return nil, a.applyAccountResourceEnvelope(account.Username, plan)
 	}
-	unlock := a.siteOperations.AcquireMany(account.Sites...)
+	unlock, lockErr := a.acquireSiteMutationLocks(context.Background(), account.Sites...)
+	if lockErr != nil {
+		return nil, fmt.Errorf("acquire account resource locks: %w", lockErr)
+	}
 	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

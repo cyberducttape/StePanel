@@ -1,0 +1,56 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/cyberducttape/StePanel/internal/operations"
+	_ "modernc.org/sqlite"
+)
+
+func TestAcquireSiteMutationLocksFencesIndependentAppInstances(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "control-plane.sqlite")
+	dsn := "file:" + dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	dbA, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbA.Close()
+	dbB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbB.Close()
+
+	locksA, err := operations.NewDBLocks(dbA, "panel-a", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locksB, err := operations.NewDBLocks(dbB, "panel-b", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{dbLocks: locksA}
+	b := &App{dbLocks: locksB}
+
+	releaseA, err := a.acquireSiteMutationLocks(context.Background(), "site-a", "vhost:site-a-example")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := b.acquireSiteMutationLocks(ctx, "vhost:site-a-example", "site-a"); err == nil {
+		t.Fatal("independent app acquired a live compound site lock")
+	}
+
+	releaseA()
+	releaseB, err := b.acquireSiteMutationLocks(context.Background(), "site-a", "vhost:site-a-example")
+	if err != nil {
+		t.Fatalf("lock was not released for the next owner: %v", err)
+	}
+	releaseB()
+}

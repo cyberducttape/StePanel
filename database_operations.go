@@ -173,7 +173,11 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 		if !a.Auth.IsAdministrator(r) {
 			lockKeys = append(lockKeys, "account:"+a.Auth.UsernameForRequest(r))
 		}
-		releaseUnlock := a.siteOperations.AcquireMany(lockKeys...)
+		releaseUnlock, lockErr := a.acquireSiteMutationLocks(r.Context(), lockKeys...)
+		if lockErr != nil {
+			http.Error(w, "database mutation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		if a.Accounts != nil && !a.Auth.IsAdministrator(r) {
 			if _, ok := a.requireSiteAccess(w, r, in.Site, "site is not assigned to this account", http.StatusForbidden); !ok {

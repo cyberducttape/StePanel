@@ -115,7 +115,11 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 		if !a.Auth.IsAdministrator(r) {
 			lockKeys = append(lockKeys, "account:"+a.Auth.UsernameForRequest(r))
 		}
-		releaseUnlock := a.siteOperations.AcquireMany(lockKeys...)
+		releaseUnlock, lockErr := a.acquireSiteMutationLocks(r.Context(), lockKeys...)
+		if lockErr != nil {
+			http.Error(w, "Redis allocation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		if !a.Auth.IsAdministrator(r) {
 			account, ok := a.Accounts.Get(a.Auth.UsernameForRequest(r))
@@ -157,7 +161,11 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 		if !a.Auth.IsAdministrator(r) {
 			lockKeys = append(lockKeys, "account:"+a.Auth.UsernameForRequest(r))
 		}
-		releaseUnlock := a.siteOperations.AcquireMany(lockKeys...)
+		releaseUnlock, lockErr := a.acquireSiteMutationLocks(r.Context(), lockKeys...)
+		if lockErr != nil {
+			http.Error(w, "Redis allocation is busy", http.StatusConflict)
+			return
+		}
 		defer releaseUnlock()
 		a.Redis.mu.Lock()
 		delete(a.Redis.values, site)

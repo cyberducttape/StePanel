@@ -115,7 +115,11 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := proxyConfigName(a.Config.WebServer, input.Site, input.Domain)
-	releaseUnlock := a.siteOperations.AcquireMany(input.Site, "proxy:"+name)
+	releaseUnlock, lockErr := a.acquireSiteMutationLocks(r.Context(), input.Site, "proxy:"+name)
+	if lockErr != nil {
+		http.Error(w, "proxy mutation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	path, err := safePath(a.Config.ProxyRoot, name)
 	if err != nil {

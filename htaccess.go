@@ -212,7 +212,11 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Caddy site helper is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	releaseUnlock := a.siteOperations.AcquireMany(input.Site, "vhost:"+siteVHostConfigName(a.Config.WebServer, input.Site, input.Domain))
+	releaseUnlock, lockErr := a.acquireSiteMutationLocks(r.Context(), input.Site, "vhost:"+siteVHostConfigName(a.Config.WebServer, input.Site, input.Domain))
+	if lockErr != nil {
+		http.Error(w, "site configuration is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 	defer cancel()

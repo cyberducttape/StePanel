@@ -213,7 +213,11 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "API token lacks the backup:restore scope", http.StatusForbidden)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(input.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "site restore is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	manifest, e := VerifySiteBackup(backup, a.Config.BackupSigningKey)
 	if e != nil {
