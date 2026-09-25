@@ -214,6 +214,36 @@ func TestBackupRestoreFilesPreservesExistingDatabaseBoundary(t *testing.T) {
 	}
 }
 
+func TestBackupRestoreFilesFailureBeforeActivationRollsBack(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "backup")
+	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "live")
+	t.Setenv("STEPANEL_FAIL_AT", "restore:activate")
+
+	_, err = backupRestoreFiles(context.Background(), Config{
+		WebRoot:      webRoot,
+		BackupRoot:   backupRoot,
+		ImportRoot:   filepath.Join(root, "imports"),
+		RecoveryRoot: filepath.Join(root, "recovery"),
+	}, filepath.Base(result.Path), AuthorizedSite{site: "account"})
+	if err == nil || !strings.Contains(err.Error(), "failure injection") {
+		t.Fatalf("restore error = %v, want injected activation failure", err)
+	}
+	data, readErr := os.ReadFile(filepath.Join(webRoot, "sites", "account", "public", "index.html"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "live" {
+		t.Fatalf("failed restore changed live site to %q", data)
+	}
+}
+
 func readTestBackupManifest(t *testing.T, root string) BackupManifest {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, "manifest.json"))

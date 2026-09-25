@@ -420,6 +420,9 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("verify backup: %w", err)
 	}
+	if err := failureInjection("restore", "verify"); err != nil {
+		return BackupRestoreResult{}, err
+	}
 	if manifest.Site != siteName {
 		return BackupRestoreResult{}, errors.New("backup does not belong to destination site")
 	}
@@ -437,6 +440,9 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	}
 	if err := extractArchiveContext(ctx, archivePath, stage); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("extract verified backup: %w", err)
+	}
+	if err := failureInjection("restore", "extract"); err != nil {
+		return BackupRestoreResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return BackupRestoreResult{}, err
@@ -485,12 +491,18 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err := copyTreeContext(ctx, source, managerStage); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("restore site files: %w", err)
 	}
+	if err := failureInjection("restore", "activate"); err != nil {
+		return BackupRestoreResult{}, err
+	}
 	if err := activateStagedSiteWithConfig(ctx, cfg, siteName, managerStage); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("activate restored site through manager: %w", err)
 	}
 	managerActivated = true
 	if err := siteHelperContext(ctx, cfg, "seal", siteName); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("seal site: %w", err)
+	}
+	if err := failureInjection("restore", "commit"); err != nil {
+		return BackupRestoreResult{}, err
 	}
 	if err := txn.Commit(); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("commit restore journal: %w", err)
