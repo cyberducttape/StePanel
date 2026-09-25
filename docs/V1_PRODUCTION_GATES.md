@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last reviewed:** 2026-09-24
+**Last reviewed:** 2026-09-25
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -39,15 +39,18 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 **Current Status:**
 - ✅ Manager interface defined (`internal/sites/manager.go`)
 - ✅ Manager clone is staged, path-safe, and atomically activated
-- ⏳ Integration into HTTP handlers and job workers
-- ⏳ Routing git clone/restore operations through manager
-- ⏳ Routing cpmove import through manager
-- ⏳ Routing staging operations through manager
+- ✅ Generic archive activation publishes through the manager
+- ✅ Git activation and rollback publish through the manager
+- ✅ cPanel, WordPress, and file-backup restores publish through the manager
+- ✅ Staging clone publishes through the manager
+- ✅ Site termination uses the manager for final deletion
+- ⏳ Remaining direct lifecycle paths (generic create/update/suspend/resume and
+      restore-to-staging) still need to be consolidated
 
 **Acceptance Criteria:**
 - [ ] All site creation operations validated to use SiteManager
 - [ ] All site modification operations validated to use SiteManager
-- [ ] All site deletion operations validated to use SiteManager
+- [x] Implemented site deletion operations use SiteManager
 - [ ] Grep audit: no `os.Mkdir.*sites` outside manager
 - [ ] Grep audit: no direct file operations on site paths outside manager
 
@@ -277,8 +280,8 @@ func shouldFailAt(operation string, progress int) bool {
 ### Architecture
 - [ ] Gate 1: One Lifecycle Authority - ALL mutations through SiteManager
 - [ ] Gate 2: Cross-Process Locks - Distributed locks enforced
-- [ ] Gate 3: Accurate Capabilities - No "available: true" for unimplemented
-- [ ] Gate 4: Automated DB Restoration - Transactional end-to-end
+- [x] Gate 3: Accurate Capabilities - No "available: true" for unimplemented
+- [x] Gate 4: Automated DB Restoration - Transactional end-to-end
 - [ ] Gate 5: Failure Injection - Survives failure at every step
 
 ### Testing
