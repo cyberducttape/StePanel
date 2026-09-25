@@ -13,10 +13,13 @@ The Archive Importer is useful for:
 The importer workflow:
 
 1. **Phase 1 (Complete)**: Archive inspection, file extraction, and database dump identification
-2. **Phase 2 (In Progress)**: Automated database restoration when credentials provided
+2. **Phase 2 (Complete for the managed-helper path)**: Optional automated database restoration when credentials are provided
 3. **Phase 3 (Planned)**: UI dashboard with import status tracking
 
-**Current status**: File extraction and database dump location complete. Operators receive clear restoration instructions. Phase 2 will automate this step when database credentials are provided in the request.
+**Current status**: File extraction and database dump location are complete. With
+`auto_restore_db` and a valid password, the configured managed database helper
+restores and verifies the dump transactionally. Without those fields, operators
+receive clear restoration instructions for the manual follow-up.
 
 ## API Endpoints
 
@@ -235,18 +238,22 @@ curl -X POST https://panel.example.com/api/admin/archive/import \
   }'
 ```
 
-The files are extracted and the site is created. If a database dump is found, its location is returned in the response.
+The files are extracted and the site is created. If a database dump is found,
+the default response records an explicit manual follow-up. To have the panel
+provision and restore the managed database as part of the staged import, add
+`auto_restore_db` and `database_password` as shown below.
 
-### 4. Restore Database (Phase 1 Manual, Phase 2 Automated)
+### 4. Restore Database (optional automatic path)
 
-Currently, database restoration is manual:
+Without automatic-restore credentials, database restoration remains manual:
 
 ```bash
 # Use the path returned in the import response
 mysql -u mysite_user -p mysite_db < /var/backups/mysite/database.sql
 ```
 
-Phase 2 will allow you to provide credentials for automated restoration:
+With a valid database password, the panel can restore the dump through the
+configured `STEPANEL_DBCTL` helper:
 
 ```bash
 curl -X POST https://panel.example.com/api/admin/archive/import \
@@ -287,6 +294,13 @@ https://user:password@example.com/backups/file.tar.gz
 - **Maximum config file size**: 1 MB (only first 1 MB is read)
 - **Maximum files per archive**: 1,000,000
 
+The automatic path validates the dump, provisions the managed database, loads
+the dump, verifies the helper inventory, and retains a cleanup action until
+the staged site activation commits. If a later import step fails, the staged
+site and provisioned database are rolled back. The password is accepted only
+with `auto_restore_db: true` and is written to the imported application
+configuration only on that opt-in path.
+
 ## Security Considerations
 
 ### Archive Validation
@@ -304,16 +318,16 @@ https://user:password@example.com/backups/file.tar.gz
 
 ### Database Restoration
 
-**Phase 1 (Current)**:
+**Manual path**:
 - ✅ Database dump located and validated
 - ✅ Path provided to operator for manual restoration
 - ✅ Restoration instructions included in next steps
 
-**Phase 2 (Planned)**:
-- 🔄 Automated restoration when credentials provided
-- 🔄 Database dumps will be validated before import
-- 🔄 Foreign key constraints checked
-- 🔄 Character set compatibility verified
+**Automatic path**:
+- ✅ Automated restoration when valid credentials and `STEPANEL_DBCTL` are configured
+- ✅ Database dumps are validated before import
+- ✅ Managed inventory is checked before activation succeeds
+- ⚠️ Foreign key constraints and application-level schema compatibility remain the database engine/application's responsibility
 
 ## Troubleshooting
 

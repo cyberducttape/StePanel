@@ -234,13 +234,9 @@ func (a *App) checkArchiveImportCapability() Capability {
 }
 
 // checkDatabaseRestorationCapability reports on the archive-import DB
-// restoration flow. This is a manual workflow today — the archive-import
-// job locates a .sql dump in the archive and hands the file+credentials
-// to the operator, who runs the actual restore command. Under the new
-// semantics (Available means end-to-end automated) this reports
-// Available=false, Mode=manual regardless of tool availability, so an
-// SDK that only reads Available cannot mistake the manual step for
-// something the panel will do automatically.
+// restoration flow. Automatic restoration is opt-in: the request must carry
+// a valid database password, and this executable managed helper must be able
+// to provision, restore, inventory-check, and clean up the database.
 func (a *App) checkDatabaseRestorationCapability() Capability {
 	if a.Config.DBCtl == "" {
 		return newCapability(CapabilityUnsupported, "STEPANEL_DBCTL is not configured; automatic archive database restoration is unavailable")

@@ -15,7 +15,9 @@ In order:
 ### 1. Quarantine the Archive Importer ⚠️ (v0.7 CRITICAL)
 - ✅ **Fixed**: No longer reports false success
 - ✅ **Fixed**: Database restoration and config rewrite no longer silent failures
-- **Next**: Document "Experimental — DB restoration not yet implemented"
+- **Current**: Automatic DB restoration is available only through the managed
+  helper and explicit request credentials; the no-credential path remains a
+  documented manual follow-up.
 - **Never**: Return "success" for skipped DB/config operations
 
 This is the minimum bar. You've just cleared it. Don't regress.
