@@ -1,8 +1,19 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"testing"
 )
+
+func TestRestoreDatabaseIntoStagingContextHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := restoreDatabaseIntoStagingContext(ctx, Config{}, "", RestoreToStagingRequest{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("restoreDatabaseIntoStagingContext error = %v, want context.Canceled", err)
+	}
+}
 
 func TestValidateRestoreDatabaseInputEmpty(t *testing.T) {
 	cfg := Config{DBCtl: "/usr/local/sbin/stepanel-dbctl"}

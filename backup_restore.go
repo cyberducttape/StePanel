@@ -265,7 +265,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "invalid verified backup path", 422)
 		return
 	}
-	if e = extractArchive(archivePath, stage); e != nil {
+	if e = extractArchiveContext(operationCtx, archivePath, stage); e != nil {
 		http.Error(w, "could not extract verified backup", 502)
 		return
 	}
@@ -278,7 +278,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "backup has no site files", 422)
 		return
 	}
-	if e = siteHelper(a.Config, "prepare", input.Site); e != nil {
+	if e = siteHelperContext(operationCtx, a.Config, "prepare", input.Site); e != nil {
 		http.Error(w, "could not prepare isolated staging site", 502)
 		return
 	}
@@ -302,23 +302,23 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		if !committed {
 			_ = txn.Rollback()
 			if createdDatabase {
-				if _, cleanupErr := runDatabaseHelper(a.Config, time.Minute, "", "drop-managed", input.TargetDatabase, input.TargetUser); cleanupErr != nil {
+				if _, cleanupErr := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, "", "drop-managed", input.TargetDatabase, input.TargetUser); cleanupErr != nil {
 					log.Printf("staging database cleanup failed for %s: %v", input.TargetDatabase, cleanupErr)
 				}
 			}
 		}
 	}()
-	if e = copyTree(source, dest); e != nil {
+	if e = copyTreeContext(operationCtx, source, dest); e != nil {
 		http.Error(w, "could not restore site files", 502)
 		return
 	}
-	if e = siteHelper(a.Config, "seal", input.Site); e != nil {
+	if e = siteHelperContext(operationCtx, a.Config, "seal", input.Site); e != nil {
 		http.Error(w, "could not seal restored site", 502)
 		return
 	}
 	if hasDatabase {
 		var databaseCreated bool
-		databaseCreated, e = restoreDatabaseIntoStaging(a.Config, stage, input)
+		databaseCreated, e = restoreDatabaseIntoStagingContext(operationCtx, a.Config, stage, input)
 		createdDatabase = databaseCreated
 		if e != nil {
 			http.Error(w, "could not restore staging database: "+e.Error(), 502)
@@ -339,6 +339,13 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 }
 
 func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {
+	return restoreDatabaseIntoStagingContext(context.Background(), cfg, stage, input)
+}
+
+func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if !validManagedDatabaseIdentifier(input.Database, databaseNameLimit(cfg)) {
 		return false, errors.New("invalid staging database name")
 	}
@@ -354,7 +361,7 @@ func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStaging
 	if cfg.DBEngine == "postgresql" {
 		encoding = "UTF8"
 	}
-	if _, err := runDatabaseHelper(cfg, time.Minute, input.TargetPassword, "provision", input.TargetDatabase, input.TargetUser, input.Site, encoding); err != nil {
+	if _, err := runDatabaseHelperContext(ctx, cfg, time.Minute, input.TargetPassword, "provision", input.TargetDatabase, input.TargetUser, input.Site, encoding); err != nil {
 		return false, fmt.Errorf("provision staging database: %w", err)
 	}
 	file, err := os.Open(dump)
@@ -362,7 +369,7 @@ func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStaging
 		return true, err
 	}
 	defer file.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), helperBackupRestoreTimeout)
+	ctx, cancel := context.WithTimeout(ctx, helperBackupRestoreTimeout)
 	defer cancel()
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", input.TargetDatabase, input.Site)
 	cmd.Stdin = file
@@ -407,7 +414,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	if err := extractArchive(archivePath, stage); err != nil {
+	if err := extractArchiveContext(ctx, archivePath, stage); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("extract verified backup: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
@@ -434,16 +441,16 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 			_ = txn.Rollback()
 		}
 	}()
-	if err := siteHelper(cfg, "prepare", siteName); err != nil {
+	if err := siteHelperContext(ctx, cfg, "prepare", siteName); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("prepare site: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return BackupRestoreResult{}, err
 	}
-	if err := copyTree(source, dest); err != nil {
+	if err := copyTreeContext(ctx, source, dest); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("restore site files: %w", err)
 	}
-	if err := siteHelper(cfg, "seal", siteName); err != nil {
+	if err := siteHelperContext(ctx, cfg, "seal", siteName); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("seal site: %w", err)
 	}
 	if err := txn.Commit(); err != nil {
@@ -536,7 +543,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	if err := extractArchive(archivePath, stage); err != nil {
+	if err := extractArchiveContext(ctx, archivePath, stage); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("extract verified backup: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
