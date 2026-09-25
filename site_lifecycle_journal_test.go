@@ -104,6 +104,82 @@ func TestTerminationJournalSurvivesProcessKill(t *testing.T) {
 	}
 }
 
+// TestSiteTransactionRecoveryAfterProcessKill verifies the complete
+// filesystem recovery boundary in a fresh process: an existing site is
+// moved into the transaction backup, a replacement begins, and the process
+// dies before commit. Startup recovery must restore the original site and
+// leave the replacement quarantined inside the transaction directory.
+func TestSiteTransactionRecoveryAfterProcessKill(t *testing.T) {
+	if os.Getenv("STEPANEL_SITE_TRANSACTION_CHILD") == "1" {
+		recoveryRoot := os.Getenv("STEPANEL_SITE_TRANSACTION_RECOVERY")
+		webRoot := os.Getenv("STEPANEL_SITE_TRANSACTION_WEB")
+		home := filepath.Join(webRoot, "sites", "example", "public")
+		if err := os.MkdirAll(home, 0750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "version"), []byte("old\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := BeginSiteTransaction(recoveryRoot, home, "test.restore", AuthorizedSite{site: "example"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(home, 0750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "version"), []byte("replacement\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	root := t.TempDir()
+	recoveryRoot := filepath.Join(root, "recovery")
+	webRoot := filepath.Join(root, "www")
+	child := exec.Command(os.Args[0], "-test.run=TestSiteTransactionRecoveryAfterProcessKill", "-test.v")
+	child.Env = append(os.Environ(),
+		"STEPANEL_SITE_TRANSACTION_CHILD=1",
+		"STEPANEL_SITE_TRANSACTION_RECOVERY="+recoveryRoot,
+		"STEPANEL_SITE_TRANSACTION_WEB="+webRoot,
+	)
+	err := child.Run()
+	if err == nil {
+		t.Fatal("child process unexpectedly survived the simulated transaction crash")
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+	status, statusOK := exitErr.ProcessState.Sys().(syscall.WaitStatus)
+	if !statusOK || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+
+	recovered, err := RecoverSiteTransactions(recoveryRoot, webRoot)
+	if err != nil {
+		t.Fatalf("recover interrupted site transaction: %v", err)
+	}
+	if len(recovered) != 1 {
+		t.Fatalf("recovered transaction IDs = %v, want one transaction", recovered)
+	}
+	data, err := os.ReadFile(filepath.Join(webRoot, "sites", "example", "public", "version"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "old\n" {
+		t.Fatalf("recovery restored %q, want original site", data)
+	}
+	entries, err := os.ReadDir(recoveryRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("recovery root entries = %d, want the rolled-back transaction", len(entries))
+	}
+}
+
 // TestTerminationJournalCleanup — after every step is done, cleanup
 // removes the file. That is what turns the audit log into the durable
 // record of the termination. Cleanup on an already-removed journal is
