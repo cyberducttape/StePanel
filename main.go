@@ -59,7 +59,7 @@ type App struct {
 	siteOperations           operations.Locks
 	appLifecycleMu           sync.Mutex
 	dbLocks                  *operations.DBLocks
-	siteManager              *siteauthority.DefaultManager
+	siteManager              siteauthority.Manager
 }
 
 // startupState separates process liveness from control-plane readiness. The

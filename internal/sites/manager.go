@@ -73,6 +73,7 @@ type Manager interface {
 	Create(ctx context.Context, req *CreateRequest) (*Site, error)
 	ImportArchive(ctx context.Context, req *ImportRequest) (*Site, error)
 	Clone(ctx context.Context, req *CloneRequest) (*Site, error)
+	ActivateStaged(ctx context.Context, name, stagedRoot string) (*Site, error)
 	Restore(ctx context.Context, req *RestoreRequest) (*Site, error)
 	UpdateConfiguration(ctx context.Context, name string, req *UpdateRequest) error
 	Delete(ctx context.Context, name string) error
