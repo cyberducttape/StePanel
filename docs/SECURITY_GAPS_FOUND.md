@@ -1,5 +1,8 @@
 # Security Gaps: Claim vs. Enforcement Mismatches
 
+> Historical audit retained for traceability. It is not a current release
+> assessment; use `V1_PRODUCTION_GATES.md` for current status and approval.
+
 ## Issue 1: Archive Importer SSRF - DNS Validation Not Implemented
 
 ### The Gap

@@ -1,16 +1,17 @@
 # Archive Import Lifecycle Integration
 
-**Status:** Design document (P1 item for v0.8.0)  
+**Status:** Historical design proposal; not an implementation claim
 **Issue:** Archive import uses direct filesystem operations instead of normal site provisioning lifecycle  
 **Impact:** Imported sites may miss critical lifecycle setup  
 
 > Historical design document. The current implementation uses the durable
-> `archive.import` job and `SiteTransaction`; verify release status against
-> `docs/V1_PRODUCTION_GATES.md`.
+> `archive.import` job and `SiteTransaction`, but it does not yet route the
+> complete workflow through `internal/sites.Manager`. Verify release status
+> against `docs/V1_PRODUCTION_GATES.md`.
 
 ---
 
-## Current Architecture (v0.7.0)
+## Historical Architecture (v0.7.0)
 
 ### Current Flow
 ```
@@ -44,7 +45,7 @@ The archive import **bypasses** the normal StePanel site lifecycle:
 
 ---
 
-## Proposed Architecture (v0.8.0)
+## Unimplemented Target Architecture
 
 ### Unified Flow
 ```
@@ -238,10 +239,10 @@ Archive imports in v0.7.0 created "raw" sites. Path forward:
 ## Benefits
 
 ### Immediate (Once Implemented)
-- ✅ Archive imports create fully-managed sites
-- ✅ Consistent site lifecycle for all creation paths
+- ⏳ Archive imports create fully-managed sites
+- ⏳ Consistent site lifecycle for all creation paths
 - ✅ Better error handling (rollback on failure)
-- ✅ Clearer "site is ready" semantics
+- ✅ Clearer incomplete database-restore semantics
 
 ### Long-term (Multi-tenant)
 - ✅ Archive imports respect account ownership
@@ -309,11 +310,11 @@ func TestArchiveImportProgressReporting(t *testing.T) {
 
 ## Acceptance Criteria
 
-- [x] Archive import creates site through SiteManager.Create()
-- [x] Full lifecycle provisioning occurs (PHP-FPM, recovery journal, account ownership)
-- [x] Site is marked "ready" for production after import completes
+- [ ] Archive import creates site through SiteManager.Create()
+- [ ] Full lifecycle provisioning occurs (PHP-FPM, recovery journal, account ownership)
+- [ ] Site is marked "ready" only after all required lifecycle steps complete
 - [x] Rollback works if extraction fails
-- [x] Progress reporting includes all phases
-- [x] Documentation updated with new lifecycle
-- [x] Integration tests cover happy path and failure scenarios
-- [x] No regression in import success rate
+- [ ] Progress reporting includes all lifecycle phases
+- [x] Documentation distinguishes the current path from the target lifecycle
+- [ ] Installed-host integration tests cover happy path and failure scenarios
+- [x] Import status no longer falsely claims readiness when a database restore is pending

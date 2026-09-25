@@ -37,7 +37,7 @@ delete → SiteManager.Delete()
 No exceptions. No direct filesystem calls. No helper scripts that bypass the manager.
 
 **Current Status:**
-- ✅ Manager interface defined (manager_full.go)
+- ✅ Manager interface defined (`internal/sites/manager.go`)
 - ⏳ Integration into HTTP handlers and job workers
 - ⏳ Routing git clone/restore operations through manager
 - ⏳ Routing cpmove import through manager
@@ -66,14 +66,16 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 - ✅ Boot-time reconciliation guarded so only the panel runs it (previous
       behavior let panel and worker concurrently rename recovery journals
       and reconcile host state during startup)
-- ⏳ 57 call sites still use `siteOperations.Acquire` (in-process
-      `sync.Mutex`); migration to `DBLocks` deferred pending call-site audit
-- ⏳ Wired into site termination job
-- ⏳ Wired into git deployments
-- ⏳ Wired into backup/restore operations
-- ⏳ Wired into resource updates
+- ✅ All direct mutation lock call sites use the durable fenced-lock wrapper;
+      the wrapper retains the process-local mutex as a fast-path and acquires
+      `DBLocks` for cross-process fencing.
+- ✅ Wired into site termination, Git deployment/rollback, backup/restore,
+      route/proxy changes, runtime reconciliation, resources, tasks, workers,
+      SSH access, database operations, and account mutations.
+- ⏳ Adversarial concurrent-operation tests still need to cover the full five
+      scenarios below against real helper boundaries.
 
-**DBLocks fixes (Nov 2026):**
+**DBLocks fixes (September 2026):**
 
 The prior `internal/operations/db_locks.go` implementation had latent bugs
 that meant it could not actually be relied on, so its earlier "✅ implementation"
@@ -134,8 +136,8 @@ Test 5: backup + filesystem restore simultaneously
 ```
 
 **Acceptance Criteria:**
-- [ ] Distributed lock acquired before each site mutation
-- [ ] Lock held until operation completes or rolls back
+- [x] Distributed lock acquired before each currently implemented mutation
+- [x] Lock held until operation completes or rolls back
 - [ ] Adversarial tests pass (5 scenarios above)
 - [ ] No race condition bugs after concurrent operations
 - [ ] Failed operations leave system in known good state
