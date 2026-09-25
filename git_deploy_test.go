@@ -38,6 +38,67 @@ func TestDurableWebhookReplayProtectionIsAtomicAndPersistent(t *testing.T) {
 	}
 }
 
+func TestWebhookConfigStorePersistsPerSiteAuthorization(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewWebhookConfigStore(db)
+	if err := store.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetWebhookConfig("site-a", "a-secret-with-at-least-32-characters", []string{"https://github.com/example/site-a.git"}, []string{"refs/heads/main"}); err != nil {
+		t.Fatal(err)
+	}
+	config, err := store.GetWebhookConfig("site-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config == nil || config.WebhookSecret != "a-secret-with-at-least-32-characters" || len(config.Repositories) != 1 || len(config.AllowedRefs) != 1 {
+		t.Fatalf("stored webhook config = %#v", config)
+	}
+	if err := store.DisableWebhookConfig("site-a"); err != nil {
+		t.Fatal(err)
+	}
+	config, err = store.GetWebhookConfig("site-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config != nil {
+		t.Fatalf("disabled webhook remained active: %#v", config)
+	}
+}
+
+func TestWebhookConfigEndpointGeneratesPerSiteSecret(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := NewWebhookConfigStore(db)
+	if err := store.InitializeSchema(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STEPANEL_SESSION_SECRET", strings.Repeat("s", 32))
+	app := &App{
+		Auth:     Auth{Username: "admin"},
+		Config:   Config{AuditLog: filepath.Join(t.TempDir(), "audit.jsonl"), GitAllowedHosts: "github.com"},
+		Webhooks: store,
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/webhooks/site-a", strings.NewReader(`{"repositories":["https://github.com/example/site-a.git"],"allowed_refs":["refs/heads/main"]}`))
+	request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "admin"))
+	response := httptest.NewRecorder()
+	app.webhookConfig(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("webhook config status = %d, body = %s", response.Code, response.Body.String())
+	}
+	config, err := store.GetWebhookConfig("site-a")
+	if err != nil || config == nil || len(config.WebhookSecret) < 32 {
+		t.Fatalf("generated webhook config = %#v, error = %v", config, err)
+	}
+}
+
 func TestGitAllowedHostsRejectsUnsafeValues(t *testing.T) {
 	for _, value := range []string{"", "localhost", "127.0.0.1", "github.com:443", "github.com/evil"} {
 		if err := validateGitAllowedHosts(value); err == nil {

@@ -185,6 +185,108 @@ type GitWebhookConfig struct {
 	LastWebhookAt time.Time `json:"last_webhook_at,omitempty"`
 }
 
+type webhookConfigRequest struct {
+	Secret       string   `json:"secret,omitempty"`
+	Repositories []string `json:"repositories"`
+	AllowedRefs  []string `json:"allowed_refs"`
+}
+
+// webhookConfig manages the per-site authorization material used by the
+// signed webhook endpoint. A shared global secret is deliberately not an
+// alternative: each site must have its own secret and explicit repository/ref
+// allowlists.
+func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
+	if !a.Auth.CSRF(r) || !a.Auth.IsAdministrator(r) {
+		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
+		return
+	}
+	prefix := "/api/admin/webhooks/"
+	site := strings.TrimPrefix(r.URL.Path, prefix)
+	if site == r.URL.Path || strings.ContainsAny(site, "/?") {
+		http.Error(w, "site name required", http.StatusBadRequest)
+		return
+	}
+	site = safeUser(site)
+	if site == "" {
+		http.Error(w, "invalid site", http.StatusUnprocessableEntity)
+		return
+	}
+	if a.Webhooks == nil {
+		http.Error(w, "webhook configuration unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	actor := a.Auth.UsernameForRequest(r)
+	if actor == "" {
+		actor = a.Auth.Username
+	}
+	switch r.Method {
+	case http.MethodDelete:
+		if err := AuditAs(a.Config.AuditLog, actor, "webhook.config.disable.initiated", site, "per-site webhook disabled"); err != nil {
+			http.Error(w, "audit system unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := a.Webhooks.DisableWebhookConfig(site); err != nil {
+			http.Error(w, "could not disable webhook", http.StatusInternalServerError)
+			return
+		}
+		recordAudit(a.Config.AuditLog, actor, "webhook.config.disabled", site, "per-site webhook disabled")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	case http.MethodPost, http.MethodPut:
+		var input webhookConfigRequest
+		if err := decodeJSON(w, r, 8192, &input); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		secret := strings.TrimSpace(input.Secret)
+		generated := false
+		if secret == "" {
+			var err error
+			secret, err = randomSecret()
+			if err != nil {
+				http.Error(w, "could not generate webhook secret", http.StatusInternalServerError)
+				return
+			}
+			generated = true
+		}
+		if len(secret) < 32 || strings.ContainsAny(secret, "\x00\r\n") {
+			http.Error(w, "webhook secret must contain at least 32 characters", http.StatusUnprocessableEntity)
+			return
+		}
+		if len(input.Repositories) == 0 || len(input.AllowedRefs) == 0 {
+			http.Error(w, "at least one repository and ref pattern are required", http.StatusUnprocessableEntity)
+			return
+		}
+		for _, repository := range input.Repositories {
+			if _, err := parseGitRepository(repository, a.Config.GitAllowedHosts); err != nil {
+				http.Error(w, "invalid webhook repository: "+err.Error(), http.StatusUnprocessableEntity)
+				return
+			}
+		}
+		for _, pattern := range input.AllowedRefs {
+			pattern = strings.TrimSpace(pattern)
+			if pattern == "" || len(pattern) > 128 || strings.ContainsAny(pattern, "\x00\r\n") || strings.Contains(pattern, "..") || !strings.HasPrefix(pattern, "refs/") && !gitRefPattern.MatchString(pattern) {
+				http.Error(w, "invalid webhook ref pattern", http.StatusUnprocessableEntity)
+				return
+			}
+		}
+		detail := fmt.Sprintf("repositories=%d refs=%d", len(input.Repositories), len(input.AllowedRefs))
+		if err := AuditAs(a.Config.AuditLog, actor, "webhook.config.update.initiated", site, detail); err != nil {
+			http.Error(w, "audit system unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := a.Webhooks.SetWebhookConfig(site, secret, input.Repositories, input.AllowedRefs); err != nil {
+			http.Error(w, "could not persist webhook configuration", http.StatusInternalServerError)
+			return
+		}
+		recordAudit(a.Config.AuditLog, actor, "webhook.config.updated", site, detail)
+		writeJSON(w, http.StatusCreated, map[string]any{"site": site, "secret": secret, "generated": generated, "repositories": input.Repositories, "allowed_refs": input.AllowedRefs})
+		return
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 // gitWebhookSitePath extracts site from webhook URL: /api/sites/git-webhook/:site
 func gitWebhookSitePath(path string) string {
 	// Path format: /api/sites/git-webhook/:site

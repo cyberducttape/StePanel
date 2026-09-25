@@ -651,6 +651,7 @@ func main() {
 	// Webhook endpoint now includes site in path for per-site secret isolation.
 	// Old endpoint /api/sites/git-webhook supported global secret only and is deprecated.
 	mux.Handle("/api/sites/git-webhook/", allowMethods(http.HandlerFunc(app.gitWebhook), http.MethodPost))
+	mux.Handle("/api/admin/webhooks/", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.webhookConfig)), http.MethodPost, http.MethodPut, http.MethodDelete))
 	mux.Handle("/api/sites/git-rollback", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.gitRollback)), http.MethodPost))
 	mux.Handle("/api/caddy/htaccess", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.htaccessMigration)), http.MethodPost))
 	mux.Handle("/api/apps/", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.appAction)), http.MethodPost))

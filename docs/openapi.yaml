@@ -631,6 +631,32 @@ paths:
       responses:
         '202': {description: Deployment accepted}
         '401': {description: Invalid signature}
+  /api/admin/webhooks/:
+    post:
+      summary: Create or replace a per-site signed webhook authorization
+      description: The site is the path suffix. A generated secret is returned once when the request omits secret. At least one repository and one ref allowlist entry are required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repositories, allowed_refs]
+              properties:
+                secret: {type: string, minLength: 32, writeOnly: true}
+                repositories: {type: array, minItems: 1, items: {type: string, format: uri}}
+                allowed_refs: {type: array, minItems: 1, items: {type: string}}
+      responses:
+        '201': {description: Webhook authorization persisted; secret is returned in this response only}
+        '422': {description: Invalid site, secret, repository, or ref pattern}
+    put:
+      summary: Replace a per-site signed webhook authorization
+      responses:
+        '201': {description: Webhook authorization persisted}
+    delete:
+      summary: Disable a site's signed webhook authorization
+      responses:
+        '204': {description: Webhook authorization disabled}
   /api/sites/git-rollback:
     post:
       summary: Atomically restore the latest preserved Git site release
