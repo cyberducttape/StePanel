@@ -248,8 +248,9 @@ For each critical operation (backup, restore, deploy, terminate):
 ```go
 // $STEPANEL_FAIL_AT="restore:commit" injects a deterministic error.
 // The current hooks cover backup init/archive/verify/commit, termination
-// init, deployment activation, and transaction init/commit; operation-specific
-// hooks are added as each workflow is covered.
+// init, deployment activation, account suspension before persistence, and
+// transaction init/commit; operation-specific hooks are added as each
+// workflow is covered.
 failureInjection("restore", "commit")
 ```
 

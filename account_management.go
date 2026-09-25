@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -40,6 +41,20 @@ type SuspensionAuditEvent struct {
 	Reason    string    `json:"reason"`
 	Triggered string    `json:"triggered_by"`        // admin or automatic
 	Threshold string    `json:"threshold,omitempty"` // sites_limit, database_limit
+}
+
+func (a *App) setAccountSuspended(ctx context.Context, username string, suspended bool) (HostingAccount, error) {
+	if err := ctx.Err(); err != nil {
+		return HostingAccount{}, err
+	}
+	action := "unsuspend"
+	if suspended {
+		action = "suspend"
+	}
+	if err := failureInjection(action, "before-persist"); err != nil {
+		return HostingAccount{}, err
+	}
+	return a.Accounts.SetSuspended(username, suspended)
 }
 
 // accountPlanStatus returns the current usage and limits for a customer account
@@ -150,6 +165,12 @@ func (a *App) accountSuspend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "suspension reason required", http.StatusBadRequest)
 		return
 	}
+	operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+req.Username)
+	if lockErr != nil {
+		http.Error(w, "account mutation is busy", http.StatusConflict)
+		return
+	}
+	defer releaseAccountLock()
 
 	account, ok := a.Accounts.Get(req.Username)
 	if !ok {
@@ -163,7 +184,7 @@ func (a *App) accountSuspend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Perform suspension
-	_, err := a.Accounts.SetSuspended(req.Username, true)
+	_, err := a.setAccountSuspended(operationCtx, req.Username, true)
 	if err != nil {
 		http.Error(w, "could not suspend account: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -177,8 +198,9 @@ func (a *App) accountSuspend(w http.ResponseWriter, r *http.Request) {
 
 	auditErr := AuditAs(a.Config.AuditLog, "admin", auditAction, req.Username, req.Reason)
 	if auditErr != nil {
-		// Log but don't fail - suspension already took effect
 		log.Printf("suspension audit logging failed for %s: %v", req.Username, auditErr)
+		http.Error(w, "account suspended but audit persistence failed", http.StatusServiceUnavailable)
+		return
 	}
 
 	// Return confirmation
@@ -222,6 +244,12 @@ func (a *App) accountUnsuspend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid account name", http.StatusUnprocessableEntity)
 		return
 	}
+	operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+req.Username)
+	if lockErr != nil {
+		http.Error(w, "account mutation is busy", http.StatusConflict)
+		return
+	}
+	defer releaseAccountLock()
 
 	account, ok := a.Accounts.Get(req.Username)
 	if !ok {
@@ -235,7 +263,7 @@ func (a *App) accountUnsuspend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Perform unsuspension
-	_, err := a.Accounts.SetSuspended(req.Username, false)
+	_, err := a.setAccountSuspended(operationCtx, req.Username, false)
 	if err != nil {
 		http.Error(w, "could not unsuspend account: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -245,6 +273,8 @@ func (a *App) accountUnsuspend(w http.ResponseWriter, r *http.Request) {
 	auditErr := AuditAs(a.Config.AuditLog, "admin", "account.unsuspended", req.Username, req.Reason)
 	if auditErr != nil {
 		log.Printf("unsuspension audit logging failed for %s: %v", req.Username, auditErr)
+		http.Error(w, "account unsuspended but audit persistence failed", http.StatusServiceUnavailable)
+		return
 	}
 
 	result := map[string]any{
