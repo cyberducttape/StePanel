@@ -38,3 +38,18 @@ func createSiteManagerStaging(ctx context.Context, cfg Config, prefix string) (s
 	}
 	return manager.CreateStaging(ctx, prefix)
 }
+
+func discardSiteManagerStaging(ctx context.Context, cfg Config, stagedRoot string) error {
+	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	if err != nil {
+		return fmt.Errorf("initialize site manager: %w", err)
+	}
+	return manager.DiscardStaging(ctx, stagedRoot)
+}
+
+func (a *App) discardSiteStaging(ctx context.Context, stagedRoot string) error {
+	if a.siteManager != nil {
+		return a.siteManager.DiscardStaging(ctx, stagedRoot)
+	}
+	return discardSiteManagerStaging(ctx, a.Config, stagedRoot)
+}

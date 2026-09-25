@@ -286,7 +286,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 	managerActivated := false
 	defer func() {
 		if !managerActivated {
-			_ = os.RemoveAll(managerStage)
+			_ = a.discardSiteStaging(context.Background(), managerStage)
 		}
 	}()
 	if e = siteHelperContext(operationCtx, a.Config, "prepare", input.Site); e != nil {
@@ -473,7 +473,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	managerActivated := false
 	defer func() {
 		if !managerActivated {
-			_ = os.RemoveAll(managerStage)
+			_ = discardSiteManagerStaging(context.Background(), cfg, managerStage)
 		}
 	}()
 	ok := false

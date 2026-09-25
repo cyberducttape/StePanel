@@ -67,6 +67,36 @@ func TestCreateStagingRejectsUnsafePrefix(t *testing.T) {
 	}
 }
 
+func TestDiscardStagingRemovesOnlyManagerOwnedTree(t *testing.T) {
+	m, root := newManager(t)
+	stage, err := m.CreateStaging(context.Background(), ".stepanel-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "marker"), []byte("temporary"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DiscardStaging(context.Background(), stage); err != nil {
+		t.Fatalf("DiscardStaging: %v", err)
+	}
+	if _, err := os.Stat(stage); !os.IsNotExist(err) {
+		t.Fatalf("staging tree still exists: %v", err)
+	}
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(outside, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "keep"), []byte("safe"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DiscardStaging(context.Background(), outside); err == nil {
+		t.Fatal("DiscardStaging accepted a path outside manager staging")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
+		t.Fatalf("outside sentinel changed: %v", err)
+	}
+}
+
 // TestDeleteRefusesInvalidNames is the direct trust-boundary regression:
 // the manager MUST NOT rm -rf a path derived from a malformed name, even
 // if all HTTP callers claim they pre-validated. Every case below would

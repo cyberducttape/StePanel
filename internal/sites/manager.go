@@ -80,6 +80,7 @@ type Site struct {
 type Manager interface {
 	Create(ctx context.Context, req *CreateRequest) (*Site, error)
 	CreateStaging(ctx context.Context, prefix string) (string, error)
+	DiscardStaging(ctx context.Context, stagedRoot string) error
 	ImportArchive(ctx context.Context, req *ImportRequest) (*Site, error)
 	Clone(ctx context.Context, req *CloneRequest) (*Site, error)
 	ActivateStaged(ctx context.Context, name, stagedRoot string) (*Site, error)
@@ -247,6 +248,52 @@ func (m *DefaultManager) CreateStaging(ctx context.Context, prefix string) (stri
 		return "", fmt.Errorf("sites.Manager: create staging tree: %w", err)
 	}
 	return stage, nil
+}
+
+// DiscardStaging removes a manager-owned staging tree after a failed
+// preparation. It accepts only paths allocated by CreateStaging and refuses
+// symlink leaves before removal.
+func (m *DefaultManager) DiscardStaging(ctx context.Context, stagedRoot string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	sitesRoot, err := h.SafePath(m.webRoot, "sites")
+	if err != nil {
+		return err
+	}
+	managerRoot, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
+	if err != nil {
+		return err
+	}
+	absStaged, err := filepath.Abs(stagedRoot)
+	if err != nil {
+		return err
+	}
+	if filepath.Dir(absStaged) != managerRoot {
+		return errors.New("sites.Manager: staged path is not manager-owned")
+	}
+	component := filepath.Base(absStaged)
+	if !strings.HasPrefix(component, ".stepanel-") || !validStagedComponent.MatchString(component) {
+		return errors.New("sites.Manager: invalid staged path component")
+	}
+	owned, err := h.SafePath(managerRoot, component)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(owned)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("sites.Manager: inspect staging tree: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("sites.Manager: refuse to remove symlinked staging tree")
+	}
+	if err := os.RemoveAll(owned); err != nil {
+		return fmt.Errorf("sites.Manager: discard staging tree: %w", err)
+	}
+	return nil
 }
 
 // ActivateStaged publishes a fully prepared public tree under the manager's

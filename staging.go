@@ -239,7 +239,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	managerActivated := false
 	defer func() {
 		if !managerActivated {
-			_ = os.RemoveAll(managerStage)
+			_ = a.discardSiteStaging(context.Background(), managerStage)
 		}
 	}()
 	var ok bool

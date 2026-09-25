@@ -187,7 +187,7 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	activated := false
 	defer func() {
 		if !activated {
-			_ = os.RemoveAll(managerStage)
+			_ = manager.DiscardStaging(context.Background(), managerStage)
 		}
 	}()
 	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, home, "cpmove.restore", site)

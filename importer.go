@@ -316,7 +316,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	activated := false
 	defer func() {
 		if !activated {
-			_ = os.RemoveAll(stagingDir)
+			_ = manager.DiscardStaging(context.Background(), stagingDir)
 		}
 	}()
 
