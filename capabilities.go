@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -22,11 +23,38 @@ const (
 	CapabilityDegraded    CapabilityMode = "degraded"    // Feature operational but reduced
 )
 
-// Capability represents a single capability and its operational state
+// Capability represents a single capability and its operational state.
+//
+// The Available bool means the capability is executable end-to-end on
+// this host without operator intervention. A workflow that requires an
+// operator to run a follow-up command, deliver credentials manually, or
+// finish a restore by hand is Available=false with a descriptive Mode
+// (manual, partial, degraded). Clients that only understand Available
+// therefore see automated-vs-not, which is the safer default when the
+// client cannot make sense of the Mode string.
+//
+// The prior definition — "true if mode is available OR partial" — meant
+// a manual database restoration workflow reported Available=true, and
+// an older SDK reading that field treated it as fully automated. That
+// mismatch is fixed here at the cost of a minor semantic change for any
+// client that was relying on the old broader meaning.
 type Capability struct {
-	Available bool           `json:"available"` // Backward compat: true if mode is "available" or "partial"
-	Mode      CapabilityMode `json:"mode"`      // Operational state: unsupported, manual, partial, available, degraded
+	Available bool           `json:"available"`
+	Mode      CapabilityMode `json:"mode"`
 	Reason    string         `json:"reason,omitempty"`
+}
+
+// newCapability enforces the Available/Mode invariant: Available is true
+// if and only if the mode is CapabilityAvailable. Every constructor of a
+// Capability value in this file goes through this so a future edit that
+// adds a manual workflow cannot accidentally regress to the old
+// "Available=true but not really" state.
+func newCapability(mode CapabilityMode, reason string) Capability {
+	return Capability{
+		Available: mode == CapabilityAvailable,
+		Mode:      mode,
+		Reason:    reason,
+	}
 }
 
 // CapabilitiesResponse is the response from the /api/capabilities endpoint
@@ -49,10 +77,14 @@ func (a *App) ProbeCapabilities() CapabilitiesResponse {
 func (a *App) probeAllCapabilities() map[string]Capability {
 	caps := make(map[string]Capability)
 
-	// Site lifecycle
-	caps["site.lifecycle.create"] = Capability{Available: true, Mode: CapabilityAvailable}
-	caps["site.lifecycle.delete"] = Capability{Available: true, Mode: CapabilityAvailable}
-	caps["site.lifecycle.suspend"] = Capability{Available: true, Mode: CapabilityAvailable}
+	// Site lifecycle. Create and Delete run end-to-end through their
+	// production HTTP + durable-job paths. Suspend has no implementation
+	// (sites.Manager.Suspend returns ErrNotImplemented and no other code
+	// path suspends serving), so it is reported as unsupported rather
+	// than as an executable feature.
+	caps["site.lifecycle.create"] = newCapability(CapabilityAvailable, "")
+	caps["site.lifecycle.delete"] = newCapability(CapabilityAvailable, "")
+	caps["site.lifecycle.suspend"] = newCapability(CapabilityUnsupported, "site suspension is not implemented; the current alternative is site termination")
 
 	// Database operations
 	caps["database.mysql.create"] = a.checkDatabaseCapability("mysql")
@@ -63,206 +95,234 @@ func (a *App) probeAllCapabilities() map[string]Capability {
 	caps["database.mariadb.restore"] = a.checkDatabaseCapability("mariadb")
 
 	// Archive import
-	caps["archive.import.inspect"] = Capability{Available: true, Mode: CapabilityAvailable}
+	caps["archive.import.inspect"] = newCapability(CapabilityAvailable, "")
 	caps["archive.import.extract"] = a.checkArchiveImportCapability()
 	caps["archive.import.database_restore"] = a.checkDatabaseRestorationCapability()
 
 	// Network capabilities
 	caps["runner.network_isolation"] = a.checkNetworkIsolationCapability()
-	caps["runner.registry_allowlist"] = Capability{Available: len(a.Config.RunnerAllowedRegistries) > 0, Mode: func() CapabilityMode {
-		if len(a.Config.RunnerAllowedRegistries) > 0 {
-			return CapabilityAvailable
-		}
-		return CapabilityUnsupported
-	}()}
+	if len(a.Config.RunnerAllowedRegistries) > 0 {
+		caps["runner.registry_allowlist"] = newCapability(CapabilityAvailable, "")
+	} else {
+		caps["runner.registry_allowlist"] = newCapability(CapabilityUnsupported, "STEPANEL_RUNNER_ALLOWED_REGISTRIES not configured")
+	}
 
 	// Filesystem capabilities
 	caps["filesystem.quotas"] = a.checkFilesystemQuotasCapability()
-	caps["filesystem.symlinks"] = Capability{Available: true, Mode: CapabilityAvailable, Reason: "Symlink rejection enforced for security"}
+	caps["filesystem.symlinks"] = newCapability(CapabilityAvailable, "Symlink rejection enforced for security")
 
 	// Backup/restore
-	caps["backup.verified"] = Capability{
-		Available: a.Config.BackupSigningKey != "",
-		Mode: func() CapabilityMode {
-			if a.Config.BackupSigningKey != "" {
-				return CapabilityAvailable
-			}
-			return CapabilityUnsupported
-		}(),
+	if a.Config.BackupSigningKey != "" {
+		caps["backup.verified"] = newCapability(CapabilityAvailable, "")
+	} else {
+		caps["backup.verified"] = newCapability(CapabilityUnsupported, "STEPANEL_BACKUP_SIGNING_KEY not configured; backups cannot be verified")
 	}
 	caps["backup.offsite"] = a.checkOffsiteBackupCapability()
-	caps["restore.to_staging"] = Capability{Available: true, Mode: CapabilityAvailable}
-	caps["restore.verified_file"] = Capability{Available: true, Mode: CapabilityAvailable}
-	caps["restore.database_only"] = Capability{Available: true, Mode: CapabilityAvailable}
+	caps["restore.to_staging"] = newCapability(CapabilityAvailable, "")
+	caps["restore.verified_file"] = newCapability(CapabilityAvailable, "")
+	caps["restore.database_only"] = newCapability(CapabilityAvailable, "")
 
 	// Authentication
-	caps["auth.mfa"] = Capability{
-		Available: a.Auth.TOTPEnabled,
-		Mode: func() CapabilityMode {
-			if a.Auth.TOTPEnabled {
-				return CapabilityAvailable
-			}
-			return CapabilityUnsupported
-		}(),
+	if a.Auth.TOTPEnabled {
+		caps["auth.mfa"] = newCapability(CapabilityAvailable, "")
+	} else {
+		caps["auth.mfa"] = newCapability(CapabilityUnsupported, "TOTP is not configured")
 	}
-	caps["auth.api_tokens"] = Capability{Available: true, Mode: CapabilityAvailable}
-	caps["auth.scoped_tokens"] = Capability{Available: true, Mode: CapabilityAvailable}
+	caps["auth.api_tokens"] = newCapability(CapabilityAvailable, "")
+	caps["auth.scoped_tokens"] = newCapability(CapabilityAvailable, "")
 
 	// Deployment
-	caps["deployment.git"] = Capability{Available: true, Mode: CapabilityAvailable}
+	caps["deployment.git"] = newCapability(CapabilityAvailable, "")
 	caps["deployment.builds"] = a.checkBuildCapability()
 
 	// Mail (optional)
 	caps["mail.integration"] = a.checkMailCapability()
 
-	// DNS
+	// DNS. Validation runs in-panel; provider-specific mutations depend
+	// on external credentials being present at the operator's end, so
+	// the workflow is not end-to-end automated in the general case.
 	caps["dns.management"] = a.checkDNSCapability()
 
 	return caps
 }
 
+// checkDatabaseCapability reports on the end-to-end managed-database
+// workflow. Prior code only checked that mysql/psql client binaries were
+// on PATH — that says nothing about whether the panel's own DBCtl helper
+// is wired (without it, "create database" fails at the very first step),
+// nor whether the site is using the engine we probed. We now also
+// require STEPANEL_DBCTL and, when set, that STEPANEL_DB_ENGINE matches
+// the type being asked about.
 func (a *App) checkDatabaseCapability(dbType string) Capability {
+	if a.Config.DBCtl == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_DBCTL is not configured; the panel cannot invoke managed-database operations")
+	}
+	if a.Config.DBEngine != "" && a.Config.DBEngine != dbType {
+		return newCapability(CapabilityUnsupported, fmt.Sprintf("STEPANEL_DB_ENGINE=%q; %s is not the configured engine", a.Config.DBEngine, dbType))
+	}
 	var binaries []string
 	switch dbType {
-	case "mysql":
-		binaries = []string{"mysql", "mysqldump"}
-	case "mariadb":
+	case "mysql", "mariadb":
 		binaries = []string{"mysql", "mysqldump"}
 	case "postgresql":
 		binaries = []string{"psql", "pg_dump"}
 	}
-
 	for _, bin := range binaries {
 		if _, err := exec.LookPath(bin); err != nil {
-			return Capability{
-				Available: false,
-				Mode:      CapabilityUnsupported,
-				Reason:    fmt.Sprintf("%s command not found in PATH", bin),
-			}
+			return newCapability(CapabilityUnsupported, fmt.Sprintf("%s command not found in PATH", bin))
 		}
 	}
-
-	return Capability{Available: true, Mode: CapabilityAvailable}
+	return newCapability(CapabilityAvailable, "")
 }
 
+// checkArchiveImportCapability reports on whether an archive import will
+// actually succeed end-to-end. The prior code hard-coded true, which was
+// wrong while the archive-import lifecycle bug (fixed separately) was
+// live; a hard-coded value cannot detect that a code-path defect has
+// broken it. Now we surface the pieces the orchestrator depends on: the
+// import root exists, and the sites tree is writable.
 func (a *App) checkArchiveImportCapability() Capability {
-	// Archive import always available - it's implemented in Phase 1
-	return Capability{Available: true, Mode: CapabilityAvailable}
+	if a.Config.ImportRoot == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_IMPORT_ROOT is not configured")
+	}
+	if info, err := os.Stat(a.Config.ImportRoot); err != nil || !info.IsDir() {
+		return newCapability(CapabilityUnsupported, "STEPANEL_IMPORT_ROOT is not a directory")
+	}
+	if a.Config.WebRoot == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_WEB_ROOT is not configured")
+	}
+	if info, err := os.Stat(a.Config.WebRoot); err != nil || !info.IsDir() {
+		return newCapability(CapabilityUnsupported, "STEPANEL_WEB_ROOT is not a directory")
+	}
+	return newCapability(CapabilityAvailable, "")
 }
 
+// checkDatabaseRestorationCapability reports on the archive-import DB
+// restoration flow. This is a manual workflow today — the archive-import
+// job locates a .sql dump in the archive and hands the file+credentials
+// to the operator, who runs the actual restore command. Under the new
+// semantics (Available means end-to-end automated) this reports
+// Available=false, Mode=manual regardless of tool availability, so an
+// SDK that only reads Available cannot mistake the manual step for
+// something the panel will do automatically.
 func (a *App) checkDatabaseRestorationCapability() Capability {
-	// Phase 1 (v0.7.0): Manual restoration - operator restores database using provided dump
-	// Phase 2 (v0.8.0): Automated restoration via SiteManager lifecycle
 	hasMySQL := exec.Command("which", "mysql").Run() == nil
 	hasPSQL := exec.Command("which", "psql").Run() == nil
-
-	if hasMySQL || hasPSQL {
-		return Capability{
-			Available: true,
-			Mode:      CapabilityManual,
-			Reason:    "Archive import locates database dump; operator restores manually. Automated restoration planned for v0.8.",
-		}
+	if !hasMySQL && !hasPSQL {
+		return newCapability(CapabilityUnsupported, "no database restore tools (mysql or psql) found in PATH")
 	}
-
-	return Capability{
-		Available: false,
-		Mode:      CapabilityUnsupported,
-		Reason:    "Archive import database restoration unavailable: no database restore tools (mysql or psql) found in PATH",
-	}
+	return newCapability(CapabilityManual, "archive import locates the database dump; the operator restores it manually with the provided credentials")
 }
 
 func (a *App) checkNetworkIsolationCapability() Capability {
-	// Check if podman supports --network none with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "podman", "run", "--help")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return Capability{
-			Available: false,
-			Mode:      CapabilityUnsupported,
-			Reason:    "podman not available on system",
-		}
+		return newCapability(CapabilityUnsupported, "podman not available on system")
 	}
-
 	if strings.Contains(string(output), "--network") {
-		return Capability{Available: true, Mode: CapabilityAvailable}
+		return newCapability(CapabilityAvailable, "")
 	}
-
-	return Capability{
-		Available: false,
-		Mode:      CapabilityUnsupported,
-		Reason:    "podman version does not support --network flag",
-	}
+	return newCapability(CapabilityUnsupported, "podman version does not support --network flag")
 }
 
+// checkFilesystemQuotasCapability reports on whether the filesystem
+// hosting the customer sites tree (STEPANEL_WEB_ROOT) is mounted with
+// user quotas enabled — which is the only mount the panel actually cares
+// about. The prior implementation checked whether any mount on the host
+// had usrquota, and separately whether a `quotactl` binary existed
+// anywhere on PATH. Both are unrelated to whether *this* filesystem can
+// actually enforce a customer quota.
 func (a *App) checkFilesystemQuotasCapability() Capability {
-	if _, err := exec.LookPath("quotactl"); err == nil {
-		return Capability{Available: true, Mode: CapabilityAvailable}
+	if a.Config.WebRoot == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_WEB_ROOT is not configured")
 	}
-
+	webRootAbs, err := filepath.Abs(a.Config.WebRoot)
+	if err != nil {
+		return newCapability(CapabilityUnsupported, "cannot resolve STEPANEL_WEB_ROOT to an absolute path")
+	}
 	mounts, err := os.ReadFile("/proc/mounts")
-	if err == nil && strings.Contains(string(mounts), "usrquota") {
-		return Capability{Available: true, Mode: CapabilityAvailable}
+	if err != nil {
+		return newCapability(CapabilityUnsupported, "cannot read /proc/mounts to inspect the sites-tree filesystem")
 	}
-
-	return Capability{
-		Available: false,
-		Mode:      CapabilityUnsupported,
-		Reason:    "filesystem not mounted with usrquota; quotactl not available",
+	// Walk /proc/mounts and find the longest mountpoint prefix that
+	// contains webRootAbs — that is the filesystem hosting the sites
+	// tree. Then check its option list for usrquota / grpquota.
+	best := ""
+	bestOptions := ""
+	for _, line := range strings.Split(string(mounts), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		mountpoint := fields[1]
+		if !(mountpoint == webRootAbs || strings.HasPrefix(webRootAbs, mountpoint+"/") || mountpoint == "/") {
+			continue
+		}
+		if len(mountpoint) >= len(best) {
+			best = mountpoint
+			bestOptions = fields[3]
+		}
 	}
+	if best == "" {
+		return newCapability(CapabilityUnsupported, "could not identify a mountpoint hosting the sites tree")
+	}
+	if !strings.Contains(bestOptions, "usrquota") && !strings.Contains(bestOptions, "grpquota") && !strings.Contains(bestOptions, "prjquota") {
+		return newCapability(CapabilityUnsupported, fmt.Sprintf("mount %s hosting the sites tree does not have quota options enabled", best))
+	}
+	return newCapability(CapabilityAvailable, "")
 }
 
 func (a *App) checkOffsiteBackupCapability() Capability {
-	if a.Config.OffsiteTarget != "" {
-		if _, err := exec.LookPath("rclone"); err == nil {
-			return Capability{Available: true, Mode: CapabilityAvailable}
-		}
-		return Capability{
-			Available: false,
-			Mode:      CapabilityDegraded,
-			Reason:    "offsite target configured but rclone not found in PATH",
-		}
+	if a.Config.OffsiteTarget == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_OFFSITE_TARGET not configured")
 	}
-	return Capability{
-		Available: false,
-		Mode:      CapabilityUnsupported,
-		Reason:    "STEPANEL_OFFSITE_TARGET not configured",
+	if _, err := exec.LookPath("rclone"); err != nil {
+		return newCapability(CapabilityDegraded, "offsite target configured but rclone not found in PATH")
 	}
+	return newCapability(CapabilityAvailable, "")
 }
 
+// checkBuildCapability reports on the sandboxed-build path end-to-end.
+// The runner needs more than just podman: the panel invokes the RunnerCtl
+// helper (which validates its own arguments, drops to the sp-* site
+// user, and runs Podman on the operator's behalf), and the images it
+// pulls are constrained by the configured allowlist. If any of those
+// pieces is missing, the build path is not usable.
 func (a *App) checkBuildCapability() Capability {
 	if _, err := exec.LookPath("podman"); err != nil {
-		return Capability{
-			Available: false,
-			Mode:      CapabilityUnsupported,
-			Reason:    "podman not available on system",
-		}
+		return newCapability(CapabilityUnsupported, "podman not found in PATH")
 	}
-	return Capability{Available: true, Mode: CapabilityAvailable}
+	if a.Config.RunnerCtl == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_RUNNERCTL is not configured")
+	}
+	if info, err := os.Stat(a.Config.RunnerCtl); err != nil || info.IsDir() {
+		return newCapability(CapabilityUnsupported, "STEPANEL_RUNNERCTL is not an executable file")
+	}
+	if a.Config.RunnerAllowedRegistries == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_RUNNER_ALLOWED_REGISTRIES is empty; the runner would refuse every image")
+	}
+	return newCapability(CapabilityAvailable, "")
 }
 
 func (a *App) checkMailCapability() Capability {
 	if _, err := exec.LookPath("exim4"); err == nil {
-		return Capability{Available: true, Mode: CapabilityAvailable}
+		return newCapability(CapabilityAvailable, "")
 	}
 	if _, err := exec.LookPath("postfix"); err == nil {
-		return Capability{Available: true, Mode: CapabilityAvailable}
+		return newCapability(CapabilityAvailable, "")
 	}
-
-	return Capability{
-		Available: false,
-		Mode:      CapabilityUnsupported,
-		Reason:    "mail integration not configured; exim4 or postfix not found",
-	}
+	return newCapability(CapabilityUnsupported, "mail integration not configured; exim4 or postfix not found")
 }
 
 func (a *App) checkDNSCapability() Capability {
-	return Capability{
-		Available: true,
-		Mode:      CapabilityAvailable,
-		Reason:    "Core DNS validation available; provider-specific mutations require provider credentials",
-	}
+	// DNS validation runs in-panel, but provider-specific mutations
+	// require external credentials that live at the operator's end.
+	// Under the "Available == end-to-end automated" rule, this is a
+	// partial workflow — validation only — so Available=false.
+	return newCapability(CapabilityPartial, "core DNS validation available; provider-specific mutations require provider credentials")
 }
 
 // handleCapabilities returns a JSON response of host capabilities

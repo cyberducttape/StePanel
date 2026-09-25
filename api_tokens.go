@@ -444,13 +444,20 @@ func (a *App) sendLegacyTokenNotifications(username string) error {
 		return nil // No legacy tokens to notify about
 	}
 
-	// Phase 2: Email notifications not yet implemented
-	// TODO: Integrate with email service (SendGrid, AWS SES, etc.) to send actual notifications
-	// For now, just log that notification is required
-
-	// Log to audit trail that notification action was triggered
-	// Note: Event name reflects that notification is REQUIRED, not that it was SENT
-	if err := AuditAs(a.Config.AuditLog, username, "token.legacy_unscoped.notification_required", "legacy-tokens", "requires-email-integration"); err != nil {
+	// Email notifications are not implemented in-panel and no scheduled
+	// notification pipeline exists. Callers of this function should NOT
+	// treat a nil return as "the token holder has been notified" — the
+	// event below records only that a notification is needed, not that
+	// one was sent. Operator action (or an external notification pipeline
+	// consuming the audit log) is required for the token holder to learn
+	// their token is deprecated.
+	//
+	// Independently of any notification, the deprecation is enforced at
+	// authentication time via LegacyTokenDeprecation.IsLegacyTokenExpired
+	// (see auth.go validAPITokenWithScopes) — the token is refused when
+	// the grace period elapses regardless of whether the holder was
+	// notified.
+	if err := AuditAs(a.Config.AuditLog, username, "token.legacy_unscoped.notification_required", "legacy-tokens", "operator or external pipeline must deliver notification"); err != nil {
 		return err
 	}
 

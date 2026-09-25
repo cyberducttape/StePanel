@@ -31,7 +31,7 @@ type Auth struct {
 	credentialHash                           string
 	Enabled, SecureCookies                   bool
 	TOTPEnabled                              bool
-	TrustProxy                               bool
+	TrustedProxies                           authpolicy.TrustedProxies
 	totpSecret                               []byte
 	totpReplay                               *totpReplayState
 	loginLimiter                             *authpolicy.Limiter
@@ -159,10 +159,13 @@ func (a *Auth) ConfigureLegacyTokenDeprecation(db *sql.DB) error {
 	return nil
 }
 
-// ClientIP returns the origin IP address for a request, trusting X-Forwarded-For
-// headers only when TrustProxy is true (set when STEPANEL_TLS_TERMINATED=1).
+// ClientIP returns the origin IP address for a request. Forwarded-identity
+// headers (X-Forwarded-For, X-Real-IP) are only consulted when the direct
+// peer is inside one of the STEPANEL_TRUSTED_PROXY_CIDRS ranges — any
+// other peer is treated as a direct client whose forwarded headers cannot
+// be trusted.
 func (a *Auth) ClientIP(r *http.Request) string {
-	return authpolicy.ClientIPWithTrustedProxy(r, a.TrustProxy)
+	return authpolicy.ClientIPWithTrustedProxies(r, a.TrustedProxies)
 }
 
 func (s *sessionRegistry) add(id, username string, expiry int64) error {
@@ -502,7 +505,7 @@ func (a Auth) validAPITokenWithScopes(r *http.Request) (string, []string, bool) 
 		return "", nil, false
 	}
 	tokenValue := strings.TrimSpace(value[7:])
-	username, scopes, ok := a.apiTokens.authenticateWithScopes(tokenValue)
+	username, scopes, isLegacyUnscoped, ok := a.apiTokens.authenticateWithScopesAndLegacy(tokenValue)
 	if !ok {
 		return "", nil, false
 	}
@@ -511,6 +514,34 @@ func (a Auth) validAPITokenWithScopes(r *http.Request) (string, []string, bool) 
 	// Each token gets 600 requests per minute (10 per second).
 	if a.apiTokenLimiter != nil && !a.apiTokenLimiter.allow(tokenValue) {
 		return "", nil, false
+	}
+
+	// Enforce the legacy-token deprecation lifecycle. Prior to this,
+	// LegacyTokenDeprecation existed as a subsystem but no auth-path call
+	// site ever consulted it — so a token with no scopes retained full
+	// customer API access indefinitely regardless of how long ago it was
+	// deprecated. This block:
+	//
+	//   - Records first-use of a legacy unscoped token so the 30-day
+	//     grace-period clock actually starts.
+	//   - Refuses tokens whose grace period has already expired.
+	//
+	// The check is best-effort: a database failure fails-closed (refusing
+	// the token) rather than fails-open, because an unchecked legacy
+	// token is the entire vulnerability class we are closing.
+	if isLegacyUnscoped && a.legacyTokenDeprecation != nil {
+		digest := sha256.Sum256([]byte(tokenValue))
+		hash := hex.EncodeToString(digest[:])
+		expired, err := a.legacyTokenDeprecation.IsLegacyTokenExpired(hash)
+		if err != nil {
+			return "", nil, false
+		}
+		if expired {
+			return "", nil, false
+		}
+		if _, err := a.legacyTokenDeprecation.MarkLegacyTokenDeprecated(hash); err != nil {
+			return "", nil, false
+		}
 	}
 
 	if subtle.ConstantTimeCompare([]byte(username), []byte(a.Username)) == 1 {

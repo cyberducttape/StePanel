@@ -146,3 +146,81 @@ func TestCapabilitiesWithoutTOTP(t *testing.T) {
 		t.Error("auth.mfa should not be available when TOTP not enabled")
 	}
 }
+
+// TestCapabilityAvailableMeansAutomated is the regression test for the
+// API-contract fix: the Available bool is true ONLY when Mode is
+// CapabilityAvailable. Previously, a manual DB-restore workflow returned
+// Available=true with Mode=manual, so an older SDK that only understood
+// the bool treated an operator-required workflow as automated. Every
+// probed capability must now satisfy Available == (Mode == "available").
+func TestCapabilityAvailableMeansAutomated(t *testing.T) {
+	app := &App{Auth: Auth{TOTPEnabled: true}, Config: Config{OffsiteTarget: "s3:bucket", RunnerAllowedRegistries: "docker.io"}}
+	for name, cap := range app.ProbeCapabilities().Capabilities {
+		if cap.Available != (cap.Mode == CapabilityAvailable) {
+			t.Errorf("%s: Available=%v Mode=%s — invariant broken (Available must be true iff Mode is available)", name, cap.Available, cap.Mode)
+		}
+	}
+}
+
+// TestSuspendCapabilityIsUnsupported regresses the specific case from
+// bug #13: site.lifecycle.suspend was hard-coded as Available=true but
+// no implementation existed. The Manager.Suspend method returns
+// ErrNotImplemented, so the capability must report the same.
+func TestSuspendCapabilityIsUnsupported(t *testing.T) {
+	app := &App{Config: Config{}}
+	c := app.ProbeCapabilities().Capabilities["site.lifecycle.suspend"]
+	if c.Available {
+		t.Error("site.lifecycle.suspend must not be Available: no implementation exists")
+	}
+	if c.Mode != CapabilityUnsupported {
+		t.Errorf("Mode = %s, want unsupported", c.Mode)
+	}
+}
+
+// TestManualDatabaseRestorationIsNotAvailable regresses the API-contract
+// bug the review called out by name: manual DB restore used to report
+// Available=true Mode=manual, misleading SDK clients.
+func TestManualDatabaseRestorationIsNotAvailable(t *testing.T) {
+	app := &App{Config: Config{}}
+	c := app.ProbeCapabilities().Capabilities["archive.import.database_restore"]
+	// If mysql/psql aren't installed on the test host, the mode is
+	// Unsupported; if either is installed, it must be Manual. Either
+	// way, Available must be false.
+	if c.Available {
+		t.Errorf("archive.import.database_restore must not be Available (manual workflow), got Mode=%s", c.Mode)
+	}
+}
+
+// TestBuildCapabilityRequiresRunnerCtl locks in the honest-check
+// expansion of bug #13. podman on PATH is not sufficient — the panel
+// also needs its RunnerCtl helper and a non-empty registry allowlist.
+// A caller planning to submit a build cannot succeed without those.
+func TestBuildCapabilityRequiresRunnerCtl(t *testing.T) {
+	// No RunnerCtl → not Available.
+	app := &App{Config: Config{RunnerAllowedRegistries: "docker.io"}}
+	c := app.ProbeCapabilities().Capabilities["deployment.builds"]
+	if c.Available {
+		t.Errorf("deployment.builds must not be Available without RunnerCtl, got Mode=%s reason=%q", c.Mode, c.Reason)
+	}
+}
+
+// TestDatabaseCapabilityRequiresDBCtl — same pattern for the managed
+// database workflow. mysql on PATH alone is not usable.
+func TestDatabaseCapabilityRequiresDBCtl(t *testing.T) {
+	app := &App{Config: Config{}}
+	c := app.ProbeCapabilities().Capabilities["database.mysql.create"]
+	if c.Available {
+		t.Errorf("database.mysql.create must not be Available without DBCtl, got Mode=%s", c.Mode)
+	}
+}
+
+// TestQuotaCapabilityRequiresWebRootConfig — the quota check must
+// examine the filesystem hosting the sites tree, not any random mount.
+// With WebRoot unset, we cannot even identify the target mount.
+func TestQuotaCapabilityRequiresWebRootConfig(t *testing.T) {
+	app := &App{Config: Config{}}
+	c := app.ProbeCapabilities().Capabilities["filesystem.quotas"]
+	if c.Available {
+		t.Errorf("filesystem.quotas must not be Available without WebRoot config, got Mode=%s reason=%q", c.Mode, c.Reason)
+	}
+}

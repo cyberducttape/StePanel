@@ -114,13 +114,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security Fixes (HIGH)
 
-- **Build runner registry allowlist and image size limits (HIGH)**: Implemented essential
-  security controls to prevent arbitrary image execution. Now restricts container images
-  to allowlisted registries only (STEPANEL_RUNNER_ALLOWED_REGISTRIES, default: docker.io,
-  ghcr.io, quay.io) and enforces image size limits (STEPANEL_MAX_IMAGE_SIZE, default: 5GB).
-  Network disabled by default (STEPANEL_RUNNER_NETWORK_ENABLED controls explicit opt-in).
-  Helper parameters updated to enforce limits during image pull. Phase 2 will add explicit
-  seccomp profiles, SELinux/AppArmor context, and storage quotas.
+- **Build runner registry allowlist (HIGH)**: Restricts container images to
+  allowlisted registries (STEPANEL_RUNNER_ALLOWED_REGISTRIES, default:
+  docker.io, ghcr.io, quay.io). Combined with the pinned-digest requirement
+  (image ref must be `name@sha256:...`), rootless Podman, `--cap-drop ALL`,
+  `--security-opt no-new-privileges`, `--read-only`, CPU/memory/PID limits,
+  bounded tmpfs, and network=none by default (STEPANEL_RUNNER_NETWORK_MODE),
+  this bounds what a build sandbox can execute.
+
+  **Corrections to prior CHANGELOG entry (published claim was stale):**
+  - Image size enforcement (STEPANEL_MAX_IMAGE_SIZE, "default: 5GB") is
+    NOT implemented. config.go documents this ("STEPANEL_MAX_IMAGE_SIZE
+    removed: enforcement not implemented") and runner.go carries a TODO
+    describing the OCI-manifest work required. Deploy planning should not
+    rely on this control.
+  - The env var for network default is STEPANEL_RUNNER_NETWORK_MODE
+    ("none" / "egress"), not STEPANEL_RUNNER_NETWORK_ENABLED as the prior
+    entry named.
+
+- **Build runner image allowlist (HIGH, added Nov 2026)**: New optional
+  STEPANEL_RUNNER_ALLOWED_IMAGES tightens the registry-wide allowlist to
+  specific images or namespaces. When set, an image is accepted only if
+  its `registry/namespace/repo` matches at least one entry — otherwise the
+  build is refused with a clear error. Registry-wide allowlisting alone
+  meant that allowing ghcr.io let a site select any public image under
+  ghcr.io; this narrows the trust boundary to what an operator explicitly
+  approved.
+  - Patterns: exact `ghcr.io/anthropic/builder` OR trailing-wildcard
+    `ghcr.io/anthropic/*` (any repo under a namespace).
+  - Backward compatible: empty value keeps the previous behavior
+    (registry allowlist alone).
 
 - **Process group cleanup on timeout (HIGH)**: Fixed resource leak where timeouts/
   cancellations killed parent helper process but left child processes running
@@ -139,6 +162,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   - Temporarily falls back to global secret with deprecation notice
   - Phase 2 will migrate to database-backed per-site configuration with validation
   - Reduces blast radius from all sites to single site on secret compromise
+
+- **Git webhook site-binding (CRITICAL)**: Fixed follow-up to the per-site secret
+  change above. The webhook path change gave every request a URL-derived site but the
+  request context only carried a boolean "is-webhook" flag, so `gitDeploy` still read the
+  deploy target from the JSON body's `"site"` field. A signature valid for site A therefore
+  authorized a deploy on site B whenever the body claimed a different target — meaning
+  the "reduces blast radius from all sites to single site" claim above only held when
+  clients happened to spell the same site twice.
+  - Context now carries the authenticated site name (`gitWebhookSiteKey`), not a bool.
+  - `gitDeploy` uses that site as the sole trusted target for webhook requests.
+  - A body `"site"` that disagrees with the URL/HMAC-authenticated site returns 403 and
+    audits `webhook.site.mismatch`. An absent body site falls through to the authenticated
+    one, so payload shapes that omit `"site"` continue to work.
+  - Regression test `TestGitDeployWebhookRejectsCrossSiteBody` locks the fix in.
+
+- **Git webhook ref-pattern matching (HIGH)**: Fixed broken glob matching in
+  `AllowedRefs`. `matchGlobPattern` stripped `*` from the pattern and did a `strings.Contains`
+  check, so `refs/heads/release/*` authorized any ref containing the substring
+  `refs/heads/release/` — including unrelated branches like `refs/heads/other-release/main`.
+  Patterns and refs were also lowercased, treating a case-sensitive namespace as
+  case-insensitive.
+  - New anchored matching uses `path.Match` semantics: `*` matches within a single path
+    segment, `?` matches one non-`/` rune, character classes are supported.
+  - New `**` suffix enables recursive matching (e.g. `refs/heads/release/**` matches
+    `refs/heads/release` and all descendants).
+  - Bare-branch shorthand preserved for backward compat: pattern `main` still
+    authorizes `refs/heads/main`. Patterns beginning with `refs/` are strictly anchored.
+  - Matching is case-sensitive, matching Git's own ref semantics.
+  - Regression tests cover near-match refs, prefix collisions, recursive globs, and case.
 
 - **Archive extraction hardening**: Comprehensive security validation for
   site import archives to prevent path traversal, symlink escapes, and zip bombs:

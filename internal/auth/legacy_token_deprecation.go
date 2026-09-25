@@ -173,14 +173,18 @@ func (ltd *LegacyTokenDeprecation) CleanupExpiredTokens(olderThanDays int) (int6
 	return result.RowsAffected()
 }
 
-// GetExpiredTokens returns all legacy tokens that have expired
+// GetExpiredTokens returns all legacy tokens that have expired. The
+// comparison uses a parameter (not SQLite's non-existent NOW() function
+// the prior code called) so the query is portable and — crucially — the
+// server clock and the DB clock cannot disagree.
 func (ltd *LegacyTokenDeprecation) GetExpiredTokens() ([]string, error) {
 	if ltd.db == nil {
 		return nil, errors.New("database unavailable")
 	}
 
 	rows, err := ltd.db.Query(
-		`SELECT token_hash FROM api_token_deprecation WHERE expires_at < NOW()`,
+		`SELECT token_hash FROM api_token_deprecation WHERE expires_at < ?`,
+		time.Now(),
 	)
 	if err != nil {
 		return nil, err

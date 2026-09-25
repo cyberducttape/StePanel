@@ -81,26 +81,108 @@ func ClientIP(r *http.Request) string {
 	return "unknown"
 }
 
-// ClientIPWithTrustedProxy extracts the peer address, trusting X-Forwarded-For
-// only when behind a known reverse proxy (indicated by the trustProxy flag).
-// When trustProxy is false, behaves identically to ClientIP().
-func ClientIPWithTrustedProxy(r *http.Request, trustProxy bool) string {
-	if trustProxy {
-		// Extract the rightmost IP from X-Forwarded-For (original client is rightmost)
-		// Format: Client, Proxy1, Proxy2, ...
-		if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
-			ips := strings.Split(xff, ",")
-			if len(ips) > 0 {
-				if ip := strings.TrimSpace(ips[0]); ip != "" {
-					return ip
-				}
+// TrustedProxies is a set of CIDR ranges from which forwarded-identity
+// headers (X-Forwarded-For, X-Real-IP) are trusted. Any request whose
+// direct peer (RemoteAddr) falls outside every listed CIDR is treated as
+// an untrusted direct client — no forwarded header is consulted, and the
+// peer address is used as-is.
+//
+// The bool "TrustProxy" flag this replaces was structurally unsafe: it
+// trusted forwarded headers unconditionally as long as the deployment was
+// TLS-terminated somewhere, so any client that could reach the panel
+// could spoof any client IP by setting X-Forwarded-For itself. Rate
+// limiting keys and audit-log client identities were both forgeable.
+type TrustedProxies []*net.IPNet
+
+// ParseTrustedProxyCIDRs parses a comma-separated list of CIDRs (for
+// example "127.0.0.1/32, ::1/128, 10.0.20.0/24"). Empty entries and
+// surrounding whitespace are ignored. An empty input returns an empty
+// TrustedProxies (which trusts nothing).
+func ParseTrustedProxyCIDRs(raw string) (TrustedProxies, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var out TrustedProxies
+	for _, piece := range strings.Split(raw, ",") {
+		piece = strings.TrimSpace(piece)
+		if piece == "" {
+			continue
+		}
+		_, network, err := net.ParseCIDR(piece)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, network)
+	}
+	return out, nil
+}
+
+// Contains reports whether ip is inside any of the trusted CIDRs.
+func (tp TrustedProxies) Contains(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	for _, network := range tp {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// ClientIPWithTrustedProxies extracts the origin IP for a request,
+// consulting forwarded-identity headers only when the direct peer
+// (RemoteAddr) is inside one of the trusted-proxy CIDRs.
+//
+// XFF algorithm (RFC 7239 style):
+//
+//   - X-Forwarded-For is a comma-separated list appended left-to-right as
+//     the request traverses hops: "originalClient, hop1, hop2". The
+//     leftmost entry is what the client — or an attacker upstream of
+//     every proxy — claims to be.
+//   - The prior implementation returned ips[0] unconditionally, which
+//     meant any HTTP client that could reach the panel could send
+//     "X-Forwarded-For: victim-ip" and impersonate victim-ip in rate
+//     limiting and audit records. The comment above that code claimed
+//     "rightmost is the original client", which was also wrong: leftmost
+//     is the original client per the standard.
+//   - The safe algorithm walks the list right-to-left, skipping any hop
+//     that is itself a trusted proxy, and returns the first non-trusted
+//     IP encountered. That returned IP is the last hop before the trust
+//     chain — the attested client IP.
+//
+// X-Real-IP is a single value; it is only consulted when RemoteAddr is
+// trusted, and only when there is no X-Forwarded-For.
+func ClientIPWithTrustedProxies(r *http.Request, trustedProxies TrustedProxies) string {
+	peer := ClientIP(r)
+	peerIP := net.ParseIP(peer)
+	if peerIP == nil || !trustedProxies.Contains(peerIP) {
+		return peer
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ips := strings.Split(xff, ",")
+		for i := len(ips) - 1; i >= 0; i-- {
+			candidate := strings.TrimSpace(ips[i])
+			if candidate == "" {
+				continue
+			}
+			parsed := net.ParseIP(candidate)
+			if parsed == nil {
+				continue
+			}
+			if !trustedProxies.Contains(parsed) {
+				return candidate
 			}
 		}
-		// Fallback to X-Real-IP if X-Forwarded-For is not present
-		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+		// The entire XFF chain is trusted proxies — treat the direct peer
+		// as the effective client rather than returning "" or the raw
+		// header, which would corrupt the rate-limiter key space.
+		return peer
+	}
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+		if net.ParseIP(xri) != nil {
 			return xri
 		}
 	}
-	// Default behavior: use RemoteAddr (direct connection)
-	return ClientIP(r)
+	return peer
 }

@@ -25,6 +25,12 @@ type Config struct {
 	DBEngine, DBVersion, DBAdminURL                                                          string
 	GitAllowedHosts, GitWebhookSecret                                                        string
 	RunnerAllowedRegistries, RunnerNetworkMode                                               string
+	// RunnerAllowedImages, when non-empty, further constrains which
+	// images the build runner will accept beyond the registry allowlist.
+	// Entries are comma-separated `registry/namespace/repo` patterns
+	// with an optional trailing `/*` wildcard for a whole namespace.
+	// Example: "ghcr.io/anthropic/builder, docker.io/library/*".
+	RunnerAllowedImages                                                                      string
 	EnvironmentState, EnvironmentKey                                                         string
 	ControlPlaneDB                                                                           string
 	AccountKey                                                                               string
@@ -34,6 +40,14 @@ type Config struct {
 	CloudProvider                                                                            string
 	RequireOffsiteBackup                                                                     bool
 	TLSAlreadyTerminated                                                                     bool
+	// TrustedProxyCIDRs is a comma-separated list of CIDRs (for example
+	// "127.0.0.1/32,::1/128,10.0.20.0/24") from which forwarded-identity
+	// headers are trusted. Any other peer is treated as a direct client
+	// whose X-Forwarded-For / X-Real-IP headers cannot be trusted. When
+	// TLSAlreadyTerminated=1 and this is empty, the runtime defaults to
+	// loopback (127.0.0.1/32 and ::1/128) — safe when the reverse proxy
+	// is co-located, and forces explicit configuration when it is not.
+	TrustedProxyCIDRs                                                                        string
 	Production                                                                               bool
 	WorkerMode                                                                               string
 	MaxUpload                                                                                int64
@@ -85,6 +99,7 @@ func LoadConfig() Config {
 	if v := os.Getenv("STEPANEL_RUNNER_ALLOWED_REGISTRIES"); v != "" {
 		c.RunnerAllowedRegistries = strings.ToLower(strings.TrimSpace(v))
 	}
+	c.RunnerAllowedImages = strings.ToLower(strings.TrimSpace(os.Getenv("STEPANEL_RUNNER_ALLOWED_IMAGES")))
 	if v := os.Getenv("STEPANEL_RUNNER_NETWORK_MODE"); v != "" {
 		// Allow "none" (default) or "egress" (enable outbound networking)
 		mode := strings.ToLower(strings.TrimSpace(v))
@@ -211,6 +226,7 @@ func LoadConfig() Config {
 	if v := strings.TrimSpace(os.Getenv("STEPANEL_TLS_TERMINATED")); v == "1" {
 		c.TLSAlreadyTerminated = true
 	}
+	c.TrustedProxyCIDRs = strings.TrimSpace(os.Getenv("STEPANEL_TRUSTED_PROXY_CIDRS"))
 	c.Production = os.Getenv("STEPANEL_ENV") == "production"
 	c.WorkerMode = strings.ToLower(strings.TrimSpace(os.Getenv("STEPANEL_WORKER_MODE")))
 	if c.WorkerMode == "" {
