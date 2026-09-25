@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -148,7 +149,22 @@ type gitRollbackRequest struct {
 	Confirm string `json:"confirm"`
 }
 
-type gitWebhookContextKey struct{}
+// gitWebhookSiteKey carries the authenticated site name for a request that
+// passed webhook signature verification. The site is derived from the URL
+// path (/api/sites/git-webhook/:site) and validated against that site's
+// per-site HMAC secret, so an authenticated webhook proves authority over
+// exactly one site and no other. gitDeploy uses the value in this key —
+// never input.Site from the body — as the trusted deploy target when the
+// request came in via the webhook path.
+type gitWebhookSiteKey struct{}
+
+// webhookAuthenticatedSite returns the authenticated site name if the
+// request came in through the webhook path and passed signature
+// verification, or "" otherwise.
+func webhookAuthenticatedSite(r *http.Request) string {
+	site, _ := r.Context().Value(gitWebhookSiteKey{}).(string)
+	return site
+}
 
 // GitWebhookConfig stores per-site webhook configuration.
 // Each site can have its own webhook secret, allowed repositories, and allowed refs.
@@ -200,33 +216,83 @@ func verifyWebhookTimestamp(timestamp string, maxAge time.Duration) (time.Time, 
 	return ts, nil
 }
 
+// matchRefPattern reports whether the Git ref ref is authorized by any of
+// the configured patterns. Matching is anchored (whole-ref) and
+// case-sensitive, mirroring Git's own ref semantics on case-sensitive
+// filesystems.
+//
+// Supported pattern forms:
+//
+//   - Exact ref:  "refs/heads/main"
+//   - Glob:       "refs/heads/release/*"  (path.Match: '*' does not cross '/')
+//   - Recursive:  "refs/heads/release/**" (matches "refs/heads/release" and
+//     everything nested underneath it)
+//   - Bare branch/tag shorthand: "main", "release/*", "v1.*" — matched
+//     against ref stripped of a "refs/heads/" or "refs/tags/" prefix. Kept
+//     for backward compatibility with configs that pre-date full-ref
+//     patterns; new patterns should be written in full-ref form.
+//
+// This replaces the previous implementation which stripped '*' from the
+// pattern and did a substring match, so "refs/heads/release/*" effectively
+// authorized any ref containing the substring "refs/heads/release/" —
+// including unrelated branches like "refs/heads/other-release/main".
 func matchRefPattern(ref string, patterns []string) bool {
-	refLower := strings.ToLower(ref)
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return false
+	}
+	shortHead, shortHeadOK := "", false
+	shortTag, shortTagOK := "", false
+	if strings.HasPrefix(ref, "refs/heads/") {
+		shortHead = strings.TrimPrefix(ref, "refs/heads/")
+		shortHeadOK = shortHead != ""
+	}
+	if strings.HasPrefix(ref, "refs/tags/") {
+		shortTag = strings.TrimPrefix(ref, "refs/tags/")
+		shortTagOK = shortTag != ""
+	}
 	for _, pattern := range patterns {
-		patternLower := strings.ToLower(pattern)
-		if patternLower == refLower {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if refMatchesPattern(ref, pattern) {
 			return true
 		}
-		if strings.HasPrefix(patternLower, "refs/heads/") && strings.HasPrefix(refLower, "refs/heads/") {
-			if matchGlobPattern(refLower[11:], patternLower[11:]) {
-				return true
-			}
+		// Backward-compat: a bare pattern (no "refs/..." prefix) matches
+		// against the short ref name. This lets a config that says just
+		// "main" authorize a ref of "refs/heads/main".
+		if strings.HasPrefix(pattern, "refs/") {
+			continue
 		}
-		if strings.HasPrefix(patternLower, "refs/tags/") && strings.HasPrefix(refLower, "refs/tags/") {
-			if matchGlobPattern(refLower[10:], patternLower[10:]) {
-				return true
-			}
+		if shortHeadOK && refMatchesPattern(shortHead, pattern) {
+			return true
+		}
+		if shortTagOK && refMatchesPattern(shortTag, pattern) {
+			return true
 		}
 	}
 	return false
 }
 
-func matchGlobPattern(ref, pattern string) bool {
-	pattern = strings.ReplaceAll(pattern, "*", "")
-	if pattern == "" {
+// refMatchesPattern is the single-pattern anchored-glob primitive.
+//   - '**' as a suffix matches the base and every descendant.
+//   - Otherwise path.Match is used: '*' does not cross '/', '?' matches one
+//     non-'/' rune, character classes are supported.
+//   - A pattern with no glob metacharacters is treated as an exact match.
+func refMatchesPattern(ref, pattern string) bool {
+	if pattern == ref {
 		return true
 	}
-	return strings.Contains(ref, pattern)
+	if strings.HasSuffix(pattern, "/**") {
+		prefix := strings.TrimSuffix(pattern, "/**")
+		return ref == prefix || strings.HasPrefix(ref, prefix+"/")
+	}
+	if !strings.ContainsAny(pattern, "*?[") {
+		return false
+	}
+	matched, err := path.Match(pattern, ref)
+	return err == nil && matched
 }
 
 func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
@@ -293,8 +359,11 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 
 	a.webhookReplayCache.Store(deliveryID, ts)
 
-	// Mark this webhook as authenticated by global secret (temporary fallback)
-	request := r.Clone(context.WithValue(r.Context(), gitWebhookContextKey{}, true))
+	// Carry the site the signature actually authorized into gitDeploy's context.
+	// gitDeploy treats that value — not input.Site from the body — as the
+	// trusted deploy target, so a valid signature for siteA can never trigger a
+	// deploy on siteB regardless of what the body claims.
+	request := r.Clone(context.WithValue(r.Context(), gitWebhookSiteKey{}, site))
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	a.gitDeploy(w, request)
 }
@@ -336,12 +405,16 @@ func sanitizeGitError(output string) string {
 // gitDeploy intentionally does not evaluate repository-provided build scripts.
 // Build execution belongs in a separately sandboxed runner.
 //
-// SECURITY: Webhook requests (gitWebhookContextKey == true) bypass per-site authorization
-// checks because the webhook signature verification is site-specific (Phase 2).
-// Until per-site webhook configs are implemented, webhooks must use the global
-// GitWebhookSecret and have full access to the site they target.
+// SECURITY: Webhook requests bypass CSRF and per-site HTTP-auth checks because
+// the webhook signature verification already binds the request to a specific
+// site (the one whose per-site HMAC secret validated the body). That binding
+// is only meaningful if the deploy actually targets *that* site — so when a
+// webhook-authenticated site is present in the context we treat it as the
+// only trusted deploy target and refuse any body claim that disagrees.
 func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || (!a.Auth.CSRF(r) && r.Context().Value(gitWebhookContextKey{}) != true) {
+	webhookSite := webhookAuthenticatedSite(r)
+	isWebhook := webhookSite != ""
+	if r.Method != http.MethodPost || (!a.Auth.CSRF(r) && !isWebhook) {
 		http.Error(w, "invalid request", http.StatusForbidden)
 		return
 	}
@@ -356,21 +429,33 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	if input.Ref == "" {
 		input.Ref = "main"
 	}
+	if isWebhook {
+		// The signature only proved authority over webhookSite. Any body value
+		// that disagrees is a cross-site attempt: 403, audited. An absent body
+		// site is fine — we substitute the authenticated one — so payload
+		// formats that omit "site" continue to work.
+		if input.Site != "" && input.Site != webhookSite {
+			_ = Audit(a.Config.AuditLog, "webhook.site.mismatch", webhookSite, fmt.Sprintf("body claimed site %q", input.Site))
+			http.Error(w, "webhook body targets a different site than the URL signature authorized", http.StatusForbidden)
+			return
+		}
+		input.Site = webhookSite
+	}
 	if input.Site == "" || !gitRefPattern.MatchString(input.Ref) {
 		http.Error(w, "invalid site or Git ref", http.StatusUnprocessableEntity)
 		return
 	}
-	if r.Context().Value(gitWebhookContextKey{}) != true {
+	if !isWebhook {
 		if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
 			return
 		}
 	}
-	if r.Context().Value(gitWebhookContextKey{}) != true && !a.Auth.HasRequiredCustomerScope(r, "deploy:write") {
+	if !isWebhook && !a.Auth.HasRequiredCustomerScope(r, "deploy:write") {
 		http.Error(w, "API token lacks the deploy:write scope", http.StatusForbidden)
 		return
 	}
 
-	if r.Context().Value(gitWebhookContextKey{}) == true && a.Webhooks != nil {
+	if isWebhook && a.Webhooks != nil {
 		config, err := a.Webhooks.GetWebhookConfig(input.Site)
 		if err == nil && config != nil {
 			repoLower := strings.ToLower(strings.TrimSpace(input.Repository))
