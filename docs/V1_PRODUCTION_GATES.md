@@ -44,6 +44,8 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 - ✅ cPanel, WordPress, and file-backup restores publish through the manager
 - ✅ Staging clone publishes through the manager
 - ✅ Backup restore-to-staging publishes through the manager
+- ✅ cPanel, archive, WordPress, backup-restore, and staging workflows
+      allocate publication trees through manager-owned staging
 - ✅ Site termination uses the manager for final deletion
 - ⏳ Remaining direct lifecycle paths (generic create/update/suspend/resume)
       still need to be consolidated
