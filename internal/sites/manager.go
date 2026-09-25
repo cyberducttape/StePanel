@@ -28,6 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -195,12 +196,144 @@ func (m *DefaultManager) ImportArchive(ctx context.Context, req *ImportRequest) 
 	return nil, fmt.Errorf("sites.Manager.ImportArchive: %w — use the archive.import durable job instead", ErrNotImplemented)
 }
 
-// Clone is not yet implemented. When wired up it must copy the source
-// tree into a staged directory and atomically rename into place under a
-// SiteTransaction, so a partial copy cannot leave a half-cloned site
-// live at the destination.
+// Clone copies a site's public tree into an isolated staging directory and
+// atomically publishes the destination site directory. Symlinks and special
+// files are rejected rather than copied, and cancellation removes the stage
+// without exposing a partial destination.
 func (m *DefaultManager) Clone(ctx context.Context, req *CloneRequest) (*Site, error) {
-	return nil, ErrNotImplemented
+	if req == nil {
+		return nil, errors.New("sites.Manager: nil CloneRequest")
+	}
+	if req.SourceName == req.DestName {
+		return nil, errors.New("sites.Manager: clone source and destination must differ")
+	}
+	source, err := m.resolvePublicRoot(req.SourceName)
+	if err != nil {
+		return nil, err
+	}
+	destination, err := m.resolveSiteRoot(req.DestName)
+	if err != nil {
+		return nil, err
+	}
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: inspect clone source: %w", err)
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.IsDir() {
+		return nil, errors.New("sites.Manager: clone source must be a directory")
+	}
+	if _, err := os.Lstat(destination); err == nil {
+		return nil, fmt.Errorf("sites.Manager: site %q already exists", req.DestName)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("sites.Manager: inspect clone destination: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sitesRoot, err := h.SafePath(m.webRoot, "sites")
+	if err != nil {
+		return nil, err
+	}
+	stageParent := filepath.Join(sitesRoot, ".stepanel-manager-staging")
+	if err := os.MkdirAll(stageParent, 0700); err != nil {
+		return nil, fmt.Errorf("sites.Manager: create clone staging root: %w", err)
+	}
+	stage, err := os.MkdirTemp(stageParent, req.DestName+"-")
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: create clone stage: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.RemoveAll(stage)
+		}
+	}()
+	stagePublic := filepath.Join(stage, "public")
+	if err := copySiteTree(ctx, source, stagePublic); err != nil {
+		return nil, fmt.Errorf("sites.Manager: stage clone: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(stage, destination); err != nil {
+		return nil, fmt.Errorf("sites.Manager: activate clone: %w", err)
+	}
+	committed = true
+	return &Site{Name: req.DestName, Status: "ready", CreatedAt: time.Now().UTC(), WebRoot: filepath.Join(destination, "public"), Owner: req.AccountOwner}, nil
+}
+
+func copySiteTree(ctx context.Context, source, destination string) error {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("clone source contains a non-directory root")
+	}
+	if err := os.MkdirAll(destination, info.Mode().Perm()|0700); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		src := filepath.Join(source, entry.Name())
+		dst := filepath.Join(destination, entry.Name())
+		entryInfo, err := os.Lstat(src)
+		if err != nil {
+			return err
+		}
+		if entryInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refuse to clone symlink %q", entry.Name())
+		}
+		if entryInfo.IsDir() {
+			if err := copySiteTree(ctx, src, dst); err != nil {
+				return err
+			}
+			continue
+		}
+		if !entryInfo.Mode().IsRegular() {
+			return fmt.Errorf("refuse to clone special file %q", entry.Name())
+		}
+		in, err := os.Open(src)
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, entryInfo.Mode().Perm())
+		if err != nil {
+			in.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, &contextReader{ctx: ctx, reader: in})
+		closeOutErr := out.Close()
+		closeInErr := in.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeOutErr != nil {
+			return closeOutErr
+		}
+		if closeInErr != nil {
+			return closeInErr
+		}
+	}
+	return nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r *contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }
 
 // Restore is not yet implemented. Backup restore currently runs through

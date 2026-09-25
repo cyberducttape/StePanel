@@ -115,10 +115,9 @@ func TestDeleteAbsentSiteIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestPlaceholdersReturnErrNotImplemented — Clone/Restore/Update/Suspend/
-// Resume no longer silently succeed. A caller that treated the old nil
-// return as "done" would have been actively lied to. ErrNotImplemented
-// forces that call to fail loudly.
+// TestPlaceholdersReturnErrNotImplemented — Restore/Update/Suspend/Resume no
+// longer silently succeed. A caller that treated the old nil return as "done"
+// would have been actively lied to.
 func TestPlaceholdersReturnErrNotImplemented(t *testing.T) {
 	m, root := newManager(t)
 	if err := os.MkdirAll(filepath.Join(root, "sites", "existing", "public"), 0750); err != nil {
@@ -126,9 +125,6 @@ func TestPlaceholdersReturnErrNotImplemented(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if _, err := m.Clone(ctx, &CloneRequest{SourceName: "existing", DestName: "copy"}); !errors.Is(err, ErrNotImplemented) {
-		t.Errorf("Clone: want ErrNotImplemented, got %v", err)
-	}
 	if _, err := m.Restore(ctx, &RestoreRequest{Name: "existing"}); !errors.Is(err, ErrNotImplemented) {
 		t.Errorf("Restore: want ErrNotImplemented, got %v", err)
 	}
@@ -143,6 +139,64 @@ func TestPlaceholdersReturnErrNotImplemented(t *testing.T) {
 	}
 	if err := m.Resume(ctx, "existing"); !errors.Is(err, ErrNotImplemented) {
 		t.Errorf("Resume: want ErrNotImplemented, got %v", err)
+	}
+}
+
+func TestCloneStagesAndAtomicallyPublishesSite(t *testing.T) {
+	m, root := newManager(t)
+	source := filepath.Join(root, "sites", "source", "public")
+	if err := os.MkdirAll(filepath.Join(source, "nested"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "index.php"), []byte("<?php echo 'ok';"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "nested", "data.txt"), []byte("nested"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cloned, err := m.Clone(context.Background(), &CloneRequest{SourceName: "source", DestName: "copy", AccountOwner: "customer"})
+	if err != nil {
+		t.Fatalf("Clone failed: %v", err)
+	}
+	if cloned.WebRoot != filepath.Join(root, "sites", "copy", "public") {
+		t.Fatalf("clone WebRoot = %q", cloned.WebRoot)
+	}
+	for _, name := range []string{"index.php", filepath.Join("nested", "data.txt")} {
+		data, readErr := os.ReadFile(filepath.Join(cloned.WebRoot, name))
+		if readErr != nil {
+			t.Fatalf("cloned %s missing: %v", name, readErr)
+		}
+		if len(data) == 0 {
+			t.Fatalf("cloned %s is empty", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites", ".stepanel-manager-staging")); err != nil {
+		t.Fatalf("clone staging root missing: %v", err)
+	}
+	if _, err := m.Clone(context.Background(), &CloneRequest{SourceName: "source", DestName: "copy"}); err == nil {
+		t.Fatal("second clone should reject an existing destination")
+	}
+}
+
+func TestCloneRejectsSymlinkWithoutPublishingDestination(t *testing.T) {
+	m, root := newManager(t)
+	source := filepath.Join(root, "sites", "source", "public")
+	if err := os.MkdirAll(source, 0750); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "outside.txt")
+	if err := os.WriteFile(target, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(source, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Clone(context.Background(), &CloneRequest{SourceName: "source", DestName: "copy"}); err == nil {
+		t.Fatal("Clone followed a symlink")
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites", "copy")); !os.IsNotExist(err) {
+		t.Fatalf("failed clone published destination: %v", err)
 	}
 }
 
