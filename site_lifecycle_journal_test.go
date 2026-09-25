@@ -3,8 +3,10 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -36,6 +38,69 @@ func TestTerminationJournalRoundTrip(t *testing.T) {
 	}
 	if reloaded.BackupPath != "/var/backups/example-2026.tar.gz" {
 		t.Errorf("BackupPath = %q, want the value we set before crash", reloaded.BackupPath)
+	}
+}
+
+// TestTerminationJournalSurvivesProcessKill exercises the failure boundary
+// with a real child process. The child starts the next destructive step and
+// is killed before it can mark that step complete; the parent then performs
+// the retry and persists the completion record. This is stronger evidence
+// than reloading a journal in the same process because it also exercises the
+// process-exit path and a fresh test binary.
+func TestTerminationJournalSurvivesProcessKill(t *testing.T) {
+	if os.Getenv("STEPANEL_TERMINATION_JOURNAL_CHILD") == "1" {
+		root := os.Getenv("STEPANEL_TERMINATION_JOURNAL_ROOT")
+		journal, err := loadOrCreateTerminationJournal(root, "site.terminate-kill", "example", "admin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "destructive-step-started"), []byte("1\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		// The process dies after the destructive step starts but before the
+		// journal can claim that it committed.
+		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
+			t.Fatal(err)
+		}
+		_ = journal
+		return
+	}
+
+	root := t.TempDir()
+	child := exec.Command(os.Args[0], "-test.run=TestTerminationJournalSurvivesProcessKill", "-test.v")
+	child.Env = append(os.Environ(),
+		"STEPANEL_TERMINATION_JOURNAL_CHILD=1",
+		"STEPANEL_TERMINATION_JOURNAL_ROOT="+root,
+	)
+	err := child.Run()
+	if err == nil {
+		t.Fatal("child process unexpectedly survived the simulated crash")
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	status, statusOK := exitErr.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !statusOK || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "destructive-step-started")); err != nil {
+		t.Fatalf("child did not reach destructive-step boundary: %v", err)
+	}
+
+	recovered, err := loadOrCreateTerminationJournal(root, "site.terminate-kill", "example", "admin")
+	if err != nil {
+		t.Fatalf("reload after process kill: %v", err)
+	}
+	if recovered.isComplete(stepRoutesRemoved) {
+		t.Fatal("step interrupted before commit was incorrectly marked complete")
+	}
+	if err := recovered.markComplete(stepRoutesRemoved); err != nil {
+		t.Fatalf("persist recovered step: %v", err)
+	}
+	reloaded, err := loadOrCreateTerminationJournal(root, "site.terminate-kill", "example", "admin")
+	if err != nil {
+		t.Fatalf("reload recovered journal: %v", err)
+	}
+	if !reloaded.isComplete(stepRoutesRemoved) {
+		t.Fatal("recovered step completion was not durable")
 	}
 }
 
