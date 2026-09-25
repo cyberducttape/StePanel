@@ -196,7 +196,7 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_INSTALL_NODE` | `0` or `1` | Install NVM for the StePanel service account |
 | `STEPANEL_NODE_VERSIONS` | Comma-separated versions | Node versions to install through NVM |
 | `STEPANEL_GIT_ALLOWED_HOSTS` | Comma-separated hostnames | Exact public HTTPS/private SSH repository hosts allowed for Git deployment; defaults to GitHub, GitLab, and Bitbucket |
-| `STEPANEL_GIT_WEBHOOK_SECRET` | Shared secret | Enables signed webhook deployment using `X-StePanel-Signature: sha256=<hex>` |
+| `STEPANEL_GIT_WEBHOOK_SECRET` | Legacy shared secret (deprecated) | Retained for configuration compatibility; webhook deployment requires a distinct per-site control-plane secret. |
 | `STEPANEL_GITCTL` | Absolute helper path | Root-owned per-site deploy-key and private SSH clone helper; defaults to `/usr/local/sbin/stepanel-gitctl` |
 | `STEPANEL_GIT_RELEASE_RETENTION` | `1`–`100` | Number of preserved Git rollback releases per site; defaults to `3` |
 | `STEPANEL_GIT_RELEASE_MAX_AGE_HOURS` | Positive hours | Remove older non-current rollback releases; defaults to `168` (7 days) |

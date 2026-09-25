@@ -98,6 +98,10 @@ func LoadConfig() Config {
 	if v := os.Getenv("STEPANEL_GIT_ALLOWED_HOSTS"); v != "" {
 		c.GitAllowedHosts = strings.ToLower(strings.TrimSpace(v))
 	}
+	// Retained for configuration-file compatibility only. Webhook requests
+	// require a secret stored in the per-site control-plane configuration;
+	// accepting this legacy shared secret would let one credential authorize
+	// deployments for every site.
 	c.GitWebhookSecret = os.Getenv("STEPANEL_GIT_WEBHOOK_SECRET")
 	if v := os.Getenv("STEPANEL_RUNNER_ALLOWED_REGISTRIES"); v != "" {
 		c.RunnerAllowedRegistries = strings.ToLower(strings.TrimSpace(v))

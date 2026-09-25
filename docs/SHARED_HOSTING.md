@@ -116,10 +116,13 @@ the global FPM process environment.
 
 ## Signed Git webhooks
 
-Set `STEPANEL_GIT_WEBHOOK_SECRET` to enable `POST /api/sites/git-webhook`.
+Configure a distinct webhook secret for each site in the control-plane
+webhook configuration, then use `POST /api/sites/git-webhook/{site}`.
 Send `X-StePanel-Signature: sha256=<hex HMAC-SHA256>` with a JSON payload
-containing `site`, `repository`, and an optional `ref`. Normal repository
-allowlists and release validation still apply.
+containing `site`, `repository`, and an optional `ref`. The URL site, secret,
+repository allowlist, and ref allowlist are all checked before deployment.
+The legacy `STEPANEL_GIT_WEBHOOK_SECRET` shared-secret setting is retained only
+for configuration compatibility and is not accepted for deployment.
 
 ## Redis / Valkey allocations
 

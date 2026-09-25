@@ -320,27 +320,21 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var webhookSecret string
-
-	if a.Webhooks != nil {
-		config, err := a.Webhooks.GetWebhookConfig(site)
-		if err != nil {
-			http.Error(w, "webhook configuration error", http.StatusInternalServerError)
-			recordAudit(a.Config.AuditLog, "webhook", "webhook.auth.error", site, fmt.Sprintf("get webhook config: %v", err))
-			return
-		}
-		if config != nil {
-			webhookSecret = config.WebhookSecret
-		}
+	if a.Webhooks == nil {
+		http.Error(w, "per-site webhook configuration is unavailable", http.StatusNotFound)
+		return
 	}
-
-	if webhookSecret == "" {
-		if a.Config.GitWebhookSecret == "" {
-			http.Error(w, "webhook not configured for this site", http.StatusNotFound)
-			return
-		}
-		webhookSecret = a.Config.GitWebhookSecret
+	config, err := a.Webhooks.GetWebhookConfig(site)
+	if err != nil {
+		http.Error(w, "webhook configuration error", http.StatusInternalServerError)
+		recordAudit(a.Config.AuditLog, "webhook", "webhook.auth.error", site, fmt.Sprintf("get webhook config: %v", err))
+		return
 	}
+	if config == nil || config.WebhookSecret == "" {
+		http.Error(w, "webhook not configured for this site", http.StatusNotFound)
+		return
+	}
+	webhookSecret := config.WebhookSecret
 
 	signature := r.Header.Get("X-StePanel-Signature")
 	if !verifyWebhookSignature(body, signature, webhookSecret) {

@@ -135,6 +135,22 @@ func TestGitDeployWebhookRejectsCrossSiteBody(t *testing.T) {
 	}
 }
 
+func TestGitWebhookRejectsLegacyGlobalSecretWithoutSiteConfig(t *testing.T) {
+	app := &App{Config: Config{
+		AuditLog:         filepath.Join(t.TempDir(), "audit.jsonl"),
+		GitWebhookSecret: "legacy-shared-secret",
+	}}
+	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-webhook/site-a", strings.NewReader(`{"site":"site-a"}`))
+	w := httptest.NewRecorder()
+	app.gitWebhook(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("legacy shared-secret webhook status = %d, want 404", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "per-site") {
+		t.Fatalf("legacy shared-secret response = %q", w.Body.String())
+	}
+}
+
 // TestGitDeployWebhookAcceptsMatchingSite ensures the site-mismatch fix does
 // not break the normal case (body site matches URL site) or the elided-site
 // case (body has no "site" — we substitute the authenticated one). We stop
