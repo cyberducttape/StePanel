@@ -73,6 +73,11 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 	if resp.Capabilities["auth.mfa"].Available != app.Auth.TOTPEnabled {
 		t.Errorf("auth.mfa availability should match TOTPEnabled")
 	}
+	for _, name := range []string{"site.lifecycle.create", "site.lifecycle.delete", "archive.import.inspect", "deployment.git"} {
+		if resp.Capabilities[name].Available {
+			t.Errorf("%s reported available without its production dependencies", name)
+		}
+	}
 }
 
 func TestCapabilitiesMethodNotAllowed(t *testing.T) {

@@ -77,13 +77,13 @@ func (a *App) ProbeCapabilities() CapabilitiesResponse {
 func (a *App) probeAllCapabilities() map[string]Capability {
 	caps := make(map[string]Capability)
 
-	// Site lifecycle. Create and Delete run end-to-end through their
-	// production HTTP + durable-job paths. Suspend has no implementation
-	// (sites.Manager.Suspend returns ErrNotImplemented and no other code
-	// path suspends serving), so it is reported as unsupported rather
-	// than as an executable feature.
-	caps["site.lifecycle.create"] = newCapability(CapabilityAvailable, "")
-	caps["site.lifecycle.delete"] = newCapability(CapabilityAvailable, "")
+	// Site lifecycle. There is no generic synchronous create endpoint yet;
+	// archive import is deliberately reported separately because it still
+	// needs the SiteManager integration gate. Termination is executable only
+	// when its durable job, database helper, site helper, backup signing, and
+	// site tree are all present.
+	caps["site.lifecycle.create"] = newCapability(CapabilityUnsupported, "generic site creation is not yet exposed through SiteManager; use the explicitly partial archive-import workflow")
+	caps["site.lifecycle.delete"] = a.checkSiteDeletionCapability()
 	caps["site.lifecycle.suspend"] = newCapability(CapabilityUnsupported, "site suspension is not implemented; the current alternative is site termination")
 
 	// Database operations
@@ -95,7 +95,7 @@ func (a *App) probeAllCapabilities() map[string]Capability {
 	caps["database.mariadb.restore"] = a.checkDatabaseCapability("mariadb")
 
 	// Archive import
-	caps["archive.import.inspect"] = newCapability(CapabilityAvailable, "")
+	caps["archive.import.inspect"] = a.checkArchiveInspectionCapability()
 	caps["archive.import.extract"] = a.checkArchiveImportCapability()
 	caps["archive.import.database_restore"] = a.checkDatabaseRestorationCapability()
 
@@ -132,7 +132,7 @@ func (a *App) probeAllCapabilities() map[string]Capability {
 	caps["auth.scoped_tokens"] = newCapability(CapabilityAvailable, "")
 
 	// Deployment
-	caps["deployment.git"] = newCapability(CapabilityAvailable, "")
+	caps["deployment.git"] = a.checkGitDeploymentCapability()
 	caps["deployment.builds"] = a.checkBuildCapability()
 
 	// Mail (optional)
@@ -144,6 +144,42 @@ func (a *App) probeAllCapabilities() map[string]Capability {
 	caps["dns.management"] = a.checkDNSCapability()
 
 	return caps
+}
+
+func (a *App) checkSiteDeletionCapability() Capability {
+	if a.Jobs == nil {
+		return newCapability(CapabilityUnsupported, "durable job store is not initialized")
+	}
+	if a.Config.DBCtl == "" || a.Config.SiteCtl == "" {
+		return newCapability(CapabilityUnsupported, "database and site lifecycle helpers are required")
+	}
+	if a.Config.BackupSigningKey == "" {
+		return newCapability(CapabilityUnsupported, "termination requires a backup signing key")
+	}
+	if a.Config.WebRoot == "" {
+		return newCapability(CapabilityUnsupported, "site web root is not configured")
+	}
+	return newCapability(CapabilityAvailable, "")
+}
+
+func (a *App) checkArchiveInspectionCapability() Capability {
+	if a.Jobs == nil {
+		return newCapability(CapabilityUnsupported, "durable job store is not initialized")
+	}
+	if a.Config.ImportRoot == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_IMPORT_ROOT is not configured")
+	}
+	return newCapability(CapabilityAvailable, "")
+}
+
+func (a *App) checkGitDeploymentCapability() Capability {
+	if a.Config.GitCtl == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_GITCTL is not configured")
+	}
+	if a.Config.WebRoot == "" || a.Config.AppRoot == "" {
+		return newCapability(CapabilityUnsupported, "Git deployment requires web and application roots")
+	}
+	return newCapability(CapabilityAvailable, "")
 }
 
 // checkDatabaseCapability reports on the end-to-end managed-database
