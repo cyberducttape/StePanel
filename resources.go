@@ -57,6 +57,15 @@ type ResourceProfile struct {
 	AppliedAt            time.Time `json:"applied_at,omitempty"`
 	State                string    `json:"state"`
 }
+
+func resourceMutationLockKeys(site, account string) []string {
+	keys := []string{site}
+	if strings.TrimSpace(account) != "" {
+		keys = append(keys, "account:"+account)
+	}
+	return keys
+}
+
 type ResourceStore struct {
 	mu     sync.RWMutex
 	path   string
@@ -483,7 +492,11 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid resource profile", 422)
 		return
 	}
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
+	accountName := p.Account
+	if accountName == "" && a.Accounts != nil {
+		accountName, _ = a.Accounts.OwnerOfSite(site)
+	}
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), resourceMutationLockKeys(site, accountName)...)
 	if lockErr != nil {
 		http.Error(w, "resource mutation is busy", http.StatusConflict)
 		return
@@ -598,7 +611,7 @@ func (a *App) reconcileResourceProfiles(ctx context.Context) (reconciled []strin
 		}
 	}
 	for _, p := range pending {
-		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, p.Site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(ctx, resourceMutationLockKeys(p.Site, p.Account)...)
 		if lockErr != nil {
 			failed[p.Site] = lockErr.Error()
 			continue
@@ -607,7 +620,7 @@ func (a *App) reconcileResourceProfiles(ctx context.Context) (reconciled []strin
 		if err != nil {
 			failed[p.Site] = "apply failed"
 			if p.Account != "" && a.Accounts != nil {
-				if _, suspendErr := a.Accounts.SetSuspended(p.Account, true); suspendErr != nil {
+				if _, suspendErr := a.setAccountSuspended(operationCtx, p.Account, true); suspendErr != nil {
 					failed[p.Site] = "apply failed and account suspension failed: " + suspendErr.Error()
 				}
 			}

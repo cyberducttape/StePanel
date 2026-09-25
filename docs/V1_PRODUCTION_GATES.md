@@ -77,6 +77,8 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 - ✅ Wired into site termination, Git deployment/rollback, backup/restore,
       route/proxy changes, runtime reconciliation, resources, tasks, workers,
       SSH access, database operations, and account mutations.
+- ✅ Resource enforcement acquires both site and owning-account fences, so
+      resource updates cannot race account suspension.
 - ⏳ Adversarial concurrent-operation tests still need to cover the full five
       scenarios below against real helper boundaries.
 
