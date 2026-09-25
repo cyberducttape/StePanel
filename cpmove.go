@@ -246,7 +246,10 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	if cfg.MailRoot != "" {
 		mailSource := filepath.Join(root, "homedir", "mail")
 		if info, statErr := os.Stat(mailSource); statErr == nil && info.IsDir() {
-			txn.MailRoot = filepath.Join(cfg.MailRoot, user)
+			txn.MailRoot, err = safePath(cfg.MailRoot, user)
+			if err != nil {
+				return result, fmt.Errorf("resolve destination mail root: %w", err)
+			}
 			txn.MailBackup = filepath.Join(txn.dir, "mail-before")
 			if existing, destinationErr := os.Lstat(txn.MailRoot); destinationErr == nil {
 				if existing.Mode()&os.ModeSymlink != 0 {
@@ -308,7 +311,10 @@ func restoreMailContext(ctx context.Context, cfg Config, stage, user string) (bo
 	if cfg.MailRoot == "" {
 		return false, nil, []string{"mail root is not configured; set STEPANEL_MAIL_ROOT"}
 	}
-	root := filepath.Join(cfg.MailRoot, user)
+	root, err := safePath(cfg.MailRoot, user)
+	if err != nil {
+		return false, nil, []string{"resolve mail root: " + err.Error()}
+	}
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return false, nil, []string{"create mail root: " + err.Error()}
 	}
