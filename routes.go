@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -137,7 +136,13 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 		return nil, failed
 	}
 	for _, route := range a.Routes.list() {
-		path := filepath.Join(a.Config.VHostRoot, route.Name)
+		path, pathErr := safePath(a.Config.VHostRoot, route.Name)
+		if pathErr != nil {
+			route.LastError = pathErr.Error()
+			failed[route.Name] = pathErr.Error()
+			_ = a.Routes.save(route)
+			continue
+		}
 		if route.State == "applied" {
 			if _, err := os.Lstat(path); err == nil {
 				continue
