@@ -135,6 +135,15 @@ func TestRestoreCPMoveHandlesTopLevelCPanelRoot(t *testing.T) {
 	if err != nil || string(body) != "restored" {
 		t.Fatalf("restored file = %q, %v", body, err)
 	}
+	entries, err := os.ReadDir(filepath.Join(root, "sites"))
+	if err != nil {
+		t.Fatalf("read site root: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".stepanel-cpmove-") {
+			t.Fatalf("manager staging tree was not consumed: %s", entry.Name())
+		}
+	}
 }
 
 func TestSQLDumpsFindsNestedCPanelDumps(t *testing.T) {

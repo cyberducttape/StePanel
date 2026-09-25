@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
 type CPMoveInfo struct {
@@ -171,6 +173,24 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 		return ImportResult{}, err
 	}
 	home := filepath.Join(cfg.WebRoot, "sites", user, "public")
+	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	if err != nil {
+		return ImportResult{}, fmt.Errorf("initialize site manager: %w", err)
+	}
+	stageParent := filepath.Join(cfg.WebRoot, "sites")
+	if err := os.MkdirAll(stageParent, 0750); err != nil {
+		return ImportResult{}, fmt.Errorf("prepare site manager staging root: %w", err)
+	}
+	managerStage, err := os.MkdirTemp(stageParent, ".stepanel-cpmove-")
+	if err != nil {
+		return ImportResult{}, fmt.Errorf("create site manager staging tree: %w", err)
+	}
+	activated := false
+	defer func() {
+		if !activated {
+			_ = os.RemoveAll(managerStage)
+		}
+	}()
 	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, home, "cpmove.restore", site)
 	if err != nil {
 		return ImportResult{}, err
@@ -192,9 +212,6 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	if err := siteHelperContext(ctx, cfg, "prepare", user); err != nil {
 		return ImportResult{}, fmt.Errorf("prepare isolated site: %w", err)
 	}
-	if err = os.MkdirAll(home, 0750); err != nil {
-		return ImportResult{}, err
-	}
 	source := firstExisting(filepath.Join(root, "homedir", "public_html"), filepath.Join(root, "homedir", user, "public_html"))
 	if source != "" {
 		if err := ctx.Err(); err != nil {
@@ -205,10 +222,14 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 		} else if len(findings) > 0 {
 			return ImportResult{}, fmt.Errorf("restore blocked: malware scan detected %d suspicious PHP file(s)", len(findings))
 		}
-		if err = copyTreeContext(ctx, source, home); err != nil {
+		if err = copyTreeContext(ctx, source, managerStage); err != nil {
 			return ImportResult{}, err
 		}
 	}
+	if _, err := manager.ActivateStaged(ctx, user, managerStage); err != nil {
+		return ImportResult{}, fmt.Errorf("activate cpmove site through manager: %w", err)
+	}
+	activated = true
 	result := ImportResult{User: user, Home: home, FilesRestored: source != "", StagedAt: stage}
 	if databases {
 		result.DatabasesRestored, result.DatabaseErrors = restoreSQLContext(ctx, cfg, root, user, txn)
