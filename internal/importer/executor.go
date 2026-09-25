@@ -218,14 +218,19 @@ type ImportJob struct {
 	DatabaseDumpSize   int64  // Size of SQL dump file
 }
 
-// ExecuteImport performs the full import workflow
-func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest, webRoot string, onProgress func(*ImportJob)) (*ImportResult, error) {
+// ExecuteImport extracts an archive into extractRoot, updates its config, and
+// reports on any embedded database dump. extractRoot must not exist yet: the
+// executor creates it, so it is safe for the caller to use as a staging
+// directory and atomically rename into the canonical site location only after
+// the import returns successfully. The executor never touches any path other
+// than extractRoot and its children.
+func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest, extractRoot string, onProgress func(*ImportJob)) (*ImportResult, error) {
 	job := &ImportJob{
 		ID:         generateJobID(),
 		SiteName:   req.SiteName,
 		ArchiveURL: req.URL,
 		ConfigPath: req.ConfigPath,
-		WebRoot:    filepath.Join(webRoot, "sites", req.SiteName, "public"),
+		WebRoot:    extractRoot,
 		Status:     "validating",
 		StartedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -246,7 +251,7 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	// Use conservative estimate: assume 10:1 compression ratio if archive is max size
 	// This ensures we have enough space even in worst case
 	estimatedExpanded := maxArchiveSize * 10 // 50 GB for max 5 GB compressed
-	spaceCheck := CheckDiskSpace(filepath.Dir(filepath.Dir(job.WebRoot)), maxArchiveSize, int64(estimatedExpanded))
+	spaceCheck := CheckDiskSpace(filepath.Dir(job.WebRoot), maxArchiveSize, int64(estimatedExpanded))
 	if !spaceCheck.HasSufficientSpace {
 		job.Status = "failed"
 		job.Error = spaceCheck.Reason
@@ -431,11 +436,16 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	return result, nil
 }
 
-// validateSiteCreation checks if a site can be created
+// validateSiteCreation checks that the extraction target is a fresh directory
+// path. It is the caller's responsibility to arrange this (typically by
+// passing a unique staging path). Refusing an existing path here is what
+// guarantees the executor never merges a partial archive over pre-existing
+// files.
 func (e *Executor) validateSiteCreation(job *ImportJob) error {
-	// Check if directory already exists
 	if _, err := os.Stat(job.WebRoot); err == nil {
-		return fmt.Errorf("site %q already exists", job.SiteName)
+		return fmt.Errorf("extract target %q already exists", job.WebRoot)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("cannot inspect extract target: %w", err)
 	}
 
 	// Check parent directory is writable

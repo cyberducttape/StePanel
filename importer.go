@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/cyberducttape/StePanel/internal/importer"
-	"github.com/cyberducttape/StePanel/internal/sites"
 )
 
 // durableArchiveImportRequest is the job payload for archive imports
@@ -233,27 +236,74 @@ func (a *App) archiveImportStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleArchiveImportJob processes an archive import durable job through the canonical site lifecycle
+// handleArchiveImportJob processes an archive.import durable job.
+//
+// Extraction goes into an isolated staging directory that is atomically
+// renamed onto the canonical site path only once the whole archive is
+// extracted and its config rewritten. A SiteTransaction journal wraps the
+// activation so a crash between rename and commit is recoverable on boot via
+// RecoverSiteTransactions. On any failure the staging tree is removed and the
+// canonical path is left untouched.
 func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	var req durableArchiveImportRequest
 	if err := json.Unmarshal(job.Payload, &req); err != nil {
 		return fmt.Errorf("failed to parse job payload: %w", err)
 	}
+	if !validSiteName(req.SiteName) {
+		return errors.New("invalid site name in archive import payload")
+	}
+	if req.WebRoot == "" {
+		return errors.New("archive import payload is missing web root")
+	}
 
-	// Create lifecycle-aware importer
+	actor := job.User
+	if actor == "" {
+		actor = "admin"
+	}
+	access, err := a.authorizeDurableSiteJob(req.SiteName, actor, false)
+	if err != nil {
+		return fmt.Errorf("archive import authorization: %w", err)
+	}
+
+	if ctx.Err() != nil || a.Jobs.CancellationRequested(job.ID) {
+		return context.Canceled
+	}
+
+	releaseSite := a.siteOperations.Acquire(req.SiteName)
+	defer releaseSite()
+
+	canonical := filepath.Join(req.WebRoot, "sites", req.SiteName, "public")
+	if _, err := os.Stat(canonical); err == nil {
+		return fmt.Errorf("site %q already exists", req.SiteName)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect canonical site: %w", err)
+	}
+
+	stagingParent := filepath.Join(req.WebRoot, "sites", ".import-staging")
+	if err := os.MkdirAll(stagingParent, 0750); err != nil {
+		return fmt.Errorf("prepare staging root: %w", err)
+	}
+	stagingDir := filepath.Join(stagingParent, fmt.Sprintf("%s-%s", req.SiteName, job.ID))
+	// Fail if a leftover collision exists rather than silently reusing it.
+	if _, err := os.Stat(stagingDir); err == nil {
+		return fmt.Errorf("staging directory %q already exists", stagingDir)
+	}
+
+	activated := false
+	defer func() {
+		if !activated {
+			_ = os.RemoveAll(stagingDir)
+		}
+	}()
+
 	executor := importer.NewExecutor()
-	provisioner := sites.NewProvisioner(req.WebRoot)
-	lifecycleImporter := importer.NewLifecycleAwareImporter(executor, provisioner)
-
-	// Wrapper to capture progress updates
 	progressUpdates := make([]map[string]interface{}, 0)
 
-	result, err := lifecycleImporter.Import(ctx, &importer.ArchiveImportRequest{
+	result, err := executor.ExecuteImport(ctx, &importer.ArchiveImportRequest{
 		URL:        req.ArchiveURL,
 		ConfigPath: req.ConfigPath,
 		SiteName:   req.SiteName,
-	}, req.WebRoot, func(importJob *importer.ImportJob) {
-		// Capture progress update
+	}, stagingDir, func(importJob *importer.ImportJob) {
 		progressUpdates = append(progressUpdates, map[string]interface{}{
 			"status":          importJob.Status,
 			"progress":        importJob.Progress,
@@ -264,12 +314,50 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 			"updated_at":      importJob.UpdatedAt,
 		})
 	})
-
 	if err != nil {
-		return fmt.Errorf("archive import failed: %w", err)
+		_ = ShouldAudit(a.Config.AuditLog, actor, "archive.import.failed", req.SiteName, err.Error())
+		return fmt.Errorf("archive extraction failed: %w", err)
 	}
 
-	// Store result in job output (marshal to JSON)
+	if err := os.MkdirAll(filepath.Dir(canonical), 0750); err != nil {
+		return fmt.Errorf("prepare canonical site parent: %w", err)
+	}
+
+	txn, err := BeginSiteTransaction(a.Config.RecoveryRoot, canonical, "archive.import", access)
+	if err != nil {
+		return fmt.Errorf("begin archive import transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			if rbErr := txn.Rollback(); rbErr != nil {
+				// The recovery journal has enough state to finish the rollback on next boot.
+				_ = ShouldAudit(a.Config.AuditLog, actor, "archive.import.rollback-failed", req.SiteName, rbErr.Error())
+			}
+		}
+	}()
+
+	if err := os.Rename(stagingDir, canonical); err != nil {
+		return fmt.Errorf("activate imported site: %w", err)
+	}
+	activated = true
+
+	if err := txn.Commit(); err != nil {
+		// The tree is already at canonical; a subsequent boot-time recovery pass
+		// treats the transaction as pending and rolls it back, which would
+		// destroy the freshly-imported files. Surface the error so the operator
+		// notices before that happens.
+		return fmt.Errorf("commit archive import transaction: %w", err)
+	}
+	committed = true
+
+	if result != nil {
+		result.SiteStatus = "ready"
+		result.CreatedAt = time.Now().UTC()
+	}
+
+	_ = ShouldAudit(a.Config.AuditLog, actor, "archive.import.completed", req.SiteName, req.ArchiveURL)
+
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("failed to marshal result: %w", err)
