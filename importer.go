@@ -291,18 +291,27 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	}
 	defer releaseSite()
 
-	canonical := filepath.Join(req.WebRoot, "sites", req.SiteName, "public")
+	canonical, err := safePath(req.WebRoot, "sites", req.SiteName, "public")
+	if err != nil {
+		return fmt.Errorf("resolve canonical site: %w", err)
+	}
 	if _, err := os.Stat(canonical); err == nil {
 		return fmt.Errorf("site %q already exists", req.SiteName)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect canonical site: %w", err)
 	}
 
-	stagingParent := filepath.Join(req.WebRoot, "sites", ".import-staging")
+	stagingParent, err := safePath(req.WebRoot, "sites", ".import-staging")
+	if err != nil {
+		return fmt.Errorf("resolve staging root: %w", err)
+	}
 	if err := os.MkdirAll(stagingParent, 0750); err != nil {
 		return fmt.Errorf("prepare staging root: %w", err)
 	}
-	stagingDir := filepath.Join(stagingParent, fmt.Sprintf("%s-%s", req.SiteName, job.ID))
+	stagingDir, err := safePath(stagingParent, fmt.Sprintf("%s-%s", req.SiteName, job.ID))
+	if err != nil {
+		return fmt.Errorf("resolve staging directory: %w", err)
+	}
 	// Fail if a leftover collision exists rather than silently reusing it.
 	if _, err := os.Stat(stagingDir); err == nil {
 		return fmt.Errorf("staging directory %q already exists", stagingDir)
