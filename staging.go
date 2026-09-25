@@ -231,12 +231,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not begin staging transaction", 503)
 		return
 	}
-	managerStageParent := filepath.Join(a.Config.WebRoot, "sites")
-	if err := os.MkdirAll(managerStageParent, 0750); err != nil {
-		http.Error(w, "could not prepare lifecycle staging root", 503)
-		return
-	}
-	managerStage, err := os.MkdirTemp(managerStageParent, ".stepanel-staging-")
+	managerStage, err := createSiteManagerStaging(operationCtx, a.Config, ".stepanel-staging-")
 	if err != nil {
 		http.Error(w, "could not create lifecycle staging tree", 503)
 		return

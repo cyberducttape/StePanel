@@ -33,6 +33,40 @@ func TestNewDefaultManagerRejectsUnsafeRoot(t *testing.T) {
 	}
 }
 
+func TestCreateStagingUsesManagerOwnedRoot(t *testing.T) {
+	m, root := newManager(t)
+	stage, err := m.CreateStaging(context.Background(), ".stepanel-test-")
+	if err != nil {
+		t.Fatalf("CreateStaging: %v", err)
+	}
+	wantParent := filepath.Join(root, "sites", ".stepanel-manager-staging")
+	if filepath.Dir(stage) != wantParent {
+		t.Fatalf("staging parent = %q, want %q", filepath.Dir(stage), wantParent)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "index.html"), []byte("staged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ActivateStaged(context.Background(), "managed", stage); err != nil {
+		t.Fatalf("ActivateStaged: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "sites", "managed", "public", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "staged" {
+		t.Fatalf("activated content = %q, want staged", data)
+	}
+}
+
+func TestCreateStagingRejectsUnsafePrefix(t *testing.T) {
+	m, _ := newManager(t)
+	for _, prefix := range []string{"", "../escape-", ".stepanel/escape-", strings.Repeat("x", 49)} {
+		if _, err := m.CreateStaging(context.Background(), prefix); err == nil {
+			t.Errorf("CreateStaging(%q) accepted unsafe prefix", prefix)
+		}
+	}
+}
+
 // TestDeleteRefusesInvalidNames is the direct trust-boundary regression:
 // the manager MUST NOT rm -rf a path derived from a malformed name, even
 // if all HTTP callers claim they pre-validated. Every case below would

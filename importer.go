@@ -301,20 +301,16 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 		return fmt.Errorf("inspect canonical site: %w", err)
 	}
 
-	stagingParent, err := safePath(req.WebRoot, "sites", ".import-staging")
+	manager := a.siteManager
+	if manager == nil {
+		manager, err = siteauthority.NewDefaultManager(req.WebRoot)
+		if err != nil {
+			return fmt.Errorf("initialize site manager for staging: %w", err)
+		}
+	}
+	stagingDir, err := manager.CreateStaging(operationCtx, ".stepanel-import-")
 	if err != nil {
-		return fmt.Errorf("resolve staging root: %w", err)
-	}
-	if err := os.MkdirAll(stagingParent, 0750); err != nil {
-		return fmt.Errorf("prepare staging root: %w", err)
-	}
-	stagingDir, err := safePath(stagingParent, fmt.Sprintf("%s-%s", req.SiteName, job.ID))
-	if err != nil {
-		return fmt.Errorf("resolve staging directory: %w", err)
-	}
-	// Fail if a leftover collision exists rather than silently reusing it.
-	if _, err := os.Stat(stagingDir); err == nil {
-		return fmt.Errorf("staging directory %q already exists", stagingDir)
+		return fmt.Errorf("create import staging directory: %w", err)
 	}
 
 	activated := false
@@ -382,13 +378,6 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 		}
 	}()
 
-	manager := a.siteManager
-	if manager == nil {
-		manager, err = siteauthority.NewDefaultManager(req.WebRoot)
-		if err != nil {
-			return fmt.Errorf("initialize site manager for activation: %w", err)
-		}
-	}
 	if _, err := manager.ActivateStaged(operationCtx, req.SiteName, stagingDir); err != nil {
 		return fmt.Errorf("activate imported site: %w", err)
 	}

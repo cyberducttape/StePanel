@@ -282,11 +282,7 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if err != nil {
 		return WPressResult{}, err
 	}
-	managerStageParent := filepath.Join(cfg.WebRoot, "sites")
-	if err := os.MkdirAll(managerStageParent, 0750); err != nil {
-		return WPressResult{}, fmt.Errorf("prepare lifecycle staging root: %w", err)
-	}
-	managerStage, err := os.MkdirTemp(managerStageParent, ".stepanel-wpress-")
+	managerStage, err := createSiteManagerStaging(ctx, cfg, ".stepanel-wpress-")
 	if err != nil {
 		return WPressResult{}, fmt.Errorf("create lifecycle staging tree: %w", err)
 	}

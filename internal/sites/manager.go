@@ -54,6 +54,7 @@ var validSiteName = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 // caller from smuggling a path expression through ActivateStaged while still
 // supporting the two staging layouts used by the application.
 var validStagedComponent = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,127}|\.stepanel-[A-Za-z0-9._-]{1,127})$`)
+var validStagingPrefix = regexp.MustCompile(`^[A-Za-z0-9._-]{1,48}-?$`)
 
 // ResourceEnvelope describes resource limits for a site.
 type ResourceEnvelope struct {
@@ -78,6 +79,7 @@ type Site struct {
 // sites.
 type Manager interface {
 	Create(ctx context.Context, req *CreateRequest) (*Site, error)
+	CreateStaging(ctx context.Context, prefix string) (string, error)
 	ImportArchive(ctx context.Context, req *ImportRequest) (*Site, error)
 	Clone(ctx context.Context, req *CloneRequest) (*Site, error)
 	ActivateStaged(ctx context.Context, name, stagedRoot string) (*Site, error)
@@ -206,7 +208,45 @@ func (m *DefaultManager) resolveStagedRoot(name, stagedRoot string) (string, str
 		}
 		return importRoot, component, nil
 	}
+	managerRoot, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
+	if err != nil {
+		return "", "", fmt.Errorf("sites.Manager: resolve manager staging root: %w", err)
+	}
+	if parent == managerRoot {
+		if _, err := h.SafePath(managerRoot, component); err != nil {
+			return "", "", err
+		}
+		return managerRoot, component, nil
+	}
 	return "", "", errors.New("sites.Manager: staged path is not in a manager-owned staging root")
+}
+
+// CreateStaging allocates an isolated manager-owned staging directory. The
+// returned path is valid input for ActivateStaged, so callers can prepare a
+// tree without creating directories directly under the live site root.
+func (m *DefaultManager) CreateStaging(ctx context.Context, prefix string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if !validStagingPrefix.MatchString(prefix) {
+		return "", errors.New("sites.Manager: invalid staging prefix")
+	}
+	sitesRoot, err := h.SafePath(m.webRoot, "sites")
+	if err != nil {
+		return "", err
+	}
+	stageParent, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(stageParent, 0700); err != nil {
+		return "", fmt.Errorf("sites.Manager: create staging root: %w", err)
+	}
+	stage, err := os.MkdirTemp(stageParent, prefix)
+	if err != nil {
+		return "", fmt.Errorf("sites.Manager: create staging tree: %w", err)
+	}
+	return stage, nil
 }
 
 // ActivateStaged publishes a fully prepared public tree under the manager's

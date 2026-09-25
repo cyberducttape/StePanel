@@ -30,3 +30,11 @@ func activateStagedSiteWithConfig(ctx context.Context, cfg Config, name, stagedR
 	}
 	return nil
 }
+
+func createSiteManagerStaging(ctx context.Context, cfg Config, prefix string) (string, error) {
+	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	if err != nil {
+		return "", fmt.Errorf("initialize site manager: %w", err)
+	}
+	return manager.CreateStaging(ctx, prefix)
+}

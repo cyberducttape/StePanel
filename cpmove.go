@@ -180,11 +180,7 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("initialize site manager: %w", err)
 	}
-	stageParent := filepath.Join(cfg.WebRoot, "sites")
-	if err := os.MkdirAll(stageParent, 0750); err != nil {
-		return ImportResult{}, fmt.Errorf("prepare site manager staging root: %w", err)
-	}
-	managerStage, err := os.MkdirTemp(stageParent, ".stepanel-cpmove-")
+	managerStage, err := manager.CreateStaging(ctx, ".stepanel-cpmove-")
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("create site manager staging tree: %w", err)
 	}

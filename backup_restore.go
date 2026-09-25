@@ -278,12 +278,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "backup has no site files", 422)
 		return
 	}
-	managerStageParent := filepath.Join(a.Config.WebRoot, "sites")
-	if e = os.MkdirAll(managerStageParent, 0750); e != nil {
-		http.Error(w, "could not prepare lifecycle staging root", 503)
-		return
-	}
-	managerStage, stageErr := os.MkdirTemp(managerStageParent, ".stepanel-backup-restore-")
+	managerStage, stageErr := createSiteManagerStaging(operationCtx, a.Config, ".stepanel-backup-restore-")
 	if stageErr != nil {
 		http.Error(w, "could not create lifecycle staging tree", 503)
 		return
@@ -471,11 +466,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	managerStageParent := filepath.Join(cfg.WebRoot, "sites")
-	if err := os.MkdirAll(managerStageParent, 0750); err != nil {
-		return BackupRestoreResult{}, fmt.Errorf("prepare lifecycle staging root: %w", err)
-	}
-	managerStage, err := os.MkdirTemp(managerStageParent, ".stepanel-backup-")
+	managerStage, err := createSiteManagerStaging(ctx, cfg, ".stepanel-backup-")
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("create lifecycle staging tree: %w", err)
 	}
