@@ -182,17 +182,14 @@ func TestSuspendCapabilityIsUnsupported(t *testing.T) {
 	}
 }
 
-// TestManualDatabaseRestorationIsNotAvailable regresses the API-contract
-// bug the review called out by name: manual DB restore used to report
-// Available=true Mode=manual, misleading SDK clients.
-func TestManualDatabaseRestorationIsNotAvailable(t *testing.T) {
+// TestDatabaseRestorationRequiresTheManagedHelper ensures the capability does
+// not claim an automated workflow on a host where the privileged DB adapter is
+// absent.
+func TestDatabaseRestorationRequiresTheManagedHelper(t *testing.T) {
 	app := &App{Config: Config{}}
 	c := app.ProbeCapabilities().Capabilities["archive.import.database_restore"]
-	// If mysql/psql aren't installed on the test host, the mode is
-	// Unsupported; if either is installed, it must be Manual. Either
-	// way, Available must be false.
 	if c.Available {
-		t.Errorf("archive.import.database_restore must not be Available (manual workflow), got Mode=%s", c.Mode)
+		t.Errorf("archive.import.database_restore must not be Available without DB helper, got Mode=%s", c.Mode)
 	}
 }
 

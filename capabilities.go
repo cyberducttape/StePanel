@@ -242,12 +242,13 @@ func (a *App) checkArchiveImportCapability() Capability {
 // SDK that only reads Available cannot mistake the manual step for
 // something the panel will do automatically.
 func (a *App) checkDatabaseRestorationCapability() Capability {
-	hasMySQL := exec.Command("which", "mysql").Run() == nil
-	hasPSQL := exec.Command("which", "psql").Run() == nil
-	if !hasMySQL && !hasPSQL {
-		return newCapability(CapabilityUnsupported, "no database restore tools (mysql or psql) found in PATH")
+	if a.Config.DBCtl == "" {
+		return newCapability(CapabilityUnsupported, "STEPANEL_DBCTL is not configured; automatic archive database restoration is unavailable")
 	}
-	return newCapability(CapabilityManual, "archive import locates the database dump; the operator restores it manually with the provided credentials")
+	if info, err := os.Stat(a.Config.DBCtl); err != nil || info.IsDir() {
+		return newCapability(CapabilityUnsupported, "STEPANEL_DBCTL is not an executable file")
+	}
+	return newCapability(CapabilityAvailable, "automatic restoration is available when the archive request supplies a valid database password")
 }
 
 func (a *App) checkNetworkIsolationCapability() Capability {

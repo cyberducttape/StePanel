@@ -44,7 +44,7 @@ StePanel v0.7.0 is suitable for controlled evaluation and operator-led staging. 
 |----------|-------|----------|------|--------|----------|-------|
 | **cpmove** | ✅ Full | ✅ Staged | ✅ Yes | ✅ Transform | ✅ Transactional | Most complete workflow |
 | **WordPress Import** | ✅ Full | ✅ Full | N/A | ✅ Transform | ✅ Transactional | WP-specific optimizations |
-| **Generic Archive** | ✅ Full | ⚠️ Manual | ⚠️ Manual | ✅ Transform | ✅ Transactional | DB dump located; operator restores manually (automated in v0.8.0) |
+| **Generic Archive** | ✅ Full | ✅ Optional automated | ⚠️ Manual when no credentials | ✅ Transform | ✅ Transactional | Automatic managed restore requires `auto_restore_db` and a valid database password |
 | **Git Deployment** | ✅ Full | N/A | N/A | ✅ Config | ✅ Git-based | Application-driven |
 
 **Legend:**
@@ -55,15 +55,15 @@ StePanel v0.7.0 is suitable for controlled evaluation and operator-led staging. 
 
 ### Generic Archive Importer
 
-The generic archive importer supports file migration with manual database restoration:
+The generic archive importer supports file migration and optional automated managed database restoration:
 
 - ✅ Archive inspection and validation
 - ✅ File extraction with permission preservation
 - ✅ Configuration file updates
 - ✅ Database dump location and validation
 - ✅ Recovery transaction journaling (v0.7.0)
-- ⚠️ Database restoration (manual: operator restores using provided SQL dump in v0.7.0)
-- 🔄 Automated database restoration (planned for v0.8.0 via SiteManager lifecycle)
+- ✅ Automated database restoration when `auto_restore_db` and a valid database password are supplied
+- ⚠️ Without credentials, the SQL dump remains an explicit operator follow-up
 - ❌ Mail system migration
 - ✅ Transactional guarantees
 

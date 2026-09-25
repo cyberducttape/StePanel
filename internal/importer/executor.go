@@ -168,7 +168,8 @@ func (lrc *limitedReadCloser) Close() error {
 
 // Executor performs actual archive import (extraction, DB restore, etc.)
 type Executor struct {
-	fetcher *ArchiveFetcher
+	fetcher          *ArchiveFetcher
+	databaseRestorer DatabaseRestorer
 }
 
 // NewExecutor creates a new import executor with secure redirect handling
@@ -191,6 +192,14 @@ func NewExecutor() *Executor {
 			},
 		},
 	}
+}
+
+// WithDatabaseRestorer attaches the control-plane's privileged database
+// adapter. Keeping the callback injectable preserves the archive package's
+// unprivileged trust boundary and makes restore/rollback behavior testable.
+func (e *Executor) WithDatabaseRestorer(restorer DatabaseRestorer) *Executor {
+	e.databaseRestorer = restorer
+	return e
 }
 
 // ImportJob tracks an in-progress import
@@ -303,6 +312,10 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	}
 	job.DatabaseName = dbName
 	job.DatabaseUser = dbUser
+	if req.AutoRestoreDB {
+		job.DatabasePassword = req.DatabasePassword
+	}
+	var configError error
 
 	// Step 5: Look for and restore database
 	job.Status = "restoring-db"
@@ -312,6 +325,7 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	onProgress(job)
 
 	var dbRestorationIssue *ImportIssue
+	var cleanup DatabaseCleanup
 	sqlFile := e.findDatabaseDump(job.WebRoot)
 	if sqlFile != "" {
 		// Get file size for reporting
@@ -324,25 +338,50 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		job.UpdatedAt = time.Now()
 		onProgress(job)
 
-		// Validate the SQL file is valid (exists, readable, not empty)
+		// Validate the SQL file before either publishing a manual instruction or
+		// invoking the privileged adapter.
 		if err := e.restoreDatabase(ctx, sqlFile, dbName, dbUser); err != nil {
-			// Database validation/restoration failed
+			return nil, fmt.Errorf("database dump validation failed: %w", err)
+		}
+		if req.AutoRestoreDB {
+			if req.DatabasePassword == "" {
+				return nil, errors.New("automatic database restoration requires a database password")
+			}
+			if e.databaseRestorer == nil {
+				return nil, errors.New("automatic database restoration is not configured")
+			}
+			var restoreErr error
+			cleanup, restoreErr = e.databaseRestorer(ctx, sqlFile, dbName, dbUser, req.DatabasePassword, req.SiteName)
+			if restoreErr != nil {
+				return nil, fmt.Errorf("database restoration failed: %w", restoreErr)
+			}
+			if cleanup != nil {
+				defer func() {
+					if configError != nil {
+						if cleanupErr := cleanup(); cleanupErr != nil {
+							configError = fmt.Errorf("%w; database cleanup failed: %v", configError, cleanupErr)
+						}
+					}
+				}()
+			}
+			dbRestorationIssue = &ImportIssue{
+				Severity: "info",
+				Code:     "database_restored",
+				Message:  fmt.Sprintf("Database dump restored into managed database %s", dbName),
+			}
+			job.Message = "Database dump restored"
+		} else {
 			dbRestorationIssue = &ImportIssue{
 				Severity: "warning",
 				Code:     "database_restore_deferred",
 				Message:  fmt.Sprintf("Database dump found at %s (%s). Operator must restore manually.", filepath.Base(sqlFile), formatBytes(dumpSize)),
 			}
 			job.Message = "Database dump file validated; manual restoration required"
-		} else {
-			// Database file is valid - manual restoration with provided credentials
-			dbRestorationIssue = &ImportIssue{
-				Severity: "info",
-				Code:     "database_dump_ready",
-				Message:  fmt.Sprintf("Database dump ready for restoration: %s (%s). Restore with: mysql -u %s %s < %s", filepath.Base(sqlFile), formatBytes(dumpSize), dbUser, dbName, filepath.Base(sqlFile)),
-			}
-			job.Message = "Database dump extracted and ready for restoration"
 		}
 	} else {
+		if req.AutoRestoreDB {
+			return nil, errors.New("automatic database restoration requested but no database dump was found")
+		}
 		// No database dump found in archive
 		dbRestorationIssue = &ImportIssue{
 			Severity: "warning",
@@ -360,7 +399,6 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	onProgress(job)
 
 	var configIssue *ImportIssue
-	var configError error
 	if configError = e.updateConfiguration(job, req.ConfigPath); configError != nil {
 		// Configuration update failed - mark job as failed
 		configIssue = &ImportIssue{
@@ -433,6 +471,12 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		StorageSize:   job.BytesExtracted,
 		Issues:        issues,
 		NextSteps:     nextSteps,
+	}
+	if req.AutoRestoreDB {
+		// The caller owns the cleanup until its outer activation transaction
+		// commits. This function's config-update failure path above still
+		// invokes it immediately.
+		result.Cleanup = cleanup
 	}
 
 	return result, nil
@@ -891,8 +935,9 @@ func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error 
 	updates := map[string]string{
 		"DB_NAME": job.DatabaseName,
 		"DB_USER": job.DatabaseUser,
-		// DB_PASSWORD should be set separately by admin with actual password
-		// Do NOT set a placeholder password
+	}
+	if job.DatabasePassword != "" {
+		updates["DB_PASSWORD"] = job.DatabasePassword
 	}
 
 	for key, value := range updates {

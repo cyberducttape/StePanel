@@ -158,23 +158,23 @@ WRONG:
 
 RIGHT:
   "database_restore": {
-    "available": false,
-    "mode": "manual",
-    "reason": "Archive import locates database dump; operator restores manually. Automated restoration planned for v0.8."
+    "available": true,
+    "mode": "available",
+    "reason": "Managed DB helper provisions, restores, verifies inventory, and rolls back on staged-import failure when credentials are supplied."
   }
 ```
 
 **Current Status:**
 - ✅ CapabilityMode enum implemented
-- ✅ Database restoration reports as "manual"
+- ✅ Database restoration reports as available only when the managed DB helper is executable
 - ✅ All capabilities updated to report mode
-- ⏳ Audit: verify NO "available: true" claims intent rather than actual capability
+- ✅ Audit: capability probes verify the managed DB helper dependency before reporting availability
 
 **Acceptance Criteria:**
-- [ ] All capabilities report mode (not just available/unavailable)
-- [ ] Mode accurately reflects operation readiness
-- [ ] No "available: true" for operations not yet implemented
-- [ ] Documentation matches capabilities (capabilities must verify docs are truthful)
+- [x] All capabilities report mode (not just available/unavailable)
+- [x] Mode accurately reflects operation readiness
+- [x] No "available: true" for operations not yet implemented
+- [x] Documentation matches capabilities (capabilities verify their dependencies)
 
 ---
 
@@ -199,23 +199,23 @@ Failure at any step:
 ```
 
 **Current Status:**
-- ⏳ Archive import checks disk space
-- ⏳ Recovery journal initialized
-- ⏳ But database restoration is manual (v0.7.0)
+- ✅ Archive import checks disk space
+- ✅ Recovery journal initialized
+- ✅ Automatic restoration is transactional within staged import when a valid database password is supplied; the no-credential path remains explicit manual follow-up.
 
-**Implementation Plan:**
-1. Extend ArchiveImportRequest to accept DB credentials
-2. Add RestoreDatabaseRequest to Manager interface
-3. Implement transactional restoration in handleArchiveImportJob
-4. Add rollback on any restoration failure
-5. Update capabilities to reflect "available" once complete
+**Implementation Status:**
+1. ✅ ArchiveImportRequest accepts opt-in automatic-restore credentials
+2. ✅ The control plane injects the existing managed DB helper adapter
+3. ✅ Transactional restoration runs before staged site activation
+4. ✅ Provisioned database cleanup is retained until activation commits
+5. ✅ Capabilities probe the executable DB helper before reporting availability
 
 **Acceptance Criteria:**
-- [ ] Database restoration is transactional
-- [ ] Failure rolls back all changes
-- [ ] Config is rewritten with actual credentials
-- [ ] Health check passes before success
-- [ ] Capability reports mode: "available" (once implemented)
+- [x] Database restoration is transactional within the staged import
+- [x] Failure rolls back the provisioned managed database and staged site
+- [x] Config is rewritten with actual credentials for the automatic path
+- [x] Managed inventory verification passes before success
+- [x] Capability reports availability only when the DB helper dependency exists
 
 ---
 

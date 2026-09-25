@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/importer"
@@ -17,10 +18,12 @@ import (
 
 // durableArchiveImportRequest is the job payload for archive imports
 type durableArchiveImportRequest struct {
-	ArchiveURL string `json:"archive_url"`
-	ConfigPath string `json:"config_path"`
-	SiteName   string `json:"site_name"`
-	WebRoot    string `json:"web_root"`
+	ArchiveURL       string `json:"archive_url"`
+	ConfigPath       string `json:"config_path"`
+	SiteName         string `json:"site_name"`
+	WebRoot          string `json:"web_root"`
+	DatabasePassword string `json:"database_password,omitempty"`
+	AutoRestoreDB    bool   `json:"auto_restore_db,omitempty"`
 }
 
 // durableArchiveInspectionRequest is the job payload for archive inspections
@@ -37,9 +40,11 @@ type archiveInspectionRequest struct {
 
 // archiveImportRequest is the API request to start importing from archive
 type archiveImportRequest struct {
-	URL        string `json:"url"`         // URL to archive
-	ConfigPath string `json:"config_path"` // path to config file
-	SiteName   string `json:"site_name"`   // name for new site
+	URL              string `json:"url"`               // URL to archive
+	ConfigPath       string `json:"config_path"`       // path to config file
+	SiteName         string `json:"site_name"`         // name for new site
+	DatabasePassword string `json:"database_password"` // required when auto_restore_db is true
+	AutoRestoreDB    bool   `json:"auto_restore_db"`   // provision and restore an embedded SQL dump
 }
 
 // archiveInspectionStatus is the response showing inspection results
@@ -158,6 +163,14 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site_name is required", http.StatusBadRequest)
 		return
 	}
+	if req.DatabasePassword != "" && !req.AutoRestoreDB {
+		http.Error(w, "database_password requires auto_restore_db=true", http.StatusUnprocessableEntity)
+		return
+	}
+	if req.AutoRestoreDB && !validDatabasePassword(req.DatabasePassword) {
+		http.Error(w, "automatic database restoration requires a valid database password", http.StatusUnprocessableEntity)
+		return
+	}
 
 	// Validate site name
 	if !validSiteName(req.SiteName) {
@@ -172,10 +185,12 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 	// This keeps HTTP handlers responsive and prevents requests from tying up
 	// while analyzing potentially multi-GB archives.
 	payload, err := json.Marshal(durableArchiveImportRequest{
-		ArchiveURL: req.URL,
-		ConfigPath: req.ConfigPath,
-		SiteName:   req.SiteName,
-		WebRoot:    a.Config.WebRoot,
+		ArchiveURL:       req.URL,
+		ConfigPath:       req.ConfigPath,
+		SiteName:         req.SiteName,
+		WebRoot:          a.Config.WebRoot,
+		DatabasePassword: req.DatabasePassword,
+		AutoRestoreDB:    req.AutoRestoreDB,
 	})
 	if err != nil {
 		http.Error(w, "failed to marshal job payload: "+err.Error(), http.StatusInternalServerError)
@@ -300,12 +315,17 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	}()
 
 	executor := importer.NewExecutor()
+	if req.AutoRestoreDB {
+		executor.WithDatabaseRestorer(a.restoreImportedDatabase)
+	}
 	progressUpdates := make([]map[string]interface{}, 0)
 
 	result, err := executor.ExecuteImport(ctx, &importer.ArchiveImportRequest{
-		URL:        req.ArchiveURL,
-		ConfigPath: req.ConfigPath,
-		SiteName:   req.SiteName,
+		URL:              req.ArchiveURL,
+		ConfigPath:       req.ConfigPath,
+		SiteName:         req.SiteName,
+		DatabasePassword: req.DatabasePassword,
+		AutoRestoreDB:    req.AutoRestoreDB,
 	}, stagingDir, func(importJob *importer.ImportJob) {
 		progressUpdates = append(progressUpdates, map[string]interface{}{
 			"status":          importJob.Status,
@@ -320,6 +340,18 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	if err != nil {
 		recordAudit(a.Config.AuditLog, actor, "archive.import.failed", req.SiteName, err.Error())
 		return fmt.Errorf("archive extraction failed: %w", err)
+	}
+	var databaseCleanup importer.DatabaseCleanup
+	databaseCommitted := false
+	defer func() {
+		if !databaseCommitted && databaseCleanup != nil {
+			if cleanupErr := databaseCleanup(); cleanupErr != nil {
+				recordAudit(a.Config.AuditLog, actor, "archive.import.database-rollback-failed", req.SiteName, cleanupErr.Error())
+			}
+		}
+	}()
+	if result != nil {
+		databaseCleanup = result.Cleanup
 	}
 
 	if err := os.MkdirAll(filepath.Dir(canonical), 0750); err != nil {
@@ -353,6 +385,8 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 		return fmt.Errorf("commit archive import transaction: %w", err)
 	}
 	committed = true
+	databaseCommitted = true
+	databaseCleanup = nil
 
 	if result != nil {
 		// ExecuteImport does not restore a database. Preserve its explicit
@@ -370,6 +404,63 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	job.Output = resultJSON
 
 	return nil
+}
+
+// restoreImportedDatabase is the privileged adapter for generic archive
+// imports. Provisioning and loading are separate helper operations, but the
+// returned cleanup function keeps them part of the outer staged-import
+// transaction until the site activation commits.
+func (a *App) restoreImportedDatabase(ctx context.Context, dumpPath, database, user, password, site string) (importer.DatabaseCleanup, error) {
+	if a.Config.DBCtl == "" {
+		return nil, errors.New("managed database helper is unavailable")
+	}
+	if !validManagedDatabaseIdentifier(database, databaseNameLimit(a.Config)) || !validManagedDatabaseIdentifier(user, 32) || !validDatabasePassword(password) || safeUser(site) == "" {
+		return nil, errors.New("invalid managed database restore parameters")
+	}
+	encoding := "utf8mb4"
+	if a.Config.DBEngine == "postgresql" {
+		encoding = "UTF8"
+	}
+	provisionCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	_, err := runBoundedCommandInput(provisionCtx, helperCommandContext(provisionCtx, a.Config, a.Config.DBCtl, "provision", database, user, site, encoding), strings.NewReader(password+"\n"))
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("provision managed database: %w", err)
+	}
+	cleanup := func() error {
+		_, cleanupErr := runDatabaseHelper(a.Config, time.Minute, "", "drop-managed", database, user)
+		return cleanupErr
+	}
+	dump, err := os.Open(dumpPath)
+	if err != nil {
+		_ = cleanup()
+		return nil, fmt.Errorf("open database dump: %w", err)
+	}
+	restoreCtx, restoreCancel := context.WithTimeout(ctx, 15*time.Minute)
+	_, err = runBoundedCommandInput(restoreCtx, helperCommandContext(restoreCtx, a.Config, a.Config.DBCtl, "restore-dump", database, site), dump)
+	dump.Close()
+	restoreCancel()
+	if err != nil {
+		_ = cleanup()
+		return nil, fmt.Errorf("restore managed database dump: %w", err)
+	}
+	verified, inventoryErr := managedDatabaseInventory(a.Config)
+	if inventoryErr != nil {
+		_ = cleanup()
+		return nil, fmt.Errorf("verify restored managed database: %w", inventoryErr)
+	}
+	found := false
+	for _, item := range verified {
+		if item.Name == database && item.Site == site {
+			found = true
+			break
+		}
+	}
+	if !found {
+		_ = cleanup()
+		return nil, fmt.Errorf("restored database %s was not present in managed inventory", database)
+	}
+	return cleanup, nil
 }
 
 // handleArchiveInspectionJob processes an archive inspection durable job

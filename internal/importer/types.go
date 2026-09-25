@@ -1,6 +1,20 @@
 package importer
 
-import "time"
+import (
+	"context"
+	"time"
+)
+
+// DatabaseCleanup removes a database provisioned for an import when a later
+// staged-import step fails. A nil cleanup means there was no managed database
+// side effect to roll back.
+type DatabaseCleanup func() error
+
+// DatabaseRestorer is injected by the control plane so this package does not
+// own privileged database credentials or helper execution. It must provision
+// and restore atomically from the caller's perspective and return cleanup for
+// failures after the restore but before site activation commits.
+type DatabaseRestorer func(ctx context.Context, dumpPath, database, user, password, site string) (DatabaseCleanup, error)
 
 // ArchiveInspection represents the result of inspecting an archive's contents
 type ArchiveInspection struct {
@@ -102,15 +116,16 @@ type ImportProgress struct {
 
 // ImportResult is the final result of an import
 type ImportResult struct {
-	JobID         string        `json:"job_id"`
-	Success       bool          `json:"success"`
-	SiteName      string        `json:"site_name"`
-	SiteStatus    string        `json:"site_status"` // "initializing", "needs_database_restore", "needs_database_setup", "ready", "failed"
-	CreatedAt     time.Time     `json:"created_at"`
-	FilesImported int64         `json:"files_imported"`
-	DatabaseSize  int64         `json:"database_size_bytes"`
-	StorageSize   int64         `json:"storage_size_bytes"`
-	Issues        []ImportIssue `json:"issues"`
-	NextSteps     []string      `json:"next_steps"` // recommended actions
-	Error         string        `json:"error,omitempty"`
+	JobID         string          `json:"job_id"`
+	Success       bool            `json:"success"`
+	SiteName      string          `json:"site_name"`
+	SiteStatus    string          `json:"site_status"` // "initializing", "needs_database_restore", "needs_database_setup", "ready", "failed"
+	CreatedAt     time.Time       `json:"created_at"`
+	FilesImported int64           `json:"files_imported"`
+	DatabaseSize  int64           `json:"database_size_bytes"`
+	StorageSize   int64           `json:"storage_size_bytes"`
+	Issues        []ImportIssue   `json:"issues"`
+	NextSteps     []string        `json:"next_steps"` // recommended actions
+	Error         string          `json:"error,omitempty"`
+	Cleanup       DatabaseCleanup `json:"-"`
 }

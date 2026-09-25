@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -211,27 +212,35 @@ func TestDatabaseRestorationValidation(t *testing.T) {
 	}
 }
 
-func TestConfigurationUpdateIsNotImplemented(t *testing.T) {
-	// This test documents that config update is a placeholder
+func TestConfigurationUpdateWritesDatabaseCredentials(t *testing.T) {
 	executor := &Executor{}
 
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "wp-config.php")
-	if err := os.WriteFile(configFile, []byte("<?php\ndefine('DB_NAME', 'old_db');\n"), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte("<?php\ndefine('DB_NAME', 'old_db');\ndefine('DB_USER', 'old_user');\ndefine('DB_PASSWORD', 'old-password');\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	job := &ImportJob{
-		WebRoot:      tmpDir,
-		DatabaseName: "new_db",
-		DatabaseUser: "new_user",
+		WebRoot:          tmpDir,
+		DatabaseName:     "new_db",
+		DatabaseUser:     "new_user",
+		DatabasePassword: "new-password-1234567890",
 	}
 
 	err := executor.updateConfiguration(job, "wp-config.php")
 
-	// Currently returns nil (placeholder), but this documents the expected behavior
 	if err != nil {
-		t.Logf("updateConfiguration returned error (expected behavior when implemented): %v", err)
+		t.Fatal(err)
+	}
+	updated, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"new_db", "new_user", "new-password-1234567890"} {
+		if !strings.Contains(string(updated), expected) {
+			t.Errorf("updated config does not contain %q: %s", expected, updated)
+		}
 	}
 }
 
