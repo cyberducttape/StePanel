@@ -395,6 +395,10 @@ func managedDatabasesForSite(cfg Config, site string) ([]string, error) {
 }
 
 func dumpManagedDatabase(cfg Config, database, destination string) error {
+	return dumpManagedDatabaseContext(context.Background(), cfg, database, destination)
+}
+
+func dumpManagedDatabaseContext(parent context.Context, cfg Config, database, destination string) error {
 	if !validManagedDatabaseIdentifier(database, 64) {
 		return errors.New("invalid managed database")
 	}
@@ -402,7 +406,7 @@ func dumpManagedDatabase(cfg Config, database, destination string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), helperBackupRestoreTimeout)
+	ctx, cancel := context.WithTimeout(parent, helperBackupRestoreTimeout)
 	defer cancel()
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "dump", database)
 	var stderr strings.Builder

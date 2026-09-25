@@ -158,7 +158,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	createdDatabase := false
 	stateRollback := func() {
 		if routeApplied {
-			if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", routeName); err != nil {
+			if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", routeName); err != nil {
 				log.Printf("staging route cleanup failed for %s: %v", input.Site, err)
 			}
 		}
@@ -176,7 +176,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if createdDatabase {
-			if _, err := runDatabaseHelper(a.Config, time.Minute, "", "drop-managed", input.TargetDatabase, input.TargetUser); err != nil {
+			if _, err := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, "", "drop-managed", input.TargetDatabase, input.TargetUser); err != nil {
 				log.Printf("staging database cleanup failed for %s: %v", input.TargetDatabase, err)
 			}
 		}
@@ -194,7 +194,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			stateRollback()
 		}
 	}()
-	if err := siteHelper(a.Config, "prepare", input.Site); err != nil {
+	if err := siteHelperContext(operationCtx, a.Config, "prepare", input.Site); err != nil {
 		http.Error(w, "could not prepare staging site", 502)
 		return
 	}
@@ -238,7 +238,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	if input.Files {
-		if err := copyTree(source, dest); err != nil {
+		if err := copyTreeContext(operationCtx, source, dest); err != nil {
 			http.Error(w, "copy staging files: "+err.Error(), 502)
 			return
 		}
@@ -262,12 +262,12 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := siteHelper(a.Config, "seal", input.Site); err != nil {
+	if err := siteHelperContext(operationCtx, a.Config, "seal", input.Site); err != nil {
 		http.Error(w, "could not seal staging site", 502)
 		return
 	}
 	if input.Database {
-		createdDatabase, err = cloneManagedDatabaseToStaging(a.Config, input.SourceDatabase, input.TargetDatabase, input.TargetUser, input.TargetPassword, targetAccess)
+		createdDatabase, err = cloneManagedDatabaseToStagingContext(operationCtx, a.Config, input.SourceDatabase, input.TargetDatabase, input.TargetUser, input.TargetPassword, targetAccess)
 		if err != nil {
 			http.Error(w, "could not clone staging database: "+err.Error(), 502)
 			return
@@ -298,20 +298,27 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func cloneManagedDatabaseToStaging(cfg Config, source, target, user, password string, site SiteCapability) (bool, error) {
+	return cloneManagedDatabaseToStagingContext(context.Background(), cfg, source, target, user, password, site)
+}
+
+func cloneManagedDatabaseToStagingContext(ctx context.Context, cfg Config, source, target, user, password string, site SiteCapability) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	root, err := os.MkdirTemp(cfg.ImportRoot, "staging-db-")
 	if err != nil {
 		return false, err
 	}
 	defer os.RemoveAll(root)
 	dump := filepath.Join(root, "database.sql")
-	if err := dumpManagedDatabase(cfg, source, dump); err != nil {
+	if err := dumpManagedDatabaseContext(ctx, cfg, source, dump); err != nil {
 		return false, fmt.Errorf("dump source database: %w", err)
 	}
 	encoding := "utf8mb4"
 	if cfg.DBEngine == "postgresql" {
 		encoding = "UTF8"
 	}
-	if _, err := runDatabaseHelper(cfg, time.Minute, password, "provision", target, user, site.Site(), encoding); err != nil {
+	if _, err := runDatabaseHelperContext(ctx, cfg, time.Minute, password, "provision", target, user, site.Site(), encoding); err != nil {
 		return false, fmt.Errorf("provision staging database: %w", err)
 	}
 	file, err := os.Open(dump)
@@ -319,7 +326,7 @@ func cloneManagedDatabaseToStaging(cfg Config, source, target, user, password st
 		return true, err
 	}
 	defer file.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", target, site.Site())
 	cmd.Stdin = file
