@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestEnsureTerminationOffsiteBackupSkippedWhenNotRequired(t *testing.T) {
@@ -41,5 +46,36 @@ func TestSiteTerminationEnqueueIsIdempotent(t *testing.T) {
 	item, ok := app.Jobs.Get(first.ID)
 	if !ok || item.Kind != "site.terminate" || string(item.Payload) != `{"site":"customer-site","actor":"admin"}` {
 		t.Fatalf("unexpected durable termination job: %#v, %v", item, ok)
+	}
+}
+
+func TestSiteTerminationFailureInjectionStopsBeforeDestructiveWork(t *testing.T) {
+	t.Setenv("STEPANEL_FAIL_AT", "terminate:init")
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	siteRoot := filepath.Join(webRoot, "sites", "customer-site", "public")
+	if err := os.MkdirAll(siteRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(siteRoot, "index.html"), []byte("live"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{
+		Config: Config{
+			WebRoot:      webRoot,
+			RecoveryRoot: filepath.Join(root, "recovery"),
+			AuditLog:     filepath.Join(root, "audit.jsonl"),
+		},
+		Auth: Auth{Username: "admin"},
+		Jobs: NewJobs(),
+	}
+	item := Job{ID: "terminate-test", StartedAt: time.Now().UTC()}
+	item.Payload, _ = json.Marshal(durableSiteTerminationRequest{Site: "customer-site", Actor: "admin"})
+	if _, err := app.handleSiteTermination(context.Background(), item); err == nil || !strings.Contains(err.Error(), "failure injection") {
+		t.Fatalf("termination error = %v, want injected failure", err)
+	}
+	if _, err := os.Stat(filepath.Join(siteRoot, "index.html")); err != nil {
+		t.Fatalf("termination removed site before injected init failure: %v", err)
 	}
 }
