@@ -213,7 +213,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "API token lacks the backup:restore scope", http.StatusForbidden)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "site restore is busy", http.StatusConflict)
 		return
@@ -325,7 +325,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			return
 		}
 	}
-	if e = runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "apply", input.Site, input.Domain); e != nil {
+	if e = runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "apply", input.Site, input.Domain); e != nil {
 		http.Error(w, "could not activate restored staging route", 502)
 		return
 	}

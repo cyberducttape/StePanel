@@ -83,7 +83,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "site is busy", http.StatusConflict)
 		return
@@ -281,7 +281,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	if basicAuth {
 		args = append(args, input.AuthUser, authHash)
 	}
-	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, args...); err != nil {
+	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, args...); err != nil {
 		http.Error(w, "could not activate staging route", 502)
 		return
 	}

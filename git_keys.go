@@ -34,13 +34,13 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
 			return
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 		if lockErr != nil {
 			http.Error(w, "deploy key operation is busy", http.StatusConflict)
 			return
 		}
 		defer releaseUnlock()
-		output, err := runBoundedCommand(r.Context(), helperCommandContext(r.Context(), a.Config, a.Config.GitCtl, "generate", site))
+		output, err := runBoundedCommand(operationCtx, helperCommandContext(operationCtx, a.Config, a.Config.GitCtl, "generate", site))
 		if err != nil {
 			http.Error(w, "could not generate deploy key", http.StatusBadGateway)
 			return
@@ -52,13 +52,13 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
 			return
 		}
-		releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 		if lockErr != nil {
 			http.Error(w, "deploy key operation is busy", http.StatusConflict)
 			return
 		}
 		defer releaseUnlock()
-		if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperServiceLifecycleTimeout, a.Config.GitCtl, "delete", site); err != nil {
+		if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.GitCtl, "delete", site); err != nil {
 			http.Error(w, "could not retire deploy key", http.StatusBadGateway)
 			return
 		}

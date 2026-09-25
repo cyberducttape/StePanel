@@ -197,13 +197,13 @@ func (a *App) proxyManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proxy not found", http.StatusNotFound)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), "proxy:"+name)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "proxy:"+name)
 	if lockErr != nil {
 		http.Error(w, "proxy mutation is busy", http.StatusConflict)
 		return
 	}
 	defer releaseUnlock()
-	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "delete", name); err != nil {
+	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "delete", name); err != nil {
 		http.Error(w, "proxy was not removed because the helper or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}

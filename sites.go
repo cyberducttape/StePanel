@@ -221,7 +221,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := siteVHostConfigName(a.Config.WebServer, input.Site, input.Domain)
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "site is busy", http.StatusConflict)
 		return
@@ -234,7 +234,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "apply", input.Site, input.Domain); err != nil {
+	if err := runHelperCommand(operationCtx, a.Config, a.Config.VHostCtl, "apply", input.Site, input.Domain); err != nil {
 		if a.Routes != nil {
 			route := routeState(name, input.Site, input.Domain, "pending")
 			route.LastError = err.Error()
@@ -281,7 +281,7 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site route not found", http.StatusNotFound)
 		return
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), "vhost:"+name)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "vhost:"+name)
 	if lockErr != nil {
 		http.Error(w, "route is busy", http.StatusConflict)
 		return
@@ -318,7 +318,7 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
-	if err := runHelperCommand(r.Context(), a.Config, a.Config.VHostCtl, "delete", name); err != nil {
+	if err := runHelperCommand(operationCtx, a.Config, a.Config.VHostCtl, "delete", name); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
 			_ = a.Routes.save(desired)
