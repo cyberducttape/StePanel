@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -166,7 +167,7 @@ func TestBackupRestoreFilesPreservesExistingDatabaseBoundary(t *testing.T) {
 	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "keep.txt"), "keep")
 
 	access = AuthorizedSite{site: "account"}
-	restored, err := backupRestoreFiles(Config{WebRoot: webRoot, BackupRoot: backupRoot, ImportRoot: filepath.Join(root, "imports"), RecoveryRoot: filepath.Join(root, "recovery")}, filepath.Base(result.Path), access)
+	restored, err := backupRestoreFiles(context.Background(), Config{WebRoot: webRoot, BackupRoot: backupRoot, ImportRoot: filepath.Join(root, "imports"), RecoveryRoot: filepath.Join(root, "recovery")}, filepath.Base(result.Path), access)
 	if err != nil {
 		t.Fatal(err)
 	}

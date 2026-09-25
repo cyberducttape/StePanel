@@ -92,7 +92,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
 	}
-	release, err := a.acquireSiteMutationLock(ctx, request.Site)
+	operationCtx, release, err := a.acquireSiteMutationLockContext(ctx, request.Site)
 	if err != nil {
 		return nil, fmt.Errorf("acquire durable site lock: %w", err)
 	}
@@ -147,7 +147,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 			if database.Site != request.Site {
 				continue
 			}
-			if err := runDatabaseTermination(ctx, a.Config, database); err != nil {
+			if err := runDatabaseTermination(operationCtx, a.Config, database); err != nil {
 				return nil, err
 			}
 		}
@@ -167,7 +167,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 			}
 		}
 		for _, route := range siteRoutesFor(a.Config.VHostRoot, request.Site) {
-			if err := a.deleteManagedRoute(ctx, a.Config.VHostCtl, routeConfigName(a.Config, route)); err != nil {
+			if err := a.deleteManagedRoute(operationCtx, a.Config.VHostCtl, routeConfigName(a.Config, route)); err != nil {
 				return nil, err
 			}
 		}
@@ -179,7 +179,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	// Step 4: PROXIES_REMOVED.
 	if !journal.isComplete(stepProxiesRemoved) {
 		for _, proxy := range siteProxiesFor(a.Config.ProxyRoot, request.Site) {
-			if err := a.deleteManagedRoute(ctx, a.Config.ProxyCtl, filepath.Base(proxy.Config)); err != nil {
+			if err := a.deleteManagedRoute(operationCtx, a.Config.ProxyCtl, filepath.Base(proxy.Config)); err != nil {
 				return nil, err
 			}
 		}
@@ -190,7 +190,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 5: TASKS_REMOVED.
 	if !journal.isComplete(stepTasksRemoved) {
-		if err := a.removeSiteTasks(ctx, access); err != nil {
+		if err := a.removeSiteTasks(operationCtx, access); err != nil {
 			return nil, err
 		}
 		if err := journal.markComplete(stepTasksRemoved); err != nil {
@@ -200,7 +200,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 6: SERVICES_REMOVED.
 	if !journal.isComplete(stepServicesRemoved) {
-		if err := a.removeSiteServices(ctx, access); err != nil {
+		if err := a.removeSiteServices(operationCtx, access); err != nil {
 			return nil, err
 		}
 		if err := journal.markComplete(stepServicesRemoved); err != nil {
@@ -210,7 +210,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 7: SITE_STATE_REMOVED.
 	if !journal.isComplete(stepSiteStateRemoved) {
-		if err := a.removeSiteState(ctx, access); err != nil {
+		if err := a.removeSiteState(operationCtx, access); err != nil {
 			return nil, err
 		}
 		if err := journal.markComplete(stepSiteStateRemoved); err != nil {

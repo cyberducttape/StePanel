@@ -46,7 +46,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
 	}
-	releaseUnlock, lockErr := a.acquireSiteMutationLock(ctx, request.Site)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.Site)
 	if lockErr != nil {
 		return nil, fmt.Errorf("acquire durable site lock: %w", lockErr)
 	}
@@ -55,12 +55,12 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	var restoreErr error
 	switch request.Mode {
 	case "files":
-		result, restoreErr = backupRestoreFiles(a.Config, request.Backup, access)
+		result, restoreErr = backupRestoreFiles(operationCtx, a.Config, request.Backup, access)
 	case "database":
 		var safety BackupResult
 		safety, restoreErr = CreateSiteBackup(a.Config, access, true)
 		if restoreErr == nil {
-			result, restoreErr = restoreManagedDatabase(a.Config, request.Backup, request.Site, request.Database)
+			result, restoreErr = restoreManagedDatabase(operationCtx, a.Config, request.Backup, request.Site, request.Database)
 			result.SafetyBackup = safety.Path
 		}
 	case "offsite-files":
@@ -71,7 +71,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 			defer cleanup()
 			cfg := a.Config
 			cfg.BackupRoot = root
-			result, restoreErr = backupRestoreFiles(cfg, request.Backup, access)
+			result, restoreErr = backupRestoreFiles(operationCtx, cfg, request.Backup, access)
 		}
 	case "offsite-database":
 		var root string
@@ -84,7 +84,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 			if restoreErr == nil {
 				cfg := a.Config
 				cfg.BackupRoot = root
-				result, restoreErr = restoreManagedDatabase(cfg, request.Backup, request.Site, request.Database)
+				result, restoreErr = restoreManagedDatabase(operationCtx, cfg, request.Backup, request.Site, request.Database)
 				result.SafetyBackup = safety.Path
 			}
 		}
@@ -376,7 +376,10 @@ func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStaging
 // backupRestoreFiles replaces only the managed site files. It deliberately
 // leaves databases untouched and uses the normal site recovery journal so an
 // interrupted extraction can be resumed or rolled back by the operator.
-func backupRestoreFiles(cfg Config, backupName string, site SiteCapability) (BackupRestoreResult, error) {
+func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site SiteCapability) (BackupRestoreResult, error) {
+	if err := ctx.Err(); err != nil {
+		return BackupRestoreResult{}, err
+	}
 	siteName := site.Site()
 	if !validBackupName(backupName) {
 		return BackupRestoreResult{}, errors.New("invalid backup path")
@@ -407,6 +410,9 @@ func backupRestoreFiles(cfg Config, backupName string, site SiteCapability) (Bac
 	if err := extractArchive(archivePath, stage); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("extract verified backup: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return BackupRestoreResult{}, err
+	}
 	source, err := safePath(stage, "site", "public")
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("invalid backup layout: %w", err)
@@ -430,6 +436,9 @@ func backupRestoreFiles(cfg Config, backupName string, site SiteCapability) (Bac
 	}()
 	if err := siteHelper(cfg, "prepare", siteName); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("prepare site: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return BackupRestoreResult{}, err
 	}
 	if err := copyTree(source, dest); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("restore site files: %w", err)
@@ -494,7 +503,10 @@ func backupContainsDatabase(manifest BackupManifest, database string) bool {
 	return false
 }
 
-func restoreManagedDatabase(cfg Config, backupName, site, database string) (BackupRestoreResult, error) {
+func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, database string) (BackupRestoreResult, error) {
+	if err := ctx.Err(); err != nil {
+		return BackupRestoreResult{}, err
+	}
 	if !validBackupName(backupName) || !validManagedDatabaseIdentifier(database, databaseNameLimit(cfg)) {
 		return BackupRestoreResult{}, errors.New("invalid backup path")
 	}
@@ -527,6 +539,9 @@ func restoreManagedDatabase(cfg Config, backupName, site, database string) (Back
 	if err := extractArchive(archivePath, stage); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("extract verified backup: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return BackupRestoreResult{}, err
+	}
 	dump, err := safePath(stage, "databases", database+".sql")
 	if err != nil {
 		return BackupRestoreResult{}, err
@@ -540,7 +555,7 @@ func restoreManagedDatabase(cfg Config, backupName, site, database string) (Back
 		return BackupRestoreResult{}, err
 	}
 	defer input.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), helperBackupRestoreTimeout)
+	ctx, cancel := context.WithTimeout(ctx, helperBackupRestoreTimeout)
 	defer cancel()
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", database, site)
 	cmd.Stdin = input

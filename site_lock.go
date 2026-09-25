@@ -15,23 +15,35 @@ import (
 // the same time. Tests that construct App without a database retain the local
 // lock behavior.
 func (a *App) acquireSiteMutationLock(ctx context.Context, key string) (func(), error) {
+	_, release, err := a.acquireSiteMutationLockContext(ctx, key)
+	return release, err
+}
+
+// acquireSiteMutationLockContext returns a child context that is cancelled
+// when the durable lease is fenced by another owner. High-risk operations
+// must pass this context to their helper calls; otherwise Hold would detect a
+// lost lease but the operation could continue mutating host state.
+func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (context.Context, func(), error) {
 	localRelease := a.siteOperations.Acquire(key)
 	if a.dbLocks == nil {
-		return localRelease, nil
+		return ctx, localRelease, nil
 	}
 	lease, err := a.dbLocks.Acquire(ctx, key)
 	if err != nil {
 		localRelease()
-		return nil, err
+		return nil, nil, err
 	}
+	operationCtx, cancelOperation := context.WithCancel(ctx)
 	holdCtx, cancelHold := context.WithCancel(context.Background())
 	go func() {
-		if err := a.dbLocks.Hold(holdCtx, lease); err != nil {
+		if err := a.dbLocks.Hold(holdCtx, lease); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("durable site lock %s was lost: %v", key, err)
+			cancelOperation()
 		}
 	}()
-	return func() {
+	return operationCtx, func() {
 		cancelHold()
+		cancelOperation()
 		if err := a.dbLocks.Release(lease); err != nil && !errors.Is(err, operations.ErrLeaseLost) {
 			log.Printf("release durable site lock %s: %v", key, err)
 		}

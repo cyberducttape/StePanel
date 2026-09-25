@@ -284,7 +284,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 		return context.Canceled
 	}
 
-	releaseSite, lockErr := a.acquireSiteMutationLock(ctx, req.SiteName)
+	operationCtx, releaseSite, lockErr := a.acquireSiteMutationLockContext(ctx, req.SiteName)
 	if lockErr != nil {
 		return fmt.Errorf("acquire site mutation lock: %w", lockErr)
 	}
@@ -320,7 +320,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	}
 	progressUpdates := make([]map[string]interface{}, 0)
 
-	result, err := executor.ExecuteImport(ctx, &importer.ArchiveImportRequest{
+	result, err := executor.ExecuteImport(operationCtx, &importer.ArchiveImportRequest{
 		URL:              req.ArchiveURL,
 		ConfigPath:       req.ConfigPath,
 		SiteName:         req.SiteName,

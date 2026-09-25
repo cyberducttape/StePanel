@@ -54,3 +54,43 @@ func TestAcquireSiteMutationLocksFencesIndependentAppInstances(t *testing.T) {
 	}
 	releaseB()
 }
+
+func TestAcquireSiteMutationLockContextCancelsAfterLeaseLoss(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "control-plane.sqlite")
+	dsn := "file:" + dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	dbA, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbA.Close()
+	dbB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbB.Close()
+
+	locksA, err := operations.NewDBLocks(dbA, "panel-a", 40*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locksB, err := operations.NewDBLocks(dbB, "panel-b", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{dbLocks: locksA}
+
+	operationCtx, release, err := a.acquireSiteMutationLockContext(context.Background(), "site-loss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	time.Sleep(100 * time.Millisecond)
+	if _, err := locksB.TryAcquire("site-loss"); err != nil {
+		t.Fatalf("takeover failed: %v", err)
+	}
+	select {
+	case <-operationCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("operation context was not cancelled after durable lease loss")
+	}
+}
