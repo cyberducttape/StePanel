@@ -572,7 +572,7 @@ sudo systemctl reload caddy
 2. **Review logs** - `journalctl -u stepanel` provides most diagnostic info
 3. **Run health checks** - `/readyz` endpoint shows what's failing
 4. **Check documentation** - See [OPERATIONS.md](OPERATIONS.md) for runbooks
-5. **Report issue** - GitHub: https://github.com/itchyitchy123/StePanel/issues
+5. **Report issue** - GitHub: https://github.com/cyberducttape/StePanel/issues
 
 ---
 

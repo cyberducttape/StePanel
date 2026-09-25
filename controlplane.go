@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/itchyitchy123/StePanel/internal/migration"
+	"github.com/cyberducttape/StePanel/internal/migration"
 	"os"
 	"path/filepath"
 	"strings"

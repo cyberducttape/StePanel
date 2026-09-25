@@ -5,15 +5,15 @@ set -Eeuo pipefail
 # These enforce quality standards for safety-critical code
 
 declare -A COVERAGE_TARGETS=(
-  ["github.com/itchyitchy123/StePanel/internal/auth"]="90"
-  ["github.com/itchyitchy123/StePanel/internal/backup"]="85"
-  ["github.com/itchyitchy123/StePanel/internal/helper"]="90"
-  ["github.com/itchyitchy123/StePanel/internal/state"]="85"
-  ["github.com/itchyitchy123/StePanel/internal/migration"]="85"
-  ["github.com/itchyitchy123/StePanel/internal/operations"]="80"
-  ["github.com/itchyitchy123/StePanel/internal/session"]="90"
-  ["github.com/itchyitchy123/StePanel/internal/jobs"]="85"
-  ["github.com/itchyitchy123/StePanel/internal/audit"]="95"
+  ["github.com/cyberducttape/StePanel/internal/auth"]="90"
+  ["github.com/cyberducttape/StePanel/internal/backup"]="85"
+  ["github.com/cyberducttape/StePanel/internal/helper"]="90"
+  ["github.com/cyberducttape/StePanel/internal/state"]="85"
+  ["github.com/cyberducttape/StePanel/internal/migration"]="85"
+  ["github.com/cyberducttape/StePanel/internal/operations"]="80"
+  ["github.com/cyberducttape/StePanel/internal/session"]="90"
+  ["github.com/cyberducttape/StePanel/internal/jobs"]="85"
+  ["github.com/cyberducttape/StePanel/internal/audit"]="95"
 )
 
 profile=${1:-coverage.out}
@@ -26,18 +26,18 @@ echo ""
 failed=0
 go tool cover -func="$profile" | awk '
 BEGIN {
-  targets["github.com/itchyitchy123/StePanel/internal/auth"] = 90
-  targets["github.com/itchyitchy123/StePanel/internal/backup"] = 85
-  targets["github.com/itchyitchy123/StePanel/internal/helper"] = 90
-  targets["github.com/itchyitchy123/StePanel/internal/state"] = 85
-  targets["github.com/itchyitchy123/StePanel/internal/migration"] = 85
-  targets["github.com/itchyitchy123/StePanel/internal/operations"] = 80
-  targets["github.com/itchyitchy123/StePanel/internal/session"] = 90
-  targets["github.com/itchyitchy123/StePanel/internal/jobs"] = 85
-  targets["github.com/itchyitchy123/StePanel/internal/audit"] = 95
+  targets["github.com/cyberducttape/StePanel/internal/auth"] = 90
+  targets["github.com/cyberducttape/StePanel/internal/backup"] = 85
+  targets["github.com/cyberducttape/StePanel/internal/helper"] = 90
+  targets["github.com/cyberducttape/StePanel/internal/state"] = 85
+  targets["github.com/cyberducttape/StePanel/internal/migration"] = 85
+  targets["github.com/cyberducttape/StePanel/internal/operations"] = 80
+  targets["github.com/cyberducttape/StePanel/internal/session"] = 90
+  targets["github.com/cyberducttape/StePanel/internal/jobs"] = 85
+  targets["github.com/cyberducttape/StePanel/internal/audit"] = 95
 }
 
-/^github.com\/itchyitchy123\/StePanel/ {
+/^github.com\/cyberducttape\/StePanel/ {
   package = $1
   coverage = $NF
   gsub("%", "", coverage)

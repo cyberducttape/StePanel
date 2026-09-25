@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	jobadmission "github.com/itchyitchy123/StePanel/internal/jobs"
+	jobadmission "github.com/cyberducttape/StePanel/internal/jobs"
 )
 
 var ErrJobBusy = errors.New("too many long-running jobs or target is already active")

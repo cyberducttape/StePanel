@@ -68,8 +68,8 @@ export STEPANEL_GIT_RELEASE_MAX_BYTES=5368709120  # 5GB
 # Extract v0.7.0 release
 release=v0.7.0
 arch=amd64  # or arm64
-curl -fsSLO "https://github.com/itchyitchy123/StePanel/releases/download/${release}/stepanel_${release#v}_linux_${arch}.tar.gz"
-curl -fsSLO "https://github.com/itchyitchy123/StePanel/releases/download/${release}/SHA256SUMS"
+curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/stepanel_${release#v}_linux_${arch}.tar.gz"
+curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/SHA256SUMS"
 
 # Verify checksums
 grep "stepanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
@@ -258,8 +258,8 @@ curl -X POST http://localhost:8080/api/accounts \
 
 ## Support
 
-- **Issues:** Report at https://github.com/itchyitchy123/StePanel/issues
-- **Documentation:** https://github.com/itchyitchy123/StePanel/tree/main/docs
+- **Issues:** Report at https://github.com/cyberducttape/StePanel/issues
+- **Documentation:** https://github.com/cyberducttape/StePanel/tree/main/docs
 - **Security:** Email security@stepanel.dev
 
 ## Compatibility Matrix

@@ -14,7 +14,7 @@ Safety-first Linux web and application hosting control plane with cPanel migrati
 
 StePanel is an open-source, Go-based control plane for small Linux web and application hosting fleets. It installs Caddy by default with Apache/OpenLiteSpeed options, supports PHP and application runtimes, validates cPanel cpmove archives, stages migrations safely, and exposes restore jobs through a focused operator dashboard.
 
-Repository: https://github.com/itchyitchy123/StePanel
+Repository: https://github.com/cyberducttape/StePanel
 
 ## Longer description
 

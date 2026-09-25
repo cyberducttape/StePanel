@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	h "github.com/itchyitchy123/StePanel/internal/helper"
+	h "github.com/cyberducttape/StePanel/internal/helper"
 	"io"
 	"os"
 	"os/exec"

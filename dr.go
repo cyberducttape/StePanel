@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/itchyitchy123/StePanel/internal/audit"
+	"github.com/cyberducttape/StePanel/internal/audit"
 	"os"
 	"path/filepath"
 	"strings"

@@ -7,7 +7,7 @@ Thanks for helping improve StePanel. The project handles server state and backup
 Requirements: Go 1.26+, Git, and a Unix-like shell.
 
 ```sh
-git clone git@github.com:itchyitchy123/StePanel.git
+git clone git@github.com:cyberducttape/StePanel.git
 cd StePanel
 make check
 go run .

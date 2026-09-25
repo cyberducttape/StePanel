@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	h "github.com/itchyitchy123/StePanel/internal/helper"
+	h "github.com/cyberducttape/StePanel/internal/helper"
 )
 
 type SSHServerStatus struct {

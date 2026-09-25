@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/itchyitchy123/StePanel/internal/audit"
+	"github.com/cyberducttape/StePanel/internal/audit"
 	"net"
 	"os"
 	"path/filepath"

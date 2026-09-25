@@ -70,7 +70,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: stepanel
-          image: ghcr.io/itchyitchy123/stepanel@sha256:23ac17a2092ce8153ff85dc7662883bedb018615b016586a3643f96d22cdd6d0
+          image: ghcr.io/cyberducttape/stepanel@sha256:23ac17a2092ce8153ff85dc7662883bedb018615b016586a3643f96d22cdd6d0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

@@ -1,4 +1,4 @@
-module github.com/itchyitchy123/StePanel
+module github.com/cyberducttape/StePanel
 
 go 1.26.0
 

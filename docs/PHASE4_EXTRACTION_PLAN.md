@@ -391,7 +391,7 @@ Phase 4 is complete when:
 After Phase 4 completion, StePanel codebase is fully reorganized:
 
 ```
-github.com/itchyitchy123/StePanel/
+github.com/cyberducttape/StePanel/
 ├── internal/
 │   ├── audit/           (Phase 2: tamper-evident logging)
 │   ├── identity/        (Phase 2: auth, accounts, tokens)

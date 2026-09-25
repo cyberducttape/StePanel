@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	usagecalc "github.com/itchyitchy123/StePanel/internal/usage"
+	usagecalc "github.com/cyberducttape/StePanel/internal/usage"
 )
 
 type SiteUsage = usagecalc.SiteUsage

@@ -3,7 +3,7 @@
 > Documentation version: `v0.7.0` release preparation. Previous stable release:
 > [`v0.6.0`](https://github.com/cyberducttape/StePanel/tree/v0.6.0).
 
-![CI](https://github.com/cyberducttape/StePanel/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/itchyitchy123/StePanel?display_name=tag) ![License](https://img.shields.io/github/license/itchyitchy123/StePanel)
+![CI](https://github.com/cyberducttape/StePanel/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/cyberducttape/StePanel?display_name=tag) ![License](https://img.shields.io/github/license/cyberducttape/StePanel)
 
 > A safety-first Linux web and application hosting control plane with cPanel migration tooling.
 
@@ -216,7 +216,7 @@ Read these to understand what StePanel is, does, and can do:
 - **[docs/DOCUMENTATION_GUIDE.md](docs/DOCUMENTATION_GUIDE.md)** — How documentation is organized and maintained
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines
 - **[observability/README.md](observability/README.md)** — Metrics, logging, and monitoring
-- **[Release artifacts](https://github.com/itchyitchy123/StePanel/releases)** — Binary releases, checksums, SBOM
+- **[Release artifacts](https://github.com/cyberducttape/StePanel/releases)** — Binary releases, checksums, SBOM
 
 ## API reference
 

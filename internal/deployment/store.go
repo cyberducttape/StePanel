@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	statefile "github.com/itchyitchy123/StePanel/internal/state"
+	statefile "github.com/cyberducttape/StePanel/internal/state"
 	_ "modernc.org/sqlite"
 )
 

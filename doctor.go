@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/itchyitchy123/StePanel/internal/doctor"
+	"github.com/cyberducttape/StePanel/internal/doctor"
 	"net/http"
 	"strings"
 )

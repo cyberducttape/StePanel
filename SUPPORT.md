@@ -5,9 +5,9 @@ until a stable release is announced.
 
 ## Where to ask
 
-- Use [GitHub Issues](https://github.com/itchyitchy123/StePanel/issues) for
+- Use [GitHub Issues](https://github.com/cyberducttape/StePanel/issues) for
   reproducible bugs and feature requests.
-- Use [GitHub Discussions](https://github.com/itchyitchy123/StePanel/discussions)
+- Use [GitHub Discussions](https://github.com/cyberducttape/StePanel/discussions)
   for design questions and deployment advice.
 - Follow [`SECURITY.md`](SECURITY.md) for suspected vulnerabilities.
 

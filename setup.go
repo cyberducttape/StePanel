@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	setupwiz "github.com/itchyitchy123/StePanel/internal/setup"
+	setupwiz "github.com/cyberducttape/StePanel/internal/setup"
 )
 
 func runSetupWizard() {

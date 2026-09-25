@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	sessionstate "github.com/itchyitchy123/StePanel/internal/session"
+	sessionstate "github.com/cyberducttape/StePanel/internal/session"
 )
 
 const testTOTPSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"

@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	auditpkg "github.com/itchyitchy123/StePanel/internal/audit"
+	auditpkg "github.com/cyberducttape/StePanel/internal/audit"
 )
 
 func (a *App) auditEvents(w http.ResponseWriter, r *http.Request) {

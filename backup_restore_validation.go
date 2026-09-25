@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/itchyitchy123/StePanel/internal/backup"
+	"github.com/cyberducttape/StePanel/internal/backup"
 	"strings"
 )
 

@@ -34,7 +34,7 @@ type ScheduledTask struct {
 	ConsecutiveFailures int      `json:"consecutive_failures,omitempty"` // Count failures for auto-disable
 	AutoDisabledAt      int64    `json:"auto_disabled_at,omitempty"`     // When task was auto-disabled
 	// Phase 2 safeguards: NOT YET IMPLEMENTED - fields intentionally omitted from API
-	// See: https://github.com/itchyitchy123/StePanel/docs/SECURITY_GAPS_FOUND.md
+	// See: https://github.com/cyberducttape/StePanel/docs/SECURITY_GAPS_FOUND.md
 	// NotifyEmail, MinIntervalSeconds, MaxConcurrentRuns, CurrentRunCount reserved for future use
 	// Do not expose these fields until enforcement is complete
 }

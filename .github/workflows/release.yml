@@ -80,7 +80,7 @@ jobs:
           provenance: mode=max
           sbom: true
           tags: |
-            ghcr.io/itchyitchy123/stepanel:${{ github.ref_name }}
+            ghcr.io/cyberducttape/stepanel:${{ github.ref_name }}
       - name: Attach SBOM to GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:

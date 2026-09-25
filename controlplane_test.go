@@ -3,7 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"github.com/itchyitchy123/StePanel/internal/migration"
+	"github.com/cyberducttape/StePanel/internal/migration"
 	"os"
 	"path/filepath"
 	"strings"

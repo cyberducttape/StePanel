@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	authpolicy "github.com/itchyitchy123/StePanel/internal/auth"
-	sessionstate "github.com/itchyitchy123/StePanel/internal/session"
+	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
+	sessionstate "github.com/cyberducttape/StePanel/internal/session"
 	"golang.org/x/crypto/bcrypt"
 )
 

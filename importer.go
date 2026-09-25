@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"regexp"
 
-	"github.com/itchyitchy123/StePanel/internal/importer"
-	"github.com/itchyitchy123/StePanel/internal/sites"
+	"github.com/cyberducttape/StePanel/internal/importer"
+	"github.com/cyberducttape/StePanel/internal/sites"
 )
 
 // durableArchiveImportRequest is the job payload for archive imports

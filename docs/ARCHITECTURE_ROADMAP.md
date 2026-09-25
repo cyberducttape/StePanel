@@ -71,7 +71,7 @@ Large root packages create:
 
 **Do not:** Move files to folders by accident (e.g., `internal/jobs/`, `internal/auth/`) without reorganizing dependencies.
 
-This creates: `import "github.com/itchyitchy123/StePanel/internal/jobs"` but the logic still depends on `package main` types.
+This creates: `import "github.com/cyberducttape/StePanel/internal/jobs"` but the logic still depends on `package main` types.
 
 ## Recommended Domain Architecture
 

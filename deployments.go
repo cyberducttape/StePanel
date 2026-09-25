@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	deploymentstate "github.com/itchyitchy123/StePanel/internal/deployment"
+	deploymentstate "github.com/cyberducttape/StePanel/internal/deployment"
 )
 
 // Deployment is the durable audit-facing release object shared by Git
