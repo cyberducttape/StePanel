@@ -922,7 +922,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, err
 	}
 	a.Metrics.RestoreStarted()
-	result, restoreErr := RestoreCPMove(a.Config, staged, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs)
+	result, restoreErr := RestoreCPMoveContext(operationCtx, a.Config, staged, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs)
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
 		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "cpmove.restore.failed", request.User, restoreErr.Error()); auditErr != nil {

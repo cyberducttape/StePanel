@@ -3,6 +3,8 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
+	"errors"
 	"io"
 	"mime/multipart"
 	"os"
@@ -10,6 +12,15 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestRestoreCPMoveContextHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := RestoreCPMoveContext(ctx, Config{}, nil, nil, AuthorizedSite{site: "account"}, false)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RestoreCPMoveContext error = %v, want context.Canceled", err)
+	}
+}
 
 func TestSafeArchivePath(t *testing.T) {
 	valid := []string{"homedir/public_html/index.php", "mysql/site.sql", "homedir/.well-known/acme-challenge/token"}

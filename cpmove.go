@@ -127,6 +127,13 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 }
 
 func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader, site SiteCapability, databases bool) (ImportResult, error) {
+	return RestoreCPMoveContext(context.Background(), cfg, file, header, site, databases)
+}
+
+func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, header *multipart.FileHeader, site SiteCapability, databases bool) (ImportResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ImportResult{}, err
+	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return ImportResult{}, err
 	}
@@ -156,7 +163,7 @@ func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader
 		return ImportResult{}, err
 	}
 	out.Close()
-	if err = extractArchive(archive, stage); err != nil {
+	if err = extractArchiveContext(ctx, archive, stage); err != nil {
 		return ImportResult{}, err
 	}
 	root, err := cpmoveRoot(stage)
@@ -179,10 +186,10 @@ func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader
 		}
 		_ = txn.Rollback()
 		if txn.HadExisting {
-			_ = siteHelper(cfg, "seal", user)
+			_ = siteHelperContext(context.Background(), cfg, "seal", user)
 		}
 	}()
-	if err := siteHelper(cfg, "prepare", user); err != nil {
+	if err := siteHelperContext(ctx, cfg, "prepare", user); err != nil {
 		return ImportResult{}, fmt.Errorf("prepare isolated site: %w", err)
 	}
 	if err = os.MkdirAll(home, 0750); err != nil {
@@ -190,21 +197,27 @@ func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader
 	}
 	source := firstExisting(filepath.Join(root, "homedir", "public_html"), filepath.Join(root, "homedir", user, "public_html"))
 	if source != "" {
+		if err := ctx.Err(); err != nil {
+			return ImportResult{}, err
+		}
 		if findings, scanErr := scanPHP(source); scanErr != nil {
 			return ImportResult{}, fmt.Errorf("malware scan failed: %w", scanErr)
 		} else if len(findings) > 0 {
 			return ImportResult{}, fmt.Errorf("restore blocked: malware scan detected %d suspicious PHP file(s)", len(findings))
 		}
-		if err = copyTree(source, home); err != nil {
+		if err = copyTreeContext(ctx, source, home); err != nil {
 			return ImportResult{}, err
 		}
 	}
 	result := ImportResult{User: user, Home: home, FilesRestored: source != "", StagedAt: stage}
 	if databases {
-		result.DatabasesRestored, result.DatabaseErrors = restoreSQL(cfg, root, user, txn)
+		result.DatabasesRestored, result.DatabaseErrors = restoreSQLContext(ctx, cfg, root, user, txn)
 		if len(result.DatabaseErrors) > 0 {
 			return result, fmt.Errorf("database restore completed with %d error(s)", len(result.DatabaseErrors))
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
 	}
 	if cfg.MailRoot != "" {
 		mailSource := filepath.Join(root, "homedir", "mail")
@@ -231,11 +244,11 @@ func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader
 			return result, fmt.Errorf("inspect staged mail: %w", statErr)
 		}
 	}
-	result.MailStaged, result.MailboxesStaged, result.MailErrors = restoreMail(cfg, root, user)
+	result.MailStaged, result.MailboxesStaged, result.MailErrors = restoreMailContext(ctx, cfg, root, user)
 	if len(result.MailErrors) > 0 {
 		return result, fmt.Errorf("mail restore completed with %d error(s)", len(result.MailErrors))
 	}
-	if err := siteHelper(cfg, "seal", user); err != nil {
+	if err := siteHelperContext(ctx, cfg, "seal", user); err != nil {
 		return result, fmt.Errorf("seal isolated site: %w", err)
 	}
 	if err := txn.Commit(); err != nil {
@@ -245,10 +258,24 @@ func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader
 	return result, nil
 }
 
+func siteHelperContext(ctx context.Context, cfg Config, action, site string) error {
+	if cfg.SiteCtl == "" {
+		return nil
+	}
+	return runHelperCommand(ctx, cfg, cfg.SiteCtl, action, site)
+}
+
 // restoreMail preserves cPanel mailbox data and account mail metadata under a
 // private StePanel root. Host-specific Exim/Dovecot configuration is not
 // copied into /etc because it can break the destination mail server.
 func restoreMail(cfg Config, stage, user string) (bool, []string, []string) {
+	return restoreMailContext(context.Background(), cfg, stage, user)
+}
+
+func restoreMailContext(ctx context.Context, cfg Config, stage, user string) (bool, []string, []string) {
+	if err := ctx.Err(); err != nil {
+		return false, nil, []string{err.Error()}
+	}
 	sourceMail := filepath.Join(stage, "homedir", "mail")
 	sourceEtc := filepath.Join(stage, "homedir", "etc")
 	if _, err := os.Stat(sourceMail); err != nil {
@@ -261,11 +288,11 @@ func restoreMail(cfg Config, stage, user string) (bool, []string, []string) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return false, nil, []string{"create mail root: " + err.Error()}
 	}
-	if err := copyTree(sourceMail, filepath.Join(root, "mail")); err != nil {
+	if err := copyTreeContext(ctx, sourceMail, filepath.Join(root, "mail")); err != nil {
 		return false, nil, []string{"copy mailbox data: " + err.Error()}
 	}
 	if _, err := os.Stat(sourceEtc); err == nil {
-		if err := copyTree(sourceEtc, filepath.Join(root, "etc")); err != nil {
+		if err := copyTreeContext(ctx, sourceEtc, filepath.Join(root, "etc")); err != nil {
 			return false, nil, []string{"copy mail metadata: " + err.Error()}
 		}
 	}
@@ -285,6 +312,10 @@ func restoreMail(cfg Config, stage, user string) (bool, []string, []string) {
 }
 
 func extractArchive(archive, destination string) error {
+	return extractArchiveContext(context.Background(), archive, destination)
+}
+
+func extractArchiveContext(ctx context.Context, archive, destination string) error {
 	f, err := os.Open(archive)
 	if err != nil {
 		return err
@@ -298,6 +329,9 @@ func extractArchive(archive, destination string) error {
 	tr := tar.NewReader(gz)
 	var total int64
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
 			return nil
@@ -346,9 +380,17 @@ func extractArchive(archive, destination string) error {
 	}
 }
 func restoreSQL(cfg Config, stage, user string, txn *SiteTransaction) ([]string, []string) {
+	return restoreSQLContext(context.Background(), cfg, stage, user, txn)
+}
+
+func restoreSQLContext(parent context.Context, cfg Config, stage, user string, txn *SiteTransaction) ([]string, []string) {
 	matches := sqlDumps(filepath.Join(stage, "mysql"))
 	restored, failures := []string{}, []string{}
 	for _, dump := range matches {
+		if err := parent.Err(); err != nil {
+			failures = append(failures, err.Error())
+			break
+		}
 		db := safeUser(strings.TrimSuffix(filepath.Base(dump), ".sql"))
 		if db == "" {
 			failures = append(failures, filepath.Base(dump)+": invalid database name")
@@ -359,7 +401,7 @@ func restoreSQL(cfg Config, stage, user string, txn *SiteTransaction) ([]string,
 			failures = append(failures, name+": database name exceeds 64 characters")
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 		if cfg.DBCtl != "" {
 			if txn != nil {
 				if err := txn.TrackDatabase(ManagedDatabase{Name: name, Kind: "cpmove"}); err != nil {
@@ -499,7 +541,14 @@ func databaseName(user, db string) string {
 }
 
 func copyTree(src, dst string) error {
+	return copyTreeContext(context.Background(), src, dst)
+}
+
+func copyTreeContext(ctx context.Context, src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
