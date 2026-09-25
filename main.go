@@ -259,6 +259,11 @@ func main() {
 		log.Fatalf("open control-plane database: %v", err)
 	}
 	defer controlPlaneDB.Close()
+	auditOutbox, err := newAuditOutboxStore(controlPlaneDB)
+	if err != nil {
+		log.Fatalf("initialize audit outbox: %v", err)
+	}
+	defaultAuditOutbox = auditOutbox
 	hostname, _ := os.Hostname()
 	if hostname == "" {
 		hostname = "localhost"
@@ -527,6 +532,7 @@ func main() {
 			case <-scheduleTicker.C:
 				app.runDueBackups()
 			case <-cleanupTicker.C:
+				auditOutbox.closePending(context.Background(), app.Config.AuditLog)
 				app.Jobs.Cleanup(24 * time.Hour)
 				if err := CleanupImportStages(app.Config.ImportRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour); err != nil {
 					log.Printf("import stage cleanup: %v", err)
@@ -1452,6 +1458,9 @@ func validateAuditEvent(event AuditEvent) error {
 }
 
 func Audit(path, action, target, detail string) error {
+	if defaultAuditOutbox != nil {
+		return defaultAuditOutbox.enqueue(context.Background(), path, "system", action, target, detail)
+	}
 	// Sync root package's mocked auditKeyPath to audit package for tests
 	if auditKeyPath != "/etc/stepanel-audit.key" {
 		audit.TestSetKeyPath(auditKeyPath)
@@ -1461,6 +1470,9 @@ func Audit(path, action, target, detail string) error {
 }
 
 func AuditAs(path, actor, action, target, detail string) error {
+	if defaultAuditOutbox != nil {
+		return defaultAuditOutbox.enqueue(context.Background(), path, actor, action, target, detail)
+	}
 	// Sync root package's mocked auditKeyPath to audit package for tests
 	if auditKeyPath != "/etc/stepanel-audit.key" {
 		audit.TestSetKeyPath(auditKeyPath)
@@ -1480,12 +1492,18 @@ func AuditPersistenceError() error {
 }
 
 func MustAudit(w http.ResponseWriter, auditLog, actor, action, target, detail string) error {
-	// Sync root package's mocked auditKeyPath to audit package for tests
-	if auditKeyPath != "/etc/stepanel-audit.key" {
-		audit.TestSetKeyPath(auditKeyPath)
+	var err error
+	if defaultAuditOutbox != nil {
+		err = defaultAuditOutbox.enqueue(context.Background(), auditLog, actor, action, target, detail)
+	} else {
+		// Sync root package's mocked auditKeyPath to audit package for tests
+		if auditKeyPath != "/etc/stepanel-audit.key" {
+			audit.TestSetKeyPath(auditKeyPath)
+		}
+		logger := audit.New(auditLog)
+		err = logger.LogAs(context.Background(), actor, action, target, detail)
 	}
-	logger := audit.New(auditLog)
-	if err := logger.LogAs(context.Background(), actor, action, target, detail); err != nil {
+	if err != nil {
 		log.Printf("[CRITICAL] audit persistence unavailable during %s for %s/%s: %v", action, actor, target, err)
 		http.Error(w, "audit system unavailable; the operation was applied but could not be recorded, contact an administrator", http.StatusServiceUnavailable)
 		return err
@@ -1511,6 +1529,12 @@ func ShouldAudit(auditLog, actor, action, target, detail string) error {
 // hide an unhealthy audit sink. Mutations whose correctness depends on the
 // audit record must use MustAudit or a durable lifecycle journal.
 func recordAudit(auditLog, actor, action, target, detail string) {
+	if defaultAuditOutbox != nil {
+		if err := defaultAuditOutbox.enqueue(context.Background(), auditLog, actor, action, target, detail); err != nil {
+			log.Printf("[ERROR] audit outbox unavailable for %s/%s: %v", action, target, err)
+		}
+		return
+	}
 	if err := ShouldAudit(auditLog, actor, action, target, detail); err != nil {
 		log.Printf("[ERROR] audit record unavailable for %s/%s: %v", action, target, err)
 	}

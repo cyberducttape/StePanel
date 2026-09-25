@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -105,6 +106,15 @@ func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 
 func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 	checks := map[string]ReadinessCheck{}
+	if defaultAuditOutbox != nil {
+		if pending, err := defaultAuditOutbox.pendingCount(context.Background()); err != nil {
+			checks["audit_outbox"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("audit outbox unavailable: %v", err)}
+		} else if pending > 0 {
+			checks["audit_outbox"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("%d audit event(s) await signed-log publication", pending)}
+		} else {
+			checks["audit_outbox"] = ReadinessCheck{Ready: true}
+		}
+	}
 	if jobs == nil || jobs.db == nil {
 		checks["dead_letter_jobs"] = ReadinessCheck{Ready: false, Detail: "job store is not initialized"}
 	} else if stats, err := jobs.QueueStats(); err != nil {
