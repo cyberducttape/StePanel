@@ -303,7 +303,8 @@ func (t *SiteTransaction) persist() error {
 	return nil
 }
 
-func RecoverSiteTransactions(root string) ([]string, error) {
+func RecoverSiteTransactions(root string, configuredRoots ...string) ([]string, error) {
+	webRoot, mailRoot := recoveryConfiguredRoots(configuredRoots)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -324,6 +325,14 @@ func RecoverSiteTransactions(root string) ([]string, error) {
 				failures = append(failures, fmt.Errorf("quarantine invalid transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
 			} else {
 				failures = append(failures, fmt.Errorf("quarantined invalid transaction %s: %w", entry.Name(), err))
+			}
+			continue
+		}
+		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot); err != nil {
+			if quarantineErr := quarantineRecoveryTransaction(root, dir, err); quarantineErr != nil {
+				failures = append(failures, fmt.Errorf("quarantine unsafe transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
+			} else {
+				failures = append(failures, fmt.Errorf("quarantined unsafe transaction %s: %w", entry.Name(), err))
 			}
 			continue
 		}
@@ -367,6 +376,14 @@ func RecoverTransactionDatabases(cfg Config, root string) ([]string, error) {
 				failures = append(failures, fmt.Errorf("quarantine invalid transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
 			} else {
 				failures = append(failures, fmt.Errorf("quarantined invalid transaction %s: %w", entry.Name(), err))
+			}
+			continue
+		}
+		if err := validateRecoveredSitePaths(txn, cfg.WebRoot, cfg.MailRoot); err != nil {
+			if quarantineErr := quarantineRecoveryTransaction(root, filepath.Join(root, entry.Name()), err); quarantineErr != nil {
+				failures = append(failures, fmt.Errorf("quarantine unsafe transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
+			} else {
+				failures = append(failures, fmt.Errorf("quarantined unsafe transaction %s: %w", entry.Name(), err))
 			}
 			continue
 		}
@@ -430,7 +447,8 @@ func loadSiteTransaction(dir string) (*SiteTransaction, error) {
 	return &txn, nil
 }
 
-func CleanupSiteTransactions(root string, maxAge time.Duration) error {
+func CleanupSiteTransactions(root string, maxAge time.Duration, configuredRoots ...string) error {
+	webRoot, mailRoot := recoveryConfiguredRoots(configuredRoots)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -448,10 +466,52 @@ func CleanupSiteTransactions(root string, maxAge time.Duration) error {
 		if err != nil {
 			return err
 		}
+		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot); err != nil {
+			return err
+		}
 		if (txn.State == "committed" || txn.State == "rolled-back") && txn.UpdatedAt.Before(cutoff) {
 			if err := os.RemoveAll(dir); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func recoveryConfiguredRoots(roots []string) (webRoot, mailRoot string) {
+	if len(roots) > 0 {
+		webRoot = roots[0]
+	}
+	if len(roots) > 1 {
+		mailRoot = roots[1]
+	}
+	return webRoot, mailRoot
+}
+
+// validateRecoveredSitePaths binds persisted journal paths back to the
+// configured ownership roots before recovery performs any rename or removal.
+// The optional roots preserve isolated unit-test callers that intentionally
+// use arbitrary temporary paths; production startup always supplies both.
+func validateRecoveredSitePaths(txn *SiteTransaction, webRoot, mailRoot string) error {
+	if webRoot != "" {
+		expectedHome, err := safePath(webRoot, "sites", txn.Site, "public")
+		if err != nil {
+			return fmt.Errorf("validate recovery site root: %w", err)
+		}
+		if filepath.Clean(txn.Home) != filepath.Clean(expectedHome) {
+			return errors.New("recovery transaction site path is outside the configured web root")
+		}
+	}
+	if txn.MailRoot != "" {
+		if mailRoot == "" {
+			return errors.New("recovery transaction mail path has no configured mail root")
+		}
+		expectedMail, err := safePath(mailRoot, txn.Site)
+		if err != nil {
+			return fmt.Errorf("validate recovery mail root: %w", err)
+		}
+		if filepath.Clean(txn.MailRoot) != filepath.Clean(expectedMail) {
+			return errors.New("recovery transaction mail path is outside the configured mail root")
 		}
 	}
 	return nil

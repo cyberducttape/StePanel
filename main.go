@@ -461,7 +461,7 @@ func main() {
 				failures = append(failures, fmt.Errorf("audit database recovery %s: %w", id, err))
 			}
 		}
-		recovered, err := RecoverSiteTransactions(cfg.RecoveryRoot)
+		recovered, err := RecoverSiteTransactions(cfg.RecoveryRoot, cfg.WebRoot, cfg.MailRoot)
 		if err != nil {
 			failures = append(failures, err)
 			log.Printf("recover interrupted site transactions (continuing with isolated failures): %v", err)
@@ -486,7 +486,7 @@ func main() {
 		if err := CleanupImportStages(cfg.ImportRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
 			log.Printf("import stage cleanup during startup: %v", err)
 		}
-		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
+		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour, cfg.WebRoot, cfg.MailRoot); err != nil {
 			log.Printf("site recovery cleanup during startup: %v", err)
 		}
 		reconcile("routes", app.reconcileRoutes)
@@ -551,7 +551,7 @@ func main() {
 				if err := CleanupImportStages(app.Config.ImportRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour); err != nil {
 					log.Printf("import stage cleanup: %v", err)
 				}
-				if err := CleanupSiteTransactions(app.Config.RecoveryRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour); err != nil {
+				if err := CleanupSiteTransactions(app.Config.RecoveryRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour, app.Config.WebRoot, app.Config.MailRoot); err != nil {
 					log.Printf("site recovery cleanup: %v", err)
 				}
 				app.gitActivationMu.Lock()

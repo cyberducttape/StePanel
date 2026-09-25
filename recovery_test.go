@@ -25,6 +25,34 @@ func TestRecoverSiteTransactionAfterProcessDeath(t *testing.T) {
 	assertTestFile(t, filepath.Join(home, "index.html"), "old")
 }
 
+func TestRecoverSiteTransactionsQuarantinesPathOutsideConfiguredRoot(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "web")
+	recovery := filepath.Join(root, "recovery")
+	home := filepath.Join(webRoot, "sites", "site", "public")
+	writeTestFile(t, filepath.Join(home, "index.html"), "old")
+	txn, err := BeginSiteTransaction(recovery, home, "test.restore", AuthorizedSite{site: "site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, "outside", "public")
+	writeTestFile(t, filepath.Join(outside, "important.txt"), "do not touch")
+	txn.Home = outside
+	if err := txn.persist(); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := RecoverSiteTransactions(recovery, webRoot, filepath.Join(root, "mail"))
+	if err == nil || len(recovered) != 0 || !strings.Contains(err.Error(), "outside the configured web root") {
+		t.Fatalf("unsafe recovery result = %#v, error = %v", recovered, err)
+	}
+	assertTestFile(t, filepath.Join(outside, "important.txt"), "do not touch")
+	entries, readErr := os.ReadDir(filepath.Join(recovery, "quarantine"))
+	if readErr != nil || len(entries) != 1 {
+		t.Fatalf("quarantine entries=%d err=%v", len(entries), readErr)
+	}
+}
+
 func TestRecoverTransactionDatabasesCleansJournalBeforeSiteRollback(t *testing.T) {
 	root := t.TempDir()
 	recovery := filepath.Join(root, ".stepanel-recovery")
