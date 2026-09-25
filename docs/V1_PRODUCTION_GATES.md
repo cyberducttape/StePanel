@@ -251,23 +251,24 @@ For each critical operation (backup, restore, deploy, terminate):
 **Test Framework:**
 ```go
 // $STEPANEL_FAIL_AT="restore:commit" injects a deterministic error.
-// The current hooks cover backup init/archive/verify/commit, termination
-// init, deployment activation, account suspension before persistence, and
-// transaction init/commit; operation-specific hooks are added as each
-// workflow is covered.
+// The current hooks cover backup init/archive/verify/commit, restore
+// verification/extraction/activation/database/commit, termination init,
+// deployment activation, account suspension before persistence, and
+// transaction init/commit.
 failureInjection("restore", "commit")
 ```
 
 **Critical Operations to Test:**
-1. Backup (kill at: init, archive creation, compression, upload, verify)
-2. Restore (kill at: download, extract, config update, health check)
-3. Deploy (kill at: clone, build, symlink switch, health check)
-4. Terminate (kill at: backup, cleanup, state removal)
-5. Account suspension (kill at: service stop, config update, state save)
+1. Backup (boundary tests: init, archive, verify, commit; host-kill drill remains)
+2. Restore (boundary tests: verify, extract, activate, database, commit; host-kill drill remains)
+3. Deploy (boundary test: activation; clone/build/health-check drill remains)
+4. Terminate (boundary test: initiation; backup/cleanup/state-removal drill remains)
+5. Account suspension (boundary test: before persistence; helper/state-save drill remains)
 
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit
-- [ ] All 5 operations pass failure tests
+- [x] Boundary-level failure tests cover all 5 operations
+- [ ] Multi-point process-kill/restart drills cover all 5 operations
 - [ ] No mysterious half-states discovered
 - [ ] Recovery is deterministic
 
