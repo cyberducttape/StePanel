@@ -144,7 +144,7 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 			}
 			route.State = "pending"
 		}
-		release, lockErr := a.acquireSiteMutationLocks(ctx, route.Site, "vhost:"+route.Name)
+		operationCtx, release, lockErr := a.acquireSiteMutationLocksContext(ctx, route.Site, "vhost:"+route.Name)
 		if lockErr != nil {
 			route.LastError = lockErr.Error()
 			failed[route.Name] = lockErr.Error()
@@ -153,9 +153,9 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 		}
 		var err error
 		if route.State == "delete-pending" {
-			err = runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", route.Name)
+			err = runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", route.Name)
 		} else {
-			err = runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "apply", route.Site, route.Domain)
+			err = runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "apply", route.Site, route.Domain)
 		}
 		if err != nil {
 			route.LastError = err.Error()

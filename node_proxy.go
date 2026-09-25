@@ -119,7 +119,7 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := proxyConfigName(a.Config.WebServer, input.Site, input.Domain)
-	releaseUnlock, lockErr := a.acquireSiteMutationLocks(r.Context(), input.Site, "proxy:"+name)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), input.Site, "proxy:"+name)
 	if lockErr != nil {
 		http.Error(w, "proxy mutation is busy", http.StatusConflict)
 		return
@@ -130,7 +130,7 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid proxy path", 422)
 		return
 	}
-	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "apply", input.Site, strings.ToLower(input.Domain), backend); err != nil {
+	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "apply", input.Site, strings.ToLower(input.Domain), backend); err != nil {
 		http.Error(w, "proxy helper rejected the configuration or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}

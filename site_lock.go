@@ -56,6 +56,15 @@ func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (c
 // de-duplicated order so two processes cannot deadlock while acquiring a site
 // and one of its dependent resources (for example, a vhost or proxy).
 func (a *App) acquireSiteMutationLocks(ctx context.Context, keys ...string) (func(), error) {
+	_, release, err := a.acquireSiteMutationLocksContext(ctx, keys...)
+	return release, err
+}
+
+// acquireSiteMutationLocksContext is the compound-lock equivalent of
+// acquireSiteMutationLockContext. Losing any one fencing lease cancels the
+// shared operation context, so a multi-resource mutation cannot continue with
+// only a subset of its durable locks.
+func (a *App) acquireSiteMutationLocksContext(ctx context.Context, keys ...string) (context.Context, func(), error) {
 	unique := make(map[string]struct{}, len(keys))
 	ordered := make([]string, 0, len(keys))
 	for _, key := range keys {
@@ -71,8 +80,9 @@ func (a *App) acquireSiteMutationLocks(ctx context.Context, keys ...string) (fun
 	sort.Strings(ordered)
 	localRelease := a.siteOperations.AcquireMany(ordered...)
 	if a.dbLocks == nil {
-		return localRelease, nil
+		return ctx, localRelease, nil
 	}
+	operationCtx, cancelOperation := context.WithCancel(ctx)
 
 	type heldLease struct {
 		key    string
@@ -90,23 +100,26 @@ func (a *App) acquireSiteMutationLocks(ctx context.Context, keys ...string) (fun
 				}
 			}
 			localRelease()
-			return nil, err
+			cancelOperation()
+			return nil, nil, err
 		}
 		holdCtx, cancelHold := context.WithCancel(context.Background())
 		held = append(held, heldLease{key: key, lease: lease, cancel: cancelHold})
 		go func(key string, lease operations.Lease, holdCtx context.Context) {
-			if err := a.dbLocks.Hold(holdCtx, lease); err != nil {
+			if err := a.dbLocks.Hold(holdCtx, lease); err != nil && !errors.Is(err, context.Canceled) {
 				log.Printf("durable site lock %s was lost: %v", key, err)
+				cancelOperation()
 			}
 		}(key, lease, holdCtx)
 	}
-	return func() {
+	return operationCtx, func() {
 		for i := len(held) - 1; i >= 0; i-- {
 			held[i].cancel()
 			if err := a.dbLocks.Release(held[i].lease); err != nil && !errors.Is(err, operations.ErrLeaseLost) {
 				log.Printf("release durable site lock %s: %v", held[i].key, err)
 			}
 		}
+		cancelOperation()
 		localRelease()
 	}, nil
 }
