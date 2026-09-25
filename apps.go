@@ -128,9 +128,7 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app manifest saved but systemd helper failed", 503)
 		return
 	}
-	if err := AuditAs(a.Config.AuditLog, a.Auth.Username, "app.deployed", app.Site, app.Domain+" on port "+strconv.Itoa(app.Port)); err != nil {
-		log.Printf("application deployed but audit persistence is unavailable: %v", err)
-	}
+	recordAudit(a.Config.AuditLog, a.Auth.Username, "app.deployed", app.Site, app.Domain+" on port "+strconv.Itoa(app.Port))
 	writeJSON(w, http.StatusAccepted, app)
 }
 

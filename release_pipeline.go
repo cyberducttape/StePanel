@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -158,10 +157,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	result.Previous = previous
 	a.recordDeployment(input.Site, "activation", "completed", "atomic built release activated", result, "")
 
-	// Audit trail is critical for operations. Log any persistence failures.
-	if err := AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.release.pipeline", input.Site, input.Repository+"@"+commit); err != nil {
-		log.Printf("release audit trail failed for %s: %v (operator should investigate)", input.Site, err)
-	}
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.release.pipeline", input.Site, input.Repository+"@"+commit)
 	writeJSON(w, 202, result)
 }
 

@@ -583,9 +583,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Git release retention for %s: %v", input.Site, err)
 	}
 	a.recordDeployment(input.Site, "activation", "completed", "atomic Git release activated", result, "")
-	if err := AuditAs(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deployed", input.Site, input.Repository+"@"+commit); err != nil {
-		log.Printf("Git release activated but audit persistence is unavailable: %v", err)
-	}
+	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deployed", input.Site, input.Repository+"@"+commit)
 	writeJSON(w, http.StatusAccepted, result)
 }
 
@@ -663,9 +661,7 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "rollback could not restore site isolation", http.StatusServiceUnavailable)
 		return
 	}
-	if err := AuditAs(a.Config.AuditLog, a.Auth.Username, "site.git-rolled-back", input.Site, filepath.Base(previous)); err != nil {
-		log.Printf("Git rollback completed but audit persistence is unavailable: %v", err)
-	}
+	recordAudit(a.Config.AuditLog, a.Auth.Username, "site.git-rolled-back", input.Site, filepath.Base(previous))
 	if err := pruneGitReleasesWithPolicy(siteRoot, a.Config.GitReleaseRetention, time.Duration(a.Config.GitReleaseMaxAgeHours)*time.Hour, a.Config.GitReleaseMaxBytes); err != nil {
 		log.Printf("Git release retention for %s: %v", input.Site, err)
 	}

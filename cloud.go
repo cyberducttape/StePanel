@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -219,9 +218,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 	} else if request.Operation == "loadbalancer" {
 		auditAction = "loadbalancer." + request.Action
 	}
-	if auditErr := AuditAs(a.Config.AuditLog, request.Actor, auditPrefix+auditAction, result.ID, result.Provider); auditErr != nil {
-		log.Printf("cloud action completed but audit persistence is unavailable: %v", auditErr)
-	}
+	recordAudit(a.Config.AuditLog, request.Actor, auditPrefix+auditAction, result.ID, result.Provider)
 	output, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
