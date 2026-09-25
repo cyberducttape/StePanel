@@ -38,6 +38,7 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 
 **Current Status:**
 - ✅ Manager interface defined (`internal/sites/manager.go`)
+- ✅ Manager clone is staged, path-safe, and atomically activated
 - ⏳ Integration into HTTP handlers and job workers
 - ⏳ Routing git clone/restore operations through manager
 - ⏳ Routing cpmove import through manager

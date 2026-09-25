@@ -15,8 +15,8 @@
 // smuggled "../../" or an absolute component through name validation
 // would still be caught at the path-containment check.
 //
-// Placeholder operations (Clone, Restore, UpdateConfiguration, Suspend,
-// Resume) currently return ErrNotImplemented rather than a fake nil
+// Placeholder operations (Restore, UpdateConfiguration, Suspend, Resume)
+// currently return ErrNotImplemented rather than a fake nil
 // success. Prior code returned nil, which would have let a caller — or a
 // future consolidator wiring the manager to real handlers — treat an
 // unimplemented no-op as "done". ErrNotImplemented makes that fail loudly
