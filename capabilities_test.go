@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -190,6 +192,26 @@ func TestDatabaseRestorationRequiresTheManagedHelper(t *testing.T) {
 	c := app.ProbeCapabilities().Capabilities["archive.import.database_restore"]
 	if c.Available {
 		t.Errorf("archive.import.database_restore must not be Available without DB helper, got Mode=%s", c.Mode)
+	}
+}
+
+func TestDatabaseRestorationRequiresExecutableRegularHelper(t *testing.T) {
+	root := t.TempDir()
+	helper := filepath.Join(root, "db-helper")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{DBCtl: helper}}
+	c := app.ProbeCapabilities().Capabilities["archive.import.database_restore"]
+	if c.Available {
+		t.Fatalf("database restoration must not be Available for a non-executable helper, got Mode=%s", c.Mode)
+	}
+	if err := os.Chmod(helper, 0700); err != nil {
+		t.Fatal(err)
+	}
+	c = app.ProbeCapabilities().Capabilities["archive.import.database_restore"]
+	if !c.Available {
+		t.Fatalf("database restoration should be Available for an executable helper, got Mode=%s reason=%q", c.Mode, c.Reason)
 	}
 }
 

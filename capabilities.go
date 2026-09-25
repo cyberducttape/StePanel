@@ -245,7 +245,8 @@ func (a *App) checkDatabaseRestorationCapability() Capability {
 	if a.Config.DBCtl == "" {
 		return newCapability(CapabilityUnsupported, "STEPANEL_DBCTL is not configured; automatic archive database restoration is unavailable")
 	}
-	if info, err := os.Stat(a.Config.DBCtl); err != nil || info.IsDir() {
+	info, err := os.Stat(a.Config.DBCtl)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0111 == 0 {
 		return newCapability(CapabilityUnsupported, "STEPANEL_DBCTL is not an executable file")
 	}
 	return newCapability(CapabilityAvailable, "automatic restoration is available when the archive request supplies a valid database password")
