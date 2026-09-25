@@ -369,7 +369,7 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
-		safetyBackup, err := createDatabaseSafetyBackup(a.Config, name)
+		safetyBackup, err := createDatabaseSafetyBackupContext(operationCtx, a.Config, name)
 		if err != nil {
 			log.Printf("database safety backup failed for %s: %v", name, err)
 			http.Error(w, "database deletion refused because its safety backup failed", http.StatusServiceUnavailable)
@@ -383,9 +383,7 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "database deletion failed", http.StatusConflict)
 			return
 		}
-		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.deleted", name, "user="+in.User+" safety_backup="+safetyBackup.Path+" sha256="+safetyBackup.SHA256); err != nil {
-			return
-		}
+		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.deleted", name, "user="+in.User+" safety_backup="+safetyBackup.Path+" sha256="+safetyBackup.SHA256)
 		writeJSON(w, http.StatusOK, map[string]any{"deleted": name, "safety_backup": safetyBackup})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

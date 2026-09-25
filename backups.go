@@ -398,6 +398,45 @@ func dumpManagedDatabase(cfg Config, database, destination string) error {
 	return dumpManagedDatabaseContext(context.Background(), cfg, database, destination)
 }
 
+func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database string) (DatabaseSafetyBackup, error) {
+	result := DatabaseSafetyBackup{Database: database, Created: time.Now().UTC()}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	root := filepath.Join(cfg.BackupRoot, ".database-deletions")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return result, err
+	}
+	temp, err := os.MkdirTemp(root, ".pending-")
+	if err != nil {
+		return result, err
+	}
+	defer os.RemoveAll(temp)
+	dump := filepath.Join(temp, database+".sql")
+	if err := dumpManagedDatabaseContext(ctx, cfg, database, dump); err != nil {
+		return result, err
+	}
+	result.SHA256, err = fileSHA256(dump)
+	if err != nil {
+		return result, err
+	}
+	if err := writeSyncedFile(filepath.Join(temp, database+".sql.sha256"), []byte(result.SHA256+"  "+database+".sql\n"), 0600); err != nil {
+		return result, err
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	final := filepath.Join(root, result.Created.Format("20060102-150405.000000000")+"-"+database)
+	if err := os.Rename(temp, final); err != nil {
+		return result, err
+	}
+	if err := syncDirectory(root); err != nil {
+		return result, err
+	}
+	result.Path = final
+	return result, nil
+}
+
 func dumpManagedDatabaseContext(parent context.Context, cfg Config, database, destination string) error {
 	if !validManagedDatabaseIdentifier(database, 64) {
 		return errors.New("invalid managed database")

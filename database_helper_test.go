@@ -2,12 +2,22 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestCreateDatabaseSafetyBackupContextHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := createDatabaseSafetyBackupContext(ctx, Config{}, "database")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("createDatabaseSafetyBackupContext error = %v, want context.Canceled", err)
+	}
+}
 
 func TestRestoreSQLUsesRestrictedHelper(t *testing.T) {
 	root := t.TempDir()
