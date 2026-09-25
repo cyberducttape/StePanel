@@ -92,3 +92,44 @@ func TestRecoverReleaseActivationJournalRollsBackPreparedSwapAfterFirstRename(t 
 		t.Fatalf("restored release = %q, want old", data)
 	}
 }
+
+func TestRecoverPreparedReleaseDoesNotRollbackAnUnstartedSwap(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{WebRoot: filepath.Join(root, "www"), RecoveryRoot: filepath.Join(root, "recovery")}
+	siteRoot := filepath.Join(cfg.WebRoot, "sites", "example")
+	public := filepath.Join(siteRoot, "public")
+	previous := filepath.Join(siteRoot, ".stepanel-previous-old")
+	stage := filepath.Join(siteRoot, ".stepanel-release-next")
+	for _, path := range []string{public, previous, stage} {
+		if err := os.MkdirAll(path, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(public, "index.html"), []byte("current"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(previous, "index.html"), []byte("older"), 0640); err != nil {
+		t.Fatal(err)
+	}
+
+	journal, err := newReleaseActivationJournal(cfg.RecoveryRoot, "example", stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.persist(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recoverReleaseActivationJournals(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(public, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "current" {
+		t.Fatalf("unstarted activation changed active release to %q", data)
+	}
+	if _, err := os.Stat(stage); !os.IsNotExist(err) {
+		t.Fatalf("staged release was not discarded: %v", err)
+	}
+}

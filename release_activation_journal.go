@@ -116,19 +116,32 @@ func recoverReleaseActivationJournals(cfg Config) ([]string, error) {
 		ctx := context.Background()
 		switch journal.State {
 		case "prepared":
-			// The process can die between the manager's first rename and the
-			// activated checkpoint. Recover an interrupted swap if a previous
-			// release was left behind; otherwise the stage was never published.
+			public, err := safePath(cfg.WebRoot, "sites", journal.Site, "public")
+			if err != nil {
+				return recovered, fmt.Errorf("resolve prepared release activation %s: %w", journal.ID, err)
+			}
+			stageExists, err := releaseStageExists(cfg.WebRoot, journal.Site, journal.StagedRoot)
+			if err != nil {
+				return recovered, fmt.Errorf("inspect prepared release activation %s: %w", journal.ID, err)
+			}
+			_, publicErr := os.Lstat(public)
 			previous, findErr := findPreviousRelease(cfg.WebRoot, journal.Site)
 			if findErr != nil {
 				return recovered, fmt.Errorf("inspect prepared release activation %s: %w", journal.ID, findErr)
 			}
-			if previous != "" {
+			switch {
+			case stageExists && publicErr == nil:
+				// The swap never started; discard only this journal's stage.
+				if err := manager.DiscardReleaseStaging(ctx, journal.Site, journal.StagedRoot); err != nil {
+					return recovered, fmt.Errorf("discard prepared release activation %s: %w", journal.ID, err)
+				}
+			case !stageExists && previous != "":
+				// The stage moved to public (or public was moved away first).
 				if err := manager.RollbackStagedActivation(ctx, journal.Site, previous); err != nil {
 					return recovered, fmt.Errorf("rollback prepared release activation %s: %w", journal.ID, err)
 				}
-			} else if err := manager.DiscardReleaseStaging(ctx, journal.Site, journal.StagedRoot); err != nil {
-				return recovered, fmt.Errorf("discard prepared release activation %s: %w", journal.ID, err)
+			default:
+				return recovered, fmt.Errorf("prepared release activation %s is in an ambiguous filesystem state", journal.ID)
 			}
 		case "activated":
 			if err := manager.RollbackStagedActivation(ctx, journal.Site, journal.Previous); err != nil {
@@ -146,6 +159,22 @@ func recoverReleaseActivationJournals(cfg Config) ([]string, error) {
 		recovered = append(recovered, journal.ID)
 	}
 	return recovered, nil
+}
+
+func releaseStageExists(webRoot, site, stagedRoot string) (bool, error) {
+	siteRoot, err := safePath(webRoot, "sites", site)
+	if err != nil {
+		return false, err
+	}
+	abs, err := filepath.Abs(stagedRoot)
+	if err != nil || filepath.Dir(abs) != siteRoot || !strings.HasPrefix(filepath.Base(abs), ".stepanel-release-") {
+		return false, errors.New("invalid release staging path")
+	}
+	_, err = os.Lstat(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func findPreviousRelease(webRoot, site string) (string, error) {
