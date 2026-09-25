@@ -58,6 +58,24 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid release pipeline", 422)
 		return
 	}
+	// The direct /api/runner/build path enforces the registry allowlist
+	// and (when configured) the narrow image allowlist; the release
+	// pipeline used to accept the pinned-digest regex alone, which let it
+	// pull from any registry the runnerImagePattern happened to permit.
+	// Apply the same two checks here so the two build paths cannot diverge.
+	allowed := map[string]bool{}
+	for _, registry := range strings.Split(a.Config.RunnerAllowedRegistries, ",") {
+		allowed[strings.TrimSpace(registry)] = true
+	}
+	imageRef, err := ValidateContainerImageForSite(input.Image, allowed)
+	if err != nil {
+		http.Error(w, "container image not allowed: "+err.Error(), 403)
+		return
+	}
+	if patterns := ParseImagePatternList(a.Config.RunnerAllowedImages); len(patterns) > 0 && !ImageAllowedByPatterns(imageRef, patterns) {
+		http.Error(w, "container image not in the configured STEPANEL_RUNNER_ALLOWED_IMAGES allowlist", 403)
+		return
+	}
 	for _, line := range input.Commands {
 		if len(line) == 0 || len(line) > 1024 || strings.ContainsAny(line, "\x00\r\n") {
 			http.Error(w, "invalid build command", 422)
@@ -192,8 +210,28 @@ func (a *App) runPipelineBuild(ctx context.Context, site, image string, commands
 	if err = os.Chmod(script.Name(), 0600); err != nil {
 		return err
 	}
+	args := a.pipelineBuildArgs(site, image, root, script.Name())
+	return runHelperCommand(ctx, a.Config, a.Config.RunnerCtl, args...)
+}
+
+// pipelineBuildArgs constructs the argument list for the stepanel-runnerctl
+// build command. It exists as a separate function so the number and order of
+// arguments — which must match the helper's fixed positional signature at
+// deploy/integrations/stepanel-runnerctl — can be asserted from a unit test
+// without invoking the real helper.
+func (a *App) pipelineBuildArgs(site, image, root, scriptPath string) []string {
 	cpuPercent, memoryMB, tasksMax := a.pipelineResourceLimits(site)
-	return runHelperCommand(ctx, a.Config, a.Config.RunnerCtl, "build", site, image, root, script.Name(), strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax))
+	return []string{
+		"build",
+		site,
+		image,
+		root,
+		scriptPath,
+		strconv.Itoa(cpuPercent),
+		strconv.Itoa(memoryMB),
+		strconv.Itoa(tasksMax),
+		a.Config.RunnerNetworkMode,
+	}
 }
 
 func (a *App) pipelineResourceLimits(site string) (cpuPercent, memoryMB, tasksMax int) {

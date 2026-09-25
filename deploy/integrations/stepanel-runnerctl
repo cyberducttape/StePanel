@@ -22,8 +22,30 @@ site_gid=$(id -g "$site_user")
 # Do not follow build-created symlinks or cross into another filesystem. This
 # runs as the site account, so a path race cannot turn cleanup into root deletion.
 runuser -u "$site_user" -- find -P -- "$artifact" -xdev -depth -mindepth 1 -delete
+# The submitted script lives in STEPANEL_APP_ROOT, which is owned by the
+# stepanel service account (0750/0600). The isolated sp-* site account that
+# rootless Podman drops to is not in that group and cannot traverse into
+# stepanel's data dir or read a 0600 stepanel:stepanel file, so bind-mounting
+# the submitted path directly would fail with EACCES inside the container.
+# Copy the contents into a site-owned scratch path first and bind-mount that.
+scratch="$site_root/.stepanel-runner-scratch"
+runuser -u "$site_user" -- install -d -m 0700 "$scratch"
+# Any exit after this point (including mid-setup failures) must destroy the
+# site-owned scratch tree. Deletion runs as the site account, so no root
+# rm -rf ever touches a customer path.
+trap 'runuser -u "$site_user" -- rm -rf -- "$scratch" 2>/dev/null || true' EXIT
+scratch_uid=$(stat -c '%u' -- "$scratch")
+scratch_gid=$(stat -c '%g' -- "$scratch")
+[[ $scratch_uid == "$site_uid" && $scratch_gid == "$site_gid" ]] || { echo 'scratch directory has unexpected ownership' >&2; exit 1; }
+build_script="$scratch/build.sh"
+# Create the file writable, stream contents in as the site account, then drop
+# write on it. 0500 = r-x for owner only, matching the container's read-only
+# mount and preventing accidental in-place mutation.
+runuser -u "$site_user" -- install -m 0600 /dev/null "$build_script"
+cat -- "$script" | runuser -u "$site_user" -- tee "$build_script" >/dev/null
+runuser -u "$site_user" -- chmod 0500 "$build_script"
 cpus=$(awk "BEGIN { printf \"%.2f\", $cpu_percent / 100 }")
 # Convert network_mode to podman flag: "none" -> "--network none", "egress" -> "--network slirp4netns"
 network_flag="--network none"
 [[ $network_mode == "egress" ]] && network_flag="--network slirp4netns"
-runuser -u "$site_user" -- podman run --rm $network_flag --userns keep-id --cap-drop ALL --security-opt no-new-privileges --read-only --cpus "$cpus" --memory "${memory_mb}m" --pids-limit "$tasks_max" --tmpfs /tmp:rw,noexec,nosuid,size=512m -v "$root:/src:ro,Z" -v "$artifact:/artifact:rw,Z" -v "$script:/run/stepanel/build.sh:ro,Z" -w /src "$image" /bin/sh /run/stepanel/build.sh
+runuser -u "$site_user" -- podman run --rm $network_flag --userns keep-id --cap-drop ALL --security-opt no-new-privileges --read-only --cpus "$cpus" --memory "${memory_mb}m" --pids-limit "$tasks_max" --tmpfs /tmp:rw,noexec,nosuid,size=512m -v "$root:/src:ro,Z" -v "$artifact:/artifact:rw,Z" -v "$build_script:/run/stepanel/build.sh:ro,Z" -w /src "$image" /bin/sh /run/stepanel/build.sh

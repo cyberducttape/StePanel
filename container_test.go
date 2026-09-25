@@ -143,6 +143,78 @@ func TestParseContainerImage(t *testing.T) {
 	}
 }
 
+// TestImageAllowedByPatterns covers the STEPANEL_RUNNER_ALLOWED_IMAGES
+// narrowing check added to close the "allow ghcr.io → any image on ghcr.io"
+// gap in the registry-wide allowlist. The check is strict-segment, not
+// substring, so near-match namespaces cannot slip through.
+func TestImageAllowedByPatterns(t *testing.T) {
+	ref := &ContainerImageRef{Registry: "ghcr.io", Namespace: "anthropic", Repository: "builder", Tag: "v1"}
+	// Empty patterns → the check is opt-in and returns true (unconstrained).
+	if !ImageAllowedByPatterns(ref, nil) {
+		t.Error("empty patterns should return true")
+	}
+	// Exact match.
+	if !ImageAllowedByPatterns(ref, []string{"ghcr.io/anthropic/builder"}) {
+		t.Error("exact match failed")
+	}
+	// Namespace wildcard.
+	if !ImageAllowedByPatterns(ref, []string{"ghcr.io/anthropic/*"}) {
+		t.Error("namespace wildcard failed")
+	}
+	// Wildcard is case-insensitive (config is lowercased on load).
+	if !ImageAllowedByPatterns(ref, []string{"GHCR.IO/ANTHROPIC/*"}) {
+		t.Error("wildcard case-insensitivity failed")
+	}
+	// Different namespace on the same registry is rejected — this is the
+	// exact gap the check closes: allowing ghcr.io alone would authorize
+	// the attacker's image below; the narrow allowlist refuses it.
+	attacker := &ContainerImageRef{Registry: "ghcr.io", Namespace: "attacker", Repository: "builder", Tag: "v1"}
+	if ImageAllowedByPatterns(attacker, []string{"ghcr.io/anthropic/*"}) {
+		t.Error("different namespace should be refused")
+	}
+	// Prefix-collision namespace ("anthropic-evil" starts with "anthropic")
+	// must not match "ghcr.io/anthropic/*" — the strip is "/*" (trailing
+	// two chars), so the compared prefix is "ghcr.io/anthropic/" with the
+	// trailing slash. "anthropic-evil" doesn't have that slash after
+	// "anthropic" so it fails, as intended.
+	sneaky := &ContainerImageRef{Registry: "ghcr.io", Namespace: "anthropic-evil", Repository: "builder", Tag: "v1"}
+	if ImageAllowedByPatterns(sneaky, []string{"ghcr.io/anthropic/*"}) {
+		t.Error("prefix-collision namespace must not match")
+	}
+	// Wrong registry with a valid namespace is refused.
+	wrongRegistry := &ContainerImageRef{Registry: "docker.io", Namespace: "anthropic", Repository: "builder", Tag: "v1"}
+	if ImageAllowedByPatterns(wrongRegistry, []string{"ghcr.io/anthropic/*"}) {
+		t.Error("wrong registry must not match")
+	}
+	// Multiple patterns, one matches.
+	if !ImageAllowedByPatterns(ref, []string{"docker.io/library/*", "ghcr.io/anthropic/*"}) {
+		t.Error("multi-pattern OR match failed")
+	}
+	// Nil ref rejected.
+	if ImageAllowedByPatterns(nil, []string{"ghcr.io/anthropic/*"}) {
+		t.Error("nil ref must not match anything")
+	}
+}
+
+func TestParseImagePatternList(t *testing.T) {
+	if got := ParseImagePatternList(""); got != nil {
+		t.Errorf("empty input got %v, want nil", got)
+	}
+	if got := ParseImagePatternList("  ,  , "); got != nil {
+		t.Errorf("whitespace-only input got %v, want nil", got)
+	}
+	got := ParseImagePatternList("ghcr.io/a/*, docker.io/library/alpine ")
+	want := []string{"ghcr.io/a/*", "docker.io/library/alpine"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("[%d] got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestValidateContainerImageForSite(t *testing.T) {
 	tests := []struct {
 		image      string

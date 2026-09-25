@@ -158,6 +158,62 @@ func ValidateContainerImageForSite(image string, allowedRegistries map[string]bo
 	return ParseContainerImage(image, allowedRegistries)
 }
 
+// ImageAllowedByPatterns reports whether ref satisfies at least one entry
+// in patterns. Each pattern is either an exact "registry/namespace/repo"
+// or a trailing-wildcard "registry/namespace/*" that authorizes any
+// repository under a namespace.
+//
+// An empty patterns slice returns true — the check is opt-in and callers
+// should skip it when RunnerAllowedImages is not configured. All matching
+// is lowercase and exact-segment (no substring, no other glob
+// metacharacters), mirroring the tight constraint the operator opts into
+// when they choose to configure it.
+func ImageAllowedByPatterns(ref *ContainerImageRef, patterns []string) bool {
+	if ref == nil {
+		return false
+	}
+	if len(patterns) == 0 {
+		return true
+	}
+	actual := strings.ToLower(ref.Registry + "/" + ref.Namespace + "/" + ref.Repository)
+	namespacePrefix := strings.ToLower(ref.Registry + "/" + ref.Namespace + "/")
+	for _, raw := range patterns {
+		pattern := strings.TrimSpace(strings.ToLower(raw))
+		if pattern == "" {
+			continue
+		}
+		if strings.HasSuffix(pattern, "/*") {
+			if strings.TrimSuffix(pattern, "*") == namespacePrefix {
+				return true
+			}
+			continue
+		}
+		if pattern == actual {
+			return true
+		}
+	}
+	return false
+}
+
+// ParseImagePatternList splits a comma-separated STEPANEL_RUNNER_ALLOWED_IMAGES
+// value into a slice, dropping empty and whitespace-only entries. Returns
+// nil (not an empty slice) when no non-empty entries remain, so a
+// `len == 0` check by callers is equivalent to `pattern list is unset`.
+func ParseImagePatternList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range strings.Split(raw, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // ImageString returns the full image reference as a string
 func (cir *ContainerImageRef) ImageString() string {
 	result := cir.Registry + "/" + cir.Namespace + "/" + cir.Repository + ":" + cir.Tag

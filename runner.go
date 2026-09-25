@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -40,18 +39,23 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 	for _, registry := range strings.Split(a.Config.RunnerAllowedRegistries, ",") {
 		allowed[strings.TrimSpace(registry)] = true
 	}
-	if _, err := ValidateContainerImageForSite(input.Image, allowed); err != nil {
+	ref, err := ValidateContainerImageForSite(input.Image, allowed)
+	if err != nil {
 		http.Error(w, "container image not allowed: "+err.Error(), 403)
 		return
 	}
+	// Narrow-allowlist check: if STEPANEL_RUNNER_ALLOWED_IMAGES is set,
+	// the image must also match a configured namespace/repo pattern.
+	// Empty configuration means no additional constraint.
+	if patterns := ParseImagePatternList(a.Config.RunnerAllowedImages); len(patterns) > 0 && !ImageAllowedByPatterns(ref, patterns) {
+		http.Error(w, "container image not in the configured STEPANEL_RUNNER_ALLOWED_IMAGES allowlist", 403)
+		return
+	}
 
-	// TODO: MaxImageSize enforcement requires fetching image manifest to determine actual size
-	// before launching container. This requires:
-	// 1. Parse image reference (already done by ValidateContainerImageForSite)
-	// 2. Resolve image digest (may require credential handling)
-	// 3. Fetch manifest to get size
-	// 4. Compare against Config.MaxImageSize
-	// For now, size limits are enforced at helper level if supported by podman inspect
+	// Image-size enforcement is not implemented. The prior TODO here
+	// described the OCI-manifest fetch that would be required. Do not
+	// claim the size limit in changelog or docs until the fetch is
+	// actually wired.
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", 403); !ok {
 		return
 	}
@@ -90,8 +94,8 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "secure runner definition", 500)
 		return
 	}
-	cpuPercent, memoryMB, tasksMax := a.pipelineResourceLimits(input.Site)
-	if err = runHelperCommand(r.Context(), a.Config, a.Config.RunnerCtl, "build", input.Site, input.Image, root, scriptPath, strconv.Itoa(cpuPercent), strconv.Itoa(memoryMB), strconv.Itoa(tasksMax), a.Config.RunnerNetworkMode); err != nil {
+	args := a.pipelineBuildArgs(input.Site, input.Image, root, scriptPath)
+	if err = runHelperCommand(r.Context(), a.Config, a.Config.RunnerCtl, args...); err != nil {
 		http.Error(w, "sandboxed build failed", 502)
 		return
 	}
