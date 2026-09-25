@@ -47,7 +47,11 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site document root does not exist", 422)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(input.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "Node tooling operation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	if err := runHelperCommand(r.Context(), a.Config, a.Config.AppCtl, "node-tool", input.Site, input.Action, input.PackageManager, root); err != nil {
 		http.Error(w, "Node tooling action failed", 502)

@@ -76,7 +76,11 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site document root does not exist", 422)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(app.Site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), app.Site)
+	if lockErr != nil {
+		http.Error(w, "app deployment is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	a.appLifecycleMu.Lock()
 	defer a.appLifecycleMu.Unlock()
@@ -148,7 +152,11 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for app operations", http.StatusForbidden)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(parts[0])
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), parts[0])
+	if lockErr != nil {
+		http.Error(w, "app operation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	a.appLifecycleMu.Lock()
 	defer a.appLifecycleMu.Unlock()

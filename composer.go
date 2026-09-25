@@ -137,7 +137,11 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", 400)
 		return
 	}
-	releaseUnlock := a.siteOperations.Acquire(site)
+	releaseUnlock, lockErr := a.acquireSiteMutationLock(r.Context(), site)
+	if lockErr != nil {
+		http.Error(w, "Composer operation is busy", http.StatusConflict)
+		return
+	}
 	defer releaseUnlock()
 	started := time.Now()
 	if err := runHelperCommandWithTimeout(r.Context(), a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "composer-install", site, root, boolString(input.Development), boolString(input.OptimizeAutoloader)); err != nil {
