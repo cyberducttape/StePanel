@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -74,10 +73,6 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 422)
 		return
 	}
-	if err := os.MkdirAll(siteRoot, 0750); err != nil {
-		http.Error(w, "unable to prepare site root", 500)
-		return
-	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "Node version mutation is busy", http.StatusConflict)
@@ -86,6 +81,10 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "Node version mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
+	if err := os.MkdirAll(siteRoot, 0750); err != nil {
+		http.Error(w, "unable to prepare site root", 500)
 		return
 	}
 	nvmrc, err := safePath(siteRoot, ".nvmrc")
@@ -97,9 +96,7 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to select Node version", 500)
 		return
 	}
-	if err := AuditAs(a.Config.AuditLog, a.Auth.Username, "node.version.selected", input.Site, "Node v"+version); err != nil {
-		log.Printf("node version selected but audit persistence is unavailable: %v", err)
-	}
+	recordAudit(a.Config.AuditLog, a.Auth.Username, "node.version.selected", input.Site, "Node v"+version)
 	writeJSON(w, http.StatusOK, map[string]string{"site": input.Site, "version": "v" + version})
 }
 
@@ -138,9 +135,7 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proxy helper rejected the configuration or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
-	if err := AuditAs(a.Config.AuditLog, a.Auth.Username, "proxy.deployed", input.Site, input.Domain+" -> "+backend); err != nil {
-		log.Printf("proxy deployed but audit persistence is unavailable: %v", err)
-	}
+	recordAudit(a.Config.AuditLog, a.Auth.Username, "proxy.deployed", input.Site, input.Domain+" -> "+backend)
 	writeJSON(w, http.StatusAccepted, map[string]any{"site": input.Site, "domain": input.Domain, "backend": backend, "config": path, "reloaded": true})
 }
 
@@ -211,9 +206,7 @@ func (a *App) proxyManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proxy was not removed because the helper or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
-	if err := AuditAs(a.Config.AuditLog, a.Auth.Username, "proxy.deleted", name, "managed proxy removed"); err != nil {
-		log.Printf("proxy deleted but audit persistence is unavailable: %v", err)
-	}
+	recordAudit(a.Config.AuditLog, a.Auth.Username, "proxy.deleted", name, "managed proxy removed")
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": name, "reloaded": true})
 }
 
