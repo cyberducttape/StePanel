@@ -282,13 +282,15 @@ func (a *App) checkPlanLimits() error {
 		if sitesPercent >= criticalThreshold && !account.Suspended {
 			// Auto-suspend if critical
 			if plan.SiteLimit > 0 && sitesUsed >= plan.SiteLimit {
-				_, _ = a.Accounts.SetSuspended(account.Username, true)
-				_ = AuditAs(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,
+				if _, err := a.Accounts.SetSuspended(account.Username, true); err != nil {
+					return fmt.Errorf("auto-suspend account %s for site limit: %w", account.Username, err)
+				}
+				recordAudit(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,
 					fmt.Sprintf("site limit exceeded: %d/%d", sitesUsed, plan.SiteLimit))
 			}
 		} else if sitesPercent >= warningThreshold {
 			// Log warning for operator
-			_ = AuditAs(a.Config.AuditLog, "system", "account.usage.warning", account.Username,
+			recordAudit(a.Config.AuditLog, "system", "account.usage.warning", account.Username,
 				fmt.Sprintf("site usage at %d%% of limit (%d/%d)", sitesPercent, sitesUsed, plan.SiteLimit))
 		}
 
@@ -308,12 +310,14 @@ func (a *App) checkPlanLimits() error {
 
 		if databasesPercent >= criticalThreshold && !account.Suspended {
 			if plan.DatabaseLimit > 0 && databasesUsed >= plan.DatabaseLimit {
-				_, _ = a.Accounts.SetSuspended(account.Username, true)
-				_ = AuditAs(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,
+				if _, err := a.Accounts.SetSuspended(account.Username, true); err != nil {
+					return fmt.Errorf("auto-suspend account %s for database limit: %w", account.Username, err)
+				}
+				recordAudit(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,
 					fmt.Sprintf("database limit exceeded: %d/%d", databasesUsed, plan.DatabaseLimit))
 			}
 		} else if databasesPercent >= warningThreshold {
-			_ = AuditAs(a.Config.AuditLog, "system", "account.usage.warning", account.Username,
+			recordAudit(a.Config.AuditLog, "system", "account.usage.warning", account.Username,
 				fmt.Sprintf("database usage at %d%% of limit (%d/%d)", databasesPercent, databasesUsed, plan.DatabaseLimit))
 		}
 	}

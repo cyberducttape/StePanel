@@ -149,7 +149,7 @@ func (a *App) handleMigrationAnalysisJob(r *Job) ([]byte, error) {
 	}
 
 	// Audit the analysis
-	_ = AuditAs(a.Config.AuditLog, "admin", "migration.analysis.completed",
+	recordAudit(a.Config.AuditLog, "admin", "migration.analysis.completed",
 		fmt.Sprintf("%s -> %s", req.SourceSSHHost, req.DestinationHostname),
 		fmt.Sprintf("blockers=%d, warnings=%d", len(analysis.Blockers), len(analysis.Warnings)))
 

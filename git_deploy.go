@@ -326,7 +326,7 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 		config, err := a.Webhooks.GetWebhookConfig(site)
 		if err != nil {
 			http.Error(w, "webhook configuration error", http.StatusInternalServerError)
-			_ = Audit(a.Config.AuditLog, "webhook.auth.error", site, fmt.Sprintf("get webhook config: %v", err))
+			recordAudit(a.Config.AuditLog, "webhook", "webhook.auth.error", site, fmt.Sprintf("get webhook config: %v", err))
 			return
 		}
 		if config != nil {
@@ -345,7 +345,7 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 	signature := r.Header.Get("X-StePanel-Signature")
 	if !verifyWebhookSignature(body, signature, webhookSecret) {
 		http.Error(w, "invalid webhook signature", http.StatusUnauthorized)
-		_ = Audit(a.Config.AuditLog, "webhook.auth.failed", site, "invalid signature")
+		recordAudit(a.Config.AuditLog, "webhook", "webhook.auth.failed", site, "invalid signature")
 		return
 	}
 
@@ -449,7 +449,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		// site is fine — we substitute the authenticated one — so payload
 		// formats that omit "site" continue to work.
 		if input.Site != "" && input.Site != webhookSite {
-			_ = Audit(a.Config.AuditLog, "webhook.site.mismatch", webhookSite, fmt.Sprintf("body claimed site %q", input.Site))
+			recordAudit(a.Config.AuditLog, "webhook", "webhook.site.mismatch", webhookSite, fmt.Sprintf("body claimed site %q", input.Site))
 			http.Error(w, "webhook body targets a different site than the URL signature authorized", http.StatusForbidden)
 			return
 		}
@@ -475,12 +475,12 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 			repoLower := strings.ToLower(strings.TrimSpace(input.Repository))
 			if len(config.Repositories) > 0 && !containsString(config.Repositories, repoLower) {
 				http.Error(w, "repository is not authorized for this webhook", http.StatusForbidden)
-				_ = Audit(a.Config.AuditLog, "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("repository not in whitelist: %s", input.Repository))
+				recordAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("repository not in whitelist: %s", input.Repository))
 				return
 			}
 			if len(config.AllowedRefs) > 0 && !matchRefPattern(input.Ref, config.AllowedRefs) {
 				http.Error(w, "ref is not authorized for this webhook", http.StatusForbidden)
-				_ = Audit(a.Config.AuditLog, "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("ref not in whitelist: %s", input.Ref))
+				recordAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("ref not in whitelist: %s", input.Ref))
 				return
 			}
 		}
