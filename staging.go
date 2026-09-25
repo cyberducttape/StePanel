@@ -231,6 +231,22 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not begin staging transaction", 503)
 		return
 	}
+	managerStageParent := filepath.Join(a.Config.WebRoot, "sites")
+	if err := os.MkdirAll(managerStageParent, 0750); err != nil {
+		http.Error(w, "could not prepare lifecycle staging root", 503)
+		return
+	}
+	managerStage, err := os.MkdirTemp(managerStageParent, ".stepanel-staging-")
+	if err != nil {
+		http.Error(w, "could not create lifecycle staging tree", 503)
+		return
+	}
+	managerActivated := false
+	defer func() {
+		if !managerActivated {
+			_ = os.RemoveAll(managerStage)
+		}
+	}()
 	var ok bool
 	defer func() {
 		if !ok {
@@ -238,11 +254,16 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	if input.Files {
-		if err := copyTreeContext(operationCtx, source, dest); err != nil {
+		if err := copyTreeContext(operationCtx, source, managerStage); err != nil {
 			http.Error(w, "copy staging files: "+err.Error(), 502)
 			return
 		}
 	}
+	if err := a.activateStagedSite(operationCtx, input.Site, managerStage); err != nil {
+		http.Error(w, "could not publish staging site through lifecycle manager", 503)
+		return
+	}
+	managerActivated = true
 	if input.Environment && a.Environments != nil {
 		a.Environments.mu.RLock()
 		vars := a.Environments.values[input.Source]
