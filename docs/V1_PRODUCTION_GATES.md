@@ -46,6 +46,7 @@ No exceptions. No direct filesystem calls. No helper scripts that bypass the man
 - ✅ Backup restore-to-staging publishes through the manager
 - ✅ cPanel, archive, WordPress, backup-restore, and staging workflows
       allocate publication trees through manager-owned staging
+- ✅ Failed staging workflows discard trees through `SiteManager.DiscardStaging()`
 - ✅ Site termination uses the manager for final deletion
 - ⏳ Remaining direct lifecycle paths (generic create/update/suspend/resume)
       still need to be consolidated
