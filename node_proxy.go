@@ -83,8 +83,8 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Node version mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	if err := os.MkdirAll(siteRoot, 0750); err != nil {
-		http.Error(w, "unable to prepare site root", 500)
+	if info, err := os.Stat(siteRoot); err != nil || !info.IsDir() {
+		http.Error(w, "site document root does not exist", http.StatusUnprocessableEntity)
 		return
 	}
 	nvmrc, err := safePath(siteRoot, ".nvmrc")

@@ -1,12 +1,32 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestSelectNodeDoesNotCreateUnmanagedSiteRoot(t *testing.T) {
+	root := t.TempDir()
+	nvmRoot := filepath.Join(root, "nvm")
+	if err := os.MkdirAll(filepath.Join(nvmRoot, "versions", "node", "v20.1.0"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	webRoot := filepath.Join(root, "www")
+	app := &App{Config: Config{NVMDir: nvmRoot, WebRoot: webRoot}, Auth: Auth{Username: "admin"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/node/select", bytes.NewBufferString(`{"site":"unmanaged","version":"20.1.0"}`))
+	response := httptest.NewRecorder()
+	app.selectNode(response, req)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s; want unmanaged site rejection", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(webRoot, "sites", "unmanaged")); !os.IsNotExist(err) {
+		t.Fatalf("Node selection created an unmanaged site root: %v", err)
+	}
+}
 
 func TestLocalBackendValidation(t *testing.T) {
 	valid := []string{"http://127.0.0.1:3000", "http://localhost:8080", "http://LOCALHOST:8080", "http://192.168.1.20:9000", "http://[::1]:3000"}
