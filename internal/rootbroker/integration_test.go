@@ -278,11 +278,13 @@ func TestIntegration_ConcurrentRequests(t *testing.T) {
 
 	for i := 0; i < numRequests; i++ {
 		go func(index int) {
+			// Use unique site names with timestamp to avoid conflicts with previous test runs
+			siteName := fmt.Sprintf("concurrent-test-%d-%d", os.Getpid(), index)
 			req := &Request{
 				RequestType: "app",
 				App: &AppRequest{
 					Action: "apply",
-					Site:   "site" + string(rune(48+index%10)),
+					Site:   siteName,
 					Port:   3000 + index,
 				},
 			}
@@ -409,44 +411,46 @@ func TestIntegration_InputValidationConsistency(t *testing.T) {
 	invalidSites := []string{"UPPER", "with space", "with@symbol", "toolongname1234567890123456789012345"}
 
 	for _, invalidSite := range invalidSites {
-		// Test in site request
-		siteResp, _ := broker.Execute(context.Background(), &Request{
-			RequestType: "site",
-			Site: &SiteRequest{
-				Action: "create",
-				Site:   invalidSite,
-			},
+		t.Run(invalidSite, func(t *testing.T) {
+			// Test in site request
+			siteResp, _ := broker.Execute(context.Background(), &Request{
+				RequestType: "site",
+				Site: &SiteRequest{
+					Action: "create",
+					Site:   invalidSite,
+				},
+			})
+
+			// Test in app request
+			appResp, _ := broker.Execute(context.Background(), &Request{
+				RequestType: "app",
+				App: &AppRequest{
+					Action: "apply",
+					Site:   invalidSite,
+					Port:   3000,
+				},
+			})
+
+			// Test in vhost request
+			vhostResp, _ := broker.Execute(context.Background(), &Request{
+				RequestType: "vhost",
+				Vhost: &VhostRequest{
+					Action:    "apply",
+					Site:      invalidSite,
+					Domain:    "example.com",
+					WebServer: "caddy",
+				},
+			})
+
+			// All should fail
+			if siteResp.OK || appResp.OK || vhostResp.OK {
+				t.Errorf("Invalid site %q should fail in all contexts", invalidSite)
+			}
+
+			// All should have error messages
+			if siteResp.Error == "" || appResp.Error == "" || vhostResp.Error == "" {
+				t.Errorf("Invalid site %q should have error messages", invalidSite)
+			}
 		})
-
-		// Test in app request
-		appResp, _ := broker.Execute(context.Background(), &Request{
-			RequestType: "app",
-			App: &AppRequest{
-				Action: "apply",
-				Site:   invalidSite,
-				Port:   3000,
-			},
-		})
-
-		// Test in vhost request
-		vhostResp, _ := broker.Execute(context.Background(), &Request{
-			RequestType: "vhost",
-			Vhost: &VhostRequest{
-				Action:    "apply",
-				Site:      invalidSite,
-				Domain:    "example.com",
-				WebServer: "caddy",
-			},
-		})
-
-		// All should fail
-		if siteResp.OK || appResp.OK || vhostResp.OK {
-			t.Errorf("Invalid site %q should fail in all contexts", invalidSite)
-		}
-
-		// All should have error messages
-		if siteResp.Error == "" || appResp.Error == "" || vhostResp.Error == "" {
-			t.Errorf("Invalid site %q should have error messages", invalidSite)
-		}
 	}
 }
