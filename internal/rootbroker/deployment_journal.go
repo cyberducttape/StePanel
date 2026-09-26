@@ -24,12 +24,12 @@ import (
 const (
 	deploymentJournalVersion = 1
 
-	stepAppValidated      = "APP_VALIDATED"
-	stepAppExtracted      = "APP_EXTRACTED"
-	stepRollbackTargeted  = "ROLLBACK_TARGETED"
-	stepAppActivated      = "APP_ACTIVATED"
-	stepAppVerified       = "APP_VERIFIED"
-	stepMetadataUpdated   = "METADATA_UPDATED"
+	stepAppValidated     = "APP_VALIDATED"
+	stepAppExtracted     = "APP_EXTRACTED"
+	stepRollbackTargeted = "ROLLBACK_TARGETED"
+	stepAppActivated     = "APP_ACTIVATED"
+	stepAppVerified      = "APP_VERIFIED"
+	stepMetadataUpdated  = "METADATA_UPDATED"
 )
 
 var deploymentStepOrder = []string{

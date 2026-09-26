@@ -40,41 +40,41 @@ const (
 	FailureTypeSIGTERM FailureType = "sigterm"
 
 	// Resource exhaustion
-	FailureTypeFilesystemFull FailureType = "enospc"
+	FailureTypeFilesystemFull   FailureType = "enospc"
 	FailureTypePermissionDenied FailureType = "eacces"
-	FailureTypeTooManyFiles FailureType = "emfile"
+	FailureTypeTooManyFiles     FailureType = "emfile"
 
 	// Database issues
-	FailureTypeSQLiteBusy FailureType = "sqlite_busy"
+	FailureTypeSQLiteBusy    FailureType = "sqlite_busy"
 	FailureTypeSQLiteCorrupt FailureType = "sqlite_corrupt"
 
 	// Concurrency issues
-	FailureTypeDeadlock FailureType = "deadlock"
+	FailureTypeDeadlock      FailureType = "deadlock"
 	FailureTypeRaceCondition FailureType = "race"
 
 	// Helper issues
-	FailureTypeHelperTimeout FailureType = "helper_timeout"
+	FailureTypeHelperTimeout     FailureType = "helper_timeout"
 	FailureTypeHelperUnreachable FailureType = "helper_unreachable"
 
 	// System issues
-	FailureTypeContextCanceled FailureType = "context_canceled"
+	FailureTypeContextCanceled  FailureType = "context_canceled"
 	FailureTypeNetworkPartition FailureType = "network_partition"
 )
 
 // FailureInjector coordinates failure injection during test operations.
 // It allows tests to inject failures at specific points and verify recovery.
 type FailureInjector struct {
-	mu              sync.Mutex
-	enabled         bool
-	point           FailurePoint
-	failureType     FailureType
-	injectionCount  int
-	successCount    int
-	failureCount    int
-	recoveryCount   int
-	lastFailureTime time.Time
+	mu               sync.Mutex
+	enabled          bool
+	point            FailurePoint
+	failureType      FailureType
+	injectionCount   int
+	successCount     int
+	failureCount     int
+	recoveryCount    int
+	lastFailureTime  time.Time
 	lastRecoveryTime time.Time
-	recordedEvents  []FailureEvent
+	recordedEvents   []FailureEvent
 }
 
 // FailureEvent records a failure injection or recovery event.
@@ -214,18 +214,18 @@ type FailureStats struct {
 
 // RecoveryValidator verifies that recovery from a failure was clean and deterministic.
 type RecoveryValidator struct {
-	mu              sync.Mutex
-	initialState    interface{}
-	recoveredState  interface{}
+	mu                sync.Mutex
+	initialState      interface{}
+	recoveredState    interface{}
 	consistencyChecks []ConsistencyCheck
-	isValid         bool
-	issues          []string
+	isValid           bool
+	issues            []string
 }
 
 // ConsistencyCheck verifies a property of the recovered state.
 type ConsistencyCheck struct {
-	Name    string
-	Check   func(state interface{}) error
+	Name     string
+	Check    func(state interface{}) error
 	Critical bool // If true, failure of this check fails the entire recovery
 }
 
@@ -242,8 +242,8 @@ func (rv *RecoveryValidator) AddCheck(name string, check func(state interface{})
 	rv.mu.Lock()
 	defer rv.mu.Unlock()
 	rv.consistencyChecks = append(rv.consistencyChecks, ConsistencyCheck{
-		Name:    name,
-		Check:   check,
+		Name:     name,
+		Check:    check,
 		Critical: critical,
 	})
 }
@@ -287,16 +287,16 @@ func (rv *RecoveryValidator) IsValid() bool {
 
 // WorkflowFailureTest defines a complete workflow test with failure injection.
 type WorkflowFailureTest struct {
-	Name                  string
-	Operation             string           // What operation is being tested
-	Setup                 func() error     // Setup before the workflow
-	ExecuteWorkflow       func(ctx context.Context, injector *FailureInjector) error
-	VerifyRecovery        func() error     // Verify recovery after failure
-	Cleanup               func() error     // Cleanup after test
-	FailurePoints         []FailurePoint   // Points where failures should be tested
-	FailureTypes          []FailureType    // Types of failures to test
-	ExpectedRecoveryTime  time.Duration    // Expected time to recover
-	AllowedHalfStates     int              // How many half-states are acceptable (should be 0)
+	Name                 string
+	Operation            string       // What operation is being tested
+	Setup                func() error // Setup before the workflow
+	ExecuteWorkflow      func(ctx context.Context, injector *FailureInjector) error
+	VerifyRecovery       func() error   // Verify recovery after failure
+	Cleanup              func() error   // Cleanup after test
+	FailurePoints        []FailurePoint // Points where failures should be tested
+	FailureTypes         []FailureType  // Types of failures to test
+	ExpectedRecoveryTime time.Duration  // Expected time to recover
+	AllowedHalfStates    int            // How many half-states are acceptable (should be 0)
 }
 
 // RunFailureTest runs a complete workflow failure test.

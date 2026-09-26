@@ -24,11 +24,11 @@ import (
 const (
 	dbJournalVersion = 1
 
-	stepDBCreated      = "DB_CREATED"
-	stepUserCreated    = "USER_CREATED"
-	stepPrivsGranted   = "PRIVS_GRANTED"
-	stepCredsSaved     = "CREDS_SAVED"
-	stepConnVerified   = "CONN_VERIFIED"
+	stepDBCreated    = "DB_CREATED"
+	stepUserCreated  = "USER_CREATED"
+	stepPrivsGranted = "PRIVS_GRANTED"
+	stepCredsSaved   = "CREDS_SAVED"
+	stepConnVerified = "CONN_VERIFIED"
 )
 
 var dbProvisioningStepOrder = []string{

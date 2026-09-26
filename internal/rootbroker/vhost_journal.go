@@ -22,11 +22,11 @@ import (
 const (
 	vhostJournalVersion = 1
 
-	stepVhostValidated    = "VHOST_VALIDATED"
-	stepVhostConfigGen    = "CONFIG_GENERATED"
-	stepVhostConfigWrite  = "CONFIG_WRITTEN"
-	stepVhostApplied      = "VHOST_APPLIED"
-	stepVhostVerified     = "VHOST_VERIFIED"
+	stepVhostValidated   = "VHOST_VALIDATED"
+	stepVhostConfigGen   = "CONFIG_GENERATED"
+	stepVhostConfigWrite = "CONFIG_WRITTEN"
+	stepVhostApplied     = "VHOST_APPLIED"
+	stepVhostVerified    = "VHOST_VERIFIED"
 )
 
 var vhostConfigStepOrder = []string{
@@ -38,15 +38,15 @@ var vhostConfigStepOrder = []string{
 }
 
 type vhostJournal struct {
-	Version      int             `json:"version"`
-	JobID        string          `json:"job_id"`
-	Site         string          `json:"site"`
-	Domain       string          `json:"domain"`
-	Actor        string          `json:"actor"`
-	StartedAt    time.Time       `json:"started_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	Completed    map[string]bool `json:"completed"`
-	ConfigPath   string          `json:"config_path,omitempty"`
+	Version    int             `json:"version"`
+	JobID      string          `json:"job_id"`
+	Site       string          `json:"site"`
+	Domain     string          `json:"domain"`
+	Actor      string          `json:"actor"`
+	StartedAt  time.Time       `json:"started_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+	Completed  map[string]bool `json:"completed"`
+	ConfigPath string          `json:"config_path,omitempty"`
 
 	path string // journal file path (not serialized)
 }

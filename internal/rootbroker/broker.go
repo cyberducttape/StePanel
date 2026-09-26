@@ -51,7 +51,7 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		if err != nil {
 			// If even temp fails, log but don't fail - journals are optional
 			logger.Printf("warning: could not create recovery directory: %v", err)
-			recoveryRoot = recoveryRoot  // Keep trying original path
+			recoveryRoot = recoveryRoot // Keep trying original path
 		} else {
 			logger.Printf("using temp recovery root: %s", tmpDir)
 			recoveryRoot = tmpDir

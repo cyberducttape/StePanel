@@ -24,11 +24,11 @@ import (
 const (
 	restorJournalVersion = 1
 
-	stepRestoreDumpValidated = "DUMP_VALIDATED"
+	stepRestoreDumpValidated   = "DUMP_VALIDATED"
 	stepRestoreDatabaseDropped = "DATABASE_DROPPED"
 	stepRestoreDatabaseCreated = "DATABASE_CREATED"
-	stepRestoreDumpImported = "DUMP_IMPORTED"
-	stepRestoreVerified = "VERIFIED"
+	stepRestoreDumpImported    = "DUMP_IMPORTED"
+	stepRestoreVerified        = "VERIFIED"
 )
 
 var restoreStepOrder = []string{
@@ -40,17 +40,17 @@ var restoreStepOrder = []string{
 }
 
 type restorationJournal struct {
-	Version        int             `json:"version"`
-	JobID          string          `json:"job_id"`
-	Site           string          `json:"site"`
-	Database       string          `json:"database"`
-	DumpFile       string          `json:"dump_file"`
-	Actor          string          `json:"actor"`
-	StartedAt      time.Time       `json:"started_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-	Completed      map[string]bool `json:"completed"`
-	BytesImported  int64           `json:"bytes_imported,omitempty"`
-	TotalBytes     int64           `json:"total_bytes,omitempty"`
+	Version       int             `json:"version"`
+	JobID         string          `json:"job_id"`
+	Site          string          `json:"site"`
+	Database      string          `json:"database"`
+	DumpFile      string          `json:"dump_file"`
+	Actor         string          `json:"actor"`
+	StartedAt     time.Time       `json:"started_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+	Completed     map[string]bool `json:"completed"`
+	BytesImported int64           `json:"bytes_imported,omitempty"`
+	TotalBytes    int64           `json:"total_bytes,omitempty"`
 
 	path string // journal file path (not serialized)
 }

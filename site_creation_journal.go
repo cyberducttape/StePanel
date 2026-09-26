@@ -30,12 +30,12 @@ import (
 const (
 	creationJournalVersion = 1
 
-	stepInitialized       = "INITIALIZED"
-	stepPersisted         = "PERSISTED"
-	stepPHPConfigured     = "PHP_CONFIGURED"
-	stepDatabaseCreated   = "DATABASE_CREATED"
-	stepVhostCreated      = "VHOST_CREATED"
-	stepCompleted         = "COMPLETED"
+	stepInitialized     = "INITIALIZED"
+	stepPersisted       = "PERSISTED"
+	stepPHPConfigured   = "PHP_CONFIGURED"
+	stepDatabaseCreated = "DATABASE_CREATED"
+	stepVhostCreated    = "VHOST_CREATED"
+	stepCompleted       = "COMPLETED"
 )
 
 // creationStepOrder is the canonical execution order. Every step must be

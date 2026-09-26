@@ -66,31 +66,31 @@ type SiteResponse struct {
 // --- App Operations ---
 
 type AppRequest struct {
-	Action  string `json:"action"` // apply, start, stop, restart, rollback
-	Site    string `json:"site"`   // Validated site name
+	Action  string `json:"action"`  // apply, start, stop, restart, rollback
+	Site    string `json:"site"`    // Validated site name
 	Version string `json:"version"` // Node version (e.g. "18.0.0", validated against pattern)
 	Port    int    `json:"port"`    // 1024-65535
 	Root    string `json:"root"`    // Site's public root (validated)
 }
 
 type AppResponse struct {
-	Applied  bool   `json:"applied,omitempty"`
-	Started  bool   `json:"started,omitempty"`
-	Stopped  bool   `json:"stopped,omitempty"`
-	Restarted bool  `json:"restarted,omitempty"`
+	Applied    bool `json:"applied,omitempty"`
+	Started    bool `json:"started,omitempty"`
+	Stopped    bool `json:"stopped,omitempty"`
+	Restarted  bool `json:"restarted,omitempty"`
 	RolledBack bool `json:"rolled_back,omitempty"`
-	Port     int    `json:"port,omitempty"`
+	Port       int  `json:"port,omitempty"`
 }
 
 // --- Database Operations ---
 
 type DBRequest struct {
-	Action   string `json:"action"` // provision, restore-dump, drop
-	Database string `json:"database"` // Database name (validated)
-	Username string `json:"username"` // DB username (validated)
-	Password string `json:"password"` // DB password (not logged)
-	Site     string `json:"site"`     // Associated site
-	Encoding string `json:"encoding"` // utf8mb4, UTF8, etc.
+	Action   string `json:"action"`              // provision, restore-dump, drop
+	Database string `json:"database"`            // Database name (validated)
+	Username string `json:"username"`            // DB username (validated)
+	Password string `json:"password"`            // DB password (not logged)
+	Site     string `json:"site"`                // Associated site
+	Encoding string `json:"encoding"`            // utf8mb4, UTF8, etc.
 	DumpData []byte `json:"dump_data,omitempty"` // For restore-dump action
 }
 
@@ -105,15 +105,15 @@ type DBResponse struct {
 // --- Vhost Operations ---
 
 type VhostRequest struct {
-	Action         string `json:"action"` // apply, delete, apply-auth
-	Site           string `json:"site"`
-	Domain         string `json:"domain"` // Validated domain name
-	SSLCertPath    string `json:"ssl_cert_path,omitempty"`
-	SSLKeyPath     string `json:"ssl_key_path,omitempty"`
-	WebServer      string `json:"webserver"` // caddy, apache, nginx, ols
-	BasicAuthUser  string `json:"basic_auth_user,omitempty"`
-	BasicAuthHash  string `json:"basic_auth_hash,omitempty"` // bcrypt hash
-	UpstreamPort   int    `json:"upstream_port,omitempty"`
+	Action        string `json:"action"` // apply, delete, apply-auth
+	Site          string `json:"site"`
+	Domain        string `json:"domain"` // Validated domain name
+	SSLCertPath   string `json:"ssl_cert_path,omitempty"`
+	SSLKeyPath    string `json:"ssl_key_path,omitempty"`
+	WebServer     string `json:"webserver"` // caddy, apache, nginx, ols
+	BasicAuthUser string `json:"basic_auth_user,omitempty"`
+	BasicAuthHash string `json:"basic_auth_hash,omitempty"` // bcrypt hash
+	UpstreamPort  int    `json:"upstream_port,omitempty"`
 }
 
 type VhostResponse struct {
@@ -125,41 +125,41 @@ type VhostResponse struct {
 // --- Proxy Operations ---
 
 type ProxyRequest struct {
-	Action      string            `json:"action"` // apply, reload
-	WebServer   string            `json:"webserver"` // caddy, apache, nginx, ols
-	Upstreams   map[string]string `json:"upstreams,omitempty"` // domain -> upstream address
-	CertPath    string            `json:"cert_path,omitempty"`
-	KeyPath     string            `json:"key_path,omitempty"`
+	Action    string            `json:"action"`              // apply, reload
+	WebServer string            `json:"webserver"`           // caddy, apache, nginx, ols
+	Upstreams map[string]string `json:"upstreams,omitempty"` // domain -> upstream address
+	CertPath  string            `json:"cert_path,omitempty"`
+	KeyPath   string            `json:"key_path,omitempty"`
 }
 
 type ProxyResponse struct {
-	Applied bool `json:"applied,omitempty"`
+	Applied  bool `json:"applied,omitempty"`
 	Reloaded bool `json:"reloaded,omitempty"`
 }
 
 // --- Git Operations ---
 
 type GitRequest struct {
-	Action        string `json:"action"` // clone, verify-key
-	Repository    string `json:"repository"` // Git URL (validated)
-	Ref           string `json:"ref"`        // Branch/tag
-	Destination   string `json:"destination"` // Clone destination (validated)
-	PrivateKey    string `json:"private_key,omitempty"` // SSH key content
-	KnownHosts    string `json:"known_hosts,omitempty"` // SSH known_hosts
-	AllowedHosts  []string `json:"allowed_hosts,omitempty"`
+	Action       string   `json:"action"`                // clone, verify-key
+	Repository   string   `json:"repository"`            // Git URL (validated)
+	Ref          string   `json:"ref"`                   // Branch/tag
+	Destination  string   `json:"destination"`           // Clone destination (validated)
+	PrivateKey   string   `json:"private_key,omitempty"` // SSH key content
+	KnownHosts   string   `json:"known_hosts,omitempty"` // SSH known_hosts
+	AllowedHosts []string `json:"allowed_hosts,omitempty"`
 }
 
 type GitResponse struct {
-	Cloned  bool   `json:"cloned,omitempty"`
-	Verified bool  `json:"verified,omitempty"`
-	Commit  string `json:"commit,omitempty"`
+	Cloned   bool   `json:"cloned,omitempty"`
+	Verified bool   `json:"verified,omitempty"`
+	Commit   string `json:"commit,omitempty"`
 }
 
 // --- Error Types ---
 
 // ErrorResponse is returned when a request fails
 type ErrorResponse struct {
-	Code    string `json:"code"`    // e.g. "INVALID_SITE", "PERMISSION_DENIED", "SYSTEM_ERROR"
-	Message string `json:"message"` // Human-readable error
+	Code    string `json:"code"`              // e.g. "INVALID_SITE", "PERMISSION_DENIED", "SYSTEM_ERROR"
+	Message string `json:"message"`           // Human-readable error
 	Details string `json:"details,omitempty"` // Additional context
 }
