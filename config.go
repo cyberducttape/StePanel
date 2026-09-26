@@ -465,6 +465,14 @@ func ValidateConfig(c Config) error {
 		if key != "" && key == os.Getenv("STEPANEL_SESSION_SECRET") {
 			problems = append(problems, errors.New("STEPANEL_AUDIT_KEY must differ from STEPANEL_SESSION_SECRET"))
 		}
+		// Filesystem quotas are advertised to customers, so they must be enforced.
+		// If /var/www doesn't support quota enforcement, customers can't use their paid quota allocation.
+		// (Can be skipped with STEPANEL_SKIP_QUOTA_CHECK=1 for testing lab environments)
+		if os.Getenv("STEPANEL_SKIP_QUOTA_CHECK") != "1" {
+			if err := validateWebRootFilesystemQuotas(c.WebRoot); err != nil {
+				problems = append(problems, err)
+			}
+		}
 	}
 	return errors.Join(problems...)
 }
@@ -524,6 +532,56 @@ func validateEncryptionKey(key string, name string) error {
 		}
 	}
 
+	return nil
+}
+
+// validateWebRootFilesystemQuotas checks if the filesystem hosting the customer
+// sites tree (STEPANEL_WEB_ROOT) is mounted with user quotas enabled. If quotas
+// are advertised to customers, they must be enforceable, otherwise customers
+// cannot use the disk quota allocation they are paying for.
+func validateWebRootFilesystemQuotas(webRoot string) error {
+	if webRoot == "" {
+		return errors.New("STEPANEL_WEB_ROOT is not configured; cannot validate filesystem quota support")
+	}
+	webRootAbs, err := filepath.Abs(webRoot)
+	if err != nil {
+		return fmt.Errorf("cannot resolve STEPANEL_WEB_ROOT to an absolute path: %w", err)
+	}
+	mounts, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return fmt.Errorf("cannot read /proc/mounts to inspect the sites-tree filesystem: %w", err)
+	}
+	// Walk /proc/mounts and find the longest mountpoint prefix that
+	// contains webRootAbs — that is the filesystem hosting the sites tree.
+	// Then check its option list for usrquota / grpquota / prjquota.
+	best := ""
+	bestOptions := ""
+	for _, line := range strings.Split(string(mounts), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		mountpoint := fields[1]
+		if !(mountpoint == webRootAbs || strings.HasPrefix(webRootAbs, mountpoint+"/") || mountpoint == "/") {
+			continue
+		}
+		if len(mountpoint) >= len(best) {
+			best = mountpoint
+			bestOptions = fields[3]
+		}
+	}
+	if best == "" {
+		return errors.New("could not identify a mountpoint hosting the sites tree; cannot validate quota support")
+	}
+	// Check if the mount has any quota options enabled
+	hasQuotaSupport := strings.Contains(bestOptions, "usrquota") ||
+		strings.Contains(bestOptions, "grpquota") ||
+		strings.Contains(bestOptions, "prjquota")
+	if !hasQuotaSupport {
+		return fmt.Errorf("mount %s hosting the sites tree does not have quota options enabled (usrquota, grpquota, or prjquota); "+
+			"plans cannot advertise disk quotas without filesystem enforcement. "+
+			"Configure quotas on the mount and enable with mount -o remount,usrquota /var/www or update fstab", best)
+	}
 	return nil
 }
 

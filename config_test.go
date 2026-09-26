@@ -109,6 +109,7 @@ func TestValidateConfigRequiresLoopbackOrTLSInProduction(t *testing.T) {
 
 func TestValidateConfigAcceptsProductionTLSPaths(t *testing.T) {
 	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_SKIP_QUOTA_CHECK", "1")
 	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
 	t.Setenv("STEPANEL_REQUIRE_OFFSITE_BACKUP", "1")
 	t.Setenv("STEPANEL_OFFSITE_TARGET", "s3:stepanel-test")
@@ -141,6 +142,7 @@ func TestValidateConfigAcceptsProductionTLSPaths(t *testing.T) {
 
 func TestValidateConfigAcceptsTrustedTLSTermination(t *testing.T) {
 	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_SKIP_QUOTA_CHECK", "1")
 	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
 	t.Setenv("STEPANEL_REQUIRE_OFFSITE_BACKUP", "1")
 	t.Setenv("STEPANEL_OFFSITE_TARGET", "s3:stepanel-test")
@@ -251,5 +253,59 @@ func TestValidateProductionExecutablePathRejectsWritableHelper(t *testing.T) {
 	}
 	if err := validateProductionExecutablePath(path); err == nil || !strings.Contains(err.Error(), "writable") {
 		t.Fatalf("expected writable helper rejection, got %v", err)
+	}
+}
+
+func TestValidateConfigProductionRequiresFilesystemQuotaSupport(t *testing.T) {
+	// This test documents the requirement: production deployments must have
+	// filesystem quota support on the mount hosting STEPANEL_WEB_ROOT.
+	// If quotas are advertised to customers, they must be enforceable.
+	// The validation is skipped with STEPANEL_SKIP_QUOTA_CHECK=1 for test environments.
+	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
+	t.Setenv("STEPANEL_REQUIRE_OFFSITE_BACKUP", "1")
+	t.Setenv("STEPANEL_OFFSITE_TARGET", "s3:stepanel-test")
+	t.Setenv("STEPANEL_AUDIT_KEY", "audit-key-that-is-long-enough-123456")
+	t.Setenv("STEPANEL_ENVIRONMENT_KEY", "environment-key-that-is-long-enough-123456")
+	t.Setenv("STEPANEL_BACKUP_SIGNING_KEY", "backup-signing-key-that-is-long-enough-123456")
+	t.Setenv("STEPANEL_SESSION_SECRET", "session-key-that-is-long-enough-123456")
+	cfg := LoadConfig()
+	cfg.TLSCertFile = "/etc/stepanel/cert.pem"
+	cfg.TLSKeyFile = "/etc/stepanel/key.pem"
+	cfg.ImportRoot = "/var/lib/ste-panel/imports"
+	cfg.BackupRoot = "/var/backups/stepanel"
+	cfg.WebRoot = "/var/www"
+	cfg.MailRoot = "/var/lib/ste-panel/mail"
+	cfg.NVMDir = "/var/lib/ste-panel/nvm"
+	cfg.ProxyRoot = "/var/lib/ste-panel/proxy"
+	cfg.VHostRoot = "/var/lib/ste-panel/vhosts"
+	cfg.AppRoot = "/var/lib/ste-panel/apps"
+	cfg.MalwareRoot = "/var/lib/ste-panel/quarantine"
+	cfg.AuditLog = "/var/lib/ste-panel/audit.jsonl"
+	cfg.JobState = "/var/lib/ste-panel/jobs.json"
+	cfg.SessionState = "/var/lib/ste-panel/sessions.json"
+	cfg.RecoveryRoot = "/var/www/sites/.stepanel-recovery"
+	cfg.WPressExtract = "/usr/local/bin/wpress-extract"
+	cfg.WPCLI = "/usr/local/bin/wp"
+
+	// In a real production environment with quotas enabled, this validation passes.
+	// In test/lab environments, use STEPANEL_SKIP_QUOTA_CHECK=1 to skip the check.
+	// When the check runs and quotas are not available, it produces a clear error:
+	// "mount / hosting the sites tree does not have quota options enabled..."
+
+	// Verify that when skip is not set, the validation rejects configs without quota support.
+	// (This would fail in our test environment since /var/www uses the root mount without quotas)
+	err := ValidateConfig(cfg)
+	if err == nil {
+		t.Fatalf("expected filesystem quota validation error for production without quota support")
+	}
+	if !strings.Contains(err.Error(), "quota") {
+		t.Fatalf("expected quota-related error, got: %v", err)
+	}
+
+	// Verify that the skip flag allows production configs to bypass the check
+	t.Setenv("STEPANEL_SKIP_QUOTA_CHECK", "1")
+	if err := ValidateConfig(cfg); err != nil {
+		t.Fatalf("production config with STEPANEL_SKIP_QUOTA_CHECK=1 rejected: %v", err)
 	}
 }
