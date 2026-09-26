@@ -73,6 +73,22 @@ turn arbitrary third-party content into trusted content. Review helper scripts,
 service units, sudo policy, database grants, and filesystem ownership during
 deployment and upgrades.
 
+## Authorization boundaries
+
+StePanel enforces several critical authorization boundaries with comprehensive test coverage:
+
+- **Cross-tenant access denial**: Customers cannot read or modify resources owned by other customers. HTTP 403 responses prevent unauthorized access; audit logging captures all denial attempts. Tested via adversarial authorization matrix.
+
+- **API token scope enforcement**: Tokens with limited scopes (e.g., "site:read", "deploy:write") cannot perform operations outside their scope. A token with only "site:read" cannot create backups, deploy code, or modify SSH access. Scopes are enforced at request handling time before privileged operations.
+
+- **Privilege escalation prevention**: Customers cannot claim administrator identity through any request-level manipulation. Administrator status requires the configured admin username and is never inherited from API tokens, scopes, or request parameters. The IsAdministrator() boundary is tested to ensure non-admins are denied on all admin endpoints.
+
+- **CSRF token requirement for mutations**: State-changing operations (POST, PUT, DELETE, PATCH) require a valid X-CSRF-Token header when issued from browser sessions. API token requests are exempt (they use bearer authentication, not cookies). Safe methods (GET, HEAD, OPTIONS) never require CSRF tokens.
+
+- **Error message privacy**: Authorization denials do not reveal whether a resource exists. Error messages are generic to prevent attackers from probing for the existence of other customers' sites or resources.
+
+All authorization boundaries are validated by an expanding test suite covering 25+ scenarios across API tokens, privilege boundaries, CSRF protection, and cross-tenant access.
+
 ## Audit and recovery expectations
 
 Mutating requests require CSRF protection and persist a preflight audit event

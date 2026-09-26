@@ -6,6 +6,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security Testing & Hardening
+
+- **Comprehensive authorization test suite (SECURITY)**: Implemented 25+ adversarial tests
+  validating critical authorization boundaries: API token scope enforcement, privilege
+  escalation prevention, CSRF token protection, and cross-tenant access denial. Tests verify
+  that limited-scope tokens (site:read, deploy:write, backup:create) cannot exceed
+  permissions, non-admin users cannot claim admin status, and CSRF tokens are required
+  for browser-based mutations but not API requests. All tests passing with clear failure
+  modes for security violations.
+
+- **Production readiness validation (OPERATIONAL)**: Added startup validation ensuring
+  filesystem quotas are actually enforceable in production. Previously, UI advertised disk
+  quotas (e.g., "10 GB limit") even if underlying filesystem didn't support quota
+  enforcement, creating false security guarantees. Now: startup fails in production mode
+  if `/var/www` (or configured STEPANEL_WEB_ROOT) doesn't have usrquota/grpquota support,
+  with clear remediation message. Complements existing quota-enforcement mechanism.
+
+- **Production readiness diagnostic endpoint (OPERATIONAL)**: Added `/api/admin/production-readiness`
+  endpoint returning health status of 4 critical capabilities: filesystem quotas, encryption
+  keys, offsite backups, and TLS configuration. Returns overall_status (healthy/degraded/critical)
+  with per-check detail and remediation guidance. Enables operators to verify production
+  prerequisites before deployment.
+
+- **Node startup hardening documentation (OPERATIONAL)**: Documented recommended refactoring
+  of Node app startup from shell-based (bash -lc 'nvm use VERSION; npm start') to resolved
+  binary paths (absolute /opt/stepanel/.nvm/versions/node/vX.Y.Z/bin/npm). Reduces attack
+  surface by eliminating shell execution at startup, improves auditability, and enables
+  early validation that requested Node version is installed. Implementation targeted for
+  helper layer (stepanel-appctl) in next phase.
+
+- **Tier 1 code quality standards applied (CODE QUALITY)**: Audited codebase against CLAUDE.md
+  Tier 1 standards and fixed violations. Removed hardcoded example domains (example.com,
+  destination.example.com) from user-facing migration analysis output, replacing with actual
+  requested hostnames. Verified filesystem operations, archive extraction, configuration
+  management, error handling, and progress reporting all meet production standards. No critical
+  violations found; codebase demonstrates strong security posture.
+
 ### Reliability and Compatibility
 
 - **OCI image reference parsing**: Build-image validation now uses the

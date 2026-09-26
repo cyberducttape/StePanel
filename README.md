@@ -40,7 +40,8 @@ encrypted environment metadata, builds, staging, logs, and workers.
 | Migration | cPanel `.tar.gz` inspection, safe staging, website, SQL, staged mailbox restore, and fail-closed `.htaccess` conversion for Caddy |
 | Operations | Dashboard, health endpoint, metrics endpoint, audit log, asynchronous restore jobs |
 | Control plane | Durable SQLite state, independently supervised worker, leases/retries/cancellation, dead-letter readiness gate, desired-state reconciliation, and recovery inventory |
-| Security | bcrypt credentials, signed sessions, CSRF protection, archive traversal checks, restricted service user |
+| Security | bcrypt credentials, signed sessions, CSRF protection, archive traversal checks, restricted service user, API token scopes, cross-tenant authorization boundaries, privilege escalation prevention, adversarial test coverage |
+| Production Readiness | Startup validation of filesystem quotas, encryption keys, TLS configuration; diagnostic endpoint for production prerequisites; comprehensive security test matrix |
 | Delivery | Dockerfile, ARM64/AMD64 release workflow, checksums, CI, vulnerability scanning |
 
 For cloud inventory/actions, DNS adapters, SSH inventory, WAF capability

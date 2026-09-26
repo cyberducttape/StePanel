@@ -1,6 +1,6 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-09-25
+**Last Updated:** 2026-09-26
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 This is a deployment-status summary, not a release approval. The sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
@@ -100,6 +100,61 @@ Do NOT use for:
 - **Monitoring**: Prometheus + Grafana or equivalent
 - **Runbooks**: Documented procedures for common issues
 - **On-call**: 24/7 availability for critical incidents
+
+## Production Readiness Validation
+
+StePanel provides tools to verify deployment prerequisites are met:
+
+### Startup Validation
+
+In production mode (`STEPANEL_PRODUCTION=true`), StePanel performs mandatory checks on startup:
+
+- ✅ **Filesystem quotas enforced**: Validates that `STEPANEL_WEB_ROOT` filesystem has usrquota/grpquota enabled. Required because StePanel advertises disk quotas in plans; quotas that aren't enforced create false security guarantees. Startup fails if quotas unavailable; remediation: `mount -o remount,usrquota /var/www`
+- ✅ **Encryption keys configured**: Ensures backup encryption keys are loaded (minimum 32 characters)
+- ⚠️ **Offsite backups configured**: Checks S3/B2 credentials for offsite backup target (warning only; can proceed without)
+
+### Production Readiness Endpoint
+
+Administrators can verify production prerequisites at runtime via:
+
+```
+GET /api/admin/production-readiness
+```
+
+Returns JSON with overall_status (healthy/degraded/critical) and per-check details:
+
+```json
+{
+  "is_production": true,
+  "overall_status": "healthy",
+  "checks": [
+    {
+      "name": "Filesystem Quotas",
+      "status": "pass",
+      "severity": "critical",
+      "message": "Quotas enforced via usrquota"
+    },
+    {
+      "name": "Encryption Keys",
+      "status": "pass",
+      "severity": "critical"
+    },
+    {
+      "name": "Offsite Backups",
+      "status": "warning",
+      "severity": "warning",
+      "message": "No offsite backup policy detected"
+    },
+    {
+      "name": "TLS Configuration",
+      "status": "pass",
+      "severity": "critical"
+    }
+  ]
+}
+```
+
+Use this endpoint in deployment automation to validate prerequisites before routing traffic to StePanel.
 
 ## Blocking Issues for Multi-Tenant Production
 

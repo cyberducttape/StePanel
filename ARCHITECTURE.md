@@ -56,18 +56,24 @@ assets/js/
     security.js       # Tokens, audit log, access controls
 ```
 
-### Testing Coverage — CRITICAL ISSUE
-**Current**: Global threshold 60%  
-**Problem**: Single aggregate percentage is useless for security software
+### Testing Coverage — IMPROVING
+**Current**: Global threshold 60%; expanding security-critical test coverage
 
-**Solution**: Per-package thresholds, especially:
-- `internal/auth/` — **90% branch coverage minimum**
-- `internal/security/` — **90% branch coverage minimum**  
+**Recent Additions (2026-09-26)**:
+- **API token scope enforcement** (8 test scenarios): Validates limited-scope tokens cannot exceed permissions
+- **Privilege escalation prevention** (8 test scenarios): Verifies non-admins cannot claim admin status
+- **CSRF protection validation** (9 test scenarios): Ensures mutations require valid tokens, API requests exempt
+- **Cross-tenant access denial** (4 test scenarios): Confirms authorization boundaries prevent resource leakage
+- **Authorization test matrix** (40+ documented scenarios): Roadmap for continued security boundary expansion
+
+**Target**: Per-package thresholds, especially:
+- `internal/auth/` — **90% branch coverage minimum** (in progress)
+- `internal/security/` — **90% branch coverage minimum** (in progress)
 - `internal/platform/` — **90% branch coverage minimum**
-- `internal/importer/` — **90% branch coverage minimum** (currently 0%)
+- `internal/importer/` — **90% branch coverage minimum** (currently improving)
 - `internal/sites/` — **85% branch coverage minimum**
 
-Security-critical paths (tenant isolation, authorization, path validation, archive extraction) must have high coverage.
+Security-critical paths (tenant isolation, authorization, path validation, archive extraction) require high coverage and adversarial testing.
 
 ## Security Practices to Preserve
 

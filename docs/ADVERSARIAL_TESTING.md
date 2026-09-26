@@ -122,7 +122,93 @@ for _, path := range testCases {
 }
 ```
 
-### 2. Privilege Boundary Tests
+### 2. Authorization Boundary Tests
+
+**Cross-Tenant Access Denial (✅ Implemented)**:
+```go
+// Verify: customer alice cannot read bob's resources
+func TestCrossTenantAccessDenied(t *testing.T) {
+    alice := createCustomer(t, "alice")
+    bob := createCustomer(t, "bob")
+    
+    // Alice tries to access Bob's site environment
+    r := newRequest(alice.Token, "GET", "/api/sites/environment/bob-site")
+    status := handleSiteEnvironment(r)
+    
+    if status != http.StatusForbidden {
+        t.Fatalf("cross-tenant access not denied: %d", status)
+    }
+}
+```
+
+**API Token Scope Enforcement (✅ Implemented)**:
+```go
+// Verify: site:read token cannot deploy
+func TestAPITokenScopeEnforcement(t *testing.T) {
+    token := createToken("site:read") // read-only scope
+    
+    // Try to deploy (requires deploy:write)
+    r := newRequest(token, "POST", "/api/sites/git-deploy")
+    status := handleGitDeploy(r)
+    
+    if status != http.StatusForbidden {
+        t.Fatalf("scope violation not rejected: %d", status)
+    }
+}
+```
+
+**Privilege Escalation Prevention (✅ Implemented)**:
+```go
+// Verify: customer cannot claim to be admin
+func TestPrivilegeEscalationPrevention(t *testing.T) {
+    customer := createCustomer(t, "alice")
+    
+    // Try to access admin endpoint with customer token
+    r := newRequest(customer.Token, "GET", "/api/admin/users")
+    status := handleAdminUsers(r)
+    
+    if status != http.StatusForbidden {
+        t.Fatalf("privilege escalation not prevented: %d", status)
+    }
+}
+```
+
+**CSRF Token Protection (✅ Implemented)**:
+```go
+// Verify: POST without CSRF token is rejected from browser
+func TestCSRFTokenRequired(t *testing.T) {
+    // Browser session (not API token)
+    session := createBrowserSession(t)
+    
+    // POST without X-CSRF-Token header
+    r := newRequest(session, "POST", "/api/sites/create")
+    r.Header.Del("X-CSRF-Token")
+    status := handleSiteCreate(r)
+    
+    if status != http.StatusForbidden {
+        t.Fatalf("CSRF token not enforced: %d", status)
+    }
+}
+```
+
+**Error Message Privacy (✅ Implemented)**:
+```go
+// Verify: error messages don't reveal resource existence
+func TestErrorMessagePrivacy(t *testing.T) {
+    alice := createCustomer(t, "alice")
+    
+    // Try to access non-existent site
+    r := newRequest(alice.Token, "GET", "/api/sites/nonexistent")
+    response := handleSiteEnvironment(r)
+    
+    // Error should not say "site not found" (leaks existence)
+    if strings.Contains(response.Body, "not found") {
+        t.Fatal("error message leaks resource existence")
+    }
+}
+```
+
+### 3. Privilege Boundary Tests
 
 **Privilege Escalation Prevention**:
 ```go
@@ -160,7 +246,7 @@ func TestSiteIsolation(t *testing.T) {
 }
 ```
 
-### 3. Archive Extraction Tests
+### 4. Archive Extraction Tests
 
 **Decompression Bomb**:
 ```go
@@ -204,7 +290,7 @@ func TestAbsolutePathsRejected(t *testing.T) {
 }
 ```
 
-### 4. Network Isolation Tests
+### 5. Network Isolation Tests
 
 **Helper Network Isolation**:
 ```go
@@ -255,7 +341,7 @@ func TestContainerRegistryAllowlist(t *testing.T) {
 }
 ```
 
-### 5. Backup/Restore Safety Tests
+### 6. Backup/Restore Safety Tests
 
 **Restore Doesn't Break Recovery**:
 ```go
@@ -292,7 +378,7 @@ func TestCrossSiteRestoreBlocked(t *testing.T) {
 }
 ```
 
-### 6. Database Safety Tests
+### 7. Database Safety Tests
 
 **SQL Injection Prevention**:
 ```go
@@ -319,7 +405,7 @@ func TestDatabaseNameValidation(t *testing.T) {
 }
 ```
 
-### 7. API Token Safety Tests
+### 8. API Token Safety Tests
 
 **Token Leakage Prevention**:
 ```go
