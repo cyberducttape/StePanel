@@ -1,55 +1,127 @@
-# StePanel Refactoring Roadmap: Complete Four-Phase Plan
+# StePanel Refactoring Roadmap
 
-**Goal:** Transform StePanel from a 36,000-line monolithic root package into a well-organized, testable, maintainable codebase with clear domain boundaries.
+**Goal:** Transform StePanel from a ~150-file root package into a well-organized, testable, maintainable codebase with clear domain boundaries.
 
-**Timeline:** 4 releases across 6-12 months  
-**Status:** Phase 1 ✅ Complete | Phase 2 (Partial) | Phase 3 (Planned) | Phase 4 (Planned)
+**Current State:** 150 root files, ~2.5MB. Proven domains (sites, jobs, audit) demonstrate value of clear boundaries.
+
+**Strategy:** Incremental extraction as features are modified. Never disruptive rewrites.  
+**Timeline:** 6-9 weeks (phases 1-4)  
+**Status:** Phase 0 ✅ Complete | Phase 1-4 (Planned)
 
 ---
 
-## Phase 1: Governance & Standards (v0.7.0) ✅
+## Phase 0: Strategic Foundation (2026-09-26) ✅
 
-**Status:** Complete | **Commits:** 20 | **Timeline:** 2 weeks
+**Status:** Complete | **Timeline:** 1 day
 
-### What Phase 1 Accomplished
+### What Phase 0 Accomplished
 
-Established the foundation for all future refactoring:
+Validated the refactoring need and created the strategic plan:
 
-1. **Code Quality Standards** (`CLAUDE.md`)
-   - Tier 1 requirements for filesystem operations, archive extraction, error handling
-   - Domain boundary interfaces pattern
-   - Code review checklist (80+ points)
+1. **Gate 1 Verification** (One Lifecycle Authority)
+   - Audited all 8 CRITICAL files + 3 HIGH priority files
+   - Verified 11/11 files architecturally compliant
+   - Confirmed staging vs. canonical site distinction is properly enforced
+   - **Finding:** Architecture is sound; refactoring is purely organizational
 
-2. **Architecture Documentation**
-   - Identified Tier 1 vs Tier 2 code quality gaps
-   - Mapped 36K lines into logical domains
-   - Planned 4-phase extraction roadmap
+2. **Root Package Analysis**
+   - Confirmed 150 Go files in root package
+   - Identified tight coupling between domains (auth, accounts, sites, backup, deploy)
+   - Created dependency map showing extraction challenges
 
-3. **Production Readiness**
-   - Deployment classification (Dev → GA)
-   - Security & reliability fixes (18 issues resolved)
-   - Pre-migration analysis tool spec (Migration Doctor)
+3. **Strategic Documentation**
+   - Updated CLAUDE.md with incremental refactoring strategy
+   - Identified "do NOT do big rewrites" principle
+   - Created Phase 1-4 roadmap with clear success criteria
 
-4. **CI/CD Improvements**
-   - Documentation link checker (scripts/check-docs-links.sh)
-   - CI gates for code quality
+4. **Foundation Work**
+   - Created `internal/accounts/store.go` (domain logic extracted, ~1200 lines)
+   - Demonstrated feasible extraction pattern
+   - Identified bridge function pattern for dependencies
 
-### Key Decisions Made
+### Phase 0 Key Decision
 
-- **Backward compatibility mandatory** — Wrapper functions maintain existing APIs during extraction
-- **Domain interfaces** — Every domain exports only interfaces, not implementation details
-- **Dependency injection** — Config passed to domains, not global state
-- **Interface-driven testing** — Mocks for all privileged operations
+**Incremental extraction over Big Rewrite:** Extract domains as they're modified, not all at once. This reduces risk and maintains stability while achieving the refactoring goal.
+
+### Phase 0 Output
+
+```
+✅ CLAUDE.md               — Updated with refactoring strategy
+✅ internal/accounts/      — Started (store.go created)
+✅ REFACTORING_ROADMAP.md  — This document (updated with realistic phasing)
+✅ Gate 1 Audit Complete   — Confirms architecture is sound
+```
+
+---
+
+## Phase 1: Extract Core Domains (2-3 weeks)
+
+**Status:** Not started | **Timeline:** 2-3 weeks | **Risk:** Low
+
+### What Phase 1 Extracts
+
+Two foundation domains that unblock everything else:
+
+1. **internal/accounts/** (from root/accounts.go)
+   - Extract AccountStore, HostingAccount, HostingPlan types (~800 lines)
+   - Create accounts.Service interface
+   - Move HTTP handlers to internal/http/accounts.go
+   - Result: accounts.go reduced from 1330 to <200 lines
+
+2. **internal/security/** (from root/auth.go)
+   - Extract Auth type, login/logout logic
+   - Extract CSRF, scope checking, capabilities
+   - Create auth.Service interface
+   - Move HTTP handlers to internal/http/auth.go
+   - Result: auth.go reduced from ~500 to <100 lines
+
+### Success Criteria
+
+- ✅ All tests pass
+- ✅ root/accounts.go reduced to <200 lines (HTTP handlers only)
+- ✅ root/auth.go reduced to <100 lines (HTTP handlers only)
+- ✅ Zero circular dependencies
+- ✅ HTTP handlers in internal/http/ can be understood independently
+
+### Phase 1 Key Decision: Bridge Functions
+
+During extraction, have root provide dependency injection:
+
+```go
+// root/main.go
+func setupAccounts(cfg Config) *accounts.Service {
+    store, _ := accounts.NewStore(cfg.AccountPath)
+    return &accounts.Service{
+        Store: store,
+        HashPassword: hashPassword,  // from root/helpers.go
+    }
+}
+```
+
+This allows incremental extraction without requiring helpers to move immediately.
 
 ### Phase 1 Output
 
 ```
-✅ CLAUDE.md                       — Code quality standards (Tier 1)
-✅ ARCHITECTURE_ROADMAP.md         — Planned package structure
-✅ PRODUCTION_READINESS.md         — Deployment guide
-✅ 18 security/reliability fixes   — CHANGELOG documented
-✅ CI docs-link checker            — CI gate added
+internal/accounts/
+  store.go           — Account storage (already created!)
+  service.go         — AccountService interface (NEW)
+  
+internal/security/
+  auth.go            — Auth type and login/logout
+  tokens.go          — API token validation
+  
+internal/http/
+  auth.go            — Login/logout handlers (NEW)
+  accounts.go        — Account CRUD handlers (NEW)
 ```
+
+### Why Start with Accounts & Security
+
+- ✅ Accounts/store.go already created (foundation laid)
+- ✅ Auth depends on Accounts, so extraction order is clear
+- ✅ Low risk: changes don't cascade to other domains
+- ✅ Unblocks Phase 2 (deploy, backup, database all depend on accounts)
 
 ---
 

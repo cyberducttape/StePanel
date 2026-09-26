@@ -286,6 +286,77 @@ See [ARCHITECTURE_ROADMAP.md](docs/ARCHITECTURE_ROADMAP.md) for planned internal
 
 New code should be placed in appropriate `internal/` package based on domain, not in root package.
 
+## Package Refactoring Strategy
+
+### Current State
+
+The root package contains ~150 Go files (~2.5MB), which creates maintenance and review challenges:
+- Hard to locate authorization checks (scattered across files)
+- Hard to understand privilege boundaries
+- Hard to trace which code mutations canonical site state
+- Slows down security and architecture reviews
+
+The mature subsystems (sites, jobs, auth, backups) prove the value of clear boundaries.
+
+### Refactoring Goal
+
+Organize root package into domain-specific packages under `internal/`:
+
+```
+internal/
+  accounts/      ← Customer identity and site ownership
+  security/      ← Authentication, CSRF, scopes, capabilities
+  http/          ← HTTP handlers organized by domain
+  sites/         ← Site lifecycle (already exists - keep expanding)
+  deployment/    ← Git deploy, release pipeline, artifacts
+  backup/        ← Backup, restore, archive operations
+  database/      ← Database provisioning, restoration
+  jobs/          ← Durable job system
+  ...
+```
+
+### Strategy: Incremental Extraction (Not a Big Rewrite)
+
+Instead of rewriting large sections:
+
+1. **Extract domains as they're touched**: When modifying feature X, extract its domain package
+2. **Keep HTTP handlers unified initially**: Extract auth/accounts/sites, but leave HTTP wiring in root temporarily
+3. **Validate with tests**: Before committing a large extraction, verify no functionality breaks
+4. **Use bridge functions**: Have root provide dependency injection until domains are fully separated
+
+### Why This Works
+
+- **No disruptive rewrite**: Working code stays working
+- **Incremental risk**: Test each extraction independently
+- **Clear ownership**: As domains extract, their boundaries become self-evident
+- **Measurable progress**: Each extraction reduces root package size
+
+### Not Recommended
+
+❌ **Single big refactor** of all 150 files at once — too risky, too expensive
+❌ **Forced artificial splits** that don't match actual domain boundaries
+❌ **Leaving root code in internal/** — that defeats the purpose
+
+### Example: Accounts Domain Extraction
+
+```go
+// Before: HTTP handler + account logic in root/accounts.go
+func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
+    account, err := a.Accounts.Update(...)  // domain logic mixed with HTTP
+}
+
+// After: Domain logic in internal/accounts/, HTTP handler in root/accounts.go
+func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
+    account, err := a.accountsService.Update(...)  // delegate to domain
+}
+
+// internal/accounts/service.go
+type Service struct { store *Store }
+func (s *Service) Update(...) { ... }
+```
+
+The extraction happens **one domain at a time**, with clear interfaces between root and internal packages.
+
 ## Standards Enforcement
 
 - **Pre-commit hook** (planned): Syntax check, format check
