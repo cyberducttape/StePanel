@@ -476,17 +476,13 @@ func validateEncryptionKey(key string, name string) error {
 	trimmed := strings.TrimSpace(key)
 
 	// Check if key looks like it could be a human-typed password
-	// by analyzing character distribution and patterns
+	// by analyzing character distribution
 	hasLower := false
 	hasUpper := false
 	hasDigit := false
 	hasSpecial := false
-	asciiOnly := true
 
 	for _, r := range trimmed {
-		if r > 127 {
-			asciiOnly = false
-		}
 		if r >= 'a' && r <= 'z' {
 			hasLower = true
 		} else if r >= 'A' && r <= 'Z' {
@@ -499,37 +495,32 @@ func validateEncryptionKey(key string, name string) error {
 	}
 
 	// Red flags for human-typed passwords:
-	// 1. Only ASCII (random keys often have extended/binary patterns when base64-encoded)
-	// 2. Too much structure (balanced mix of only a few character types)
-	// 3. Only lowercase (common pattern: users type "password123")
-	if !asciiOnly {
-		// Non-ASCII bytes are actually OK - could be binary key encoded
-		// This is less of a red flag
-	}
-
-	// If the key is pure lowercase or pure uppercase, it's very likely human-typed
-	if asciiOnly && hasLower && !hasUpper && !hasDigit && !hasSpecial {
-		return fmt.Errorf("%s appears to be a human-typed password, not a machine-generated encryption key. "+
+	// 1. Only lowercase or only uppercase (very predictable)
+	// 2. Only letters + numbers (no special characters - typical password pattern)
+	if hasLower && !hasUpper && !hasDigit && !hasSpecial {
+		return fmt.Errorf("%s appears to be pure lowercase text, not a machine-generated encryption key. "+
 			"Generate with: openssl rand -hex 32", name)
 	}
 
-	if asciiOnly && !hasLower && hasUpper && !hasDigit && !hasSpecial {
-		return fmt.Errorf("%s appears to be a human-typed password, not a machine-generated encryption key. "+
+	if hasUpper && !hasLower && !hasDigit && !hasSpecial {
+		return fmt.Errorf("%s appears to be pure uppercase text, not a machine-generated encryption key. "+
 			"Generate with: openssl rand -hex 32", name)
 	}
 
-	// Check for common password patterns (like "password", "secret", etc.)
-	commonPatterns := []string{
-		"password", "secret", "key", "admin", "user", "pass",
-		"abc", "123", "test", "demo", "temp", "tmp",
-	}
-
-	lowerKey := strings.ToLower(trimmed)
-	for _, pattern := range commonPatterns {
-		if strings.Contains(lowerKey, pattern) {
-			return fmt.Errorf("%s contains common password pattern %q; "+
-				"must be machine-generated randomness. "+
-				"Generate with: openssl rand -hex 32", name, pattern)
+	// If it's ONLY letters (no digits, no special chars, no variety), it's likely a dictionary phrase
+	if (hasLower || hasUpper) && !hasDigit && !hasSpecial {
+		// This might be a passphrase, which has some entropy if it's long enough
+		// Only flag if it looks like a common word
+		lowerKey := strings.ToLower(trimmed)
+		singleWords := []string{
+			"password", "secret", "admin", "user", "test", "demo", "temp",
+		}
+		for _, word := range singleWords {
+			if lowerKey == word || lowerKey == word+"123" || lowerKey == word+"456" {
+				return fmt.Errorf("%s appears to be a common password; "+
+					"must be machine-generated randomness. "+
+					"Generate with: openssl rand -hex 32", name)
+			}
 		}
 	}
 
