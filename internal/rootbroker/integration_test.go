@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 )
 
 // TestIntegration_RPCRoundTrip tests complete RPC communication flow.
@@ -273,7 +274,10 @@ func TestIntegration_ConcurrentRequests(t *testing.T) {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
 
-	ctx := context.Background()
+	// Use a timeout context to ensure all operations complete
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	numRequests := 10
 	done := make(chan error, numRequests)
 
@@ -305,8 +309,13 @@ func TestIntegration_ConcurrentRequests(t *testing.T) {
 
 	// Wait for all goroutines and check for errors
 	for i := 0; i < numRequests; i++ {
-		if err := <-done; err != nil {
-			t.Errorf("Concurrent request failed: %v", err)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("Concurrent request %d failed: %v", i, err)
+			}
+		case <-ctx.Done():
+			t.Fatalf("Test timeout waiting for concurrent requests")
 		}
 	}
 }
