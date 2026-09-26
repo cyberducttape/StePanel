@@ -9,14 +9,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Broker is the root-privileged operations handler.
 // All operations are strongly-typed and validated before execution.
 type Broker struct {
-	webRoot   string
-	validator *Validator
-	logger    *log.Logger
+	webRoot      string
+	recoveryRoot string
+	validator    *Validator
+	logger       *log.Logger
 }
 
 // NewBroker creates a new root broker.
@@ -27,10 +29,13 @@ func NewBroker(webRoot string, logger *log.Logger) (*Broker, error) {
 	if logger == nil {
 		logger = log.New(os.Stderr, "[rootbroker] ", log.LstdFlags)
 	}
+	// Use /var/lib/stepanel/recovery as default recovery root
+	recoveryRoot := "/var/lib/stepanel/recovery"
 	return &Broker{
-		webRoot:   webRoot,
-		validator: NewValidator(webRoot),
-		logger:    logger,
+		webRoot:      webRoot,
+		recoveryRoot: recoveryRoot,
+		validator:    NewValidator(webRoot),
+		logger:       logger,
 	}, nil
 }
 
@@ -109,24 +114,95 @@ func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, e
 	// Generate site user
 	siteUser := b.generateSiteUser(req.Site)
 
-	b.logger.Printf("creating site: user=%s root=%s", siteUser, siteRoot)
+	// Use site name as job ID for journaling. In real usage, this comes from
+	// the durable job system. Here we use the site name for simplicity.
+	jobID := "site-create-" + req.Site
+	actor := "root"
 
-	// Create system user
-	if err := b.createSystemUser(ctx, siteUser, siteRoot); err != nil {
-		b.logger.Printf("failed to create user: %v", err)
-		return &Response{OK: false, Error: fmt.Sprintf("user creation failed: %v", err)}, nil
+	b.logger.Printf("creating site: user=%s root=%s jobID=%s", siteUser, siteRoot, jobID)
+
+	// Load or create durable journal for this site creation
+	journal, err := loadOrCreateCreationJournal(b.recoveryRoot, jobID, req.Site, actor)
+	if err != nil {
+		b.logger.Printf("failed to load creation journal: %v", err)
+		return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
 	}
 
-	// Create site directories
-	if err := os.MkdirAll(filepath.Join(siteRoot, "public"), 0o750); err != nil {
-		b.siteDelete(ctx, req) // Attempt cleanup
-		return &Response{OK: false, Error: fmt.Sprintf("directory creation failed: %v", err)}, nil
+	// Step 1: Initialize (create system user, base directories)
+	if !journal.isComplete(stepInitialized) {
+		if err := b.createSystemUser(ctx, siteUser, siteRoot); err != nil {
+			b.logger.Printf("failed at init: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("user creation failed: %v", err)}, nil
+		}
+
+		// Create base directory structure
+		subdirs := []string{
+			filepath.Join(siteRoot, "public"),
+			filepath.Join(siteRoot, ".config"),
+			filepath.Join(siteRoot, ".cache"),
+		}
+		for _, dir := range subdirs {
+			if err := os.MkdirAll(dir, 0o750); err != nil {
+				b.logger.Printf("failed to create directory %s: %v", dir, err)
+				return &Response{OK: false, Error: fmt.Sprintf("directory creation failed: %v", err)}, nil
+			}
+		}
+
+		// Mark step complete in journal
+		if err := journal.markComplete(stepInitialized); err != nil {
+			b.logger.Printf("failed to journal init: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		}
+	} else {
+		b.logger.Printf("skipping init (already complete)")
 	}
 
-	// Set proper ownership
-	if err := b.setOwnership(siteRoot, siteUser, "www-data"); err != nil {
-		b.siteDelete(ctx, req) // Attempt cleanup
-		return &Response{OK: false, Error: fmt.Sprintf("ownership change failed: %v", err)}, nil
+	// Step 2: Persist metadata
+	if !journal.isComplete(stepPersisted) {
+		// Create metadata file with site configuration
+		metadataPath := filepath.Join(siteRoot, ".metadata")
+		metadata := map[string]interface{}{
+			"site":       req.Site,
+			"user":       siteUser,
+			"created_at": time.Now().UTC(),
+		}
+		metadataJSON, _ := json.Marshal(metadata)
+		if err := writeAtomicBroker(metadataPath, metadataJSON, 0600); err != nil {
+			b.logger.Printf("failed to persist metadata: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("metadata persistence failed: %v", err)}, nil
+		}
+
+		// Mark step complete in journal
+		if err := journal.markComplete(stepPersisted); err != nil {
+			b.logger.Printf("failed to journal persist: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		}
+	} else {
+		b.logger.Printf("skipping persist (already complete)")
+	}
+
+	// Step 3: Set proper ownership (this is actually part of initialization,
+	// but we journal it separately for fine-grained recovery tracking)
+	if !journal.isComplete(stepCompleted) {
+		if err := b.setOwnership(siteRoot, siteUser, "www-data"); err != nil {
+			b.logger.Printf("failed to set ownership: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("ownership change failed: %v", err)}, nil
+		}
+
+		// Mark completion in journal
+		if err := journal.markComplete(stepCompleted); err != nil {
+			b.logger.Printf("failed to journal completion: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		}
+	} else {
+		b.logger.Printf("skipping completion (already complete)")
+	}
+
+	// All steps complete: clean up journal
+	if err := journal.cleanup(); err != nil {
+		b.logger.Printf("warning: failed to cleanup journal: %v", err)
+		// Don't fail the operation if journal cleanup fails - the operation
+		// already succeeded and was properly journaled
 	}
 
 	resp := SiteResponse{
