@@ -27,8 +27,8 @@ func DefaultTimeouts() TimeoutConfiguration {
 	return TimeoutConfiguration{
 		// Ordinary API: fast requests should complete in seconds
 		// Includes: site management, database queries, job listing
-		APIRead:  10 * time.Second,
-		APIWrite: 10 * time.Second,
+		APIRead:  30 * time.Second,
+		APIWrite: 2 * time.Minute,
 
 		// Long-polling: client waiting for updates
 		// Includes: activity feed polling, status updates
@@ -36,11 +36,14 @@ func DefaultTimeouts() TimeoutConfiguration {
 
 		// Uploads: large archive transfer with network variance
 		// Includes: cpmove backups (20GB limit), WPress archives, imports
-		UploadRead: 30 * time.Minute,
+		// Note: uploads should ideally be async (return 202), but this supports
+		// streaming for backward compatibility. Paired with upload quotas and
+		// concurrent limits to prevent resource exhaustion.
+		UploadRead: 5 * time.Minute,
 
 		// Downloads: large file transfers
 		// Includes: backup downloads, export streams
-		DownloadWrite: 20 * time.Minute,
+		DownloadWrite: 5 * time.Minute,
 	}
 }
 

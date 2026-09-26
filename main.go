@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/audit"
 	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
+	httputil "github.com/cyberducttape/StePanel/internal/http"
 	"github.com/cyberducttape/StePanel/internal/metadata"
 	"github.com/cyberducttape/StePanel/internal/operations"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
@@ -700,7 +701,29 @@ func main() {
 	mux.Handle("/metrics", allowMethods(metricsHandler, http.MethodGet, http.MethodHead))
 	// Wrap with security headers middleware (must be outermost)
 	secureHandler := securityHeadersMiddleware(cfg)(logging(normalizeAPIErrors(mux), app.Metrics, cfg.Production))
-	server := &http.Server{Addr: cfg.Listen, Handler: secureHandler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+
+	// Configure differentiated timeouts to prevent malicious clients from holding
+	// connections. Normal API requests use short timeouts; uploads/downloads use
+	// longer timeouts. This prevents resource exhaustion from slow uploads.
+	server := &http.Server{
+		Addr:           cfg.Listen,
+		Handler:        secureHandler,
+		MaxHeaderBytes: 1 << 20, // 1 MiB
+	}
+
+	// Apply default timeout configuration
+	timeoutCfg := httputil.DefaultTimeouts()
+	timeoutCfg.ApplyToServer(server)
+
+	// Override with more aggressive defaults
+	// ReadHeaderTimeout: 5s (prevent slowloris attacks)
+	// ReadTimeout: 30s (normal API requests should complete quickly)
+	// WriteTimeout: 2m (allow time for response generation)
+	// IdleTimeout: 30s (close idle connections)
+	server.ReadHeaderTimeout = 5 * time.Second
+	server.ReadTimeout = 30 * time.Second
+	server.WriteTimeout = 2 * time.Minute
+	server.IdleTimeout = 30 * time.Second
 	serverStarted := make(chan struct{})
 	go func() {
 		log.Printf("StePanel listening on %s", cfg.Listen)
