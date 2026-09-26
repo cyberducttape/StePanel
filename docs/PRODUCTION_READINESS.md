@@ -42,15 +42,16 @@ StePanel v0.7.0 is suitable for controlled evaluation and operator-led staging. 
 
 | Workflow | Files | Database | Mail | Config | Rollback | Notes |
 |----------|-------|----------|------|--------|----------|-------|
-| **cpmove** | ✅ Full | ✅ Staged | ✅ Yes | ✅ Transform | ✅ Transactional | Most complete workflow |
-| **WordPress Import** | ✅ Full | ✅ Full | N/A | ✅ Transform | ✅ Transactional | WP-specific optimizations |
-| **Generic Archive** | ✅ Full | ✅ Optional automated | ⚠️ Manual when no credentials | ✅ Transform | ✅ Transactional | Automatic managed restore requires `auto_restore_db` and a valid database password |
-| **Git Deployment** | ✅ Full | N/A | N/A | ✅ Config | ✅ Git-based | Application-driven |
+| **cpmove** | ✅ Implemented | ✅ Staged | ✅ Yes | ✅ Transform | ✅ Journaled | Most complete; recovery-tested |
+| **WordPress Import** | ✅ Implemented | ✅ Implemented | N/A | ✅ Transform | ✅ Journaled | WP-specific optimizations; pending certification gate |
+| **Generic Archive** | ✅ Implemented | ✅ Optional automated | ⚠️ Manual when no credentials | ✅ Transform | ✅ Journaled | Automatic managed restore requires `auto_restore_db` and valid database password; pending certification gate |
+| **Git Deployment** | ✅ Implemented | N/A | N/A | ✅ Config | ✅ Git-based | Application-driven; pending certification gate |
 
 **Legend:**
-- ✅ = Fully supported
-- ⚠️ = Partially supported or manual step required
-- ❌ = Not supported
+- ✅ **Implemented** = Code complete; feature is functional
+- ⚠️ **Partially supported** = Implemented with manual workarounds or conditional requirements
+- ❌ **Not supported** = Not implemented
+- **Journaled** = Staged filesystem activation with recovery journal; not ACID across all resources
 - N/A = Not applicable to this workflow
 
 ### Generic Archive Importer
@@ -61,11 +62,18 @@ The generic archive importer supports file migration and optional automated mana
 - ✅ File extraction with permission preservation
 - ✅ Configuration file updates
 - ✅ Database dump location and validation
-- ✅ Recovery transaction journaling (v0.7.0)
+- ✅ Recovery journal staging (v0.7.0) — enables rollback on failure
 - ✅ Automated database restoration when `auto_restore_db` and a valid database password are supplied
 - ⚠️ Without credentials, the SQL dump remains an explicit operator follow-up
 - ❌ Mail system migration
-- ✅ Transactional guarantees
+- ✅ Journaled staged activation with rollback — filesystem and database operations staged, recovery journal enables rollback on failure before activation to production
+
+**About "Journaled Staged Activation":**
+StePanel provides filesystem and database staging with recovery journals that enable rollback *before* activating to production. This is NOT an ACID transaction across the entire system (filesystem, database, systemd services, webserver, audit log, state store). An SRE must understand that:
+- Filesystem is staged in a private directory before rename to production
+- Database is prepared and validated before connection switch
+- If activation is interrupted, recovery journals enable cleanup and retry
+- Once activated to production, there is no automatic rollback; restoration uses backup workflows
 
 Use generic archive import for:
 - Migrating sites from other hosting providers
