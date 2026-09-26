@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // migrationAnalysisRequest is the input for migration analysis
@@ -481,4 +482,22 @@ func (a *App) mockServerInventory(label string, hostname string) doctor.ServerIn
 			{Type: "Redis", Description: "Redis Cache", Host: "localhost", Port: 6379, Reachable: true},
 		},
 	}
+}
+
+// resourceStatus handles resource utilization requests
+func (a *App) resourceStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	status := a.ResourceBudget.Status()
+
+	response := map[string]any{
+		"timestamp":       time.Now().UTC(),
+		"resource_budget": status,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

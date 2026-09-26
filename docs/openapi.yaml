@@ -373,6 +373,12 @@ paths:
       description: Check if the deployment meets production requirements including filesystem quotas, encryption keys, TLS, and offsite backups
       responses:
         '200': {description: Production readiness report with status of each requirement}
+  /api/admin/resources/status:
+    get:
+      summary: Host resource allocation and utilization
+      description: Report current workload class utilization to prevent host I/O bottlenecks. Shows active concurrent operations per workload type (uploads, backups, extractions, malware scans, builds, database restores).
+      responses:
+        '200': {description: Resource budget status with per-workload-class utilization}
   /api/security/scan:
     post:
       summary: Scan a managed site for suspicious PHP

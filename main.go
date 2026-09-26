@@ -53,6 +53,7 @@ type App struct {
 	Resources                *ResourceStore
 	Webhooks                 *WebhookConfigStore
 	BackupIndex              *metadata.BackupIndex
+	ResourceBudget           *ResourceBudget
 	databaseDiagnosticsMu    sync.Mutex
 	databaseDiagnosticsCache DatabaseDiagnostics
 	gitActivationMu          sync.Mutex
@@ -575,8 +576,7 @@ func main() {
 		}
 	}()
 	mux := http.NewServeMux()
-	expensive := make(chan struct{}, 4)
-	uploads := make(chan struct{}, max(1, cfg.MaxConcurrentJobs))
+	app.ResourceBudget = NewResourceBudget(cfg.MaxConcurrentJobs)
 	mux.Handle("/livez", allowMethods(http.HandlerFunc(app.livez), http.MethodGet, http.MethodHead))
 	mux.Handle("/readyz", allowMethods(http.HandlerFunc(app.readyz), http.MethodGet, http.MethodHead))
 	mux.Handle("/static/", allowMethods(http.StripPrefix("/static/", http.FileServer(http.FS(staticAssets))), http.MethodGet, http.MethodHead))
@@ -606,7 +606,7 @@ func main() {
 	mux.Handle("/api/cloud/snapshots", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.cloudSnapshots)), http.MethodGet, http.MethodHead, http.MethodDelete))
 	mux.Handle("/api/ssh", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.sshInventory)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/ssh/action", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.sshAction)), http.MethodPost))
-	mux.Handle("/api/security/scan", allowMethods(app.Auth.RequireAdministrator(limitConcurrent(http.HandlerFunc(app.malwareScan), expensive)), http.MethodPost))
+	mux.Handle("/api/security/scan", allowMethods(app.Auth.RequireAdministrator(app.limitConcurrentResource(http.HandlerFunc(app.malwareScan), "malware_scan")), http.MethodPost))
 	mux.Handle("/api/certificates/issue", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.issueCertificate)), http.MethodPost))
 	mux.Handle("/api/node/versions", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.nodeVersions)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/node/select", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.selectNode)), http.MethodPost))
@@ -667,10 +667,10 @@ func main() {
 	mux.Handle("/api/sites/git-rollback", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.gitRollback)), http.MethodPost))
 	mux.Handle("/api/caddy/htaccess", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.htaccessMigration)), http.MethodPost))
 	mux.Handle("/api/apps/", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.appAction)), http.MethodPost))
-	mux.Handle("/api/cpmove/inspect", allowMethods(app.Auth.RequireAdministrator(limitConcurrent(http.HandlerFunc(app.inspect), expensive)), http.MethodPost))
-	mux.Handle("/api/cpmove/import", allowMethods(app.Auth.RequireAdministrator(limitConcurrent(http.HandlerFunc(app.importBackup), uploads)), http.MethodPost))
+	mux.Handle("/api/cpmove/inspect", allowMethods(app.Auth.RequireAdministrator(app.limitConcurrentResource(http.HandlerFunc(app.inspect), "extract")), http.MethodPost))
+	mux.Handle("/api/cpmove/import", allowMethods(app.Auth.RequireAdministrator(app.limitConcurrentResource(http.HandlerFunc(app.importBackup), "extract")), http.MethodPost))
 	mux.Handle("/api/wpress/preflight", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.wpressPreflight)), http.MethodGet, http.MethodHead))
-	mux.Handle("/api/wpress/import", allowMethods(app.Auth.RequireAdministrator(limitConcurrent(http.HandlerFunc(app.wpressImport), uploads)), http.MethodPost))
+	mux.Handle("/api/wpress/import", allowMethods(app.Auth.RequireAdministrator(app.limitConcurrentResource(http.HandlerFunc(app.wpressImport), "extract")), http.MethodPost))
 	mux.Handle("/api/wordpress/status/", allowMethods(app.Auth.Require(http.HandlerFunc(app.wordpressStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/wordpress/", allowMethods(app.Auth.Require(http.HandlerFunc(app.wordpressAction)), http.MethodPost))
 	mux.Handle("/api/accounts", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.accounts)), http.MethodGet, http.MethodHead, http.MethodPost))
@@ -681,6 +681,7 @@ func main() {
 	mux.Handle("/api/admin/migration-doctor", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationDoctor)), http.MethodPost))
 	mux.Handle("/api/admin/migration-doctor/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationAnalysisStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/production-readiness", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.productionReadiness)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/admin/resources/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.resourceStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/archive/inspect", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.inspectArchive)), http.MethodPost))
 	mux.Handle("/api/admin/archive/inspect/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.inspectArchiveStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/archive/import", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.archiveImportStart)), http.MethodPost))
@@ -1347,15 +1348,16 @@ func allowMethods(next http.Handler, methods ...string) http.Handler {
 	})
 }
 
-func limitConcurrent(next http.Handler, slots chan struct{}) http.Handler {
+// limitConcurrentResource enforces per-workload-class concurrency limits from the global
+// resource budget. This prevents any single workload type from starving others by
+// overwhelming the host I/O or connection pools. Returns 429 if budget is exhausted.
+func (a *App) limitConcurrentResource(next http.Handler, workloadClass string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case slots <- struct{}{}:
-			defer func() { <-slots }()
-		default:
+		if !a.ResourceBudget.AcquireSlot(workloadClass) {
 			http.Error(w, "server is busy; retry shortly", http.StatusTooManyRequests)
 			return
 		}
+		defer a.ResourceBudget.ReleaseSlot(workloadClass)
 		next.ServeHTTP(w, r)
 	})
 }
