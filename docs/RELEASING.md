@@ -1,12 +1,16 @@
 # Releasing StePanel
 
-The next release is `v0.7.0`, focused on isolation, recovery, and operational
-consistency. The repository's documentation on `main` is release preparation
-for that version. Release tags must match the version recorded in `version.go`.
+Release tags must match the version recorded in `version.go`. This document
+describes the release procedure, applicable to any version.
 
-1. Update `version.go`, `CHANGELOG.md`, and any migration notes. Keep the
-   Helm, Kubernetes, Terraform, and OpenAPI versions synchronized with
-   `version.go`.
+## Release Checklist
+
+1. Update `version.go` with the new version number. Keep the following
+   synchronized with `version.go`:
+   - `CHANGELOG.md` (add entry for this version)
+   - Any migration notes or upgrade guides
+   - Helm, Kubernetes, Terraform chart versions
+   - OpenAPI document version
 2. Run `make audit` to execute formatting, vet, unit tests, race tests,
    repository recovery drills, and release metadata validation. `make
    recovery-drill` can be run separately and writes evidence to

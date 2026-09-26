@@ -1,7 +1,7 @@
 # StePanel
 
-> Documentation version: `v0.7.0` release preparation. Previous stable release:
-> [`v0.6.0`](https://github.com/cyberducttape/StePanel/tree/v0.6.0).
+> Current stable release: [`v0.7.0`](https://github.com/cyberducttape/StePanel/releases/tag/v0.7.0).
+> See [ROADMAP.md](docs/ROADMAP.md) for next version planning.
 
 ![CI](https://github.com/cyberducttape/StePanel/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/cyberducttape/StePanel?display_name=tag) ![License](https://img.shields.io/github/license/cyberducttape/StePanel)
 

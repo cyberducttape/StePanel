@@ -1,8 +1,8 @@
 # Migration Doctor
 
-**Status:** Planned for v0.8.0+
+**Status:** Implemented (v0.7.0+); available at `/api/admin/migration-doctor`
 
-Migration Doctor is a pre-migration analysis tool that evaluates source server compatibility and readiness before beginning a site migration to StePanel.
+Migration Doctor is a pre-migration analysis tool that evaluates source server compatibility and readiness before beginning a site migration to StePanel. The API endpoint accepts SSH connection details to a source server and returns a comprehensive analysis of migration feasibility.
 
 ## Purpose
 
