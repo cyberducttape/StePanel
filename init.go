@@ -183,23 +183,29 @@ func (s *initState) generateSecrets() error {
 }
 
 func (s *initState) writeAndValidateConfig(outputPath string) error {
+	// Helper to escape shell special characters in secret values
+	shellEscape := func(value string) string {
+		// Use single quotes which prevent all expansions, then escape any single quotes
+		return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+	}
+
 	lines := []string{
-		fmt.Sprintf(`STEPANEL_LISTEN="%s"`, s.listen),
-		fmt.Sprintf(`STEPANEL_WEBSERVER="%s"`, s.webServer),
-		fmt.Sprintf(`STEPANEL_WEB_ROOT="%s"`, s.webRoot),
-		fmt.Sprintf(`STEPANEL_DB_ENGINE="%s"`, s.dbEngine),
-		fmt.Sprintf(`STEPANEL_DB_HOST="%s"`, s.dbHost),
-		fmt.Sprintf(`STEPANEL_DB_USER="%s"`, s.dbUser),
-		fmt.Sprintf(`STEPANEL_DB_PASSWORD="%s"`, s.dbPassword),
-		fmt.Sprintf(`STEPANEL_ACCOUNT_KEY="%s"`, s.accountKey),
-		fmt.Sprintf(`STEPANEL_BACKUP_SIGNING_KEY="%s"`, s.backupSigningKey),
-		fmt.Sprintf(`STEPANEL_ENVIRONMENT_KEY="%s"`, s.environmentKey),
-		fmt.Sprintf(`STEPANEL_GIT_WEBHOOK_SECRET="%s"`, s.gitWebhookSecret),
+		fmt.Sprintf(`STEPANEL_LISTEN=%s`, shellEscape(s.listen)),
+		fmt.Sprintf(`STEPANEL_WEBSERVER=%s`, shellEscape(s.webServer)),
+		fmt.Sprintf(`STEPANEL_WEB_ROOT=%s`, shellEscape(s.webRoot)),
+		fmt.Sprintf(`STEPANEL_DB_ENGINE=%s`, shellEscape(s.dbEngine)),
+		fmt.Sprintf(`STEPANEL_DB_HOST=%s`, shellEscape(s.dbHost)),
+		fmt.Sprintf(`STEPANEL_DB_USER=%s`, shellEscape(s.dbUser)),
+		fmt.Sprintf(`STEPANEL_DB_PASSWORD=%s`, shellEscape(s.dbPassword)),
+		fmt.Sprintf(`STEPANEL_ACCOUNT_KEY=%s`, shellEscape(s.accountKey)),
+		fmt.Sprintf(`STEPANEL_BACKUP_SIGNING_KEY=%s`, shellEscape(s.backupSigningKey)),
+		fmt.Sprintf(`STEPANEL_ENVIRONMENT_KEY=%s`, shellEscape(s.environmentKey)),
+		fmt.Sprintf(`STEPANEL_GIT_WEBHOOK_SECRET=%s`, shellEscape(s.gitWebhookSecret)),
 	}
 
 	if s.tlsCertFile != "" {
-		lines = append(lines, fmt.Sprintf(`STEPANEL_TLS_CERT_FILE="%s"`, s.tlsCertFile))
-		lines = append(lines, fmt.Sprintf(`STEPANEL_TLS_KEY_FILE="%s"`, s.tlsKeyFile))
+		lines = append(lines, fmt.Sprintf(`STEPANEL_TLS_CERT_FILE=%s`, shellEscape(s.tlsCertFile)))
+		lines = append(lines, fmt.Sprintf(`STEPANEL_TLS_KEY_FILE=%s`, shellEscape(s.tlsKeyFile)))
 	}
 
 	if s.requireOffsiteBackup {
