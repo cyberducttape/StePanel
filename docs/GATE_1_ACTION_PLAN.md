@@ -31,7 +31,7 @@ Gate 1 requires: ALL site mutations must flow through `SiteManager` (internal/si
 
 ### ✅ COMPLIANT (No action needed)
 
-**Phase 1 Audit Complete (7/8 CRITICAL files verified):**
+**Phase 1 Audit COMPLETE (All 8/8 CRITICAL files verified):**
 
 1. **importer.go** ✅ — Uses `manager.CreateStaging()` + extract + `manager.ActivateStaged()`
 2. **site_lifecycle.go** ✅ — Uses `SiteManager.Delete()` for canonical removal with journal (line 356)
@@ -40,20 +40,7 @@ Gate 1 requires: ALL site mutations must flow through `SiteManager` (internal/si
 5. **backup_restore.go** ✅ — Uses bridge `createSiteManagerStaging()` with recovery journal (line 281)
 6. **release_activation_journal.go** ✅ — Uses `manager.DiscardReleaseStaging()` and `manager.RollbackStagedActivation()` (lines 135, 140, 147)
 7. **git_deploy.go** ✅ — Uses bridge `a.createSiteReleaseStaging()` (line 606)
-
-### 🔄 IN PROGRESS (Under review from other work)
-
-- **release_activation_journal.go** — Recovery journals; may need refactoring
-- **release_pipeline.go** — Release operations; timing-dependent
-
-### ⏳ PENDING (Remaining audit)
-
-#### CRITICAL - Last File to Verify (1 remaining)
-
-1. **release_pipeline.go** (483 lines) — Release operations
-   - [ ] Verify release workflow uses manager staging (check for createSiteReleaseStaging calls)
-   - [ ] Verify atomic release publication pattern
-   - [ ] Document any staging cleanup patterns
+8. **release_pipeline.go** ✅ — Uses bridge `a.createSiteReleaseStaging()`, `a.discardSiteReleaseStaging()`, `a.activateReplacingSite()` (lines 168, 120, 150)
 
 #### HIGH - Staging/Restore Operations (3 files)
 - **staging.go** — Generic staging operations
@@ -80,40 +67,40 @@ Gate 1 requires: ALL site mutations must flow through `SiteManager` (internal/si
 - [ ] Grep audit: no direct file operations on site paths outside manager
 ```
 
-## Next Steps
+## Phase 1: Audit & Document (COMPLETE ✅)
 
-### Phase 1 Status: NEARLY COMPLETE
+✅ **ALL 8 of 8 CRITICAL files verified as architecturally compliant**
 
-✅ **7 of 8 CRITICAL files verified as architecturally compliant**
-
-Key finding: The codebase already implements the staging vs. canonical site distinction correctly. Major restore/deploy paths follow the rule:
+Key finding: **The codebase already implements the staging vs. canonical site distinction correctly.** All major restore/deploy paths follow the architectural rule:
 - Request → validate → acquire lock
 - Get staging from SiteManager
 - Perform operation in staging
 - Publish via SiteManager (ActivateStaged/ActivateStagedReplacing/DiscardStaging)
 - Commit recovery journal
 
-**Remaining:** Verify release_pipeline.go uses manager staging pattern
+---
+
+## Phase 2: HIGH Priority Audit (NEXT)
+
+**Files to audit (3 files — staging/restore operations):**
+- **staging.go** — Generic staging operations
+- **node_tooling.go** — Node.js environment  
+- **apps.go** — Application management
+
+**Acceptance Criteria:**
+- [ ] Verify all HIGH files operate only within staging areas granted by SiteManager
+- [ ] Document any direct filepath operations and confirm they're on staging, not canonical
+- [ ] Verify lock acquisition for HIGH-priority modifications
 
 ---
 
-## Phase 1: Audit & Document (COMPLETE)
-1. Review each CRITICAL/HIGH file
-2. Classify operations: read vs. write, staging vs. canonical
-3. Document any legitimate exceptions in code comments
-4. Create refactoring work items for violations
+## Phase 3: Grep Audit & Verification (AFTER Phase 2)
 
-### Phase 2: Refactor Critical Paths (3-5 days)
-1. Ensure site_lifecycle.go routes all mutations through manager
-2. Ensure wpress.go, cpmove.go use manager staging
-3. Verify transaction semantics preserved
-4. Add integration tests for each workflow
-
-### Phase 3: Verification (1 day)
-1. Run grep audit: `grep -r "filepath.Join.*sites" --include="*.go" | grep -v internal/sites`
-2. Verify all canonical site mutations have locks
-3. Verify all staging operations came from manager.CreateStaging()
-4. Update acceptance criteria checkboxes
+**Acceptance Criteria Verification:**
+1. [ ] Run `grep -r "os.Mkdir.*sites" --include="*.go"` — verify no calls outside internal/sites
+2. [ ] Run `grep -r "filepath.Join.*sites" --include="*.go"` — verify canonical paths only accessed through manager or bridge
+3. [ ] Verify all canonical site mutations have lock acquisition via `acquireSiteMutationLock`
+4. [ ] Update V1_PRODUCTION_GATES.md Gate 1 acceptance criteria checkboxes
 
 ## Risk
 
