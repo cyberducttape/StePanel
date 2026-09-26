@@ -3,6 +3,7 @@ package rootbroker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,9 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrNotImplemented is returned when a broker operation is not yet implemented
+var ErrNotImplemented = errors.New("operation not yet implemented in broker")
 
 // Broker is the root-privileged operations handler.
 // All operations are strongly-typed and validated before execution.

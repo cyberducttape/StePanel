@@ -119,13 +119,18 @@ func LoadConfig() Config {
 			c.RunnerMaxImageBytes = n
 		}
 	}
+	c.EnvironmentKey = os.Getenv("STEPANEL_ENVIRONMENT_KEY")
+	c.AccountKey = os.Getenv("STEPANEL_ACCOUNT_KEY")
+	c.BackupSigningKey = os.Getenv("STEPANEL_BACKUP_SIGNING_KEY")
+	// Read STEPANEL_JOB_STATE early, before deriving dependent paths
+	if v := os.Getenv("STEPANEL_JOB_STATE"); v != "" {
+		c.JobState = v
+	}
+	// Now derive dependent state paths from the actual JobState
 	c.EnvironmentState = filepath.Join(filepath.Dir(c.JobState), "site-environments.json")
 	if v := os.Getenv("STEPANEL_ENVIRONMENT_STATE"); v != "" {
 		c.EnvironmentState = v
 	}
-	c.EnvironmentKey = os.Getenv("STEPANEL_ENVIRONMENT_KEY")
-	c.AccountKey = os.Getenv("STEPANEL_ACCOUNT_KEY")
-	c.BackupSigningKey = os.Getenv("STEPANEL_BACKUP_SIGNING_KEY")
 	c.RedisState = filepath.Join(filepath.Dir(c.JobState), "redis-allocations.json")
 	if v := os.Getenv("STEPANEL_REDIS_STATE"); v != "" {
 		c.RedisState = v
@@ -183,9 +188,6 @@ func LoadConfig() Config {
 	}
 	if v := os.Getenv("STEPANEL_AUDIT_LOG"); v != "" {
 		c.AuditLog = v
-	}
-	if v := os.Getenv("STEPANEL_JOB_STATE"); v != "" {
-		c.JobState = v
 	}
 	if v := os.Getenv("STEPANEL_SESSION_STATE"); v != "" {
 		c.SessionState = v

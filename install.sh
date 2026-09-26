@@ -468,6 +468,7 @@ managed_targets=(
   /usr/local/sbin/stepanel-sitectl
   /usr/local/sbin/stepanel-vhostctl
   /usr/local/sbin/stepanel-dbctl
+  /usr/local/sbin/stepanel-runnerctl
   /etc/stepanel-dbctl.conf
   /etc/stepanel-db.password
   "$APP_DIR/web/index.html"
@@ -479,6 +480,7 @@ managed_targets=(
   "$APP_DIR/web/static/wpress.js"
   "$APP_DIR/web/static/database.js"
   "$APP_DIR/web/static/favicon.svg"
+  "$APP_DIR/web/static/htaccess.js"
   "$ENV_FILE"
   /etc/systemd/system/stepanel.service
   /etc/systemd/system/stepanel-worker.service

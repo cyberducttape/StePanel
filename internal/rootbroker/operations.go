@@ -160,8 +160,8 @@ func (a *AppOperations) Apply(ctx context.Context, req *AppRequest) error {
 	}
 
 	// Application manifest would be written to site directory
-	// This is a placeholder for the actual implementation
-	return nil
+	// This operation is not yet implemented in the broker
+	return ErrNotImplemented
 }
 
 // Start starts the application service.
