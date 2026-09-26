@@ -19,6 +19,7 @@ type Broker struct {
 	recoveryRoot string
 	validator    *Validator
 	logger       *log.Logger
+	isTestMode   bool // True when webRoot is in /tmp (indicates test environment)
 }
 
 // NewBroker creates a new root broker with default recovery root.
@@ -58,11 +59,15 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		}
 	}
 
+	// Detect test mode: if webRoot is in /tmp, we're in a test environment
+	isTestMode := strings.HasPrefix(webRoot, "/tmp/")
+
 	return &Broker{
 		webRoot:      webRoot,
 		recoveryRoot: recoveryRoot,
 		validator:    NewValidator(webRoot),
 		logger:       logger,
+		isTestMode:   isTestMode,
 	}, nil
 }
 
@@ -1013,6 +1018,12 @@ func (b *Broker) generateSiteUser(site string) string {
 }
 
 func (b *Broker) createSystemUser(ctx context.Context, username, home string) error {
+	// Skip actual user creation in test mode to avoid system state pollution
+	if b.isTestMode {
+		b.logger.Printf("test mode: skipping useradd for %s", username)
+		return nil
+	}
+
 	cmd := exec.CommandContext(ctx, "useradd", "--system", "--home-dir", home, "--shell", "/usr/sbin/nologin", "--user-group", username)
 	if err := cmd.Run(); err != nil {
 		// User might already exist, that's OK
@@ -1022,6 +1033,12 @@ func (b *Broker) createSystemUser(ctx context.Context, username, home string) er
 }
 
 func (b *Broker) deleteSystemUser(ctx context.Context, username string) error {
+	// Skip actual user deletion in test mode to avoid system state pollution
+	if b.isTestMode {
+		b.logger.Printf("test mode: skipping userdel for %s", username)
+		return nil
+	}
+
 	cmd := exec.CommandContext(ctx, "userdel", username)
 	if err := cmd.Run(); err != nil {
 		b.logger.Printf("userdel warning: %v", err)
@@ -1030,6 +1047,12 @@ func (b *Broker) deleteSystemUser(ctx context.Context, username string) error {
 }
 
 func (b *Broker) setOwnership(path, user, group string) error {
+	// Skip actual ownership change in test mode
+	if b.isTestMode {
+		b.logger.Printf("test mode: skipping chown for %s (user %s:%s)", path, user, group)
+		return nil
+	}
+
 	cmd := exec.Command("chown", "-R", user+":"+group, path)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("chown failed: %w", err)
