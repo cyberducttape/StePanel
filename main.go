@@ -54,6 +54,7 @@ type App struct {
 	Webhooks                 *WebhookConfigStore
 	BackupIndex              *metadata.BackupIndex
 	ResourceBudget           *ResourceBudget
+	MetadataCache            *MetadataCache
 	databaseDiagnosticsMu    sync.Mutex
 	databaseDiagnosticsCache DatabaseDiagnostics
 	gitActivationMu          sync.Mutex
@@ -577,6 +578,7 @@ func main() {
 	}()
 	mux := http.NewServeMux()
 	app.ResourceBudget = NewResourceBudget(cfg.MaxConcurrentJobs)
+	app.MetadataCache = NewMetadataCache(10 * time.Second) // 10-second TTL for metadata
 	mux.Handle("/livez", allowMethods(http.HandlerFunc(app.livez), http.MethodGet, http.MethodHead))
 	mux.Handle("/readyz", allowMethods(http.HandlerFunc(app.readyz), http.MethodGet, http.MethodHead))
 	mux.Handle("/static/", allowMethods(http.StripPrefix("/static/", http.FileServer(http.FS(staticAssets))), http.MethodGet, http.MethodHead))

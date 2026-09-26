@@ -40,18 +40,56 @@ func (a *App) canAccessSite(r *http.Request, site string) bool {
 
 func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 	sites := map[string]*siteOverview{}
-	entries, _ := os.ReadDir(filepath.Join(a.Config.WebRoot, "sites"))
-	for _, entry := range entries {
-		if entry.IsDir() && safeUser(entry.Name()) != "" {
-			sites[entry.Name()] = newSiteOverview(a.Config, entry.Name())
+
+	// Get site list (with caching)
+	var siteNames []string
+	if a.MetadataCache != nil {
+		if cached, ok := a.MetadataCache.GetSites(); ok {
+			siteNames = cached
+		} else {
+			entries, _ := os.ReadDir(filepath.Join(a.Config.WebRoot, "sites"))
+			for _, entry := range entries {
+				if entry.IsDir() && safeUser(entry.Name()) != "" {
+					siteNames = append(siteNames, entry.Name())
+				}
+			}
+			a.MetadataCache.SetSites(siteNames)
+		}
+	} else {
+		// Fallback for tests without initialized cache
+		entries, _ := os.ReadDir(filepath.Join(a.Config.WebRoot, "sites"))
+		for _, entry := range entries {
+			if entry.IsDir() && safeUser(entry.Name()) != "" {
+				siteNames = append(siteNames, entry.Name())
+			}
 		}
 	}
-	for _, app := range managedApps(a.Config.AppRoot) {
+
+	for _, siteName := range siteNames {
+		sites[siteName] = newSiteOverview(a.Config, siteName)
+	}
+
+	// Get apps (with caching)
+	var apps []AppManifest
+	if a.MetadataCache != nil {
+		if cached, ok := a.MetadataCache.GetApps(); ok {
+			apps = cached
+		} else {
+			apps = managedApps(a.Config.AppRoot)
+			a.MetadataCache.SetApps(apps)
+		}
+	} else {
+		// Fallback for tests without initialized cache
+		apps = managedApps(a.Config.AppRoot)
+	}
+
+	for _, app := range apps {
 		if sites[app.Site] == nil {
 			sites[app.Site] = newSiteOverview(a.Config, app.Site)
 		}
 		sites[app.Site].Applications = append(sites[app.Site].Applications, app)
 	}
+
 	if databases, err := managedDatabaseInventory(a.Config); err == nil {
 		for _, database := range databases {
 			if sites[database.Site] == nil {
@@ -60,19 +98,50 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 			sites[database.Site].DatabaseCount++
 		}
 	}
+
 	result := make([]*siteOverview, 0, len(sites))
 	for _, site := range sites {
 		if !a.canAccessSite(r, site.Site) {
 			continue
 		}
-		site.Routes = siteRoutesFor(a.Config.VHostRoot, site.Site)
-		site.Proxies = siteProxiesFor(a.Config.ProxyRoot, site.Site)
+
+		// Get routes and proxies (with caching)
+		if a.MetadataCache != nil {
+			if cached, ok := a.MetadataCache.GetRoutes(site.Site); ok {
+				site.Routes = cached
+			} else {
+				routes := siteRoutesFor(a.Config.VHostRoot, site.Site)
+				site.Routes = routes
+				a.MetadataCache.SetRoutes(site.Site, routes)
+			}
+
+			if cached, ok := a.MetadataCache.GetProxies(site.Site); ok {
+				site.Proxies = cached
+			} else {
+				proxies := siteProxiesFor(a.Config.ProxyRoot, site.Site)
+				site.Proxies = proxies
+				a.MetadataCache.SetProxies(site.Site, proxies)
+			}
+		} else {
+			// Fallback for tests without initialized cache
+			site.Routes = siteRoutesFor(a.Config.VHostRoot, site.Site)
+			site.Proxies = siteProxiesFor(a.Config.ProxyRoot, site.Site)
+		}
+
 		sort.Slice(site.Routes, func(i, j int) bool { return site.Routes[i].Domain < site.Routes[j].Domain })
 		sort.Slice(site.Applications, func(i, j int) bool { return site.Applications[i].Domain < site.Applications[j].Domain })
 		result = append(result, site)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Site < result[j].Site })
-	writeJSON(w, http.StatusOK, map[string]any{"sites": result, "time": time.Now().UTC()})
+
+	response := map[string]any{
+		"sites": result,
+		"time":  time.Now().UTC(),
+	}
+	if a.MetadataCache != nil {
+		response["metadata_age_sec"] = a.MetadataCache.StalenessSeconds() // How many seconds old the cached metadata is
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
