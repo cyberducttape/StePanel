@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -212,7 +211,10 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 		"message":    "Archive import job queued. Inspection and restoration proceeding in worker process.",
 		"status_url": "/api/jobs/" + job.ID,
 	}
-	_ = json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		// Response headers already sent; log error but cannot send error response
+		return
+	}
 }
 
 func (a *App) archiveImportStatus(w http.ResponseWriter, r *http.Request) {
@@ -318,7 +320,9 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	activated := false
 	defer func() {
 		if !activated {
-			_ = manager.DiscardStaging(context.Background(), stagingDir)
+			if discardErr := manager.DiscardStaging(context.Background(), stagingDir); discardErr != nil {
+				recordAudit(a.Config.AuditLog, actor, "archive.import.staging-cleanup-failed", req.SiteName, discardErr.Error())
+			}
 		}
 	}()
 
@@ -360,10 +364,6 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	}()
 	if result != nil {
 		databaseCleanup = result.Cleanup
-	}
-
-	if err := os.MkdirAll(filepath.Dir(canonical), 0750); err != nil {
-		return fmt.Errorf("prepare canonical site parent: %w", err)
 	}
 
 	txn, err := BeginSiteTransaction(a.Config.RecoveryRoot, canonical, "archive.import", access)
@@ -441,7 +441,9 @@ func (a *App) restoreImportedDatabase(ctx context.Context, dumpPath, database, u
 	}
 	dump, err := os.Open(dumpPath)
 	if err != nil {
-		_ = cleanup()
+		if cleanupErr := cleanup(); cleanupErr != nil {
+			return nil, fmt.Errorf("open database dump: %w (cleanup also failed: %w)", err, cleanupErr)
+		}
 		return nil, fmt.Errorf("open database dump: %w", err)
 	}
 	restoreCtx, restoreCancel := context.WithTimeout(ctx, 15*time.Minute)
@@ -449,12 +451,16 @@ func (a *App) restoreImportedDatabase(ctx context.Context, dumpPath, database, u
 	dump.Close()
 	restoreCancel()
 	if err != nil {
-		_ = cleanup()
+		if cleanupErr := cleanup(); cleanupErr != nil {
+			return nil, fmt.Errorf("restore managed database dump: %w (cleanup also failed: %w)", err, cleanupErr)
+		}
 		return nil, fmt.Errorf("restore managed database dump: %w", err)
 	}
 	verified, inventoryErr := managedDatabaseInventory(a.Config)
 	if inventoryErr != nil {
-		_ = cleanup()
+		if cleanupErr := cleanup(); cleanupErr != nil {
+			return nil, fmt.Errorf("verify restored managed database: %w (cleanup also failed: %w)", inventoryErr, cleanupErr)
+		}
 		return nil, fmt.Errorf("verify restored managed database: %w", inventoryErr)
 	}
 	found := false
@@ -465,7 +471,9 @@ func (a *App) restoreImportedDatabase(ctx context.Context, dumpPath, database, u
 		}
 	}
 	if !found {
-		_ = cleanup()
+		if cleanupErr := cleanup(); cleanupErr != nil {
+			return nil, fmt.Errorf("restored database %s was not present in managed inventory (cleanup also failed: %w)", database, cleanupErr)
+		}
 		return nil, fmt.Errorf("restored database %s was not present in managed inventory", database)
 	}
 	return cleanup, nil
