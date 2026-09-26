@@ -308,7 +308,7 @@ Upload timeout: 5m (context-based)
 
 - [CLAUDE.md](../CLAUDE.md) - Code quality standards (includes Tier 1 filesystem operations)
 - [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) - Gate 5 requirements
-- [GATE5_FINAL_STATUS.md](GATE5_FINAL_STATUS.md) - Production readiness progress
+- [GATE5_FINAL_STATUS.md](archive/GATE5_FINAL_STATUS.md) - Production readiness progress
 
 ---
 

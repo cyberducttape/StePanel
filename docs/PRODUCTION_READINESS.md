@@ -3,7 +3,9 @@
 **Last Updated:** 2026-09-26
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
-This is a deployment-status summary, not a release approval. The sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
+**👉 For overall project status, see [CURRENT_STATUS.md](./CURRENT_STATUS.md) — the single authoritative source for version, progress, and release gates.**
+
+This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
 ## Deployment Classification
 

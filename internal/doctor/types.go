@@ -101,8 +101,8 @@ type ExternalService struct {
 
 // MigrationAnalysis compares two inventories and identifies issues
 type MigrationAnalysis struct {
-	Mode                 string          `json:"mode,omitempty"`                   // "real" or "not-implemented" or "synthetic-demo"
-	DataSource           string          `json:"data_source,omitempty"`            // "actual-server-scan" or "synthetic-demo-only" or "not-implemented"
+	Mode                 string          `json:"mode,omitempty"`        // "real" or "not-implemented" or "synthetic-demo"
+	DataSource           string          `json:"data_source,omitempty"` // "actual-server-scan" or "synthetic-demo-only" or "not-implemented"
 	SourceInventory      ServerInventory `json:"source_inventory"`
 	DestinationInventory ServerInventory `json:"destination_inventory"`
 	AnalysisTime         time.Time       `json:"analysis_time"`

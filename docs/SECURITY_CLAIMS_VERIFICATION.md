@@ -205,6 +205,6 @@ For each release, verify:
 ## Related Documents
 
 - [`docs/SECURITY.md`](SECURITY.md) - Security policy and vulnerability reporting
-- [`docs/PRODUCTION_GAP_ANALYSIS.md`](PRODUCTION_GAP_ANALYSIS.md) - Explicit limitations and launch gates
+- [`docs/PRODUCTION_GAP_ANALYSIS.md`](archive/PRODUCTION_GAP_ANALYSIS.md) - Explicit limitations and launch gates
 - [`docs/STATE.md`](STATE.md) - Disaster recovery inventory
 - [`tenant_isolation_test.go`](../tenant_isolation_test.go) - Authorization test matrix

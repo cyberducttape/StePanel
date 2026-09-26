@@ -243,7 +243,7 @@ An experienced infrastructure reviewer will:
   - `README.md`: v0.7.0 release preparation
   - `FEATURES.md`: v0.7.0 pending
   - `PRODUCTION_READINESS.md`: v0.7.0
-  - `PRODUCTION_SCORECARD.md`: Lists blockers as unresolved (contradicts changelog)
+  - `archive/PRODUCTION_SCORECARD.md` (archived): Lists blockers as unresolved (contradicts changelog)
   - `CHANGELOG.md`: Claims resolutions for items still listed as blockers elsewhere
 - **Impact**: Reviewers can't determine which document is authoritative; reader confusion about actual status
 - **Examples of drift**:

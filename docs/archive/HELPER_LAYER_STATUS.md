@@ -257,7 +257,7 @@ json.Unmarshal(resp.Details, &result)
 
 ## Related Documents
 
-- [HELPER_LAYER_ROADMAP.md](HELPER_LAYER_ROADMAP.md) - Overall strategy
+- [HELPER_LAYER_ROADMAP.md](archive/HELPER_LAYER_ROADMAP.md) - Overall strategy (archived)
 - [ROOT_BROKER_INTEGRATION.md](ROOT_BROKER_INTEGRATION.md) - Integration guide
 - [CLAUDE.md](../CLAUDE.md) - Code quality standards
 - [SECURITY.md](SECURITY.md) - Security threat model

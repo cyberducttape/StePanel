@@ -185,7 +185,7 @@ must be implemented before offering untrusted customer access:
 
 These are product and architecture work items, not safe one-file patches. The
 sequencing, acceptance gates, and operational prerequisites are tracked in
-[`PRODUCTION_GAP_ANALYSIS.md`](PRODUCTION_GAP_ANALYSIS.md).
+[`PRODUCTION_GAP_ANALYSIS.md`](archive/PRODUCTION_GAP_ANALYSIS.md).
 
 Planned operations will be introduced behind explicit permissions and dry-run
 modes. The project will not silently mutate live web-server configuration.

@@ -31,8 +31,8 @@ For current information:
 
 ## Index
 
-- `PRODUCTION_SCORECARD.md` - Historical production readiness assessment (v0.7.0 era)
+- `archive/PRODUCTION_SCORECARD.md` (archived) - Historical production readiness assessment (v0.7.0 era)
 - `SECURITY_GAPS_FOUND.md` - Historical security audit with resolved and fixed findings
-- `ARCHIVE_IMPORT_LIFECYCLE.md` - v0.7.0-era archive import workflow (now uses transactional activation)
+- `archive/ARCHIVE_IMPORT_LIFECYCLE.md` (archived) - v0.7.0-era archive import workflow (now uses transactional activation)
 - `PHASE*_*.md` - Detailed implementation plans from completed development phases
 - Other roadmaps and plans - Historical planning documents superseded by current roadmap

@@ -6,7 +6,7 @@
 **Approach:** Complete existing architectural contracts, add robustness testing
 
 All release approval decisions must use this document. `PRODUCTION_READINESS.md`
-is a deployment-status summary; `PRODUCTION_SCORECARD.md` and prior audits are
+is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
 ## Executive Summary

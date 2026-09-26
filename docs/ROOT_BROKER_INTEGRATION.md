@@ -406,7 +406,7 @@ RPC overhead is ~1ms. Bulk of time is system operations (useradd, chown, etc).
 
 ## Related Documents
 
-- [HELPER_LAYER_ROADMAP.md](HELPER_LAYER_ROADMAP.md) — Overall strategy and timeline
+- [HELPER_LAYER_ROADMAP.md](archive/HELPER_LAYER_ROADMAP.md) — Overall strategy and timeline
 - [CLAUDE.md](../CLAUDE.md) — Code quality standards (applies to broker)
 - [SECURITY.md](SECURITY.md) — Security threat model
 - [/internal/rootbroker/types.go](../internal/rootbroker/types.go) — Request/response types
