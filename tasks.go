@@ -166,18 +166,19 @@ func captureTaskOutput(output string) []string {
 }
 
 // killTask stops a running scheduled task via systemd.
-// Requires stepanel-taskctl helper (installed at /usr/local/sbin/stepanel-taskctl)
-// and invoked through the privileged root wrapper.
+// Uses stepanel-appctl helper (installed at /usr/local/sbin/stepanel-appctl)
+// with task-kill action, invoked through the privileged root wrapper.
 func (a *App) killTask(ctx context.Context, site, name string) error {
-	if a.Config.TaskCtl == "" {
-		return errors.New("task control helper not configured")
+	if a.Config.AppCtl == "" {
+		return errors.New("app control helper not configured")
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, site)
 	if lockErr != nil {
 		return fmt.Errorf("acquire task lock: %w", lockErr)
 	}
 	defer releaseUnlock()
-	return runHelperCommandWithTimeout(operationCtx, a.Config, taskTimeoutDefault, a.Config.TaskCtl, "kill", site, name)
+	// Use AppCtl with task-kill action instead of missing TaskCtl helper
+	return runHelperCommandWithTimeout(operationCtx, a.Config, taskTimeoutDefault, a.Config.AppCtl, "task-kill", site, name)
 }
 
 // Phase 2 safeguards (canExecuteTask, incrementTaskRunCount, decrementTaskRunCount)

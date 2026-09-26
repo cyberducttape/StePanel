@@ -71,12 +71,12 @@ func (a *App) checkProductionReadiness() ProductionReadinessReport {
 
 	// Only perform detailed checks in production mode
 	if !a.Config.Production {
-		report.OverallStatus = "healthy"
+		report.OverallStatus = "not_ready"
 		report.Checks = append(report.Checks, ProductionReadinessCheck{
 			Name:     "Production Mode",
-			Status:   "pass",
-			Severity: "info",
-			Message:  "Running in non-production mode (development/lab/test)",
+			Status:   "fail",
+			Severity: "critical",
+			Message:  fmt.Sprintf("Not configured for production: STEPANEL_ENV=%s (expected: STEPANEL_ENV=production)", os.Getenv("STEPANEL_ENV")),
 		})
 		return report
 	}
