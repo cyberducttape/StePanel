@@ -1029,9 +1029,8 @@ func replaceDefineValue(content, key, quote, newValue string) string {
 	// Check if value comes from a function call - if so, don't replace
 	// Look for patterns like getenv(), env(), etc.
 	remainingContent := afterComma[idx:]
-	if idx < len(afterComma) && afterComma[idx] == 'g' ||
-		(idx+3 < len(afterComma) && strings.HasPrefix(remainingContent, "env(")) ||
-		(idx+7 < len(afterComma) && strings.HasPrefix(remainingContent, "getenv(")) {
+	if (idx+7 <= len(afterComma) && strings.HasPrefix(remainingContent, "getenv(")) ||
+		(idx+4 <= len(afterComma) && strings.HasPrefix(remainingContent, "env(")) {
 		// Value comes from function - don't replace
 		return content
 	}
