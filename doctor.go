@@ -334,8 +334,8 @@ func (a *App) handleMigrationAnalysisJob(r *Job) ([]byte, error) {
 
 	// For now, return a mock analysis
 	// In production, this would SSH to the source server and scan it
-	sourceInv := a.mockServerInventory("source")
-	destInv := a.mockServerInventory("destination")
+	sourceInv := a.mockServerInventory("source", req.SourceSSHHost)
+	destInv := a.mockServerInventory("destination", req.DestinationHostname)
 
 	analyzer := doctor.NewAnalyzer()
 	analysis := analyzer.Analyze(sourceInv, destInv)
@@ -359,10 +359,19 @@ func (a *App) handleMigrationAnalysisJob(r *Job) ([]byte, error) {
 
 // mockServerInventory creates a mock inventory for demo purposes
 // In production, this would use SSH to scan the actual server
-func (a *App) mockServerInventory(label string) doctor.ServerInventory {
+// hostname parameter allows using the actual requested hostname instead of hardcoded examples
+func (a *App) mockServerInventory(label string, hostname string) doctor.ServerInventory {
+	if hostname == "" {
+		// Fallback for backward compatibility (though callers should provide hostname)
+		if label == "source" {
+			hostname = "source.example.com"
+		} else {
+			hostname = "destination.example.com"
+		}
+	}
 	if label == "source" {
 		return doctor.ServerInventory{
-			Hostname: "source.example.com",
+			Hostname: hostname,
 			OS: doctor.OperatingSystem{
 				Name:          "CentOS",
 				Version:       "7.9",
@@ -405,11 +414,11 @@ func (a *App) mockServerInventory(label string) doctor.ServerInventory {
 			},
 			Sites: []doctor.SiteInfo{
 				{
-					Domain:             "example.com",
-					DocumentRoot:       "/home/users/example.com/public_html",
+					Domain:             hostname,
+					DocumentRoot:       "/home/users/" + hostname + "/public_html",
 					DiskUsageMB:        1500,
 					FileCount:          12450,
-					DatabaseNames:      []string{"example_prod"},
+					DatabaseNames:      []string{strings.ReplaceAll(hostname, ".", "_") + "_prod"},
 					HasHTAccess:        true,
 					HasSSL:             true,
 					Application:        "WordPress",
@@ -425,7 +434,7 @@ func (a *App) mockServerInventory(label string) doctor.ServerInventory {
 
 	// Destination inventory
 	return doctor.ServerInventory{
-		Hostname: "destination.example.com",
+		Hostname: hostname,
 		OS: doctor.OperatingSystem{
 			Name:          "AlmaLinux",
 			Version:       "9.0",
