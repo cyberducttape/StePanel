@@ -158,7 +158,7 @@ func (w *Wizard) Run() (WizardConfig, error) {
 		w.writeLine(fmt.Sprintf("STEPANEL_TLS_CERT_FILE=%s", cfg.TLSCert))
 		w.writeLine(fmt.Sprintf("STEPANEL_TLS_KEY_FILE=%s", cfg.TLSKey))
 		w.writeLine(fmt.Sprintf("STEPANEL_LISTEN=%s", cfg.Listen))
-		w.writeLine("STEPANEL_PRODUCTION=true")
+		w.writeLine("STEPANEL_ENV=production")
 	}
 	w.writeLine(fmt.Sprintf("STEPANEL_WEB_ROOT=%s", cfg.WebRoot))
 	w.writeLine(fmt.Sprintf("STEPANEL_BACKUP_ROOT=%s", cfg.BackupRoot))

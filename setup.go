@@ -33,7 +33,7 @@ func runSetupWizard() {
 		fmt.Printf("STEPANEL_TLS_CERT_FILE=%s\n", cfg.TLSCert)
 		fmt.Printf("STEPANEL_TLS_KEY_FILE=%s\n", cfg.TLSKey)
 		fmt.Printf("STEPANEL_LISTEN=%s\n", cfg.Listen)
-		fmt.Println("STEPANEL_PRODUCTION=true")
+		fmt.Println("STEPANEL_ENV=production")
 	}
 	fmt.Printf("STEPANEL_WEB_ROOT=%s\n", cfg.WebRoot)
 	fmt.Printf("STEPANEL_BACKUP_ROOT=%s\n", cfg.BackupRoot)

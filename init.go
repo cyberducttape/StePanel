@@ -207,7 +207,7 @@ func (s *initState) writeAndValidateConfig(outputPath string) error {
 	}
 
 	if s.production {
-		lines = append(lines, "STEPANEL_PRODUCTION=1")
+		lines = append(lines, "STEPANEL_ENV=production")
 	}
 
 	content := strings.Join(lines, "\n") + "\n"

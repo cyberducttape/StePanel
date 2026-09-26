@@ -115,7 +115,7 @@ StePanel provides tools to verify deployment prerequisites are met:
 
 ### Startup Validation
 
-In production mode (`STEPANEL_PRODUCTION=true`), StePanel performs mandatory checks on startup:
+In production mode (`STEPANEL_ENV=production`), StePanel performs mandatory checks on startup:
 
 - ✅ **Filesystem quotas enforced**: Validates that `STEPANEL_WEB_ROOT` filesystem has usrquota/grpquota enabled. Required because StePanel advertises disk quotas in plans; quotas that aren't enforced create false security guarantees. Startup fails if quotas unavailable; remediation: `mount -o remount,usrquota /var/www`
 - ✅ **Encryption keys configured**: Ensures backup encryption keys are loaded (minimum 32 characters)
