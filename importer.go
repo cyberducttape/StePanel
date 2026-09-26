@@ -385,6 +385,11 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	}
 	activated = true
 
+	// Invalidate metadata caches after site activation to ensure fresh data
+	if a.MetadataCache != nil {
+		a.MetadataCache.InvalidateSite(req.SiteName)
+	}
+
 	if err := txn.Commit(); err != nil {
 		// The tree is already at canonical; a subsequent boot-time recovery pass
 		// treats the transaction as pending and rolls it back, which would

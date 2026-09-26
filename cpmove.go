@@ -229,6 +229,7 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 		return ImportResult{}, fmt.Errorf("activate cpmove site through manager: %w", err)
 	}
 	activated = true
+
 	result := ImportResult{User: user, Home: home, FilesRestored: source != "", StagedAt: stage}
 	if databases {
 		result.DatabasesRestored, result.DatabaseErrors = restoreSQLContext(ctx, cfg, root, user, txn)

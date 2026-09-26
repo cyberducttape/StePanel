@@ -973,6 +973,12 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 		log.Printf("cpmove restore completed but audit persistence is unavailable: %v", auditErr)
 	}
 	removeStaged = true
+
+	// Invalidate metadata caches after successful site restore
+	if a.MetadataCache != nil {
+		a.MetadataCache.InvalidateSite(request.User)
+	}
+
 	output, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("encode cpmove result: %w", err)

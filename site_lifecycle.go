@@ -357,6 +357,10 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 			return fmt.Errorf("finalize managed site deletion for %s: %w", siteName, err)
 		}
 	}
+	// Invalidate site-related metadata caches after deletion
+	if a.MetadataCache != nil {
+		a.MetadataCache.InvalidateSite(siteName)
+	}
 	return nil
 }
 
