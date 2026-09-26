@@ -367,6 +367,12 @@ paths:
       summary: Check migration analysis status
       responses:
         '200': {description: Analysis status}
+  /api/admin/production-readiness:
+    get:
+      summary: Check production readiness status
+      description: Check if the deployment meets production requirements including filesystem quotas, encryption keys, TLS, and offsite backups
+      responses:
+        '200': {description: Production readiness report with status of each requirement}
   /api/security/scan:
     post:
       summary: Scan a managed site for suspicious PHP

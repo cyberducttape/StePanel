@@ -680,6 +680,7 @@ func main() {
 	mux.Handle("/api/admin/unsuspend", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.accountUnsuspend)), http.MethodPost))
 	mux.Handle("/api/admin/migration-doctor", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationDoctor)), http.MethodPost))
 	mux.Handle("/api/admin/migration-doctor/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationAnalysisStatus)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/admin/production-readiness", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.productionReadiness)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/archive/inspect", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.inspectArchive)), http.MethodPost))
 	mux.Handle("/api/admin/archive/inspect/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.inspectArchiveStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/archive/import", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.archiveImportStart)), http.MethodPost))

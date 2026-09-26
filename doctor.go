@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/doctor"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -21,6 +22,206 @@ type migrationAnalysisRequest struct {
 // migrationAnalysisResponse is the analysis result
 type migrationAnalysisResponse struct {
 	Analysis doctor.MigrationAnalysis `json:"analysis"`
+}
+
+// ProductionReadinessCheck represents a single production readiness check
+type ProductionReadinessCheck struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"`     // "pass", "warning", "fail"
+	Severity string `json:"severity"`   // "info", "warning", "critical"
+	Message  string `json:"message,omitempty"`
+	Remediation string `json:"remediation,omitempty"`
+}
+
+// ProductionReadinessReport represents overall production readiness
+type ProductionReadinessReport struct {
+	IsProduction bool                       `json:"is_production"`
+	Checks       []ProductionReadinessCheck `json:"checks"`
+	OverallStatus string                   `json:"overall_status"` // "healthy", "degraded", "critical"
+}
+
+// productionReadiness handles production readiness checks
+func (a *App) productionReadiness(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Only administrators can view production readiness
+	if !a.Auth.IsAdministrator(r) {
+		http.Error(w, "unauthorized", http.StatusForbidden)
+		return
+	}
+
+	report := a.checkProductionReadiness()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(report); err != nil {
+		return
+	}
+}
+
+// checkProductionReadiness performs comprehensive production readiness checks
+func (a *App) checkProductionReadiness() ProductionReadinessReport {
+	report := ProductionReadinessReport{
+		IsProduction: a.Config.Production,
+		Checks:       []ProductionReadinessCheck{},
+	}
+
+	// Only perform detailed checks in production mode
+	if !a.Config.Production {
+		report.OverallStatus = "healthy"
+		report.Checks = append(report.Checks, ProductionReadinessCheck{
+			Name:     "Production Mode",
+			Status:   "pass",
+			Severity: "info",
+			Message:  "Running in non-production mode (development/lab/test)",
+		})
+		return report
+	}
+
+	// Production mode checks
+	checks := []ProductionReadinessCheck{
+		a.checkFilesystemQuotaReadiness(),
+		a.checkEncryptionKeysReadiness(),
+		a.checkOfflineBackupReadiness(),
+		a.checkTLSReadiness(),
+	}
+
+	report.Checks = checks
+
+	// Determine overall status
+	criticalCount := 0
+	warningCount := 0
+	for _, check := range checks {
+		if check.Status == "fail" {
+			criticalCount++
+		} else if check.Status == "warning" {
+			warningCount++
+		}
+	}
+
+	if criticalCount > 0 {
+		report.OverallStatus = "critical"
+	} else if warningCount > 0 {
+		report.OverallStatus = "degraded"
+	} else {
+		report.OverallStatus = "healthy"
+	}
+
+	return report
+}
+
+// checkFilesystemQuotaReadiness checks if filesystem quotas are enforced
+func (a *App) checkFilesystemQuotaReadiness() ProductionReadinessCheck {
+	if a.Config.WebRoot == "" {
+		return ProductionReadinessCheck{
+			Name:     "Filesystem Quotas",
+			Status:   "fail",
+			Severity: "critical",
+			Message:  "STEPANEL_WEB_ROOT is not configured",
+		}
+	}
+
+	// Check if WebRoot has quota support
+	hasQuotas := false
+	if mounts, err := os.ReadFile("/proc/mounts"); err == nil {
+		for _, line := range strings.Split(string(mounts), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 4 && strings.HasPrefix(a.Config.WebRoot, fields[1]) {
+				opts := fields[3]
+				if strings.Contains(opts, "usrquota") || strings.Contains(opts, "grpquota") || strings.Contains(opts, "prjquota") {
+					hasQuotas = true
+					break
+				}
+			}
+		}
+	}
+
+	if hasQuotas {
+		return ProductionReadinessCheck{
+			Name:     "Filesystem Quotas",
+			Status:   "pass",
+			Severity: "info",
+			Message:  "Filesystem quota enforcement enabled on STEPANEL_WEB_ROOT",
+		}
+	}
+
+	return ProductionReadinessCheck{
+		Name:     "Filesystem Quotas",
+		Status:   "fail",
+		Severity: "critical",
+		Message:  "STEPANEL_WEB_ROOT does not have quota support enabled (usrquota/grpquota/prjquota)",
+		Remediation: "Enable quotas on mount: mount -o remount,usrquota /var/www or update /etc/fstab",
+	}
+}
+
+// checkEncryptionKeysReadiness checks encryption key configuration
+func (a *App) checkEncryptionKeysReadiness() ProductionReadinessCheck {
+	if a.Config.EnvironmentKey == "" || a.Config.BackupSigningKey == "" {
+		return ProductionReadinessCheck{
+			Name:     "Encryption Keys",
+			Status:   "fail",
+			Severity: "critical",
+			Message:  "Required encryption keys not configured (STEPANEL_ENVIRONMENT_KEY or STEPANEL_BACKUP_SIGNING_KEY)",
+		}
+	}
+
+	return ProductionReadinessCheck{
+		Name:     "Encryption Keys",
+		Status:   "pass",
+		Severity: "info",
+		Message:  "Required encryption keys are configured",
+	}
+}
+
+// checkOfflineBackupReadiness checks offsite backup configuration
+func (a *App) checkOfflineBackupReadiness() ProductionReadinessCheck {
+	if !a.Config.RequireOffsiteBackup || a.Config.OffsiteTarget == "" {
+		return ProductionReadinessCheck{
+			Name:     "Offsite Backups",
+			Status:   "fail",
+			Severity: "critical",
+			Message:  "Offsite backup enforcement not configured",
+			Remediation: "Set STEPANEL_REQUIRE_OFFSITE_BACKUP=1 and configure STEPANEL_OFFSITE_TARGET",
+		}
+	}
+
+	return ProductionReadinessCheck{
+		Name:     "Offsite Backups",
+		Status:   "pass",
+		Severity: "info",
+		Message:  "Offsite backups required and configured",
+	}
+}
+
+// checkTLSReadiness checks TLS configuration
+func (a *App) checkTLSReadiness() ProductionReadinessCheck {
+	if a.Config.TLSCertFile == "" || a.Config.TLSKeyFile == "" {
+		if !a.Config.TLSAlreadyTerminated {
+			return ProductionReadinessCheck{
+				Name:     "TLS/HTTPS",
+				Status:   "fail",
+				Severity: "critical",
+				Message:  "Application TLS not configured and TLS not terminated by reverse proxy",
+				Remediation: "Either provide STEPANEL_TLS_CERT_FILE and STEPANEL_TLS_KEY_FILE, or set STEPANEL_TLS_TERMINATED=1 if using a reverse proxy",
+			}
+		}
+
+		return ProductionReadinessCheck{
+			Name:     "TLS/HTTPS",
+			Status:   "pass",
+			Severity: "info",
+			Message:  "TLS terminated by reverse proxy",
+		}
+	}
+
+	return ProductionReadinessCheck{
+		Name:     "TLS/HTTPS",
+		Status:   "pass",
+		Severity: "info",
+		Message:  "Application TLS configured",
+	}
 }
 
 // migrationDoctor handles migration analysis requests
