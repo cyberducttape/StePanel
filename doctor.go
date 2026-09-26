@@ -333,27 +333,40 @@ func (a *App) handleMigrationAnalysisJob(r *Job) ([]byte, error) {
 		return nil, fmt.Errorf("decode migration analysis request: %w", err)
 	}
 
-	// For now, return a mock analysis
-	// In production, this would SSH to the source server and scan it
-	sourceInv := a.mockServerInventory("source", req.SourceSSHHost)
-	destInv := a.mockServerInventory("destination", req.DestinationHostname)
+	// FIXME: This feature is not yet implemented. The code currently returns
+	// a synthetic analysis based on mock data, not actual source server inspection.
+	// Until the SSH connection and actual server scanning is implemented,
+	// return a response that clearly indicates this is a demo/not-yet-implemented.
 
-	analyzer := doctor.NewAnalyzer()
-	analysis := analyzer.Analyze(sourceInv, destInv)
+	// For now, return a response that clearly indicates this is synthetic
+	analysis := doctor.MigrationAnalysis{
+		Mode:       "not-implemented",
+		DataSource: "synthetic-demo-only",
+		Blockers: []doctor.Issue{
+			{
+				Severity:    "blocker",
+				Category:    "feature-incomplete",
+				Title:       "Migration Doctor Not Yet Implemented",
+				Description: "This feature is under development and does not yet perform actual server scanning",
+				Solution:    "Wait for feature implementation or contact support",
+			},
+		},
+		ReadyForMigration: false,
+	}
 
 	result := migrationAnalysisResponse{
-		Analysis: *analysis,
+		Analysis: analysis,
 	}
+
+	// Record that this is a demo analysis
+	recordAudit(a.Config.AuditLog, "admin", "migration.analysis.demo-only",
+		fmt.Sprintf("%s -> %s", req.SourceSSHHost, req.DestinationHostname),
+		"analysis returned is synthetic/not-implemented, not based on actual server inspection")
 
 	output, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf("encode migration analysis result: %w", err)
 	}
-
-	// Audit the analysis
-	recordAudit(a.Config.AuditLog, "admin", "migration.analysis.completed",
-		fmt.Sprintf("%s -> %s", req.SourceSSHHost, req.DestinationHostname),
-		fmt.Sprintf("blockers=%d, warnings=%d", len(analysis.Blockers), len(analysis.Warnings)))
 
 	return output, nil
 }
