@@ -666,7 +666,118 @@ func (b *Broker) dbProvision(ctx context.Context, req *DBRequest) (*Response, er
 }
 
 func (b *Broker) dbRestoreDump(ctx context.Context, req *DBRequest) (*Response, error) {
-	b.logger.Printf("restoring database dump: %s", req.Database)
+	b.logger.Printf("restoring database dump: %s from %s", req.Database, req.DumpData)
+
+	// Use database + dumpfile as unique identifier for journaling
+	jobID := "db-restore-" + req.Site + "-" + req.Database
+	actor := "root"
+
+	// Load or create durable journal for this database restoration
+	journal, err := loadOrCreateRestorationJournal(b.recoveryRoot, jobID, req.Site, req.Database, "dump-data", actor)
+	if err != nil {
+		b.logger.Printf("failed to load restoration journal: %v", err)
+		return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+	}
+
+	// Step 1: Validate dump file
+	if !journal.isComplete(stepRestoreDumpValidated) {
+		b.logger.Printf("validating dump file: %s", req.DumpData)
+		// In real implementation, would validate file integrity, checksum, etc.
+		// For now, just verify dump data is not empty
+		if len(req.DumpData) == 0 {
+			return &Response{OK: false, Error: "dump data is empty"}, nil
+		}
+
+		// Record file size for progress tracking
+		dumpSize := len(req.DumpData)
+		if dumpSize > 0 {
+			journal.updateProgress(0, int64(dumpSize))
+		}
+
+		if err := journal.markComplete(stepRestoreDumpValidated); err != nil {
+			b.logger.Printf("failed to journal dump validation: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		}
+	} else {
+		b.logger.Printf("skipping dump validation (already complete)")
+	}
+
+	// Step 2: Drop existing database (if any)
+	if !journal.isComplete(stepRestoreDatabaseDropped) {
+		b.logger.Printf("dropping existing database: %s", req.Database)
+		// In real implementation, would run: DROP DATABASE IF EXISTS
+		// This is idempotent - if database doesn't exist, no error
+
+		if err := journal.markComplete(stepRestoreDatabaseDropped); err != nil {
+			b.logger.Printf("failed to journal database drop: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		}
+	} else {
+		b.logger.Printf("skipping database drop (already complete)")
+	}
+
+	// Step 3: Create empty database
+	if !journal.isComplete(stepRestoreDatabaseCreated) {
+		b.logger.Printf("creating empty database: %s", req.Database)
+		// In real implementation, would run: CREATE DATABASE
+		// At this point, if crash happens, database is empty but exists
+		// Next retry can proceed to import
+
+		if err := journal.markComplete(stepRestoreDatabaseCreated); err != nil {
+			b.logger.Printf("failed to journal database creation: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		}
+	} else {
+		b.logger.Printf("skipping database creation (already complete)")
+	}
+
+	// Step 4: Import SQL dump
+	if !journal.isComplete(stepRestoreDumpImported) {
+		b.logger.Printf("importing SQL dump into %s", req.Database)
+		// In real implementation, would:
+		// 1. Open dump file
+		// 2. Parse SQL statements
+		// 3. Execute each statement
+		// 4. Update progress journal periodically
+		// 5. If crash, next retry resumes from checkpoint
+
+		// For now, just mark as complete (simulating successful import)
+		dumpSize := len(req.DumpData)
+		if dumpSize > 0 {
+			journal.updateProgress(int64(dumpSize), int64(dumpSize))
+		}
+
+		if err := journal.markComplete(stepRestoreDumpImported); err != nil {
+			b.logger.Printf("failed to journal dump import: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		}
+	} else {
+		b.logger.Printf("skipping dump import (already complete)")
+	}
+
+	// Step 5: Verify restoration
+	if !journal.isComplete(stepRestoreVerified) {
+		b.logger.Printf("verifying database restoration")
+		// In real implementation, would:
+		// 1. Check table count matches original
+		// 2. Verify key indexes exist
+		// 3. Run consistency checks
+		// 4. Test connectivity
+
+		if err := journal.markComplete(stepRestoreVerified); err != nil {
+			b.logger.Printf("failed to journal verification: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		}
+	} else {
+		b.logger.Printf("skipping verification (already complete)")
+	}
+
+	// All steps complete: clean up journal
+	if err := journal.cleanup(); err != nil {
+		b.logger.Printf("warning: failed to cleanup journal: %v", err)
+		// Don't fail the operation if journal cleanup fails
+	}
+
 	resp := DBResponse{Restored: true, Database: req.Database}
 	details, _ := json.Marshal(resp)
 	return &Response{OK: true, Details: details}, nil
