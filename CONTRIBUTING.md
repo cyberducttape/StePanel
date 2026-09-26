@@ -4,7 +4,9 @@ Thanks for helping improve StePanel. The project handles server state and backup
 
 ## Development setup
 
-Requirements: Go 1.26+, Git, and a Unix-like shell.
+Requirements: Go 1.26+ (any patch version), Git, and a Unix-like shell.
+
+Go 1.26 is required for `range over int` and other standard library improvements. Any Go 1.26.x patch version is acceptable; we do not require a specific patch version to support air-gapped builds and varied CI environments.
 
 ```sh
 git clone git@github.com:cyberducttape/StePanel.git
