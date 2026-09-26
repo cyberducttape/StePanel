@@ -333,6 +333,13 @@ func (a *App) handleMigrationAnalysisJob(r *Job) ([]byte, error) {
 		return nil, fmt.Errorf("decode migration analysis request: %w", err)
 	}
 
+	// SECURITY: Do not accept SSH private keys until the feature is implemented.
+	// Storing SSH keys in durable job state creates a security risk if the
+	// account key is not configured.
+	if req.SourceSSHKey != "" {
+		return nil, fmt.Errorf("SSH key submission is not yet supported; feature implementation pending")
+	}
+
 	// FIXME: This feature is not yet implemented. The code currently returns
 	// a synthetic analysis based on mock data, not actual source server inspection.
 	// Until the SSH connection and actual server scanning is implemented,
