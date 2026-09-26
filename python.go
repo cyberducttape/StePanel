@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -91,7 +92,10 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.applyPythonApp(operationCtx, app); err != nil {
 		app.LastError = err.Error()
-		_ = savePythonApp(a.Config.AppRoot, app)
+		if saveErr := savePythonApp(a.Config.AppRoot, app); saveErr != nil {
+			// Log but don't fail the request - client can see the application is in error state
+			recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python.state_save_failed", app.Site, saveErr.Error())
+		}
 		http.Error(w, "Python application is pending reconciliation", 502)
 		return
 	}
@@ -140,7 +144,12 @@ func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, fai
 		}
 		if err := a.applyPythonApp(operationCtx, app); err != nil {
 			app.LastError = err.Error()
-			_ = savePythonApp(a.Config.AppRoot, app)
+			if saveErr := savePythonApp(a.Config.AppRoot, app); saveErr != nil {
+				// Log state save failure alongside application error
+				failed[app.Site] = fmt.Sprintf("apply failed: %v; state save failed: %v", err, saveErr)
+				releaseUnlock()
+				continue
+			}
 			failed[app.Site] = err.Error()
 			releaseUnlock()
 			continue

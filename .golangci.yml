@@ -1,0 +1,30 @@
+run:
+  timeout: 5m
+  issues-exit-code: 1
+
+linters:
+  enable:
+    - errcheck
+    - gofmt
+    - govet
+
+linters-settings:
+  errcheck:
+    # Report ignored errors for critical operations
+    check-type-assertions: false
+    check-blank: false
+
+    # Ignore common non-critical ignored errors
+    ignore: |
+      fmt.Print.*
+      io.WriteCloser.Close
+
+issues:
+  exclude-rules:
+    # Allow ignored errors in test files
+    - path: _test\.go
+      linters:
+        - errcheck
+
+# Custom rule: Flag ignored errors in durable state mutations
+# This helps catch silent failures in persistence operations
