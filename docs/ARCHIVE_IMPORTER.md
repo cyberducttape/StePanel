@@ -176,6 +176,19 @@ For non-WordPress sites, manually review the config file. The importer will:
 2. Issue a warning recommending manual review
 3. Still provide archive structure analysis
 
+## Configuration File Update Security
+
+When the importer restores a site with a database dump, it safely updates the configuration file with correct credentials:
+
+**Safety Measures:**
+- ✅ **Atomic writes**: Uses temp file + rename, not direct overwrites
+- ✅ **Permission preservation**: Maintains original file permissions from extracted archive
+- ✅ **Environment variable detection**: Skips replacement for values coming from `getenv()` or `env()` calls
+- ✅ **Whitespace handling**: Works with various spacing in `define()` statements
+- ✅ **Safe path validation**: Rejects absolute paths, `..` sequences, and symlinks
+
+The importer only updates `DB_NAME`, `DB_USER`, and `DB_PASSWORD` (when auto-restore is enabled). Other configuration remains untouched.
+
 ## Import Issues
 
 The importer identifies and reports issues at three levels:
