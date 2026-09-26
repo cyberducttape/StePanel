@@ -11,14 +11,14 @@ import (
 func TestSiteCreationRecovery(t *testing.T) {
 	t.Skip("waiting for durable journal implementation in test workflows")
 	/*
-	stateStore := NewWorkflowStateStore()
-	workflow := SiteCreationWorkflow("test-site", stateStore)
+		stateStore := NewWorkflowStateStore()
+		workflow := SiteCreationWorkflow("test-site", stateStore)
 
-	if err := RunFailureTest(workflow); err != nil {
-		t.Fatalf("site creation workflow failed: %v", err)
-	}
+		if err := RunFailureTest(workflow); err != nil {
+			t.Fatalf("site creation workflow failed: %v", err)
+		}
 
-	t.Log("✓ Site creation survives failures at all boundaries")
+		t.Log("✓ Site creation survives failures at all boundaries")
 	*/
 }
 
@@ -27,14 +27,14 @@ func TestSiteCreationRecovery(t *testing.T) {
 func TestDatabaseProvisioningRecovery(t *testing.T) {
 	t.Skip("waiting for durable journal implementation in test workflows")
 	/*
-	stateStore := NewWorkflowStateStore()
-	workflow := DatabaseProvisioningWorkflow("test-site", "testdb", stateStore)
+		stateStore := NewWorkflowStateStore()
+		workflow := DatabaseProvisioningWorkflow("test-site", "testdb", stateStore)
 
-	if err := RunFailureTest(workflow); err != nil {
-		t.Fatalf("database provisioning workflow failed: %v", err)
-	}
+		if err := RunFailureTest(workflow); err != nil {
+			t.Fatalf("database provisioning workflow failed: %v", err)
+		}
 
-	t.Log("✓ Database provisioning survives failures at all boundaries")
+		t.Log("✓ Database provisioning survives failures at all boundaries")
 	*/
 }
 
@@ -43,14 +43,14 @@ func TestDatabaseProvisioningRecovery(t *testing.T) {
 func TestVhostConfigurationRecovery(t *testing.T) {
 	t.Skip("waiting for durable journal implementation in test workflows")
 	/*
-	stateStore := NewWorkflowStateStore()
-	workflow := VhostConfigurationWorkflow("test-site", "example.com", stateStore)
+		stateStore := NewWorkflowStateStore()
+		workflow := VhostConfigurationWorkflow("test-site", "example.com", stateStore)
 
-	if err := RunFailureTest(workflow); err != nil {
-		t.Fatalf("vhost configuration workflow failed: %v", err)
-	}
+		if err := RunFailureTest(workflow); err != nil {
+			t.Fatalf("vhost configuration workflow failed: %v", err)
+		}
 
-	t.Log("✓ Vhost configuration survives failures at all boundaries")
+		t.Log("✓ Vhost configuration survives failures at all boundaries")
 	*/
 }
 
@@ -59,33 +59,33 @@ func TestVhostConfigurationRecovery(t *testing.T) {
 func TestCompleteWorkflowRecovery(t *testing.T) {
 	t.Skip("waiting for durable journal implementation in test workflows")
 	/*
-	stateStore := NewWorkflowStateStore()
+		stateStore := NewWorkflowStateStore()
 
-	// Create site
-	siteWorkflow := SiteCreationWorkflow("test-site", stateStore)
-	if err := RunFailureTest(siteWorkflow); err != nil {
-		t.Fatalf("site creation failed: %v", err)
-	}
+		// Create site
+		siteWorkflow := SiteCreationWorkflow("test-site", stateStore)
+		if err := RunFailureTest(siteWorkflow); err != nil {
+			t.Fatalf("site creation failed: %v", err)
+		}
 
-	// Provision database
-	dbWorkflow := DatabaseProvisioningWorkflow("test-site", "testdb", stateStore)
-	if err := RunFailureTest(dbWorkflow); err != nil {
-		t.Fatalf("database provisioning failed: %v", err)
-	}
+		// Provision database
+		dbWorkflow := DatabaseProvisioningWorkflow("test-site", "testdb", stateStore)
+		if err := RunFailureTest(dbWorkflow); err != nil {
+			t.Fatalf("database provisioning failed: %v", err)
+		}
 
-	// Configure vhost
-	vhostWorkflow := VhostConfigurationWorkflow("test-site", "example.com", stateStore)
-	if err := RunFailureTest(vhostWorkflow); err != nil {
-		t.Fatalf("vhost configuration failed: %v", err)
-	}
+		// Configure vhost
+		vhostWorkflow := VhostConfigurationWorkflow("test-site", "example.com", stateStore)
+		if err := RunFailureTest(vhostWorkflow); err != nil {
+			t.Fatalf("vhost configuration failed: %v", err)
+		}
 
-	// Verify no half-states exist
-	siteState := stateStore.GetState("test-site")
-	if len(siteState.Events) == 0 {
-		t.Error("site should have events recorded")
-	}
+		// Verify no half-states exist
+		siteState := stateStore.GetState("test-site")
+		if len(siteState.Events) == 0 {
+			t.Error("site should have events recorded")
+		}
 
-	t.Log("✓ Complete workflow survives cascading failures")
+		t.Log("✓ Complete workflow survives cascading failures")
 	*/
 }
 
@@ -94,33 +94,33 @@ func TestCompleteWorkflowRecovery(t *testing.T) {
 func TestRecoveryDeterminism(t *testing.T) {
 	t.Skip("waiting for durable journal implementation in test workflows")
 	/*
-	const numRuns = 5
-	results := make([]string, numRuns)
+		const numRuns = 5
+		results := make([]string, numRuns)
 
-	for i := 0; i < numRuns; i++ {
-		stateStore := NewWorkflowStateStore()
-		workflow := SiteCreationWorkflow("determinism-test", stateStore)
+		for i := 0; i < numRuns; i++ {
+			stateStore := NewWorkflowStateStore()
+			workflow := SiteCreationWorkflow("determinism-test", stateStore)
 
-		if err := RunFailureTest(workflow); err != nil {
-			t.Fatalf("run %d failed: %v", i, err)
+			if err := RunFailureTest(workflow); err != nil {
+				t.Fatalf("run %d failed: %v", i, err)
+			}
+
+			// Record the sequence of events
+			state := stateStore.GetState("determinism-test")
+			for _, event := range state.Events {
+				results[i] += event.Name + ","
+			}
 		}
 
-		// Record the sequence of events
-		state := stateStore.GetState("determinism-test")
-		for _, event := range state.Events {
-			results[i] += event.Name + ","
+		// Verify all runs produced the same sequence
+		for i := 1; i < numRuns; i++ {
+			if results[i] != results[0] {
+				t.Errorf("recovery not deterministic: run 0 = %s, run %d = %s",
+					results[0], i, results[i])
+			}
 		}
-	}
 
-	// Verify all runs produced the same sequence
-	for i := 1; i < numRuns; i++ {
-		if results[i] != results[0] {
-			t.Errorf("recovery not deterministic: run 0 = %s, run %d = %s",
-				results[0], i, results[i])
-		}
-	}
-
-	t.Logf("✓ Recovery is deterministic across %d runs", numRuns)
+		t.Logf("✓ Recovery is deterministic across %d runs", numRuns)
 	*/
 }
 
