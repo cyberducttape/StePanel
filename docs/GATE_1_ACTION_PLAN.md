@@ -31,7 +31,11 @@ Gate 1 requires: ALL site mutations must flow through `SiteManager` (internal/si
 
 ### ✅ COMPLIANT (No action needed)
 
-- **importer.go** — Uses `manager.CreateStaging()` + extract + `manager.ActivateStaged()`
+**Phase 1 Audit Complete (3/8 CRITICAL files):**
+
+1. **importer.go** ✅ — Uses `manager.CreateStaging()` + extract + `manager.ActivateStaged()`
+2. **site_lifecycle.go** ✅ — Uses `SiteManager.Delete()` for canonical removal with journal (line 356)
+3. **wpress.go** ✅ — Uses bridge `createSiteManagerStaging()` and `discardSiteManagerStaging()`
 
 ### 🔄 IN PROGRESS (Under review from other work)
 
@@ -40,26 +44,32 @@ Gate 1 requires: ALL site mutations must flow through `SiteManager` (internal/si
 
 ### ⏳ PENDING (Must audit and potentially refactor)
 
-#### CRITICAL - Canonical Site Mutations (5 files)
-1. **site_lifecycle.go** — Site creation/deletion/update
-   - [ ] Verify all mutations go through SiteManager
-   - [ ] Document any staging operations explicitly
+#### CRITICAL - Canonical Site Mutations (5 remaining)
+
+1. **cpmove.go** (463 lines) — cPanel restore  
+   - [ ] Audit handleCPanelImportJob for SiteTransaction integration
+   - [ ] Verify uses manager staging for canonical operations
+   - [ ] Verify atomic activation pattern
    
-2. **wpress.go** — WordPress import/restore
-   - [ ] Verify uses SiteManager.GrantStaging() for restore
-   - [ ] Verify ActivateStaged() used for publication
+2. **backup_restore.go** (558 lines) — Backup restoration
+   - [ ] Verify all restore staging uses manager.CreateStaging()
+   - [ ] Verify atomic activation (ActivateStaged or replacing)
+   - [ ] Document any direct path operations
    
-3. **cpmove.go** — cPanel restore
-   - [ ] Verify uses SiteManager.GrantStaging()
-   - [ ] Verify transaction management is correct
+3. **git_deploy.go** (782 lines) — Git deployment
+   - [ ] Verify release staging via manager
+   - [ ] Verify uses ActivateStagedReplacing() or similar
+   - [ ] Verify rollback pattern
    
-4. **backup_restore.go** — Backup restoration
-   - [ ] Verify staging operations use manager grants
-   - [ ] Document lock requirements
+4. **release_activation_journal.go** (342 lines) — Recovery journals
+   - [ ] Verify recovery doesn't bypass SiteManager
+   - [ ] Verify journal integration with activation
+   - [ ] Check prepared/activated/completed state transitions
    
-5. **git_deploy.go** — Git deployment
-   - [ ] Verify staging used correctly
-   - [ ] Verify activation atomic
+5. **release_pipeline.go** (483 lines) — Release operations
+   - [ ] Verify release workflow uses manager staging
+   - [ ] Verify atomic release publication
+   - [ ] Document any staging cleanup patterns
 
 #### HIGH - Staging/Restore Operations (3 files)
 - **staging.go** — Generic staging operations
