@@ -326,7 +326,7 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	if err := runHelperCommand(operationCtx, a.Config, a.Config.VHostCtl, "delete", name); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
-			_ = a.Routes.save(desired)
+			a.SaveRouteState(desired)
 		}
 		http.Error(w, "site route was not removed because validation or webserver reload failed", http.StatusServiceUnavailable)
 		return

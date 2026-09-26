@@ -262,7 +262,7 @@ func (a *App) recordWorkerError(key string, applyErr error) {
 	}
 	worker.State = "pending"
 	worker.LastError = applyErr.Error()
-	_ = a.Workers.save(key, worker)
+	a.SaveWorkerState(key, worker)
 }
 
 func (a *App) reconcileWorkers(ctx context.Context) (reconciled []string, failed map[string]string) {

@@ -152,7 +152,7 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 	if e := a.applyPHPProfile(operationCtx, p); e != nil {
 		p.State, p.LastError = "pending", e.Error()
-		_ = a.PHP.save(access, p)
+		a.SavePHPProfileState(access, p)
 		http.Error(w, "PHP runtime profile is pending reconciliation", 502)
 		return
 	}
@@ -190,7 +190,7 @@ func (a *App) reconcilePHPProfiles(ctx context.Context) (reconciled []string, fa
 		}
 		if err := a.applyPHPProfile(operationCtx, profile); err != nil {
 			profile.LastError = err.Error()
-			_ = a.PHP.saveLocked(profile.Site, profile)
+			a.SavePHPProfileStateLocked(profile.Site, profile)
 			failed[profile.Site] = err.Error()
 			releaseUnlock()
 			continue

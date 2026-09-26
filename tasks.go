@@ -400,7 +400,7 @@ func (a *App) recordTaskError(key string, applyErr error) {
 	}
 	task.State = "pending"
 	task.LastError = applyErr.Error()
-	_ = a.Tasks.save(key, task)
+	a.SaveTaskState(key, task)
 }
 
 func (a *App) reconcileTasks(ctx context.Context) (reconciled []string, failed map[string]string) {

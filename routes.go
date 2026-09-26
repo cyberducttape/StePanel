@@ -140,7 +140,7 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 		if pathErr != nil {
 			route.LastError = pathErr.Error()
 			failed[route.Name] = pathErr.Error()
-			_ = a.Routes.save(route)
+			a.SaveRouteState(route)
 			continue
 		}
 		if route.State == "applied" {
@@ -153,7 +153,7 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 		if lockErr != nil {
 			route.LastError = lockErr.Error()
 			failed[route.Name] = lockErr.Error()
-			_ = a.Routes.save(route)
+			a.SaveRouteState(route)
 			continue
 		}
 		var err error
@@ -165,7 +165,7 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 		if err != nil {
 			route.LastError = err.Error()
 			failed[route.Name] = err.Error()
-			_ = a.Routes.save(route)
+			a.SaveRouteState(route)
 			release()
 			continue
 		}

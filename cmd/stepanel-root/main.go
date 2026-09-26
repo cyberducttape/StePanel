@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"stepanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 func main() {
