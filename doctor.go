@@ -26,18 +26,18 @@ type migrationAnalysisResponse struct {
 
 // ProductionReadinessCheck represents a single production readiness check
 type ProductionReadinessCheck struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`     // "pass", "warning", "fail"
-	Severity string `json:"severity"`   // "info", "warning", "critical"
-	Message  string `json:"message,omitempty"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`   // "pass", "warning", "fail"
+	Severity    string `json:"severity"` // "info", "warning", "critical"
+	Message     string `json:"message,omitempty"`
 	Remediation string `json:"remediation,omitempty"`
 }
 
 // ProductionReadinessReport represents overall production readiness
 type ProductionReadinessReport struct {
-	IsProduction bool                       `json:"is_production"`
-	Checks       []ProductionReadinessCheck `json:"checks"`
-	OverallStatus string                   `json:"overall_status"` // "healthy", "degraded", "critical"
+	IsProduction  bool                       `json:"is_production"`
+	Checks        []ProductionReadinessCheck `json:"checks"`
+	OverallStatus string                     `json:"overall_status"` // "healthy", "degraded", "critical"
 }
 
 // productionReadiness handles production readiness checks
@@ -148,10 +148,10 @@ func (a *App) checkFilesystemQuotaReadiness() ProductionReadinessCheck {
 	}
 
 	return ProductionReadinessCheck{
-		Name:     "Filesystem Quotas",
-		Status:   "fail",
-		Severity: "critical",
-		Message:  "STEPANEL_WEB_ROOT does not have quota support enabled (usrquota/grpquota/prjquota)",
+		Name:        "Filesystem Quotas",
+		Status:      "fail",
+		Severity:    "critical",
+		Message:     "STEPANEL_WEB_ROOT does not have quota support enabled (usrquota/grpquota/prjquota)",
 		Remediation: "Enable quotas on mount: mount -o remount,usrquota /var/www or update /etc/fstab",
 	}
 }
@@ -179,10 +179,10 @@ func (a *App) checkEncryptionKeysReadiness() ProductionReadinessCheck {
 func (a *App) checkOfflineBackupReadiness() ProductionReadinessCheck {
 	if !a.Config.RequireOffsiteBackup || a.Config.OffsiteTarget == "" {
 		return ProductionReadinessCheck{
-			Name:     "Offsite Backups",
-			Status:   "fail",
-			Severity: "critical",
-			Message:  "Offsite backup enforcement not configured",
+			Name:        "Offsite Backups",
+			Status:      "fail",
+			Severity:    "critical",
+			Message:     "Offsite backup enforcement not configured",
 			Remediation: "Set STEPANEL_REQUIRE_OFFSITE_BACKUP=1 and configure STEPANEL_OFFSITE_TARGET",
 		}
 	}
@@ -200,10 +200,10 @@ func (a *App) checkTLSReadiness() ProductionReadinessCheck {
 	if a.Config.TLSCertFile == "" || a.Config.TLSKeyFile == "" {
 		if !a.Config.TLSAlreadyTerminated {
 			return ProductionReadinessCheck{
-				Name:     "TLS/HTTPS",
-				Status:   "fail",
-				Severity: "critical",
-				Message:  "Application TLS not configured and TLS not terminated by reverse proxy",
+				Name:        "TLS/HTTPS",
+				Status:      "fail",
+				Severity:    "critical",
+				Message:     "Application TLS not configured and TLS not terminated by reverse proxy",
 				Remediation: "Either provide STEPANEL_TLS_CERT_FILE and STEPANEL_TLS_KEY_FILE, or set STEPANEL_TLS_TERMINATED=1 if using a reverse proxy",
 			}
 		}

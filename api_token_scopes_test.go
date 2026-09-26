@@ -14,69 +14,69 @@ func TestAPITokenScopeEnforcement(t *testing.T) {
 	auth := Auth{Username: "admin"}
 
 	type scopeTest struct {
-		name           string
-		scopes         []string
-		isAPIToken     bool
-		requiredScope  string
-		shouldAllow    bool
+		name          string
+		scopes        []string
+		isAPIToken    bool
+		requiredScope string
+		shouldAllow   bool
 	}
 
 	tests := []scopeTest{
 		{
-			name:           "site:read token can access site:read operations",
-			scopes:         []string{"site:read"},
-			isAPIToken:     true,
-			requiredScope:  "site:read",
-			shouldAllow:    true,
+			name:          "site:read token can access site:read operations",
+			scopes:        []string{"site:read"},
+			isAPIToken:    true,
+			requiredScope: "site:read",
+			shouldAllow:   true,
 		},
 		{
-			name:           "site:read token CANNOT deploy (deploy:write required)",
-			scopes:         []string{"site:read"},
-			isAPIToken:     true,
-			requiredScope:  "deploy:write",
-			shouldAllow:    false,
+			name:          "site:read token CANNOT deploy (deploy:write required)",
+			scopes:        []string{"site:read"},
+			isAPIToken:    true,
+			requiredScope: "deploy:write",
+			shouldAllow:   false,
 		},
 		{
-			name:           "site:read token CANNOT create backup (backup:create required)",
-			scopes:         []string{"site:read"},
-			isAPIToken:     true,
-			requiredScope:  "backup:create",
-			shouldAllow:    false,
+			name:          "site:read token CANNOT create backup (backup:create required)",
+			scopes:        []string{"site:read"},
+			isAPIToken:    true,
+			requiredScope: "backup:create",
+			shouldAllow:   false,
 		},
 		{
-			name:           "deploy:write token can deploy",
-			scopes:         []string{"deploy:write"},
-			isAPIToken:     true,
-			requiredScope:  "deploy:write",
-			shouldAllow:    true,
+			name:          "deploy:write token can deploy",
+			scopes:        []string{"deploy:write"},
+			isAPIToken:    true,
+			requiredScope: "deploy:write",
+			shouldAllow:   true,
 		},
 		{
-			name:           "deploy:write token CANNOT create backup (backup:create required)",
-			scopes:         []string{"deploy:write"},
-			isAPIToken:     true,
-			requiredScope:  "backup:create",
-			shouldAllow:    false,
+			name:          "deploy:write token CANNOT create backup (backup:create required)",
+			scopes:        []string{"deploy:write"},
+			isAPIToken:    true,
+			requiredScope: "backup:create",
+			shouldAllow:   false,
 		},
 		{
-			name:           "multi-scope token (site:read, deploy:write, backup:read)",
-			scopes:         []string{"site:read", "deploy:write", "backup:read"},
-			isAPIToken:     true,
-			requiredScope:  "backup:read",
-			shouldAllow:    true,
+			name:          "multi-scope token (site:read, deploy:write, backup:read)",
+			scopes:        []string{"site:read", "deploy:write", "backup:read"},
+			isAPIToken:    true,
+			requiredScope: "backup:read",
+			shouldAllow:   true,
 		},
 		{
-			name:           "multi-scope token CANNOT perform unauthorized action (ssh:write)",
-			scopes:         []string{"site:read", "deploy:write", "backup:read"},
-			isAPIToken:     true,
-			requiredScope:  "ssh:write",
-			shouldAllow:    false,
+			name:          "multi-scope token CANNOT perform unauthorized action (ssh:write)",
+			scopes:        []string{"site:read", "deploy:write", "backup:read"},
+			isAPIToken:    true,
+			requiredScope: "ssh:write",
+			shouldAllow:   false,
 		},
 		{
-			name:           "browser session (not API token) ignores scopes",
-			scopes:         []string{}, // Empty scopes shouldn't matter
-			isAPIToken:     false,
-			requiredScope:  "deploy:write",
-			shouldAllow:    true, // Browser sessions always allowed
+			name:          "browser session (not API token) ignores scopes",
+			scopes:        []string{}, // Empty scopes shouldn't matter
+			isAPIToken:    false,
+			requiredScope: "deploy:write",
+			shouldAllow:   true, // Browser sessions always allowed
 		},
 	}
 

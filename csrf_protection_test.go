@@ -120,8 +120,8 @@ func TestCSRFProtectionEnforcement(t *testing.T) {
 // distinguishes between safe and unsafe HTTP methods.
 func TestCSRFTokenBoundary(t *testing.T) {
 	tests := []struct {
-		method   string
-		isSafe   bool
+		method string
+		isSafe bool
 	}{
 		{http.MethodGet, true},
 		{http.MethodHead, true},

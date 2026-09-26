@@ -641,7 +641,7 @@ func TestUnixUserIsolationBoundary(t *testing.T) {
 	// Test cases for isolation enforcement
 	testCases := []struct {
 		name            string
-		requireABCCheck  func(t *testing.T)
+		requireABCCheck func(t *testing.T)
 	}{
 		{
 			name: "separate unix users per site",
