@@ -24,17 +24,36 @@ The design is sound. The implementation is 85% there. The remaining work is:
 
 **Requirement:** ALL site mutations must flow through `SiteManager` (internal/sites/Manager)
 
+**Architectural Rule (September 2026 Clarification):**
+
+Two distinct domains exist:
+1. **Staging areas** — Opaque, temporary workspaces allocated and owned by SiteManager
+   - Domain components (importer, restore, git, backup, etc.) may mutate staging areas granted to them
+   - SiteManager grants staging and guarantees cleanup if activation fails
+   - Direct filesystem operations within staging are acceptable
+   - Staging paths must never be persisted or assumed to exist across operation boundaries
+
+2. **Canonical sites** — Permanent, named site trees at `{webRoot}/sites/{siteName}`
+   - ONLY SiteManager.Create/Activate/Delete touch canonical paths
+   - No exceptions, no direct filesystem calls
+   - All operations verify site exists before mutation
+   - All operations acquire mutation locks before touching site state
+   - All operations record audit events and recovery metadata
+
 **What this means:**
 ```
 create → SiteManager.Create()
-import → SiteManager.ImportArchive()
+import → SiteManager.GrantStaging() + domain extract + SiteManager.Activate()
 clone  → SiteManager.Clone()
-restore → SiteManager.Restore()
+restore → SiteManager.GrantStaging() + domain restore + SiteManager.Activate()
 update → SiteManager.UpdateConfiguration()
 delete → SiteManager.Delete()
-```
 
-No exceptions. No direct filesystem calls. No helper scripts that bypass the manager.
+# Never acceptable:
+❌ Direct filepath.Join(webRoot, "sites", ...) outside internal/sites
+❌ os.Mkdir/Create/Rename on /sites/* paths outside manager
+❌ Reads of canonical site state without acquiring locks
+```
 
 **Current Status:**
 - ✅ Manager interface defined (`internal/sites/manager.go`)

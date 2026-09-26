@@ -201,6 +201,17 @@ nextSteps := []string{
 
 Extract new domains with clear interface contracts. This enables testing, mocking, and failure injection.
 
+## Architectural Rule: Site Lifecycle Authority
+
+**Canonical sites** (permanent workspaces at `{webRoot}/sites/{siteName}/*`) may ONLY be created, activated, or deleted by `internal/sites.Manager`. No exceptions.
+
+**Staging areas** (temporary workspaces granted by SiteManager) may be mutated by domain components, but:
+- Must be obtained via `SiteManager.GrantStaging()`
+- Must be activated/discarded only via `SiteManager.ActivateStaged()` or `SiteManager.DiscardStaging()`
+- Must never persist paths or assume existence across operation boundaries
+
+This rule prevents inconsistent lifecycle setup (missing PHP-FPM, recovery journals, account ownership, resource envelopes, audit trails) across different site creation paths.
+
 ### Required Interfaces for Privileged Operations
 
 ```go
