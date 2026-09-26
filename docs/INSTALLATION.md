@@ -43,15 +43,25 @@ curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${relea
 curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/SHA256SUMS"
 grep "stepanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
 tar -xzf "stepanel_${release#v}_linux_${arch}.tar.gz"
+
+# Generate encryption keys (MUST be machine-generated, see docs/ENCRYPTION_KEYS.md)
+ACCOUNT_KEY=$(openssl rand -hex 32)
+ENVIRONMENT_KEY=$(openssl rand -hex 32)
+BACKUP_SIGNING_KEY=$(openssl rand -hex 32)
+
 sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
   STEPANEL_ADMIN_TOTP_SECRET='BASE32_SECRET' \
-  STEPANEL_ACCOUNT_KEY='another-high-entropy-secret' \
+  STEPANEL_ACCOUNT_KEY="$ACCOUNT_KEY" \
+  STEPANEL_ENVIRONMENT_KEY="$ENVIRONMENT_KEY" \
+  STEPANEL_BACKUP_SIGNING_KEY="$BACKUP_SIGNING_KEY" \
   STEPANEL_REQUIRE_OFFSITE_BACKUP=1 \
   STEPANEL_OFFSITE_TARGET='s3:bucket/stepanel' \
   STEPANEL_PANEL_HOSTNAME=panel.example.com \
   STEPANEL_DB_ENGINE=mariadb \
   STEPANEL_DB_VERSION=default ./install.sh
 ```
+
+**IMPORTANT:** Encryption keys must be machine-generated random values. See [**docs/ENCRYPTION_KEYS.md**](ENCRYPTION_KEYS.md) for detailed requirements, generation methods, and security best practices.
 
 Building from source is for contributors and development hosts; release
 archives include the binary, installer, helpers, service files, and web assets.

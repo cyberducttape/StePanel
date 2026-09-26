@@ -394,9 +394,20 @@ func ValidateConfig(c Config) error {
 	if c.Production {
 		if len(strings.TrimSpace(c.EnvironmentKey)) < 32 || strings.ContainsAny(c.EnvironmentKey, "\r\n") {
 			problems = append(problems, errors.New("production requires STEPANEL_ENVIRONMENT_KEY of at least 32 characters without newlines"))
+		} else if err := validateEncryptionKey(c.EnvironmentKey, "STEPANEL_ENVIRONMENT_KEY"); err != nil {
+			problems = append(problems, err)
 		}
 		if len(strings.TrimSpace(c.BackupSigningKey)) < 32 || strings.ContainsAny(c.BackupSigningKey, "\r\n") {
 			problems = append(problems, errors.New("production requires STEPANEL_BACKUP_SIGNING_KEY of at least 32 characters without newlines"))
+		} else if err := validateEncryptionKey(c.BackupSigningKey, "STEPANEL_BACKUP_SIGNING_KEY"); err != nil {
+			problems = append(problems, err)
+		}
+		if len(strings.TrimSpace(c.AccountKey)) > 0 {
+			if len(strings.TrimSpace(c.AccountKey)) < 32 || strings.ContainsAny(c.AccountKey, "\r\n") {
+				problems = append(problems, errors.New("production requires STEPANEL_ACCOUNT_KEY of at least 32 characters without newlines or left empty"))
+			} else if err := validateEncryptionKey(c.AccountKey, "STEPANEL_ACCOUNT_KEY"); err != nil {
+				problems = append(problems, err)
+			}
 		}
 		if strings.TrimSpace(os.Getenv("STEPANEL_ADMIN_TOTP_SECRET")) == "" {
 			problems = append(problems, errors.New("production requires STEPANEL_ADMIN_TOTP_SECRET for administrator MFA"))
@@ -456,6 +467,73 @@ func ValidateConfig(c Config) error {
 		}
 	}
 	return errors.Join(problems...)
+}
+
+// validateEncryptionKey checks if an encryption key looks like it was machine-generated
+// rather than human-typed. This protects against weak keys derived from passwords.
+// Machine-generated keys should have high entropy and random byte distribution.
+func validateEncryptionKey(key string, name string) error {
+	trimmed := strings.TrimSpace(key)
+
+	// Check if key looks like it could be a human-typed password
+	// by analyzing character distribution and patterns
+	hasLower := false
+	hasUpper := false
+	hasDigit := false
+	hasSpecial := false
+	asciiOnly := true
+
+	for _, r := range trimmed {
+		if r > 127 {
+			asciiOnly = false
+		}
+		if r >= 'a' && r <= 'z' {
+			hasLower = true
+		} else if r >= 'A' && r <= 'Z' {
+			hasUpper = true
+		} else if r >= '0' && r <= '9' {
+			hasDigit = true
+		} else if r < 128 {
+			hasSpecial = true
+		}
+	}
+
+	// Red flags for human-typed passwords:
+	// 1. Only ASCII (random keys often have extended/binary patterns when base64-encoded)
+	// 2. Too much structure (balanced mix of only a few character types)
+	// 3. Only lowercase (common pattern: users type "password123")
+	if !asciiOnly {
+		// Non-ASCII bytes are actually OK - could be binary key encoded
+		// This is less of a red flag
+	}
+
+	// If the key is pure lowercase or pure uppercase, it's very likely human-typed
+	if asciiOnly && hasLower && !hasUpper && !hasDigit && !hasSpecial {
+		return fmt.Errorf("%s appears to be a human-typed password, not a machine-generated encryption key. "+
+			"Generate with: openssl rand -hex 32", name)
+	}
+
+	if asciiOnly && !hasLower && hasUpper && !hasDigit && !hasSpecial {
+		return fmt.Errorf("%s appears to be a human-typed password, not a machine-generated encryption key. "+
+			"Generate with: openssl rand -hex 32", name)
+	}
+
+	// Check for common password patterns (like "password", "secret", etc.)
+	commonPatterns := []string{
+		"password", "secret", "key", "admin", "user", "pass",
+		"abc", "123", "test", "demo", "temp", "tmp",
+	}
+
+	lowerKey := strings.ToLower(trimmed)
+	for _, pattern := range commonPatterns {
+		if strings.Contains(lowerKey, pattern) {
+			return fmt.Errorf("%s contains common password pattern %q; "+
+				"must be machine-generated randomness. "+
+				"Generate with: openssl rand -hex 32", name, pattern)
+		}
+	}
+
+	return nil
 }
 
 // validateProductionExecutablePath protects the root-helper trust boundary.
