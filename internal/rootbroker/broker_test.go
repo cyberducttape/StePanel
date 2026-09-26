@@ -15,7 +15,7 @@ func contains(s, substr string) bool {
 
 func TestBrokerSiteCreate(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestBrokerSiteCreate(t *testing.T) {
 
 func TestBrokerSiteDelete(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestBrokerSiteDelete(t *testing.T) {
 
 func TestBrokerAppApply(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestBrokerAppApply(t *testing.T) {
 
 func TestBrokerDBProvision(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestBrokerDBProvision(t *testing.T) {
 
 func TestBrokerVhostApply(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestBrokerVhostApply(t *testing.T) {
 
 func TestBrokerInvalidSiteName(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestBrokerInvalidSiteName(t *testing.T) {
 
 func TestBrokerInvalidPort(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestBrokerInvalidPort(t *testing.T) {
 
 func TestBrokerGitClone(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestBrokerGitClone(t *testing.T) {
 
 func TestBrokerNilRequest(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestBrokerNilRequest(t *testing.T) {
 
 func TestBrokerUnknownRequestType(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}

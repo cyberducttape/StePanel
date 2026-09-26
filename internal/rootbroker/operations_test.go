@@ -9,7 +9,7 @@ import (
 
 func TestSiteOperationsCreate(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestSiteOperationsCreate(t *testing.T) {
 
 func TestSiteOperationsInvalidName(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestSiteOperationsInvalidName(t *testing.T) {
 
 func TestAppOperationsValidation(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestAppOperationsValidation(t *testing.T) {
 
 func TestAppOperationsInvalidSite(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestAppOperationsInvalidSite(t *testing.T) {
 
 func TestDBOperationsValidation(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestDBOperationsValidation(t *testing.T) {
 
 func TestVhostOperationsValidation(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestVhostOperationsValidation(t *testing.T) {
 
 func TestGitOperationsValidation(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestGitOperationsValidation(t *testing.T) {
 
 func TestProxyOperationsValidation(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker("/tmp/test-webroot", logger)
+	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
