@@ -6,9 +6,8 @@ previous_root=${1:?previous release tree is required}
 candidate_root=${2:?candidate release tree is required}
 broken_root=${3:-}
 
-for root in "$previous_root" "$candidate_root"; do
-  [[ -x "$root/install.sh" && -x "$root/stepanel" ]] || { echo "invalid release tree: $root" >&2; exit 1; }
-done
+[[ -x "$previous_root/install.sh" && -x "$previous_root/stepanel" ]] || { echo "invalid previous release tree: $previous_root" >&2; exit 1; }
+[[ -x "$candidate_root/install.sh" && -x "$candidate_root/stepanel" && -x "$candidate_root/stepanel-root" ]] || { echo "invalid candidate release tree: $candidate_root" >&2; exit 1; }
 if [[ -n "$broken_root" && ( ! -x "$broken_root/install.sh" || ! -x "$broken_root/stepanel" ) ]]; then
   echo "invalid deliberately broken release tree: $broken_root" >&2
   exit 1
