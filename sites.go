@@ -47,21 +47,21 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 		if cached, ok := a.MetadataCache.GetSites(); ok {
 			siteNames = cached
 		} else {
-			entries, _ := os.ReadDir(filepath.Join(a.Config.WebRoot, "sites"))
-			for _, entry := range entries {
-				if entry.IsDir() && safeUser(entry.Name()) != "" {
-					siteNames = append(siteNames, entry.Name())
-				}
+			var err error
+			siteNames, err = managedSiteNames(filepath.Join(a.Config.WebRoot, "sites"))
+			if err != nil {
+				http.Error(w, "unable to inspect managed sites", http.StatusInternalServerError)
+				return
 			}
 			a.MetadataCache.SetSites(siteNames)
 		}
 	} else {
 		// Fallback for tests without initialized cache
-		entries, _ := os.ReadDir(filepath.Join(a.Config.WebRoot, "sites"))
-		for _, entry := range entries {
-			if entry.IsDir() && safeUser(entry.Name()) != "" {
-				siteNames = append(siteNames, entry.Name())
-			}
+		var err error
+		siteNames, err = managedSiteNames(filepath.Join(a.Config.WebRoot, "sites"))
+		if err != nil {
+			http.Error(w, "unable to inspect managed sites", http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -142,6 +142,23 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 		response["metadata_age_sec"] = a.MetadataCache.StalenessSeconds() // How many seconds old the cached metadata is
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func managedSiteNames(root string) ([]string, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() && safeUser(entry.Name()) != "" {
+			names = append(names, entry.Name())
+		}
+	}
+	return names, nil
 }
 
 func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {

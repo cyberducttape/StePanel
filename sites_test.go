@@ -83,6 +83,24 @@ func TestSiteOverviewGroupsManagedResources(t *testing.T) {
 	}
 }
 
+func TestSiteOverviewReportsSiteInventoryReadFailure(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	if err := os.MkdirAll(webRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webRoot, "sites"), []byte("not-a-directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{Config: Config{WebRoot: webRoot}}
+	response := httptest.NewRecorder()
+	app.siteOverviewList(response, httptest.NewRequest(http.MethodGet, "/api/sites/overview", nil))
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body = %s; want inventory read failure", response.Code, response.Body.String())
+	}
+}
+
 func TestSiteOverviewResourceIncludesHyphenatedSiteResources(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

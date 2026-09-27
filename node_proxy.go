@@ -136,7 +136,11 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) proxyList(w http.ResponseWriter, r *http.Request) {
-	entries, _ := os.ReadDir(a.Config.ProxyRoot)
+	entries, err := os.ReadDir(a.Config.ProxyRoot)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		http.Error(w, "unable to inspect proxy configurations", http.StatusInternalServerError)
+		return
+	}
 	items := []proxyInfo{}
 	for _, entry := range entries {
 		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".conf") && !strings.HasSuffix(entry.Name(), ".caddy")) {

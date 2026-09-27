@@ -84,6 +84,21 @@ func TestValidAppManifestRejectsUnexpectedRoot(t *testing.T) {
 	}
 }
 
+func TestAppListReportsManifestDirectoryReadFailure(t *testing.T) {
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "apps")
+	if err := os.WriteFile(appRoot, []byte("not-a-directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{Config: Config{AppRoot: appRoot}}
+	response := httptest.NewRecorder()
+	app.appList(response, httptest.NewRequest(http.MethodGet, "/api/apps", nil))
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body = %s; want manifest read failure", response.Code, response.Body.String())
+	}
+}
+
 func TestValidAppManifestRejectsSymlinkedSiteRoot(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

@@ -22,7 +22,11 @@ type AppManifest struct {
 }
 
 func (a *App) appList(w http.ResponseWriter, r *http.Request) {
-	entries, _ := os.ReadDir(a.Config.AppRoot)
+	entries, err := os.ReadDir(a.Config.AppRoot)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		http.Error(w, "unable to inspect application manifests", http.StatusInternalServerError)
+		return
+	}
 	apps := []AppManifest{}
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".json") {

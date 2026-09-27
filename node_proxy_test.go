@@ -89,3 +89,18 @@ func TestProxyConfigNameUsesWebserverExtension(t *testing.T) {
 		t.Fatalf("apache proxy name = %q", got)
 	}
 }
+
+func TestProxyListReportsConfigurationDirectoryReadFailure(t *testing.T) {
+	root := t.TempDir()
+	proxyRoot := filepath.Join(root, "proxies")
+	if err := os.WriteFile(proxyRoot, []byte("not-a-directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{Config: Config{ProxyRoot: proxyRoot}}
+	response := httptest.NewRecorder()
+	app.proxyList(response, httptest.NewRequest(http.MethodGet, "/api/proxy", nil))
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body = %s; want proxy read failure", response.Code, response.Body.String())
+	}
+}
