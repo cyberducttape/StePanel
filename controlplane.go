@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -193,6 +194,17 @@ func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
 // migration to an already-populated database so a bad migration has a
 // recovery point.
 func runControlPlaneMigrations(db *sql.DB, path string) error {
+	lockPath := path + ".migration.lock"
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return fmt.Errorf("open control-plane migration lock: %w", err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("lock control-plane migrations: %w", err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+
 	if _, err := db.Exec(migration.SchemaMigrationsTable); err != nil {
 		return fmt.Errorf("create control-plane migrations table: %w", err)
 	}

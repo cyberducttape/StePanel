@@ -445,7 +445,7 @@ func main() {
 		if err := auditOutbox.flush(context.Background(), cfg.AuditLog); err != nil {
 			failures = append(failures, fmt.Errorf("flush audit outbox during startup: %w", err))
 		}
-		if cfg.DBCtl != "" {
+		if cfg.DBCtl != "" && os.Getenv("STEPANEL_SKIP_STARTUP_DB_RECONCILE") != "1" {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			output, err := runBoundedCommand(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, "reconcile"))
 			cancel()
