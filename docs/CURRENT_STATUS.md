@@ -59,7 +59,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ### Gate 5: Production Durability Testing (90% → Phase 7 remaining)
 
-**Status:** 90% complete; Phase 7 VM testing infrastructure ready
+**Status:** 90% complete; Phase 7 VM execution remains pending
 
 - ✅ Phase 1: Failure Injection Framework (100%)
 - ✅ Phase 2: Durable Checkpoint System (100%)
@@ -75,7 +75,8 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - Durable journals for 6 critical operations (site create, app deploy, DB provision, vhost config, DB restore, git deploy)
 - Atomic write patterns (temp + rename) throughout
 - 55+ broker operation tests + 6 workflow integration tests
-- VM test harness and 500+ lines of testing infrastructure
+- Provider-neutral VM test harness scaffold that fails closed until a real
+  disposable-VM backend is configured; it is not itself production evidence
 - 2000+ lines of integration guides and failure recovery documentation
 
 **Guarantees Proven:**
@@ -152,11 +153,11 @@ All workflows use **journaled staged activation** — operations are staged in a
 - 94 unit tests, all passing
 - All 6 operation types integrated with handlers
 
-✅ **Gate 5:**
+✅ **Gate 5 local recovery evidence:**
 - Durable journal pattern proven in production code
 - 6 operations with atomic checkpoints
 - Workflow integration testing (6 new tests)
-- Phase 7 VM testing harness ready
+- Phase 7 VM testing scaffold fails closed without a real backend
 
 ✅ **DBLocks (Sep 2026 rewrite):**
 - Fixed 5 latent bugs in distributed lock implementation

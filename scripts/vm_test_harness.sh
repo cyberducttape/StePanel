@@ -1,8 +1,9 @@
 #!/bin/bash
 # VM-Level Failure Testing Harness
 #
-# This script runs Gate 5 Phase 7 tests on disposable VMs.
-# It tests real OS-level failures: SIGKILL, ENOSPC, database offline.
+# This script is a provider-neutral Gate 5 Phase 7 interface. The historical
+# implementation below contains command templates, not a VM provider, and
+# must never report simulated runs as production evidence.
 #
 # Usage: ./vm_test_harness.sh <operation> [options]
 #
@@ -41,8 +42,17 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $*"
 }
 
+require_real_backend() {
+    if [[ "${STEPANEL_VM_HARNESS_REAL:-0}" != "1" ]]; then
+        log_error "VM backend is not configured; this command is a scaffold, not a test"
+        log_error "Provide a real VM implementation and set STEPANEL_VM_HARNESS_REAL=1 before running Gate 5"
+        return 2
+    fi
+}
+
 # Create test VMs
 setup_vms() {
+    require_real_backend
     log_info "Setting up test VMs..."
 
     # VM1: StePanel application server
@@ -66,6 +76,7 @@ setup_vms() {
 
 # Test real SIGKILL during site creation
 test_sigkill() {
+    require_real_backend
     log_info "Testing real SIGKILL during site creation..."
 
     local recovery_times=()
@@ -111,6 +122,7 @@ test_sigkill() {
 
 # Test real ENOSPC (disk full)
 test_enospc() {
+    require_real_backend
     log_info "Testing real ENOSPC (disk full)..."
 
     local recovery_times=()
@@ -152,6 +164,7 @@ test_enospc() {
 
 # Test real database offline
 test_db_offline() {
+    require_real_backend
     log_info "Testing real database offline..."
 
     local recovery_times=()
@@ -189,6 +202,7 @@ test_db_offline() {
 
 # Verify determinism: run same operation 100+ times
 test_determinism() {
+    require_real_backend
     log_info "Testing determinism with $DETERMINISM_RUNS runs..."
 
     local event_sequences=()
@@ -227,6 +241,7 @@ test_determinism() {
 
 # Measure recovery time SLA
 verify_sla() {
+    require_real_backend
     log_info "Verifying recovery time SLA (target: ${RECOVERY_TIME_TARGET_SEC}s)..."
 
     local total_time=0
@@ -287,6 +302,7 @@ print_recovery_stats() {
 
 # Cleanup test VMs
 cleanup_vms() {
+    require_real_backend
     log_info "Cleaning up test VMs..."
 
     # Delete VMs
