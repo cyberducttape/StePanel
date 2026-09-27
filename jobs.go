@@ -642,12 +642,21 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 	if poll <= 0 {
 		poll = time.Second
 	}
+	if _, err := j.RequeueExpired(); err != nil {
+		return err
+	}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
+	requeueTicker := time.NewTicker(jobLeaseDuration / 3)
+	defer requeueTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-requeueTicker.C:
+			if _, err := j.RequeueExpired(); err != nil {
+				return err
+			}
 		default:
 		}
 		item, claimed, err := j.ClaimNext(owner, kinds...)
@@ -667,6 +676,8 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 			}
 			var output []byte
 			output, err = func() (runOutput []byte, runErr error) {
+				stopLease := j.maintainLease(&item)
+				defer stopLease()
 				defer func() {
 					if recovered := recover(); recovered != nil {
 						runErr = fmt.Errorf("worker panic: %v", recovered)

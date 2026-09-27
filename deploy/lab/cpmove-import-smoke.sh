@@ -59,7 +59,7 @@ response=$(curl --fail --silent --show-error --max-time 30 \
 job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^"]*\)".*/\1/p')
 [[ -n $job_id ]] || { echo "upload did not return a durable job: $response" >&2; exit 1; }
 
-for _ in $(seq 1 120); do
+for _ in $(seq 1 240); do
   status=$(curl --fail --silent --show-error --max-time 10 \
     -H "Cookie: $cookie_header" "$PANEL/api/jobs/$job_id")
   state=$(printf '%s' "$status" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')

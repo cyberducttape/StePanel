@@ -176,6 +176,46 @@ func TestDurableQueueClaimRetryAndDeadLetter(t *testing.T) {
 	}
 }
 
+func TestDurableWorkerReclaimsExpiredClaimOnStartup(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	producer := newJobsWithDB(db, 1)
+	queued, err := producer.Enqueue("worker.operation", "site", "", []byte(`{"operation":"recover"}`), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := producer.ClaimNext("dead-worker", "worker.operation"); err != nil || !ok {
+		t.Fatalf("claim = %v, %v", ok, err)
+	}
+	if _, err := db.Exec(`UPDATE jobs SET lease_expires_at = ? WHERE id = ?`, time.Now().UTC().Add(-time.Second).UnixNano(), queued.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	worker := newJobsWithDB(db, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- worker.RunWorker(ctx, "replacement-worker", []string{"worker.operation"}, time.Millisecond, func(_ context.Context, item Job) ([]byte, error) {
+			if item.ID != queued.ID {
+				t.Errorf("reclaimed job = %s, want %s", item.ID, queued.ID)
+			}
+			cancel()
+			return []byte(`{"recovered":true}`), nil
+		})
+	}()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("worker exit = %v", err)
+	}
+	if got, ok := worker.Get(queued.ID); !ok || got.State != "completed" {
+		t.Fatalf("recovered job = %#v, %v", got, ok)
+	}
+}
+
 func TestDurableCancellationCrossProcessIsAuthoritative(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {
