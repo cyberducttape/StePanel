@@ -106,6 +106,8 @@ jobs:
             cat "$smoke_root/service.log"
             exit 1
           fi
+      - name: Authenticated control-plane smoke test
+        run: ./scripts/e2e-smoke-test.sh ./stepanel
       - run: bash -n install.sh
       - run: bash -n scripts/check-release.sh
       - run: bash -n deploy/integrations/install-fail2ban.sh
@@ -113,6 +115,8 @@ jobs:
       - run: bash -n deploy/integrations/*
       - name: Lint shell scripts
         run: shellcheck -S warning install.sh deploy/lab/run.sh deploy/integrations/*
+      - name: Lint release and smoke scripts
+        run: shellcheck -S warning scripts/check-docs-links.sh scripts/e2e-smoke-test.sh scripts/verify-release-artifacts.sh
       - name: Check documentation links
         run: bash scripts/check-docs-links.sh docs
       - name: Vulnerability scan
