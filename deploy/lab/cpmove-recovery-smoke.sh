@@ -29,6 +29,11 @@ systemctl is-active --quiet stepanel-worker.service
 before=$(systemctl show stepanel-worker.service -p MainPID --value)
 [[ "$before" =~ ^[1-9][0-9]*$ ]] || { echo "could not determine worker PID: $before" >&2; exit 1; }
 
+# The preceding ordinary import smoke authenticated with the same lab TOTP
+# secret. Wait for a fresh counter so the recovery drill does not mistake a
+# boundary-window authentication rejection for an operation failure.
+sleep $((31 - $(date +%s) % 30))
+
 CPMOVE_SMOKE_SITE=${CPMOVE_RECOVERY_SMOKE_SITE:-ci-import-recovery} \
   bash /work/deploy/lab/cpmove-import-smoke.sh &
 import_pid=$!
