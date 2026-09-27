@@ -991,17 +991,13 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 }
 
 func (b *Broker) gitClone(ctx context.Context, req *GitRequest) (*Response, error) {
-	b.logger.Printf("cloning repository: %s -> %s", req.Repository, req.Destination)
-	resp := GitResponse{Cloned: true}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	b.logger.Printf("git clone requested but broker implementation is unavailable: %s -> %s", req.Repository, req.Destination)
+	return unsupportedBrokerResponse("git clone")
 }
 
 func (b *Broker) gitVerifyKey(ctx context.Context, req *GitRequest) (*Response, error) {
 	b.logger.Printf("verifying git key")
-	resp := GitResponse{Verified: true}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("git key verification")
 }
 
 // --- Helpers ---

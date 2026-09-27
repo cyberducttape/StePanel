@@ -184,6 +184,8 @@ func TestBrokerRejectsEveryUnimplementedMutation(t *testing.T) {
 		{name: "vhost delete", req: &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Site: "testsite", Domain: "example.com", WebServer: "caddy"}}},
 		{name: "proxy apply", req: &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "apply", WebServer: "caddy"}}},
 		{name: "proxy reload", req: &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "reload", WebServer: "caddy"}}},
+		{name: "git clone", req: &Request{RequestType: "git", Git: &GitRequest{Action: "clone", Repository: "https://github.com/user/repo.git", Ref: "main", Destination: "destination"}}},
+		{name: "git key verification", req: &Request{RequestType: "git", Git: &GitRequest{Action: "verify-key", Repository: "https://github.com/user/repo.git", Ref: "main", Destination: "destination"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -249,7 +251,7 @@ func TestBrokerInvalidPort(t *testing.T) {
 	}
 }
 
-func TestBrokerGitClone(t *testing.T) {
+func TestBrokerGitCloneFailsClosed(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	broker, err := NewBroker(t.TempDir(), logger)
 	if err != nil {
@@ -271,16 +273,8 @@ func TestBrokerGitClone(t *testing.T) {
 	if err != nil {
 		t.Errorf("Execute failed: %v", err)
 	}
-	if !resp.OK {
-		t.Errorf("Execute returned error: %s", resp.Error)
-	}
-
-	var gitResp GitResponse
-	if err := json.Unmarshal(resp.Details, &gitResp); err != nil {
-		t.Errorf("Failed to unmarshal response: %v", err)
-	}
-	if !gitResp.Cloned {
-		t.Errorf("Git not marked as cloned")
+	if resp.OK || !strings.Contains(resp.Error, "not implemented") {
+		t.Fatalf("git clone response = %#v, want explicit unsupported response", resp)
 	}
 }
 
