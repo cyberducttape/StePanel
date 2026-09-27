@@ -11,9 +11,9 @@ This document describes deployment capabilities and limitations. It is not a rel
 
 - **Development**: Local development only
 - **Operator Beta**: Limited single-host deployment; operator expertise required
-- **Single-Host Production Candidate**: Ready for single-host production deployments
-- **Multi-Tenant Production**: Ready for multi-tenant SaaS deployments
-- **GA (General Availability)**: Recommended for all deployment scenarios
+- **Single-Host Production Candidate**: Target after the open production gates are evidenced
+- **Multi-Tenant Production**: Not supported; requires a separate multi-tenant architecture
+- **GA (General Availability)**: Future target after release approval and operational certification
 
 ## Current Status: Operator Beta
 
