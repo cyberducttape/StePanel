@@ -25,7 +25,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 | **Gate 3** | Durable Journal System | ✅ COMPLETE | None |
 | **Gate 4** | Broker Integration | ✅ COMPLETE | None |
 | **Gate 5** | Failure Recovery Testing | 🔄 90% COMPLETE | Phase 7 VM testing |
-| **Gate 6** | Concurrent Workflow Testing | ✅ COMPLETE (Phase 6) | None |
+| **Gate 6** | Concurrent Workflow Testing | 🔄 PARTIAL (lock-layer tests complete) | Full interrupted-workflow evidence |
 | **Gate 7** | (Reserved for future gates) | — | — |
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
