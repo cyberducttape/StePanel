@@ -42,6 +42,30 @@ curl --fail --silent --max-time 5 http://127.0.0.1:8090/livez >/dev/null
 systemctl restart stepanel.service
 systemctl is-active --quiet stepanel.service
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
+
+# Exercise recovery from an unclean daemon death on the installed host. The
+# container-level CI drill covers one process boundary; this also verifies the
+# systemd units, durable state paths, and worker restart contract together.
+for unit in stepanel.service stepanel-worker.service; do
+  systemctl is-active --quiet "$unit"
+  systemctl kill --kill-who=main --signal=SIGKILL "$unit"
+  systemctl reset-failed "$unit" 2>/dev/null || true
+  systemctl start "$unit"
+done
+for _ in $(seq 1 30); do
+  if systemctl is-active --quiet stepanel.service && \
+     systemctl is-active --quiet stepanel-worker.service && \
+     curl --fail --silent --max-time 2 http://127.0.0.1:8090/livez >/dev/null && \
+     curl --fail --silent --max-time 2 http://127.0.0.1:8090/readyz >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+systemctl is-active --quiet stepanel.service
+systemctl is-active --quiet stepanel-worker.service
+curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
+test -s /var/lib/ste-panel/stepanel-control.db
+test -s /var/lib/ste-panel/audit.jsonl
 systemd-analyze security stepanel.service stepanel-worker.service
 
 # Exercise the installed site helpers and selected webserver configuration,
