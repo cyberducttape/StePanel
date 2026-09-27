@@ -104,8 +104,13 @@ func (m *Metrics) Write(w io.Writer) {
 
 func writeJobMetrics(w io.Writer, jobs *Jobs) {
 	stats := JobQueueStats{}
+	inventoryErrors := 0
 	if jobs != nil {
-		stats, _ = jobs.QueueStats()
+		var err error
+		stats, err = jobs.QueueStats()
+		if err != nil {
+			inventoryErrors = 1
+		}
 	}
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_jobs_queued Current durable jobs waiting for a worker")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_jobs_queued gauge")
@@ -116,6 +121,9 @@ func writeJobMetrics(w io.Writer, jobs *Jobs) {
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_jobs_dead_letter Jobs requiring operator review")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_jobs_dead_letter gauge")
 	_, _ = fmt.Fprintf(w, "stepanel_jobs_dead_letter %d\n", stats.DeadLetter)
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_jobs_inventory_errors Whether durable job inventory collection failed")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_jobs_inventory_errors gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_jobs_inventory_errors %d\n", inventoryErrors)
 }
 
 func writeDatabaseMetrics(w io.Writer, diagnostics DatabaseDiagnostics) {

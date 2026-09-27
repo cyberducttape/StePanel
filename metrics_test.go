@@ -59,6 +59,14 @@ func TestGitReleaseMetricsExposeInventoryReadFailures(t *testing.T) {
 	}
 }
 
+func TestJobMetricsExposeInventoryReadFailures(t *testing.T) {
+	var output strings.Builder
+	writeJobMetrics(&output, NewJobs())
+	if !strings.Contains(output.String(), "stepanel_jobs_inventory_errors 1") {
+		t.Fatalf("job inventory error metric missing: %s", output.String())
+	}
+}
+
 type assertionError struct{}
 
 func (assertionError) Error() string { return "test failure" }
