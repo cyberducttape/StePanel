@@ -548,7 +548,7 @@ install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-dbctl" /usr/local/sbin/s
 printf 'engine=%s\n' "$DB_ENGINE" > "$INSTALL_TXN/stepanel-dbctl.conf"
 install -m 0600 -o root -g root "$INSTALL_TXN/stepanel-dbctl.conf" /etc/stepanel-dbctl.conf
 printf '%s' "$DB_PASSWORD" > "$INSTALL_TXN/stepanel-db.password"
-install -m 0600 -o root -g root "$INSTALL_TXN/stepanel-db.password" /etc/stepanel-db.password
+install -m 0640 -o root -g "$APP_USER" "$INSTALL_TXN/stepanel-db.password" /etc/stepanel-db.password
 if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-certbot" /usr/local/sbin/stepanel-certbot; fi
 if [[ -n "$FPM_LENS_BINARY" ]]; then install -m 0755 "$FPM_LENS_BINARY" /usr/local/bin/fpm-lens; fi
 install -m 0644 -D "$ROOT_DIR/web/index.html" "$APP_DIR/web/index.html"

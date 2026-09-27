@@ -9,8 +9,7 @@ User=stepanel
 Group=stepanel
 WorkingDirectory=/opt/stepanel
 EnvironmentFile=/etc/ste-panel.env
-LoadCredential=db-password:/etc/stepanel-db.password
-Environment=STEPANEL_DB_PASSWORD_FILE=/run/credentials/%N/db-password
+Environment=STEPANEL_DB_PASSWORD_FILE=/etc/stepanel-db.password
 ExecStart=/opt/stepanel/stepanel worker
 Restart=on-failure
 RestartSec=5s
