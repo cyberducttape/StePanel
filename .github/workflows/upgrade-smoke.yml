@@ -36,6 +36,7 @@ jobs:
         run: |
           set -eu
           docker run -d --privileged --name stepanel-upgrade \
+            --cgroupns=host \
             --tmpfs /run --tmpfs /run/lock \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
             -v /tmp/stepanel-v0.6.0:/work/previous:ro \
@@ -44,5 +45,16 @@ jobs:
             stepanel-upgrade-systemd-host /sbin/init
           cleanup() { docker rm -f stepanel-upgrade >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-          for _ in $(seq 1 30); do docker exec stepanel-upgrade systemctl is-system-running >/dev/null 2>&1 && break; sleep 2; done
+          systemd_ready=0
+          for _ in $(seq 1 30); do
+            if docker exec stepanel-upgrade systemctl is-system-running >/dev/null 2>&1; then
+              systemd_ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$systemd_ready" != 1 ]]; then
+            docker logs stepanel-upgrade >&2 || true
+            exit 1
+          fi
           docker exec stepanel-upgrade /work/candidate/deploy/lab/upgrade-smoke.sh /work/previous /work/candidate /work/broken
