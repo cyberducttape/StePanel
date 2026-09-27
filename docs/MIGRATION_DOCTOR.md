@@ -1,8 +1,8 @@
 # Migration Doctor
 
-**Status:** Implemented (v0.7.0+); available at `/api/admin/migration-doctor`
+**Status:** Preview only; the endpoint is available, but remote inspection is not implemented
 
-Migration Doctor is a pre-migration analysis tool that evaluates source server compatibility and readiness before beginning a site migration to StePanel. The API endpoint accepts SSH connection details to a source server and returns a comprehensive analysis of migration feasibility.
+Migration Doctor is a planned pre-migration analysis tool. The current endpoint accepts SSH connection details but deliberately returns a synthetic, not-implemented result; it does not connect to or inspect the source server. Do not use its response as migration approval or production readiness evidence.
 
 ## Purpose
 
@@ -13,7 +13,7 @@ Before migrating a production site, operators need confidence that:
 - Custom code won't break in StePanel environment
 - Migration will complete within acceptable timeframe
 
-Migration Doctor provides automated analysis to catch issues early.
+The future implementation is intended to provide automated analysis to catch issues early. Until then, operators must inspect and validate the source server manually.
 
 ## Planned Features
 
@@ -40,22 +40,21 @@ Migration Doctor provides automated analysis to catch issues early.
 - Network bandwidth requirements
 - Storage space needed on target
 
-### Capability Matrix
+### Planned Capability Matrix
 
 | Workflow | Supported | Notes |
 |----------|-----------|-------|
-| WordPress sites | ✅ Full | All WP versions 5.0+ |
-| cPanel accounts | ✅ Full | Via cpmove importer |
-| Generic archives | ⚠️ Analysis only | Files + manual DB restore |
-| Docker apps | ⚠️ Limited | Requires custom deployment config |
-| Static sites | ✅ Full | Minimal dependencies |
+| WordPress sites | ⏳ Not analyzed | Use the WordPress import workflow directly |
+| cPanel accounts | ⏳ Not analyzed | Use the cpmove importer directly |
+| Generic archives | ⏳ Not analyzed | Inspect the archive and follow its workflow requirements |
+| Docker apps | ⏳ Not analyzed | Requires custom deployment config |
+| Static sites | ⏳ Not analyzed | Validate the archive manually |
 
 ## Integration Points
 
-- `POST /api/admin/migration-analysis` — Analyze remote server
-- `GET /api/admin/migration-analysis/:id/status` — Check analysis progress
-- `GET /api/admin/migration-analysis/:id/report` — Retrieve findings
-- Export as PDF or JSON for stakeholder review
+- `POST /api/admin/migration-doctor` — Queue a preview response (synthetic today)
+- `GET /api/admin/migration-doctor/status?job_id=:id` — Check job status
+- Export as PDF or JSON for stakeholder review is planned
 
 ## Implementation Timeline
 
