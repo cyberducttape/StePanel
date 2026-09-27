@@ -1,7 +1,14 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
-RUN dnf -y install systemd && dnf clean all && rm -rf /var/cache/dnf
+RUN if command -v dnf >/dev/null 2>&1; then \
+      dnf -y install systemd && dnf clean all && rm -rf /var/cache/dnf; \
+    elif command -v apt-get >/dev/null 2>&1; then \
+      apt-get update && apt-get install -y systemd && \
+      rm -rf /var/lib/apt/lists/*; \
+    else \
+      echo 'unsupported base image: neither dnf nor apt-get is available' >&2; exit 1; \
+    fi
 
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
