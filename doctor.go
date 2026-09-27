@@ -25,6 +25,28 @@ type migrationAnalysisResponse struct {
 	Analysis doctor.MigrationAnalysis `json:"analysis"`
 }
 
+func migrationAnalysisStatusPayload(jobID string, job Job) map[string]any {
+	response := map[string]any{
+		"job_id": jobID,
+		"state":  job.State,
+		"kind":   job.Kind,
+	}
+	if job.State == "completed" {
+		if len(job.Output) > 0 {
+			var result migrationAnalysisResponse
+			if err := json.Unmarshal(job.Output, &result); err == nil {
+				response["analysis"] = result.Analysis
+			}
+		}
+	} else if job.State == "failed" || job.State == "dead-letter" {
+		response["error"] = job.Error
+		if job.Error == "" && len(job.Output) > 0 {
+			response["error"] = string(job.Output)
+		}
+	}
+	return response
+}
+
 // ProductionReadinessCheck represents a single production readiness check
 type ProductionReadinessCheck struct {
 	Name        string `json:"name"`
@@ -306,24 +328,7 @@ func (a *App) migrationAnalysisStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]any{
-		"job_id": jobID,
-		"state":  job.State,
-		"kind":   job.Kind,
-	}
-
-	if job.State == "done" {
-		if len(job.Output) > 0 {
-			var result migrationAnalysisResponse
-			if err := json.Unmarshal(job.Output, &result); err == nil {
-				response["analysis"] = result.Analysis
-			}
-		}
-	} else if job.State == "failed" {
-		response["error"] = string(job.Output)
-	}
-
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, http.StatusOK, migrationAnalysisStatusPayload(jobID, job))
 }
 
 // handleMigrationAnalysisJob executes a migration analysis in the background
