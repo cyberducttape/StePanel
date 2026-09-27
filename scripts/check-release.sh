@@ -34,6 +34,10 @@ if ! grep -Fqx 'chmod 0700 /var/lib/stepanel/recovery' install.sh; then
   echo "install.sh does not tighten root broker recovery storage permissions" >&2
   exit 1
 fi
+if ! grep -Fqx 'chown root:root /var/lib/stepanel/recovery' install.sh; then
+  echo "install.sh does not restore root broker recovery storage ownership" >&2
+  exit 1
+fi
 
 chart_version=$(sed -n 's/^version: \([^[:space:]]*\)$/\1/p' deploy/helm/stepanel/Chart.yaml)
 chart_app_version=$(sed -n 's/^appVersion: "\([^"]*\)"$/\1/p' deploy/helm/stepanel/Chart.yaml)

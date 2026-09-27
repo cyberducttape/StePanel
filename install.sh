@@ -515,6 +515,7 @@ install -d -m 0700 -o root -g root /var/lib/stepanel-privileged
 # from helper-owned state so privileged recovery records cannot be modified by
 # the unprivileged panel process.
 install -d -m 0700 -o root -g root /var/lib/stepanel/recovery
+chown root:root /var/lib/stepanel/recovery
 chmod 0700 /var/lib/stepanel/recovery
 install -d -m 0755 "$APP_DIR/integrations"
 id "$APP_USER" >/dev/null 2>&1 || useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
