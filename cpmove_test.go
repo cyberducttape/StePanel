@@ -8,8 +8,10 @@ import (
 	"io"
 	"mime/multipart"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -143,6 +145,49 @@ func TestRestoreCPMoveHandlesTopLevelCPanelRoot(t *testing.T) {
 		if strings.HasPrefix(entry.Name(), ".stepanel-cpmove-") {
 			t.Fatalf("manager staging tree was not consumed: %s", entry.Name())
 		}
+	}
+}
+
+func TestRestoreCPMoveProcessDeathAfterActivationIsRecoverable(t *testing.T) {
+	if os.Getenv("STEPANEL_CPMOVE_KILL_CHILD") == "1" {
+		root := os.Getenv("STEPANEL_CPMOVE_KILL_ROOT")
+		archive := makeTarGz(t, map[string]string{
+			"cpmove-account/homedir/public_html/index.html": "interrupted",
+		})
+		file, header := openMultipartArchive(t, archive, "cpmove-account.tar.gz")
+		defer file.Close()
+		t.Setenv("STEPANEL_KILL_AT", "cpmove:activate")
+		_, _ = RestoreCPMove(Config{
+			ImportRoot:   filepath.Join(root, "imports"),
+			WebRoot:      root,
+			RecoveryRoot: filepath.Join(root, "recovery"),
+		}, file, header, AuthorizedSite{site: "account"}, false)
+		t.Fatal("cpmove process survived injected SIGKILL")
+	}
+
+	root := t.TempDir()
+	child := exec.Command(os.Args[0], "-test.run=TestRestoreCPMoveProcessDeathAfterActivationIsRecoverable", "-test.v")
+	child.Env = append(os.Environ(),
+		"STEPANEL_CPMOVE_KILL_CHILD=1",
+		"STEPANEL_CPMOVE_KILL_ROOT="+root,
+	)
+	if err := child.Run(); err == nil {
+		t.Fatal("child process unexpectedly survived cpmove SIGKILL")
+	} else if exitErr, ok := err.(*exec.ExitError); !ok {
+		t.Fatalf("child exit = %v", err)
+	} else if status, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus); !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+
+	recovered, err := RecoverSiteTransactions(filepath.Join(root, "recovery"), root, "")
+	if err != nil {
+		t.Fatalf("recover interrupted cpmove: %v", err)
+	}
+	if len(recovered) != 1 {
+		t.Fatalf("recovered transactions = %v, want one transaction", recovered)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites", "account", "public")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interrupted cpmove site = %v, want absent after rollback", err)
 	}
 }
 
