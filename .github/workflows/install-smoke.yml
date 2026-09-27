@@ -54,6 +54,7 @@ jobs:
             exit 77
           fi
           docker run -d --privileged --name stepanel-install \
+            --security-opt=no-new-privileges:false \
             --cgroupns=host \
             --tmpfs /run --tmpfs /run/lock \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
