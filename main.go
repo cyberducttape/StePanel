@@ -500,6 +500,9 @@ func main() {
 		if err := CleanupImportStages(cfg.ImportRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
 			log.Printf("import stage cleanup during startup: %v", err)
 		}
+		if err := CleanupBackupStages(cfg.BackupRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
+			log.Printf("backup stage cleanup during startup: %v", err)
+		}
 		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour, cfg.WebRoot, cfg.MailRoot); err != nil {
 			log.Printf("site recovery cleanup during startup: %v", err)
 		}

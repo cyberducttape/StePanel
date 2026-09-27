@@ -3,10 +3,54 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 )
+
+// CleanupBackupStages removes abandoned backup staging directories left by a
+// process crash. A completed backup is atomically renamed away from the
+// .backup-* namespace, so an old directory in that namespace cannot represent
+// a publishable backup. Keep recent directories to avoid racing an operation
+// that started before a restart; the next startup will remove them once they
+// exceed the retention window.
+func CleanupBackupStages(root string, maxAge time.Duration) error {
+	if filepath.Clean(root) == "." || maxAge <= 0 {
+		return errors.New("invalid backup stage cleanup policy")
+	}
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().Add(-maxAge)
+	removed := false
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), ".backup-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("inspect backup staging directory %s: %w", entry.Name(), err)
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			return fmt.Errorf("remove abandoned backup staging directory %s: %w", entry.Name(), err)
+		}
+		removed = true
+	}
+	if removed {
+		return syncDirectory(root)
+	}
+	return nil
+}
 
 func pruneSiteBackups(root string, site SiteCapability, keep int) error {
 	siteName := site.Site()
