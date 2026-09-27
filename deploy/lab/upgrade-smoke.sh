@@ -25,6 +25,10 @@ export STEPANEL_ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
 export STEPANEL_SESSION_SECRET=ci-upgrade-session-secret-012345678901234567890123
 export STEPANEL_AUDIT_KEY=ci-upgrade-audit-key-012345678901234567890123456789
 export STEPANEL_ACCOUNT_KEY=ci-upgrade-account-key-012345678901234567890123456
+# Keep the systemd credential file non-empty even though local socket database
+# administration does not use a database password. The service deliberately
+# rejects an invalid credential file during startup.
+export STEPANEL_DB_PASSWORD=ci-upgrade-db-credential
 export STEPANEL_DB_ENGINE=${STEPANEL_DB_ENGINE:-mariadb}
 export STEPANEL_WEBSERVER=${STEPANEL_WEBSERVER:-caddy}
 export STEPANEL_DB_VERSION=default
