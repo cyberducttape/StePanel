@@ -53,6 +53,12 @@ fi
 cd "$previous_root"
 ./install.sh
 systemctl is-active --quiet stepanel.service
+# The CLI inherits the caller's environment, not systemd's EnvironmentFile.
+# Load the installed production paths before checking the N-1 binary.
+set -a
+# shellcheck disable=SC1091
+. /etc/ste-panel.env
+set +a
 "/opt/stepanel/stepanel" version | grep -F '0.6.0'
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
 
