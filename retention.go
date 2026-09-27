@@ -19,7 +19,10 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 	cutoff := time.Now().Add(-maxAge)
 	for _, entry := range entries {
 		info, err := entry.Info()
-		if err != nil || info.ModTime().After(cutoff) {
+		if err != nil {
+			return err
+		}
+		if info.ModTime().After(cutoff) {
 			continue
 		}
 		path := filepath.Join(root, entry.Name())
