@@ -65,10 +65,6 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		logger.Printf("using temporary test recovery root: %s", tmpDir)
 		recoveryRoot = tmpDir
 	}
-	if err := os.Chmod(recoveryRoot, 0700); err != nil {
-		return nil, fmt.Errorf("secure durable recovery root %q: %w", recoveryRoot, err)
-	}
-
 	return &Broker{
 		webRoot:      webRoot,
 		recoveryRoot: recoveryRoot,
