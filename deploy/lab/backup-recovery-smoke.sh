@@ -123,3 +123,60 @@ backups=$(curl --fail --silent --show-error --max-time 10 \
   -H "Cookie: $cookie_header" "$PANEL/api/backups?site=$BACKUP_RECOVERY_SMOKE_SITE")
 printf '%s' "$backups" | grep -Fq "\"site\":\"$BACKUP_RECOVERY_SMOKE_SITE\""
 echo "backup recovery smoke passed (worker $before was killed during archive finalization)"
+
+# Reuse the verified artifact for a durable file restore and kill the worker
+# after activation has begun. Recovery must replay the job without leaving a
+# partially published site.
+backup_name=$(printf '%s' "$backups" | python3 -c 'import json, sys; items=json.load(sys.stdin)["backups"]; print(items[0]["path"].rstrip("/").rsplit("/", 1)[-1] if items else "")')
+[[ -n $backup_name ]] || { echo 'backup listing did not expose a restore artifact' >&2; exit 1; }
+
+printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=restore:activate' > "$dropin"
+systemctl daemon-reload
+systemctl restart stepanel-worker.service
+systemctl is-active --quiet stepanel-worker.service
+before=$(systemctl show stepanel-worker.service -p MainPID --value)
+
+response=$(curl --fail --silent --show-error --max-time 30 \
+  -H "Cookie: $cookie_header" \
+  -H "X-CSRF-Token: $csrf" \
+  -H 'Content-Type: application/json' \
+  --data "$(python3 - "$backup_name" "$BACKUP_RECOVERY_SMOKE_SITE" <<'PY'
+import json, sys
+print(json.dumps({"site": sys.argv[2], "backup": sys.argv[1], "confirm": "RESTORE_FILES"}))
+PY
+)" \
+  "$PANEL/api/backups/restore-files")
+restore_job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^"]*\)".*/\1/p')
+[[ -n $restore_job_id ]] || { echo "restore request did not return a durable job: $response" >&2; exit 1; }
+
+killed=0
+for _ in $(seq 1 90); do
+  current=$(systemctl show stepanel-worker.service -p MainPID --value)
+  if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
+    killed=1
+    rm -f -- "$dropin"
+    systemctl daemon-reload
+    systemctl restart stepanel-worker.service
+    break
+  fi
+  sleep 1
+done
+(( killed )) || { echo 'worker PID never changed; injected restore process-kill boundary was not observed' >&2; exit 1; }
+
+state=''
+status=''
+for _ in $(seq 1 240); do
+  status=$(curl --fail --silent --show-error --max-time 10 \
+    -H "Cookie: $cookie_header" "$PANEL/api/jobs/$restore_job_id")
+  state=$(printf '%s' "$status" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+  case "$state" in
+    completed) break ;;
+    failed|dead-letter|cancelled)
+      echo "restore recovery job $restore_job_id ended in $state: $status" >&2
+      exit 1
+      ;;
+  esac
+  sleep 1
+done
+[[ "$state" == completed ]] || { echo "restore recovery job $restore_job_id did not complete: ${status:-}" >&2; exit 1; }
+echo "restore recovery smoke passed (worker $before was killed during restore activation)"
