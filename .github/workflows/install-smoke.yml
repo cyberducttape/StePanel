@@ -76,11 +76,12 @@ jobs:
             exit 1
           fi
           set +e
-          docker exec -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" stepanel-install /work/deploy/lab/install-smoke.sh
+          docker exec -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" stepanel-install /work/deploy/lab/install-smoke.sh >"$diagnostics_dir/install-smoke-output.txt" 2>&1
           smoke_status=$?
           set -e
           if [[ "$smoke_status" != 0 ]]; then
             echo "install smoke exited with status $smoke_status; collecting host diagnostics" >&2
+            cat "$diagnostics_dir/install-smoke-output.txt" >&2 || true
             docker exec stepanel-install systemctl status stepanel.service stepanel-worker.service --no-pager >"$diagnostics_dir/systemctl-status.txt" 2>&1 || true
             docker exec stepanel-install journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 >"$diagnostics_dir/journal.txt" 2>&1 || true
             docker exec stepanel-install systemctl show stepanel.service stepanel-worker.service \

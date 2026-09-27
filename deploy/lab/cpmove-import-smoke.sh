@@ -2,6 +2,8 @@
 # Installed-host cpmove import smoke test.
 set -Eeuo pipefail
 
+trap 'status=$?; echo "cpmove import smoke failed at line ${BASH_LINENO[0]:-unknown} (status $status)" >&2; exit "$status"' ERR
+
 [[ $EUID -eq 0 ]] || { echo 'cpmove import smoke must run as root' >&2; exit 1; }
 command -v curl >/dev/null || { echo 'cpmove import smoke requires curl' >&2; exit 77; }
 command -v python3 >/dev/null || { echo 'cpmove import smoke requires python3' >&2; exit 77; }
