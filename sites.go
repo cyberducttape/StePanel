@@ -75,12 +75,22 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 		if cached, ok := a.MetadataCache.GetApps(); ok {
 			apps = cached
 		} else {
-			apps = managedApps(a.Config.AppRoot)
+			var err error
+			apps, err = managedAppsWithError(a.Config.AppRoot)
+			if err != nil {
+				http.Error(w, "unable to inspect application manifests", http.StatusInternalServerError)
+				return
+			}
 			a.MetadataCache.SetApps(apps)
 		}
 	} else {
 		// Fallback for tests without initialized cache
-		apps = managedApps(a.Config.AppRoot)
+		var err error
+		apps, err = managedAppsWithError(a.Config.AppRoot)
+		if err != nil {
+			http.Error(w, "unable to inspect application manifests", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	for _, app := range apps {
@@ -110,7 +120,11 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 			if cached, ok := a.MetadataCache.GetRoutes(site.Site); ok {
 				site.Routes = cached
 			} else {
-				routes := siteRoutesFor(a.Config.VHostRoot, site.Site)
+				routes, err := siteRoutesForWithError(a.Config.VHostRoot, site.Site)
+				if err != nil {
+					http.Error(w, "unable to inspect managed site routes", http.StatusInternalServerError)
+					return
+				}
 				site.Routes = routes
 				a.MetadataCache.SetRoutes(site.Site, routes)
 			}
@@ -118,14 +132,27 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 			if cached, ok := a.MetadataCache.GetProxies(site.Site); ok {
 				site.Proxies = cached
 			} else {
-				proxies := siteProxiesFor(a.Config.ProxyRoot, site.Site)
+				proxies, err := siteProxiesForWithError(a.Config.ProxyRoot, site.Site)
+				if err != nil {
+					http.Error(w, "unable to inspect proxy configurations", http.StatusInternalServerError)
+					return
+				}
 				site.Proxies = proxies
 				a.MetadataCache.SetProxies(site.Site, proxies)
 			}
 		} else {
 			// Fallback for tests without initialized cache
-			site.Routes = siteRoutesFor(a.Config.VHostRoot, site.Site)
-			site.Proxies = siteProxiesFor(a.Config.ProxyRoot, site.Site)
+			var err error
+			site.Routes, err = siteRoutesForWithError(a.Config.VHostRoot, site.Site)
+			if err != nil {
+				http.Error(w, "unable to inspect managed site routes", http.StatusInternalServerError)
+				return
+			}
+			site.Proxies, err = siteProxiesForWithError(a.Config.ProxyRoot, site.Site)
+			if err != nil {
+				http.Error(w, "unable to inspect proxy configurations", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		sort.Slice(site.Routes, func(i, j int) bool { return site.Routes[i].Domain < site.Routes[j].Domain })
@@ -171,9 +198,23 @@ func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	overview := newSiteOverview(a.Config, site)
-	overview.Routes = siteRoutesFor(a.Config.VHostRoot, site)
-	overview.Proxies = siteProxiesFor(a.Config.ProxyRoot, site)
-	for _, app := range managedApps(a.Config.AppRoot) {
+	var err error
+	overview.Routes, err = siteRoutesForWithError(a.Config.VHostRoot, site)
+	if err != nil {
+		http.Error(w, "unable to inspect managed site routes", http.StatusInternalServerError)
+		return
+	}
+	overview.Proxies, err = siteProxiesForWithError(a.Config.ProxyRoot, site)
+	if err != nil {
+		http.Error(w, "unable to inspect proxy configurations", http.StatusInternalServerError)
+		return
+	}
+	apps, err := managedAppsWithError(a.Config.AppRoot)
+	if err != nil {
+		http.Error(w, "unable to inspect application manifests", http.StatusInternalServerError)
+		return
+	}
+	for _, app := range apps {
 		if app.Site == site {
 			overview.Applications = append(overview.Applications, app)
 		}
@@ -202,7 +243,18 @@ func newSiteOverview(cfg Config, site string) *siteOverview {
 }
 
 func siteRoutesFor(root, site string) []siteRoute {
-	entries, _ := os.ReadDir(root)
+	routes, _ := siteRoutesForWithError(root, site)
+	return routes
+}
+
+func siteRoutesForWithError(root, site string) ([]siteRoute, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []siteRoute{}, nil
+		}
+		return nil, err
+	}
 	routes := []siteRoute{}
 	prefix := "site-" + site + "-"
 	for _, entry := range entries {
@@ -215,11 +267,22 @@ func siteRoutesFor(root, site string) []siteRoute {
 		domain = strings.ReplaceAll(domain, "_", ".")
 		routes = append(routes, siteRoute{Site: site, Domain: domain})
 	}
-	return routes
+	return routes, nil
 }
 
 func siteProxiesFor(root, site string) []proxyInfo {
-	entries, _ := os.ReadDir(root)
+	proxies, _ := siteProxiesForWithError(root, site)
+	return proxies
+}
+
+func siteProxiesForWithError(root, site string) ([]proxyInfo, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []proxyInfo{}, nil
+		}
+		return nil, err
+	}
 	proxies := []proxyInfo{}
 	prefix := site + "-"
 	for _, entry := range entries {
@@ -230,11 +293,22 @@ func siteProxiesFor(root, site string) []proxyInfo {
 		proxies = append(proxies, proxyInfo{Name: strings.TrimSuffix(strings.TrimSuffix(name, ".conf"), ".caddy"), Config: filepath.Join(root, name)})
 	}
 	sort.Slice(proxies, func(i, j int) bool { return proxies[i].Name < proxies[j].Name })
-	return proxies
+	return proxies, nil
 }
 
 func managedApps(root string) []AppManifest {
-	entries, _ := os.ReadDir(root)
+	apps, _ := managedAppsWithError(root)
+	return apps
+}
+
+func managedAppsWithError(root string) ([]AppManifest, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []AppManifest{}, nil
+		}
+		return nil, err
+	}
 	apps := []AppManifest{}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
@@ -246,7 +320,7 @@ func managedApps(root string) []AppManifest {
 			apps = append(apps, app)
 		}
 	}
-	return apps
+	return apps, nil
 }
 
 func (a *App) siteList(w http.ResponseWriter, _ *http.Request) {

@@ -101,6 +101,25 @@ func TestSiteOverviewReportsSiteInventoryReadFailure(t *testing.T) {
 	}
 }
 
+func TestSiteOverviewReportsManagedRouteReadFailure(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	if err := os.MkdirAll(filepath.Join(webRoot, "sites", "account"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	vhostRoot := filepath.Join(root, "vhosts")
+	if err := os.WriteFile(vhostRoot, []byte("not-a-directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{Config: Config{WebRoot: webRoot, VHostRoot: vhostRoot}}
+	response := httptest.NewRecorder()
+	app.siteOverviewList(response, httptest.NewRequest(http.MethodGet, "/api/sites/overview", nil))
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body = %s; want route read failure", response.Code, response.Body.String())
+	}
+}
+
 func TestSiteOverviewResourceIncludesHyphenatedSiteResources(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")
