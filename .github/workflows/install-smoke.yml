@@ -101,7 +101,7 @@ jobs:
           fi
       - name: Upload install diagnostics
         if: always()
-        uses: actions/upload-artifact@v4 # v4
+        uses: actions/upload-artifact@v7 # v4
         with:
           name: stepanel-install-diagnostics-${{ matrix.name }}
           path: ${{ runner.temp }}/stepanel-install-diagnostics
