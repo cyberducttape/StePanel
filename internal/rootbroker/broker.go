@@ -327,33 +327,27 @@ func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, 
 }
 
 func (b *Broker) siteAccess(ctx context.Context, req *SiteRequest) (*Response, error) {
-	// SSH key setup is complex; placeholder for now
-	b.logger.Printf("setting site access: %s", req.Site)
-	return &Response{OK: true}, nil
+	return unsupportedBrokerResponse("site access")
 }
 
 func (b *Broker) siteResources(ctx context.Context, req *SiteRequest) (*Response, error) {
-	b.logger.Printf("setting site resources: %s workers=%d", req.Site, req.PHPWorkers)
-	// Resource enforcement would happen here
-	return &Response{OK: true}, nil
+	return unsupportedBrokerResponse("site resources")
 }
 
 func (b *Broker) siteQuota(ctx context.Context, req *SiteRequest) (*Response, error) {
-	b.logger.Printf("setting site quota: %s disk=%dMB inodes=%d", req.Site, req.DiskMB, req.Inodes)
-	// Quota enforcement would happen here
-	return &Response{OK: true}, nil
+	return unsupportedBrokerResponse("site quota")
 }
 
 func (b *Broker) siteQuotaClear(ctx context.Context, req *SiteRequest) (*Response, error) {
-	b.logger.Printf("clearing site quota: %s", req.Site)
-	// Quota clearing would happen here
-	return &Response{OK: true}, nil
+	return unsupportedBrokerResponse("site quota clear")
 }
 
 func (b *Broker) siteRuntime(ctx context.Context, req *SiteRequest) (*Response, error) {
-	b.logger.Printf("configuring site runtime: %s version=%s", req.Site, req.PHPVersion)
-	// PHP runtime configuration would happen here
-	return &Response{OK: true}, nil
+	return unsupportedBrokerResponse("site runtime")
+}
+
+func unsupportedBrokerResponse(operation string) (*Response, error) {
+	return &Response{OK: false, Error: operation + " is not implemented by the root broker"}, nil
 }
 
 // --- App Operations ---
@@ -382,6 +376,9 @@ func (b *Broker) handleAppRequest(ctx context.Context, req *AppRequest) (*Respon
 }
 
 func (b *Broker) appApply(ctx context.Context, req *AppRequest) (*Response, error) {
+	if response, err := unsupportedBrokerResponse("app apply"); response != nil || err != nil {
+		return response, err
+	}
 	b.logger.Printf("applying app config: site=%s version=%s port=%d", req.Site, req.Version, req.Port)
 
 	// Validate inputs
@@ -517,31 +514,19 @@ func (b *Broker) appApply(ctx context.Context, req *AppRequest) (*Response, erro
 }
 
 func (b *Broker) appStart(ctx context.Context, req *AppRequest) (*Response, error) {
-	b.logger.Printf("starting app: %s", req.Site)
-	resp := AppResponse{Started: true}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("app start")
 }
 
 func (b *Broker) appStop(ctx context.Context, req *AppRequest) (*Response, error) {
-	b.logger.Printf("stopping app: %s", req.Site)
-	resp := AppResponse{Stopped: true}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("app stop")
 }
 
 func (b *Broker) appRestart(ctx context.Context, req *AppRequest) (*Response, error) {
-	b.logger.Printf("restarting app: %s", req.Site)
-	resp := AppResponse{Restarted: true}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("app restart")
 }
 
 func (b *Broker) appRollback(ctx context.Context, req *AppRequest) (*Response, error) {
-	b.logger.Printf("rolling back app: %s", req.Site)
-	resp := AppResponse{RolledBack: true}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("app rollback")
 }
 
 // --- Database Operations ---
@@ -566,6 +551,9 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 }
 
 func (b *Broker) dbProvision(ctx context.Context, req *DBRequest) (*Response, error) {
+	if response, err := unsupportedBrokerResponse("database provisioning"); response != nil || err != nil {
+		return response, err
+	}
 	b.logger.Printf("provisioning database: %s user=%s site=%s", req.Database, req.Username, req.Site)
 
 	// Use database name as unique identifier for journaling
@@ -675,6 +663,9 @@ func (b *Broker) dbProvision(ctx context.Context, req *DBRequest) (*Response, er
 }
 
 func (b *Broker) dbRestoreDump(ctx context.Context, req *DBRequest) (*Response, error) {
+	if response, err := unsupportedBrokerResponse("database restore"); response != nil || err != nil {
+		return response, err
+	}
 	b.logger.Printf("restoring database dump: %s from %s", req.Database, req.DumpData)
 
 	// Use database + dumpfile as unique identifier for journaling
@@ -793,10 +784,7 @@ func (b *Broker) dbRestoreDump(ctx context.Context, req *DBRequest) (*Response, 
 }
 
 func (b *Broker) dbDrop(ctx context.Context, req *DBRequest) (*Response, error) {
-	b.logger.Printf("dropping database: %s", req.Database)
-	resp := DBResponse{Dropped: true, Database: req.Database}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("database deletion")
 }
 
 // --- Vhost Operations ---
@@ -821,6 +809,9 @@ func (b *Broker) handleVhostRequest(ctx context.Context, req *VhostRequest) (*Re
 }
 
 func (b *Broker) vhostApply(ctx context.Context, req *VhostRequest) (*Response, error) {
+	if response, err := unsupportedBrokerResponse("vhost apply"); response != nil || err != nil {
+		return response, err
+	}
 	b.logger.Printf("applying vhost: %s -> %s", req.Domain, req.Site)
 
 	// Validate domain
@@ -934,17 +925,11 @@ func (b *Broker) vhostApply(ctx context.Context, req *VhostRequest) (*Response, 
 }
 
 func (b *Broker) vhostApplyAuth(ctx context.Context, req *VhostRequest) (*Response, error) {
-	b.logger.Printf("applying vhost with auth: %s", req.Domain)
-	resp := VhostResponse{Applied: true, Domain: req.Domain}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("vhost authentication")
 }
 
 func (b *Broker) vhostDelete(ctx context.Context, req *VhostRequest) (*Response, error) {
-	b.logger.Printf("deleting vhost: %s", req.Domain)
-	resp := VhostResponse{Deleted: true, Domain: req.Domain}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("vhost deletion")
 }
 
 // --- Proxy Operations ---
@@ -967,17 +952,11 @@ func (b *Broker) handleProxyRequest(ctx context.Context, req *ProxyRequest) (*Re
 }
 
 func (b *Broker) proxyApply(ctx context.Context, req *ProxyRequest) (*Response, error) {
-	b.logger.Printf("applying proxy config: %s", req.WebServer)
-	resp := ProxyResponse{Applied: true}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("proxy apply")
 }
 
 func (b *Broker) proxyReload(ctx context.Context, req *ProxyRequest) (*Response, error) {
-	b.logger.Printf("reloading proxy: %s", req.WebServer)
-	resp := ProxyResponse{Reloaded: true}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+	return unsupportedBrokerResponse("proxy reload")
 }
 
 // --- Git Operations ---

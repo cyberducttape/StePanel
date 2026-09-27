@@ -101,16 +101,8 @@ func TestBrokerAppApply(t *testing.T) {
 	if err != nil {
 		t.Errorf("Execute failed: %v", err)
 	}
-	if !resp.OK {
-		t.Errorf("Execute returned error: %s", resp.Error)
-	}
-
-	var appResp AppResponse
-	if err := json.Unmarshal(resp.Details, &appResp); err != nil {
-		t.Errorf("Failed to unmarshal response: %v", err)
-	}
-	if !appResp.Applied {
-		t.Errorf("App not marked as applied")
+	if resp.OK || !strings.Contains(resp.Error, "not implemented") {
+		t.Fatalf("app apply response = %#v, want explicit unsupported response", resp)
 	}
 }
 
@@ -136,16 +128,8 @@ func TestBrokerDBProvision(t *testing.T) {
 	if err != nil {
 		t.Errorf("Execute failed: %v", err)
 	}
-	if !resp.OK {
-		t.Errorf("Execute returned error: %s", resp.Error)
-	}
-
-	var dbResp DBResponse
-	if err := json.Unmarshal(resp.Details, &dbResp); err != nil {
-		t.Errorf("Failed to unmarshal response: %v", err)
-	}
-	if !dbResp.Provisioned {
-		t.Errorf("Database not marked as provisioned")
+	if resp.OK || !strings.Contains(resp.Error, "not implemented") {
+		t.Fatalf("database provision response = %#v, want explicit unsupported response", resp)
 	}
 }
 
@@ -171,16 +155,8 @@ func TestBrokerVhostApply(t *testing.T) {
 	if err != nil {
 		t.Errorf("Execute failed: %v", err)
 	}
-	if !resp.OK {
-		t.Errorf("Execute returned error: %s", resp.Error)
-	}
-
-	var vhostResp VhostResponse
-	if err := json.Unmarshal(resp.Details, &vhostResp); err != nil {
-		t.Errorf("Failed to unmarshal response: %v", err)
-	}
-	if !vhostResp.Applied {
-		t.Errorf("Vhost not marked as applied")
+	if resp.OK || !strings.Contains(resp.Error, "not implemented") {
+		t.Fatalf("vhost apply response = %#v, want explicit unsupported response", resp)
 	}
 }
 
