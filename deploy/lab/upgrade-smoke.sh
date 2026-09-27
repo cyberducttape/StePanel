@@ -61,7 +61,9 @@ set +u
 . /etc/ste-panel.env
 set -u
 set +a
+systemctl stop stepanel.service
 "/opt/stepanel/stepanel" version | grep -F '0.6.0'
+systemctl start stepanel.service
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
 
 # Exercise the N-1 state path before the candidate opens the durable database.
