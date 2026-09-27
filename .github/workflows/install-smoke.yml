@@ -17,11 +17,11 @@ jobs:
       matrix:
         include:
           - name: almalinux-9-caddy-mariadb
-            image: almalinux:9-init
+            image: almalinux:9
             db: mariadb
             web: caddy
           - name: rocky-9-caddy-mariadb
-            image: rockylinux:9-init
+            image: rockylinux:9
             db: mariadb
             web: caddy
     name: ${{ matrix.name }}
@@ -33,11 +33,17 @@ jobs:
           cache: true
       - name: Build release-shaped installer tree
         run: go build -trimpath -ldflags='-s -w' -o stepanel .
+      - name: Build disposable systemd host image
+        env:
+          IMAGE: ${{ matrix.image }}
+          HOST_IMAGE: stepanel-systemd-host:${{ matrix.name }}
+        run: docker build --build-arg BASE_IMAGE="$IMAGE" -f deploy/lab/Dockerfile.systemd -t "$HOST_IMAGE" .
       - name: Start disposable systemd host
         env:
           IMAGE: ${{ matrix.image }}
           DB: ${{ matrix.db }}
           WEB: ${{ matrix.web }}
+          HOST_IMAGE: stepanel-systemd-host:${{ matrix.name }}
         run: |
           set -eu
           cleanup() { docker rm -f stepanel-install >/dev/null 2>&1 || true; }
@@ -51,7 +57,7 @@ jobs:
             --cgroupns=host \
             --tmpfs /run --tmpfs /run/lock \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            -v "$PWD:/work" "$IMAGE" /sbin/init
+            -v "$PWD:/work" "$HOST_IMAGE" /sbin/init
           systemd_ready=0
           for _ in $(seq 1 30); do
             if docker exec stepanel-install systemctl is-system-running >/dev/null 2>&1; then

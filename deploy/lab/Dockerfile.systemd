@@ -1,0 +1,7 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+RUN dnf -y install systemd && dnf clean all && rm -rf /var/cache/dnf
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
