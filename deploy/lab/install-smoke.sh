@@ -33,6 +33,7 @@ if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y rclone
 else
+  dnf install -y epel-release
   dnf install -y rclone
 fi
 
