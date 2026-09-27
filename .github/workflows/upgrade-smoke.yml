@@ -30,6 +30,8 @@ jobs:
           (cd /tmp/stepanel-candidate && go build -trimpath -ldflags='-s -w' -o stepanel . && go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root)
           cp -a /tmp/stepanel-candidate/. /tmp/stepanel-broken/
           install -m 0755 /usr/bin/false /tmp/stepanel-broken/stepanel
+      - name: Build disposable systemd host image
+        run: docker build --build-arg BASE_IMAGE=ubuntu:24.04 -f deploy/lab/Dockerfile.systemd -t stepanel-upgrade-systemd-host .
       - name: Upgrade v0.6.0 on a disposable systemd host
         run: |
           set -eu
@@ -39,7 +41,7 @@ jobs:
             -v /tmp/stepanel-v0.6.0:/work/previous:ro \
             -v /tmp/stepanel-candidate:/work/candidate:ro \
             -v /tmp/stepanel-broken:/work/broken:ro \
-            ubuntu:24.04 /sbin/init
+            stepanel-upgrade-systemd-host /sbin/init
           cleanup() { docker rm -f stepanel-upgrade >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           for _ in $(seq 1 30); do docker exec stepanel-upgrade systemctl is-system-running >/dev/null 2>&1 && break; sleep 2; done
