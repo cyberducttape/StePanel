@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
@@ -284,6 +285,23 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 
 func siteHelperContext(ctx context.Context, cfg Config, action, site string) error {
 	if cfg.SiteCtl == "" {
+		return nil
+	}
+	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", "/var/www")
+		if err != nil {
+			return err
+		}
+		resp, err := client.Execute(ctx, &rootbroker.Request{
+			RequestType: "site",
+			Site:        &rootbroker.SiteRequest{Action: action, Site: site},
+		})
+		if err != nil {
+			return err
+		}
+		if !resp.OK {
+			return errors.New(resp.Error)
+		}
 		return nil
 	}
 	return runHelperCommand(ctx, cfg, cfg.SiteCtl, action, site)

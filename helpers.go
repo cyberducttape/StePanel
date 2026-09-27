@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	h "github.com/cyberducttape/StePanel/internal/helper"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"io"
 	"os"
 	"os/exec"
@@ -176,6 +177,23 @@ func runHelperCommandWithTimeout(ctx context.Context, cfg Config, timeout time.D
 }
 
 func siteHelper(cfg Config, action, site string) error {
+	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", "/var/www")
+		if err != nil {
+			return err
+		}
+		resp, err := client.Execute(context.Background(), &rootbroker.Request{
+			RequestType: "site",
+			Site:        &rootbroker.SiteRequest{Action: action, Site: site},
+		})
+		if err != nil {
+			return err
+		}
+		if !resp.OK {
+			return errors.New(resp.Error)
+		}
+		return nil
+	}
 	return h.SiteHelper(cfg.Sudo, cfg.SiteCtl, action, site)
 }
 
