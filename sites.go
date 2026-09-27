@@ -110,7 +110,12 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 		sites[app.Site].Applications = append(sites[app.Site].Applications, app)
 	}
 
-	if databases, err := managedDatabaseInventory(a.Config); err == nil {
+	if strings.TrimSpace(a.Config.DBCtl) != "" {
+		databases, err := managedDatabaseInventory(a.Config)
+		if err != nil {
+			http.Error(w, "unable to inspect managed database inventory", http.StatusInternalServerError)
+			return
+		}
 		for _, database := range databases {
 			if sites[database.Site] == nil {
 				overview, err := newSiteOverview(a.Config, database.Site)
@@ -237,7 +242,12 @@ func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
 			overview.Applications = append(overview.Applications, app)
 		}
 	}
-	if databases, err := managedDatabaseInventory(a.Config); err == nil {
+	if strings.TrimSpace(a.Config.DBCtl) != "" {
+		databases, err := managedDatabaseInventory(a.Config)
+		if err != nil {
+			http.Error(w, "unable to inspect managed database inventory", http.StatusInternalServerError)
+			return
+		}
 		for _, database := range databases {
 			if database.Site == site {
 				overview.DatabaseCount++
