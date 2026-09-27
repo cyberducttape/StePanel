@@ -131,6 +131,8 @@ func decodePersistedJobPayload(raw json.RawMessage) []byte {
 
 const jobLeaseDuration = 2 * time.Minute
 
+var errJobLeaseNotHeld = errors.New("job lease is not held by this worker")
+
 // Claim acquires a durable lease for a queued job. It is the boundary used by
 // local workers and future remote agents; only the lease holder may complete
 // or renew the job.
@@ -283,7 +285,7 @@ func (j *Jobs) finishClaim(id, owner string, apply func(*Job)) error {
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
 	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
-		return errors.New("job lease is not held by this worker")
+		return errJobLeaseNotHeld
 	}
 	apply(item)
 	item.LeaseOwner = ""
@@ -676,17 +678,22 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 			}
 			var output []byte
 			output, err = func() (runOutput []byte, runErr error) {
-				stopLease := j.maintainLease(&item)
+				handlerCtx, stopLease := j.maintainLeaseContext(ctx, &item)
 				defer stopLease()
 				defer func() {
 					if recovered := recover(); recovered != nil {
 						runErr = fmt.Errorf("worker panic: %v", recovered)
 					}
 				}()
-				return handler(ctx, item)
+				return handler(handlerCtx, item)
 			}()
 			if err != nil {
 				if failErr := j.FailClaim(item.ID, owner, err.Error()); failErr != nil {
+					if errors.Is(failErr, errJobLeaseNotHeld) {
+						// A replacement worker owns the claim now. It is responsible
+						// for completing or retrying the durable operation.
+						continue
+					}
 					return failErr
 				}
 				if ctx.Err() != nil {
@@ -743,6 +750,49 @@ func (j *Jobs) maintainLease(item *Job) func() {
 	return func() {
 		close(stop)
 		<-done
+	}
+}
+
+// maintainLeaseContext renews a durable worker lease and cancels the handler
+// context as soon as renewal fails or ownership is lost. Continuing a handler
+// after that boundary could let two workers perform the same side effect.
+func (j *Jobs) maintainLeaseContext(parent context.Context, item *Job) (context.Context, func()) {
+	if j.db == nil || item == nil || item.LeaseOwner == "" {
+		return parent, func() {}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	interval := jobLeaseDuration / 3
+	go func(owner, id string) {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				ok, err := j.Renew(id, owner)
+				if err != nil {
+					log.Printf("renew job lease %s: %v", id, err)
+					cancel()
+					return
+				}
+				if !ok {
+					log.Printf("job lease %s is no longer owned by local worker", id)
+					cancel()
+					return
+				}
+			case <-stop:
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}(item.LeaseOwner, item.ID)
+	return ctx, func() {
+		close(stop)
+		<-done
+		cancel()
 	}
 }
 
