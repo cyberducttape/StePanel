@@ -34,7 +34,9 @@ jobs:
           go-version: '1.26.7'
           cache: true
       - name: Build release-shaped installer tree
-        run: go build -trimpath -ldflags='-s -w' -o stepanel .
+        run: |
+          go build -trimpath -ldflags='-s -w' -o stepanel .
+          go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root
       - name: Build disposable systemd host image
         env:
           IMAGE: ${{ matrix.image }}

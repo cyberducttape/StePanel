@@ -461,6 +461,7 @@ trap 'exit 143' TERM
 
 managed_targets=(
   "$APP_DIR/stepanel"
+  /usr/local/sbin/stepanel-root
   "$APP_DIR/integrations/install-fail2ban.sh"
   /usr/local/sbin/stepanel-appctl
   /usr/local/sbin/stepanel-gitctl
@@ -523,6 +524,8 @@ if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then
   if [[ "$PKG" == "apt" ]]; then apt-get install -y certbot python3-certbot-apache; else dnf install -y certbot python3-certbot-apache; fi
 fi
 install -m 0755 "$ROOT_DIR/stepanel" "$APP_DIR/stepanel"
+[[ -f "$ROOT_DIR/stepanel-root" ]] || { echo "missing release artifact: $ROOT_DIR/stepanel-root" >&2; exit 1; }
+install -m 0755 -o root -g root "$ROOT_DIR/stepanel-root" /usr/local/sbin/stepanel-root
 printf '%s\n' "$AUDIT_KEY" > "$INSTALL_TXN/audit.key"
 install -m 0600 -o root -g root "$INSTALL_TXN/audit.key" /etc/stepanel-audit.key
 install -m 0755 "$ROOT_DIR/deploy/integrations/install-fail2ban.sh" "$APP_DIR/integrations/install-fail2ban.sh"
@@ -693,6 +696,7 @@ sudoers_tmp=$(mktemp)
 TXN_TEMPS+=("$sudoers_tmp")
 printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-appctl *\n%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-proxyctl *\n%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-sitectl *\n' "$APP_USER" "$APP_USER" "$APP_USER" > "$sudoers_tmp"
 printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-vhostctl *\n' "$APP_USER" >> "$sudoers_tmp"
+printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-root\n' "$APP_USER" >> "$sudoers_tmp"
 printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-runnerctl *\n' "$APP_USER" >> "$sudoers_tmp"
 printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-gitctl *\n' "$APP_USER" >> "$sudoers_tmp"
 if [[ "$DB_LOCAL_HELPER" == "1" ]]; then printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-dbctl *\n' "$APP_USER" >> "$sudoers_tmp"; fi
