@@ -75,8 +75,9 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - Durable journals for 6 critical operations (site create, app deploy, DB provision, vhost config, DB restore, git deploy)
 - Atomic write patterns (temp + rename) throughout
 - 55+ broker operation tests + 6 workflow integration tests
-- Provider-neutral VM test harness scaffold that fails closed until a real
-  disposable-VM backend is configured; it is not itself production evidence
+- Provider-neutral VM test harness scaffold that fails closed until real
+  disposable-VM provider commands are implemented; it is not itself
+  production evidence
 - 2000+ lines of integration guides and failure recovery documentation
 
 **Guarantees Proven:**

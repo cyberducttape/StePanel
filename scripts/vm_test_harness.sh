@@ -43,11 +43,9 @@ log_error() {
 }
 
 require_real_backend() {
-    if [[ "${STEPANEL_VM_HARNESS_REAL:-0}" != "1" ]]; then
-        log_error "VM backend is not configured; this command is a scaffold, not a test"
-        log_error "Provide a real VM implementation and set STEPANEL_VM_HARNESS_REAL=1 before running Gate 5"
-        return 2
-    fi
+    log_error "VM backend is not implemented; this command is a scaffold, not a test"
+    log_error "Add real disposable-VM provider commands before running Gate 5"
+    return 2
 }
 
 # Create test VMs
