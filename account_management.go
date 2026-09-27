@@ -302,7 +302,10 @@ func (a *App) checkPlanLimits() error {
 		return errors.New("accounts store not initialized")
 	}
 
-	accounts := a.Accounts.List()
+	accounts, err := a.Accounts.ListWithError()
+	if err != nil {
+		return fmt.Errorf("read account inventory: %w", err)
+	}
 	warningThreshold := 80
 	criticalThreshold := 95
 

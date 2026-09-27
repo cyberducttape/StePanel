@@ -497,26 +497,41 @@ func (s *AccountStore) Update(username, plan string, sites []string) (HostingAcc
 }
 
 func (s *AccountStore) List() []HostingAccount {
+	accounts, err := s.ListWithError()
+	if err != nil {
+		return nil
+	}
+	return accounts
+}
+
+// ListWithError returns the durable account inventory without converting a
+// database or decode failure into an empty, apparently healthy list.
+func (s *AccountStore) ListWithError() ([]HostingAccount, error) {
 	if s.db != nil {
 		rows, err := s.db.Query(`SELECT username FROM accounts ORDER BY username`)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("query accounts: %w", err)
 		}
 		defer rows.Close()
 		accounts := make([]HostingAccount, 0)
 		for rows.Next() {
 			var username string
-			if rows.Scan(&username) != nil {
-				continue
+			if err := rows.Scan(&username); err != nil {
+				return nil, fmt.Errorf("scan account username: %w", err)
 			}
 			if account, ok := s.Get(username); ok {
 				account.PasswordHash = ""
 				account.TOTPSecret = ""
 				account.RecoveryCodeHashes = nil
 				accounts = append(accounts, account)
+			} else {
+				return nil, fmt.Errorf("load account %q", username)
 			}
 		}
-		return accounts
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate accounts: %w", err)
+		}
+		return accounts, nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -528,7 +543,7 @@ func (s *AccountStore) List() []HostingAccount {
 		accounts = append(accounts, account)
 	}
 	sort.Slice(accounts, func(i, j int) bool { return accounts[i].Username < accounts[j].Username })
-	return accounts
+	return accounts, nil
 }
 
 func decodeTOTPSecret(value string) ([]byte, error) {
@@ -1172,7 +1187,12 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"accounts": a.Accounts.List(), "plans": hostingPlans})
+		accounts, err := a.Accounts.ListWithError()
+		if err != nil {
+			http.Error(w, "unable to inspect account inventory", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts, "plans": hostingPlans})
 	case http.MethodPost:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid request", http.StatusForbidden)
