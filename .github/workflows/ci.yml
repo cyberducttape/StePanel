@@ -64,6 +64,7 @@ jobs:
           cleanup() { kill "$smoke_pid" 2>/dev/null || true; rm -rf "$smoke_root"; }
           trap cleanup EXIT
           STEPANEL_ENV=production \
+          STEPANEL_SKIP_QUOTA_CHECK=1 \
           STEPANEL_LISTEN=127.0.0.1:18090 \
           STEPANEL_TLS_TERMINATED=0 \
           STEPANEL_ADMIN_PASSWORD=ci-only-password \
@@ -130,6 +131,7 @@ jobs:
           trap cleanup EXIT
           docker run -d --name stepanel-container-smoke -p 18091:8080 \
             -e STEPANEL_TLS_TERMINATED=1 \
+            -e STEPANEL_SKIP_QUOTA_CHECK=1 \
             -e STEPANEL_ADMIN_PASSWORD=ci-only-password \
             -e STEPANEL_ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP \
             -e STEPANEL_ACCOUNT_KEY=ci-account-key-012345678901234567890123456789 \
