@@ -424,4 +424,4 @@ Before calling a step implementation durable:
 
 ---
 
-**Following this guide makes site creation production-ready: durable, recoverable, deterministic.**
+**Following this guide establishes the implementation pattern for durable, recoverable, deterministic site creation. Production approval still requires the evidence listed in `V1_PRODUCTION_GATES.md`.**

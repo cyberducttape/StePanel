@@ -277,7 +277,7 @@ func applyPythonApp(req AppApplyRequest) error {
 **v0.7.0**: Foundation (this architecture documented)
 **v0.8.0**: Phase 1 + 2 (Go helper with core operations)
 **v0.9.0**: Phase 3 (All operations migrated)
-**v1.0.0**: Phase 4 (Comprehensive testing, ready for production multi-tenant)
+**v1.0.0**: Phase 4 (Comprehensive testing; multi-tenant production remains out of scope)
 
 This is **not** a small refactor. It's the right architectural foundation for a production hosting platform, and it should be done carefully with extensive testing.
 

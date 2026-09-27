@@ -322,4 +322,4 @@ All 5 critical operations need journals:
 
 ---
 
-**This strategy proves StePanel is production-ready by eliminating mysterious half-states and guaranteeing deterministic recovery from real failures.**
+**This strategy is intended to support production readiness; it does not itself prove recovery until the pending real-failure evidence below is executed.**
