@@ -10,9 +10,13 @@ stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-sitectl *
 stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-dbctl *
 stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-vhostctl *
 stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-gitctl *
+stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-root -webroot /var/www
 ```
 
-**What this grants**: The `stepanel` service account can execute ANY arguments to ANY of these helpers as root, without password.
+**What this grants**: The `stepanel` service account can execute the listed
+helpers as root, without a password. The typed root broker is additionally
+constrained to the installer-owned `/var/www` webroot; its test-only
+`-webroot` flexibility is not exposed through production sudo.
 
 **Actual threat model**:
 ```

@@ -696,7 +696,10 @@ sudoers_tmp=$(mktemp)
 TXN_TEMPS+=("$sudoers_tmp")
 printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-appctl *\n%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-proxyctl *\n%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-sitectl *\n' "$APP_USER" "$APP_USER" "$APP_USER" > "$sudoers_tmp"
 printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-vhostctl *\n' "$APP_USER" >> "$sudoers_tmp"
-printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-root\n' "$APP_USER" >> "$sudoers_tmp"
+# Pin the broker's root boundary to the installer-owned webroot. The broker
+# accepts -webroot for tests, but production sudo must not allow the service
+# account to retarget privileged filesystem operations.
+printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-root -webroot /var/www\n' "$APP_USER" >> "$sudoers_tmp"
 printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-runnerctl *\n' "$APP_USER" >> "$sudoers_tmp"
 printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-gitctl *\n' "$APP_USER" >> "$sudoers_tmp"
 if [[ "$DB_LOCAL_HELPER" == "1" ]]; then printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-dbctl *\n' "$APP_USER" >> "$sudoers_tmp"; fi

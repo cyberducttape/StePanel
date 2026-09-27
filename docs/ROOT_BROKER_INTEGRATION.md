@@ -60,7 +60,7 @@ Add to `/etc/sudoers.d/stepanel` (with `visudo`):
 
 ```
 # Allow stepanel user to run root broker without password
-stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-root
+stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-root -webroot /var/www
 ```
 
 ## Integration Pattern
