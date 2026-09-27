@@ -494,7 +494,12 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 	}
 	accountName := p.Account
 	if accountName == "" && a.Accounts != nil {
-		accountName, _ = a.Accounts.OwnerOfSite(site)
+		var ownershipErr error
+		accountName, _, ownershipErr = a.Accounts.OwnerOfSiteWithError(site)
+		if ownershipErr != nil {
+			http.Error(w, "owning account state is unavailable", http.StatusServiceUnavailable)
+			return
+		}
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), resourceMutationLockKeys(site, accountName)...)
 	if lockErr != nil {
