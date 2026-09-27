@@ -26,6 +26,14 @@ jobs:
           mkdir -p /tmp/stepanel-v0.6.0 /tmp/stepanel-candidate /tmp/stepanel-broken
           git archive v0.6.0 | tar -x -C /tmp/stepanel-v0.6.0
           tar -C "$GITHUB_WORKSPACE" --exclude=.git -cf - . | tar -x -C /tmp/stepanel-candidate
+          # v0.6.0 shipped a systemd LoadCredential unit with a root-only
+          # source file. The current supported service contract uses the
+          # service-readable credential file and direct path; normalize only
+          # this disposable N-1 fixture so the test reaches the migration
+          # and rollback assertions instead of failing while bootstrapping an
+          # obsolete credential handoff.
+          sed -i '/^LoadCredential=db-password:/d; s#Environment=STEPANEL_DB_PASSWORD_FILE=%d/db-password#Environment=STEPANEL_DB_PASSWORD_FILE=/etc/stepanel-db.password#' /tmp/stepanel-v0.6.0/deploy/stepanel.service
+          sed -i 's/install -m 0600 -o root -g root "\$INSTALL_TXN\/stepanel-db.password"/install -m 0640 -o root -g "\$APP_USER" "\$INSTALL_TXN\/stepanel-db.password"/' /tmp/stepanel-v0.6.0/install.sh
           (cd /tmp/stepanel-v0.6.0 && go build -trimpath -ldflags='-s -w' -o stepanel .)
           (cd /tmp/stepanel-candidate && go build -trimpath -ldflags='-s -w' -o stepanel . && go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root)
           cp -a /tmp/stepanel-candidate/. /tmp/stepanel-broken/
