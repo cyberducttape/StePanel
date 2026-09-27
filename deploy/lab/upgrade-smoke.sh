@@ -56,6 +56,14 @@ fi
 cd "$previous_root"
 ./install.sh
 systemctl is-active --quiet stepanel.service
+# The disposable offsite target is a configured rclone local remote. Without
+# this file, rclone interprets `local:/path` as an unknown remote and the
+# recovery smoke would fail before testing backup durability.
+install -d -m 0750 -o stepanel -g stepanel /opt/stepanel
+install -m 0600 -o stepanel -g stepanel /dev/null /opt/stepanel/.rclone.conf
+printf '[local]\ntype = local\n' > /opt/stepanel/.rclone.conf
+chown stepanel:stepanel /opt/stepanel/.rclone.conf
+chmod 0600 /opt/stepanel/.rclone.conf
 # Avoid taking the running daemon's process lock just to verify the immutable
 # N-1 build identity; the release version is compiled into the executable.
 grep -aFq '0.6.0' /opt/stepanel/stepanel

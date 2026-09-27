@@ -48,6 +48,14 @@ if ! ./install.sh; then
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
   exit 1
 fi
+# rclone treats `local:/path` as a configured remote named "local". Create
+# that deliberately disposable remote so the required offsite-backup path is
+# exercised against the host filesystem rather than silently bypassed.
+install -d -m 0750 -o stepanel -g stepanel /opt/stepanel
+install -m 0600 -o stepanel -g stepanel /dev/null /opt/stepanel/.rclone.conf
+printf '[local]\ntype = local\n' > /opt/stepanel/.rclone.conf
+chown stepanel:stepanel /opt/stepanel/.rclone.conf
+chmod 0600 /opt/stepanel/.rclone.conf
 chmod 4755 /usr/local/sbin/stepanel-root
 systemctl restart stepanel.service stepanel-worker.service
 if ! systemctl is-active --quiet stepanel.service; then
