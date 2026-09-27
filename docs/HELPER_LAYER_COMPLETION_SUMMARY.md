@@ -1,13 +1,13 @@
-# Helper Layer Refactoring: Complete Project Summary
+# Helper Layer Refactoring: Foundation Summary
 
-**Project Status:** ✅ 75% COMPLETE (Foundation + Infrastructure Ready)  
+**Project Status:** Foundation complete; full helper migration and operation coverage remain pending
 **Date:** 2026-09-26  
 **Total Effort:** ~60 hours  
 **Remaining Effort:** ~20 hours (Phase 4 implementation)
 
 ## Executive Summary
 
-The helper layer refactoring replaces 14 shell scripts (1200 lines, high security consequence) with a single typed Go root broker (400 lines, type-safe). This reduces the security audit surface by 95% and eliminates distributed parsing bugs.
+The helper layer refactoring establishes a typed Go root-broker boundary for reducing shell-helper audit surface. It does not yet replace every shell callsite or implement every broker mutation.
 
 **Completed:**
 - ✅ Phase 1: Design & Foundation (100%)
@@ -15,7 +15,7 @@ The helper layer refactoring replaces 14 shell scripts (1200 lines, high securit
 - ✅ Phase 3: Integration Testing (100%)
 - 🔄 Phase 4: Gradual Migration (Foundation Ready)
 
-**Status:** Foundation is complete and tested. All infrastructure is ready for production use. Remaining work is gradually replacing shell callsites with broker calls (low risk, can be done incrementally).
+**Status:** The foundation is tested and unsupported mutations fail closed. The broker is not a complete production replacement until the remaining callsites and required operations are implemented and validated.
 
 ## Project Achievements
 
@@ -69,9 +69,9 @@ The helper layer refactoring replaces 14 shell scripts (1200 lines, high securit
    - Consistent error handling
    - Logging for all operations
 
-### 3. Operation Handlers (Phase 2)
+### 3. Operation Handlers (Phase 2 foundation)
 
-**Implemented handlers for:**
+**Request handlers and validation exist for:**
 - Site operations (Create, Delete, Seal, Prepare, Access, Resources, Quota, Runtime)
 - App operations (Apply, Start, Stop, Restart, Rollback)
 - Database operations (Provision, RestoreDump, Drop)
@@ -79,7 +79,7 @@ The helper layer refactoring replaces 14 shell scripts (1200 lines, high securit
 - Proxy operations (Apply, Reload)
 - Git operations (Clone, VerifyKey)
 
-Each handler:
+Supported handlers validate and execute their operation. Unsupported mutation paths return an explicit not-implemented response; they must not be treated as successful. Where an operation is implemented, the handler:
 - Validates inputs before operations
 - Wraps errors with context
 - Logs operations for audit trail
@@ -364,18 +364,18 @@ No memory leaks detected
 
 ## Conclusion
 
-The helper layer refactoring is 75% complete with a solid foundation ready for production. All phases are thoroughly tested and documented. The remaining Phase 4 work (callsite replacement) is straightforward and can be done incrementally with minimal risk using the provided migration guide.
+The helper layer refactoring has a tested foundation, but it is not a complete production migration. Phase 4 callsite replacement, implementation of any required unsupported operations, and host-level recovery validation remain release work.
 
 **Key Achievements:**
-- ✅ 95% reduction in audit surface (1200 → 400 lines)
+- ✅ Centralized typed validation boundary
 - ✅ Type-safe RPC boundaries
 - ✅ Single validation entry point
 - ✅ 94 tests, all passing
-- ✅ Production-ready infrastructure
+- ✅ Fail-closed behavior for unsupported mutations
 - ✅ Zero breaking changes
 - ✅ Easy rollback path
 
-**Status:** Ready for Phase 4 implementation and production deployment.
+**Status:** Ready for Phase 4 implementation; not production approval evidence.
 
 ---
 

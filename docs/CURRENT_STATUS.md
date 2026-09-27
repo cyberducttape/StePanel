@@ -34,24 +34,24 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ## Key Subsystem Status
 
-### Helper Layer Modernization (75% → 95% reduction in audit surface)
+### Helper Layer Modernization (foundation complete; callsite migration pending)
 
-**Status:** 75% complete; Phase 4 implementation queued
+**Status:** Foundation complete; Phase 4 callsite replacement remains pending
 
 - ✅ Phase 1: Design & Foundation (100%)
-- ✅ Phase 2: Broker Implementation (100%)
+- ✅ Phase 2: Broker foundation and validation (100%)
 - ✅ Phase 3: Integration Testing (100%)
 - 🔄 Phase 4: Callsite Replacement (Foundation ready, implementation pending)
 
-**What it is:** Replace 14 shell scripts (1200 lines, high security consequence) with typed Go broker (400 lines, type-safe). Reduces audit surface by 95% and centralizes input validation.
+**What it is:** Replace 14 shell scripts (1200 lines, high security consequence) with a typed Go root broker. The broker centralizes input validation and fails closed for mutation paths that are not implemented yet; it is not a claim that every helper operation is available.
 
 **Deliverables:** 
-- `internal/rootbroker/` — Complete broker implementation (types, validator, broker, operations, client)
-- 94 unit tests, all passing
+- `internal/rootbroker/` — Broker types, validation, supported operations, client, and explicit unsupported-operation responses
+- Root-broker tests cover validation and fail-closed mutation behavior
 - Integration documentation and migration guide
 - `broker_bridge.go` — App integration convenience wrapper
 
-**Status:** Infrastructure is production-ready. Remaining work (Phase 4) is gradual replacement of shell callsites with broker calls — low-risk incremental work.
+**Status:** The safety boundary is validated, but the broker is not a complete replacement for every shell helper. Phase 4 callsite replacement and any required unsupported operations remain release-scope work.
 
 **Next Action:** Begin Phase 4 callsite replacement in v0.8.0 or v1.0.x release cycle.
 
@@ -149,10 +149,10 @@ All workflows use **journaled staged activation** — operations are staged in a
 - P1 state persistence error handling (77 lines of safe error helpers)
 - 7 locations fixed to no longer silently ignore persistence errors
 
-✅ **Helper Layer:**
-- Complete broker implementation (types, validator, broker, operations, client, bridge)
-- 94 unit tests, all passing
-- All 6 operation types integrated with handlers
+✅ **Helper Layer foundation:**
+- Broker foundation (types, validator, operations, client, and bridge)
+- Fail-closed tests for unsupported mutation paths
+- Supported operation paths and remaining gaps documented explicitly
 
 ✅ **Gate 5 local recovery evidence:**
 - Durable journal pattern proven in production code
