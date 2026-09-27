@@ -722,7 +722,11 @@ for _ in {1..30}; do
   if curl --fail --silent --max-time 2 http://127.0.0.1:8090/readyz >/dev/null; then health_ready=1; break; fi
   sleep 1
 done
-(( health_ready == 1 )) || { echo 'StePanel failed its post-install health check.' >&2; false; }
+if (( health_ready != 1 )); then
+  echo 'StePanel failed its post-install health check.' >&2
+  systemctl show stepanel.service -p MainPID -p NoNewPrivileges -p RestrictSUIDSGID -p ProtectSystem -p ProtectHome -p PrivateTmp -p PrivateDevices -p RestrictNamespaces -p ReadWritePaths 2>/dev/null || true
+  false
+fi
 INSTALL_COMMITTED=1
 trap - ERR EXIT INT TERM
 for temporary in "${TXN_TEMPS[@]}"; do rm -f "$temporary"; done
