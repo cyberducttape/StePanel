@@ -2,11 +2,73 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
+
+func TestDatabaseRecoveryJournalSurvivesProcessKill(t *testing.T) {
+	if os.Getenv("STEPANEL_DATABASE_RECOVERY_CHILD") == "1" {
+		root := os.Getenv("STEPANEL_DATABASE_RECOVERY_ROOT")
+		recovery := filepath.Join(root, "recovery")
+		home := filepath.Join(root, "site", "public")
+		writeTestFile(t, filepath.Join(home, "index.html"), "old")
+		txn, err := BeginSiteTransaction(recovery, home, "test.restore", AuthorizedSite{site: "site"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := txn.TrackDatabase(ManagedDatabase{Name: "site_database", Kind: "cpmove"}); err != nil {
+			t.Fatal(err)
+		}
+		writeTestFile(t, filepath.Join(home, "index.html"), "partial")
+		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	root := t.TempDir()
+	logPath := filepath.Join(root, "dbctl.log")
+	helper := filepath.Join(root, "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$TEST_DBCTL_LOG\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_DBCTL_LOG", logPath)
+	child := exec.Command(os.Args[0], "-test.run=TestDatabaseRecoveryJournalSurvivesProcessKill", "-test.v")
+	child.Env = append(os.Environ(),
+		"STEPANEL_DATABASE_RECOVERY_CHILD=1",
+		"STEPANEL_DATABASE_RECOVERY_ROOT="+root,
+	)
+	err := child.Run()
+	if err == nil {
+		t.Fatal("child process unexpectedly survived database recovery SIGKILL")
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+	status, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+
+	recovery := filepath.Join(root, "recovery")
+	recovered, err := RecoverTransactionDatabases(Config{DBCtl: helper}, recovery)
+	if err != nil || len(recovered) != 1 {
+		t.Fatalf("database recoveries = %#v, err=%v; want one recovery", recovered, err)
+	}
+	logData, err := os.ReadFile(logPath)
+	if err != nil || string(logData) != "drop site_database\n" {
+		t.Fatalf("database cleanup log = %q, err=%v", logData, err)
+	}
+	if _, err := RecoverSiteTransactions(recovery); err != nil {
+		t.Fatal(err)
+	}
+	assertTestFile(t, filepath.Join(root, "site", "public", "index.html"), "old")
+}
 
 func TestRecoverSiteTransactionAfterProcessDeath(t *testing.T) {
 	root := t.TempDir()

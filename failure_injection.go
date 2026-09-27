@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 )
 
 // failureInjection implements the deterministic fault hook used by recovery
@@ -28,6 +29,21 @@ func failureInjection(operation, point string) error {
 		return nil
 	}
 	return fmt.Errorf("failure injection at %s:%s", operation, point)
+}
+
+// processKillInjection is intentionally separate from failureInjection: a
+// SIGKILL cannot be returned to the caller for cleanup, so callers use it only
+// at boundaries where startup recovery owns the abandoned state. It is inert
+// unless explicitly enabled by a crash-recovery test.
+func processKillInjection(operation, point string) {
+	spec := strings.TrimSpace(os.Getenv("STEPANEL_KILL_AT"))
+	if spec == "" {
+		return
+	}
+	parts := strings.SplitN(spec, ":", 2)
+	if len(parts) == 2 && strings.EqualFold(strings.TrimSpace(parts[0]), operation) && strings.EqualFold(strings.TrimSpace(parts[1]), point) {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+	}
 }
 
 func transactionFailureOperation(kind string) string {

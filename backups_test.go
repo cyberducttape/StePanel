@@ -4,10 +4,63 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
+
+func TestBackupStageIsRecoverableAfterProcessKill(t *testing.T) {
+	if os.Getenv("STEPANEL_BACKUP_KILL_CHILD") == "1" {
+		root := os.Getenv("STEPANEL_BACKUP_KILL_ROOT")
+		webRoot := filepath.Join(root, "www")
+		backupRoot := filepath.Join(root, "backups")
+		writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "backup")
+		t.Setenv("STEPANEL_KILL_AT", "backup:archive")
+		_, _ = CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "account"}, false)
+		t.Fatal("backup process survived injected SIGKILL")
+	}
+
+	root := t.TempDir()
+	child := exec.Command(os.Args[0], "-test.run=TestBackupStageIsRecoverableAfterProcessKill", "-test.v")
+	child.Env = append(os.Environ(),
+		"STEPANEL_BACKUP_KILL_CHILD=1",
+		"STEPANEL_BACKUP_KILL_ROOT="+root,
+	)
+	err := child.Run()
+	if err == nil {
+		t.Fatal("child process unexpectedly survived backup SIGKILL")
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+	status, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+
+	backupRoot := filepath.Join(root, "backups")
+	entries, err := os.ReadDir(backupRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), ".backup-") {
+		t.Fatalf("backup staging after crash = %#v, want one orphan stage", entries)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(filepath.Join(backupRoot, entries[0].Name()), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanupBackupStages(backupRoot, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if entries, err := os.ReadDir(backupRoot); err != nil || len(entries) != 0 {
+		t.Fatalf("backup staging after recovery cleanup = %#v, err=%v", entries, err)
+	}
+}
 
 func TestCreateSiteBackupPublishesVerifiedManifest(t *testing.T) {
 	root := t.TempDir()

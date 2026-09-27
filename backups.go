@@ -263,6 +263,7 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 	if err := closeArchive(); err != nil {
 		return result, err
 	}
+	processKillInjection("backup", "archive")
 	if err := failureInjection("backup", "archive"); err != nil {
 		return result, err
 	}
