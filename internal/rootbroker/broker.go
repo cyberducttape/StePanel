@@ -236,7 +236,7 @@ func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, e
 	// Step 3: Set proper ownership (this is actually part of initialization,
 	// but we journal it separately for fine-grained recovery tracking)
 	if !journal.isComplete(stepCompleted) {
-		if err := b.setOwnership(siteRoot, siteUser, "www-data"); err != nil {
+		if err := b.setOwnership(ctx, siteRoot, siteUser, "www-data"); err != nil {
 			b.logger.Printf("failed to set ownership: %v", err)
 			return &Response{OK: false, Error: fmt.Sprintf("ownership change failed: %v", err)}, nil
 		}
@@ -1053,14 +1053,14 @@ func (b *Broker) deleteSystemUser(ctx context.Context, username string) error {
 	return nil
 }
 
-func (b *Broker) setOwnership(path, user, group string) error {
+func (b *Broker) setOwnership(ctx context.Context, path, user, group string) error {
 	// Skip actual ownership change in test mode
 	if b.isTestMode {
 		b.logger.Printf("test mode: skipping chown for %s (user %s:%s)", path, user, group)
 		return nil
 	}
 
-	cmd := exec.Command("chown", "-R", user+":"+group, path)
+	cmd := exec.CommandContext(ctx, "chown", "-R", user+":"+group, path)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("chown failed: %w", err)
 	}

@@ -30,7 +30,7 @@ func (s *SiteOperations) Create(ctx context.Context, req *SiteRequest) error {
 
 	// Step 2: Create site root directory
 	if err := os.MkdirAll(siteRoot, 0o750); err != nil {
-		s.rollbackUser(siteUser)
+		s.rollbackUser(ctx, siteUser)
 		return fmt.Errorf("failed to create site root: %w", err)
 	}
 
@@ -52,7 +52,7 @@ func (s *SiteOperations) Create(ctx context.Context, req *SiteRequest) error {
 	}
 
 	// Step 4: Set ownership to site user
-	if err := s.broker.setOwnership(siteRoot, siteUser, "www-data"); err != nil {
+	if err := s.broker.setOwnership(ctx, siteRoot, siteUser, "www-data"); err != nil {
 		s.rollback(ctx, siteUser, siteRoot)
 		return fmt.Errorf("failed to set ownership: %w", err)
 	}
@@ -139,8 +139,8 @@ func (s *SiteOperations) rollback(ctx context.Context, siteUser, siteRoot string
 }
 
 // rollbackUser removes just the user.
-func (s *SiteOperations) rollbackUser(siteUser string) {
-	cmd := exec.Command("userdel", siteUser)
+func (s *SiteOperations) rollbackUser(ctx context.Context, siteUser string) {
+	cmd := exec.CommandContext(ctx, "userdel", siteUser)
 	_ = cmd.Run()
 }
 
