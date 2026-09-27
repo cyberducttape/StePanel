@@ -280,6 +280,7 @@ func (a *App) activatePipelineRelease(ctx context.Context, site, release string)
 		_ = journal.cleanup()
 		return "", err
 	}
+	processKillInjection("deploy", "activate")
 	if err := journal.markActivated(previous); err != nil {
 		if rollbackErr := a.rollbackReplacingSite(ctx, site, previous); rollbackErr != nil {
 			return "", fmt.Errorf("persist release activation state: %w; rollback failed: %v", err, rollbackErr)

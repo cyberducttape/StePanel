@@ -386,6 +386,7 @@ func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage st
 	if err := failureInjection("restore", "provisioned"); err != nil {
 		return true, err
 	}
+	processKillInjection("restore", "provisioned")
 	file, err := os.Open(dump)
 	if err != nil {
 		return true, err
@@ -494,6 +495,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err := failureInjection("restore", "activate"); err != nil {
 		return BackupRestoreResult{}, err
 	}
+	processKillInjection("restore", "activate")
 	if err := activateStagedSiteWithConfig(ctx, cfg, siteName, managerStage); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("activate restored site through manager: %w", err)
 	}
@@ -504,6 +506,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err := failureInjection("restore", "commit"); err != nil {
 		return BackupRestoreResult{}, err
 	}
+	processKillInjection("restore", "commit")
 	if err := txn.Commit(); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("commit restore journal: %w", err)
 	}

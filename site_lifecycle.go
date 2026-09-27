@@ -132,6 +132,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		if err := journal.markComplete(stepBackupVerified); err != nil {
 			return nil, fmt.Errorf("journal BACKUP_VERIFIED: %w", err)
 		}
+		processKillInjection("terminate", "backup")
 	}
 
 	if a.Config.DBCtl == "" {
@@ -157,6 +158,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		if err := journal.markComplete(stepDatabasesRemoved); err != nil {
 			return nil, fmt.Errorf("journal DATABASES_REMOVED: %w", err)
 		}
+		processKillInjection("terminate", "database")
 	}
 
 	// Step 3: ROUTES_REMOVED. Desired-state removal MUST precede live
@@ -181,6 +183,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		if err := journal.markComplete(stepRoutesRemoved); err != nil {
 			return nil, fmt.Errorf("journal ROUTES_REMOVED: %w", err)
 		}
+		processKillInjection("terminate", "routes")
 	}
 
 	// Step 4: PROXIES_REMOVED.
@@ -197,6 +200,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		if err := journal.markComplete(stepProxiesRemoved); err != nil {
 			return nil, fmt.Errorf("journal PROXIES_REMOVED: %w", err)
 		}
+		processKillInjection("terminate", "proxies")
 	}
 
 	// Step 5: TASKS_REMOVED.
@@ -207,6 +211,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		if err := journal.markComplete(stepTasksRemoved); err != nil {
 			return nil, fmt.Errorf("journal TASKS_REMOVED: %w", err)
 		}
+		processKillInjection("terminate", "tasks")
 	}
 
 	// Step 6: SERVICES_REMOVED.
@@ -217,6 +222,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		if err := journal.markComplete(stepServicesRemoved); err != nil {
 			return nil, fmt.Errorf("journal SERVICES_REMOVED: %w", err)
 		}
+		processKillInjection("terminate", "services")
 	}
 
 	// Step 7: SITE_STATE_REMOVED.
@@ -227,6 +233,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		if err := journal.markComplete(stepSiteStateRemoved); err != nil {
 			return nil, fmt.Errorf("journal SITE_STATE_REMOVED: %w", err)
 		}
+		processKillInjection("terminate", "site-state")
 	}
 
 	// Step 8: OWNERSHIP_REMOVED.
@@ -237,6 +244,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		if err := journal.markComplete(stepOwnershipRemoved); err != nil {
 			return nil, fmt.Errorf("journal OWNERSHIP_REMOVED: %w", err)
 		}
+		processKillInjection("terminate", "ownership")
 	}
 
 	// COMPLETED. Emit the terminal audit event durably before removing

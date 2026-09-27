@@ -54,7 +54,12 @@ func (a *App) setAccountSuspended(ctx context.Context, username string, suspende
 	if err := failureInjection(action, "before-persist"); err != nil {
 		return HostingAccount{}, err
 	}
-	return a.Accounts.SetSuspended(username, suspended)
+	account, err := a.Accounts.SetSuspended(username, suspended)
+	if err != nil {
+		return HostingAccount{}, err
+	}
+	processKillInjection(action, "persisted")
+	return account, nil
 }
 
 func (a *App) autoSuspendAccount(ctx context.Context, username string) error {
