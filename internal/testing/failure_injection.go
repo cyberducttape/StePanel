@@ -3,8 +3,8 @@ package testing
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -144,8 +144,9 @@ func (fi *FailureInjector) InjectAt(ctx context.Context, operation string, point
 func (fi *FailureInjector) injectFailure(ctx context.Context) error {
 	switch fi.failureType {
 	case FailureTypeSIGKILL:
-		// Exit immediately (simulating SIGKILL)
-		os.Exit(1)
+		// Terminate by signal, rather than os.Exit, so recovery tests exercise
+		// the same process-death boundary as a real SIGKILL.
+		_ = syscall.Kill(syscall.Getpid(), syscall.SIGKILL)
 		return nil // Unreachable, but needed for type checking
 	case FailureTypeSIGTERM:
 		return fmt.Errorf("process terminated")
