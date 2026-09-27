@@ -63,7 +63,12 @@ chown stepanel:stepanel /var/lib/ste-panel/jobs.json
 chmod 0600 /var/lib/ste-panel/jobs.json
 
 cd "$candidate_root"
-./install.sh
+if ! ./install.sh; then
+  echo 'candidate installer failed; captured runtime environment:' >&2
+  sed -n '1,120p' /etc/ste-panel.env >&2 || true
+  systemctl show stepanel.service -p FragmentPath -p ExecStart -p EnvironmentFiles -p MainPID --no-pager >&2 || true
+  exit 1
+fi
 systemctl is-active --quiet stepanel.service stepanel-worker.service
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
 test -s /var/lib/ste-panel/stepanel-control.db
