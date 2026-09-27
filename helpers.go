@@ -178,7 +178,7 @@ func runHelperCommandWithTimeout(ctx context.Context, cfg Config, timeout time.D
 
 func siteHelper(cfg Config, action, site string) error {
 	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" {
-		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", "/var/www")
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 		if err != nil {
 			return err
 		}

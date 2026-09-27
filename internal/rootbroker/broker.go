@@ -49,22 +49,19 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		logger = log.New(os.Stderr, "[rootbroker] ", log.LstdFlags)
 	}
 
-	// If recovery root creation fails (e.g., in tests), use a temp directory
-	if err := os.MkdirAll(recoveryRoot, 0700); err != nil {
-		// Try to use a temp directory instead
-		tmpDir, err := os.MkdirTemp("", "stepanel-recovery-*")
-		if err != nil {
-			// If even temp fails, log but don't fail - journals are optional
-			logger.Printf("warning: could not create recovery directory: %v", err)
-			// Keep original recovery root path from parameter
-		} else {
-			logger.Printf("using temp recovery root: %s", tmpDir)
-			recoveryRoot = tmpDir
-		}
-	}
-
 	// Detect test mode: if webRoot is in /tmp, we're in a test environment
 	isTestMode := strings.HasPrefix(webRoot, "/tmp/")
+	if err := os.MkdirAll(recoveryRoot, 0700); err != nil {
+		if !isTestMode {
+			return nil, fmt.Errorf("create durable recovery root %q: %w", recoveryRoot, err)
+		}
+		tmpDir, tmpErr := os.MkdirTemp("", "stepanel-recovery-*")
+		if tmpErr != nil {
+			return nil, fmt.Errorf("create test recovery root: %w (production root: %v)", tmpErr, err)
+		}
+		logger.Printf("using temporary test recovery root: %s", tmpDir)
+		recoveryRoot = tmpDir
+	}
 
 	return &Broker{
 		webRoot:      webRoot,

@@ -13,6 +13,13 @@ func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
 
+func TestNewBrokerRejectsUnavailableDurableRecoveryRootOutsideTestMode(t *testing.T) {
+	_, err := NewBrokerWithRecoveryRoot("/var/www", "/proc/stepanel-recovery", log.New(os.Stderr, "[test] ", 0))
+	if err == nil || !strings.Contains(err.Error(), "durable recovery root") {
+		t.Fatalf("NewBrokerWithRecoveryRoot error = %v, want durable recovery root failure", err)
+	}
+}
+
 func TestBrokerSiteCreate(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	broker, err := NewBroker(t.TempDir(), logger)
