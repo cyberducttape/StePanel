@@ -66,7 +66,12 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, siteName := range siteNames {
-		sites[siteName] = newSiteOverview(a.Config, siteName)
+		overview, err := newSiteOverview(a.Config, siteName)
+		if err != nil {
+			http.Error(w, "unable to inspect managed site document roots", http.StatusInternalServerError)
+			return
+		}
+		sites[siteName] = overview
 	}
 
 	// Get apps (with caching)
@@ -95,7 +100,12 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 
 	for _, app := range apps {
 		if sites[app.Site] == nil {
-			sites[app.Site] = newSiteOverview(a.Config, app.Site)
+			overview, err := newSiteOverview(a.Config, app.Site)
+			if err != nil {
+				http.Error(w, "unable to inspect managed site document roots", http.StatusInternalServerError)
+				return
+			}
+			sites[app.Site] = overview
 		}
 		sites[app.Site].Applications = append(sites[app.Site].Applications, app)
 	}
@@ -103,7 +113,12 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 	if databases, err := managedDatabaseInventory(a.Config); err == nil {
 		for _, database := range databases {
 			if sites[database.Site] == nil {
-				sites[database.Site] = newSiteOverview(a.Config, database.Site)
+				overview, err := newSiteOverview(a.Config, database.Site)
+				if err != nil {
+					http.Error(w, "unable to inspect managed site document roots", http.StatusInternalServerError)
+					return
+				}
+				sites[database.Site] = overview
 			}
 			sites[database.Site].DatabaseCount++
 		}
@@ -197,8 +212,11 @@ func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
-	overview := newSiteOverview(a.Config, site)
-	var err error
+	overview, err := newSiteOverview(a.Config, site)
+	if err != nil {
+		http.Error(w, "unable to inspect managed site document root", http.StatusInternalServerError)
+		return
+	}
 	overview.Routes, err = siteRoutesForWithError(a.Config.VHostRoot, site)
 	if err != nil {
 		http.Error(w, "unable to inspect managed site routes", http.StatusInternalServerError)
@@ -233,13 +251,17 @@ func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, overview)
 }
 
-func newSiteOverview(cfg Config, site string) *siteOverview {
+func newSiteOverview(cfg Config, site string) (*siteOverview, error) {
 	root, pathErr := safePath(cfg.WebRoot, "sites", site, "public")
 	if pathErr != nil {
-		return &siteOverview{Site: site, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}}
+		return &siteOverview{Site: site, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}}, pathErr
 	}
-	_, err := os.Stat(root)
-	return &siteOverview{Site: site, DocumentRoot: root, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}, Exists: err == nil}
+	info, err := os.Stat(root)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	exists := err == nil && info.IsDir()
+	return &siteOverview{Site: site, DocumentRoot: root, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}, Exists: exists}, nil
 }
 
 func siteRoutesFor(root, site string) []siteRoute {
