@@ -72,7 +72,7 @@ STEPANEL_PID=$!
 # Wait for readiness
 echo "⏳ Waiting for control plane readiness..."
 ready=0
-for i in {1..30}; do
+for _ in {1..30}; do
   if curl --fail --silent --max-time 1 "$API_BASE/livez" >/dev/null 2>&1; then
     ready=1
     break

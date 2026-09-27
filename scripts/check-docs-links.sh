@@ -11,7 +11,7 @@ echo "Checking documentation links in $DOCS_DIR..."
 # Find all Markdown files
 while IFS= read -r file; do
     # Extract all markdown links: [text](path)
-    grep -o '\[.*\](.*\.md)' "$file" | sed 's/.*(\(.*\.md\))/\1/' | sort -u | while read -r link; do
+    while read -r link; do
         # Skip external links
         if [[ "$link" =~ ^http ]]; then
             continue
@@ -32,9 +32,9 @@ while IFS= read -r file; do
         # Check if file exists
         if [ ! -f "$target_file" ]; then
             echo "  ✗ $file: broken link to $link (resolved: $target_file)"
-            ((BROKEN_LINKS++))
+            BROKEN_LINKS=$((BROKEN_LINKS + 1))
         fi
-    done
+    done < <(grep -o '\[.*\](.*\.md)' "$file" | sed 's/.*(\(.*\.md\))/\1/' | sort -u || true)
 done < <(find "$DOCS_DIR" -name "*.md" -type f)
 
 if [ $BROKEN_LINKS -eq 0 ]; then
