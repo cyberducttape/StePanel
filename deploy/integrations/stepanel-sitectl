@@ -300,7 +300,9 @@ pool_error() {
 trap pool_error ERR
 
 write_pool() {
-  local target=$1 listen=$2 staged backup existed=0
+  local target=$1 listen=$2 staged backup existed=0 opcache_flag=no display_errors_flag=no
+  (( opcache_enabled == 1 )) && opcache_flag=yes
+  (( display_errors == 1 )) && display_errors_flag=yes
   backup=$(mktemp)
   if [[ -e $target ]]; then cp -p "$target" "$backup"; existed=1; fi
   pool_targets+=("$target")
@@ -334,8 +336,8 @@ php_admin_value[max_execution_time] = $max_execution_time
 php_admin_value[upload_max_filesize] = $upload_max_filesize
 php_admin_value[post_max_size] = $post_max_size
 php_admin_value[max_input_vars] = $max_input_vars
-php_admin_flag[opcache.enable] = $opcache_enabled
-php_admin_flag[display_errors] = $display_errors
+php_admin_flag[opcache.enable] = $opcache_flag
+php_admin_flag[display_errors] = $display_errors_flag
 php_admin_value[error_reporting] = $error_reporting
 EOF
   chmod 0644 "$staged"
