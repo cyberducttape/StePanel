@@ -26,6 +26,10 @@ if grep -Eq 'NOPASSWD: /usr/local/sbin/stepanel-root[[:space:]]*\\n' install.sh;
   echo "install.sh contains an unrestricted root broker sudo rule" >&2
   exit 1
 fi
+if ! grep -Fqx 'install -d -m 0700 -o root -g root /var/lib/stepanel/recovery' install.sh; then
+  echo "install.sh does not create root broker durable recovery storage" >&2
+  exit 1
+fi
 
 chart_version=$(sed -n 's/^version: \([^[:space:]]*\)$/\1/p' deploy/helm/stepanel/Chart.yaml)
 chart_app_version=$(sed -n 's/^appVersion: "\([^"]*\)"$/\1/p' deploy/helm/stepanel/Chart.yaml)

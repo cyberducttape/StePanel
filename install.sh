@@ -511,6 +511,10 @@ if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl stop stepanel-worker.service
 install -d -m 0750 "$APP_DIR" "$DATA_DIR/imports" "$DATA_DIR/mail" "$DATA_DIR/apps" /var/www/sites
 install -d -m 0755 -o root -g root "$PROXY_ROOT" "$VHOST_ROOT"
 install -d -m 0700 -o root -g root /var/lib/stepanel-privileged
+# The root broker refuses to run without durable journals. Keep this separate
+# from helper-owned state so privileged recovery records cannot be modified by
+# the unprivileged panel process.
+install -d -m 0700 -o root -g root /var/lib/stepanel/recovery
 install -d -m 0755 "$APP_DIR/integrations"
 id "$APP_USER" >/dev/null 2>&1 || useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
 install -d -m 0750 -o "$APP_USER" -g "$APP_USER" /var/backups/stepanel
@@ -709,7 +713,7 @@ install -m 0440 -o root -g root "$sudoers_tmp" /etc/sudoers.d/stepanel
 if [[ "$INSTALL_SECURITY" == "1" ]]; then install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-malware-guard" /usr/local/sbin/stepanel-malware-guard; install -m 0644 "$ROOT_DIR/deploy/stepanel-malware-guard.service" /etc/systemd/system/stepanel-malware-guard.service; fi
 if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   if command -v restorecon >/dev/null 2>&1; then
-    restorecon_paths=(/opt/stepanel /var/lib/ste-panel /var/lib/stepanel-privileged /var/backups/stepanel /var/www/sites "$PROXY_ROOT" "$VHOST_ROOT")
+    restorecon_paths=(/opt/stepanel /var/lib/ste-panel /var/lib/stepanel /var/lib/stepanel/recovery /var/lib/stepanel-privileged /var/backups/stepanel /var/www/sites "$PROXY_ROOT" "$VHOST_ROOT")
     [[ "$WEB_SERVER" == "apache" ]] && restorecon_paths+=(/etc/httpd/conf.d/stepanel.conf)
     restorecon -RF "${restorecon_paths[@]}"
   fi
