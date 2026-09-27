@@ -34,6 +34,7 @@ jobs:
           # obsolete credential handoff.
           sed -i '/^LoadCredential=db-password:/d; s#Environment=STEPANEL_DB_PASSWORD_FILE=%d/db-password#Environment=STEPANEL_DB_PASSWORD_FILE=/etc/stepanel-db.password#' /tmp/stepanel-v0.6.0/deploy/stepanel.service
           sed -i 's/install -m 0600 -o root -g root "\$INSTALL_TXN\/stepanel-db.password"/install -m 0640 -o root -g "\$APP_USER" "\$INSTALL_TXN\/stepanel-db.password"/' /tmp/stepanel-v0.6.0/install.sh
+          sed -i 's|^  if \[\[ "\$DB_LOCAL_HELPER" == "1" \]\]; then write_env STEPANEL_DBCTL|  if false; then write_env STEPANEL_DBCTL|' /tmp/stepanel-v0.6.0/install.sh
           (cd /tmp/stepanel-v0.6.0 && go build -trimpath -ldflags='-s -w' -o stepanel .)
           (cd /tmp/stepanel-candidate && go build -trimpath -ldflags='-s -w' -o stepanel . && go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root)
           cp -a /tmp/stepanel-candidate/. /tmp/stepanel-broken/
