@@ -360,23 +360,38 @@ func (s *AccountStore) OwnsSite(username, site string) bool {
 // OwnerOfSite reads the durable ownership boundary used by destructive
 // lifecycle operations. An empty owner means the site is not assigned.
 func (s *AccountStore) OwnerOfSite(site string) (string, bool) {
+	owner, ok, err := s.OwnerOfSiteWithError(site)
+	if err != nil {
+		return "", false
+	}
+	return owner, ok
+}
+
+// OwnerOfSiteWithError distinguishes an unassigned site from an unreadable
+// durable ownership table. Destructive lifecycle code must not treat a
+// database failure as proof that a site has no owner.
+func (s *AccountStore) OwnerOfSiteWithError(site string) (string, bool, error) {
 	if s.db != nil {
 		var username string
-		if err := s.db.QueryRow(`SELECT username FROM tenant_sites WHERE site = ?`, site).Scan(&username); err == nil {
-			return username, true
+		err := s.db.QueryRow(`SELECT username FROM tenant_sites WHERE site = ?`, site).Scan(&username)
+		if err == nil {
+			return username, true, nil
 		}
-		return "", false
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("read owner for site %q: %w", site, err)
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for username, account := range s.accounts {
 		for _, assigned := range account.Sites {
 			if assigned == site {
-				return username, true
+				return username, true, nil
 			}
 		}
 	}
-	return "", false
+	return "", false, nil
 }
 
 func (s *AccountStore) GetSites(username string) []string {

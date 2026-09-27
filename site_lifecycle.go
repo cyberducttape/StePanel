@@ -556,7 +556,10 @@ func (a *App) detachSiteOwnership(ctx context.Context, site SiteCapability) erro
 		return nil
 	}
 	siteName := site.Site()
-	owner, ok := a.Accounts.OwnerOfSite(siteName)
+	owner, ok, err := a.Accounts.OwnerOfSiteWithError(siteName)
+	if err != nil {
+		return fmt.Errorf("read ownership for site %s: %w", siteName, err)
+	}
 	if !ok {
 		return nil
 	}
