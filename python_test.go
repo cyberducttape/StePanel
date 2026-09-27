@@ -82,3 +82,15 @@ func TestReconcilePythonAppsRetainsPendingStateWhenHelperFails(t *testing.T) {
 		t.Fatalf("pending Python manifest = %q", updated)
 	}
 }
+
+func TestReconcilePythonAppsReportsCorruptManifest(t *testing.T) {
+	appRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(appRoot, "broken-python.json"), []byte("not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	service := &App{Config: Config{AppRoot: appRoot}}
+	_, failed := service.reconcilePythonApps(context.Background())
+	if failed["broken-python.json"] == "" {
+		t.Fatalf("failed applications = %#v, want corrupt manifest failure", failed)
+	}
+}

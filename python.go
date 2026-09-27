@@ -134,7 +134,15 @@ func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, fai
 			continue
 		}
 		var app PythonApp
-		if json.Unmarshal(data, &app) != nil || safeUser(app.Site) == "" || app.State != "pending" {
+		if err := json.Unmarshal(data, &app); err != nil {
+			failed[entry.Name()] = fmt.Sprintf("decode Python manifest: %v", err)
+			continue
+		}
+		if safeUser(app.Site) == "" {
+			failed[entry.Name()] = "Python manifest has an invalid site"
+			continue
+		}
+		if app.State != "pending" {
 			continue
 		}
 		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, app.Site)
