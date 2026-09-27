@@ -298,6 +298,14 @@ func (g *GitOperations) Clone(ctx context.Context, req *GitRequest) error {
 
 	// Clone repository
 	cmd := exec.CommandContext(ctx, "git", "clone", "--branch", req.Ref, req.Repository, req.Destination)
+	// A root broker must never block on an interactive credential or host-key
+	// prompt. Callers receive a deterministic failure and can provide an
+	// explicitly configured non-interactive credential path instead.
+	cmd.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=/bin/false",
+		"SSH_ASKPASS=/bin/false",
+	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to clone repository: %w (output: %s)", err, output)
 	}
@@ -332,6 +340,9 @@ func (p *ProxyOperations) Apply(ctx context.Context, req *ProxyRequest) error {
 func (p *ProxyOperations) Reload(ctx context.Context, req *ProxyRequest) error {
 	if err := p.broker.validator.ValidateWebServer(req.WebServer); err != nil {
 		return fmt.Errorf("invalid webserver: %w", err)
+	}
+	if p.broker.isTestMode {
+		return ErrNotImplemented
 	}
 
 	// Reload webserver service

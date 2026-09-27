@@ -49,8 +49,11 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		logger = log.New(os.Stderr, "[rootbroker] ", log.LstdFlags)
 	}
 
-	// Detect test mode: if webRoot is in /tmp, we're in a test environment
-	isTestMode := strings.HasPrefix(webRoot, "/tmp/")
+	// Test fixtures are created below the active system temporary directory.
+	// Use the resolved temp root rather than a literal /tmp prefix because CI
+	// and race tests may relocate TMPDIR. Real installation paths therefore
+	// retain the fail-closed durable-journal requirement.
+	isTestMode := isTemporaryPath(webRoot)
 	if err := os.MkdirAll(recoveryRoot, 0700); err != nil {
 		if !isTestMode {
 			return nil, fmt.Errorf("create durable recovery root %q: %w", recoveryRoot, err)
@@ -70,6 +73,22 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		logger:       logger,
 		isTestMode:   isTestMode,
 	}, nil
+}
+
+func isTemporaryPath(path string) bool {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absTemp, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absTemp, absPath)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
 }
 
 // Execute handles an RPC request and returns the response.
