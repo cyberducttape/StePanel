@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -297,5 +298,31 @@ func TestControlPlaneMigrationsRejectNewerSchemaVersion(t *testing.T) {
 		t.Fatal("expected opening a database with a future schema version to fail")
 	} else if !strings.Contains(err.Error(), "newer than this binary supports") {
 		t.Fatalf("unexpected error opening future-versioned database: %v", err)
+	}
+}
+
+func TestControlPlaneMigrationsSerializeConcurrentOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "concurrent.db")
+	const callers = 2
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for range callers {
+		go func() {
+			defer wg.Done()
+			db, err := openControlPlaneDB(path)
+			if err != nil {
+				errs <- err
+				return
+			}
+			errs <- db.Close()
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent control-plane open failed: %v", err)
+		}
 	}
 }
