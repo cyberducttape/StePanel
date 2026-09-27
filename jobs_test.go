@@ -450,6 +450,56 @@ func TestOpenJobsReconcilesInterruptedWork(t *testing.T) {
 	}
 }
 
+func TestOpenJobsImportsLegacyArrayState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	legacy := []*Job{{ID: "legacy-1", Kind: "cpmove.restore", State: "completed", User: "site", StartedAt: time.Now().Add(-time.Minute)}}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	jobs, err := OpenJobs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job, ok := jobs.Get("legacy-1"); !ok || job.State != "completed" {
+		t.Fatalf("imported legacy job = %#v, found = %v", job, ok)
+	}
+
+	reopened, err := OpenJobs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job, ok := reopened.Get("legacy-1"); !ok || job.State != "completed" {
+		t.Fatalf("rewritten legacy job = %#v, found = %v", job, ok)
+	}
+	var store jobStore
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &store); err != nil || store.Version != 1 || len(store.Jobs) != 1 {
+		t.Fatalf("rewritten state = %s, err = %v", data, err)
+	}
+}
+
+func TestOpenJobsImportsEmptyLegacyArray(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	if err := os.WriteFile(path, []byte("[]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := OpenJobs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := jobs.List(10); len(got) != 0 {
+		t.Fatalf("imported empty legacy state = %#v", got)
+	}
+}
+
 func TestOpenJobsRejectsCorruptState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jobs.json")
 	if err := os.WriteFile(path, []byte("not-json"), 0600); err != nil {

@@ -25,6 +25,9 @@ export STEPANEL_ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
 export STEPANEL_SESSION_SECRET=ci-upgrade-session-secret-012345678901234567890123
 export STEPANEL_AUDIT_KEY=ci-upgrade-audit-key-012345678901234567890123456789
 export STEPANEL_ACCOUNT_KEY=ci-upgrade-account-key-012345678901234567890123456
+# This disposable host has no project quota filesystem; production installs
+# retain the default quota enforcement.
+export STEPANEL_SKIP_QUOTA_CHECK=1
 # Keep the systemd credential file non-empty even though local socket database
 # administration does not use a database password. The service deliberately
 # rejects an invalid credential file during startup.

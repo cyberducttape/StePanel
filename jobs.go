@@ -775,6 +775,29 @@ type jobStore struct {
 	Jobs    []*Job `json:"jobs"`
 }
 
+// decodeJobStore accepts both the versioned object written by current
+// releases and the top-level array written by older releases. Keeping this
+// compatibility at the file boundary lets upgrades preserve queued and
+// completed work instead of treating a valid legacy file as corrupt state.
+func decodeJobStore(data []byte) (jobStore, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return jobStore{}, errors.New("job state is empty")
+	}
+	if trimmed[0] == '[' {
+		var jobs []*Job
+		if err := json.Unmarshal(trimmed, &jobs); err != nil {
+			return jobStore{}, err
+		}
+		return jobStore{Version: 1, Jobs: jobs}, nil
+	}
+	var store jobStore
+	if err := json.Unmarshal(trimmed, &store); err != nil {
+		return jobStore{}, err
+	}
+	return store, nil
+}
+
 type Jobs struct {
 	mu            sync.RWMutex
 	items         map[string]*Job
@@ -1017,8 +1040,12 @@ func (j *Jobs) load() error {
 	if len(data) > maxJobStateBytes {
 		return errors.New("job state exceeds 16 MiB")
 	}
-	var store jobStore
-	if err := json.Unmarshal(data, &store); err != nil {
+	legacyFormat := func() bool {
+		trimmed := bytes.TrimSpace(data)
+		return len(trimmed) > 0 && trimmed[0] == '['
+	}()
+	store, err := decodeJobStore(data)
+	if err != nil {
 		return fmt.Errorf("decode job state: %w", err)
 	}
 	if store.Version != 1 {
@@ -1041,9 +1068,9 @@ func (j *Jobs) load() error {
 		}
 		j.items[item.ID] = item
 	}
-	if reconciled {
+	if legacyFormat || reconciled {
 		if err := j.persistLocked(); err != nil {
-			return fmt.Errorf("persist reconciled job state: %w", err)
+			return fmt.Errorf("persist migrated job state: %w", err)
 		}
 	}
 	return nil
