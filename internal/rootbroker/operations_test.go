@@ -130,8 +130,8 @@ func TestDBOperationsValidation(t *testing.T) {
 	}
 
 	err = dbOps.Provision(ctx, req)
-	if err != nil {
-		t.Errorf("Provision failed: %v", err)
+	if err != ErrNotImplemented {
+		t.Errorf("Provision should return ErrNotImplemented, got: %v", err)
 	}
 
 	// Test invalid database name
@@ -162,8 +162,8 @@ func TestVhostOperationsValidation(t *testing.T) {
 	}
 
 	err = vhostOps.Apply(ctx, req)
-	if err != nil {
-		t.Errorf("Apply failed: %v", err)
+	if err != ErrNotImplemented {
+		t.Errorf("Apply should return ErrNotImplemented, got: %v", err)
 	}
 
 	// Test invalid webserver

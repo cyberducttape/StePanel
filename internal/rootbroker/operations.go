@@ -224,10 +224,7 @@ func (d *DBOperations) Provision(ctx context.Context, req *DBRequest) error {
 		return fmt.Errorf("invalid username: %w", err)
 	}
 
-	// Create database and user via managed helper
-	// This would call the database provisioning helper
-	// Placeholder for actual implementation
-	return nil
+	return ErrNotImplemented
 }
 
 // RestoreDump restores a database dump.
@@ -236,9 +233,7 @@ func (d *DBOperations) RestoreDump(ctx context.Context, req *DBRequest) error {
 		return fmt.Errorf("invalid database name: %w", err)
 	}
 
-	// Restore would pipe the dump data to mysql/postgresql
-	// Placeholder for actual implementation
-	return nil
+	return ErrNotImplemented
 }
 
 // Drop removes a database and user.
@@ -247,9 +242,7 @@ func (d *DBOperations) Drop(ctx context.Context, req *DBRequest) error {
 		return fmt.Errorf("invalid database name: %w", err)
 	}
 
-	// Drop database and user
-	// Placeholder for actual implementation
-	return nil
+	return ErrNotImplemented
 }
 
 // VhostOperations handles virtual host configuration.
@@ -270,9 +263,7 @@ func (v *VhostOperations) Apply(ctx context.Context, req *VhostRequest) error {
 		return fmt.Errorf("invalid webserver: %w", err)
 	}
 
-	// Vhost configuration would be written to webserver-specific config directory
-	// Placeholder for actual implementation
-	return nil
+	return ErrNotImplemented
 }
 
 // Delete removes a virtual host configuration.
@@ -284,9 +275,7 @@ func (v *VhostOperations) Delete(ctx context.Context, req *VhostRequest) error {
 		return fmt.Errorf("invalid domain: %w", err)
 	}
 
-	// Remove vhost configuration
-	// Placeholder for actual implementation
-	return nil
+	return ErrNotImplemented
 }
 
 // GitOperations handles git operations.
@@ -319,9 +308,7 @@ func (g *GitOperations) VerifyKey(ctx context.Context, req *GitRequest) error {
 		return fmt.Errorf("invalid repository: %w", err)
 	}
 
-	// Verify SSH access to repository
-	// Placeholder for actual implementation
-	return nil
+	return ErrNotImplemented
 }
 
 // ProxyOperations handles proxy configuration.
@@ -335,9 +322,7 @@ func (p *ProxyOperations) Apply(ctx context.Context, req *ProxyRequest) error {
 		return fmt.Errorf("invalid webserver: %w", err)
 	}
 
-	// Apply proxy configuration based on webserver type
-	// Placeholder for actual implementation
-	return nil
+	return ErrNotImplemented
 }
 
 // Reload reloads the proxy service.
