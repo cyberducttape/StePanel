@@ -643,6 +643,7 @@ TXN_TEMPS+=("$env_tmp")
   write_env STEPANEL_WEB_ROOT /var/www
   if [[ "${STEPANEL_SKIP_QUOTA_CHECK:-}" == "1" ]]; then write_env STEPANEL_SKIP_QUOTA_CHECK 1; fi
   if [[ "${STEPANEL_SKIP_STARTUP_DB_RECONCILE:-}" == "1" ]]; then write_env STEPANEL_SKIP_STARTUP_DB_RECONCILE 1; fi
+  if [[ "${STEPANEL_SKIP_STARTUP_HOST_RECONCILE:-}" == "1" ]]; then write_env STEPANEL_SKIP_STARTUP_HOST_RECONCILE 1; fi
   write_env STEPANEL_MAIL_ROOT "$DATA_DIR/mail"
   write_env STEPANEL_NVM_DIR "$APP_DIR/.nvm"
   write_env STEPANEL_PROXY_ROOT "$PROXY_ROOT"

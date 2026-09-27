@@ -506,14 +506,16 @@ func main() {
 		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour, cfg.WebRoot, cfg.MailRoot); err != nil {
 			log.Printf("site recovery cleanup during startup: %v", err)
 		}
-		reconcile("routes", app.reconcileRoutes)
-		reconcile("SSH access", app.reconcileSiteAccess)
-		reconcile("workers", app.reconcileWorkers)
-		reconcile("PHP profile", app.reconcilePHPProfiles)
-		reconcile("Python application", app.reconcilePythonApps)
-		reconcile("scheduled task", app.reconcileTasks)
-		reconcile("resource profile", app.reconcileResourceProfiles)
-		reconcile("environment", app.reconcileEnvironments)
+		if os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") != "1" {
+			reconcile("routes", app.reconcileRoutes)
+			reconcile("SSH access", app.reconcileSiteAccess)
+			reconcile("workers", app.reconcileWorkers)
+			reconcile("PHP profile", app.reconcilePHPProfiles)
+			reconcile("Python application", app.reconcilePythonApps)
+			reconcile("scheduled task", app.reconcileTasks)
+			reconcile("resource profile", app.reconcileResourceProfiles)
+			reconcile("environment", app.reconcileEnvironments)
+		}
 		if err := pruneAllGitReleases(cfg); err != nil {
 			log.Printf("Git release retention during startup: %v", err)
 		}
