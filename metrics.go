@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -157,13 +158,26 @@ func writeBackupScheduleMetrics(w io.Writer, schedules []BackupSchedule) {
 func writeGitReleaseMetrics(w io.Writer, webRoot string) {
 	var totalBytes int64
 	var total int
+	var inventoryErrors int
 	root := filepath.Join(webRoot, "sites")
-	entries, _ := os.ReadDir(root)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			inventoryErrors++
+		}
+		entries = nil
+	}
 	for _, site := range entries {
 		if !site.IsDir() {
 			continue
 		}
-		children, _ := os.ReadDir(filepath.Join(root, site.Name()))
+		children, err := os.ReadDir(filepath.Join(root, site.Name()))
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				inventoryErrors++
+			}
+			continue
+		}
 		for _, release := range children {
 			if !release.IsDir() || release.Type()&os.ModeSymlink != 0 || !strings.HasPrefix(release.Name(), ".stepanel-previous-") {
 				continue
@@ -181,4 +195,7 @@ func writeGitReleaseMetrics(w io.Writer, webRoot string) {
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_git_releases_total Number of previous Git releases retained")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_git_releases_total gauge")
 	_, _ = fmt.Fprintf(w, "stepanel_git_releases_total %d\n", total)
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_git_release_inventory_errors Number of unreadable Git release inventory directories")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_git_release_inventory_errors gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_git_release_inventory_errors %d\n", inventoryErrors)
 }

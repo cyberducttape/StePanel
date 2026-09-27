@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +43,19 @@ func TestMetricsDurationHistogramIsCumulativeAndNonNegative(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "stepanel_http_request_duration_seconds_sum 0.020000") {
 		t.Fatalf("negative duration was not clamped: %s", output.String())
+	}
+}
+
+func TestGitReleaseMetricsExposeInventoryReadFailures(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "sites"), []byte("not-a-directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var output strings.Builder
+	writeGitReleaseMetrics(&output, root)
+	if !strings.Contains(output.String(), "stepanel_git_release_inventory_errors 1") {
+		t.Fatalf("inventory error metric missing: %s", output.String())
 	}
 }
 
