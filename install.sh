@@ -192,7 +192,7 @@ if [[ ! "$DB_VERSION" =~ ^(default|[0-9][0-9A-Za-z.+:~-]*)$ ]]; then echo "Inval
 if [[ -n "$ADMIN_PASSWORD" ]]; then ADMIN_PASSWORD_HASH="$(printf '%s' "$ADMIN_PASSWORD" | "$ROOT_DIR/stepanel" hash-password)"; else ADMIN_PASSWORD_HASH="$EXISTING_ADMIN_PASSWORD_HASH"; fi
 unset ADMIN_PASSWORD
 
-if [[ "$DB_ENGINE" == "mysql" ]]; then DB_PACKAGE="mysql-server"; DB_PHP_PACKAGE="php-mysql"; DB_SERVICE="mysql"; elif [[ "$DB_ENGINE" == "mariadb" ]]; then DB_PACKAGE="mariadb-server"; DB_PHP_PACKAGE="php-mysql"; DB_SERVICE="mariadb"; else DB_PACKAGE="postgresql-server"; DB_PHP_PACKAGE="php-pgsql"; DB_SERVICE="postgresql"; fi
+if [[ "$DB_ENGINE" == "mysql" ]]; then DB_PACKAGE="mysql-server"; DB_PHP_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf php-mysqlnd || printf php-mysql)"; DB_SERVICE="mysql"; elif [[ "$DB_ENGINE" == "mariadb" ]]; then DB_PACKAGE="mariadb-server"; DB_PHP_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf php-mysqlnd || printf php-mysql)"; DB_SERVICE="mariadb"; else DB_PACKAGE="postgresql-server"; DB_PHP_PACKAGE="php-pgsql"; DB_SERVICE="postgresql"; fi
 if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl sudo logrotate
 else dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl sudo logrotate; fi
 if [[ "$WEB_SERVER" == "apache" ]]; then
