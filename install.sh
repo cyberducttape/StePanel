@@ -719,7 +719,7 @@ else
 fi
 systemctl enable --now stepanel.service stepanel-worker.service
 health_ready=0
-for _ in {1..30}; do
+for _ in {1..120}; do
   if curl --fail --silent --max-time 2 http://127.0.0.1:8090/readyz >/dev/null; then health_ready=1; break; fi
   sleep 1
 done

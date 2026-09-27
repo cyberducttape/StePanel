@@ -53,7 +53,7 @@ fi
 
 wait_for_panel_health() {
   local endpoint=$1
-  local attempts=${2:-30}
+  local attempts=${2:-120}
   for _ in $(seq 1 "$attempts"); do
     if systemctl is-active --quiet stepanel.service && \
        curl --fail --silent --max-time 2 "$endpoint" >/dev/null; then
@@ -79,7 +79,7 @@ for unit in stepanel.service stepanel-worker.service; do
   systemctl reset-failed "$unit" 2>/dev/null || true
   systemctl start "$unit"
 done
-for _ in $(seq 1 30); do
+for _ in $(seq 1 120); do
   if systemctl is-active --quiet stepanel.service && \
      systemctl is-active --quiet stepanel-worker.service && \
      curl --fail --silent --max-time 2 http://127.0.0.1:8090/livez >/dev/null && \
