@@ -224,5 +224,5 @@ The following must be resolved before multi-tenant deployment:
 
 - [SECURITY.md](./SECURITY.md) - Security features and threat model
 - [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) - current release gates and evidence
-- [PRODUCTION_SCORECARD.md](./PRODUCTION_SCORECARD.md) - historical scorecard; not a release gate
-- [PRODUCTION_GAP_ANALYSIS.md](./PRODUCTION_GAP_ANALYSIS.md) - historical gap analysis; verify against the gates
+- [PRODUCTION_SCORECARD.md](archive/PRODUCTION_SCORECARD.md) - historical scorecard; not a release gate
+- [PRODUCTION_GAP_ANALYSIS.md](archive/PRODUCTION_GAP_ANALYSIS.md) - historical gap analysis; verify against the gates

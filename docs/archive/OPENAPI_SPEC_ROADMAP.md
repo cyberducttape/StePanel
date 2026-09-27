@@ -308,7 +308,6 @@ func (a *App) inspectArchive(w http.ResponseWriter, r *http.Request) {
 
 ## Related Documents
 
-- [docs/DOCUMENTATION_GUIDE.md](./DOCUMENTATION_GUIDE.md) - Documentation structure
+- [docs/DOCUMENTATION_GUIDE.md](../DOCUMENTATION_GUIDE.md) - Documentation structure
 - [openapi.yaml](./openapi.yaml) - Current spec (34 routes missing)
 - [openapi_contract_test.go](../openapi_contract_test.go) - Contract validation tests
-

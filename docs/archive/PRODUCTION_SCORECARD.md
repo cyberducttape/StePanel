@@ -2,7 +2,7 @@
 
 > Historical assessment. This document is retained for context and trend
 > tracking only. It is not a current release gate; use
-> [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for release approval.
+> [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md) for release approval.
 
 ## Overview
 

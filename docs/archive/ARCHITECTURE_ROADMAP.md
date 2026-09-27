@@ -235,6 +235,6 @@ Extract infrastructure domains:
 
 ## Related Documents
 
-- [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md) — Current status and roadmap
-- [SECURITY.md](./SECURITY.md) — Security boundaries and threat model
-- [CONTRIBUTING.md](../CONTRIBUTING.md) — Code standards and review expectations
+- [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) — Current status and roadmap
+- [SECURITY.md](../SECURITY.md) — Security boundaries and threat model
+- [CONTRIBUTING.md](../../CONTRIBUTING.md) — Code standards and review expectations

@@ -337,7 +337,7 @@ If broker has issues in production:
 ## Related Documents
 
 - [HELPER_LAYER_ROADMAP.md](HELPER_LAYER_ROADMAP.md) - Overall strategy
-- [ROOT_BROKER_INTEGRATION.md](ROOT_BROKER_INTEGRATION.md) - Integration API
+- [ROOT_BROKER_INTEGRATION.md](../ROOT_BROKER_INTEGRATION.md) - Integration API
 - [PHASE3_INTEGRATION_TESTING.md](PHASE3_INTEGRATION_TESTING.md) - Phase 3 tests
 - [broker_bridge.go](../broker_bridge.go) - Bridge implementation
 

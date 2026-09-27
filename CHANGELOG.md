@@ -283,7 +283,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `internal/migration/schema.go` to improve code organization, testability, and
   reduce root package complexity (~27k LOC). Types are imported and aliased in
   root package for backward compatibility. See
-  [`docs/PACKAGE_EXTRACTION_PLAN.md`](docs/PACKAGE_EXTRACTION_PLAN.md).
+  [`docs/archive/PACKAGE_EXTRACTION_PLAN.md`](docs/archive/PACKAGE_EXTRACTION_PLAN.md).
 
 - **Expanded adversarial tenant isolation test coverage**: Added three new test
   scenarios (`TestCrossTenantBackupAccessDenied`, `TestPlanEnforcementIsolationPerTenant`,

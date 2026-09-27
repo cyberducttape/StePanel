@@ -308,8 +308,8 @@ Each extracted domain gets:
 
 ## Related Decisions
 
-- **ADR-0005**: [Incremental Go Package Boundaries](./adr/0005-incremental-go-package-boundaries.md)
-- **ARCHITECTURE_ROADMAP.md**: Long-term package organization plan
+- **ADR-0005**: [Incremental Go Package Boundaries](../adr/0005-incremental-go-package-boundaries.md)
+- **CODE_ORGANIZATION.md**: Current package organization plan
 - **CLAUDE.md**: Code organization requirements for new code
 
 ---
@@ -369,7 +369,6 @@ Each extracted domain gets:
 
 ## See Also
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - Current system design
-- [ARCHITECTURE_ROADMAP.md](./ARCHITECTURE_ROADMAP.md) - Planned package structure
-- [adr/0005](./adr/0005-incremental-go-package-boundaries.md) - Architecture decision record
-
+- [ARCHITECTURE.md](../ARCHITECTURE.md) - Current system design
+- [CODE_ORGANIZATION.md](../CODE_ORGANIZATION.md) - Current package structure
+- [adr/0005](../adr/0005-incremental-go-package-boundaries.md) - Architecture decision record

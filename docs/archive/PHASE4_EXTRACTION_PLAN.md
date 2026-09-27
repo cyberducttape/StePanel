@@ -429,9 +429,9 @@ github.com/cyberducttape/StePanel/
 
 ## Related Documents
 
-- [PHASE1_GOVERNANCE.md](PHASE1_GOVERNANCE.md) — Governance standards (see [CLAUDE.md](../CLAUDE.md))
+- [PHASE1_GOVERNANCE.md](PHASE1_GOVERNANCE.md) — Governance standards (see [CLAUDE.md](../../CLAUDE.md))
 - [PHASE2_EXTRACTION_PLAN.md](PHASE2_EXTRACTION_PLAN.md) — Audit extraction
 - [PHASE3_EXTRACTION_PLAN.md](PHASE3_EXTRACTION_PLAN.md) — Sites operations
-- [CLAUDE.md](../CLAUDE.md) — Code quality standards
-- [ARCHITECTURE_ROADMAP.md](ARCHITECTURE_ROADMAP.md) — Current architecture state
-- [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — Release criteria
+- [CLAUDE.md](../../CLAUDE.md) — Code quality standards
+- [CODE_ORGANIZATION.md](../CODE_ORGANIZATION.md) — Current architecture state
+- [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) — Release criteria

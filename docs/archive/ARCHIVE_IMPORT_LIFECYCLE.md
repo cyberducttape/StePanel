@@ -273,8 +273,8 @@ Archive imports in v0.7.0 created "raw" sites. Path forward:
 
 ## Related Decisions
 
-- ADR-0001: [Asynchronous Operations](./adr/0001-asynchronous-operations.md) — Import should be async job
-- ADR-0005: [Incremental Go Package Boundaries](./adr/0005-incremental-go-package-boundaries.md) — Extract sites to internal/sites
+- ADR-0001: [Asynchronous Operations](../adr/0001-asynchronous-operations.md) — Import should be async job
+- ADR-0005: [Incremental Go Package Boundaries](../adr/0005-incremental-go-package-boundaries.md) — Extract sites to internal/sites
 - FEATURES.md: Archive import marked "Partial" until lifecycle integrated
 
 ---

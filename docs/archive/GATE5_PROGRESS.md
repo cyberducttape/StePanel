@@ -293,10 +293,10 @@ Durable Creation Tests:
 
 ## Related Documents
 
-- [GATE5_FAILURE_INJECTION_TESTING.md](GATE5_FAILURE_INJECTION_TESTING.md) - Framework details
-- [GATE5_HARDENING_STRATEGY.md](GATE5_HARDENING_STRATEGY.md) - Hardening strategy
-- [GATE5_INTEGRATION_GUIDE.md](GATE5_INTEGRATION_GUIDE.md) - Step-by-step integration
-- [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md) - Gate 5 requirements
+- [GATE5_FAILURE_INJECTION_TESTING.md](../GATE5_FAILURE_INJECTION_TESTING.md) - Framework details
+- [GATE5_HARDENING_STRATEGY.md](../GATE5_HARDENING_STRATEGY.md) - Hardening strategy
+- [GATE5_INTEGRATION_GUIDE.md](../GATE5_INTEGRATION_GUIDE.md) - Step-by-step integration
+- [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md) - Gate 5 requirements
 - [site_lifecycle.go](../site_lifecycle.go) - Reference: termination implementation
 
 ---

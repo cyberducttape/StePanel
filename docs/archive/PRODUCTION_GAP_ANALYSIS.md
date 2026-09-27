@@ -1,7 +1,7 @@
 # Production gap analysis
 
 > Historical gap analysis. The current release-gate authority is
-> [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md); verify every status
+> [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md); verify every status
 > claim there before approving a release.
 
 This document records what is required to operate StePanel safely and what is
@@ -204,6 +204,6 @@ idempotent and explain what changed.
 
 Before a shared-hosting launch, require an external security review, tenant
 isolation tests, restore drills, upgrade/rollback drills, load and failure
-testing, the documented RPO/RTO contract in [`DR_OBJECTIVES.md`](DR_OBJECTIVES.md), on-call ownership, data-retention policy, and a
+testing, the documented RPO/RTO contract in [`DR_OBJECTIVES.md`](../DR_OBJECTIVES.md), on-call ownership, data-retention policy, and a
 support/compatibility policy. A deployment is not production-ready merely
 because its container starts or its health endpoint is green.

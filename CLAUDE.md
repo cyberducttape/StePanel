@@ -282,7 +282,7 @@ Before merge, verify:
 
 ## Package Organization
 
-See [ARCHITECTURE_ROADMAP.md](docs/ARCHITECTURE_ROADMAP.md) for planned internal package organization.
+See [CODE_ORGANIZATION.md](docs/CODE_ORGANIZATION.md) for the current internal package organization.
 
 New code should be placed in appropriate `internal/` package based on domain, not in root package.
 
@@ -366,7 +366,7 @@ The extraction happens **one domain at a time**, with clear interfaces between r
 
 ## Related Documents
 
-- [ARCHITECTURE_ROADMAP.md](docs/ARCHITECTURE_ROADMAP.md) — Planned package organization
+- [CODE_ORGANIZATION.md](docs/CODE_ORGANIZATION.md) — Current package organization
 - [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) — Release criteria
 - [SECURITY.md](docs/SECURITY.md) — Security boundaries and threat model
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Contribution workflow

@@ -333,9 +333,9 @@ func (b *Broker) validateRequest(req *Request) error {
 
 ## Related Documents
 
-- [SECURITY.md](SECURITY.md) — Security model and threat boundaries
-- [CLAUDE.md](../CLAUDE.md) — Code quality standards (applies to Go broker)
-- [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — Deployment prerequisites
+- [SECURITY.md](../SECURITY.md) — Security model and threat boundaries
+- [CLAUDE.md](../../CLAUDE.md) — Code quality standards (applies to Go broker)
+- [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) — Deployment prerequisites
 
 ---
 

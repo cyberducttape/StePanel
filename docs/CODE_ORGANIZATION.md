@@ -175,5 +175,5 @@ internal/...
 ## Related Documents
 
 - [REFACTORING_PLAN.md](../REFACTORING_PLAN.md) - Detailed refactoring roadmap
-- [PRODUCTION_SCORECARD.md](PRODUCTION_SCORECARD.md) - Code quality assessment
+- [PRODUCTION_SCORECARD.md](archive/PRODUCTION_SCORECARD.md) - Historical code quality assessment
 - [HELPER_ARCHITECTURE.md](HELPER_ARCHITECTURE.md) - Privilege separation design

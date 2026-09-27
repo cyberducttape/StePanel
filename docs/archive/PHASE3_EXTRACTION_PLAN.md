@@ -284,6 +284,6 @@ If extraction breaks something:
 ## Related Documents
 
 - [PHASE2_EXTRACTION_PLAN.md](PHASE2_EXTRACTION_PLAN.md) — Phase 2 foundation
-- [CLAUDE.md](../CLAUDE.md) — Code quality standards for refactoring
-- [ARCHITECTURE_ROADMAP.md](ARCHITECTURE_ROADMAP.md) — Full planned structure
-- [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — Release schedule
+- [CLAUDE.md](../../CLAUDE.md) — Code quality standards for refactoring
+- [CODE_ORGANIZATION.md](../CODE_ORGANIZATION.md) — Current package structure
+- [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) — Release schedule
