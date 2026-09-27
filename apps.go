@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -22,26 +21,11 @@ type AppManifest struct {
 }
 
 func (a *App) appList(w http.ResponseWriter, r *http.Request) {
-	entries, err := os.ReadDir(a.Config.AppRoot)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	apps, err := managedAppsWithError(a.Config.AppRoot)
+	if err != nil {
 		http.Error(w, "unable to inspect application manifests", http.StatusInternalServerError)
 		return
 	}
-	apps := []AppManifest{}
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(a.Config.AppRoot, entry.Name()))
-		if err != nil {
-			continue
-		}
-		var app AppManifest
-		if json.Unmarshal(data, &app) == nil {
-			apps = append(apps, app)
-		}
-	}
-	sort.Slice(apps, func(i, j int) bool { return apps[i].Site < apps[j].Site })
 	writeJSON(w, http.StatusOK, map[string]any{"apps": apps})
 }
 

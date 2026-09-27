@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -347,10 +348,17 @@ func managedAppsWithError(root string) ([]AppManifest, error) {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(root, entry.Name()))
-		var app AppManifest
-		if err == nil && json.Unmarshal(data, &app) == nil && safeUser(app.Site) != "" {
-			apps = append(apps, app)
+		if err != nil {
+			return nil, fmt.Errorf("read application manifest %s: %w", entry.Name(), err)
 		}
+		var app AppManifest
+		if err := json.Unmarshal(data, &app); err != nil {
+			return nil, fmt.Errorf("decode application manifest %s: %w", entry.Name(), err)
+		}
+		if safeUser(app.Site) == "" {
+			return nil, fmt.Errorf("application manifest %s has an invalid site", entry.Name())
+		}
+		apps = append(apps, app)
 	}
 	return apps, nil
 }
