@@ -85,7 +85,16 @@ type controlPlaneStateBinding struct {
 
 var controlPlaneStateBindings sync.Map
 
+// SQLite migrations are protected by a cross-process file lock, but the
+// driver must first open and ping a connection before runControlPlaneMigrations
+// can acquire that lock. Serialize opens within a process so panel startup
+// cannot race itself into SQLITE_BUSY during that pre-lock window.
+var controlPlaneOpenMu sync.Mutex
+
 func openControlPlaneDB(path string) (*sql.DB, error) {
+	controlPlaneOpenMu.Lock()
+	defer controlPlaneOpenMu.Unlock()
+
 	if stringsTrimmed := filepath.Clean(path); stringsTrimmed == "." || stringsTrimmed == "" {
 		return nil, errors.New("control-plane database path is empty")
 	}
