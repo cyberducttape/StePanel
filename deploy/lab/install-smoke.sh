@@ -117,3 +117,4 @@ fi
 # creates a separate disposable site so the helper smoke remains intact.
 bash /work/deploy/lab/cpmove-import-smoke.sh
 bash /work/deploy/lab/cpmove-recovery-smoke.sh
+bash /work/deploy/lab/backup-recovery-smoke.sh
