@@ -77,7 +77,13 @@ jobs:
             exit 1
           fi
           set +e
-          docker exec -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" stepanel-install /work/deploy/lab/install-smoke.sh >"$diagnostics_dir/install-smoke-output.txt" 2>&1
+          # Bound host-install validation so a stuck package manager or
+          # service transition yields diagnostics rather than consuming the
+          # entire matrix job timeout.
+          timeout --foreground 20m docker exec \
+            -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
+            stepanel-install /work/deploy/lab/install-smoke.sh \
+            >"$diagnostics_dir/install-smoke-output.txt" 2>&1
           smoke_status=$?
           set -e
           if [[ "$smoke_status" != 0 ]]; then
