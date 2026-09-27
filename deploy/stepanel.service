@@ -20,7 +20,6 @@ TasksMax=512
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
-RestrictNamespaces=true
 SystemCallArchitectures=native
 # The daemon is unprivileged. Its sudoers policy permits only the validated
 # root helpers; these paths are writable solely inside that helper boundary.
