@@ -1,8 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Verify release artifacts meet packaging standards
 # Run after GoReleaser publishes artifacts
 
-set -e
+set -Eeuo pipefail
+shopt -s nullglob
 
 DIST_DIR="${1:-dist}"
 
@@ -14,40 +15,41 @@ fi
 echo "=== Release Artifact Verification ==="
 echo
 
+archives=("$DIST_DIR"/*.tar.gz)
+if [ "${#archives[@]}" -eq 0 ]; then
+    echo "✗ FAIL: no .tar.gz release archives found" >&2
+    exit 1
+fi
+
 # Check for .tar.gz files and verify they are actually gzipped
 echo "Checking tar.gz compression..."
-for archive in "$DIST_DIR"/*.tar.gz; do
-    if [ -f "$archive" ]; then
-        # Check file magic number for gzip (1f 8b)
-        if file "$archive" | grep -q "gzip compressed"; then
-            echo "✓ $archive is properly gzipped"
-        else
-            echo "✗ FAIL: $archive is NOT gzipped (mislabeled)" >&2
-            exit 1
-        fi
+for archive in "${archives[@]}"; do
+    # Check file magic number for gzip (1f 8b)
+    if file "$archive" | grep -q "gzip compressed"; then
+        echo "✓ $archive is properly gzipped"
+    else
+        echo "✗ FAIL: $archive is NOT gzipped (mislabeled)" >&2
+        exit 1
+    fi
 
-        # Verify archive can be extracted
-        if tar -tzf "$archive" > /dev/null 2>&1; then
-            echo "✓ $archive can be extracted successfully"
-        else
-            echo "✗ FAIL: $archive cannot be extracted" >&2
-            exit 1
-        fi
+    # Verify archive can be extracted
+    if tar -tzf "$archive" > /dev/null 2>&1; then
+        echo "✓ $archive can be extracted successfully"
+    else
+        echo "✗ FAIL: $archive cannot be extracted" >&2
+        exit 1
     fi
 done
 
 echo
 echo "Checking SHA256 checksums..."
 if [ -f "$DIST_DIR/SHA256SUMS" ]; then
-    cd "$DIST_DIR"
-    if sha256sum -c SHA256SUMS --status; then
+    if (cd "$DIST_DIR" && sha256sum -c SHA256SUMS --status); then
         echo "✓ All checksums verified"
     else
         echo "✗ FAIL: Checksum verification failed" >&2
-        cd - > /dev/null
         exit 1
     fi
-    cd - > /dev/null
 else
     echo "✗ FAIL: SHA256SUMS not found" >&2
     exit 1
@@ -64,33 +66,33 @@ if [ -f "$DIST_DIR/SBOM.spdx.json" ]; then
         exit 1
     fi
 else
-    echo "✗ WARNING: SBOM.spdx.json not found (expected in release)" >&2
+    echo "✗ FAIL: SBOM.spdx.json not found" >&2
+    exit 1
 fi
 
 echo
 echo "Checking for required files in archives..."
-for archive in "$DIST_DIR"/*.tar.gz; do
-    if [ -f "$archive" ]; then
-        ARCHIVE_NAME=$(basename "$archive")
-        echo
-        echo "Verifying $ARCHIVE_NAME contents..."
+for archive in "${archives[@]}"; do
+    ARCHIVE_NAME=$(basename "$archive")
+    echo
+    echo "Verifying $ARCHIVE_NAME contents..."
 
-        # Check for required files
-        for required_file in LICENSE README.md SECURITY.md; do
-            if tar -tzf "$archive" | grep -q "$required_file"; then
-                echo "  ✓ $required_file present"
-            else
-                echo "  ✗ WARNING: $required_file missing" >&2
-            fi
-        done
-
-        # Verify binary is present
-        if tar -tzf "$archive" | grep -q "stepanel$"; then
-            echo "  ✓ stepanel binary present"
+    # Check for required files
+    for required_file in LICENSE README.md SECURITY.md; do
+        if tar -tzf "$archive" | grep -Eq "(^|/)${required_file}$"; then
+            echo "  ✓ $required_file present"
         else
-            echo "  ✗ FAIL: stepanel binary not found" >&2
+            echo "  ✗ FAIL: $required_file missing" >&2
             exit 1
         fi
+    done
+
+    # Verify binary is present
+    if tar -tzf "$archive" | grep -Eq '(^|/)stepanel$'; then
+        echo "  ✓ stepanel binary present"
+    else
+        echo "  ✗ FAIL: stepanel binary not found" >&2
+        exit 1
     fi
 done
 
