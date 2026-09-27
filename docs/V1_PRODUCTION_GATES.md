@@ -294,12 +294,13 @@ For each critical operation (backup, restore, deploy, terminate):
 failureInjection("restore", "commit")
 ```
 
-Subprocess regression drills now cover both termination-journal persistence
-and filesystem transaction recovery: a child process is killed with
-`SIGKILL` after a destructive/replacement step starts, and the parent reloads
-the state, restores the original site, and completes the journal. These prove
-cross-process persistence for those recovery primitives, but do not replace
-the still-open full host-kill/restart drills below.
+Subprocess regression drills now cover termination-journal persistence,
+filesystem transaction recovery, and release activation recovery: a child
+process is killed with `SIGKILL` after a destructive/replacement step starts,
+and the parent reloads the state, restores the original site/release, and
+completes recovery. These prove cross-process persistence for those recovery
+primitives, but do not replace the still-open full host-kill/restart matrix
+below.
 
 **Critical Operations to Test:**
 1. Backup (boundary tests: init, archive, verify, commit; host-kill drill remains)
@@ -311,8 +312,11 @@ the still-open full host-kill/restart drills below.
 **Evidence currently available:** the repository recovery-drill harness passes
 partial SQL import cleanup, interrupted transaction recovery, configuration
 rollback, and pending runtime reconciliation. Its generated results explicitly
-exclude power-loss recovery, so the five-operation process-kill acceptance
-criteria remain open.
+exclude power-loss recovery. Local SIGKILL regression tests now cover
+termination journals, filesystem restore transactions, and Git release
+activation; backup, database restore, and account suspension still require
+operation-level process-kill evidence. The five-operation acceptance criteria
+therefore remain open.
 
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit

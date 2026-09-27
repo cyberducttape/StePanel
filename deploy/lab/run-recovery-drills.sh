@@ -10,7 +10,7 @@ trap 'rm -f "$tmp"' EXIT
 patterns=(
   "TestRestoreSQLDropsPartiallyImportedDatabase|TestRestoreFailureRestoresExistingSite"
   "TestRecoverTransactionDatabases|TestRecoverSiteTransactions|TestSiteTransactionRollback"
-  "TestGitRollbackAtomicallySwapsPreviousRelease|TestProxyDeleteRestoresConfigWhenReloadFails"
+  "TestGitRollbackAtomicallySwapsPreviousRelease|TestProxyDeleteRestoresConfigWhenReloadFails|TestReleaseActivationRecoversAfterProcessKill"
   "TestReconcileWorkersRetainsPendingStateWhenHelperFails|TestReconcilePythonAppsRetainsPendingStateWhenHelperFails|TestReconcilePHPProfilesRetainsPendingStateWhenHelperFails"
 )
 names=(
