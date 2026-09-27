@@ -112,6 +112,14 @@ func openControlPlaneDB(path string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// SQLite creates a new database using the process umask, which is commonly
+	// 0644 on installers. The control plane contains sessions, tokens, and
+	// encrypted job metadata, so enforce its private-at-rest contract on every
+	// open, including existing databases created by older releases.
+	if err := os.Chmod(abs, 0600); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("secure control-plane database: %w", err)
+	}
 	return db, nil
 }
 

@@ -12,11 +12,19 @@ import (
 )
 
 func TestControlPlaneStateBlobIsTransactionalAndPersistent(t *testing.T) {
-	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	path := filepath.Join(t.TempDir(), "control-plane.db")
+	db, err := openControlPlaneDB(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("control-plane database mode = %o, want 600", got)
+	}
 	type state struct {
 		Owner string   `json:"owner"`
 		Sites []string `json:"sites"`
