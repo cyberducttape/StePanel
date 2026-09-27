@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 )
@@ -37,8 +38,16 @@ func (c *Client) Execute(ctx context.Context, req *Request) (*Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Run the broker with sudo
-	cmd := exec.CommandContext(ctx, "sudo", c.brokerPath, "-webroot", c.webRoot)
+	// Production installations invoke the broker through sudo. The isolated
+	// install smoke host may use its root-owned test broker directly because
+	// GitHub's container runner can force no_new_privs on sudo subprocesses.
+	command := "sudo"
+	args := []string{c.brokerPath, "-webroot", c.webRoot}
+	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" {
+		command = c.brokerPath
+		args = []string{"-webroot", c.webRoot}
+	}
+	cmd := exec.CommandContext(ctx, command, args...)
 
 	// Get stdin/stdout pipes
 	stdin, err := cmd.StdinPipe()

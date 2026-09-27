@@ -14,6 +14,7 @@ export STEPANEL_SKIP_QUOTA_CHECK=1
 export STEPANEL_SKIP_STARTUP_DB_RECONCILE=1
 export STEPANEL_SKIP_STARTUP_HOST_RECONCILE=1
 export STEPANEL_LAB_HTTP_COOKIES=1
+export STEPANEL_LAB_DIRECT_ROOT_BROKER=1
 export STEPANEL_LISTEN=127.0.0.1:8090
 export STEPANEL_TLS_TERMINATED=1
 export STEPANEL_ADMIN_PASSWORD=ci-install-only-password
@@ -47,6 +48,8 @@ if ! ./install.sh; then
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
   exit 1
 fi
+chmod 4755 /usr/local/sbin/stepanel-root
+systemctl restart stepanel.service stepanel-worker.service
 if ! systemctl is-active --quiet stepanel.service; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true

@@ -645,6 +645,7 @@ TXN_TEMPS+=("$env_tmp")
   if [[ "${STEPANEL_SKIP_STARTUP_DB_RECONCILE:-}" == "1" ]]; then write_env STEPANEL_SKIP_STARTUP_DB_RECONCILE 1; fi
   if [[ "${STEPANEL_SKIP_STARTUP_HOST_RECONCILE:-}" == "1" ]]; then write_env STEPANEL_SKIP_STARTUP_HOST_RECONCILE 1; fi
   if [[ "${STEPANEL_LAB_HTTP_COOKIES:-}" == "1" ]]; then write_env STEPANEL_LAB_HTTP_COOKIES 1; fi
+  if [[ "${STEPANEL_LAB_DIRECT_ROOT_BROKER:-}" == "1" ]]; then write_env STEPANEL_LAB_DIRECT_ROOT_BROKER 1; fi
   write_env STEPANEL_MAIL_ROOT "$DATA_DIR/mail"
   write_env STEPANEL_NVM_DIR "$APP_DIR/.nvm"
   write_env STEPANEL_PROXY_ROOT "$PROXY_ROOT"
