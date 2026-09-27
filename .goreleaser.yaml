@@ -19,11 +19,26 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.Commit={{ .FullCommit }} -X main.BuildDate={{ .Date }}
+  - id: stepanel-root
+    main: ./cmd/stepanel-root
+    binary: stepanel-root
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
 
 archives:
   - id: stepanel
     ids:
       - stepanel
+      - stepanel-root
     formats:
       - tar.gz
     name_template: >-

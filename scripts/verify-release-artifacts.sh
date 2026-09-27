@@ -94,6 +94,12 @@ for archive in "${archives[@]}"; do
         echo "  ✗ FAIL: stepanel binary not found" >&2
         exit 1
     fi
+    if tar -tzf "$archive" | grep -Eq '(^|/)stepanel-root$'; then
+        echo "  ✓ stepanel-root binary present"
+    else
+        echo "  ✗ FAIL: stepanel-root binary not found" >&2
+        exit 1
+    fi
 done
 
 echo
