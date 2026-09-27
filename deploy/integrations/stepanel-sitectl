@@ -368,7 +368,14 @@ if (( ! pool_written )); then
 fi
 
 for validator in "${validators[@]}"; do
-  "$validator" -tt >/dev/null 2>&1 || { echo "$validator rejected the managed pool" >&2; false; }
+  validator_output=$(mktemp)
+  if ! "$validator" -tt >"$validator_output" 2>&1; then
+    cat "$validator_output" >&2 || true
+    rm -f "$validator_output"
+    echo "$validator rejected the managed pool" >&2
+    false
+  fi
+  rm -f "$validator_output"
 done
 for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit"; done
 trap - ERR
