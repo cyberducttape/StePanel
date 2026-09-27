@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-09-25
+**Last Updated:** 2026-09-27
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -105,8 +105,10 @@ delete → SiteManager.Delete()
 - ✅ Two independent SQLite connections now exercise all five conflicting
       mutation lock scenarios; an OS-process regression test also proves
       hold/block/reacquire behavior across panel/worker-style processes.
-- ⏳ Adversarial concurrent-operation tests still need to cover the full five
-      workflows (not just their lock keys) against real helper boundaries.
+- ⏳ Full adversarial concurrent-operation acceptance remains open for the five
+      workflows: current tests prove lock-key serialization and helper-boundary
+      exclusion, but do not yet prove each complete workflow remains consistent
+      when its conflicting operation is interrupted.
 
 **DBLocks fixes (September 2026):**
 
@@ -183,9 +185,9 @@ operation is interrupted, so the operation-level acceptance item remains open.
 **Acceptance Criteria:**
 - [x] Distributed lock acquired before each currently implemented mutation
 - [x] Lock held until operation completes or rolls back
-- [x] Adversarial tests pass (5 scenarios above) — site_lock_workflows_test.go
+- [x] Lock-key serialization tests pass for the 5 scenarios above — site_lock_workflows_test.go
 - [x] No race condition bugs after concurrent operations — verified through workflow tests
-- [x] Failed operations leave system in known good state — verified through context cancellation
+- [ ] Full conflicting workflows remain in a known good state after interruption
 
 ---
 
@@ -333,7 +335,7 @@ criteria therefore remain open.
 
 ### Architecture
 - [x] Gate 1: One Lifecycle Authority - ALL mutations through SiteManager (VERIFIED: 8/8 CRITICAL + 3/3 HIGH files compliant)
-- [x] Gate 2: Cross-Process Locks - Distributed locks enforced (VERIFIED: 5 adversarial workflow tests pass)
+- [ ] Gate 2: Cross-Process Locks - Lock layer enforced; full interrupted-workflow acceptance remains open
 - [x] Gate 3: Accurate Capabilities - No "available: true" for unimplemented
 - [x] Gate 4: Automated DB Restoration - Transactional end-to-end
 - [ ] Gate 5: Failure Injection - Survives failure at every step

@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-09-26  
+**Last Updated:** 2026-09-27
 **Status:** 85% toward v1.0 Production Release
 
 ---
@@ -21,7 +21,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 | Gate | Requirement | Status | Blocker |
 |------|-------------|--------|---------|
 | **Gate 1** | One Lifecycle Authority | ✅ COMPLETE | None |
-| **Gate 2** | Cross-Process Lock Enforcement | ✅ COMPLETE (Redesigned Sep 2026) | None |
+| **Gate 2** | Cross-Process Lock Enforcement | 🔄 PARTIAL (lock layer complete) | Full workflow interruption acceptance |
 | **Gate 3** | Durable Journal System | ✅ COMPLETE | None |
 | **Gate 4** | Broker Integration | ✅ COMPLETE | None |
 | **Gate 5** | Failure Recovery Testing | 🔄 90% COMPLETE | Phase 7 VM testing |
