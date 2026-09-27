@@ -183,6 +183,16 @@ func TestValidateConfigRejectsInvalidTLSTerminationFlag(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRestrictsLabHTTPCookies(t *testing.T) {
+	t.Setenv("STEPANEL_LAB_HTTP_COOKIES", "1")
+	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "0")
+	cfg := LoadConfig()
+	cfg.Production = true
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_LAB_HTTP_COOKIES=1") {
+		t.Fatalf("expected lab HTTP cookie restriction, got %v", err)
+	}
+}
+
 func TestValidateConfigRequiresOffsiteBackupTarget(t *testing.T) {
 	t.Setenv("STEPANEL_REQUIRE_OFFSITE_BACKUP", "1")
 	if err := ValidateConfig(LoadConfig()); err == nil || !strings.Contains(err.Error(), "STEPANEL_OFFSITE_TARGET") {

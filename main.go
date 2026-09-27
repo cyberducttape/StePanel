@@ -210,7 +210,14 @@ func main() {
 	if strings.TrimSpace(cfg.ControlPlaneDB) == "" || strings.ContainsAny(cfg.ControlPlaneDB, "\x00\r\n") || cfg.Production && !filepath.IsAbs(cfg.ControlPlaneDB) {
 		log.Fatal("STEPANEL_CONTROL_PLANE_DB must be a non-empty filesystem path and absolute in production")
 	}
-	auth, err := NewAuth(cfg.Production)
+	// The install smoke test reaches the production-configured backend directly
+	// over HTTP. Keep production cookies Secure by default, while allowing that
+	// explicitly isolated lab path to exercise the authenticated workflows.
+	secureCookies := cfg.Production
+	if os.Getenv("STEPANEL_LAB_HTTP_COOKIES") == "1" {
+		secureCookies = false
+	}
+	auth, err := NewAuth(secureCookies)
 	if err != nil {
 		log.Fatal(err)
 	}

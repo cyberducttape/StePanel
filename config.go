@@ -315,6 +315,12 @@ func ValidateConfig(c Config) error {
 	if raw := os.Getenv("STEPANEL_REQUIRE_OFFSITE_BACKUP"); raw != "" && raw != "0" && raw != "1" {
 		problems = append(problems, errors.New("STEPANEL_REQUIRE_OFFSITE_BACKUP must be 0 or 1"))
 	}
+	if raw := os.Getenv("STEPANEL_LAB_HTTP_COOKIES"); raw != "" && raw != "0" && raw != "1" {
+		problems = append(problems, errors.New("STEPANEL_LAB_HTTP_COOKIES must be 0 or 1"))
+	}
+	if c.Production && os.Getenv("STEPANEL_LAB_HTTP_COOKIES") == "1" && os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") != "1" {
+		problems = append(problems, errors.New("STEPANEL_LAB_HTTP_COOKIES=1 is restricted to the isolated install smoke environment"))
+	}
 	if c.RequireOffsiteBackup && c.OffsiteTarget == "" {
 		problems = append(problems, errors.New("STEPANEL_REQUIRE_OFFSITE_BACKUP=1 requires STEPANEL_OFFSITE_TARGET"))
 	}
