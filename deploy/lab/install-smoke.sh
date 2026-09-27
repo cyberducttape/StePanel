@@ -39,7 +39,11 @@ else
   dnf install -y rclone
 fi
 
-./install.sh
+if ! ./install.sh; then
+  systemctl status stepanel.service stepanel-worker.service --no-pager || true
+  journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
+  exit 1
+fi
 systemctl is-active --quiet stepanel.service
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/livez >/dev/null
 systemctl restart stepanel.service
