@@ -28,7 +28,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 | **Gate 6** | Concurrent Workflow Testing | ✅ COMPLETE (Phase 6) | None |
 | **Gate 7** | (Reserved for future gates) | — | — |
 
-**Overall:** 6 of 6 gates released to Operator Beta; Gate 5 Phase 7 remains for GA approval.
+**Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
 ---
 
@@ -67,7 +67,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - ✅ Phase 4: Broker Integration (100%)
 - ✅ Phase 5: Operation Journals (100%)
 - ✅ Phase 6: Workflow Integration Testing (100%)
-- 🔄 Phase 7: VM-Level Failure Testing (Infrastructure ready, execution pending)
+- 🔄 Phase 7: VM-Level Failure Testing (provider-neutral scaffold only; execution pending)
 
 **What it is:** Prove StePanel survives and recovers deterministically from real failures (SIGKILL, disk full, database offline) at operation boundaries.
 
@@ -80,11 +80,11 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
   production evidence
 - 2000+ lines of integration guides and failure recovery documentation
 
-**Guarantees Proven:**
-- ✅ No half-states: operations complete fully or roll back fully
-- ✅ Deterministic recovery: same failure → same recovery sequence
-- ✅ Safe retries: all operations idempotent
-- ✅ Crash-safe: journals left on disk for recovery on next attempt
+**Local evidence supports:**
+- ✅ Boundary-level rollback and cleanup tests for the listed operations
+- ✅ Deterministic journal behavior in repository-level recovery drills
+- ✅ Safe retry behavior for the tested journal paths
+- ⚠️ Host-level crash safety remains unproven until the Phase 7 matrix runs
 
 **Remaining Work:** Phase 7 VM testing (10 hours planned)
 - Real SIGKILL injection (process kill -9)
