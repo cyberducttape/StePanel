@@ -703,8 +703,14 @@ func main() {
 		metricsHandler = app.Auth.RequireAdministrator(metricsHandler)
 	}
 	mux.Handle("/metrics", allowMethods(metricsHandler, http.MethodGet, http.MethodHead))
+	timeoutCfg := httputil.DefaultTimeouts()
 	// Wrap with security headers middleware (must be outermost)
-	secureHandler := securityHeadersMiddleware(cfg)(logging(normalizeAPIErrors(mux), app.Metrics, cfg.Production))
+	// Apply route-aware request deadlines before security/logging middleware so
+	// every handler sees the bounded context. The server-level deadlines below
+	// use the longest supported request classes; the middleware keeps ordinary
+	// endpoints short without making large archive uploads impossible.
+	timedHandler := timeoutCfg.Middleware()(mux)
+	secureHandler := securityHeadersMiddleware(cfg)(logging(normalizeAPIErrors(timedHandler), app.Metrics, cfg.Production))
 
 	// Configure differentiated timeouts to prevent malicious clients from holding
 	// connections. Normal API requests use short timeouts; uploads/downloads use
@@ -715,18 +721,14 @@ func main() {
 		MaxHeaderBytes: 1 << 20, // 1 MiB
 	}
 
-	// Apply default timeout configuration
-	timeoutCfg := httputil.DefaultTimeouts()
 	timeoutCfg.ApplyToServer(server)
 
-	// Override with more aggressive defaults
-	// ReadHeaderTimeout: 5s (prevent slowloris attacks)
-	// ReadTimeout: 30s (normal API requests should complete quickly)
-	// WriteTimeout: 2m (allow time for response generation)
-	// IdleTimeout: 30s (close idle connections)
+	// Keep the header and idle deadlines short to resist slowloris clients;
+	// request body/response deadlines are extended to cover the supported
+	// upload/download classes and tightened per route by timedHandler.
 	server.ReadHeaderTimeout = 5 * time.Second
-	server.ReadTimeout = 30 * time.Second
-	server.WriteTimeout = 2 * time.Minute
+	server.ReadTimeout = timeoutCfg.UploadRead
+	server.WriteTimeout = timeoutCfg.DownloadWrite
 	server.IdleTimeout = 30 * time.Second
 	serverStarted := make(chan struct{})
 	go func() {
