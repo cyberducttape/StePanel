@@ -218,6 +218,17 @@ func (v *Validator) ValidateGitRef(ref string) error {
 	return nil
 }
 
+// ValidateGitDestination restricts repository checkouts to the broker's
+// configured webroot. Git is a privileged filesystem writer, so validating
+// only the repository and ref is insufficient even when the current broker
+// action is unavailable.
+func (v *Validator) ValidateGitDestination(destination string) error {
+	if err := v.ValidateFilePath(v.webRoot, destination); err != nil {
+		return fmt.Errorf("invalid git destination: %w", err)
+	}
+	return nil
+}
+
 // ValidatePHPVersion validates a PHP version string.
 func (v *Validator) ValidatePHPVersion(version string) error {
 	if version == "" {
@@ -379,6 +390,9 @@ func (v *Validator) validateGitRequest(req *GitRequest) error {
 		return err
 	}
 	if err := v.ValidateGitRef(req.Ref); err != nil {
+		return err
+	}
+	if err := v.ValidateGitDestination(req.Destination); err != nil {
 		return err
 	}
 	return nil

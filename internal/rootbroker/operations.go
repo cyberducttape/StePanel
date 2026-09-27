@@ -292,6 +292,9 @@ func (g *GitOperations) Clone(ctx context.Context, req *GitRequest) error {
 	if err := g.broker.validator.ValidateGitRef(req.Ref); err != nil {
 		return fmt.Errorf("invalid ref: %w", err)
 	}
+	if err := g.broker.validator.ValidateGitDestination(req.Destination); err != nil {
+		return err
+	}
 
 	// Clone repository
 	cmd := exec.CommandContext(ctx, "git", "clone", "--branch", req.Ref, req.Repository, req.Destination)

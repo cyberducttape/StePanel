@@ -255,6 +255,20 @@ func TestValidateGitRef(t *testing.T) {
 	}
 }
 
+func TestValidateGitDestination(t *testing.T) {
+	v := NewValidator("/var/www")
+	for _, destination := range []string{"sites/demo", "sites/demo/releases/current"} {
+		if err := v.ValidateGitDestination(destination); err != nil {
+			t.Errorf("valid destination %q rejected: %v", destination, err)
+		}
+	}
+	for _, destination := range []string{"", "/etc", "../etc", "sites/../etc"} {
+		if err := v.ValidateGitDestination(destination); err == nil {
+			t.Errorf("unsafe destination %q accepted", destination)
+		}
+	}
+}
+
 func TestValidatePHPVersion(t *testing.T) {
 	v := NewValidator("/var/www")
 
