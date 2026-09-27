@@ -10,6 +10,7 @@ if [[ ! -f /sys/fs/cgroup/cgroup.controllers && ! -d /sys/fs/cgroup/systemd ]]; 
 fi
 
 export STEPANEL_ENV=production
+export STEPANEL_SKIP_QUOTA_CHECK=1
 export STEPANEL_LISTEN=127.0.0.1:8090
 export STEPANEL_TLS_TERMINATED=1
 export STEPANEL_ADMIN_PASSWORD=ci-install-only-password
