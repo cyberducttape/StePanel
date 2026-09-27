@@ -20,6 +20,24 @@ func TestNewBrokerRejectsUnavailableDurableRecoveryRootOutsideTestMode(t *testin
 	}
 }
 
+func TestNewBrokerTightensExistingRecoveryRootPermissions(t *testing.T) {
+	webRoot := t.TempDir()
+	recoveryRoot := t.TempDir()
+	if err := os.Chmod(recoveryRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewBrokerWithRecoveryRoot(webRoot, recoveryRoot, log.New(os.Stderr, "[test] ", 0)); err != nil {
+		t.Fatalf("NewBrokerWithRecoveryRoot failed: %v", err)
+	}
+	info, err := os.Stat(recoveryRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("recovery root mode = %04o, want 0700", got)
+	}
+}
+
 func TestBrokerSiteCreate(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	broker, err := NewBroker(t.TempDir(), logger)
