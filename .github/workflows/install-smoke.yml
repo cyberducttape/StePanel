@@ -48,6 +48,8 @@ jobs:
           HOST_IMAGE: stepanel-systemd-host:${{ matrix.name }}
         run: |
           set -eu
+          diagnostics_dir="$RUNNER_TEMP/stepanel-install-diagnostics"
+          mkdir -p "$diagnostics_dir"
           cleanup() { docker rm -f stepanel-install >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           docker info >/dev/null 2>&1 || { echo 'Docker is unavailable on this runner' >&2; exit 77; }
@@ -79,12 +81,20 @@ jobs:
           set -e
           if [[ "$smoke_status" != 0 ]]; then
             echo "install smoke exited with status $smoke_status; collecting host diagnostics" >&2
-            docker exec stepanel-install systemctl status stepanel.service stepanel-worker.service --no-pager >&2 || true
-            docker exec stepanel-install journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 >&2 || true
+            docker exec stepanel-install systemctl status stepanel.service stepanel-worker.service --no-pager >"$diagnostics_dir/systemctl-status.txt" 2>&1 || true
+            docker exec stepanel-install journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 >"$diagnostics_dir/journal.txt" 2>&1 || true
             docker exec stepanel-install systemctl show stepanel.service stepanel-worker.service \
               -p ActiveState -p SubState -p Result -p ExecMainStatus -p MainPID \
               -p NoNewPrivileges -p RestrictSUIDSGID -p ProtectSystem -p ProtectHome \
-              -p PrivateTmp -p PrivateDevices -p RestrictNamespaces -p ReadWritePaths >&2 || true
-            docker logs stepanel-install >&2 || true
+              -p PrivateTmp -p PrivateDevices -p RestrictNamespaces -p ReadWritePaths >"$diagnostics_dir/systemctl-properties.txt" 2>&1 || true
+            docker logs stepanel-install >"$diagnostics_dir/container.log" 2>&1 || true
+            cat "$diagnostics_dir"/*.txt "$diagnostics_dir"/*.log >&2 || true
             exit "$smoke_status"
           fi
+      - name: Upload install diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4 # v4
+        with:
+          name: stepanel-install-diagnostics-${{ matrix.name }}
+          path: ${{ runner.temp }}/stepanel-install-diagnostics
+          if-no-files-found: ignore
