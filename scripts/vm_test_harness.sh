@@ -18,9 +18,6 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-VM_NAME_PREFIX="stepanel-gate5"
 RECOVERY_TIME_TARGET_SEC=5
 DETERMINISM_RUNS=100
 
@@ -88,7 +85,8 @@ test_sigkill() {
         # In real usage: ssh ${VM_NAME_PREFIX}-app "systemctl start stepanel"
         # Then: ssh ${VM_NAME_PREFIX}-app "curl -X POST http://localhost:8080/api/sites/create -d '{...}'" &
 
-        local start_time=$(date +%s)
+        local start_time
+        start_time=$(date +%s)
 
         # Simulate: kill -9 process after random delay (0.5-2 seconds)
         # In real usage: sleep $(echo "scale=2; $RANDOM/32768*1.5 + 0.5" | bc) && pkill -9 stepanel
@@ -105,7 +103,7 @@ test_sigkill() {
         # In real usage: until ssh ${VM_NAME_PREFIX}-app "curl -s http://localhost:8080/readyz" &>/dev/null; do sleep 1; done
 
         local recovery_time=$(($(date +%s) - start_time))
-        recovery_times+=($recovery_time)
+        recovery_times+=("$recovery_time")
 
         # Verify site is either fully created or fully rolled back
         # In real usage: ssh ${VM_NAME_PREFIX}-app "stepanel-ctl site-status $site_name"
@@ -135,7 +133,8 @@ test_enospc() {
         #   dd if=/dev/zero of=/var/www/.fill bs=1M count=\$((fill_size/1024)) &
         # "
 
-        local start_time=$(date +%s)
+        local start_time
+        start_time=$(date +%s)
 
         # Start operation that needs disk space
         # In real usage: ssh ${VM_NAME_PREFIX}-app "curl -X POST http://localhost:8080/api/sites/create ..."
@@ -151,7 +150,7 @@ test_enospc() {
         # In real usage: ssh ${VM_NAME_PREFIX}-app "curl -X POST http://localhost:8080/api/sites/create ..."
 
         local recovery_time=$(($(date +%s) - start_time))
-        recovery_times+=($recovery_time)
+        recovery_times+=("$recovery_time")
 
         log_info "Recovery time: ${recovery_time}s"
     done
@@ -173,7 +172,8 @@ test_db_offline() {
         # Stop database
         # In real usage: ssh ${VM_NAME_PREFIX}-db "sudo systemctl stop mysql"
 
-        local start_time=$(date +%s)
+        local start_time
+        start_time=$(date +%s)
 
         # Start operation that needs database
         # In real usage: ssh ${VM_NAME_PREFIX}-app "curl -X POST http://localhost:8080/api/databases/provision ..."
@@ -189,7 +189,7 @@ test_db_offline() {
         # In real usage: ssh ${VM_NAME_PREFIX}-app "curl -X POST http://localhost:8080/api/databases/provision ..."
 
         local recovery_time=$(($(date +%s) - start_time))
-        recovery_times+=($recovery_time)
+        recovery_times+=("$recovery_time")
 
         log_info "Recovery time: ${recovery_time}s"
     done
@@ -203,7 +203,6 @@ test_determinism() {
     require_real_backend
     log_info "Testing determinism with $DETERMINISM_RUNS runs..."
 
-    local event_sequences=()
     local identical_count=0
 
     for i in $(seq 1 $DETERMINISM_RUNS); do
@@ -249,7 +248,8 @@ verify_sla() {
     for i in {1..20}; do
         log_info "Run $i/20..."
 
-        local start_time=$(date +%s)
+        local start_time
+        start_time=$(date +%s)
 
         # Inject failure and measure recovery time
         # In real usage: see test_sigkill, test_enospc, etc.
