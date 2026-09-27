@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -14,6 +16,57 @@ import (
 )
 
 const testTOTPSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+
+func TestAccountSuspensionPersistsAcrossProcessKill(t *testing.T) {
+	if os.Getenv("STEPANEL_ACCOUNT_SUSPENSION_CHILD") == "1" {
+		path := os.Getenv("STEPANEL_ACCOUNT_SUSPENSION_PATH")
+		store, err := OpenAccountStore(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.SetSuspended("customer", true); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	path := filepath.Join(t.TempDir(), "accounts.json")
+	child := exec.Command(os.Args[0], "-test.run=TestAccountSuspensionPersistsAcrossProcessKill", "-test.v")
+	child.Env = append(os.Environ(),
+		"STEPANEL_ACCOUNT_SUSPENSION_CHILD=1",
+		"STEPANEL_ACCOUNT_SUSPENSION_PATH="+path,
+	)
+	err := child.Run()
+	if err == nil {
+		t.Fatal("child process unexpectedly survived account suspension drill")
+	}
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+	status, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+		t.Fatalf("child exit = %v, want SIGKILL", err)
+	}
+
+	reopened, err := OpenAccountStore(path)
+	if err != nil {
+		t.Fatalf("reopen account state after process kill: %v", err)
+	}
+	account, ok := reopened.Get("customer")
+	if !ok || !account.Suspended {
+		t.Fatalf("reopened account = %#v, exists=%v; suspension was not durable", account, ok)
+	}
+	if account.SessionGeneration != 1 {
+		t.Fatalf("session generation = %d, want 1 after suspension", account.SessionGeneration)
+	}
+}
 
 func TestAccountStoreOwnerOfSiteAndGetSites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "accounts.json")
