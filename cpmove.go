@@ -230,6 +230,11 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 		return ImportResult{}, fmt.Errorf("activate cpmove site through manager: %w", err)
 	}
 	activated = true
+	// The transaction journal is already durable before activation.  Keep a
+	// process-death boundary here so disposable-host recovery drills can kill
+	// the worker after the canonical swap and verify that startup rolls the
+	// interrupted import back safely.
+	processKillInjection("cpmove", "activate")
 
 	result := ImportResult{User: user, Home: home, FilesRestored: source != "", StagedAt: stage}
 	if databases {
