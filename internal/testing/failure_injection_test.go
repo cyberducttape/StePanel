@@ -32,6 +32,9 @@ func TestFailureInjectorRecordsRecoveryAndSuccessCounts(t *testing.T) {
 		Operation: "restore",
 		ExecuteWorkflow: func(_ context.Context, injector *FailureInjector) error {
 			workflowInjector = injector
+			if err := injector.InjectAt(context.Background(), "restore", FailurePointInit); err != nil {
+				return err
+			}
 			return nil
 		},
 		FailurePoints: []FailurePoint{FailurePointInit},
@@ -57,6 +60,21 @@ func TestFailureInjectorRecordsRecoveryAndSuccessCounts(t *testing.T) {
 	}
 	if !verified {
 		t.Fatal("recovery verification hook was not called")
+	}
+}
+
+func TestRunFailureTestRejectsUnreachedFailurePoint(t *testing.T) {
+	err := RunFailureTest(WorkflowFailureTest{
+		Name:      "unreached",
+		Operation: "restore",
+		ExecuteWorkflow: func(context.Context, *FailureInjector) error {
+			return nil
+		},
+		FailurePoints: []FailurePoint{FailurePointFinalWrite},
+		FailureTypes:  []FailureType{FailureTypeSIGTERM},
+	})
+	if err == nil {
+		t.Fatal("RunFailureTest unexpectedly accepted an unreached failure point")
 	}
 }
 

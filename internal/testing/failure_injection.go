@@ -184,9 +184,13 @@ func (fi *FailureInjector) RecordRecovery(operation string) {
 	fi.lastRecoveryTime = time.Now()
 	fi.recoveryCount++
 
-	if len(fi.recordedEvents) > 0 {
-		lastEvent := &fi.recordedEvents[len(fi.recordedEvents)-1]
+	for i := len(fi.recordedEvents) - 1; i >= 0; i-- {
+		if fi.recordedEvents[i].Operation != operation || fi.recordedEvents[i].RecoveryTime != 0 {
+			continue
+		}
+		lastEvent := &fi.recordedEvents[i]
 		lastEvent.RecoveryTime = fi.lastRecoveryTime.Sub(lastEvent.Timestamp)
+		break
 	}
 }
 
@@ -291,6 +295,7 @@ type WorkflowFailureTest struct {
 	Name                 string
 	Operation            string       // What operation is being tested
 	Setup                func() error // Setup before the workflow
+	Reset                func() error // Reset state before each independent failure scenario
 	ExecuteWorkflow      func(ctx context.Context, injector *FailureInjector) error
 	VerifyRecovery       func() error   // Verify recovery after failure
 	Cleanup              func() error   // Cleanup after test
@@ -312,22 +317,28 @@ func RunFailureTest(test WorkflowFailureTest) error {
 
 	for _, failurePoint := range test.FailurePoints {
 		for _, failureType := range test.FailureTypes {
+			if test.Reset != nil {
+				if err := test.Reset(); err != nil {
+					return fmt.Errorf("reset failed for %s at %s with %s: %w",
+						test.Operation, failurePoint, failureType, err)
+				}
+			}
 			injector.SetFailure(failurePoint, failureType)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			err := test.ExecuteWorkflow(ctx, injector)
 			cancel()
-
-			// Record that we recovered from the failure
-			if err != nil {
-				injector.RecordRecovery(test.Operation)
-			} else {
-				injector.mu.Lock()
-				injector.successCount++
-				injector.mu.Unlock()
+			stats := injector.Stats()
+			if stats.InjectionCount == 0 {
+				return fmt.Errorf("failure point %s with %s was not reached", failurePoint, failureType)
 			}
 
-			// Verify recovery was clean
+			if err == nil {
+				return fmt.Errorf("failure point %s with %s was injected but workflow returned success", failurePoint, failureType)
+			}
+			injector.RecordRecovery(test.Operation)
+
+			// Verify the state left by the failed attempt before retrying.
 			if test.VerifyRecovery != nil {
 				if verifyErr := test.VerifyRecovery(); verifyErr != nil {
 					return fmt.Errorf("recovery verification failed for %s at %s with %s: %w",
@@ -336,6 +347,24 @@ func RunFailureTest(test WorkflowFailureTest) error {
 			}
 
 			injector.Disable()
+			retryCtx, retryCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			retryErr := test.ExecuteWorkflow(retryCtx, injector)
+			retryCancel()
+			if retryErr != nil {
+				return fmt.Errorf("retry failed for %s at %s with %s: %w",
+					test.Operation, failurePoint, failureType, retryErr)
+			}
+			injector.mu.Lock()
+			injector.successCount++
+			injector.mu.Unlock()
+
+			// Verify the recovered state after the retry completed.
+			if test.VerifyRecovery != nil {
+				if verifyErr := test.VerifyRecovery(); verifyErr != nil {
+					return fmt.Errorf("post-retry verification failed for %s at %s with %s: %w",
+						test.Operation, failurePoint, failureType, verifyErr)
+				}
+			}
 		}
 	}
 

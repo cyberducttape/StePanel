@@ -66,6 +66,13 @@ func (cs *CreationState) Events() []string {
 	return append([]string{}, cs.events...)
 }
 
+func (cs *CreationState) Reset() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	cs.completed = make(map[string]bool)
+	cs.events = cs.events[:0]
+}
+
 // DurableSiteCreationWorkflow runs a site creation with durable
 // checkpoints, allowing recovery from failures.
 func DurableSiteCreationWorkflow(siteName string, state *CreationState) WorkflowFailureTest {
@@ -75,6 +82,10 @@ func DurableSiteCreationWorkflow(siteName string, state *CreationState) Workflow
 
 		Setup: func() error {
 			// In real usage, would load journal from disk
+			return nil
+		},
+		Reset: func() error {
+			state.Reset()
 			return nil
 		},
 

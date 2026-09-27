@@ -49,6 +49,13 @@ func (cws *CompleteWorkflowState) GetOrder() []string {
 	return append([]string{}, cws.order...)
 }
 
+func (cws *CompleteWorkflowState) Reset() {
+	cws.mu.Lock()
+	defer cws.mu.Unlock()
+	cws.steps = make(map[string]bool)
+	cws.order = cws.order[:0]
+}
+
 // CompleteLifecycleWorkflow tests the entire site lifecycle:
 // 1. Create site
 // 2. Deploy app
@@ -62,6 +69,10 @@ func CompleteLifecycleWorkflow(siteName string, state *CompleteWorkflowState) Wo
 		Operation: "site.lifecycle",
 
 		Setup: func() error {
+			return nil
+		},
+		Reset: func() error {
+			state.Reset()
 			return nil
 		},
 
