@@ -50,10 +50,25 @@ if ! systemctl is-active --quiet stepanel.service; then
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
   exit 1
 fi
-curl --fail --silent --max-time 5 http://127.0.0.1:8090/livez >/dev/null
+
+wait_for_panel_health() {
+  local endpoint=$1
+  local attempts=${2:-30}
+  for _ in $(seq 1 "$attempts"); do
+    if systemctl is-active --quiet stepanel.service && \
+       curl --fail --silent --max-time 2 "$endpoint" >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  systemctl status stepanel.service stepanel-worker.service --no-pager || true
+  journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 || true
+  return 1
+}
+
+wait_for_panel_health http://127.0.0.1:8090/livez
 systemctl restart stepanel.service
-systemctl is-active --quiet stepanel.service
-curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
+wait_for_panel_health http://127.0.0.1:8090/readyz
 
 # Exercise recovery from an unclean daemon death on the installed host. The
 # container-level CI drill covers one process boundary; this also verifies the
@@ -73,9 +88,8 @@ for _ in $(seq 1 30); do
   fi
   sleep 1
 done
-systemctl is-active --quiet stepanel.service
+wait_for_panel_health http://127.0.0.1:8090/readyz
 systemctl is-active --quiet stepanel-worker.service
-curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
 test -s /var/lib/ste-panel/stepanel-control.db
 test -s /var/lib/ste-panel/audit.jsonl
 systemd-analyze security stepanel.service stepanel-worker.service
