@@ -376,141 +376,144 @@ func (b *Broker) handleAppRequest(ctx context.Context, req *AppRequest) (*Respon
 }
 
 func (b *Broker) appApply(ctx context.Context, req *AppRequest) (*Response, error) {
-	if response, err := unsupportedBrokerResponse("app apply"); response != nil || err != nil {
-		return response, err
-	}
-	b.logger.Printf("applying app config: site=%s version=%s port=%d", req.Site, req.Version, req.Port)
+	return unsupportedBrokerResponse("app apply")
+	/*
+		if response, err := unsupportedBrokerResponse("app apply"); response != nil || err != nil {
+			return response, err
+		}
+		b.logger.Printf("applying app config: site=%s version=%s port=%d", req.Site, req.Version, req.Port)
 
-	// Validate inputs
-	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
-	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("invalid site: %v", err)}, nil
-	}
+		// Validate inputs
+		siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
+		if err != nil {
+			return &Response{OK: false, Error: fmt.Sprintf("invalid site: %v", err)}, nil
+		}
 
-	// Use site + version as job ID for journaling
-	jobID := "app-deploy-" + req.Site + "-" + req.Version
-	actor := "root"
-	releaseID := req.Version
+		// Use site + version as job ID for journaling
+		jobID := "app-deploy-" + req.Site + "-" + req.Version
+		actor := "root"
+		releaseID := req.Version
 
-	// Load or create durable journal for this deployment
-	journal, err := loadOrCreateDeploymentJournal(b.recoveryRoot, jobID, req.Site, releaseID, actor)
-	if err != nil {
-		b.logger.Printf("failed to load deployment journal: %v", err)
-		return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-	}
-
-	// Step 1: Validate app archive/version
-	if !journal.isComplete(stepAppValidated) {
-		// In real implementation, would verify archive integrity, checksum, etc.
-		b.logger.Printf("validating app version: %s", req.Version)
-
-		if err := journal.markComplete(stepAppValidated); err != nil {
-			b.logger.Printf("failed to journal validation: %v", err)
+		// Load or create durable journal for this deployment
+		journal, err := loadOrCreateDeploymentJournal(b.recoveryRoot, jobID, req.Site, releaseID, actor)
+		if err != nil {
+			b.logger.Printf("failed to load deployment journal: %v", err)
 			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
 		}
-	} else {
-		b.logger.Printf("skipping validation (already complete)")
-	}
 
-	// Step 2: Extract app to staging location
-	if !journal.isComplete(stepAppExtracted) {
-		// In real implementation, would extract archive to staging directory
-		stagingPath := filepath.Join(siteRoot, ".staging", req.Version)
-		journal.setStagingLocation(stagingPath)
+		// Step 1: Validate app archive/version
+		if !journal.isComplete(stepAppValidated) {
+			// In real implementation, would verify archive integrity, checksum, etc.
+			b.logger.Printf("validating app version: %s", req.Version)
 
-		b.logger.Printf("extracting app to: %s", stagingPath)
-		if err := os.MkdirAll(stagingPath, 0o750); err != nil {
-			return &Response{OK: false, Error: fmt.Sprintf("extraction failed: %v", err)}, nil
+			if err := journal.markComplete(stepAppValidated); err != nil {
+				b.logger.Printf("failed to journal validation: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping validation (already complete)")
 		}
 
-		if err := journal.markComplete(stepAppExtracted); err != nil {
-			b.logger.Printf("failed to journal extraction: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-	} else {
-		b.logger.Printf("skipping extraction (already complete)")
-	}
+		// Step 2: Extract app to staging location
+		if !journal.isComplete(stepAppExtracted) {
+			// In real implementation, would extract archive to staging directory
+			stagingPath := filepath.Join(siteRoot, ".staging", req.Version)
+			journal.setStagingLocation(stagingPath)
 
-	// Step 3: Save rollback target (current app version)
-	if !journal.isComplete(stepRollbackTargeted) {
-		currentAppPath := filepath.Join(siteRoot, "public")
-		journal.setRollbackPath(currentAppPath)
+			b.logger.Printf("extracting app to: %s", stagingPath)
+			if err := os.MkdirAll(stagingPath, 0o750); err != nil {
+				return &Response{OK: false, Error: fmt.Sprintf("extraction failed: %v", err)}, nil
+			}
 
-		b.logger.Printf("saving rollback target at: %s", currentAppPath)
-
-		if err := journal.markComplete(stepRollbackTargeted); err != nil {
-			b.logger.Printf("failed to journal rollback target: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-	} else {
-		b.logger.Printf("skipping rollback target (already complete)")
-	}
-
-	// Step 4: Activate new app (move from staging to live)
-	if !journal.isComplete(stepAppActivated) {
-		stagingPath := filepath.Join(siteRoot, ".staging", req.Version)
-		activePath := filepath.Join(siteRoot, "public")
-
-		b.logger.Printf("activating app from %s to %s", stagingPath, activePath)
-		// In real implementation, would atomically move staging to live
-		// For now, just verify staging exists
-		if _, err := os.Stat(stagingPath); err != nil {
-			return &Response{OK: false, Error: fmt.Sprintf("staging not found: %v", err)}, nil
+			if err := journal.markComplete(stepAppExtracted); err != nil {
+				b.logger.Printf("failed to journal extraction: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping extraction (already complete)")
 		}
 
-		if err := journal.markComplete(stepAppActivated); err != nil {
-			b.logger.Printf("failed to journal activation: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-	} else {
-		b.logger.Printf("skipping activation (already complete)")
-	}
+		// Step 3: Save rollback target (current app version)
+		if !journal.isComplete(stepRollbackTargeted) {
+			currentAppPath := filepath.Join(siteRoot, "public")
+			journal.setRollbackPath(currentAppPath)
 
-	// Step 5: Verify app is responsive
-	if !journal.isComplete(stepAppVerified) {
-		b.logger.Printf("verifying app responsiveness on port %d", req.Port)
-		// In real implementation, would test HTTP endpoint
-		// For now, just mark complete
-		if err := journal.markComplete(stepAppVerified); err != nil {
-			b.logger.Printf("failed to journal verification: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-	} else {
-		b.logger.Printf("skipping verification (already complete)")
-	}
+			b.logger.Printf("saving rollback target at: %s", currentAppPath)
 
-	// Step 6: Update app metadata
-	if !journal.isComplete(stepMetadataUpdated) {
-		metadataPath := filepath.Join(siteRoot, ".metadata")
-		metadata := map[string]interface{}{
-			"app_version": req.Version,
-			"app_port":    req.Port,
-			"deployed_at": time.Now().UTC(),
-		}
-		metadataJSON, _ := json.Marshal(metadata)
-
-		b.logger.Printf("updating app metadata")
-		if err := writeAtomicBroker(metadataPath, metadataJSON, 0600); err != nil {
-			return &Response{OK: false, Error: fmt.Sprintf("metadata update failed: %v", err)}, nil
+			if err := journal.markComplete(stepRollbackTargeted); err != nil {
+				b.logger.Printf("failed to journal rollback target: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping rollback target (already complete)")
 		}
 
-		if err := journal.markComplete(stepMetadataUpdated); err != nil {
-			b.logger.Printf("failed to journal metadata: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		// Step 4: Activate new app (move from staging to live)
+		if !journal.isComplete(stepAppActivated) {
+			stagingPath := filepath.Join(siteRoot, ".staging", req.Version)
+			activePath := filepath.Join(siteRoot, "public")
+
+			b.logger.Printf("activating app from %s to %s", stagingPath, activePath)
+			// In real implementation, would atomically move staging to live
+			// For now, just verify staging exists
+			if _, err := os.Stat(stagingPath); err != nil {
+				return &Response{OK: false, Error: fmt.Sprintf("staging not found: %v", err)}, nil
+			}
+
+			if err := journal.markComplete(stepAppActivated); err != nil {
+				b.logger.Printf("failed to journal activation: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping activation (already complete)")
 		}
-	} else {
-		b.logger.Printf("skipping metadata (already complete)")
-	}
 
-	// All steps complete: clean up journal
-	if err := journal.cleanup(); err != nil {
-		b.logger.Printf("warning: failed to cleanup journal: %v", err)
-		// Don't fail the operation if journal cleanup fails
-	}
+		// Step 5: Verify app is responsive
+		if !journal.isComplete(stepAppVerified) {
+			b.logger.Printf("verifying app responsiveness on port %d", req.Port)
+			// In real implementation, would test HTTP endpoint
+			// For now, just mark complete
+			if err := journal.markComplete(stepAppVerified); err != nil {
+				b.logger.Printf("failed to journal verification: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping verification (already complete)")
+		}
 
-	resp := AppResponse{Applied: true, Port: req.Port}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+		// Step 6: Update app metadata
+		if !journal.isComplete(stepMetadataUpdated) {
+			metadataPath := filepath.Join(siteRoot, ".metadata")
+			metadata := map[string]interface{}{
+				"app_version": req.Version,
+				"app_port":    req.Port,
+				"deployed_at": time.Now().UTC(),
+			}
+			metadataJSON, _ := json.Marshal(metadata)
+
+			b.logger.Printf("updating app metadata")
+			if err := writeAtomicBroker(metadataPath, metadataJSON, 0600); err != nil {
+				return &Response{OK: false, Error: fmt.Sprintf("metadata update failed: %v", err)}, nil
+			}
+
+			if err := journal.markComplete(stepMetadataUpdated); err != nil {
+				b.logger.Printf("failed to journal metadata: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping metadata (already complete)")
+		}
+
+		// All steps complete: clean up journal
+		if err := journal.cleanup(); err != nil {
+			b.logger.Printf("warning: failed to cleanup journal: %v", err)
+			// Don't fail the operation if journal cleanup fails
+		}
+
+		resp := AppResponse{Applied: true, Port: req.Port}
+		details, _ := json.Marshal(resp)
+		return &Response{OK: true, Details: details}, nil
+	*/
 }
 
 func (b *Broker) appStart(ctx context.Context, req *AppRequest) (*Response, error) {
@@ -551,236 +554,242 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 }
 
 func (b *Broker) dbProvision(ctx context.Context, req *DBRequest) (*Response, error) {
-	if response, err := unsupportedBrokerResponse("database provisioning"); response != nil || err != nil {
-		return response, err
-	}
-	b.logger.Printf("provisioning database: %s user=%s site=%s", req.Database, req.Username, req.Site)
+	return unsupportedBrokerResponse("database provisioning")
+	/*
+		if response, err := unsupportedBrokerResponse("database provisioning"); response != nil || err != nil {
+			return response, err
+		}
+		b.logger.Printf("provisioning database: %s user=%s site=%s", req.Database, req.Username, req.Site)
 
-	// Use database name as unique identifier for journaling
-	jobID := "db-provision-" + req.Site + "-" + req.Database
-	actor := "root"
+		// Use database name as unique identifier for journaling
+		jobID := "db-provision-" + req.Site + "-" + req.Database
+		actor := "root"
 
-	// Load or create durable journal for this database provisioning
-	journal, err := loadOrCreateDatabaseJournal(b.recoveryRoot, jobID, req.Site, req.Database, req.Username, actor)
-	if err != nil {
-		b.logger.Printf("failed to load database journal: %v", err)
-		return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-	}
-
-	// Step 1: Create database
-	if !journal.isComplete(stepDBCreated) {
-		b.logger.Printf("creating database: %s", req.Database)
-		// In real implementation, would run: CREATE DATABASE IF NOT EXISTS
-		// For now, just verify we can proceed
-
-		if err := journal.markComplete(stepDBCreated); err != nil {
-			b.logger.Printf("failed to journal db creation: %v", err)
+		// Load or create durable journal for this database provisioning
+		journal, err := loadOrCreateDatabaseJournal(b.recoveryRoot, jobID, req.Site, req.Database, req.Username, actor)
+		if err != nil {
+			b.logger.Printf("failed to load database journal: %v", err)
 			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
 		}
-	} else {
-		b.logger.Printf("skipping db creation (already complete)")
-	}
 
-	// Step 2: Create database user
-	if !journal.isComplete(stepUserCreated) {
-		b.logger.Printf("creating database user: %s", req.Username)
-		// In real implementation, would run: CREATE USER IF NOT EXISTS
+		// Step 1: Create database
+		if !journal.isComplete(stepDBCreated) {
+			b.logger.Printf("creating database: %s", req.Database)
+			// In real implementation, would run: CREATE DATABASE IF NOT EXISTS
+			// For now, just verify we can proceed
 
-		if err := journal.markComplete(stepUserCreated); err != nil {
-			b.logger.Printf("failed to journal user creation: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-	} else {
-		b.logger.Printf("skipping user creation (already complete)")
-	}
-
-	// Step 3: Grant privileges
-	if !journal.isComplete(stepPrivsGranted) {
-		b.logger.Printf("granting privileges on %s to %s", req.Database, req.Username)
-		// In real implementation, would run: GRANT ALL PRIVILEGES ON ...
-		// This is idempotent in SQL
-
-		if err := journal.markComplete(stepPrivsGranted); err != nil {
-			b.logger.Printf("failed to journal privilege grant: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-	} else {
-		b.logger.Printf("skipping privilege grant (already complete)")
-	}
-
-	// Step 4: Save credentials
-	if !journal.isComplete(stepCredsSaved) {
-		// Generate and save database credentials
-		siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
-		if err == nil {
-			credPath := filepath.Join(siteRoot, ".db-credentials")
-			journal.setCredLocation(credPath)
-
-			credentials := map[string]string{
-				"database": req.Database,
-				"username": req.Username,
-				"password": "generated-password", // In real implementation, would generate secure password
+			if err := journal.markComplete(stepDBCreated); err != nil {
+				b.logger.Printf("failed to journal db creation: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
 			}
-			credsJSON, _ := json.Marshal(credentials)
+		} else {
+			b.logger.Printf("skipping db creation (already complete)")
+		}
 
-			b.logger.Printf("saving database credentials to: %s", credPath)
-			if err := writeAtomicBroker(credPath, credsJSON, 0600); err != nil {
-				return &Response{OK: false, Error: fmt.Sprintf("credentials save failed: %v", err)}, nil
+		// Step 2: Create database user
+		if !journal.isComplete(stepUserCreated) {
+			b.logger.Printf("creating database user: %s", req.Username)
+			// In real implementation, would run: CREATE USER IF NOT EXISTS
+
+			if err := journal.markComplete(stepUserCreated); err != nil {
+				b.logger.Printf("failed to journal user creation: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
 			}
+		} else {
+			b.logger.Printf("skipping user creation (already complete)")
 		}
 
-		if err := journal.markComplete(stepCredsSaved); err != nil {
-			b.logger.Printf("failed to journal credentials: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		// Step 3: Grant privileges
+		if !journal.isComplete(stepPrivsGranted) {
+			b.logger.Printf("granting privileges on %s to %s", req.Database, req.Username)
+			// In real implementation, would run: GRANT ALL PRIVILEGES ON ...
+			// This is idempotent in SQL
+
+			if err := journal.markComplete(stepPrivsGranted); err != nil {
+				b.logger.Printf("failed to journal privilege grant: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping privilege grant (already complete)")
 		}
-	} else {
-		b.logger.Printf("skipping credentials save (already complete)")
-	}
 
-	// Step 5: Verify connectivity
-	if !journal.isComplete(stepConnVerified) {
-		b.logger.Printf("verifying database connectivity")
-		// In real implementation, would test connection to database
-		// For now, just mark complete
+		// Step 4: Save credentials
+		if !journal.isComplete(stepCredsSaved) {
+			// Generate and save database credentials
+			siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
+			if err == nil {
+				credPath := filepath.Join(siteRoot, ".db-credentials")
+				journal.setCredLocation(credPath)
 
-		if err := journal.markComplete(stepConnVerified); err != nil {
-			b.logger.Printf("failed to journal connectivity: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+				credentials := map[string]string{
+					"database": req.Database,
+					"username": req.Username,
+					"password": "generated-password", // In real implementation, would generate secure password
+				}
+				credsJSON, _ := json.Marshal(credentials)
+
+				b.logger.Printf("saving database credentials to: %s", credPath)
+				if err := writeAtomicBroker(credPath, credsJSON, 0600); err != nil {
+					return &Response{OK: false, Error: fmt.Sprintf("credentials save failed: %v", err)}, nil
+				}
+			}
+
+			if err := journal.markComplete(stepCredsSaved); err != nil {
+				b.logger.Printf("failed to journal credentials: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping credentials save (already complete)")
 		}
-	} else {
-		b.logger.Printf("skipping connectivity check (already complete)")
-	}
 
-	// All steps complete: clean up journal
-	if err := journal.cleanup(); err != nil {
-		b.logger.Printf("warning: failed to cleanup journal: %v", err)
-		// Don't fail the operation if journal cleanup fails
-	}
+		// Step 5: Verify connectivity
+		if !journal.isComplete(stepConnVerified) {
+			b.logger.Printf("verifying database connectivity")
+			// In real implementation, would test connection to database
+			// For now, just mark complete
 
-	resp := DBResponse{Provisioned: true, Database: req.Database, Username: req.Username}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+			if err := journal.markComplete(stepConnVerified); err != nil {
+				b.logger.Printf("failed to journal connectivity: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping connectivity check (already complete)")
+		}
+
+		// All steps complete: clean up journal
+		if err := journal.cleanup(); err != nil {
+			b.logger.Printf("warning: failed to cleanup journal: %v", err)
+			// Don't fail the operation if journal cleanup fails
+		}
+
+		resp := DBResponse{Provisioned: true, Database: req.Database, Username: req.Username}
+		details, _ := json.Marshal(resp)
+		return &Response{OK: true, Details: details}, nil
+	*/
 }
 
 func (b *Broker) dbRestoreDump(ctx context.Context, req *DBRequest) (*Response, error) {
-	if response, err := unsupportedBrokerResponse("database restore"); response != nil || err != nil {
-		return response, err
-	}
-	b.logger.Printf("restoring database dump: %s from %s", req.Database, req.DumpData)
-
-	// Use database + dumpfile as unique identifier for journaling
-	jobID := "db-restore-" + req.Site + "-" + req.Database
-	actor := "root"
-
-	// Load or create durable journal for this database restoration
-	journal, err := loadOrCreateRestorationJournal(b.recoveryRoot, jobID, req.Site, req.Database, "dump-data", actor)
-	if err != nil {
-		b.logger.Printf("failed to load restoration journal: %v", err)
-		return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-	}
-
-	// Step 1: Validate dump file
-	if !journal.isComplete(stepRestoreDumpValidated) {
-		b.logger.Printf("validating dump file: %s", req.DumpData)
-		// In real implementation, would validate file integrity, checksum, etc.
-		// For now, just verify dump data is not empty
-		if len(req.DumpData) == 0 {
-			return &Response{OK: false, Error: "dump data is empty"}, nil
+	return unsupportedBrokerResponse("database restore")
+	/*
+		if response, err := unsupportedBrokerResponse("database restore"); response != nil || err != nil {
+			return response, err
 		}
+		b.logger.Printf("restoring database dump: %s from %s", req.Database, req.DumpData)
 
-		// Record file size for progress tracking
-		dumpSize := len(req.DumpData)
-		if dumpSize > 0 {
-			journal.updateProgress(0, int64(dumpSize))
-		}
+		// Use database + dumpfile as unique identifier for journaling
+		jobID := "db-restore-" + req.Site + "-" + req.Database
+		actor := "root"
 
-		if err := journal.markComplete(stepRestoreDumpValidated); err != nil {
-			b.logger.Printf("failed to journal dump validation: %v", err)
+		// Load or create durable journal for this database restoration
+		journal, err := loadOrCreateRestorationJournal(b.recoveryRoot, jobID, req.Site, req.Database, "dump-data", actor)
+		if err != nil {
+			b.logger.Printf("failed to load restoration journal: %v", err)
 			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
 		}
-	} else {
-		b.logger.Printf("skipping dump validation (already complete)")
-	}
 
-	// Step 2: Drop existing database (if any)
-	if !journal.isComplete(stepRestoreDatabaseDropped) {
-		b.logger.Printf("dropping existing database: %s", req.Database)
-		// In real implementation, would run: DROP DATABASE IF EXISTS
-		// This is idempotent - if database doesn't exist, no error
+		// Step 1: Validate dump file
+		if !journal.isComplete(stepRestoreDumpValidated) {
+			b.logger.Printf("validating dump file: %s", req.DumpData)
+			// In real implementation, would validate file integrity, checksum, etc.
+			// For now, just verify dump data is not empty
+			if len(req.DumpData) == 0 {
+				return &Response{OK: false, Error: "dump data is empty"}, nil
+			}
 
-		if err := journal.markComplete(stepRestoreDatabaseDropped); err != nil {
-			b.logger.Printf("failed to journal database drop: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-	} else {
-		b.logger.Printf("skipping database drop (already complete)")
-	}
+			// Record file size for progress tracking
+			dumpSize := len(req.DumpData)
+			if dumpSize > 0 {
+				journal.updateProgress(0, int64(dumpSize))
+			}
 
-	// Step 3: Create empty database
-	if !journal.isComplete(stepRestoreDatabaseCreated) {
-		b.logger.Printf("creating empty database: %s", req.Database)
-		// In real implementation, would run: CREATE DATABASE
-		// At this point, if crash happens, database is empty but exists
-		// Next retry can proceed to import
-
-		if err := journal.markComplete(stepRestoreDatabaseCreated); err != nil {
-			b.logger.Printf("failed to journal database creation: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-	} else {
-		b.logger.Printf("skipping database creation (already complete)")
-	}
-
-	// Step 4: Import SQL dump
-	if !journal.isComplete(stepRestoreDumpImported) {
-		b.logger.Printf("importing SQL dump into %s", req.Database)
-		// In real implementation, would:
-		// 1. Open dump file
-		// 2. Parse SQL statements
-		// 3. Execute each statement
-		// 4. Update progress journal periodically
-		// 5. If crash, next retry resumes from checkpoint
-
-		// For now, just mark as complete (simulating successful import)
-		dumpSize := len(req.DumpData)
-		if dumpSize > 0 {
-			journal.updateProgress(int64(dumpSize), int64(dumpSize))
+			if err := journal.markComplete(stepRestoreDumpValidated); err != nil {
+				b.logger.Printf("failed to journal dump validation: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping dump validation (already complete)")
 		}
 
-		if err := journal.markComplete(stepRestoreDumpImported); err != nil {
-			b.logger.Printf("failed to journal dump import: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		// Step 2: Drop existing database (if any)
+		if !journal.isComplete(stepRestoreDatabaseDropped) {
+			b.logger.Printf("dropping existing database: %s", req.Database)
+			// In real implementation, would run: DROP DATABASE IF EXISTS
+			// This is idempotent - if database doesn't exist, no error
+
+			if err := journal.markComplete(stepRestoreDatabaseDropped); err != nil {
+				b.logger.Printf("failed to journal database drop: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping database drop (already complete)")
 		}
-	} else {
-		b.logger.Printf("skipping dump import (already complete)")
-	}
 
-	// Step 5: Verify restoration
-	if !journal.isComplete(stepRestoreVerified) {
-		b.logger.Printf("verifying database restoration")
-		// In real implementation, would:
-		// 1. Check table count matches original
-		// 2. Verify key indexes exist
-		// 3. Run consistency checks
-		// 4. Test connectivity
+		// Step 3: Create empty database
+		if !journal.isComplete(stepRestoreDatabaseCreated) {
+			b.logger.Printf("creating empty database: %s", req.Database)
+			// In real implementation, would run: CREATE DATABASE
+			// At this point, if crash happens, database is empty but exists
+			// Next retry can proceed to import
 
-		if err := journal.markComplete(stepRestoreVerified); err != nil {
-			b.logger.Printf("failed to journal verification: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			if err := journal.markComplete(stepRestoreDatabaseCreated); err != nil {
+				b.logger.Printf("failed to journal database creation: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping database creation (already complete)")
 		}
-	} else {
-		b.logger.Printf("skipping verification (already complete)")
-	}
 
-	// All steps complete: clean up journal
-	if err := journal.cleanup(); err != nil {
-		b.logger.Printf("warning: failed to cleanup journal: %v", err)
-		// Don't fail the operation if journal cleanup fails
-	}
+		// Step 4: Import SQL dump
+		if !journal.isComplete(stepRestoreDumpImported) {
+			b.logger.Printf("importing SQL dump into %s", req.Database)
+			// In real implementation, would:
+			// 1. Open dump file
+			// 2. Parse SQL statements
+			// 3. Execute each statement
+			// 4. Update progress journal periodically
+			// 5. If crash, next retry resumes from checkpoint
 
-	resp := DBResponse{Restored: true, Database: req.Database}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+			// For now, just mark as complete (simulating successful import)
+			dumpSize := len(req.DumpData)
+			if dumpSize > 0 {
+				journal.updateProgress(int64(dumpSize), int64(dumpSize))
+			}
+
+			if err := journal.markComplete(stepRestoreDumpImported); err != nil {
+				b.logger.Printf("failed to journal dump import: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping dump import (already complete)")
+		}
+
+		// Step 5: Verify restoration
+		if !journal.isComplete(stepRestoreVerified) {
+			b.logger.Printf("verifying database restoration")
+			// In real implementation, would:
+			// 1. Check table count matches original
+			// 2. Verify key indexes exist
+			// 3. Run consistency checks
+			// 4. Test connectivity
+
+			if err := journal.markComplete(stepRestoreVerified); err != nil {
+				b.logger.Printf("failed to journal verification: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping verification (already complete)")
+		}
+
+		// All steps complete: clean up journal
+		if err := journal.cleanup(); err != nil {
+			b.logger.Printf("warning: failed to cleanup journal: %v", err)
+			// Don't fail the operation if journal cleanup fails
+		}
+
+		resp := DBResponse{Restored: true, Database: req.Database}
+		details, _ := json.Marshal(resp)
+		return &Response{OK: true, Details: details}, nil
+	*/
 }
 
 func (b *Broker) dbDrop(ctx context.Context, req *DBRequest) (*Response, error) {
@@ -809,119 +818,122 @@ func (b *Broker) handleVhostRequest(ctx context.Context, req *VhostRequest) (*Re
 }
 
 func (b *Broker) vhostApply(ctx context.Context, req *VhostRequest) (*Response, error) {
-	if response, err := unsupportedBrokerResponse("vhost apply"); response != nil || err != nil {
-		return response, err
-	}
-	b.logger.Printf("applying vhost: %s -> %s", req.Domain, req.Site)
+	return unsupportedBrokerResponse("vhost apply")
+	/*
+		if response, err := unsupportedBrokerResponse("vhost apply"); response != nil || err != nil {
+			return response, err
+		}
+		b.logger.Printf("applying vhost: %s -> %s", req.Domain, req.Site)
 
-	// Validate domain
-	if req.Domain == "" {
-		return &Response{OK: false, Error: "domain is required"}, nil
-	}
+		// Validate domain
+		if req.Domain == "" {
+			return &Response{OK: false, Error: "domain is required"}, nil
+		}
 
-	// Use domain as unique identifier for journaling
-	jobID := "vhost-apply-" + req.Site + "-" + req.Domain
-	actor := "root"
+		// Use domain as unique identifier for journaling
+		jobID := "vhost-apply-" + req.Site + "-" + req.Domain
+		actor := "root"
 
-	// Load or create durable journal for this vhost configuration
-	journal, err := loadOrCreateVhostJournal(b.recoveryRoot, jobID, req.Site, req.Domain, actor)
-	if err != nil {
-		b.logger.Printf("failed to load vhost journal: %v", err)
-		return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-	}
-
-	// Step 1: Validate domain and site
-	if !journal.isComplete(stepVhostValidated) {
-		b.logger.Printf("validating vhost configuration for %s", req.Domain)
-		// In real implementation, would validate domain format, DNS, etc.
-
-		if err := journal.markComplete(stepVhostValidated); err != nil {
-			b.logger.Printf("failed to journal validation: %v", err)
+		// Load or create durable journal for this vhost configuration
+		journal, err := loadOrCreateVhostJournal(b.recoveryRoot, jobID, req.Site, req.Domain, actor)
+		if err != nil {
+			b.logger.Printf("failed to load vhost journal: %v", err)
 			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
 		}
-	} else {
-		b.logger.Printf("skipping validation (already complete)")
-	}
 
-	// Step 2: Generate vhost configuration
-	if !journal.isComplete(stepVhostConfigGen) {
-		b.logger.Printf("generating vhost configuration")
-		// In real implementation, would generate webserver config based on domain
+		// Step 1: Validate domain and site
+		if !journal.isComplete(stepVhostValidated) {
+			b.logger.Printf("validating vhost configuration for %s", req.Domain)
+			// In real implementation, would validate domain format, DNS, etc.
 
-		if err := journal.markComplete(stepVhostConfigGen); err != nil {
-			b.logger.Printf("failed to journal config generation: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-	} else {
-		b.logger.Printf("skipping config generation (already complete)")
-	}
-
-	// Step 3: Write configuration file
-	if !journal.isComplete(stepVhostConfigWrite) {
-		// Try to use /etc/nginx in production, but fall back to temp in tests
-		configPath := filepath.Join("/etc/nginx/sites-available", req.Domain+".conf")
-
-		// If /etc/nginx doesn't exist (e.g., in tests), use temp directory
-		if _, err := os.Stat("/etc/nginx"); err != nil {
-			tmpDir, err := os.MkdirTemp("", "stepanel-vhost-*")
-			if err == nil {
-				configPath = filepath.Join(tmpDir, req.Domain+".conf")
-				b.logger.Printf("using temp vhost config directory: %s", tmpDir)
+			if err := journal.markComplete(stepVhostValidated); err != nil {
+				b.logger.Printf("failed to journal validation: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
 			}
+		} else {
+			b.logger.Printf("skipping validation (already complete)")
 		}
 
-		journal.setConfigPath(configPath)
+		// Step 2: Generate vhost configuration
+		if !journal.isComplete(stepVhostConfigGen) {
+			b.logger.Printf("generating vhost configuration")
+			// In real implementation, would generate webserver config based on domain
 
-		b.logger.Printf("writing vhost configuration to %s", configPath)
-		// In real implementation, would write actual webserver config
-		configContent := []byte("# Vhost configuration for " + req.Domain + "\n")
-		if err := writeAtomicBroker(configPath, configContent, 0644); err != nil {
-			return &Response{OK: false, Error: fmt.Sprintf("config write failed: %v", err)}, nil
+			if err := journal.markComplete(stepVhostConfigGen); err != nil {
+				b.logger.Printf("failed to journal config generation: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping config generation (already complete)")
 		}
 
-		if err := journal.markComplete(stepVhostConfigWrite); err != nil {
-			b.logger.Printf("failed to journal config write: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+		// Step 3: Write configuration file
+		if !journal.isComplete(stepVhostConfigWrite) {
+			// Try to use /etc/nginx in production, but fall back to temp in tests
+			configPath := filepath.Join("/etc/nginx/sites-available", req.Domain+".conf")
+
+			// If /etc/nginx doesn't exist (e.g., in tests), use temp directory
+			if _, err := os.Stat("/etc/nginx"); err != nil {
+				tmpDir, err := os.MkdirTemp("", "stepanel-vhost-*")
+				if err == nil {
+					configPath = filepath.Join(tmpDir, req.Domain+".conf")
+					b.logger.Printf("using temp vhost config directory: %s", tmpDir)
+				}
+			}
+
+			journal.setConfigPath(configPath)
+
+			b.logger.Printf("writing vhost configuration to %s", configPath)
+			// In real implementation, would write actual webserver config
+			configContent := []byte("# Vhost configuration for " + req.Domain + "\n")
+			if err := writeAtomicBroker(configPath, configContent, 0644); err != nil {
+				return &Response{OK: false, Error: fmt.Sprintf("config write failed: %v", err)}, nil
+			}
+
+			if err := journal.markComplete(stepVhostConfigWrite); err != nil {
+				b.logger.Printf("failed to journal config write: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping config write (already complete)")
 		}
-	} else {
-		b.logger.Printf("skipping config write (already complete)")
-	}
 
-	// Step 4: Apply configuration to webserver
-	if !journal.isComplete(stepVhostApplied) {
-		b.logger.Printf("applying configuration to webserver")
-		// In real implementation, would enable the site and test config
+		// Step 4: Apply configuration to webserver
+		if !journal.isComplete(stepVhostApplied) {
+			b.logger.Printf("applying configuration to webserver")
+			// In real implementation, would enable the site and test config
 
-		if err := journal.markComplete(stepVhostApplied); err != nil {
-			b.logger.Printf("failed to journal apply: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			if err := journal.markComplete(stepVhostApplied); err != nil {
+				b.logger.Printf("failed to journal apply: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping apply (already complete)")
 		}
-	} else {
-		b.logger.Printf("skipping apply (already complete)")
-	}
 
-	// Step 5: Verify vhost is responsive
-	if !journal.isComplete(stepVhostVerified) {
-		b.logger.Printf("verifying vhost responsiveness")
-		// In real implementation, would test HTTP endpoint
+		// Step 5: Verify vhost is responsive
+		if !journal.isComplete(stepVhostVerified) {
+			b.logger.Printf("verifying vhost responsiveness")
+			// In real implementation, would test HTTP endpoint
 
-		if err := journal.markComplete(stepVhostVerified); err != nil {
-			b.logger.Printf("failed to journal verification: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			if err := journal.markComplete(stepVhostVerified); err != nil {
+				b.logger.Printf("failed to journal verification: %v", err)
+				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
+			}
+		} else {
+			b.logger.Printf("skipping verification (already complete)")
 		}
-	} else {
-		b.logger.Printf("skipping verification (already complete)")
-	}
 
-	// All steps complete: clean up journal
-	if err := journal.cleanup(); err != nil {
-		b.logger.Printf("warning: failed to cleanup journal: %v", err)
-		// Don't fail the operation if journal cleanup fails
-	}
+		// All steps complete: clean up journal
+		if err := journal.cleanup(); err != nil {
+			b.logger.Printf("warning: failed to cleanup journal: %v", err)
+			// Don't fail the operation if journal cleanup fails
+		}
 
-	resp := VhostResponse{Applied: true, Domain: req.Domain}
-	details, _ := json.Marshal(resp)
-	return &Response{OK: true, Details: details}, nil
+		resp := VhostResponse{Applied: true, Domain: req.Domain}
+		details, _ := json.Marshal(resp)
+		return &Response{OK: true, Details: details}, nil
+	*/
 }
 
 func (b *Broker) vhostApplyAuth(ctx context.Context, req *VhostRequest) (*Response, error) {
