@@ -274,13 +274,18 @@ func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, e
 
 	b.logger.Printf("deleting site: user=%s root=%s", siteUser, siteRoot)
 
-	// Delete system user
-	_ = b.deleteSystemUser(ctx, siteUser)
-
-	// Delete site directory
+	// Remove the site tree first. If this fails, keep the system user in place
+	// so a retry can safely complete the same deletion.
 	if err := os.RemoveAll(siteRoot); err != nil && !os.IsNotExist(err) {
 		b.logger.Printf("failed to delete directory: %v", err)
 		return &Response{OK: false, Error: fmt.Sprintf("directory deletion failed: %v", err)}, nil
+	}
+
+	// Account cleanup is part of the mutation contract. Do not report success
+	// when the site tree is gone but its privileged system user remains.
+	if err := b.deleteSystemUser(ctx, siteUser); err != nil {
+		b.logger.Printf("failed to delete system user: %v", err)
+		return &Response{OK: false, Error: fmt.Sprintf("system user deletion failed: %v", err)}, nil
 	}
 
 	resp := SiteResponse{Deleted: true}
@@ -1030,10 +1035,16 @@ func (b *Broker) createSystemUser(ctx context.Context, username, home string) er
 		return nil
 	}
 
+	// Make the operation idempotent only for the specific existing-user case.
+	// Other useradd failures must stop the workflow before it creates a site
+	// tree that cannot be owned by the intended account.
+	if err := exec.CommandContext(ctx, "id", "-u", username).Run(); err == nil {
+		return nil
+	}
+
 	cmd := exec.CommandContext(ctx, "useradd", "--system", "--home-dir", home, "--shell", "/usr/sbin/nologin", "--user-group", username)
-	if err := cmd.Run(); err != nil {
-		// User might already exist, that's OK
-		b.logger.Printf("useradd warning: %v (may already exist)", err)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("useradd failed: %w (output: %s)", err, output)
 	}
 	return nil
 }
@@ -1046,8 +1057,14 @@ func (b *Broker) deleteSystemUser(ctx context.Context, username string) error {
 	}
 
 	cmd := exec.CommandContext(ctx, "userdel", username)
-	if err := cmd.Run(); err != nil {
-		b.logger.Printf("userdel warning: %v", err)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		var exitErr *exec.ExitError
+		// userdel exits with status 6 when the account is already absent. Treat
+		// that case as idempotent, but surface every other failure.
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 6 {
+			return nil
+		}
+		return fmt.Errorf("userdel failed: %w (output: %s)", err, output)
 	}
 	return nil
 }

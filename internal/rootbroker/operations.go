@@ -80,8 +80,11 @@ func (s *SiteOperations) Delete(ctx context.Context, req *SiteRequest) error {
 		return fmt.Errorf("failed to remove site directory: %w", err)
 	}
 
-	// Step 2: Delete system user (continue on error)
-	_ = s.broker.deleteSystemUser(ctx, siteUser)
+	// Step 2: Delete system user. Account cleanup is part of the operation;
+	// callers must see a failure so the deletion can be retried.
+	if err := s.broker.deleteSystemUser(ctx, siteUser); err != nil {
+		return fmt.Errorf("failed to delete system user: %w", err)
+	}
 
 	return nil
 }

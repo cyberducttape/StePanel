@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -84,6 +85,49 @@ func TestBrokerSiteDelete(t *testing.T) {
 	}
 	if !siteResp.Deleted {
 		t.Errorf("Site not marked as deleted")
+	}
+}
+
+func TestCreateSystemUserSurfacesUseraddFailure(t *testing.T) {
+	bin := t.TempDir()
+	writeFakeCommand(t, bin, "id", "#!/bin/sh\nexit 1\n")
+	writeFakeCommand(t, bin, "useradd", "#!/bin/sh\necho useradd-failed >&2\nexit 42\n")
+	t.Setenv("PATH", bin)
+
+	broker := &Broker{logger: log.New(os.Stderr, "[test] ", 0)}
+	err := broker.createSystemUser(context.Background(), "sp-test", "/var/www/sites/test")
+	if err == nil || !strings.Contains(err.Error(), "useradd failed") {
+		t.Fatalf("createSystemUser error = %v, want useradd failure", err)
+	}
+}
+
+func TestDeleteSystemUserSurfacesUnexpectedUserdelFailure(t *testing.T) {
+	bin := t.TempDir()
+	writeFakeCommand(t, bin, "userdel", "#!/bin/sh\necho userdel-failed >&2\nexit 1\n")
+	t.Setenv("PATH", bin)
+
+	broker := &Broker{logger: log.New(os.Stderr, "[test] ", 0)}
+	err := broker.deleteSystemUser(context.Background(), "sp-test")
+	if err == nil || !strings.Contains(err.Error(), "userdel failed") {
+		t.Fatalf("deleteSystemUser error = %v, want userdel failure", err)
+	}
+}
+
+func TestDeleteSystemUserTreatsMissingUserAsIdempotent(t *testing.T) {
+	bin := t.TempDir()
+	writeFakeCommand(t, bin, "userdel", "#!/bin/sh\nexit 6\n")
+	t.Setenv("PATH", bin)
+
+	broker := &Broker{logger: log.New(os.Stderr, "[test] ", 0)}
+	if err := broker.deleteSystemUser(context.Background(), "sp-test"); err != nil {
+		t.Fatalf("deleteSystemUser returned %v for an absent user", err)
+	}
+}
+
+func writeFakeCommand(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+		t.Fatalf("write fake %s: %v", name, err)
 	}
 }
 
