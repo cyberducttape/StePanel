@@ -31,7 +31,7 @@ jobs:
           cp -a /tmp/stepanel-candidate/. /tmp/stepanel-broken/
           install -m 0755 /usr/bin/false /tmp/stepanel-broken/stepanel
       - name: Build disposable systemd host image
-        run: docker build --build-arg BASE_IMAGE=ubuntu:24.04 -f deploy/lab/Dockerfile.systemd -t stepanel-upgrade-systemd-host .
+        run: docker build --build-arg BASE_IMAGE=almalinux:9 -f deploy/lab/Dockerfile.systemd -t stepanel-upgrade-systemd-host .
       - name: Upgrade v0.6.0 on a disposable systemd host
         run: |
           set -eu
