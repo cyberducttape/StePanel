@@ -169,7 +169,11 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 				return nil, fmt.Errorf("remove route desired state before termination: %w", err)
 			}
 		}
-		for _, route := range siteRoutesFor(a.Config.VHostRoot, request.Site) {
+		routes, err := siteRoutesForWithError(a.Config.VHostRoot, request.Site)
+		if err != nil {
+			return nil, fmt.Errorf("inspect managed routes before termination: %w", err)
+		}
+		for _, route := range routes {
 			if err := a.deleteManagedRoute(operationCtx, a.Config.VHostCtl, routeConfigName(a.Config, route)); err != nil {
 				return nil, err
 			}
@@ -181,7 +185,11 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 4: PROXIES_REMOVED.
 	if !journal.isComplete(stepProxiesRemoved) {
-		for _, proxy := range siteProxiesFor(a.Config.ProxyRoot, request.Site) {
+		proxies, err := siteProxiesForWithError(a.Config.ProxyRoot, request.Site)
+		if err != nil {
+			return nil, fmt.Errorf("inspect managed proxies before termination: %w", err)
+		}
+		for _, proxy := range proxies {
 			if err := a.deleteManagedRoute(operationCtx, a.Config.ProxyCtl, filepath.Base(proxy.Config)); err != nil {
 				return nil, err
 			}
@@ -322,7 +330,11 @@ func routeConfigName(cfg Config, route siteRoute) string {
 func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error {
 	siteName := site.Site()
 	hasApplication := false
-	for _, app := range managedApps(a.Config.AppRoot) {
+	apps, err := managedAppsWithError(a.Config.AppRoot)
+	if err != nil {
+		return fmt.Errorf("inspect application manifests before termination: %w", err)
+	}
+	for _, app := range apps {
 		if app.Site == siteName {
 			hasApplication = true
 			break
