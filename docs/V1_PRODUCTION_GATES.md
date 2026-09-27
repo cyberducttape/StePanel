@@ -313,8 +313,9 @@ below.
 partial SQL import cleanup, interrupted transaction recovery, configuration
 rollback, and pending runtime reconciliation. Its generated results explicitly
 exclude power-loss recovery. Local SIGKILL regression tests now cover
-termination journals, filesystem restore transactions, and Git release
-activation; backup, database restore, and account suspension still require
+termination journals, filesystem restore transactions, Git release activation,
+and durable account suspension state. Backup staging cleanup is also crash-safe
+and age-bounded; backup creation and database restore still require
 operation-level process-kill evidence. The five-operation acceptance criteria
 therefore remain open.
 
