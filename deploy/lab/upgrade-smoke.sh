@@ -57,7 +57,9 @@ systemctl is-active --quiet stepanel.service
 # Load the installed production paths before checking the N-1 binary.
 set -a
 # shellcheck disable=SC1091
+set +u
 . /etc/ste-panel.env
+set -u
 set +a
 "/opt/stepanel/stepanel" version | grep -F '0.6.0'
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
@@ -83,7 +85,9 @@ test -s /var/lib/ste-panel/stepanel-control.db
 # commands examine the production paths rather than development defaults.
 set -a
 # shellcheck disable=SC1091
+set +u
 . /etc/ste-panel.env
+set -u
 set +a
 /opt/stepanel/stepanel dr-check >/tmp/stepanel-upgrade-dr.json
 /opt/stepanel/stepanel backup-control-plane /tmp/stepanel-upgrade-control.db
