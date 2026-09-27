@@ -194,7 +194,7 @@ unset ADMIN_PASSWORD
 
 if [[ "$DB_ENGINE" == "mysql" ]]; then DB_PACKAGE="mysql-server"; DB_PHP_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf php-mysqlnd || printf php-mysql)"; DB_SERVICE="mysql"; elif [[ "$DB_ENGINE" == "mariadb" ]]; then DB_PACKAGE="mariadb-server"; DB_PHP_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf php-mysqlnd || printf php-mysql)"; DB_SERVICE="mariadb"; else DB_PACKAGE="postgresql-server"; DB_PHP_PACKAGE="php-pgsql"; DB_SERVICE="postgresql"; fi
 if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl sudo logrotate
-else dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl sudo logrotate; fi
+else dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl-minimal sudo logrotate; fi
 if [[ "$WEB_SERVER" == "apache" ]]; then
   if [[ "$PKG" == "apt" ]]; then apt-get install -y apache2; APACHE_SERVICE=apache2; else dnf install -y httpd; APACHE_SERVICE=httpd; fi
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then
