@@ -54,7 +54,7 @@ var (
 
 func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
-	case http.MethodGet:
+	case http.MethodGet, http.MethodHead:
 		site := strings.TrimSpace(r.URL.Query().Get("site"))
 		if site != "" {
 			site = safeUser(site)

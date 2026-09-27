@@ -661,7 +661,7 @@ func main() {
 	mux.Handle("/api/sites/domains/verify", allowMethods(app.Auth.Require(http.HandlerFunc(app.domainVerify)), http.MethodPost))
 	mux.Handle("/api/sites/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteManage)), http.MethodDelete))
 	mux.Handle("/api/sites/terminate", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.siteTermination)), http.MethodPost))
-	mux.Handle("/api/backups", app.Auth.Require(http.HandlerFunc(app.backups)))
+	mux.Handle("/api/backups", allowMethods(app.Auth.Require(http.HandlerFunc(app.backups)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/backups/restore-to-staging", allowMethods(app.Auth.Require(http.HandlerFunc(app.backupRestoreToStaging)), http.MethodPost))
 	mux.Handle("/api/backups/restore-offsite-to-staging", allowMethods(app.Auth.Require(http.HandlerFunc(app.backupRestoreOffsiteToStaging)), http.MethodPost))
 	mux.Handle("/api/backups/restore-files", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.backupRestoreFilesHTTP)), http.MethodPost))
