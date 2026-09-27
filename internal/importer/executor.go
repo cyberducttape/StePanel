@@ -344,8 +344,10 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	sqlFile := e.findDatabaseDump(job.WebRoot)
 	if sqlFile != "" {
 		// Get file size for reporting
-		sqlInfo, _ := os.Stat(sqlFile)
-		dumpSize := sqlInfo.Size()
+		dumpSize, err := databaseDumpSize(sqlFile)
+		if err != nil {
+			return nil, fmt.Errorf("database dump became unavailable: %w", err)
+		}
 
 		job.DatabaseDumpPath = sqlFile
 		job.DatabaseDumpSize = dumpSize
@@ -895,6 +897,17 @@ func (e *Executor) restoreDatabase(ctx context.Context, sqlFile, dbName, dbUser 
 	// if auto_restore_db is enabled and credentials are provided.
 	// Operator instructions are provided if credentials were not supplied.
 	return nil
+}
+
+func databaseDumpSize(path string) (int64, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return 0, errors.New("database dump is not a regular file")
+	}
+	return info.Size(), nil
 }
 
 // extractDatabaseInfo extracts database name/user from config file

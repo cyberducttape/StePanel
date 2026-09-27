@@ -99,6 +99,15 @@ func TestSafeConfigPathRejectsSymlinkParent(t *testing.T) {
 	}
 }
 
+func TestDatabaseDumpSizeRejectsUnavailableOrNonRegularDump(t *testing.T) {
+	if _, err := databaseDumpSize(filepath.Join(t.TempDir(), "missing.sql")); err == nil {
+		t.Fatal("databaseDumpSize accepted a missing dump")
+	}
+	if _, err := databaseDumpSize(t.TempDir()); err == nil {
+		t.Fatal("databaseDumpSize accepted a directory")
+	}
+}
+
 func TestExtractWordPressDefine(t *testing.T) {
 	tests := []struct {
 		name     string
