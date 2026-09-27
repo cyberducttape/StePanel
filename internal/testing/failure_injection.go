@@ -185,7 +185,7 @@ func (fi *FailureInjector) RecordRecovery(operation string) {
 	fi.recoveryCount++
 
 	if len(fi.recordedEvents) > 0 {
-		lastEvent := fi.recordedEvents[len(fi.recordedEvents)-1]
+		lastEvent := &fi.recordedEvents[len(fi.recordedEvents)-1]
 		lastEvent.RecoveryTime = fi.lastRecoveryTime.Sub(lastEvent.Timestamp)
 	}
 }
@@ -321,6 +321,10 @@ func RunFailureTest(test WorkflowFailureTest) error {
 			// Record that we recovered from the failure
 			if err != nil {
 				injector.RecordRecovery(test.Operation)
+			} else {
+				injector.mu.Lock()
+				injector.successCount++
+				injector.mu.Unlock()
 			}
 
 			// Verify recovery was clean

@@ -1,11 +1,64 @@
 package testing
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"syscall"
 	"testing"
+	"time"
 )
+
+func TestFailureInjectorRecordsRecoveryAndSuccessCounts(t *testing.T) {
+	injector := NewFailureInjector()
+	injector.SetFailure(FailurePointInit, FailureTypeSIGTERM)
+	if err := injector.InjectAt(context.Background(), "restore", FailurePointInit); err == nil {
+		t.Fatal("InjectAt unexpectedly succeeded")
+	}
+	time.Sleep(time.Millisecond)
+	injector.RecordRecovery("restore")
+
+	stats := injector.Stats()
+	if stats.FailureCount != 1 || stats.RecoveryCount != 1 {
+		t.Fatalf("stats = %+v, want one failure and recovery", stats)
+	}
+	if len(stats.Events) != 1 || stats.Events[0].RecoveryTime <= 0 {
+		t.Fatalf("recovery event = %+v, want positive recovery duration", stats.Events)
+	}
+
+	var workflowInjector *FailureInjector
+	workflow := WorkflowFailureTest{
+		Name:      "success-count",
+		Operation: "restore",
+		ExecuteWorkflow: func(_ context.Context, injector *FailureInjector) error {
+			workflowInjector = injector
+			return nil
+		},
+		FailurePoints: []FailurePoint{FailurePointInit},
+		FailureTypes:  []FailureType{FailureTypeSIGTERM},
+	}
+	if err := RunFailureTest(workflow); err != nil {
+		t.Fatal(err)
+	}
+	if workflowInjector == nil {
+		t.Fatal("workflow did not receive an injector")
+	}
+	if got := workflowInjector.Stats().SuccessCount; got != 1 {
+		t.Fatalf("success count = %d, want 1", got)
+	}
+
+	var verified bool
+	workflow.VerifyRecovery = func() error {
+		verified = true
+		return nil
+	}
+	if err := RunFailureTest(workflow); err != nil {
+		t.Fatal(err)
+	}
+	if !verified {
+		t.Fatal("recovery verification hook was not called")
+	}
+}
 
 func TestFailureInjectorSIGKILLUsesRealSignal(t *testing.T) {
 	if os.Getenv("STEPANEL_FAILURE_INJECTOR_CHILD") == "1" {
