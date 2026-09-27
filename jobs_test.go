@@ -216,6 +216,66 @@ func TestDurableWorkerReclaimsExpiredClaimOnStartup(t *testing.T) {
 	}
 }
 
+func TestDurableWorkerStopsWhenClaimIsTakenOver(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	worker := newJobsWithDB(db, 1)
+	worker.leaseTTL = 30 * time.Millisecond
+	queued, err := worker.Enqueue("worker.operation", "site", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	stopped := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- worker.RunWorker(ctx, "worker-a", []string{"worker.operation"}, time.Millisecond, func(handlerCtx context.Context, item Job) ([]byte, error) {
+			if item.ID != queued.ID {
+				t.Errorf("handler job = %s, want %s", item.ID, queued.ID)
+			}
+			close(started)
+			<-handlerCtx.Done()
+			close(stopped)
+			return nil, handlerCtx.Err()
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not start handler")
+	}
+
+	// Simulate a replacement worker fencing the original claim while the
+	// original handler is still running.
+	if _, err := db.Exec(`UPDATE jobs SET lease_owner = ?, lease_expires_at = ? WHERE id = ?`, "replacement-worker", time.Now().UTC().Add(time.Minute).UnixNano(), queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("handler context was not cancelled after claim takeover")
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("worker exit = %v", err)
+	}
+
+	var owner, state string
+	if err := db.QueryRow(`SELECT lease_owner, state FROM jobs WHERE id = ?`, queued.ID).Scan(&owner, &state); err != nil {
+		t.Fatal(err)
+	}
+	if owner != "replacement-worker" || state != "running" {
+		t.Fatalf("replacement claim was overwritten: owner=%q state=%q", owner, state)
+	}
+}
+
 func TestDurableCancellationCrossProcessIsAuthoritative(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

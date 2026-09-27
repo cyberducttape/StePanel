@@ -141,7 +141,7 @@ func (j *Jobs) Claim(id, owner string) (Job, bool, error) {
 		return Job{}, false, errors.New("durable job claiming requires a job ID and owner")
 	}
 	now := time.Now().UTC()
-	expires := now.Add(jobLeaseDuration)
+	expires := now.Add(j.leaseDuration())
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
@@ -224,7 +224,7 @@ func (j *Jobs) persistDurableItemCAS(item *Job, expectedOwner string) error {
 		return err
 	}
 	if count != 1 {
-		return errors.New("job lease is no longer held by this worker")
+		return errJobLeaseNotHeld
 	}
 	return nil
 }
@@ -240,7 +240,7 @@ func (j *Jobs) Renew(id, owner string) (bool, error) {
 	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner || item.LeaseExpires == nil || time.Now().UTC().After(*item.LeaseExpires) {
 		return false, nil
 	}
-	expires := time.Now().UTC().Add(jobLeaseDuration)
+	expires := time.Now().UTC().Add(j.leaseDuration())
 	item.LeaseExpires = &expires
 	if err := j.persistDurableItemCAS(item, owner); err != nil {
 		return false, err
@@ -383,7 +383,7 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	if err != nil {
 		return Job{}, false, err
 	}
-	expires := time.Now().UTC().Add(jobLeaseDuration)
+	expires := time.Now().UTC().Add(j.leaseDuration())
 	result, err := tx.Exec(`UPDATE jobs SET state='running', lease_owner=?, lease_expires_at=?, updated_at=unixepoch() WHERE id=? AND state='queued'`, owner, expires.UnixNano(), id)
 	if err != nil {
 		return Job{}, false, err
@@ -649,7 +649,7 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 	}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
-	requeueTicker := time.NewTicker(jobLeaseDuration / 3)
+	requeueTicker := time.NewTicker(j.leaseDuration() / 3)
 	defer requeueTicker.Stop()
 	for {
 		select {
@@ -727,7 +727,7 @@ func (j *Jobs) maintainLease(item *Job) func() {
 	}
 	stop := make(chan struct{})
 	done := make(chan struct{})
-	interval := jobLeaseDuration / 3
+	interval := j.leaseDuration() / 3
 	go func(owner, id string) {
 		defer close(done)
 		ticker := time.NewTicker(interval)
@@ -763,7 +763,7 @@ func (j *Jobs) maintainLeaseContext(parent context.Context, item *Job) (context.
 	ctx, cancel := context.WithCancel(parent)
 	stop := make(chan struct{})
 	done := make(chan struct{})
-	interval := jobLeaseDuration / 3
+	interval := j.leaseDuration() / 3
 	go func(owner, id string) {
 		defer close(done)
 		ticker := time.NewTicker(interval)
@@ -872,6 +872,7 @@ type Jobs struct {
 	ownedDB       *sql.DB
 	persistErr    error
 	payloadKey    []byte
+	leaseTTL      time.Duration
 }
 
 func NewJobs() *Jobs { return newJobs("") }
@@ -1008,7 +1009,15 @@ func newJobs(path string, limits ...int) *Jobs {
 		activeDomains: make(map[string]bool),
 		activeTargets: make(map[string]bool),
 		path:          path,
+		leaseTTL:      jobLeaseDuration,
 	}
+}
+
+func (j *Jobs) leaseDuration() time.Duration {
+	if j.leaseTTL > 0 {
+		return j.leaseTTL
+	}
+	return jobLeaseDuration
 }
 
 func newJobsWithDB(db *sql.DB, limits ...int) *Jobs {
@@ -1258,7 +1267,7 @@ func (j *Jobs) add(item *Job) error {
 			return fmt.Errorf("create job lease owner: %w", err)
 		}
 		item.LeaseOwner = "local-" + owner
-		expires := time.Now().UTC().Add(jobLeaseDuration)
+		expires := time.Now().UTC().Add(j.leaseDuration())
 		item.LeaseExpires = &expires
 	}
 	j.items[item.ID] = item
