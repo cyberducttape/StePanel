@@ -160,6 +160,44 @@ func TestBrokerVhostApply(t *testing.T) {
 	}
 }
 
+func TestBrokerRejectsEveryUnimplementedMutation(t *testing.T) {
+	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		req  *Request
+	}{
+		{name: "site access", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "access", Site: "testsite"}}},
+		{name: "site resources", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "resources", Site: "testsite"}}},
+		{name: "site quota", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "quota", Site: "testsite"}}},
+		{name: "site quota clear", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "quota-clear", Site: "testsite"}}},
+		{name: "site runtime", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "runtime", Site: "testsite", PHPVersion: "8.2"}}},
+		{name: "app start", req: &Request{RequestType: "app", App: &AppRequest{Action: "start", Site: "testsite", Port: 3000}}},
+		{name: "app stop", req: &Request{RequestType: "app", App: &AppRequest{Action: "stop", Site: "testsite", Port: 3000}}},
+		{name: "app restart", req: &Request{RequestType: "app", App: &AppRequest{Action: "restart", Site: "testsite", Port: 3000}}},
+		{name: "app rollback", req: &Request{RequestType: "app", App: &AppRequest{Action: "rollback", Site: "testsite", Port: 3000}}},
+		{name: "database restore", req: &Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump", Site: "testsite", Database: "testdb", Username: "testuser", DumpData: []byte("CREATE TABLE test (id INT);")}}},
+		{name: "database drop", req: &Request{RequestType: "db", DB: &DBRequest{Action: "drop", Site: "testsite", Database: "testdb", Username: "testuser"}}},
+		{name: "vhost auth", req: &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "apply-auth", Site: "testsite", Domain: "example.com", WebServer: "caddy"}}},
+		{name: "vhost delete", req: &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Site: "testsite", Domain: "example.com", WebServer: "caddy"}}},
+		{name: "proxy apply", req: &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "apply", WebServer: "caddy"}}},
+		{name: "proxy reload", req: &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "reload", WebServer: "caddy"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := broker.Execute(context.Background(), tc.req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.OK || !strings.Contains(resp.Error, "not implemented") {
+				t.Fatalf("response = %#v, want explicit unsupported response", resp)
+			}
+		})
+	}
+}
+
 func TestBrokerInvalidSiteName(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	broker, err := NewBroker(t.TempDir(), logger)
