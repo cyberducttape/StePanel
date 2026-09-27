@@ -21,7 +21,6 @@ AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 SystemCallArchitectures=native
-ReadWritePaths=/var/lib/ste-panel /var/backups/stepanel /var/www/sites -/var/lib/stepanel-privileged -/etc/systemd/system -/etc/letsencrypt -/etc/apache2 -/etc/httpd -/etc/caddy -/usr/local/lsws/conf/vhosts/stepanel -/etc/php -/etc/php-fpm.d -/var/lib/letsencrypt -/var/log/letsencrypt -/run/sudo
 
 [Install]
 WantedBy=multi-user.target

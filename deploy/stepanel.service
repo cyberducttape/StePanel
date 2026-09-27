@@ -22,8 +22,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 SystemCallArchitectures=native
 # The daemon is unprivileged. Its sudoers policy permits only the validated
-# root helpers; these paths are writable solely inside that helper boundary.
-ReadWritePaths=/var/lib/ste-panel /var/backups/stepanel /var/www/sites -/var/lib/stepanel-privileged -/etc/systemd/system -/etc/letsencrypt -/etc/apache2 -/etc/httpd -/etc/caddy -/usr/local/lsws/conf/vhosts/stepanel -/etc/php -/etc/php-fpm.d -/var/lib/letsencrypt -/var/log/letsencrypt -/run/sudo
+# root helpers; filesystem access is constrained by normal ownership and ACLs.
 
 [Install]
 WantedBy=multi-user.target
