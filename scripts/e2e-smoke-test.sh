@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 # End-to-end smoke test for StePanel
-# Tests complete workflow: account creation → site → backup → restore → cleanup
-# This ensures the full system functions correctly before release
+# Tests authenticated control-plane startup, inventory, durable state, audit
+# persistence, and readiness. This is a smoke test, not the full Gate 5 matrix.
 
 STEPANEL_BIN="${1:-./stepanel}"
 TEST_ROOT="${2:-$(mktemp -d)}"
@@ -13,11 +13,7 @@ API_BASE="http://127.0.0.1:$TEST_PORT"
 # Configuration
 ADMIN_USER="testadmin"
 ADMIN_PASS="E2E-Test-Password-123!"
-TEST_SITE="testsite"
-TEST_DOMAIN="test.example.com"
-TEST_DB="testdb"
-TEST_DB_USER="testuser"
-TEST_DB_PASS="TestPassword-123!"
+COOKIE_JAR="$TEST_ROOT/cookies.txt"
 
 echo "🧪 Starting E2E Smoke Test"
 echo "   Root: $TEST_ROOT"
@@ -49,7 +45,8 @@ trap cleanup EXIT
 echo "📦 Starting StePanel control plane..."
 mkdir -p "$TEST_ROOT"/{imports,backups,www,mail,nvm,proxy,vhosts,apps,quarantine,recovery}
 
-STEPANEL_ADMIN_PASSWORD_HASH="$(openssl passwd -6 "$ADMIN_PASS" 2>/dev/null || echo 'ci-test-hash')" \
+STEPANEL_ADMIN_USERNAME="$ADMIN_USER" \
+STEPANEL_ADMIN_PASSWORD="$ADMIN_PASS" \
 STEPANEL_SESSION_SECRET="e2e-test-session-secret-01234567890123" \
 STEPANEL_ACCOUNT_KEY="e2e-account-key-01234567890123456789" \
 STEPANEL_AUDIT_KEY="e2e-audit-key-01234567890123456789012" \
@@ -93,20 +90,47 @@ fi
 echo "✅ Control plane ready"
 echo ""
 
+# Authenticate the smoke-test client before exercising protected APIs. Keep
+# the session in the test root so every request uses the same cookies and CSRF
+# token, just as a browser would.
+echo "🔐 Authenticating smoke-test client..."
+login_code=$(curl --silent --show-error --output "$TEST_ROOT/login.out" \
+  --cookie-jar "$COOKIE_JAR" \
+  --write-out '%{http_code}' --max-time 5 \
+  --data-urlencode "username=$ADMIN_USER" \
+  --data-urlencode "password=$ADMIN_PASS" \
+  "$API_BASE/login")
+if [[ "$login_code" != "303" ]]; then
+  echo "❌ Administrator login failed (HTTP $login_code)"
+  cat "$TEST_ROOT/login.out"
+  exit 1
+fi
+CSRF_TOKEN=$(awk '$6 == "stepanel_csrf" {print $7}' "$COOKIE_JAR" | tail -1)
+if [[ -z "$CSRF_TOKEN" ]]; then
+  echo "❌ Administrator login did not issue a CSRF cookie"
+  exit 1
+fi
+echo "   ✅ Administrator session established"
+echo ""
+
 # Helper function for API calls
 api_call() {
   local method=$1
   local path=$2
-  local data=$3
+  local data=${3:-}
 
   if [[ -n "$data" ]]; then
     curl -X "$method" \
       -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $CSRF_TOKEN" \
+      --cookie "$COOKIE_JAR" \
       -d "$data" \
       --fail --silent \
       "$API_BASE$path"
   else
     curl -X "$method" \
+      -H "X-CSRF-Token: $CSRF_TOKEN" \
+      --cookie "$COOKIE_JAR" \
       --fail --silent \
       "$API_BASE$path"
   fi
@@ -117,16 +141,17 @@ echo ""
 
 # 1. Verify admin access
 echo "1️⃣  Verify admin access..."
-CSRF_TOKEN=$(curl -s "$API_BASE/" | grep -oP 'name="csrf" value="\K[^"]+' || echo "test-csrf")
+curl --fail --silent --cookie "$COOKIE_JAR" "$API_BASE/" >/dev/null
 echo "   ✅ Admin dashboard accessible"
 
-# 2. Create test site
-echo "2️⃣  Create test site ($TEST_SITE)..."
-SITE_PAYLOAD="{\"site\":\"$TEST_SITE\",\"enabled\":true}"
-if api_call POST "/api/sites" "$SITE_PAYLOAD" >/dev/null 2>&1; then
-  echo "   ✅ Site created"
+# 2. Verify supported site inventory endpoints
+echo "2️⃣  Verify site inventory..."
+SITES_LIST=$(api_call GET "/api/sites")
+if echo "$SITES_LIST" | grep -q '"sites"'; then
+  echo "   ✅ Site route inventory works"
 else
-  echo "   ⚠️  Site creation skipped (requires helper integration)"
+  echo "   ❌ Site route inventory response is invalid"
+  exit 1
 fi
 
 # 3. Verify site isolation
@@ -135,7 +160,8 @@ SITES_LIST=$(api_call GET "/api/sites/overview")
 if echo "$SITES_LIST" | grep -q "sites"; then
   echo "   ✅ Site listing works"
 else
-  echo "   ⚠️  Site listing unavailable"
+  echo "   ❌ Site listing unavailable"
+  exit 1
 fi
 
 # 4. Test backup listing
@@ -164,16 +190,18 @@ if [[ -f "$TEST_ROOT/audit.jsonl" ]] && [[ -s "$TEST_ROOT/audit.jsonl" ]]; then
   AUDIT_LINES=$(wc -l < "$TEST_ROOT/audit.jsonl")
   echo "   ✅ Audit log contains $AUDIT_LINES entries"
 else
-  echo "   ⚠️  Audit log not yet populated"
+  echo "   ❌ Audit log is missing or empty"
+  exit 1
 fi
 
 # 7. Verify readiness endpoint
 echo "7️⃣  Check control plane readiness..."
 READINESS=$(curl -s "$API_BASE/readyz" 2>&1 || echo "")
-if echo "$READINESS" | grep -q "ready\|status"; then
+if echo "$READINESS" | grep -q '"ready":true'; then
   echo "   ✅ Readiness check passes"
 else
-  echo "   ℹ️  Readiness check response received"
+  echo "   ❌ Readiness check failed: $READINESS"
+  exit 1
 fi
 
 # 8. Verify no residual state from test
@@ -182,7 +210,8 @@ if [[ -f "$TEST_ROOT/control-plane.db" ]]; then
   DB_SIZE=$(stat -f%z "$TEST_ROOT/control-plane.db" 2>/dev/null || stat -c%s "$TEST_ROOT/control-plane.db" 2>/dev/null || echo "unknown")
   echo "   ✅ Control plane database: $DB_SIZE bytes"
 else
-  echo "   ⚠️  Database not yet created"
+  echo "   ❌ Control plane database is missing"
+  exit 1
 fi
 
 echo ""
@@ -191,7 +220,7 @@ echo ""
 echo "Test Summary:"
 echo "  ✓ Control plane startup (5s)"
 echo "  ✓ Admin dashboard access"
-echo "  ✓ Site operations"
+echo "  ✓ Site inventory"
 echo "  ✓ Backup listing"
 echo "  ✓ Job state machine"
 echo "  ✓ Audit integrity"
