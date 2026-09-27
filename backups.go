@@ -77,7 +77,12 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			if site == "" {
 				backups := []BackupResult{}
 				if a.Accounts != nil {
-					for _, assignedSite := range a.Accounts.GetSites(username) {
+					assignedSites, err := a.Accounts.GetSitesWithError(username)
+					if err != nil {
+						http.Error(w, "unable to inspect site assignments", http.StatusInternalServerError)
+						return
+					}
+					for _, assignedSite := range assignedSites {
 						access, _ := a.authorizeSite(r, assignedSite)
 						items, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.BackupSigningKey)
 						if err != nil {
