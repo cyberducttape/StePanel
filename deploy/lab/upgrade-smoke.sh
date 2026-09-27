@@ -61,7 +61,16 @@ set +u
 . /etc/ste-panel.env
 set -u
 set +a
-systemctl stop stepanel.service
+# The N-1 unit has a deliberately long graceful-stop timeout. Bound the
+# isolated CLI check explicitly so a broken legacy process cannot hang this
+# disposable upgrade host.
+systemctl kill --kill-who=all --signal=SIGKILL stepanel.service || true
+for _ in $(seq 1 30); do
+  systemctl is-active --quiet stepanel.service || break
+  sleep 1
+done
+systemctl is-active --quiet stepanel.service && { echo 'N-1 service did not stop after SIGKILL' >&2; exit 1; } || true
+systemctl reset-failed stepanel.service || true
 "/opt/stepanel/stepanel" version | grep -F '0.6.0'
 systemctl start stepanel.service
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
