@@ -17,6 +17,16 @@ check_equal() {
   fi
 }
 
+broker_rule='NOPASSWD: /usr/local/sbin/stepanel-root -webroot /var/www'
+if ! grep -Fqx "printf '%s ALL=(root) $broker_rule\\n' \"\$APP_USER\" >> \"\$sudoers_tmp\"" install.sh; then
+  echo "install.sh does not pin the root broker sudo rule to /var/www" >&2
+  exit 1
+fi
+if grep -Eq 'NOPASSWD: /usr/local/sbin/stepanel-root[[:space:]]*\\n' install.sh; then
+  echo "install.sh contains an unrestricted root broker sudo rule" >&2
+  exit 1
+fi
+
 chart_version=$(sed -n 's/^version: \([^[:space:]]*\)$/\1/p' deploy/helm/stepanel/Chart.yaml)
 chart_app_version=$(sed -n 's/^appVersion: "\([^"]*\)"$/\1/p' deploy/helm/stepanel/Chart.yaml)
 openapi_version=$(sed -n 's/^  version: \([^[:space:]]*\)$/\1/p' docs/openapi.yaml)
