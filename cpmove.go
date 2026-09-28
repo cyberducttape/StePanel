@@ -292,7 +292,7 @@ func siteHelperContext(ctx context.Context, cfg Config, action, site string) err
 	if cfg.SiteCtl == "" {
 		return nil
 	}
-	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" {
+	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET") == "" && labDirectRootBrokerEnabled() {
 		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 		if err != nil {
 			return err
