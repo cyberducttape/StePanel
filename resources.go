@@ -106,6 +106,12 @@ func (a *App) ensurePlanResources(account HostingAccount) ([]string, error) {
 	if a.Resources == nil {
 		return nil, nil
 	}
+	if len(account.Sites) == 0 {
+		// An account without assigned sites has no resource profiles to
+		// persist or apply. Avoid turning an unrelated resource-store write
+		// failure into an account-creation failure for this valid state.
+		return nil, nil
+	}
 	plan, ok := hostingPlans[account.Plan]
 	if !ok {
 		return nil, errors.New("account plan is not available")

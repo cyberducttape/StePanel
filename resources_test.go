@@ -66,6 +66,19 @@ func TestEnsurePlanResourcesPersistsEnforcedEnvelopeAsPendingOnHelperFailure(t *
 	}
 }
 
+func TestEnsurePlanResourcesSkipsEmptyAccount(t *testing.T) {
+	store, err := OpenResourceStore(filepath.Join(t.TempDir(), "resources.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.path = t.TempDir() // An empty account must not write the store.
+
+	app := &App{Resources: store}
+	if pending, err := app.ensurePlanResources(HostingAccount{Username: "customer", Plan: "starter"}); err != nil || len(pending) != 0 {
+		t.Fatalf("pending=%v err=%v", pending, err)
+	}
+}
+
 func TestReconcileAccountResourcePlanRollsBackMemoryOnPersistFailure(t *testing.T) {
 	path := t.TempDir() // Deliberately unwritable as a file target.
 	store, err := OpenResourceStore(filepath.Join(path, "resources.json"))
