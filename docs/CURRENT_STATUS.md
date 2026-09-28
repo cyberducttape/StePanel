@@ -59,7 +59,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ### Gate 5: Production Durability Testing (90% → Phase 7 remaining)
 
-**Status:** 90% complete; Phase 7 VM execution remains pending
+**Status:** 90% complete; hosted backup/file-restore worker-kill evidence added; Phase 7 VM execution remains pending
 
 - ✅ Phase 1: Failure Injection Framework (100%)
 - ✅ Phase 2: Durable Checkpoint System (100%)
@@ -84,7 +84,12 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - ✅ Boundary-level rollback and cleanup tests for the listed operations
 - ✅ Deterministic journal behavior in repository-level recovery drills
 - ✅ Safe retry behavior for the tested journal paths
-- ⚠️ Host-level crash safety remains unproven until the Phase 7 matrix runs
+- ⚠️ Full host-level crash safety remains unproven until the Phase 7 matrix runs
+
+Hosted installation smoke run `36360131352` now passes on AlmaLinux 9 and
+Rocky Linux 9 with durable worker-kill/restart drills for backup creation and
+file restore. Deploy, termination, account-suspension, and real VM failure
+drills remain release-gate work.
 
 **Remaining Work:** Phase 7 VM testing (10 hours planned)
 - Real SIGKILL injection (process kill -9)

@@ -305,27 +305,30 @@ primitives, but do not replace the still-open full host-kill/restart matrix
 below.
 
 **Critical Operations to Test:**
-1. Backup (boundary tests: init, archive, verify, commit; host-kill drill remains)
-2. Restore (boundary tests: verify, extract, activate, database, commit; host-kill drill remains)
+1. Backup (boundary tests: init, archive, verify, commit; hosted worker-kill/restart drill passes)
+2. Restore (boundary tests: verify, extract, activate, database, commit; hosted worker-kill/restart drill passes for file restore)
 3. Deploy (boundary test: activation; clone/build/health-check drill remains)
 4. Terminate (boundary test: initiation; backup/cleanup/state-removal drill remains)
 5. Account suspension (boundary test: before persistence; helper/state-save drill remains)
 
-**Evidence currently available:** the repository recovery-drill harness passes
+**Evidence currently available:** hosted installation smoke run `36360131352`
+passed on both AlmaLinux 9 and Rocky Linux 9, including real worker
+SIGKILL/restart recovery for durable backup creation and file restore. The
+repository recovery-drill harness passes
 partial SQL import cleanup, interrupted transaction recovery, configuration
 rollback, and pending runtime reconciliation. Its generated results explicitly
 exclude power-loss recovery. Local SIGKILL regression tests now cover
 termination journals, filesystem restore transactions, Git release activation,
 durable account suspension state, backup staging cleanup, and managed-database
-journal cleanup. This provides process-kill evidence at each operation's
-durable boundary, but does not replace full host-kill/restart drills through
-the complete backup and restore workflows. The five-operation acceptance
-criteria therefore remain open.
+journal cleanup. Full host-kill/restart drills for deploy, termination, and
+account suspension, plus real VM power-loss/disk-exhaustion/database-outage
+testing, remain open. The five-operation acceptance criteria therefore remain
+open.
 
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit
 - [x] Boundary-level failure tests cover all 5 operations
-- [ ] Multi-point process-kill/restart drills cover all 5 operations
+- [ ] Multi-point process-kill/restart drills cover all 5 operations (backup and file restore pass; deploy, terminate, and suspension remain)
 - [ ] No mysterious half-states discovered
 - [ ] Recovery is deterministic
 
