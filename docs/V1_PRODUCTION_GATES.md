@@ -311,10 +311,15 @@ below.
 4. Terminate (boundary test: initiation; backup/cleanup/state-removal drill remains)
 5. Account suspension (boundary test: before persistence; helper/state-save drill remains)
 
-**Evidence currently available:** hosted installation smoke run `36360131352`
-passed on both AlmaLinux 9 and Rocky Linux 9, including real worker
-SIGKILL/restart recovery for durable backup creation and file restore. The
-repository recovery-drill harness passes
+**Evidence currently available:** hosted installation smoke runs pass on both
+AlmaLinux 9 and Rocky Linux 9 for cpmove import, durable backup creation, and
+file restore, including real worker SIGKILL/restart recovery. The latest
+authoritative run, `36369648807`, reached the termination workflow on both
+distributions but could not execute the root-only database inventory helper:
+the disposable Docker host did not honor the lab broker's setuid transition
+and `stepanel-dbctl` returned `must run as root`. This is a test-host privilege
+limitation, not evidence that termination recovery passes; it leaves the
+termination acceptance item open. The repository recovery-drill harness passes
 partial SQL import cleanup, interrupted transaction recovery, configuration
 rollback, and pending runtime reconciliation. Its generated results explicitly
 exclude power-loss recovery. Local SIGKILL regression tests now cover
