@@ -128,6 +128,15 @@ func (c *Client) executeSocket(ctx context.Context, req *Request, socketPath str
 		return nil, fmt.Errorf("failed to connect to root broker socket: %w", err)
 	}
 	defer conn.Close()
+	closed := make(chan struct{})
+	defer close(closed)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-closed:
+		}
+	}()
 
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return nil, fmt.Errorf("failed to encode root broker socket request: %w", err)
