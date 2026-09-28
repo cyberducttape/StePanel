@@ -314,7 +314,7 @@ below.
 **Evidence currently available:** hosted installation smoke runs pass on both
 AlmaLinux 9 and Rocky Linux 9 for cpmove import, durable backup creation, and
 file restore, including real worker SIGKILL/restart recovery. The latest
-authoritative run, `36370611813`, reached the termination workflow on both
+authoritative run, `36371669163`, reached the termination workflow on both
 distributions but could not execute the root-only database inventory helper:
 the disposable Docker host did not honor the lab broker's setuid transition
 and `stepanel-dbctl` returned `must run as root`. This is a test-host privilege
