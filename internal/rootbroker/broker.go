@@ -369,7 +369,24 @@ func ensureLabManagerSiteRoot(siteRoot string) error {
 	if err != nil {
 		return err
 	}
-	return os.Chown(siteRoot, uid, gid)
+	if err := os.Chown(siteRoot, uid, gid); err != nil {
+		return err
+	}
+	if err := os.Chmod(siteRoot, 0o750); err != nil {
+		return err
+	}
+	managerStageRoot := filepath.Join(filepath.Dir(siteRoot), ".stepanel-manager-staging")
+	if info, err := os.Stat(managerStageRoot); err == nil && info.IsDir() {
+		if err := os.Chown(managerStageRoot, uid, gid); err != nil {
+			return err
+		}
+		if err := os.Chmod(managerStageRoot, 0o750); err != nil {
+			return err
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (b *Broker) siteAccess(ctx context.Context, req *SiteRequest) (*Response, error) {
