@@ -263,7 +263,18 @@ func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func newSiteOverview(cfg Config, site string) (*siteOverview, error) {
-	root, pathErr := safePath(cfg.WebRoot, "sites", site, "public")
+	siteRoot, err := existingManagedSiteRoot(cfg.WebRoot, site)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			missingRoot, pathErr := safePath(cfg.WebRoot, "sites", site, "public")
+			if pathErr != nil {
+				return &siteOverview{Site: site, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}}, pathErr
+			}
+			return &siteOverview{Site: site, DocumentRoot: missingRoot, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}, Exists: false}, nil
+		}
+		return nil, err
+	}
+	root, pathErr := safePath(siteRoot, "public")
 	if pathErr != nil {
 		return &siteOverview{Site: site, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}}, pathErr
 	}
