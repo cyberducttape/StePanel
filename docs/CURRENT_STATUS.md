@@ -24,7 +24,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 | **Gate 2** | Cross-Process Lock Enforcement | 🔄 PARTIAL (lock layer complete) | Full workflow interruption acceptance |
 | **Gate 3** | Capability Reporting | ✅ COMPLETE | None |
 | **Gate 4** | Automated Archive Database Restoration | ✅ COMPLETE | None |
-| **Gate 5** | Failure Recovery Testing | 🔄 PARTIAL | Full deploy/termination/suspension recovery evidence and VM testing |
+| **Gate 5** | Failure Recovery Testing | 🔄 PARTIAL | Multi-point failure coverage, real disk-exhaustion and host power-loss testing |
 | **Gate 2 extension** | Interrupted Workflow Acceptance | 🔄 OPEN | Full conflicting-workflow recovery evidence |
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
@@ -58,7 +58,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ### Gate 5: Failure Injection Testing (partial; Phase 7 remains open)
 
-**Status:** Partial; hosted cpmove, backup, file-restore, termination, and account-suspension panel-kill/restart evidence passes on both disposable distributions, and Phase 7 VM execution remains pending
+**Status:** Partial; hosted single-boundary recovery evidence passes on both disposable distributions for cpmove, backup, file restore, termination, account suspension, and Git deploy. A Rocky Linux 9.8 VM passed the same installed-host drills plus abrupt QEMU-process kill/reboot and MariaDB service outage/restart checks; the full Phase 7 failure matrix remains open.
 
 - ✅ Phase 1: Failure Injection Framework (100%)
 - ✅ Phase 2: Durable Checkpoint System (100%)
@@ -66,7 +66,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - ✅ Phase 4: Broker Integration (100%)
 - ✅ Phase 5: Operation Journals (100%)
 - ✅ Phase 6: Workflow Integration Testing (100%)
-- 🔄 Phase 7: VM-Level Failure Testing (provider-neutral scaffold only; execution pending)
+- 🔄 Phase 7: VM-Level Failure Testing (partial: Rocky 9.8 installed-host recovery, abrupt VM-process kill/reboot, and MariaDB outage checks; true host power loss and disk exhaustion remain untested)
 
 **What it is:** Prove StePanel survives and recovers deterministically from real failures (SIGKILL, disk full, database offline) at operation boundaries.
 
@@ -85,19 +85,23 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - ✅ Safe retry behavior for the tested journal paths
 - ⚠️ Full host-level crash safety remains unproven until the Phase 7 matrix runs
 
-Hosted installation smoke run `36382583261` passes on AlmaLinux 9 and Rocky
-Linux 9 for cpmove import, durable backup creation, file restore, termination
-with worker-kill/restart recovery, and account suspension with panel-kill/restart
-recovery. Deploy and real VM failure drills remain release-gate work.
+Hosted installation smoke run `36432816260` passes on AlmaLinux 9 and Rocky
+Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
+restore/recovery, termination recovery, account suspension after panel kill,
+and Git deployment recovery after panel kill during activation. A disposable
+Rocky Linux 9.8 VM passed the installed-host recovery sequence, then remained
+healthy after an abrupt QEMU-process kill/reboot and a MariaDB stop/start. These
+checks do not establish real host power-loss or disk-exhaustion safety.
 
-**Remaining Work:** Phase 7 VM testing (10 hours planned)
-- Real SIGKILL injection (process kill -9)
-- Real ENOSPC (disk full at 99%)
-- Real database offline
+**Remaining Work:** Complete the Phase 7 failure matrix
+- Multi-point kill/restart coverage across each critical operation
+- Real ENOSPC during site publication/restore and recovery
+- Host power loss / unclean disk-cache loss, beyond killing the QEMU process
+- Managed-database outage during an operation and verified recovery
 - 100+ deterministic run verification
 - SLA measurement (< 5 seconds target)
 
-**Next Action:** Schedule Phase 7 VM testing before v1.0.0 release.
+**Next Action:** Extend the disposable-VM harness to exercise ENOSPC and database outages at operation boundaries, then complete repeatability and recovery-time measurements.
 
 ---
 
@@ -162,7 +166,7 @@ All workflows use **journaled staged activation** — operations are staged in a
 - Durable journal pattern proven in production code
 - 6 operations with atomic checkpoints
 - Workflow integration testing (6 new tests)
-- Phase 7 VM testing scaffold fails closed without a real backend
+- Phase 7 provider-neutral VM scaffold still requires provider commands; separate disposable QEMU VM checks now cover selected recovery paths
 
 ✅ **DBLocks (Sep 2026 rewrite):**
 - Fixed 5 latent bugs in distributed lock implementation
@@ -174,9 +178,9 @@ All workflows use **journaled staged activation** — operations are staged in a
 ## Roadmap to v1.0
 
 ### Immediate (Week 1-2)
-1. Complete Gate 5 Phase 7 VM testing (10 hours planned)
-2. Document any issues found in Phase 7
-3. Declare Gate 5 Phase 7 APPROVED
+1. Extend VM tests to inject ENOSPC and managed-database outages during operations
+2. Add multi-point failure coverage and repeatability/recovery-time measurements
+3. Complete actual host power-loss validation before approving Gate 5 Phase 7
 
 ### Short-term (Week 3-4)
 4. Begin Phase 4 callsite replacement for helper layer

@@ -301,34 +301,46 @@ filesystem transaction recovery, and release activation recovery: a child
 process is killed with `SIGKILL` after a destructive/replacement step starts,
 and the parent reloads the state, restores the original site/release, and
 completes recovery. These prove cross-process persistence for those recovery
-primitives, but do not replace the still-open full host-kill/restart matrix
-below.
+primitives, but do not replace the still-open multi-point host-kill/restart
+matrix below.
 
 **Critical Operations to Test:**
 1. Backup (boundary tests: init, archive, verify, commit; hosted worker-kill/restart drill passes)
 2. Restore (boundary tests: verify, extract, activate, database, commit; hosted worker-kill/restart drill passes for file restore)
-3. Deploy (boundary test: activation; clone/build/health-check drill remains)
-4. Terminate (boundary test: initiation; backup/cleanup/state-removal drill remains)
-5. Account suspension (boundary test: before persistence; helper/state-save drill remains)
+3. Deploy (hosted kill/restart at activation passes; clone/build/health-check interruption remains)
+4. Terminate (hosted worker kill/restart during site-state removal passes; interruptions during backup and cleanup remain)
+5. Account suspension (hosted panel kill/restart after persistence passes; external helper and earlier-stage interruptions remain)
 
-**Evidence currently available:** hosted installation smoke run `36382583261`
-passes on both AlmaLinux 9 and Rocky Linux 9 for cpmove import, durable backup
-creation, file restore, and termination, including real worker SIGKILL/restart
-recovery, plus account suspension with real panel SIGKILL/restart recovery. The
-repository recovery-drill harness passes
-partial SQL import cleanup, interrupted transaction recovery, configuration
+**Evidence currently available:** hosted installation smoke run `36432816260`
+passes on both AlmaLinux 9 and Rocky Linux 9 for cpmove import/recovery, durable
+backup creation/recovery, file restore/recovery, termination recovery, account
+suspension after panel SIGKILL, and Git deployment recovery after panel SIGKILL
+during release activation. The deployment drill verifies that startup recovery
+restores the original site content and clears the activation journal. Earlier
+run `36382583261` passed the cpmove, backup, file-restore, termination, and
+suspension paths before the deploy drill was added. The repository
+recovery-drill harness passes partial SQL import cleanup, interrupted
+transaction recovery, configuration
 rollback, and pending runtime reconciliation. Its generated results explicitly
-exclude power-loss recovery. Local SIGKILL regression tests now cover
-termination journals, filesystem restore transactions, Git release activation,
-durable account suspension state, backup staging cleanup, and managed-database
-journal cleanup. The full hosted deploy process-kill drill, plus real VM
-power-loss/disk-exhaustion/database-outage testing, remain open. The
-five-operation acceptance criteria therefore remain open.
+exclude power-loss recovery. A disposable Rocky Linux 9.8 VM also passed the
+installed-host cpmove, backup, file-restore, termination, suspension, and deploy
+recovery drills. Abruptly killing the QEMU process and rebooting the guest left
+systemd healthy, all StePanel services active, and `/readyz` reporting ready;
+stopping/restarting MariaDB separately left the control plane healthy. This is
+limited VM evidence, not a host power-loss or disk-exhaustion test. Local SIGKILL
+regression tests now cover termination journals, filesystem restore
+transactions, Git release activation, durable account suspension state, backup
+staging cleanup, and managed-database journal cleanup. The installer was also
+corrected to handle images that already have full `curl` installed and to
+install the Git runtime required for deploys; the hosted recovery smoke passes
+with those fixes on both distributions. The five-operation acceptance criteria
+remain open for multi-point failure injection, real disk-exhaustion, actual
+host power-loss, and broader workload and recovery-time evidence.
 
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit
 - [x] Boundary-level failure tests cover all 5 operations
-- [ ] Multi-point process-kill/restart drills cover all 5 operations (backup and file restore pass; deploy, terminate, and suspension remain)
+- [ ] Multi-point process-kill/restart drills cover all 5 operations (single-boundary recovery drills now pass for backup, file restore, deploy, termination, and suspension)
 - [ ] No mysterious half-states discovered
 - [ ] Recovery is deterministic
 
