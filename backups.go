@@ -395,6 +395,20 @@ func addBackupFileExpected(tw *tar.Writer, source, name string, totalBytes *int6
 }
 
 func managedDatabasesForSite(cfg Config, site string) ([]string, error) {
+	if labDirectRootBrokerEnabled() {
+		items, err := managedDatabaseInventory(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("list managed databases: %w", err)
+		}
+		databases := make([]string, 0, len(items))
+		for _, item := range items {
+			if item.Site == site {
+				databases = append(databases, item.Name)
+			}
+		}
+		sort.Strings(databases)
+		return databases, nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), helperConfigMutationTimeout)
 	defer cancel()
 	output, err := runBoundedCommand(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, "list", site))
