@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 )
 
-// Client communicates with the root broker via stdin/stdout.
+// Client communicates with the root broker via the production subprocess
+// protocol or the isolated lab Unix-socket transport.
 // This runs in the unprivileged app process.
 type Client struct {
 	brokerPath string
@@ -32,8 +35,9 @@ func NewClient(brokerPath, webRoot string) (*Client, error) {
 	}, nil
 }
 
-// Execute sends a request to the root broker and returns the response.
-// The broker is invoked as a subprocess via sudo NOPASSWD.
+// Execute sends a request to the root broker and returns the response. The
+// broker is invoked through the production sudo policy or the isolated lab
+// socket transport.
 func (c *Client) Execute(ctx context.Context, req *Request) (*Response, error) {
 	return c.execute(ctx, req, labDirectBrokerEnabled())
 }
@@ -42,9 +46,8 @@ func labDirectBrokerEnabled() bool {
 	return os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" && os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") == "1"
 }
 
-// ExecuteDirect invokes the broker directly. This is restricted to the
-// disposable install smoke, where the broker artifact is deliberately marked
-// setuid because the container's no_new_privs policy blocks sudo.
+// ExecuteDirect invokes the broker through the explicitly enabled lab
+// transport. Production callers must use Execute.
 func (c *Client) ExecuteDirect(ctx context.Context, req *Request) (*Response, error) {
 	return c.execute(ctx, req, true)
 }
@@ -52,10 +55,15 @@ func (c *Client) ExecuteDirect(ctx context.Context, req *Request) (*Response, er
 func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if direct {
+		if socketPath := strings.TrimSpace(os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET")); socketPath != "" {
+			return c.executeSocket(ctx, req, socketPath)
+		}
+	}
 
 	// Production installations invoke the broker through sudo. The isolated
-	// install smoke host may use its root-owned test broker directly because
-	// GitHub's container runner can force no_new_privs on sudo subprocesses.
+	// install smoke host may use its root-owned socket service because
+	// container runtimes can restrict privilege transitions.
 	command := "sudo"
 	args := []string{c.brokerPath, "-webroot", c.webRoot}
 	if direct {
@@ -108,6 +116,30 @@ func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Respo
 		return nil, fmt.Errorf("broker failed: %w", err)
 	}
 
+	return &resp, nil
+}
+
+// executeSocket talks to the root broker through a root-owned local service.
+// It is used only by the disposable install smoke, where container runtimes
+// may disable setuid transitions even for privileged containers.
+func (c *Client) executeSocket(ctx context.Context, req *Request, socketPath string) (*Response, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to root broker socket: %w", err)
+	}
+	defer conn.Close()
+
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return nil, fmt.Errorf("failed to encode root broker socket request: %w", err)
+	}
+	if unixConn, ok := conn.(*net.UnixConn); ok {
+		_ = unixConn.CloseWrite()
+	}
+
+	var resp Response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("failed to decode root broker socket response: %w", err)
+	}
 	return &resp, nil
 }
 
@@ -189,7 +221,7 @@ func (c *Client) DBInventory(ctx context.Context) (*Response, error) {
 }
 
 // DBInventoryDirect invokes the read-only inventory operation without sudo.
-// It is used only by the disposable install smoke's setuid broker path.
+// It is used only by the disposable install smoke's direct broker path.
 func (c *Client) DBInventoryDirect(ctx context.Context) (*Response, error) {
 	return c.dbInventory(ctx, true)
 }

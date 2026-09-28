@@ -2,7 +2,10 @@ package rootbroker
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"testing"
 )
 
@@ -53,6 +56,53 @@ func TestClientExecuteRaw(t *testing.T) {
 	// Verify request was written
 	if w.Len() == 0 {
 		t.Errorf("Request was not written to buffer")
+	}
+}
+
+func TestClientExecuteUsesLabRootBrokerSocket(t *testing.T) {
+	socketPath := t.TempDir() + "/root-broker.sock"
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverErr <- acceptErr
+			return
+		}
+		defer conn.Close()
+		var request Request
+		if decodeErr := json.NewDecoder(conn).Decode(&request); decodeErr != nil {
+			serverErr <- decodeErr
+			return
+		}
+		if request.RequestType != "db" || request.DB == nil || request.DB.Action != "inventory" {
+			serverErr <- fmt.Errorf("unexpected request: %#v", request)
+			return
+		}
+		serverErr <- json.NewEncoder(conn).Encode(Response{OK: true})
+	}()
+
+	t.Setenv("STEPANEL_LAB_DIRECT_ROOT_BROKER", "1")
+	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "1")
+	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", socketPath)
+	client, err := NewClient("/usr/local/sbin/stepanel-root", "/var/www")
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	response, err := client.DBInventory(context.Background())
+	if err != nil {
+		t.Fatalf("DBInventory: %v", err)
+	}
+	if !response.OK {
+		t.Fatalf("response was not OK: %#v", response)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("socket server: %v", err)
 	}
 }
 

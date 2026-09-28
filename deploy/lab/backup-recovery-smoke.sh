@@ -189,7 +189,8 @@ echo "restore recovery smoke passed (worker $before was killed during restore ac
 # the site-state step starts; the restarted worker must roll the journal
 # forward and leave the site absent, with the verified backup retained.
 # The isolated lab mode routes the read-only database inventory through the
-# root broker because the disposable container applies no_new_privs to sudo.
+# root broker because the disposable container may restrict privilege
+# transitions for sudo and setuid subprocesses.
 # Keep both panel and worker unprivileged so audit ownership and service
 # privilege boundaries remain identical to production.
 printf '%s\n' '[Service]' \

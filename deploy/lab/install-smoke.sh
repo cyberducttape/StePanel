@@ -55,10 +55,17 @@ if ! grep -q '^STEPANEL_LAB_DIRECT_ROOT_BROKER="1"$' /etc/ste-panel.env; then
   printf '%s\n' 'STEPANEL_LAB_DIRECT_ROOT_BROKER="1"' >> /etc/ste-panel.env
 fi
 # The marker is root-owned and lives only in the disposable host's /run.
-# It avoids relying on systemd environment propagation for the lab-only
-# setuid-broker workaround.
+# It avoids relying on systemd environment propagation for lab-only broker
+# routing.
 install -m 0600 -o root -g root /dev/null /run/stepanel-lab-direct-root-broker
 install -m 0600 -o root -g root /dev/null /etc/stepanel-lab-direct-root-broker
+# Container runtimes can disable setuid transitions even for privileged
+# containers. Run the broker as a separate root service over a local socket so
+# this smoke still exercises the production unprivileged panel/worker boundary.
+install -m 0644 /work/deploy/lab/stepanel-root-broker.service /etc/systemd/system/stepanel-root-broker.service
+if ! grep -q '^STEPANEL_LAB_ROOT_BROKER_SOCKET=' /etc/ste-panel.env; then
+  printf '%s\n' 'STEPANEL_LAB_ROOT_BROKER_SOCKET="/run/stepanel-root-broker.sock"' >> /etc/ste-panel.env
+fi
 # rclone treats `local:/path` as a configured remote named "local". Create
 # that deliberately disposable remote so the required offsite-backup path is
 # exercised against the host filesystem rather than silently bypassed.
@@ -67,7 +74,10 @@ install -m 0600 -o stepanel -g stepanel /dev/null /opt/stepanel/.rclone.conf
 printf '[local]\ntype = local\n' > /opt/stepanel/.rclone.conf
 chown stepanel:stepanel /opt/stepanel/.rclone.conf
 chmod 0600 /opt/stepanel/.rclone.conf
-chmod 4755 /usr/local/sbin/stepanel-root
+systemctl daemon-reload
+systemctl restart stepanel-root-broker.service
+systemctl is-active --quiet stepanel-root-broker.service
+test -S /run/stepanel-root-broker.sock
 systemctl restart stepanel.service stepanel-worker.service
 if ! systemctl is-active --quiet stepanel.service; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true

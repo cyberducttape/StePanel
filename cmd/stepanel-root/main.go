@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
+	"os/user"
+	"strconv"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
@@ -15,6 +18,8 @@ import (
 
 func main() {
 	webRootFlag := flag.String("webroot", "/var/www", "Web root directory")
+	socketFlag := flag.String("socket", "", "serve the broker on a Unix socket instead of stdin/stdout")
+	socketGroupFlag := flag.String("socket-group", "", "group allowed to access the Unix socket")
 	flag.Parse()
 
 	if *webRootFlag == "" {
@@ -28,10 +33,21 @@ func main() {
 		logger.Fatalf("failed to create broker: %v", err)
 	}
 
-	// Read requests from stdin, write responses to stdout
-	// Each request/response is a single JSON line
-	decoder := json.NewDecoder(os.Stdin)
-	encoder := json.NewEncoder(os.Stdout)
+	if *socketFlag != "" {
+		if err := serveSocket(broker, *socketFlag, *socketGroupFlag, logger); err != nil {
+			logger.Fatal(err)
+		}
+		return
+	}
+
+	serveRequests(broker, os.Stdin, os.Stdout, logger)
+}
+
+func serveRequests(broker *rootbroker.Broker, reader io.Reader, writer io.Writer, logger *log.Logger) {
+	// Read requests from stdin, write responses to stdout. Each request and
+	// response is a single JSON line.
+	decoder := json.NewDecoder(reader)
+	encoder := json.NewEncoder(writer)
 
 	for {
 		var req rootbroker.Request
@@ -64,5 +80,41 @@ func main() {
 		if err := encoder.Encode(resp); err != nil {
 			logger.Printf("encode error: %v", err)
 		}
+	}
+}
+
+func serveSocket(broker *rootbroker.Broker, socketPath, socketGroup string, logger *log.Logger) error {
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove existing broker socket: %w", err)
+	}
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("listen on broker socket: %w", err)
+	}
+	defer listener.Close()
+	if err := os.Chmod(socketPath, 0660); err != nil {
+		return fmt.Errorf("set broker socket mode: %w", err)
+	}
+	if socketGroup != "" {
+		group, err := user.LookupGroup(socketGroup)
+		if err != nil {
+			return fmt.Errorf("lookup broker socket group %q: %w", socketGroup, err)
+		}
+		gid, err := strconv.Atoi(group.Gid)
+		if err != nil {
+			return fmt.Errorf("parse broker socket group %q: %w", socketGroup, err)
+		}
+		if err := os.Chown(socketPath, os.Getuid(), gid); err != nil {
+			return fmt.Errorf("set broker socket group: %w", err)
+		}
+	}
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return fmt.Errorf("accept broker socket connection: %w", err)
+		}
+		serveRequests(broker, conn, conn, logger)
+		_ = conn.Close()
 	}
 }

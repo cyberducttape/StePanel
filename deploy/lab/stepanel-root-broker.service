@@ -1,0 +1,13 @@
+[Unit]
+Description=StePanel disposable lab root broker
+After=local-fs.target mariadb.service postgresql.service
+
+[Service]
+Type=simple
+User=root
+Group=stepanel
+ExecStart=/usr/local/sbin/stepanel-root -webroot /var/www -socket /run/stepanel-root-broker.sock -socket-group stepanel
+Restart=on-failure
+RestartSec=1s
+UMask=0007
+
