@@ -148,3 +148,4 @@ bash /work/deploy/lab/cpmove-import-smoke.sh
 bash /work/deploy/lab/cpmove-recovery-smoke.sh
 bash /work/deploy/lab/backup-recovery-smoke.sh
 bash /work/deploy/lab/account-suspension-recovery-smoke.sh
+bash /work/deploy/lab/deploy-recovery-smoke.sh
