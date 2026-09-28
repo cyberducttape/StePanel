@@ -311,20 +311,19 @@ below.
 4. Terminate (boundary test: initiation; backup/cleanup/state-removal drill remains)
 5. Account suspension (boundary test: before persistence; helper/state-save drill remains)
 
-**Evidence currently available:** hosted installation smoke runs pass on both
-AlmaLinux 9 and Rocky Linux 9 for cpmove import, durable backup creation, and
-file restore, and termination, including real worker SIGKILL/restart recovery.
-The latest authoritative run, `36377552612`, passes the termination recovery
-drill on both distributions. The repository recovery-drill harness passes
+**Evidence currently available:** hosted installation smoke run `36382583261`
+passes on both AlmaLinux 9 and Rocky Linux 9 for cpmove import, durable backup
+creation, file restore, and termination, including real worker SIGKILL/restart
+recovery, plus account suspension with real panel SIGKILL/restart recovery. The
+repository recovery-drill harness passes
 partial SQL import cleanup, interrupted transaction recovery, configuration
 rollback, and pending runtime reconciliation. Its generated results explicitly
 exclude power-loss recovery. Local SIGKILL regression tests now cover
 termination journals, filesystem restore transactions, Git release activation,
 durable account suspension state, backup staging cleanup, and managed-database
-journal cleanup. Full host-kill/restart drills for deploy, termination, and
-account suspension, plus real VM power-loss/disk-exhaustion/database-outage
-testing, remain open. The five-operation acceptance criteria therefore remain
-open.
+journal cleanup. The full hosted deploy process-kill drill, plus real VM
+power-loss/disk-exhaustion/database-outage testing, remain open. The
+five-operation acceptance criteria therefore remain open.
 
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit

@@ -58,7 +58,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ### Gate 5: Failure Injection Testing (partial; Phase 7 remains open)
 
-**Status:** Partial; hosted cpmove, backup, file-restore, and termination worker-kill/restart evidence passes on both disposable distributions, and Phase 7 VM execution remains pending
+**Status:** Partial; hosted cpmove, backup, file-restore, termination, and account-suspension panel-kill/restart evidence passes on both disposable distributions, and Phase 7 VM execution remains pending
 
 - ✅ Phase 1: Failure Injection Framework (100%)
 - ✅ Phase 2: Durable Checkpoint System (100%)
@@ -85,10 +85,10 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - ✅ Safe retry behavior for the tested journal paths
 - ⚠️ Full host-level crash safety remains unproven until the Phase 7 matrix runs
 
-Hosted installation smoke run `36377552612` passes on AlmaLinux 9 and Rocky
-Linux 9 for cpmove import, durable backup creation, file restore, and
-termination with worker-kill/restart recovery. Deploy, account-suspension,
-and real VM failure drills remain release-gate work.
+Hosted installation smoke run `36382583261` passes on AlmaLinux 9 and Rocky
+Linux 9 for cpmove import, durable backup creation, file restore, termination
+with worker-kill/restart recovery, and account suspension with panel-kill/restart
+recovery. Deploy and real VM failure drills remain release-gate work.
 
 **Remaining Work:** Phase 7 VM testing (10 hours planned)
 - Real SIGKILL injection (process kill -9)
