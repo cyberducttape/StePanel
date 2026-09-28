@@ -267,6 +267,9 @@ func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, e
 }
 
 func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, error) {
+	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
+		return b.runLabHelper(ctx, "/usr/local/sbin/stepanel-sitectl", "delete", req.Site)
+	}
 	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
@@ -425,6 +428,8 @@ func (b *Broker) handleAppRequest(ctx context.Context, req *AppRequest) (*Respon
 	switch req.Action {
 	case "apply":
 		return b.appApply(ctx, req)
+	case "delete":
+		return b.appDelete(ctx, req)
 	case "start":
 		return b.appStart(ctx, req)
 	case "stop":
@@ -436,6 +441,13 @@ func (b *Broker) handleAppRequest(ctx context.Context, req *AppRequest) (*Respon
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown app action: %s", req.Action)}, nil
 	}
+}
+
+func (b *Broker) appDelete(ctx context.Context, req *AppRequest) (*Response, error) {
+	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
+		return b.runLabHelper(ctx, "/usr/local/sbin/stepanel-appctl", "delete", req.Site)
+	}
+	return unsupportedBrokerResponse("app delete")
 }
 
 func (b *Broker) appApply(ctx context.Context, req *AppRequest) (*Response, error) {
@@ -1060,6 +1072,11 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 	b.logger.Printf("git: action=%s repo=%s", req.Action, req.Repository)
 
 	switch req.Action {
+	case "delete":
+		if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
+			return b.runLabHelper(ctx, "/usr/local/sbin/stepanel-gitctl", "delete", req.Site)
+		}
+		return unsupportedBrokerResponse("git delete")
 	case "clone":
 		return b.gitClone(ctx, req)
 	case "verify-key":
@@ -1067,6 +1084,15 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown git action: %s", req.Action)}, nil
 	}
+}
+
+func (b *Broker) runLabHelper(ctx context.Context, path string, args ...string) (*Response, error) {
+	cmd := exec.CommandContext(ctx, path, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("lab helper failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	return &Response{OK: true}, nil
 }
 
 func (b *Broker) gitClone(ctx context.Context, req *GitRequest) (*Response, error) {

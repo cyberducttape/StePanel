@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 type durableSiteTerminationRequest struct {
@@ -337,6 +339,10 @@ func routeConfigName(cfg Config, route siteRoute) string {
 
 func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error {
 	siteName := site.Site()
+	labBroker, err := a.labRootBrokerClient()
+	if err != nil {
+		return err
+	}
 	hasApplication := false
 	apps, err := managedAppsWithError(a.Config.AppRoot)
 	if err != nil {
@@ -352,20 +358,53 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 		return errors.New("managed application services exist but the application helper is unavailable")
 	}
 	if a.Config.AppCtl != "" {
-		if err := runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "delete", siteName); err != nil {
+		var err error
+		if labBroker != nil {
+			resp, callErr := labBroker.AppDelete(ctx, siteName)
+			if callErr != nil {
+				err = callErr
+			} else if !resp.OK {
+				err = errors.New(resp.Error)
+			}
+		} else {
+			err = runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "delete", siteName)
+		}
+		if err != nil {
 			return fmt.Errorf("remove managed application services for %s: %w", siteName, err)
 		}
 	}
 	if a.Config.GitCtl != "" {
-		if err := runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.GitCtl, "delete", siteName); err != nil {
+		var err error
+		if labBroker != nil {
+			resp, callErr := labBroker.GitDelete(ctx, siteName)
+			if callErr != nil {
+				err = callErr
+			} else if !resp.OK {
+				err = errors.New(resp.Error)
+			}
+		} else {
+			err = runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.GitCtl, "delete", siteName)
+		}
+		if err != nil {
 			return fmt.Errorf("remove Git deploy key for %s: %w", siteName, err)
 		}
 	}
 	if a.Config.SiteCtl == "" {
 		return errors.New("site teardown helper is unavailable")
 	}
-	if err := runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.SiteCtl, "delete", siteName); err != nil {
-		return fmt.Errorf("remove PHP, SSH, quota, and site filesystem state for %s: %w", siteName, err)
+	var helperErr error
+	if labBroker != nil {
+		resp, callErr := labBroker.SiteDelete(ctx, siteName)
+		if callErr != nil {
+			helperErr = callErr
+		} else if !resp.OK {
+			helperErr = errors.New(resp.Error)
+		}
+	} else {
+		helperErr = runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.SiteCtl, "delete", siteName)
+	}
+	if helperErr != nil {
+		return fmt.Errorf("remove PHP, SSH, quota, and site filesystem state for %s: %w", siteName, helperErr)
 	}
 	// The helper tears down host identities and services. The lifecycle
 	// manager owns the final path-safe filesystem cleanup contract, so a
@@ -382,6 +421,13 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 		a.MetadataCache.InvalidateSite(siteName)
 	}
 	return nil
+}
+
+func (a *App) labRootBrokerClient() (*rootbroker.Client, error) {
+	if !labDirectRootBrokerEnabled() || strings.TrimSpace(os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET")) == "" {
+		return nil, nil
+	}
+	return rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
 }
 
 func (a *App) removeSiteTasks(ctx context.Context, site SiteCapability) error {

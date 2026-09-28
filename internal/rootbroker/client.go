@@ -210,6 +210,11 @@ func (c *Client) AppApply(ctx context.Context, site string, version string, port
 	return c.Execute(ctx, req)
 }
 
+// AppDelete removes managed application services for a site.
+func (c *Client) AppDelete(ctx context.Context, site string) (*Response, error) {
+	return c.Execute(ctx, &Request{RequestType: "app", App: &AppRequest{Action: "delete", Site: site}})
+}
+
 // DBProvision creates a new database.
 func (c *Client) DBProvision(ctx context.Context, site, database, username string) (*Response, error) {
 	req := &Request{
@@ -277,4 +282,9 @@ func (c *Client) GitClone(ctx context.Context, repo, ref, destination string) (*
 		},
 	}
 	return c.Execute(ctx, req)
+}
+
+// GitDelete removes the managed deployment key for a site.
+func (c *Client) GitDelete(ctx context.Context, site string) (*Response, error) {
+	return c.Execute(ctx, &Request{RequestType: "git", Git: &GitRequest{Action: "delete", Site: site}})
 }

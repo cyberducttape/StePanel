@@ -386,6 +386,9 @@ func (v *Validator) validateGitRequest(req *GitRequest) error {
 	if req == nil {
 		return fmt.Errorf("git request is nil")
 	}
+	if req.Action == "delete" {
+		return v.ValidateSiteName(req.Site)
+	}
 	if err := v.ValidateGitRepository(req.Repository); err != nil {
 		return err
 	}

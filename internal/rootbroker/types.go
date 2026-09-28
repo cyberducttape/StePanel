@@ -66,7 +66,7 @@ type SiteResponse struct {
 // --- App Operations ---
 
 type AppRequest struct {
-	Action  string `json:"action"`  // apply, start, stop, restart, rollback
+	Action  string `json:"action"`  // apply, delete, start, stop, restart, rollback
 	Site    string `json:"site"`    // Validated site name
 	Version string `json:"version"` // Node version (e.g. "18.0.0", validated against pattern)
 	Port    int    `json:"port"`    // 1024-65535
@@ -141,7 +141,8 @@ type ProxyResponse struct {
 // --- Git Operations ---
 
 type GitRequest struct {
-	Action       string   `json:"action"`                // clone, verify-key
+	Action       string   `json:"action"`                // clone, delete, verify-key
+	Site         string   `json:"site,omitempty"`        // managed site for delete
 	Repository   string   `json:"repository"`            // Git URL (validated)
 	Ref          string   `json:"ref"`                   // Branch/tag
 	Destination  string   `json:"destination"`           // Clone destination (validated)
