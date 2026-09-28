@@ -85,7 +85,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - ✅ Safe retry behavior for the tested journal paths
 - ⚠️ Full host-level crash safety remains unproven until the Phase 7 matrix runs
 
-Hosted installation smoke run `36371669163` passes on AlmaLinux 9 and Rocky
+Hosted installation smoke run `36372588418` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import, durable backup creation, and file restore with
 worker-kill/restart drills. Its termination workflow reached the broker but
 the disposable host did not honor the setuid transition, so the root-only
