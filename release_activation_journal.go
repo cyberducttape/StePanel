@@ -135,6 +135,16 @@ func recoverReleaseActivationJournals(cfg Config) ([]string, error) {
 				if err := manager.DiscardReleaseStaging(ctx, journal.Site, journal.StagedRoot); err != nil {
 					return recovered, fmt.Errorf("discard prepared release activation %s: %w", journal.ID, err)
 				}
+			case stageExists && errors.Is(publicErr, os.ErrNotExist) && previous != "":
+				// The old release was moved aside but publication of the stage
+				// never happened. Restore the previous tree, then discard the
+				// still-present stage allocated for this activation.
+				if err := manager.RollbackStagedActivation(ctx, journal.Site, previous); err != nil {
+					return recovered, fmt.Errorf("restore previous release after interrupted activation %s: %w", journal.ID, err)
+				}
+				if err := manager.DiscardReleaseStaging(ctx, journal.Site, journal.StagedRoot); err != nil {
+					return recovered, fmt.Errorf("discard interrupted release stage %s: %w", journal.ID, err)
+				}
 			case !stageExists && previous != "":
 				// The stage moved to public (or public was moved away first).
 				if err := manager.RollbackStagedActivation(ctx, journal.Site, previous); err != nil {
