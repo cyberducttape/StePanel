@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+func TestLabDirectBrokerRequiresSmokeMarker(t *testing.T) {
+	t.Setenv("STEPANEL_LAB_DIRECT_ROOT_BROKER", "1")
+	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "0")
+	if labDirectBrokerEnabled() {
+		t.Fatal("direct broker enabled without the smoke-only startup marker")
+	}
+	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "1")
+	if !labDirectBrokerEnabled() {
+		t.Fatal("direct broker did not enable with explicit smoke markers")
+	}
+}
+
 func TestClientExecuteRaw(t *testing.T) {
 	client, err := NewClient("/usr/local/sbin/stepanel-root", "/var/www")
 	if err != nil {

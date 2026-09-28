@@ -85,7 +85,7 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 }
 
 func labDirectRootBrokerEnabled() bool {
-	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" {
+	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" && os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") == "1" {
 		return true
 	}
 	// The termination recovery smoke injects this boundary into the worker

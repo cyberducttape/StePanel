@@ -35,7 +35,11 @@ func NewClient(brokerPath, webRoot string) (*Client, error) {
 // Execute sends a request to the root broker and returns the response.
 // The broker is invoked as a subprocess via sudo NOPASSWD.
 func (c *Client) Execute(ctx context.Context, req *Request) (*Response, error) {
-	return c.execute(ctx, req, os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1")
+	return c.execute(ctx, req, labDirectBrokerEnabled())
+}
+
+func labDirectBrokerEnabled() bool {
+	return os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" && os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") == "1"
 }
 
 // ExecuteDirect invokes the broker directly. This is restricted to the
