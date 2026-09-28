@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-09-27
+**Last Updated:** 2026-09-28
 **Status:** 85% toward v1.0 Production Release
 
 ---
@@ -24,7 +24,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 | **Gate 2** | Cross-Process Lock Enforcement | 🔄 PARTIAL (lock layer complete) | Full workflow interruption acceptance |
 | **Gate 3** | Durable Journal System | ✅ COMPLETE | None |
 | **Gate 4** | Broker Integration | ✅ COMPLETE | None |
-| **Gate 5** | Failure Recovery Testing | 🔄 90% COMPLETE | Phase 7 VM testing |
+| **Gate 5** | Failure Recovery Testing | 🔄 PARTIAL | Full deploy/termination/suspension recovery evidence and VM testing |
 | **Gate 6** | Concurrent Workflow Testing | 🔄 PARTIAL (lock-layer tests complete) | Full interrupted-workflow evidence |
 | **Gate 7** | (Reserved for future gates) | — | — |
 
@@ -59,7 +59,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ### Gate 5: Production Durability Testing (90% → Phase 7 remaining)
 
-**Status:** 90% complete; hosted backup/file-restore worker-kill evidence added; Phase 7 VM execution remains pending
+**Status:** Partial; hosted backup/file-restore worker-kill evidence passes, but termination recovery currently cannot execute the root-only database helper in the disposable host, and Phase 7 VM execution remains pending
 
 - ✅ Phase 1: Failure Injection Framework (100%)
 - ✅ Phase 2: Durable Checkpoint System (100%)
@@ -86,10 +86,13 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - ✅ Safe retry behavior for the tested journal paths
 - ⚠️ Full host-level crash safety remains unproven until the Phase 7 matrix runs
 
-Hosted installation smoke run `36360131352` now passes on AlmaLinux 9 and
-Rocky Linux 9 with durable worker-kill/restart drills for backup creation and
-file restore. Deploy, termination, account-suspension, and real VM failure
-drills remain release-gate work.
+Hosted installation smoke run `36369648807` passes on AlmaLinux 9 and Rocky
+Linux 9 for cpmove import, durable backup creation, and file restore with
+worker-kill/restart drills. Its termination workflow reached the broker but
+the disposable host did not honor the setuid transition, so the root-only
+database helper returned `must run as root`; termination recovery remains
+unproven. Deploy, account-suspension, and real VM failure drills also remain
+release-gate work.
 
 **Remaining Work:** Phase 7 VM testing (10 hours planned)
 - Real SIGKILL injection (process kill -9)
