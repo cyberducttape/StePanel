@@ -173,6 +173,29 @@ func TestAccountStoreUsesDurableControlPlaneDatabase(t *testing.T) {
 	}
 }
 
+func TestAccountStoreListWithErrorReleasesInventoryRowsBeforeLoadingPayloads(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "control-plane.db")
+	db, err := openControlPlaneDB(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := OpenAccountStoreDB(db, "", "account-encryption-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", nil); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := store.ListWithError()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accounts) != 1 || accounts[0].Username != "customer" {
+		t.Fatalf("account inventory = %#v", accounts)
+	}
+}
+
 func TestAccountStoreMutationsRefreshDurableOwnership(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "control-plane.db")
 	db, err := openControlPlaneDB(databasePath)

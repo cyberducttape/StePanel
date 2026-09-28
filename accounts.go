@@ -541,13 +541,24 @@ func (s *AccountStore) ListWithError() ([]HostingAccount, error) {
 		if err != nil {
 			return nil, fmt.Errorf("query accounts: %w", err)
 		}
-		defer rows.Close()
-		accounts := make([]HostingAccount, 0)
+		usernames := make([]string, 0)
 		for rows.Next() {
 			var username string
 			if err := rows.Scan(&username); err != nil {
+				_ = rows.Close()
 				return nil, fmt.Errorf("scan account username: %w", err)
 			}
+			usernames = append(usernames, username)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("iterate accounts: %w", err)
+		}
+		if err := rows.Close(); err != nil {
+			return nil, fmt.Errorf("close account inventory: %w", err)
+		}
+		accounts := make([]HostingAccount, 0, len(usernames))
+		for _, username := range usernames {
 			if account, ok := s.Get(username); ok {
 				account.PasswordHash = ""
 				account.TOTPSecret = ""
@@ -556,9 +567,6 @@ func (s *AccountStore) ListWithError() ([]HostingAccount, error) {
 			} else {
 				return nil, fmt.Errorf("load account %q", username)
 			}
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("iterate accounts: %w", err)
 		}
 		return accounts, nil
 	}
