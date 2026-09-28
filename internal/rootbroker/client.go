@@ -168,6 +168,20 @@ func (c *Client) DBProvision(ctx context.Context, site, database, username strin
 	return c.Execute(ctx, req)
 }
 
+// DBInventory returns the helper's read-only managed-database inventory.
+func (c *Client) DBInventory(ctx context.Context) (*Response, error) {
+	req := &Request{
+		RequestType: "db",
+		DB: &DBRequest{
+			Action:   "inventory",
+			Site:     "inventory",
+			Database: "inventory",
+			Username: "inventory",
+		},
+	}
+	return c.Execute(ctx, req)
+}
+
 // VhostApply applies virtual host configuration.
 func (c *Client) VhostApply(ctx context.Context, site, domain, webserver string) (*Response, error) {
 	req := &Request{

@@ -562,6 +562,8 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 	b.logger.Printf("db: action=%s database=%s", req.Action, req.Database)
 
 	switch req.Action {
+	case "inventory":
+		return b.dbInventory(ctx, req)
 	case "provision":
 		return b.dbProvision(ctx, req)
 	case "restore-dump":
@@ -571,6 +573,20 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown db action: %s", req.Action)}, nil
 	}
+}
+
+// dbInventory is intentionally narrow: the application uses the packaged
+// database helper as the source of truth, but an isolated lab container may
+// prohibit sudo elevation with no_new_privs. The root broker can run this
+// read-only helper without changing the panel or worker service identity.
+func (b *Broker) dbInventory(ctx context.Context, _ *DBRequest) (*Response, error) {
+	cmd := exec.CommandContext(ctx, "/usr/local/sbin/stepanel-dbctl", "inventory")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("database inventory failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, _ := json.Marshal(DBResponse{Output: string(output)})
+	return &Response{OK: true, Details: details}, nil
 }
 
 func (b *Broker) dbProvision(ctx context.Context, req *DBRequest) (*Response, error) {

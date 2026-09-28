@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 type DatabaseResource struct {
@@ -56,6 +59,24 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" && input == "" && len(args) == 1 && args[0] == "inventory" {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if err != nil {
+			return nil, err
+		}
+		response, err := client.DBInventory(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !response.OK {
+			return nil, errors.New(response.Error)
+		}
+		var details rootbroker.DBResponse
+		if err := json.Unmarshal(response.Details, &details); err != nil {
+			return nil, fmt.Errorf("decode root broker database inventory: %w", err)
+		}
+		return []byte(details.Output), nil
+	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, args...)
 	if input == "" {
 		return runBoundedCommand(ctx, cmd)

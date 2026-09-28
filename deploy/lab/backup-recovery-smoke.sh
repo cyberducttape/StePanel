@@ -184,12 +184,11 @@ echo "restore recovery smoke passed (worker $before was killed during restore ac
 # Finally exercise the irreversible lifecycle journal. The worker dies after
 # the site-state step starts; the restarted worker must roll the journal
 # forward and leave the site absent, with the verified backup retained.
-# The disposable CI container applies no_new_privs to sudo, which prevents the
-# database helper from performing its required root-only inventory call. For
-# this isolated lifecycle-recovery drill only, run the worker itself as root
-# and clear STEPANEL_SUDO; the ordinary service remains unprivileged and all
-# earlier drills still exercise that production privilege boundary.
-printf '%s\n' '[Service]' 'User=root' 'Environment=STEPANEL_SUDO=' 'Environment=STEPANEL_KILL_AT=terminate:site-state' > "$dropin"
+# The isolated lab mode routes the read-only database inventory through the
+# root broker because the disposable container applies no_new_privs to sudo.
+# Keep both panel and worker unprivileged so audit ownership and service
+# privilege boundaries remain identical to production.
+printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=terminate:site-state' > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
