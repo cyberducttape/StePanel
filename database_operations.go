@@ -88,6 +88,13 @@ func labDirectRootBrokerEnabled() bool {
 	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" {
 		return true
 	}
+	// The termination recovery smoke injects this boundary into the worker
+	// drop-in. It is the one lab marker proven to survive the worker restart;
+	// pair it with the lab-only startup skip so production cannot select this
+	// direct execution path accidentally.
+	if os.Getenv("STEPANEL_KILL_AT") == "terminate:site-state" && os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") == "1" {
+		return true
+	}
 	info, err := os.Stat("/run/stepanel-lab-direct-root-broker")
 	if err == nil && info.Mode().IsRegular() && info.Mode().Perm() == 0600 {
 		return true
