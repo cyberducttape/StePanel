@@ -38,6 +38,11 @@ trap cleanup EXIT
 printf '%s\n' 'original release survives interrupted deployment' > "$public/deploy-recovery-marker.txt"
 /usr/local/sbin/stepanel-sitectl seal "$DEPLOY_RECOVERY_SMOKE_SITE"
 
+# The preceding account suspension drill uses the same disposable TOTP
+# identity. Wait for the next counter before logging in so replay protection
+# does not reject this independent deploy test.
+sleep $((31 - $(date +%s) % 30))
+
 totp=$(python3 - "$STEPANEL_ADMIN_TOTP_SECRET" <<'PY'
 import base64, hashlib, hmac, struct, sys, time
 
@@ -64,9 +69,6 @@ csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$cookies")
 [[ -n $session && -n $csrf ]] || { echo 'deploy recovery login did not issue session and CSRF cookies' >&2; exit 1; }
 cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
-# Avoid sharing the administrator TOTP counter with the preceding suspension
-# drill when both run near a 30-second boundary.
-sleep $((31 - $(date +%s) % 30))
 printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=deploy:activate' > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel.service
