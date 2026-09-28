@@ -770,6 +770,9 @@ func (m *DefaultManager) UpdateConfiguration(ctx context.Context, name string, r
 //     symlink at the leaf either), so a race between validation and
 //     removal cannot substitute a symlink for the site dir.
 func (m *DefaultManager) Delete(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	siteDir, err := m.resolveSiteRoot(name)
 	if err != nil {
 		return err
@@ -786,6 +789,9 @@ func (m *DefaultManager) Delete(ctx context.Context, name string) error {
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("sites.Manager: refuse to delete site %q: path is not a directory", name)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := os.RemoveAll(siteDir); err != nil {
 		return fmt.Errorf("sites.Manager: remove site: %w", err)

@@ -239,6 +239,26 @@ func TestDeleteAbsentSiteIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestDeleteHonorsCancelledContext(t *testing.T) {
+	m, root := newManager(t)
+	siteRoot := filepath.Join(root, "sites", "cancelled-delete")
+	sentinel := filepath.Join(siteRoot, "public", "index.html")
+	if err := os.MkdirAll(filepath.Dir(sentinel), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sentinel, []byte("preserve while lock is lost"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := m.Delete(ctx, "cancelled-delete"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Delete with canceled context error = %v, want context.Canceled", err)
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "preserve while lock is lost" {
+		t.Fatalf("cancelled Delete changed the site: data=%q error=%v", data, err)
+	}
+}
+
 // TestPlaceholdersReturnErrNotImplemented — Restore/Update/Suspend/Resume no
 // longer silently succeed. A caller that treated the old nil return as "done"
 // would have been actively lied to.
