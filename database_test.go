@@ -43,6 +43,20 @@ func TestManagedDatabaseInventory(t *testing.T) {
 	}
 }
 
+func TestLabDirectRootBrokerRequiresExplicitLabSignal(t *testing.T) {
+	t.Setenv("STEPANEL_LAB_DIRECT_ROOT_BROKER", "1")
+	if !labDirectRootBrokerEnabled() {
+		t.Fatal("explicit lab broker mode was not recognized")
+	}
+
+	t.Setenv("STEPANEL_LAB_DIRECT_ROOT_BROKER", "0")
+	t.Setenv("STEPANEL_KILL_AT", "terminate:site-state")
+	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "1")
+	if !labDirectRootBrokerEnabled() {
+		t.Fatal("explicit termination lab signal was not recognized")
+	}
+}
+
 func TestDatabaseResourceReturnsReadOnlyDetailWithoutCSRF(t *testing.T) {
 	helper := filepath.Join(t.TempDir(), "dbctl")
 	script := "#!/bin/sh\nprintf 'site_db\\tsite\\tsite_user\\t4096\\tutf8mb4\\n'\n"
