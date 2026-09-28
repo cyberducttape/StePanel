@@ -115,7 +115,6 @@ done
 rm -f -- "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel.service
-login
 accounts=$(curl --fail --silent --show-error --max-time 10 \
   -H "Cookie: $COOKIE_HEADER" "$PANEL/api/accounts")
 SUSPENSION_SMOKE_ACCOUNT="$SUSPENSION_SMOKE_ACCOUNT" ACCOUNTS_JSON="$accounts" python3 <<'PY'
