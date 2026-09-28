@@ -46,3 +46,8 @@ host screenshot.
 installed panel, uploads a synthetic cpmove archive, waits for the durable
 restore job, and verifies the imported file under `/var/www/sites/ci-import`.
 Set `CPMOVE_SMOKE_SITE` to use a different disposable site name.
+
+The same smoke run exercises worker-kill/restart recovery for cpmove import,
+backup, file restore, and termination, plus panel-kill/restart recovery for
+durable account suspension. The account drill uses the disposable
+`ci-suspension-recovery` account by default.
