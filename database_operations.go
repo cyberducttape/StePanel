@@ -59,7 +59,7 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" && input == "" && len(args) == 1 && args[0] == "inventory" {
+	if labDirectRootBrokerEnabled() && input == "" && len(args) == 1 && args[0] == "inventory" {
 		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 		if err != nil {
 			return nil, err
@@ -82,6 +82,14 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 		return runBoundedCommand(ctx, cmd)
 	}
 	return runBoundedCommandInput(ctx, cmd, strings.NewReader(input+"\n"))
+}
+
+func labDirectRootBrokerEnabled() bool {
+	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" {
+		return true
+	}
+	info, err := os.Stat("/run/stepanel-lab-direct-root-broker")
+	return err == nil && info.Mode().IsRegular() && info.Mode().Perm() == 0600
 }
 
 func managedDatabaseInventory(cfg Config) ([]DatabaseResource, error) {
