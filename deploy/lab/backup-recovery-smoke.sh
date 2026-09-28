@@ -68,7 +68,9 @@ csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$cookies")
 [[ -n $session && -n $csrf ]] || { echo 'backup recovery login did not issue session and CSRF cookies' >&2; exit 1; }
 cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
-printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=backup:archive' > "$dropin"
+printf '%s\n' '[Service]' \
+  'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \
+  'Environment=STEPANEL_KILL_AT=backup:archive' > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
@@ -130,7 +132,9 @@ echo "backup recovery smoke passed (worker $before was killed during archive fin
 backup_name=$(printf '%s' "$backups" | python3 -c 'import json, sys; items=json.load(sys.stdin)["backups"]; print(items[0]["path"].rstrip("/").rsplit("/", 1)[-1] if items else "")')
 [[ -n $backup_name ]] || { echo 'backup listing did not expose a restore artifact' >&2; exit 1; }
 
-printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=restore:activate' > "$dropin"
+printf '%s\n' '[Service]' \
+  'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \
+  'Environment=STEPANEL_KILL_AT=restore:activate' > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
@@ -188,7 +192,9 @@ echo "restore recovery smoke passed (worker $before was killed during restore ac
 # root broker because the disposable container applies no_new_privs to sudo.
 # Keep both panel and worker unprivileged so audit ownership and service
 # privilege boundaries remain identical to production.
-printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=terminate:site-state' > "$dropin"
+printf '%s\n' '[Service]' \
+  'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \
+  'Environment=STEPANEL_KILL_AT=terminate:site-state' > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
