@@ -58,6 +58,7 @@ fi
 # It avoids relying on systemd environment propagation for the lab-only
 # setuid-broker workaround.
 install -m 0600 -o root -g root /dev/null /run/stepanel-lab-direct-root-broker
+install -m 0600 -o root -g root /dev/null /etc/stepanel-lab-direct-root-broker
 # rclone treats `local:/path` as a configured remote named "local". Create
 # that deliberately disposable remote so the required offsite-backup path is
 # exercised against the host filesystem rather than silently bypassed.
