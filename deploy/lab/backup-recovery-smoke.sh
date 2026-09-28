@@ -180,3 +180,59 @@ for _ in $(seq 1 240); do
 done
 [[ "$state" == completed ]] || { echo "restore recovery job $restore_job_id did not complete: ${status:-}" >&2; exit 1; }
 echo "restore recovery smoke passed (worker $before was killed during restore activation)"
+
+# Finally exercise the irreversible lifecycle journal. The worker dies after
+# the site-state step starts; the restarted worker must roll the journal
+# forward and leave the site absent, with the verified backup retained.
+printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=terminate:site-state' > "$dropin"
+systemctl daemon-reload
+systemctl restart stepanel-worker.service
+systemctl is-active --quiet stepanel-worker.service
+before=$(systemctl show stepanel-worker.service -p MainPID --value)
+
+response=$(curl --fail --silent --show-error --max-time 30 \
+  -H "Cookie: $cookie_header" \
+  -H "X-CSRF-Token: $csrf" \
+  -H 'Content-Type: application/json' \
+  --data "$(python3 - "$BACKUP_RECOVERY_SMOKE_SITE" <<'PY'
+import json, sys
+site = sys.argv[1]
+print(json.dumps({"site": site, "confirmation": "DELETE " + site}))
+PY
+)" \
+  "$PANEL/api/sites/terminate")
+terminate_job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^"]*\)".*/\1/p')
+[[ -n $terminate_job_id ]] || { echo "termination request did not return a durable job: $response" >&2; exit 1; }
+
+killed=0
+for _ in $(seq 1 90); do
+  current=$(systemctl show stepanel-worker.service -p MainPID --value)
+  if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
+    killed=1
+    rm -f -- "$dropin"
+    systemctl daemon-reload
+    systemctl restart stepanel-worker.service
+    break
+  fi
+  sleep 1
+done
+(( killed )) || { echo 'worker PID never changed; injected termination process-kill boundary was not observed' >&2; exit 1; }
+
+state=''
+status=''
+for _ in $(seq 1 240); do
+  status=$(curl --fail --silent --show-error --max-time 10 \
+    -H "Cookie: $cookie_header" "$PANEL/api/jobs/$terminate_job_id")
+  state=$(printf '%s' "$status" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+  case "$state" in
+    completed) break ;;
+    failed|dead-letter|cancelled)
+      echo "termination recovery job $terminate_job_id ended in $state: $status" >&2
+      exit 1
+      ;;
+  esac
+  sleep 1
+done
+[[ "$state" == completed ]] || { echo "termination recovery job $terminate_job_id did not complete: ${status:-}" >&2; exit 1; }
+[[ ! -d "/var/www/sites/$BACKUP_RECOVERY_SMOKE_SITE" ]] || { echo 'terminated site directory still exists' >&2; exit 1; }
+echo "termination recovery smoke passed (worker $before was killed during site-state removal)"
