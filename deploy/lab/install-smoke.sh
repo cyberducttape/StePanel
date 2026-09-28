@@ -48,6 +48,12 @@ if ! ./install.sh; then
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
   exit 1
 fi
+# The recovery smoke runs the separately supervised worker, so make the
+# explicitly lab-only direct-broker mode visible to both installed units even
+# when the installer is exercising an environment-file transition.
+if ! grep -q '^STEPANEL_LAB_DIRECT_ROOT_BROKER="1"$' /etc/ste-panel.env; then
+  printf '%s\n' 'STEPANEL_LAB_DIRECT_ROOT_BROKER="1"' >> /etc/ste-panel.env
+fi
 # rclone treats `local:/path` as a configured remote named "local". Create
 # that deliberately disposable remote so the required offsite-backup path is
 # exercised against the host filesystem rather than silently bypassed.
