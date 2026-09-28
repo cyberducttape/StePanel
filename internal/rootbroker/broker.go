@@ -268,7 +268,22 @@ func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, e
 
 func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, error) {
 	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
-		return b.runLabHelper(ctx, "/usr/local/sbin/stepanel-sitectl", "delete", req.Site)
+		resp, err := b.runLabHelper(ctx, "/usr/local/sbin/stepanel-sitectl", "delete", req.Site)
+		if err != nil || resp == nil || !resp.OK {
+			return resp, err
+		}
+		// The lab helper only removes the tree when its derived site user
+		// exists. Imported recovery sites can have no such user, so finish
+		// the validated site-root cleanup here while still keeping the
+		// executable and arguments fixed to the lab-only path.
+		siteRoot, validateErr := b.validator.ValidateSiteRoot(req.Site)
+		if validateErr != nil {
+			return &Response{OK: false, Error: validateErr.Error()}, nil
+		}
+		if removeErr := os.RemoveAll(siteRoot); removeErr != nil && !os.IsNotExist(removeErr) {
+			return &Response{OK: false, Error: fmt.Sprintf("lab site cleanup failed: %v", removeErr)}, nil
+		}
+		return resp, nil
 	}
 	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
 	if err != nil {
