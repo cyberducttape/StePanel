@@ -127,6 +127,16 @@ systemctl is-active --quiet stepanel-worker.service
 test -s /var/lib/ste-panel/stepanel-control.db
 test -s /var/lib/ste-panel/audit.jsonl
 systemd-analyze security stepanel.service stepanel-worker.service
+for unit in stepanel.service stepanel-worker.service; do
+  systemctl show "$unit" -p ProtectSystem --value | grep -Fxq full
+  systemctl show "$unit" -p PrivateTmp --value | grep -Fxq yes
+  systemctl show "$unit" -p ProtectKernelTunables --value | grep -Fxq yes
+  systemctl show "$unit" -p ProtectKernelModules --value | grep -Fxq yes
+  systemctl show "$unit" -p ProtectKernelLogs --value | grep -Fxq yes
+  systemctl show "$unit" -p ProtectControlGroups --value | grep -Fxq yes
+  systemctl show "$unit" -p ProtectClock --value | grep -Fxq yes
+  systemctl show "$unit" -p RestrictRealtime --value | grep -Fxq yes
+done
 
 # Exercise the installed site helpers and selected webserver configuration,
 # not just the panel daemon. This is intentionally a synthetic site.

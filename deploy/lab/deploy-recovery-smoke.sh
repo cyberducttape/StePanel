@@ -72,7 +72,14 @@ cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=deploy:activate' > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel.service
-systemctl is-active --quiet stepanel.service
+for _ in $(seq 1 60); do
+  if systemctl is-active --quiet stepanel.service && \
+     curl --fail --silent --max-time 2 "$PANEL/readyz" >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+curl --fail --silent --show-error --max-time 10 "$PANEL/readyz" >/dev/null
 before=$(systemctl show stepanel.service -p MainPID --value)
 [[ "$before" =~ ^[1-9][0-9]*$ ]] || { echo "could not determine panel PID: $before" >&2; exit 1; }
 

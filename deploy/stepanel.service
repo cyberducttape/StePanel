@@ -21,6 +21,18 @@ AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 SystemCallArchitectures=native
+# Keep OS binaries and kernel interfaces immutable from the daemon while
+# leaving /etc writable to the narrowly scoped privileged helpers. NoNewPrivileges
+# and SUID restrictions are intentionally not enabled: production helper calls
+# use the installer's exact-command sudoers boundary.
+ProtectSystem=full
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictRealtime=true
 # The daemon is unprivileged. Its sudoers policy permits only the validated
 # root helpers; filesystem access is constrained by normal ownership and ACLs.
 
