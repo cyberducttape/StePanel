@@ -410,8 +410,10 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 	// manager owns the final path-safe filesystem cleanup contract, so a
 	// helper implementation cannot silently broaden deletion scope. The
 	// operation is idempotent because the helper may already have removed the
-	// directory.
-	if a.siteManager != nil {
+	// directory. In the lab socket mode, the root helper has already removed
+	// the complete tree; an unprivileged second walk would fail on root-owned
+	// entries such as the PHP session directory.
+	if a.siteManager != nil && labBroker == nil {
 		if err := a.siteManager.Delete(ctx, siteName); err != nil {
 			return fmt.Errorf("finalize managed site deletion for %s: %w", siteName, err)
 		}
