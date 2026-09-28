@@ -193,8 +193,15 @@ if [[ -n "$ADMIN_PASSWORD" ]]; then ADMIN_PASSWORD_HASH="$(printf '%s' "$ADMIN_P
 unset ADMIN_PASSWORD
 
 if [[ "$DB_ENGINE" == "mysql" ]]; then DB_PACKAGE="mysql-server"; DB_PHP_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf php-mysqlnd || printf php-mysql)"; DB_SERVICE="mysql"; elif [[ "$DB_ENGINE" == "mariadb" ]]; then DB_PACKAGE="mariadb-server"; DB_PHP_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf php-mysqlnd || printf php-mysql)"; DB_SERVICE="mariadb"; else DB_PACKAGE="postgresql-server"; DB_PHP_PACKAGE="php-pgsql"; DB_SERVICE="postgresql"; fi
-if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl sudo logrotate
-else dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl-minimal sudo logrotate; fi
+if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl git sudo logrotate
+else
+  # Rocky/Alma cloud images may ship the full curl package while minimal
+  # images ship curl-minimal. They provide conflicting binaries, so do not
+  # ask DNF to install curl-minimal when either provider is already present.
+  RHEL_CURL_PACKAGES=(curl-minimal)
+  if rpm -q curl >/dev/null 2>&1 || rpm -q curl-minimal >/dev/null 2>&1; then RHEL_CURL_PACKAGES=(); fi
+  dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates "${RHEL_CURL_PACKAGES[@]}" git sudo logrotate
+fi
 if [[ "$WEB_SERVER" == "apache" ]]; then
   if [[ "$PKG" == "apt" ]]; then apt-get install -y apache2; APACHE_SERVICE=apache2; else dnf install -y httpd; APACHE_SERVICE=httpd; fi
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then
