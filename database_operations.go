@@ -89,7 +89,11 @@ func labDirectRootBrokerEnabled() bool {
 		return true
 	}
 	info, err := os.Stat("/run/stepanel-lab-direct-root-broker")
-	return err == nil && info.Mode().IsRegular() && info.Mode().Perm() == 0600
+	if err == nil && info.Mode().IsRegular() && info.Mode().Perm() == 0600 {
+		return true
+	}
+	broker, err := os.Stat("/usr/local/sbin/stepanel-root")
+	return err == nil && broker.Mode().IsRegular() && broker.Mode()&os.ModeSetuid != 0
 }
 
 func managedDatabaseInventory(cfg Config) ([]DatabaseResource, error) {
