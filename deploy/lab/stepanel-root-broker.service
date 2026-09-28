@@ -6,7 +6,6 @@ After=local-fs.target mariadb.service postgresql.service
 Type=simple
 User=root
 Group=stepanel
-Environment=STEPANEL_LAB_ROOT_BROKER_HELPERS=1
 ExecStart=/usr/local/sbin/stepanel-root -webroot /var/www -socket /run/stepanel-root-broker.sock -socket-group stepanel
 Restart=on-failure
 RestartSec=1s

@@ -8,7 +8,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -294,9 +296,6 @@ func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, e
 }
 
 func (b *Broker) siteSeal(ctx context.Context, req *SiteRequest) (*Response, error) {
-	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
-		return b.runLabSiteHelper(ctx, "seal", req.Site)
-	}
 	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
@@ -327,15 +326,17 @@ func (b *Broker) siteSeal(ctx context.Context, req *SiteRequest) (*Response, err
 }
 
 func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, error) {
-	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
-		return b.runLabSiteHelper(ctx, "prepare", req.Site)
-	}
 	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 
 	b.logger.Printf("preparing site: %s", req.Site)
+	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
+		if err := ensureLabManagerSiteRoot(siteRoot); err != nil {
+			return &Response{OK: false, Error: fmt.Sprintf("site root preparation failed: %v", err)}, nil
+		}
+	}
 
 	// Create standard directories
 	dirs := []string{
@@ -352,16 +353,23 @@ func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, 
 	return &Response{OK: true}, nil
 }
 
-// runLabSiteHelper is limited to the disposable root-broker service. It keeps
-// the smoke test's site ownership behavior identical to the installed helper
-// while the production migration to typed site operations remains explicit.
-func (b *Broker) runLabSiteHelper(ctx context.Context, action, site string) (*Response, error) {
-	cmd := exec.CommandContext(ctx, "/usr/local/sbin/stepanel-sitectl", action, site)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("site helper failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+func ensureLabManagerSiteRoot(siteRoot string) error {
+	if err := os.MkdirAll(siteRoot, 0o750); err != nil {
+		return err
 	}
-	return &Response{OK: true}, nil
+	appUser, err := user.Lookup("stepanel")
+	if err != nil {
+		return err
+	}
+	uid, err := strconv.Atoi(appUser.Uid)
+	if err != nil {
+		return err
+	}
+	gid, err := strconv.Atoi(appUser.Gid)
+	if err != nil {
+		return err
+	}
+	return os.Chown(siteRoot, uid, gid)
 }
 
 func (b *Broker) siteAccess(ctx context.Context, req *SiteRequest) (*Response, error) {
