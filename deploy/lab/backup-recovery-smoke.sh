@@ -205,7 +205,7 @@ terminate_job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^"]*\)".*/
 [[ -n $terminate_job_id ]] || { echo "termination request did not return a durable job: $response" >&2; exit 1; }
 
 killed=0
-for _ in $(seq 1 90); do
+for _ in $(seq 1 240); do
   current=$(systemctl show stepanel-worker.service -p MainPID --value)
   if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
     killed=1
@@ -214,6 +214,19 @@ for _ in $(seq 1 90); do
     systemctl restart stepanel-worker.service
     break
   fi
+  status=$(curl --fail --silent --show-error --max-time 10 \
+    -H "Cookie: $cookie_header" "$PANEL/api/jobs/$terminate_job_id")
+  state=$(printf '%s' "$status" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+  case "$state" in
+    completed)
+      echo 'termination completed before the injected kill boundary was observed' >&2
+      exit 1
+      ;;
+    failed|dead-letter|cancelled)
+      echo "termination job ended in $state before the injected kill boundary: $status" >&2
+      exit 1
+      ;;
+  esac
   sleep 1
 done
 (( killed )) || { echo 'worker PID never changed; injected termination process-kill boundary was not observed' >&2; exit 1; }
