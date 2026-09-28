@@ -2,7 +2,7 @@
 
 **Version:** v0.7.0 (Operator Beta)  
 **Last Updated:** 2026-09-28
-**Status:** 85% toward v1.0 Production Release
+**Status:** Operator Beta; not approved for v1.0 production release
 
 ---
 
@@ -22,11 +22,10 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 |------|-------------|--------|---------|
 | **Gate 1** | One Lifecycle Authority | ✅ COMPLETE | None |
 | **Gate 2** | Cross-Process Lock Enforcement | 🔄 PARTIAL (lock layer complete) | Full workflow interruption acceptance |
-| **Gate 3** | Durable Journal System | ✅ COMPLETE | None |
-| **Gate 4** | Broker Integration | ✅ COMPLETE | None |
+| **Gate 3** | Capability Reporting | ✅ COMPLETE | None |
+| **Gate 4** | Automated Archive Database Restoration | ✅ COMPLETE | None |
 | **Gate 5** | Failure Recovery Testing | 🔄 PARTIAL | Full deploy/termination/suspension recovery evidence and VM testing |
-| **Gate 6** | Concurrent Workflow Testing | 🔄 PARTIAL (lock-layer tests complete) | Full interrupted-workflow evidence |
-| **Gate 7** | (Reserved for future gates) | — | — |
+| **Gate 2 extension** | Interrupted Workflow Acceptance | 🔄 OPEN | Full conflicting-workflow recovery evidence |
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
@@ -57,7 +56,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ---
 
-### Gate 5: Production Durability Testing (90% → Phase 7 remaining)
+### Gate 5: Failure Injection Testing (partial; Phase 7 remains open)
 
 **Status:** Partial; hosted backup/file-restore worker-kill evidence passes, but termination recovery currently cannot execute the root-only database helper in the disposable host, and Phase 7 VM execution remains pending
 
