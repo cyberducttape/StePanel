@@ -35,6 +35,17 @@ func NewClient(brokerPath, webRoot string) (*Client, error) {
 // Execute sends a request to the root broker and returns the response.
 // The broker is invoked as a subprocess via sudo NOPASSWD.
 func (c *Client) Execute(ctx context.Context, req *Request) (*Response, error) {
+	return c.execute(ctx, req, os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1")
+}
+
+// ExecuteDirect invokes the broker directly. This is restricted to the
+// disposable install smoke, where the broker artifact is deliberately marked
+// setuid because the container's no_new_privs policy blocks sudo.
+func (c *Client) ExecuteDirect(ctx context.Context, req *Request) (*Response, error) {
+	return c.execute(ctx, req, true)
+}
+
+func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -43,7 +54,7 @@ func (c *Client) Execute(ctx context.Context, req *Request) (*Response, error) {
 	// GitHub's container runner can force no_new_privs on sudo subprocesses.
 	command := "sudo"
 	args := []string{c.brokerPath, "-webroot", c.webRoot}
-	if os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" {
+	if direct {
 		command = c.brokerPath
 		args = []string{"-webroot", c.webRoot}
 	}
@@ -170,6 +181,16 @@ func (c *Client) DBProvision(ctx context.Context, site, database, username strin
 
 // DBInventory returns the helper's read-only managed-database inventory.
 func (c *Client) DBInventory(ctx context.Context) (*Response, error) {
+	return c.dbInventory(ctx, false)
+}
+
+// DBInventoryDirect invokes the read-only inventory operation without sudo.
+// It is used only by the disposable install smoke's setuid broker path.
+func (c *Client) DBInventoryDirect(ctx context.Context) (*Response, error) {
+	return c.dbInventory(ctx, true)
+}
+
+func (c *Client) dbInventory(ctx context.Context, direct bool) (*Response, error) {
 	req := &Request{
 		RequestType: "db",
 		DB: &DBRequest{
@@ -178,6 +199,9 @@ func (c *Client) DBInventory(ctx context.Context) (*Response, error) {
 			Database: "inventory",
 			Username: "inventory",
 		},
+	}
+	if direct {
+		return c.ExecuteDirect(ctx, req)
 	}
 	return c.Execute(ctx, req)
 }

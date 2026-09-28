@@ -64,7 +64,7 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 		if err != nil {
 			return nil, err
 		}
-		response, err := client.DBInventory(ctx)
+		response, err := client.DBInventoryDirect(ctx)
 		if err != nil {
 			return nil, err
 		}
