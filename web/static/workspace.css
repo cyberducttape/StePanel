@@ -1311,6 +1311,11 @@ textarea[aria-invalid="true"] {
 .account-inventory-row strong, .account-inventory-row small { display: block; }
 .account-inventory-row small { margin-top: 5px; color: var(--muted, #667085); }
 .account-inventory-actions { display: flex; align-items: center; gap: 10px; }
+.account-edit { position: relative; }
+.account-edit summary { cursor: pointer; color: var(--muted, #667085); font-size: .8rem; }
+.account-edit-form { position: absolute; z-index: 2; right: 0; display: grid; gap: 8px; min-width: 250px; padding: 12px; border: 1px solid var(--line, #d8dee8); border-radius: 10px; background: var(--panel, #fff); box-shadow: 0 12px 30px rgba(15, 23, 42, .16); }
+.account-edit-form input, .account-edit-form select { min-width: 0; padding: 7px 8px; border: 1px solid var(--line, #d8dee8); border-radius: 6px; background: inherit; color: inherit; }
+.account-edit-form output { color: var(--muted, #667085); font-size: .78rem; }
 .account-create { margin-top: 12px; padding-top: 16px; border-top: 1px solid var(--line, #d8dee8); }
 .account-create summary { cursor: pointer; font-weight: 650; }
 @media (max-width: 640px) { .account-inventory-row { align-items: flex-start; flex-direction: column; } }
