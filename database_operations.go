@@ -221,7 +221,7 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 		}
 		lockKeys := []string{in.Site, "database:" + in.Name}
 		if !a.Auth.IsAdministrator(r) {
-			lockKeys = append(lockKeys, "account:"+a.Auth.UsernameForRequest(r))
+			lockKeys = append(lockKeys, a.customerTenantLockKey(r))
 		}
 		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), lockKeys...)
 		if lockErr != nil {

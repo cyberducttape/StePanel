@@ -2,6 +2,17 @@ package main
 
 import "net/http"
 
+func (a *App) customerTenantLockKey(r *http.Request) string {
+	username := a.Auth.UsernameForRequest(r)
+	if a.Accounts == nil || username == "" {
+		return "account:" + username
+	}
+	if account, ok := a.Accounts.Get(username); ok {
+		return "account:" + accountTenantID(account)
+	}
+	return "account:" + username
+}
+
 // SiteCapability is a sealed interface that proves authorization for a
 // particular site. Only the two unexported implementations below can be
 // created, via requireSiteAccess/authorizeSite (HTTP) or

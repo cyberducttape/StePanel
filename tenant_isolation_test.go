@@ -12,6 +12,27 @@ import (
 	"time"
 )
 
+func TestCustomerTenantLockKeyIsSharedByMembers(t *testing.T) {
+	a := &App{Accounts: &AccountStore{accounts: map[string]HostingAccount{
+		"alice":     {Username: "alice", TenantID: "alice", Role: "owner"},
+		"alice-dev": {Username: "alice-dev", TenantID: "alice", Role: "developer"},
+		"bob":       {Username: "bob", TenantID: "bob", Role: "owner"},
+	}}}
+	request := func(username string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		return r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, username))
+	}
+	if got := a.customerTenantLockKey(request("alice")); got != "account:alice" {
+		t.Fatalf("owner lock key = %q", got)
+	}
+	if got := a.customerTenantLockKey(request("alice-dev")); got != "account:alice" {
+		t.Fatalf("member lock key = %q, want shared tenant key", got)
+	}
+	if got := a.customerTenantLockKey(request("bob")); got != "account:bob" {
+		t.Fatalf("second tenant lock key = %q", got)
+	}
+}
+
 // TestTenantIsolationMatrix is the adversarial cross-tenant check the
 // project's own production-gap analysis calls for: create two customer
 // accounts, each with a site the other does not own, and systematically
