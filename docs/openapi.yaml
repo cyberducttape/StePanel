@@ -299,6 +299,11 @@ paths:
       summary: Return the authenticated customer's tenant-scoped plan, usage, and account status
       responses:
         '200': {description: Customer account view without credentials or recovery secrets}
+  /api/account/activity:
+    get:
+      summary: Return verified activity scoped to the authenticated customer's tenant
+      responses:
+        '200': {description: Tenant-scoped audit activity}
   /api/account/sessions/revoke:
     post:
       summary: Log out every other session for the authenticated customer, keeping the current one active

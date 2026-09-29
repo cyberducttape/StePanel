@@ -91,6 +91,28 @@ func TestLoggerWritesVerifiesAndFiltersSignedEvents(t *testing.T) {
 	}
 }
 
+func TestReadScopedEventsFiltersTenantTargetsAndActor(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	ctx := context.Background()
+	for _, event := range []struct{ actor, action, target string }{
+		{"admin", "site.deploy", "alice-site"},
+		{"admin", "site.deploy", "bob-site"},
+		{"alice", "auth.login.succeeded", "login"},
+		{"bob", "auth.login.succeeded", "login"},
+	} {
+		if err := logger.LogAs(ctx, event.actor, event.action, event.target, "detail"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := ReadScopedEvents(logger.path, []string{"alice", "alice-site"}, "alice", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Target != "alice-site" || events[1].Actor != "alice" {
+		t.Fatalf("scoped events = %#v", events)
+	}
+}
+
 func TestLoggerRejectsTamperedLogAndMissingIdentity(t *testing.T) {
 	logger, _ := newTestLogger(t)
 	if err := logger.LogAs(context.Background(), "admin", "site.create", "site-a", "created"); err != nil {

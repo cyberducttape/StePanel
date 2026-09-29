@@ -12,6 +12,45 @@ import (
 	"strings"
 )
 
+// ReadScopedEvents verifies the complete audit chain, then returns only
+// events whose target belongs to the supplied tenant or whose actor is that
+// tenant. It is intentionally separate from the operator HTTP endpoint so a
+// customer can never provide an arbitrary target filter to enumerate another
+// tenant's history.
+func ReadScopedEvents(path string, targets []string, actor string, limit int) ([]Event, error) {
+	if limit < 1 || limit > 500 {
+		return nil, errors.New("audit event limit must be between 1 and 500")
+	}
+	if path == "" {
+		return []Event{}, nil
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return []Event{}, nil
+	}
+	logger := &defaultLogger{path: path}
+	all, err := logger.readVerifiedEvents("", "", 500)
+	if err != nil {
+		return nil, err
+	}
+	targetSet := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		targetSet[strings.ToLower(strings.TrimSpace(target))] = struct{}{}
+	}
+	actor = strings.ToLower(strings.TrimSpace(actor))
+	filtered := make([]Event, 0, limit)
+	for _, event := range all {
+		_, targetMatch := targetSet[strings.ToLower(event.Target)]
+		if !targetMatch && (actor == "" || !strings.EqualFold(event.Actor, actor)) {
+			continue
+		}
+		filtered = append(filtered, event)
+		if len(filtered) > limit {
+			filtered = filtered[1:]
+		}
+	}
+	return filtered, nil
+}
+
 func (l *defaultLogger) Events(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if raw := r.URL.Query().Get("limit"); raw != "" {

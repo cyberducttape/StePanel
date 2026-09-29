@@ -31,6 +31,7 @@
   };
   const tokenStatus = document.querySelector('#accountTokenStatus');
   const tokenList = document.querySelector('#accountTokenList');
+  const activityList = document.querySelector('#accountActivityList');
   const renderTokens = (items) => {
     if (!tokenList) return;
     tokenList.replaceChildren();
@@ -59,6 +60,22 @@
       if (!response.ok) throw new Error(data.error || 'Token list unavailable');
       renderTokens(data.tokens || []);
     } catch (error) { tokenList.textContent = error.message; }
+  };
+  const loadActivity = async () => {
+    if (!activityList) return;
+    try {
+      const response = await fetch('/api/account/activity?limit=8');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Activity unavailable');
+      activityList.replaceChildren();
+      if (!(data.events || []).length) { activityList.textContent = 'No tenant activity recorded yet.'; return; }
+      data.events.slice().reverse().forEach((event) => {
+        const row = document.createElement('div'); row.className = 'token-row';
+        const when = new Date(event.time).toLocaleString();
+        row.textContent = `${when} · ${event.action} · ${event.target}`;
+        activityList.append(row);
+      });
+    } catch (error) { activityList.textContent = error.message; }
   };
   const tokenForm = document.querySelector('#accountTokenForm');
   if (tokenForm) tokenForm.addEventListener('submit', async (event) => {
@@ -106,4 +123,5 @@
     finally { revoke.disabled = false; }
   });
   load();
+  loadActivity();
 })();
