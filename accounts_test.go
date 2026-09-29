@@ -103,6 +103,54 @@ func TestAccountStoreOwnerOfSiteAndGetSites(t *testing.T) {
 	}
 }
 
+func TestAccountStoreMembersInheritOnlyTheirTenantSites(t *testing.T) {
+	store, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("alice", "a sufficiently long customer password", testTOTPSecret, "professional", []string{"alice-site"}); err != nil {
+		t.Fatal(err)
+	}
+	member, err := store.CreateMember("alice", "alice-dev", "another sufficiently long member password", testTOTPSecret, "developer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.TenantID != "alice" || member.Role != "developer" || member.PasswordHash != "" || member.TOTPSecret != "" {
+		t.Fatalf("member response leaked or misassigned tenant data: %#v", member)
+	}
+	if !store.OwnsSite("alice-dev", "alice-site") || store.OwnsSite("alice-dev", "bob-site") {
+		t.Fatal("member site access did not remain scoped to the owning tenant")
+	}
+	sites, err := store.GetSitesWithError("alice-dev")
+	if err != nil || len(sites) != 1 || sites[0] != "alice-site" {
+		t.Fatalf("member sites = %#v, err=%v", sites, err)
+	}
+	if _, err := store.CreateMember("alice", "alice-owner", "another sufficiently long member password", testTOTPSecret, "owner"); err == nil {
+		t.Fatal("member creation accepted owner role")
+	}
+	if store.TenantSuspended("alice-dev") {
+		t.Fatal("active tenant member was reported suspended")
+	}
+	if _, err := store.SetSuspended("alice", true); err != nil {
+		t.Fatal(err)
+	}
+	if !store.TenantSuspended("alice-dev") || !store.TenantSuspended("alice") {
+		t.Fatal("tenant suspension did not cover owner and member identities")
+	}
+}
+
+func TestCustomerRolesLimitBrowserScopes(t *testing.T) {
+	if !roleAllowsCustomerScope("owner", "database:write") || !roleAllowsCustomerScope("manager", "backup:restore") {
+		t.Fatal("owner and manager roles should retain tenant management access")
+	}
+	if !roleAllowsCustomerScope("developer", "site:deploy") || roleAllowsCustomerScope("developer", "database:write") {
+		t.Fatal("developer role has an unsafe or missing scope")
+	}
+	if !roleAllowsCustomerScope("viewer", "site:read") || roleAllowsCustomerScope("viewer", "site:deploy") {
+		t.Fatal("viewer role has an unsafe or missing scope")
+	}
+}
+
 func TestAccountStorePersistsOnlyValidatedAssignments(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "accounts.json")
 	store, err := OpenAccountStore(path)

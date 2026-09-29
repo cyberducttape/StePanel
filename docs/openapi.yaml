@@ -299,6 +299,16 @@ paths:
       summary: Return the authenticated customer's tenant-scoped plan, usage, and account status
       responses:
         '200': {description: Customer account view without credentials or recovery secrets}
+  /api/account/members:
+    get:
+      summary: List members of the authenticated customer tenant (owner only)
+      responses:
+        '200': {description: Tenant member metadata without credentials or MFA secrets}
+    post:
+      summary: Add a role-scoped member login to the authenticated customer tenant (owner only)
+      responses:
+        '201': {description: Tenant member created without password or TOTP secret disclosure}
+        '422': {description: Invalid member identity, role, password, or MFA seed}
   /api/account/activity:
     get:
       summary: Return verified activity scoped to the authenticated customer's tenant

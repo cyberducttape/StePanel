@@ -57,6 +57,7 @@
       renderPlanResources(data);
       set('accountMFA', data.mfa_enabled ? 'MFA enabled' : 'MFA setup needed');
       set('accountSecurityNote', data.password_reset_required ? 'Password update required.' : (data.mfa_enrollment_required ? 'MFA enrollment required.' : 'Credentials are scoped to this tenant.'));
+      if (team && data.role === 'owner') { team.hidden = false; loadMembers(); }
       const mfaSetup = document.querySelector('#accountMFASetup');
       if (mfaSetup && data.mfa_enabled && !data.mfa_enrollment_required) mfaSetup.hidden = true;
       if (status) status.textContent = data.suspended ? 'Account suspended' : 'Account active';
@@ -65,7 +66,25 @@
   const tokenStatus = document.querySelector('#accountTokenStatus');
   const tokenList = document.querySelector('#accountTokenList');
   const activityList = document.querySelector('#accountActivityList');
+  const team = document.querySelector('#accountTeam');
+  const memberList = document.querySelector('#accountMemberList');
+  const memberStatus = document.querySelector('#accountMemberStatus');
   const securityStatus = document.querySelector('#accountSecurityStatus');
+  const loadMembers = async () => {
+    if (!memberList) return;
+    try {
+      const response = await fetch('/api/account/members');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Team members unavailable');
+      memberList.replaceChildren();
+      if (!(data.members || []).length) { memberList.textContent = 'No team members have been added.'; return; }
+      data.members.forEach((member) => {
+        const row = document.createElement('div'); row.className = 'token-row';
+        row.textContent = `${member.username} · ${member.role} · ${member.mfa_enabled ? 'MFA enabled' : 'MFA required'}${member.suspended ? ' · suspended' : ''}`;
+        memberList.append(row);
+      });
+    } catch (error) { memberList.textContent = error.message; }
+  };
   const loadSecurity = async () => {
     if (!securityStatus) return;
     try {
@@ -156,6 +175,22 @@
   });
   const tokenDetails = document.querySelector('.account-tokens');
   if (tokenDetails) tokenDetails.addEventListener('toggle', () => { if (tokenDetails.open) loadTokens(); });
+  const memberForm = document.querySelector('#accountMemberForm');
+  if (memberForm) memberForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = memberForm.querySelector('button[type="submit"]'); button.disabled = true;
+    if (memberStatus) memberStatus.textContent = 'Adding team member…';
+    try {
+      const values = Object.fromEntries(new FormData(memberForm));
+      const response = await fetch('/api/account/members', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify(values) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not add team member');
+      memberForm.reset();
+      if (memberStatus) memberStatus.textContent = `${data.username} added as ${data.role}.`;
+      await loadMembers();
+    } catch (error) { if (memberStatus) memberStatus.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
   const passwordForm = document.querySelector('#accountPasswordForm');
   if (passwordForm) passwordForm.addEventListener('submit', async (event) => {
     event.preventDefault();

@@ -29,6 +29,9 @@ type PlanUsageMetrics struct {
 // CustomerAccountView is the narrow account representation exposed to a
 // customer. It contains only tenant-owned inventory and plan limits.
 type CustomerAccountView struct {
+	Username string `json:"username"`
+	TenantID string `json:"tenant_id"`
+	Role     string `json:"role"`
 	PlanUsageMetrics
 	Sites                 []string `json:"sites"`
 	MFAEnabled            bool     `json:"mfa_enabled"`
@@ -118,6 +121,9 @@ func (a *App) accountPlanStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account not found", http.StatusNotFound)
 		return
 	}
+	if tenant, tenantOK := a.Accounts.Get(accountTenantID(account)); tenantOK {
+		account = tenant
+	}
 
 	metrics, err := a.planUsageMetrics(account)
 	if err != nil {
@@ -172,21 +178,95 @@ func (a *App) accountMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "customer account required", http.StatusForbidden)
 		return
 	}
-	metrics, err := a.planUsageMetrics(account)
+	tenant, tenantOK := a.Accounts.Get(accountTenantID(account))
+	if !tenantOK {
+		http.Error(w, "customer tenant is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	metrics, err := a.planUsageMetrics(tenant)
 	if err != nil {
 		http.Error(w, "account plan is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	plan := hostingPlans[account.Plan]
+	plan := hostingPlans[tenant.Plan]
 	writeJSON(w, http.StatusOK, CustomerAccountView{
+		Username: username, TenantID: accountTenantID(account), Role: accountRole(account),
 		PlanUsageMetrics:      metrics,
-		Sites:                 append([]string(nil), account.Sites...),
+		Sites:                 append([]string(nil), tenant.Sites...),
 		MFAEnabled:            account.TOTPSecret != "",
 		PasswordResetRequired: account.PasswordResetRequired,
 		MFAEnrollmentRequired: account.MFAEnrollmentRequired,
 		CPUPercent:            plan.CPUPercent, MemoryMB: plan.MemoryMB, DiskMB: plan.DiskMB,
 		Inodes: plan.Inodes, TasksMax: plan.TasksMax, RedisMemoryMB: plan.RedisMemoryMB,
 	})
+}
+
+type tenantMemberRequest struct {
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	TOTPSecret string `json:"totp_secret"`
+	Role       string `json:"role"`
+}
+
+func (a *App) authenticatedTenantOwner(r *http.Request) (HostingAccount, bool) {
+	username := a.Auth.UsernameForRequest(r)
+	if username == "" || a.Auth.IsAdministrator(r) || a.Auth.IsAPITokenRequest(r) || a.Accounts == nil {
+		return HostingAccount{}, false
+	}
+	account, ok := a.Accounts.Get(username)
+	return account, ok && accountRole(account) == "owner" && accountTenantID(account) == username && !account.Suspended
+}
+
+func (a *App) accountMembers(w http.ResponseWriter, r *http.Request) {
+	owner, ok := a.authenticatedTenantOwner(r)
+	if !ok {
+		http.Error(w, "tenant owner access required", http.StatusForbidden)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		members, err := a.Accounts.ListMembers(owner.Username)
+		if err != nil {
+			http.Error(w, "unable to read tenant members", http.StatusInternalServerError)
+			return
+		}
+		result := make([]HostingAccountSummary, 0, len(members))
+		for _, member := range members {
+			result = append(result, publicHostingAccount(member))
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"members": result})
+	case http.MethodPost:
+		if !a.Auth.CSRF(r) {
+			http.Error(w, "invalid csrf token", http.StatusForbidden)
+			return
+		}
+		var req tenantMemberRequest
+		if err := decodeJSON(w, r, 4096, &req); err != nil {
+			return
+		}
+		req.Username = safeUser(req.Username)
+		req.Role = strings.ToLower(strings.TrimSpace(req.Role))
+		if req.Username == "" || req.Role == "" || len(req.Password) < 20 {
+			http.Error(w, "username, role, and a password of at least 20 characters are required", http.StatusUnprocessableEntity)
+			return
+		}
+		if _, err := decodeTOTPSecret(req.TOTPSecret); err != nil {
+			http.Error(w, "invalid MFA secret", http.StatusUnprocessableEntity)
+			return
+		}
+		member, err := a.Accounts.CreateMember(owner.Username, req.Username, req.Password, req.TOTPSecret, req.Role)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		if err := AuditAs(a.Config.AuditLog, owner.Username, "tenant.member.created", member.Username, member.Role); err != nil {
+			http.Error(w, "member created but audit persistence failed", http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(w, http.StatusCreated, publicHostingAccount(member))
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // accountSuspend implements account suspension with audit logging

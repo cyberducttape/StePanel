@@ -40,8 +40,8 @@ func (a *App) authorizeDurableSiteJob(site, actor string, scheduled bool) (Autho
 	if a.Accounts == nil {
 		return AuthorizedDurableSite{}, errors.New("tenant ownership state is unavailable")
 	}
-	account, ok := a.Accounts.Get(actor)
-	if !ok || account.Suspended || !a.Accounts.OwnsSite(actor, site) {
+	_, ok := a.Accounts.Get(actor)
+	if !ok || a.Accounts.TenantSuspended(actor) || !a.Accounts.OwnsSite(actor, site) {
 		return AuthorizedDurableSite{}, errors.New("durable job actor no longer owns the site")
 	}
 	return AuthorizedDurableSite{site: site}, nil

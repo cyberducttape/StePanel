@@ -47,6 +47,8 @@ var hostingPlans = map[string]HostingPlan{
 
 type HostingAccount struct {
 	Username              string    `json:"username"`
+	TenantID              string    `json:"tenant_id,omitempty"`
+	Role                  string    `json:"role,omitempty"`
 	PasswordHash          string    `json:"password_hash"`
 	TOTPSecret            string    `json:"totp_secret"`
 	TOTPEncrypted         bool      `json:"totp_encrypted,omitempty"`
@@ -66,6 +68,8 @@ type HostingAccount struct {
 // HTTP boundary, including to an administrator browser.
 type HostingAccountSummary struct {
 	Username              string    `json:"username"`
+	TenantID              string    `json:"tenant_id,omitempty"`
+	Role                  string    `json:"role,omitempty"`
 	Plan                  string    `json:"plan"`
 	Sites                 []string  `json:"sites"`
 	Suspended             bool      `json:"suspended"`
@@ -77,12 +81,27 @@ type HostingAccountSummary struct {
 
 func publicHostingAccount(account HostingAccount) HostingAccountSummary {
 	return HostingAccountSummary{
-		Username: account.Username, Plan: account.Plan,
+		Username: account.Username, TenantID: accountTenantID(account), Role: accountRole(account), Plan: account.Plan,
 		Sites: append([]string(nil), account.Sites...), Suspended: account.Suspended,
 		CreatedAt: account.CreatedAt, MFAEnabled: account.MFAConfigured || account.TOTPSecret != "",
 		PasswordResetRequired: account.PasswordResetRequired,
 		MFAEnrollmentRequired: account.MFAEnrollmentRequired,
 	}
+}
+
+func accountTenantID(account HostingAccount) string {
+	if strings.TrimSpace(account.TenantID) != "" {
+		return account.TenantID
+	}
+	return account.Username
+}
+
+func accountRole(account HostingAccount) string {
+	role := strings.ToLower(strings.TrimSpace(account.Role))
+	if role == "" {
+		return "owner"
+	}
+	return role
 }
 
 // AccountStore holds customer identities and site assignments. Administrator
@@ -205,6 +224,12 @@ func OpenAccountStoreDB(db *sql.DB, legacyPath string, accountKey ...string) (*A
 }
 
 func (s *AccountStore) addLoadedAccount(account HostingAccount) error {
+	if account.TenantID == "" {
+		account.TenantID = account.Username
+	}
+	if account.Role == "" {
+		account.Role = "owner"
+	}
 	if err := validateHostingAccount(account, false); err != nil {
 		return fmt.Errorf("invalid account state: %w", err)
 	}
@@ -236,6 +261,12 @@ func (s *AccountStore) loadAccounts(accounts []HostingAccount) error {
 			}
 			account.TOTPSecret = plain
 			account.TOTPEncrypted = false
+		}
+		if account.TenantID == "" {
+			account.TenantID = account.Username
+		}
+		if account.Role == "" {
+			account.Role = "owner"
 		}
 		if err := validateHostingAccount(account, false); err != nil {
 			return fmt.Errorf("invalid account state: %w", err)
@@ -280,6 +311,12 @@ func (s *AccountStore) refreshFromDBLocked() error {
 			}
 			account.TOTPSecret, account.TOTPEncrypted = plain, false
 		}
+		if account.TenantID == "" {
+			account.TenantID = account.Username
+		}
+		if account.Role == "" {
+			account.Role = "owner"
+		}
 		if err := validateHostingAccount(account, false); err != nil {
 			return fmt.Errorf("invalid durable account state: %w", err)
 		}
@@ -308,6 +345,19 @@ func (s *AccountStore) refreshFromDBLocked() error {
 func validateHostingAccount(account HostingAccount, requireCreated bool) error {
 	if safeUser(account.Username) == "" || len(account.PasswordHash) == 0 || account.TOTPSecret == "" {
 		return errors.New("account username, password hash, and TOTP secret are required")
+	}
+	if safeUser(account.TenantID) == "" {
+		return errors.New("account tenant ID is invalid")
+	}
+	role := accountRole(account)
+	if role != "owner" && role != "manager" && role != "developer" && role != "viewer" {
+		return errors.New("account role is invalid")
+	}
+	if role == "owner" && account.TenantID != account.Username {
+		return errors.New("tenant owner must own the tenant identity")
+	}
+	if role != "owner" && len(account.Sites) != 0 {
+		return errors.New("tenant members cannot own site assignments")
 	}
 	if _, err := bcryptCost(account.PasswordHash); err != nil {
 		return errors.New("account password hash must be valid bcrypt")
@@ -344,6 +394,12 @@ func (s *AccountStore) Get(username string) (HostingAccount, bool) {
 		if err := json.Unmarshal(payload, &account); err != nil {
 			return HostingAccount{}, false
 		}
+		if account.TenantID == "" {
+			account.TenantID = account.Username
+		}
+		if account.Role == "" {
+			account.Role = "owner"
+		}
 		if account.TOTPEncrypted {
 			if len(s.key) == 0 {
 				return HostingAccount{}, false
@@ -366,19 +422,33 @@ func (s *AccountStore) Get(username string) (HostingAccount, bool) {
 	return account, ok
 }
 
-func (s *AccountStore) OwnsSite(username, site string) bool {
-	if s.db != nil {
-		var owner string
-		if err := s.db.QueryRow(`SELECT username FROM tenant_sites WHERE site = ?`, site).Scan(&owner); err == nil {
-			return owner == username
-		}
-		return false
+func (s *AccountStore) TenantSuspended(username string) bool {
+	account, ok := s.Get(username)
+	if !ok || account.Suspended {
+		return account.Suspended
 	}
+	tenant, ok := s.Get(accountTenantID(account))
+	return ok && tenant.Suspended
+}
+
+func (s *AccountStore) OwnsSite(username, site string) bool {
 	account, ok := s.Get(username)
 	if !ok {
 		return false
 	}
-	for _, candidate := range account.Sites {
+	tenantID := accountTenantID(account)
+	if s.db != nil {
+		var owner string
+		if err := s.db.QueryRow(`SELECT username FROM tenant_sites WHERE site = ?`, site).Scan(&owner); err == nil {
+			return owner == tenantID
+		}
+		return false
+	}
+	owner, ok := s.Get(tenantID)
+	if !ok {
+		return false
+	}
+	for _, candidate := range owner.Sites {
 		if candidate == site {
 			return true
 		}
@@ -434,8 +504,13 @@ func (s *AccountStore) GetSites(username string) []string {
 // GetSitesWithError returns the durable site assignments without hiding query,
 // row-scan, or iteration failures as an empty assignment list.
 func (s *AccountStore) GetSitesWithError(username string) ([]string, error) {
+	account, ok := s.Get(username)
+	if !ok {
+		return nil, nil
+	}
+	tenantID := accountTenantID(account)
 	if s.db != nil {
-		rows, err := s.db.Query(`SELECT site FROM tenant_sites WHERE username = ? ORDER BY site`, username)
+		rows, err := s.db.Query(`SELECT site FROM tenant_sites WHERE username = ? ORDER BY site`, tenantID)
 		if err != nil {
 			return nil, fmt.Errorf("query sites for account %q: %w", username, err)
 		}
@@ -444,20 +519,20 @@ func (s *AccountStore) GetSitesWithError(username string) ([]string, error) {
 		for rows.Next() {
 			var site string
 			if err := rows.Scan(&site); err != nil {
-				return nil, fmt.Errorf("scan site for account %q: %w", username, err)
+				return nil, fmt.Errorf("scan site for account %q: %w", tenantID, err)
 			}
 			sites = append(sites, site)
 		}
 		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("iterate sites for account %q: %w", username, err)
+			return nil, fmt.Errorf("iterate sites for account %q: %w", tenantID, err)
 		}
 		return sites, nil
 	}
-	account, ok := s.Get(username)
+	owner, ok := s.Get(tenantID)
 	if !ok {
 		return nil, nil
 	}
-	return append([]string(nil), account.Sites...), nil
+	return append([]string(nil), owner.Sites...), nil
 }
 
 // SetSuspended changes the account lifecycle state atomically and persists it
@@ -524,6 +599,9 @@ func (s *AccountStore) Update(username, plan string, sites []string) (HostingAcc
 	account, ok := s.accounts[username]
 	if !ok {
 		return HostingAccount{}, errors.New("account not found")
+	}
+	if accountRole(account) != "owner" {
+		return HostingAccount{}, errors.New("tenant member plan and assignments are inherited from the owner")
 	}
 	updated := account
 	updated.Plan = strings.ToLower(strings.TrimSpace(plan))
@@ -631,7 +709,7 @@ func (s *AccountStore) Create(username, password, totpSecret, plan string, sites
 	if err != nil {
 		return HostingAccount{}, err
 	}
-	account := HostingAccount{Username: username, PasswordHash: hash, TOTPSecret: totpSecret, Plan: plan, Sites: sites, CreatedAt: time.Now().UTC()}
+	account := HostingAccount{Username: username, TenantID: username, Role: "owner", PasswordHash: hash, TOTPSecret: totpSecret, Plan: plan, Sites: sites, CreatedAt: time.Now().UTC()}
 	if err := validateHostingAccount(account, true); err != nil {
 		return HostingAccount{}, err
 	}
@@ -670,6 +748,74 @@ func (s *AccountStore) Create(username, password, totpSecret, plan string, sites
 	account.TOTPSecret = ""
 	account.RecoveryCodeHashes = nil
 	return account, nil
+}
+
+// CreateMember adds a login to an existing tenant without creating a second
+// site owner. Members inherit the tenant plan and site assignments and are
+// constrained by their role at the request authorization boundary.
+func (s *AccountStore) CreateMember(tenantID, username, password, totpSecret, role string) (HostingAccount, error) {
+	tenantID, username, role = safeUser(tenantID), safeUser(username), strings.ToLower(strings.TrimSpace(role))
+	if tenantID == "" || username == "" || len(password) < 20 {
+		return HostingAccount{}, errors.New("tenant, username, and a password of at least 20 characters are required")
+	}
+	if role == "owner" || role == "" {
+		return HostingAccount{}, errors.New("member role must be manager, developer, or viewer")
+	}
+	hash, err := hashPassword(password)
+	if err != nil {
+		return HostingAccount{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshFromDBLocked(); err != nil {
+		return HostingAccount{}, err
+	}
+	owner, ok := s.accounts[tenantID]
+	if !ok || accountTenantID(owner) != tenantID || accountRole(owner) != "owner" {
+		return HostingAccount{}, errors.New("tenant owner not found")
+	}
+	if _, exists := s.accounts[username]; exists {
+		return HostingAccount{}, errors.New("account already exists")
+	}
+	member := HostingAccount{Username: username, TenantID: tenantID, Role: role, PasswordHash: hash, TOTPSecret: totpSecret, Plan: owner.Plan, CreatedAt: time.Now().UTC()}
+	if err := validateHostingAccount(member, true); err != nil {
+		return HostingAccount{}, err
+	}
+	reservedAdministrator := s.administratorUsername
+	if reservedAdministrator == "" {
+		reservedAdministrator = "admin"
+	}
+	if username == reservedAdministrator {
+		return HostingAccount{}, errors.New("customer username is reserved for the administrator")
+	}
+	s.accounts[username] = member
+	if err := s.persistLocked(); err != nil {
+		delete(s.accounts, username)
+		return HostingAccount{}, err
+	}
+	member.PasswordHash, member.TOTPSecret, member.RecoveryCodeHashes = "", "", nil
+	return member, nil
+}
+
+func (s *AccountStore) ListMembers(tenantID string) ([]HostingAccount, error) {
+	tenantID = safeUser(tenantID)
+	if tenantID == "" {
+		return nil, errors.New("tenant ID is invalid")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshFromDBLocked(); err != nil {
+		return nil, err
+	}
+	members := make([]HostingAccount, 0)
+	for _, account := range s.accounts {
+		if accountTenantID(account) == tenantID && accountRole(account) != "owner" {
+			account.PasswordHash, account.TOTPSecret, account.RecoveryCodeHashes = "", "", nil
+			members = append(members, account)
+		}
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].Username < members[j].Username })
+	return members, nil
 }
 
 // SetAdministratorUsername establishes the identity that must never be
@@ -969,7 +1115,7 @@ func (s *AccountStore) persistLocked() error {
 				return fmt.Errorf("write durable account %s: %w", account.Username, err)
 			}
 			for _, site := range account.Sites {
-				if _, err := tx.Exec(`INSERT INTO tenant_sites (site, username, updated_at) VALUES (?, ?, unixepoch())`, site, account.Username); err != nil {
+				if _, err := tx.Exec(`INSERT INTO tenant_sites (site, username, updated_at) VALUES (?, ?, unixepoch())`, site, accountTenantID(account)); err != nil {
 					_ = tx.Rollback()
 					return fmt.Errorf("write durable site ownership %s: %w", site, err)
 				}

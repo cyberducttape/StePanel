@@ -12,7 +12,7 @@ This document describes deployment capabilities and limitations. It is not a rel
 - **Development**: Local development only
 - **Operator Beta**: Limited single-host deployment; operator expertise required
 - **Single-Host Production Candidate**: Target after the open production gates are evidenced
-- **Multi-Tenant Production**: Not supported; requires a separate multi-tenant architecture
+- **Multi-Tenant Production**: Not supported; the single-host panel now has tenant isolation and delegated roles, but requires a separate multi-host architecture for production SaaS
 - **GA (General Availability)**: Future target after release approval and operational certification
 
 ## Current Status: Operator Beta
@@ -35,7 +35,7 @@ StePanel v0.7.0 is suitable for controlled evaluation and operator-led staging. 
 
 ### ⛔️ Not Ready For
 
-- **Multi-tenant SaaS**: Requires RBAC per customer, audit segregation, resource quotas
+- **Multi-tenant SaaS**: Requires cross-host session/job state, provider-specific quota enforcement, and reseller/support policy boundaries
 - **High-availability**: No stateless API, no shared session store, no cross-region replication
 - **Automated recovery**: Recovery drills are manual; no auto-remediation
 - **Enterprise support**: SLA tracking, escalation routing not implemented
@@ -175,7 +175,7 @@ The following must be resolved before multi-tenant deployment:
 3. ✅ Safe config file updates (RESOLVED in v0.7.0)
 4. ✅ Archive type validation (RESOLVED in v0.7.0)
 5. ✅ Path traversal prevention (RESOLVED in v0.7.0)
-6. ⚠️ Customer RBAC (OWNER-ONLY BOUNDARY SHIPPED; delegated roles and reseller/support scopes remain)
+6. ⚠️ Customer RBAC (OWNER, MANAGER, DEVELOPER, and VIEWER roles shipped; reseller/support scopes remain)
 7. ⚠️ Audit log segregation (CUSTOMER ACTIVITY SCOPING SHIPPED; the operator audit chain remains global)
 8. ❌ Cross-host session replication (NOT STARTED)
 9. ⚠️ Resource quota enforcement (HOST CPU/memory/process/PHP-worker/disk/inode envelopes shipped; provider-specific bandwidth/database/mail/Redis quotas remain)

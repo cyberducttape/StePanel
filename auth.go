@@ -238,7 +238,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 	credentialsValid := knownAccount && passwordMatches
 	if credentialsValid {
 		if a.Accounts != nil {
-			if account, exists := a.Accounts.Get(username); exists && account.Suspended {
+			if a.Accounts.TenantSuspended(username) {
 				credentialsValid = false
 			}
 		}
@@ -407,7 +407,7 @@ func (a Auth) validSession(r *http.Request) bool {
 		return false
 	}
 	if a.Accounts != nil {
-		if account, ok := a.Accounts.Get(parts[0]); ok && account.Suspended {
+		if a.Accounts.TenantSuspended(parts[0]) {
 			return false
 		}
 	}
@@ -550,8 +550,8 @@ func (a Auth) validAPITokenWithScopes(r *http.Request) (string, []string, bool) 
 	if a.Accounts == nil {
 		return "", nil, false
 	}
-	account, exists := a.Accounts.Get(username)
-	return username, scopes, exists && !account.Suspended
+	_, exists := a.Accounts.Get(username)
+	return username, scopes, exists && !a.Accounts.TenantSuspended(username)
 }
 
 func (a Auth) HasAPIScope(r *http.Request, scope string) bool {
@@ -577,7 +577,14 @@ func (a Auth) HasAPIScope(r *http.Request, scope string) bool {
 // scope, so the empty-scopes case only ever describes a pre-existing token.
 func (a Auth) HasRequiredCustomerScope(r *http.Request, scope string) bool {
 	if !a.IsAPITokenRequest(r) {
-		return true
+		if a.IsAdministrator(r) || a.Accounts == nil {
+			return true
+		}
+		account, ok := a.Accounts.Get(a.UsernameForRequest(r))
+		if !ok || a.Accounts.TenantSuspended(account.Username) {
+			return false
+		}
+		return roleAllowsCustomerScope(accountRole(account), scope)
 	}
 	scopes, _ := r.Context().Value(apiTokenScopesKey{}).([]string)
 	if len(scopes) == 0 {
@@ -587,6 +594,24 @@ func (a Auth) HasRequiredCustomerScope(r *http.Request, scope string) bool {
 		if candidate == scope || (scope == "site:deploy" && candidate == "deploy:write") || (scope == "deploy:write" && candidate == "site:deploy") {
 			return true
 		}
+	}
+	return false
+}
+
+func roleAllowsCustomerScope(role, scope string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" || role == "owner" || role == "manager" {
+		return true
+	}
+	if role == "developer" {
+		switch scope {
+		case "site:read", "site:deploy", "deploy:write", "environment:read", "environment:write", "logs:read", "backup:read", "backup:create", "database:read", "redis:read":
+			return true
+		}
+		return false
+	}
+	if role == "viewer" {
+		return scope == "site:read" || scope == "environment:read" || scope == "backup:read" || scope == "database:read" || scope == "redis:read" || scope == "logs:read"
 	}
 	return false
 }
