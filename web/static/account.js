@@ -17,13 +17,24 @@
       set('accountPlan', data.plan);
       set('accountCreated', `Created ${new Date(data.created_at).toLocaleDateString()}`);
       set('accountSites', `${data.sites_used} / ${data.site_limit}`);
-      set('accountSitesLimit', `${data.site_limit} site${data.site_limit === 1 ? '' : 's'} included`);
+      set('accountSitesLimit', `${data.site_limit} site${data.site_limit === 1 ? '' : 's'} included · ${data.sites_percent || 0}% used`);
       set('accountDatabases', `${data.databases_used} / ${data.database_limit}`);
-      set('accountDatabasesLimit', `${data.database_limit} database${data.database_limit === 1 ? '' : 's'} included`);
+      set('accountDatabasesLimit', `${data.database_limit} database${data.database_limit === 1 ? '' : 's'} included · ${data.databases_percent || 0}% used`);
       const sitesBar = document.querySelector('#accountSitesBar');
       const databasesBar = document.querySelector('#accountDatabasesBar');
-      if (sitesBar) sitesBar.style.width = `${Math.min(100, data.sites_percent || 0)}%`;
-      if (databasesBar) databasesBar.style.width = `${Math.min(100, data.databases_percent || 0)}%`;
+      const markUsage = (bar, percent) => {
+        if (!bar) return;
+        const value = Math.min(100, percent || 0);
+        bar.style.width = `${value}%`;
+        bar.parentElement.classList.toggle('warning', value >= (data.warning_threshold_percent || 80));
+        bar.parentElement.classList.toggle('critical', value >= (data.critical_threshold_percent || 95));
+        bar.parentElement.setAttribute('role', 'progressbar');
+        bar.parentElement.setAttribute('aria-valuenow', String(value));
+        bar.parentElement.setAttribute('aria-valuemin', '0');
+        bar.parentElement.setAttribute('aria-valuemax', '100');
+      };
+      markUsage(sitesBar, data.sites_percent);
+      markUsage(databasesBar, data.databases_percent);
       set('accountMFA', data.mfa_enabled ? 'MFA enabled' : 'MFA setup needed');
       set('accountSecurityNote', data.password_reset_required ? 'Password update required.' : (data.mfa_enrollment_required ? 'MFA enrollment required.' : 'Credentials are scoped to this tenant.'));
       const mfaSetup = document.querySelector('#accountMFASetup');
