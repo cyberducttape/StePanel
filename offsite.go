@@ -25,6 +25,10 @@ func validateOffsiteTarget(target string) error {
 }
 
 func uploadOffsite(cfg Config, result BackupResult) error {
+	return uploadOffsiteContext(context.Background(), cfg, result)
+}
+
+func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResult) error {
 	if cfg.OffsiteTarget == "" {
 		return nil
 	}
@@ -32,7 +36,7 @@ func uploadOffsite(cfg Config, result BackupResult) error {
 		return err
 	}
 	destination := strings.TrimRight(cfg.OffsiteTarget, "/") + "/" + result.Site + "/" + filepath.Base(result.Path)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "rclone", "copyto", result.Path, destination, "--immutable")
 	cmd.Env = cloudCommandEnv()
@@ -47,6 +51,10 @@ func uploadOffsite(cfg Config, result BackupResult) error {
 // recursive copy, which keeps the restore boundary tied to the configured
 // provider layout.
 func downloadOffsiteBackup(cfg Config, site, backupName string) (string, func(), error) {
+	return downloadOffsiteBackupContext(context.Background(), cfg, site, backupName)
+}
+
+func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, backupName string) (string, func(), error) {
 	if safeUser(site) == "" || !validBackupName(backupName) {
 		return "", func() {}, errors.New("invalid offsite backup identity")
 	}
@@ -68,7 +76,7 @@ func downloadOffsiteBackup(cfg Config, site, backupName string) (string, func(),
 	for _, object := range []string{"manifest.json", "backup.tar.gz", "backup.tar.gz.sha256"} {
 		remote := remoteRoot + "/" + object
 		local := filepath.Join(root, object)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+		ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
 		cmd := exec.CommandContext(ctx, "rclone", "copyto", remote, local, "--immutable")
 		cmd.Env = cloudCommandEnv()
 		output, copyErr := runBoundedCommand(ctx, cmd)
@@ -81,7 +89,7 @@ func downloadOffsiteBackup(cfg Config, site, backupName string) (string, func(),
 	// A signed backup must retain its signature. Unsigned backups do not have
 	// this object, so absence is allowed and VerifySiteBackup enforces the
 	// configured signing policy.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
 	cmd := exec.CommandContext(ctx, "rclone", "copyto", remoteRoot+"/manifest.sig", filepath.Join(root, "manifest.sig"), "--immutable")
 	cmd.Env = cloudCommandEnv()
 	_, copyErr := runBoundedCommand(ctx, cmd)

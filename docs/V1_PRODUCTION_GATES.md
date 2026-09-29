@@ -186,6 +186,9 @@ Test 5: backup + filesystem restore simultaneously
 - Lock-held backup workflows now call `CreateSiteBackupContext`; cancellation
   is checked during archive traversal, file copying, verification, and commit
   so a fenced lease loss cannot publish a backup after takeover.
+- Lock-held offsite backup transfers now inherit the operation context, so
+  cloud upload/download work is cancelled when the site lease or job context
+  is cancelled.
 
 These tests prove lock acquisition, helper serialization, and the delete
 cancellation boundary. They do not yet prove that every full workflow remains

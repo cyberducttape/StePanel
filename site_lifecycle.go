@@ -283,7 +283,7 @@ func (a *App) terminationBackup(ctx context.Context, site SiteCapability, starte
 		if item.VerifiedAt.IsZero() || item.VerifiedAt.Before(started) {
 			continue
 		}
-		if err := a.ensureTerminationOffsiteBackup(item); err != nil {
+		if err := a.ensureTerminationOffsiteBackup(ctx, item); err != nil {
 			return BackupResult{}, err
 		}
 		return item, nil
@@ -292,7 +292,7 @@ func (a *App) terminationBackup(ctx context.Context, site SiteCapability, starte
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("create verified termination backup: %w", err)
 	}
-	if err := a.ensureTerminationOffsiteBackup(result); err != nil {
+	if err := a.ensureTerminationOffsiteBackup(ctx, result); err != nil {
 		return BackupResult{}, err
 	}
 	return result, nil
@@ -305,11 +305,11 @@ func (a *App) terminationBackup(ctx context.Context, site SiteCapability, starte
 // pick up a locally-verified backup that never left the host, silently
 // defeating the operator's offsite requirement right before the data it
 // protects is destroyed.
-func (a *App) ensureTerminationOffsiteBackup(result BackupResult) error {
+func (a *App) ensureTerminationOffsiteBackup(ctx context.Context, result BackupResult) error {
 	if !a.Config.RequireOffsiteBackup {
 		return nil
 	}
-	if err := uploadOffsite(a.Config, result); err != nil {
+	if err := uploadOffsiteContext(ctx, a.Config, result); err != nil {
 		return fmt.Errorf("offsite backup is required before site termination: %w", err)
 	}
 	return nil

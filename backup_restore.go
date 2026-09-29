@@ -66,7 +66,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	case "offsite-files":
 		var root string
 		var cleanup func()
-		root, cleanup, restoreErr = downloadOffsiteBackup(a.Config, request.Site, request.Backup)
+		root, cleanup, restoreErr = downloadOffsiteBackupContext(operationCtx, a.Config, request.Site, request.Backup)
 		if restoreErr == nil {
 			defer cleanup()
 			cfg := a.Config
@@ -76,7 +76,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	case "offsite-database":
 		var root string
 		var cleanup func()
-		root, cleanup, restoreErr = downloadOffsiteBackup(a.Config, request.Site, request.Backup)
+		root, cleanup, restoreErr = downloadOffsiteBackupContext(operationCtx, a.Config, request.Site, request.Backup)
 		if restoreErr == nil {
 			defer cleanup()
 			var safety BackupResult

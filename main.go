@@ -1037,7 +1037,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		return nil, err
 	}
-	if err = uploadOffsite(a.Config, result); err != nil {
+	if err = uploadOffsiteContext(operationCtx, a.Config, result); err != nil {
 		recordAudit(a.Config.AuditLog, request.Actor, "site.backup.offsite_failed", request.Site, err.Error())
 		if request.Scheduled {
 			started := request.StartedAt

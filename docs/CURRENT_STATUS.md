@@ -99,6 +99,10 @@ Lock-held backup workflows now propagate their operation context through
 archive traversal and publication, with cancellation checks preventing a
 fenced backup from being committed after lease loss.
 
+Offsite backup transfers in lock-held jobs now inherit the same operation
+context, preventing cloud transfer work from continuing after lease loss or
+job cancellation.
+
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,
