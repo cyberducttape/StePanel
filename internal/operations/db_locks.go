@@ -323,6 +323,14 @@ func (dl *DBLocks) Hold(ctx context.Context, lease Lease) error {
 	if lease.ResourceKey == "" {
 		return errors.New("lease has no resource_key")
 	}
+	// Renew before waiting for the first tick. This closes the startup window
+	// where a short lease could expire while the caller's renewal goroutine is
+	// being scheduled.
+	renewed, err := dl.Renew(lease)
+	if err != nil {
+		return err
+	}
+	lease = renewed
 	interval := dl.leaseTime / 3
 	if interval < time.Millisecond {
 		interval = time.Millisecond
