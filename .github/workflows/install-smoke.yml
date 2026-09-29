@@ -72,7 +72,10 @@ jobs:
             -v "$PWD:/work" "$HOST_IMAGE" /sbin/init
           systemd_ready=0
           for _ in $(seq 1 30); do
-            if docker exec stepanel-install systemctl is-system-running >/dev/null 2>&1; then
+            # Bound each probe independently. A wedged PID 1 or blocked
+            # systemctl call must not bypass the loop and consume the job's
+            # entire timeout before diagnostics can be collected.
+            if timeout --foreground 5s docker exec stepanel-install systemctl is-system-running >/dev/null 2>&1; then
               systemd_ready=1
               break
             fi
