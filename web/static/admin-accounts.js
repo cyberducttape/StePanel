@@ -22,7 +22,8 @@
       const row = document.createElement('article'); row.className = 'account-inventory-row';
       const info = document.createElement('div');
       const title = document.createElement('strong'); title.textContent = account.username;
-      const detail = document.createElement('small'); detail.textContent = `${account.plan} · ${(account.sites || []).length} assigned site(s) · ${account.mfa_enabled ? 'MFA enabled' : 'MFA required'}`;
+      const usage = account.usage ? ` · ${account.usage.sites_used}/${account.usage.site_limit} sites · ${account.usage.databases_used}/${account.usage.database_limit} databases` : '';
+      const detail = document.createElement('small'); detail.textContent = `${account.plan}${usage} · ${account.mfa_enabled ? 'MFA enabled' : 'MFA required'}`;
       info.append(title, detail);
       const actions = document.createElement('div'); actions.className = 'account-inventory-actions';
       const state = document.createElement('span'); state.className = account.suspended ? 'status status-warn' : 'status status-ok'; state.textContent = account.suspended ? 'Suspended' : 'Active';
@@ -41,7 +42,15 @@
     });
   };
   const load = async () => {
-    try { const data = await request('/api/accounts'); render(data.accounts || []); if (status) status.textContent = `${(data.accounts || []).length} customer account(s)`; }
+    try {
+      const data = await request('/api/accounts');
+      const accounts = await Promise.all((data.accounts || []).map(async (account) => {
+        try { account.usage = await request(`/api/admin/plan-status?account=${encodeURIComponent(account.username)}`); } catch (_) { /* inventory remains useful if one usage query fails */ }
+        return account;
+      }));
+      render(accounts);
+      if (status) status.textContent = `${accounts.length} customer account(s)`;
+    }
     catch (error) { if (status) status.textContent = error.message; inventory.textContent = 'Account inventory unavailable.'; }
   };
   const form = document.querySelector('#accountCreateForm');
