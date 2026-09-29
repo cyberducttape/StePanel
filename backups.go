@@ -731,9 +731,13 @@ func writeBackupManifest(root string, manifest BackupManifest, signingKey ...str
 		return fmt.Errorf("secure backup manifest file permissions: %w", err)
 	}
 	// Write manifest data with proper permissions guaranteed
-	if _, err = temp.Write(append(data, '\n')); err != nil {
+	payload := append(data, '\n')
+	if written, writeErr := temp.Write(payload); writeErr != nil {
 		temp.Close()
-		return fmt.Errorf("write backup manifest: %w", err)
+		return fmt.Errorf("write backup manifest: %w", writeErr)
+	} else if written != len(payload) {
+		temp.Close()
+		return fmt.Errorf("write backup manifest: %w", io.ErrShortWrite)
 	}
 	if err = temp.Sync(); err != nil {
 		temp.Close()
@@ -759,7 +763,11 @@ func writeSyncedFile(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	if _, err = file.Write(data); err == nil {
+	if written, writeErr := file.Write(data); writeErr != nil {
+		err = writeErr
+	} else if written != len(data) {
+		err = io.ErrShortWrite
+	} else {
 		err = file.Sync()
 	}
 	if closeErr := file.Close(); err == nil {

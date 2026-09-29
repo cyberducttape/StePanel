@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,14 +203,21 @@ func writeAtomicBroker(path string, data []byte, perm os.FileMode) error {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	if _, err := tmpFile.Write(data); err != nil {
+	if written, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("write to temp file: %w", err)
+	} else if written != len(data) {
+		tmpFile.Close()
+		return fmt.Errorf("write to temp file: %w", io.ErrShortWrite)
 	}
 
 	if err := tmpFile.Chmod(perm); err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("sync temp file: %w", err)
 	}
 
 	if err := tmpFile.Close(); err != nil {
@@ -219,6 +227,18 @@ func writeAtomicBroker(path string, data []byte, perm os.FileMode) error {
 	// Atomic rename
 	if err := os.Rename(tmpFile.Name(), path); err != nil {
 		return fmt.Errorf("rename temp file: %w", err)
+	}
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("open journal directory for sync: %w", err)
+	}
+	syncErr := dirFile.Sync()
+	closeErr := dirFile.Close()
+	if syncErr != nil {
+		return fmt.Errorf("sync journal directory: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close journal directory: %w", closeErr)
 	}
 
 	return nil

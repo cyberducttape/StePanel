@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -279,9 +280,13 @@ func (t *SiteTransaction) persist() error {
 		return fmt.Errorf("secure transaction file permissions: %w", err)
 	}
 	// Write transaction data with proper permissions guaranteed
-	if _, err = tmp.Write(append(data, '\n')); err != nil {
+	payload := append(data, '\n')
+	if written, writeErr := tmp.Write(payload); writeErr != nil {
 		tmp.Close()
-		return fmt.Errorf("write transaction state: %w", err)
+		return fmt.Errorf("write transaction state: %w", writeErr)
+	} else if written != len(payload) {
+		tmp.Close()
+		return fmt.Errorf("write transaction state: %w", io.ErrShortWrite)
 	}
 	if err = tmp.Sync(); err != nil {
 		tmp.Close()
@@ -293,12 +298,17 @@ func (t *SiteTransaction) persist() error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return err
 	}
-	if dir, err := os.Open(t.dir); err == nil {
-		syncErr := dir.Sync()
-		_ = dir.Close()
-		if syncErr != nil {
-			return syncErr
-		}
+	dir, err := os.Open(t.dir)
+	if err != nil {
+		return fmt.Errorf("open transaction directory for sync: %w", err)
+	}
+	syncErr := dir.Sync()
+	closeErr := dir.Close()
+	if syncErr != nil {
+		return fmt.Errorf("sync transaction directory: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close transaction directory: %w", closeErr)
 	}
 	return nil
 }

@@ -1231,9 +1231,13 @@ func (j *Jobs) persistLocked() error {
 		return fmt.Errorf("secure job state file permissions: %w", err)
 	}
 	// Write job data with proper permissions guaranteed
-	if _, err = tmp.Write(append(data, '\n')); err != nil {
+	payload := append(data, '\n')
+	if written, writeErr := tmp.Write(payload); writeErr != nil {
 		tmp.Close()
-		return fmt.Errorf("write job state: %w", err)
+		return fmt.Errorf("write job state: %w", writeErr)
+	} else if written != len(payload) {
+		tmp.Close()
+		return fmt.Errorf("write job state: %w", io.ErrShortWrite)
 	}
 	if err = tmp.Sync(); err != nil {
 		tmp.Close()
@@ -1245,12 +1249,17 @@ func (j *Jobs) persistLocked() error {
 	if err := os.Rename(tmpName, j.path); err != nil {
 		return fmt.Errorf("replace job state: %w", err)
 	}
-	if dir, err := os.Open(root); err == nil {
-		syncErr := dir.Sync()
-		_ = dir.Close()
-		if syncErr != nil {
-			return fmt.Errorf("sync job state directory: %w", syncErr)
-		}
+	dir, err := os.Open(root)
+	if err != nil {
+		return fmt.Errorf("open job state directory for sync: %w", err)
+	}
+	syncErr := dir.Sync()
+	closeErr := dir.Close()
+	if syncErr != nil {
+		return fmt.Errorf("sync job state directory: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close job state directory: %w", closeErr)
 	}
 	return nil
 }
