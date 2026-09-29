@@ -192,7 +192,7 @@ The following must be resolved before multi-tenant deployment:
 
 ### v0.9.0 (Planned)
 
-- [~] Multi-tenant RBAC (owner and assigned-site isolation is implemented; delegated roles remain)
+- [~] Multi-tenant RBAC (owner, manager, developer, and viewer roles are implemented; support/reseller roles remain)
 - [ ] Per-customer audit log isolation
 - [~] Resource quota enforcement (host envelopes implemented; provider-specific quotas remain)
 - [ ] Automated compliance reporting

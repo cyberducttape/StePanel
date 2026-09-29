@@ -35,6 +35,14 @@
       if (!response.ok) throw new Error(data.error || 'Account details unavailable');
       set('accountPlan', data.plan);
       set('accountRole', `Tenant ${data.role || 'owner'}`);
+      const roleScopes = {
+        developer: new Set(['site:read', 'site:deploy', 'deploy:write', 'environment:read', 'environment:write', 'logs:read', 'backup:read', 'backup:create', 'database:read', 'redis:read']),
+        viewer: new Set(['site:read', 'environment:read', 'backup:read', 'database:read', 'redis:read', 'logs:read']),
+      }[data.role];
+      if (roleScopes) document.querySelectorAll('#accountTokenForm input[name="scope"]').forEach((input) => {
+        input.disabled = !roleScopes.has(input.value);
+        if (input.disabled) input.checked = false;
+      });
       set('accountCreated', `Created ${new Date(data.created_at).toLocaleDateString()}`);
       set('accountSites', `${data.sites_used} / ${data.site_limit}`);
       set('accountSitesLimit', `${data.site_limit} site${data.site_limit === 1 ? '' : 's'} included · ${data.sites_percent || 0}% used`);
