@@ -19,7 +19,7 @@
         {{ if .IsAdministrator }}<a href="#database"><span aria-hidden="true">▤</span>Databases</a><a href="#migrations"><span aria-hidden="true">⇄</span>Migrations</a><a href="#operations"><span aria-hidden="true">◫</span>Operations</a><a href="#security"><span aria-hidden="true">◇</span>Security</a>{{ end }}
         <a href="#jobs"><span aria-hidden="true">◷</span>Activity</a>
       </nav>
-      <div class="sidebar-footer"><span class="pulse" aria-hidden="true"></span><span>Control plane connected</span></div>
+      <div class="sidebar-footer"><span class="pulse" aria-hidden="true"></span><span>Control plane connected</span><button type="button" class="appearance-trigger" id="appearanceTrigger" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>Appearance</span></button></div>
     </aside>
     <header class="topbar">
       <button type="button" class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="workspaceSidebar" aria-label="Open navigation"><span aria-hidden="true">☰</span></button>
@@ -90,8 +90,31 @@
       </footer>
     </main>
   </div>
+<dialog class="appearance-dialog" id="appearanceDialog" aria-labelledby="appearanceHeading">
+  <form method="dialog" class="appearance-form" id="appearanceForm">
+    <div class="appearance-dialog-header"><div><p class="eyebrow">Personal workspace</p><h2 id="appearanceHeading">Appearance</h2></div><button type="button" class="appearance-close" id="appearanceClose" aria-label="Close appearance settings">×</button></div>
+    <p class="appearance-intro">Choose a color pack and interface size. These preferences stay in this browser and never change site or server settings.</p>
+    <div class="appearance-field"><label for="appearanceTheme">Color pack</label><select id="appearanceTheme" name="theme">
+      <option value="default">StePanel Dark</option>
+      <option value="classic-green">Classic Green</option>
+      <option value="classic-amber">Classic Amber</option>
+      <option value="classic-white">Classic White</option>
+      <option value="retro-neon">Retro 80s Neon</option>
+      <option value="high-contrast">High Contrast</option>
+      <option value="terminal-blue">Terminal Blue</option>
+      <option value="commodore64">Commodore 64</option>
+      <option value="windows95">Windows 95</option>
+      <option value="windows31">Windows 3.1</option>
+    </select></div>
+    <div class="appearance-swatches" id="appearanceSwatches" aria-label="Theme preview"></div>
+    <label class="appearance-check" id="appearanceDarkRow"><input type="checkbox" id="appearanceDark"> <span>Use dark mode</span><small>Only available for the StePanel pack.</small></label>
+    <div class="appearance-field"><label for="appearanceScale">Interface size <output id="appearanceScaleValue">100%</output></label><input id="appearanceScale" type="range" min="90" max="150" step="5" value="100"></div>
+    <div class="appearance-dialog-actions"><button type="button" class="quiet-action" id="appearanceReset">Reset appearance</button><button type="submit" class="primary-action">Done</button></div>
+  </form>
+</dialog>
 <script src="/static/dashboard.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/nav.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/theme.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/cpmove.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/deploy.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/certificates.js?v={{ .AssetVersion }}" defer></script>

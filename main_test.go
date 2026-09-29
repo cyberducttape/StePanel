@@ -55,6 +55,18 @@ func TestEmbeddedDashboardTemplate(t *testing.T) {
 	if _, err := webAssets.ReadFile("web/static/workspace.css"); err != nil {
 		t.Fatalf("workspace design asset is not embedded: %v", err)
 	}
+	if !strings.Contains(rendered.String(), "appearanceDialog") || !strings.Contains(rendered.String(), "/static/theme.js?v=test-assets") {
+		t.Fatal("dashboard is missing the persisted appearance settings surface")
+	}
+	themeScript, err := webAssets.ReadFile("web/static/theme.js")
+	if err != nil {
+		t.Fatalf("appearance theme asset is not embedded: %v", err)
+	}
+	for _, theme := range []string{"classic-green", "classic-amber", "retro-neon", "commodore64", "windows95", "windows31"} {
+		if !strings.Contains(string(themeScript), theme) {
+			t.Fatalf("appearance theme asset does not expose %q", theme)
+		}
+	}
 }
 
 func TestEmbeddedAssetVersion(t *testing.T) {

@@ -747,6 +747,156 @@ body { background: var(--panel-bg); color: var(--panel-text); }
   .lower-grid { grid-template-columns: 1fr; }
 }
 
+/* Operator appearance packs, inspired by MailSwiftSync's selectable color
+   packs. These tokens intentionally live after the workspace layer so a pack
+   can restyle the existing dashboard without changing its HTML contracts. */
+body[data-theme] {
+  --appearance-bg: #080e17;
+  --appearance-shell: #0a111c;
+  --appearance-surface: #101925;
+  --appearance-raised: #151f2c;
+  --appearance-line: #293544;
+  --appearance-text: #f1f5f9;
+  --appearance-muted: #a9b5c5;
+  --appearance-accent: #68d391;
+  --appearance-link: #8ed7c7;
+  --appearance-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --appearance-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --appearance-radius: 10px;
+  --appearance-shadow: 0 12px 30px rgba(0, 0, 0, .32);
+  background: var(--appearance-bg) !important;
+  color: var(--appearance-text) !important;
+  font-family: var(--appearance-font) !important;
+}
+body[data-theme] .app-shell { background: var(--appearance-shell) !important; }
+body[data-theme] .workspace-sidebar,
+body[data-theme] .topbar { background: var(--appearance-surface) !important; border-color: var(--appearance-line) !important; }
+body[data-theme] .workspace-sidebar .brand,
+body[data-theme] .workspace-context strong,
+body[data-theme] .hero h1,
+body[data-theme] .section-heading h2,
+body[data-theme] .card-heading h2,
+body[data-theme] .metric strong,
+body[data-theme] .site-card h3,
+body[data-theme] .site-detail h3,
+body[data-theme] .import-panel h2,
+body[data-theme] .onboarding h2,
+body[data-theme] .app-footer strong { color: var(--appearance-text) !important; }
+body[data-theme] .workspace-nav a,
+body[data-theme] .topbar-meta,
+body[data-theme] .metric-label,
+body[data-theme] .metric-note,
+body[data-theme] .import-copy,
+body[data-theme] .site-card p,
+body[data-theme] .activity-item p,
+body[data-theme] .muted,
+body[data-theme] .app-footer { color: var(--appearance-muted) !important; }
+body[data-theme] .workspace-nav a:hover,
+body[data-theme] .workspace-nav a:focus-visible,
+body[data-theme] .workspace-nav .is-active { border-color: var(--appearance-accent) !important; background: var(--appearance-raised) !important; color: var(--appearance-text) !important; }
+body[data-theme] .workspace-nav .is-active span,
+body[data-theme] .app-footer a,
+body[data-theme] code { color: var(--appearance-link) !important; }
+body[data-theme] .hero,
+body[data-theme] .brief-card { background: var(--appearance-raised) !important; border-color: var(--appearance-line) !important; }
+body[data-theme] .metric,
+body[data-theme] .onboarding,
+body[data-theme] .import-panel,
+body[data-theme] .database-admin,
+body[data-theme] .activity-card,
+body[data-theme] .security-card,
+body[data-theme] .site-detail,
+body[data-theme] .site-card { background: var(--appearance-surface) !important; border-color: var(--appearance-line) !important; box-shadow: var(--appearance-shadow) !important; }
+body[data-theme] .site-card button,
+body[data-theme] .site-detail .site-detail-actions button,
+body[data-theme] .quiet-action { background: var(--appearance-raised) !important; border-color: var(--appearance-line) !important; color: var(--appearance-link) !important; }
+body[data-theme] .primary-action { background: var(--appearance-accent) !important; color: var(--appearance-bg) !important; }
+body[data-theme] .import-form input:not([type=checkbox]),
+body[data-theme] .import-form select,
+body[data-theme] .import-form textarea,
+body[data-theme] .file-input,
+body[data-theme] .site-detail input { background: var(--appearance-bg) !important; border-color: var(--appearance-line) !important; color: var(--appearance-text) !important; }
+body[data-theme] .table-row,
+body[data-theme] .database-grid > div { background: var(--appearance-surface) !important; border-color: var(--appearance-line) !important; }
+body[data-theme] .resource-table,
+body[data-theme] .table-row,
+body[data-theme] .activity-item { border-color: var(--appearance-line) !important; }
+body[data-theme] .topbar-meta .avatar,
+body[data-theme] .nav-toggle { background: var(--appearance-raised) !important; border-color: var(--appearance-line) !important; color: var(--appearance-text) !important; }
+body[data-theme] .appearance-dialog { color: var(--appearance-text); background: var(--appearance-surface); border-color: var(--appearance-line); }
+body[data-theme] .appearance-dialog select,
+body[data-theme] .appearance-dialog input[type=range] { background: var(--appearance-bg); color: var(--appearance-text); border-color: var(--appearance-line); }
+body[data-theme] .appearance-dialog .quiet-action { color: var(--appearance-link) !important; }
+
+body[data-theme="default"][data-dark-mode="false"] {
+  --appearance-bg: #edf5f9;
+  --appearance-shell: #f7fbfd;
+  --appearance-surface: #fff;
+  --appearance-raised: #e8f2f6;
+  --appearance-line: #cbdde5;
+  --appearance-text: #172b3a;
+  --appearance-muted: #607789;
+  --appearance-accent: #0f766e;
+  --appearance-link: #28718e;
+}
+body[data-theme="classic-green"] { --appearance-bg: #001408; --appearance-shell: #001d0b; --appearance-surface: #002b12; --appearance-raised: #003d18; --appearance-line: #007a32; --appearance-text: #00e676; --appearance-muted: #70d99a; --appearance-accent: #00ff66; --appearance-link: #8affb1; --appearance-font: var(--appearance-mono); --appearance-radius: 0; --appearance-shadow: none; }
+body[data-theme="classic-amber"] { --appearance-bg: #160d00; --appearance-shell: #211300; --appearance-surface: #2b1b00; --appearance-raised: #422900; --appearance-line: #a06c00; --appearance-text: #ffbf00; --appearance-muted: #e0a83e; --appearance-accent: #ffd34e; --appearance-link: #ffe49a; --appearance-font: var(--appearance-mono); --appearance-radius: 0; --appearance-shadow: none; }
+body[data-theme="classic-white"] { --appearance-bg: #101010; --appearance-shell: #181818; --appearance-surface: #242424; --appearance-raised: #303030; --appearance-line: #bebebe; --appearance-text: #f4f4f4; --appearance-muted: #d0d0d0; --appearance-accent: #fff; --appearance-link: #fff; --appearance-font: var(--appearance-mono); --appearance-radius: 0; --appearance-shadow: none; }
+body[data-theme="retro-neon"] { --appearance-bg: #090018; --appearance-shell: #120025; --appearance-surface: #210044; --appearance-raised: #350060; --appearance-line: #b000a8; --appearance-text: #fff; --appearance-muted: #d3b9ff; --appearance-accent: #ff4fd8; --appearance-link: #64f9ff; --appearance-font: var(--appearance-mono); --appearance-radius: 2px; --appearance-shadow: 0 0 20px rgba(255, 79, 216, .18); }
+body[data-theme="high-contrast"] { --appearance-bg: #000; --appearance-shell: #000; --appearance-surface: #111; --appearance-raised: #222; --appearance-line: #fff; --appearance-text: #fff; --appearance-muted: #fff; --appearance-accent: #ffff00; --appearance-link: #00ffff; --appearance-font: var(--appearance-mono); --appearance-radius: 0; --appearance-shadow: none; }
+body[data-theme="terminal-blue"] { --appearance-bg: #00101f; --appearance-shell: #001a30; --appearance-surface: #002b4a; --appearance-raised: #003c62; --appearance-line: #167eb0; --appearance-text: #d9f4ff; --appearance-muted: #82c7e5; --appearance-accent: #55c7ff; --appearance-link: #a7e5ff; --appearance-font: var(--appearance-mono); --appearance-radius: 2px; --appearance-shadow: none; }
+body[data-theme="commodore64"] { --appearance-bg: #40318c; --appearance-shell: #40318c; --appearance-surface: #7869c4; --appearance-raised: #6254aa; --appearance-line: #a8ffea; --appearance-text: #a8ffea; --appearance-muted: #d2caff; --appearance-accent: #a8ffea; --appearance-link: #fff; --appearance-font: var(--appearance-mono); --appearance-radius: 0; --appearance-shadow: none; }
+body[data-theme="windows95"] { --appearance-bg: #008080; --appearance-shell: #008080; --appearance-surface: #c0c0c0; --appearance-raised: #d4d0c8; --appearance-line: #fff; --appearance-text: #000; --appearance-muted: #202020; --appearance-accent: #000080; --appearance-link: #000080; --appearance-font: "MS Sans Serif", Tahoma, sans-serif; --appearance-radius: 0; --appearance-shadow: 2px 2px 0 #000; }
+body[data-theme="windows31"] { --appearance-bg: #008080; --appearance-shell: #008080; --appearance-surface: #c0c0c0; --appearance-raised: #d4d0c8; --appearance-line: #fff; --appearance-text: #000; --appearance-muted: #202020; --appearance-accent: #000080; --appearance-link: #000080; --appearance-font: "MS Sans Serif", Tahoma, sans-serif; --appearance-radius: 0; --appearance-shadow: 3px 3px 0 #404040; }
+
+body[data-theme="classic-green"] .hero,
+body[data-theme="classic-amber"] .hero,
+body[data-theme="classic-white"] .hero,
+body[data-theme="terminal-blue"] .hero { background: var(--appearance-surface) !important; }
+body[data-theme="windows95"] .hero,
+body[data-theme="windows31"] .hero { border: 2px outset #fff !important; }
+body[data-theme="windows95"] .metric,
+body[data-theme="windows95"] .import-panel,
+body[data-theme="windows95"] .activity-card,
+body[data-theme="windows31"] .metric,
+body[data-theme="windows31"] .import-panel,
+body[data-theme="windows31"] .activity-card { border: 2px outset #fff !important; border-radius: 0 !important; }
+
+.sidebar-footer { flex-wrap: wrap; }
+.appearance-trigger { display: inline-flex; align-items: center; gap: 7px; width: 100%; margin-top: 10px; padding: 8px 0 0; border: 0; border-top: 1px solid var(--panel-line); background: transparent; color: var(--panel-muted); font: inherit; cursor: pointer; text-align: left; }
+.appearance-trigger span:first-child { font-size: 16px; }
+.appearance-trigger:hover, .appearance-trigger:focus-visible { color: var(--panel-accent); }
+.appearance-dialog { width: min(480px, calc(100vw - 32px)); padding: 0; border: 1px solid #34465d; border-radius: 14px; background: #101925; color: #f1f5f9; box-shadow: 0 24px 80px rgba(0,0,0,.55); }
+.appearance-dialog::backdrop { background: rgba(3, 7, 13, .72); backdrop-filter: blur(4px); }
+.appearance-form { padding: 25px; }
+.appearance-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.appearance-dialog h2 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
+.appearance-intro { margin: 12px 0 22px; color: #a9b5c5; font-size: 12px; line-height: 1.6; }
+.appearance-close { width: 32px; height: 32px; border: 1px solid #34465d; border-radius: 7px; background: #182535; color: #dbeafe; font-size: 22px; line-height: 1; cursor: pointer; }
+.appearance-field { display: grid; gap: 8px; margin-top: 18px; }
+.appearance-field label { display: flex; justify-content: space-between; color: #dbe7f2; font-size: 12px; font-weight: 700; }
+.appearance-field select { width: 100%; min-height: 40px; padding: 0 10px; border: 1px solid #34465d; border-radius: 7px; background: #080e17; color: #f1f5f9; font: inherit; }
+.appearance-swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; margin-top: 14px; }
+.appearance-swatch { display: flex; height: 31px; padding: 0; overflow: hidden; border: 1px solid #34465d; border-radius: 5px; background: transparent; cursor: pointer; }
+.appearance-swatch:hover, .appearance-swatch:focus-visible, .appearance-swatch[aria-pressed="true"] { border-color: #68d391; outline-offset: 2px; }
+.appearance-swatch i { flex: 1; }
+.appearance-check { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; margin-top: 20px; color: #dbe7f2; font-size: 12px; font-weight: 650; }
+.appearance-check input { accent-color: #68d391; }
+.appearance-check small { grid-column: 2; color: #8ea0b4; font-size: 10px; font-weight: 400; }
+.appearance-field input[type="range"] { accent-color: #68d391; }
+.appearance-dialog-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 25px; padding-top: 18px; border-top: 1px solid #293544; }
+.appearance-dialog-actions .primary-action { padding: 10px 17px; }
+body[data-theme] > .app-shell { zoom: var(--ui-scale, 1); min-height: calc(100vh / var(--ui-scale, 1)); }
+
+@media (max-width: 1050px) {
+  .appearance-trigger span:last-child { font-size: 0; }
+  .appearance-trigger { justify-content: center; }
+}
+@media (max-width: 720px) {
+  .appearance-trigger span:last-child { font-size: 11px; }
+  .appearance-trigger { justify-content: flex-start; }
+}
+
 /*
   Site workspace (tabbed detail view)
   Added to support opening a site as a workspace with Overview / Domains /
