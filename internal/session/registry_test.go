@@ -245,3 +245,162 @@ func TestRegistryValidatesExpiryAndIdentity(t *testing.T) {
 		t.Fatal("unexpected persistence error")
 	}
 }
+
+func TestOpenDBRejectsQueryAndScanFailures(t *testing.T) {
+	db := openTestSessionDB(t)
+	if _, err := db.Exec(`DROP TABLE sessions`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenDB(db); err == nil {
+		t.Fatal("OpenDB accepted a missing sessions table")
+	}
+
+	db = openTestSessionDB(t)
+	if _, err := db.Exec(`INSERT INTO sessions (id, username, expiry, updated_at) VALUES ('bad', 'alice', 'not-an-integer', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenDB(db); err == nil {
+		t.Fatal("OpenDB accepted an invalid expiry value")
+	}
+}
+
+func TestOpenDBMigratesLegacyFile(t *testing.T) {
+	db := openTestSessionDB(t)
+	path := filepath.Join(t.TempDir(), "legacy.json")
+	entry := map[string]int64{"legacy-id": time.Now().Add(time.Hour).Unix()}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := OpenDB(db, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !registry.Valid("legacy-id", "", entry["legacy-id"]) {
+		t.Fatalf("legacy database migration lost entry: %#v", registry.Entries)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("migrated row count = %d, err=%v", count, err)
+	}
+}
+
+func TestDBMutationFailuresRollBackMemory(t *testing.T) {
+	db := openTestSessionDB(t)
+	registry, err := OpenDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiry := time.Now().Add(time.Hour).Unix()
+	if err := registry.Add("one", "alice", expiry); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Add("two", "alice", expiry); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := registry.Add("three", "alice", expiry); err == nil {
+		t.Fatal("Add succeeded on a closed database")
+	}
+	if _, ok := registry.Entries["three"]; ok {
+		t.Fatal("failed Add remained in memory")
+	}
+	if err := registry.RevokeUser("alice"); err == nil {
+		t.Fatal("RevokeUser succeeded on a closed database")
+	}
+	if len(registry.Entries) != 2 {
+		t.Fatalf("RevokeUser failure changed memory: %#v", registry.Entries)
+	}
+	if err := registry.RevokeUserExcept("alice", "one"); err == nil {
+		t.Fatal("RevokeUserExcept succeeded on a closed database")
+	}
+	if len(registry.Entries) != 2 {
+		t.Fatalf("RevokeUserExcept failure changed memory: %#v", registry.Entries)
+	}
+	if err := registry.Revoke("one"); err == nil {
+		t.Fatal("Revoke succeeded on a closed database")
+	}
+	if _, ok := registry.Entries["one"]; !ok {
+		t.Fatal("failed Revoke removed memory entry")
+	}
+	if registry.PersistenceError() == nil {
+		t.Fatal("database failure was not recorded")
+	}
+}
+
+func TestAddPrunesExpiredAndEvictsOldestAtCapacity(t *testing.T) {
+	registry := New("")
+	now := time.Now().Unix()
+	registry.Entries["expired"] = Entry{Username: "old", Expiry: now - 1}
+	for i := 0; i < 10000; i++ {
+		registry.Entries["session-"+string(rune(i))] = Entry{Username: "user", Expiry: now + int64(i+1)}
+	}
+	if err := registry.Add("new", "user", now+20000); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := registry.Entries["expired"]; ok {
+		t.Fatal("expired session was not pruned")
+	}
+	if _, ok := registry.Entries["session-"+string(rune(0))]; ok {
+		t.Fatal("oldest session was not evicted")
+	}
+	if _, ok := registry.Entries["new"]; !ok {
+		t.Fatal("new session was not added")
+	}
+}
+
+func TestDBPersistenceRejectsTransactionOperations(t *testing.T) {
+	t.Run("full sync delete", func(t *testing.T) {
+		db := openTestSessionDB(t)
+		if _, err := db.Exec(`INSERT INTO sessions (id, username, expiry, updated_at) VALUES ('existing', 'alice', unixepoch() + 3600, unixepoch())`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`CREATE TRIGGER reject_session_delete BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'delete rejected'); END`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := OpenDB(db); err == nil {
+			t.Fatal("OpenDB ignored full-sync delete failure")
+		}
+	})
+
+	t.Run("incremental insert", func(t *testing.T) {
+		db := openTestSessionDB(t)
+		registry, err := OpenDB(db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`CREATE TRIGGER reject_session_insert BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'insert rejected'); END`); err != nil {
+			t.Fatal(err)
+		}
+		if err := registry.Add("rejected", "alice", time.Now().Add(time.Hour).Unix()); err == nil {
+			t.Fatal("Add ignored incremental insert failure")
+		}
+	})
+
+	t.Run("incremental delete", func(t *testing.T) {
+		db := openTestSessionDB(t)
+		registry, err := OpenDB(db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expiry := time.Now().Add(time.Hour).Unix()
+		if err := registry.Add("one", "alice", expiry); err != nil {
+			t.Fatal(err)
+		}
+		if err := registry.Add("two", "alice", expiry); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`CREATE TRIGGER reject_session_delete BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'delete rejected'); END`); err != nil {
+			t.Fatal(err)
+		}
+		if err := registry.RevokeUserExcept("alice", "one"); err == nil {
+			t.Fatal("RevokeUserExcept ignored incremental delete failure")
+		}
+	})
+}
