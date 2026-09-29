@@ -177,34 +177,43 @@
   // context (what it is, what it's used by, when it was last verified)
   // instead of a bare "are you sure?" prompt. When `extraField` is given
   // (e.g. collecting a staging domain), the dialog resolves to
-  // { confirmed, value } instead of a plain boolean so the caller can read
-  // what was typed without a separate native prompt() breaking the flow.
-  const confirmDangerous = ({ title, message, facts = [], confirmText, actionLabel = 'Confirm', extraField = null }) => new Promise((resolve) => {
+  // { confirmed, value } instead of a plain boolean. Multiple fields resolve
+  // to { confirmed, values } and are used for explicit database restore
+  // parameters without falling back to native prompt() dialogs.
+  const confirmDangerous = ({ title, message, facts = [], confirmText, actionLabel = 'Confirm', extraField = null, extraFields = null }) => new Promise((resolve) => {
     const dialog = el('dialog', { className: 'confirm-dialog' });
     const inputId = `confirm-input-${Math.random().toString(36).slice(2, 8)}`;
     const input = el('input', { id: inputId, type: 'text', autocomplete: 'off', required: true });
     const confirmButton = el('button', { type: 'submit', className: 'confirm-dialog-danger', disabled: true }, actionLabel);
-    let extraInput = null;
+    const definitions = extraFields || (extraField ? [{ name: 'value', ...extraField }] : []);
+    const extraInputs = {};
     const updateConfirmState = () => {
-      confirmButton.disabled = input.value !== confirmText || (extraField ? !extraInput.value.trim() : false);
+      const missing = definitions.some((definition) => definition.required !== false && !(extraInputs[definition.name]?.value || '').trim());
+      confirmButton.disabled = input.value !== confirmText || missing;
     };
     input.addEventListener('input', updateConfirmState);
-    const extraFieldNode = extraField ? (() => {
+    const extraFieldNodes = definitions.map((definition) => {
       const extraId = `confirm-extra-${Math.random().toString(36).slice(2, 8)}`;
-      extraInput = el('input', { id: extraId, type: extraField.type || 'text', placeholder: extraField.placeholder || '', required: true });
+      const tag = definition.tag || (definition.options ? 'select' : 'input');
+      const extraInput = el(tag, { id: extraId, type: definition.type || 'text', placeholder: definition.placeholder || '', required: definition.required !== false });
+      if (definition.options) {
+        extraInput.append(...definition.options.map((option) => el('option', { value: option.value }, option.label)));
+      }
+      extraInputs[definition.name] = extraInput;
       extraInput.addEventListener('input', updateConfirmState);
+      extraInput.addEventListener('change', updateConfirmState);
       return el('div', { className: 'field' }, [
-        el('label', { for: extraId }, extraField.label),
+        el('label', { for: extraId }, definition.label),
         extraInput,
-        extraField.hint ? el('small', { className: 'hint' }, extraField.hint) : null,
+        definition.hint ? el('small', { className: 'hint' }, definition.hint) : null,
       ]);
-    })() : null;
+    });
     const form = el('form', { method: 'dialog', onSubmit: () => { dialog.close('confirm'); } }, [
       el('div', { className: 'confirm-dialog-body' }, [
         el('h3', {}, title),
         el('p', {}, message),
         facts.length ? el('div', { className: 'confirm-dialog-facts' }, facts.map(([label, value]) => el('div', {}, [label, el('strong', {}, value)]))) : null,
-        extraFieldNode,
+        ...extraFieldNodes,
         el('div', { className: 'field' }, [el('label', { for: inputId }, `Type ${confirmText} to confirm`), input]),
       ]),
       el('div', { className: 'confirm-dialog-actions' }, [
@@ -215,7 +224,13 @@
     dialog.append(form);
     dialog.addEventListener('close', () => {
       const confirmed = dialog.returnValue === 'confirm';
-      resolve(extraField ? { confirmed, value: extraInput ? extraInput.value.trim() : '' } : confirmed);
+      if (extraFields) {
+        const values = {};
+        definitions.forEach((definition) => { values[definition.name] = (extraInputs[definition.name]?.value || '').trim(); });
+        resolve({ confirmed, values });
+      } else if (extraField) {
+        resolve({ confirmed, value: extraInputs.value ? extraInputs.value.value.trim() : '' });
+      } else resolve(confirmed);
       dialog.remove();
     });
     document.body.append(dialog);
@@ -742,6 +757,44 @@
     const data = await ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=100`).catch(() => ({ backups: [] }));
     const backups = (data.backups || []).sort((a, b) => new Date(b.created_at || b.verified_at) - new Date(a.created_at || a.verified_at));
     const output = ctx.statusOutput();
+    const restoreToStaging = async (backup, includeDatabase) => {
+      const backupName = backup.name || backup.path;
+      const databaseNames = (backup.databases || []).filter((name) => /^[A-Za-z0-9_]+$/.test(name));
+      const fields = [
+        { name: 'domain', label: 'Staging domain to activate', placeholder: 'staging.example.com', hint: 'Must already resolve to this server.' },
+      ];
+      if (includeDatabase) {
+        fields.push(
+          { name: 'database', label: 'Database dump', tag: 'select', options: databaseNames.map((name) => ({ value: name, label: name })), hint: 'Select the verified dump to import.' },
+          { name: 'target_database', label: 'New database name', placeholder: `${site}_staging` },
+          { name: 'target_user', label: 'New database user', placeholder: `${site}_staging` },
+          { name: 'target_password', label: 'New database password', type: 'password', placeholder: 'At least 20 supported characters' },
+        );
+      }
+      const confirmation = await ctx.confirmDangerous({
+        title: includeDatabase ? 'Restore files and database to staging?' : 'Restore to staging?',
+        message: 'Files are restored into an isolated, no-index staging route. The live site is not touched.',
+        facts: [['Backup', backupName], ['Site', site]],
+        confirmText: `RESTORE ${site}`,
+        actionLabel: includeDatabase ? 'Restore files + database' : 'Restore to staging',
+        extraFields: fields,
+      });
+      if (!confirmation.confirmed) return;
+      const values = confirmation.values || {};
+      output.textContent = includeDatabase ? 'Restoring files and database to staging…' : 'Restoring to staging…';
+      try {
+        const result = await ctx.postJSON('/api/backups/restore-to-staging', {
+          site, backup: backupName, domain: values.domain,
+          ...(includeDatabase ? {
+            database: values.database,
+            target_database: values.target_database,
+            target_user: values.target_user,
+            target_password: values.target_password,
+          } : {}),
+        });
+        output.textContent = `Staging restore is ready at ${result.domain || values.domain}. Production was not changed.`;
+      } catch (error) { output.textContent = error.message; }
+    };
 
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'Backups are checksummed and, when a signing key is configured, cryptographically signed and verified before they are trusted for restore.'),
@@ -763,24 +816,10 @@
         el('div', { className: 'item-actions' }, [
           ctx.button('Verify', async () => {
             output.textContent = 'Verifying…';
-            try { await ctx.postJSON('/api/backups/verify', { site, backup: backup.name }); output.textContent = 'Backup verified.'; } catch (error) { output.textContent = error.message; }
+            try { await ctx.postJSON('/api/backups/verify', { site, backup: backup.name || backup.path }); output.textContent = 'Backup verified.'; } catch (error) { output.textContent = error.message; }
           }),
-          ctx.button('Restore to staging', async () => {
-            const { confirmed, value: domain } = await ctx.confirmDangerous({
-              title: 'Restore to staging?',
-              message: 'Files are restored into an isolated, no-index staging route. The live site is not touched.',
-              facts: [['Backup', backup.name], ['Site', site]],
-              confirmText: `RESTORE ${site}`,
-              actionLabel: 'Restore to staging',
-              extraField: { label: 'Staging domain to activate', placeholder: 'staging.example.com', hint: 'Must already resolve to this server.' },
-            });
-            if (!confirmed) return;
-            output.textContent = 'Restoring to staging…';
-            try {
-              const result = await ctx.postJSON('/api/backups/restore-to-staging', { site, backup: backup.name, domain });
-              output.textContent = `Staging restore is ready at ${result.domain || domain}. Production was not changed.`;
-            } catch (error) { output.textContent = error.message; }
-          }),
+          ctx.button('Restore to staging', () => restoreToStaging(backup, false)),
+          (backup.databases || []).length ? ctx.button('Restore files + database', () => restoreToStaging(backup, true)) : null,
         ]),
       ])) : [el('p', { className: 'empty-state' }, 'No backups yet. Create one above.')]),
     );
