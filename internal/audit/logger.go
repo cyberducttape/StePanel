@@ -27,6 +27,21 @@ var distributedLocksMu sync.Mutex
 // auditKeyPath is used by tests to mock the key file location
 var auditKeyPath = AuditKeyPath
 
+var (
+	auditMkdirAll   = os.MkdirAll
+	auditStat       = os.Stat
+	auditCreateTemp = os.CreateTemp
+	auditRename     = os.Rename
+	auditOpen       = os.Open
+	auditOpenFile   = os.OpenFile
+	auditChmod      = func(file *os.File, mode os.FileMode) error { return file.Chmod(mode) }
+	auditWrite      = func(file *os.File, data []byte) (int, error) { return file.Write(data) }
+	auditSync       = func(file *os.File) error { return file.Sync() }
+	auditClose      = func(file *os.File) error { return file.Close() }
+	auditLockSleep  = time.Sleep
+	auditLockTries  = 300
+)
+
 type defaultLogger struct {
 	path string
 }
@@ -75,12 +90,12 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 	detail = truncateValue(detail, 4096)
 
 	root := filepath.Dir(l.path)
-	if err := os.MkdirAll(root, 0750); err != nil {
+	if err := auditMkdirAll(root, 0750); err != nil {
 		return err
 	}
 
 	statePath := l.path + ".state"
-	if info, statErr := os.Stat(l.path); statErr == nil && info.Size() >= maxAuditLogBytes {
+	if info, statErr := auditStat(l.path); statErr == nil && info.Size() >= maxAuditLogBytes {
 		return errors.New("audit log exceeds the 256 MiB retention limit; rotate it after verification")
 	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
@@ -96,9 +111,9 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 		if err != nil {
 			return err
 		}
-		if info, statErr := os.Stat(l.path); statErr == nil && info.Size() > 0 {
+		if info, statErr := auditStat(l.path); statErr == nil && info.Size() > 0 {
 			legacy := l.path + ".legacy-" + time.Now().UTC().Format("20060102-150405")
-			if err := os.Rename(l.path, legacy); err != nil {
+			if err := auditRename(l.path, legacy); err != nil {
 				return fmt.Errorf("preserve legacy audit log: %w", err)
 			}
 		} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
@@ -107,14 +122,14 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 		s = state{Version: 1, KeyCheck: keyCheck}
 	}
 
-	info, statErr := os.Stat(l.path)
+	info, statErr := auditStat(l.path)
 	if statErr == nil && s.LastValidatedSize == info.Size() && s.LastValidatedSize > 0 {
 	} else {
 		s, err = l.reconcileTail(s)
 		if err != nil {
 			return err
 		}
-		if info, statErr := os.Stat(l.path); statErr == nil {
+		if info, statErr := auditStat(l.path); statErr == nil {
 			s.LastValidatedSize = info.Size()
 		}
 	}
@@ -140,15 +155,15 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 		return err
 	}
 
-	file, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	file, err := auditOpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
 
-	if _, err = file.Write(append(line, '\n')); err == nil {
-		err = file.Sync()
+	if _, err = auditWrite(file, append(line, '\n')); err == nil {
+		err = auditSync(file)
 	}
-	if closeErr := file.Close(); err == nil {
+	if closeErr := auditClose(file); err == nil {
 		err = closeErr
 	}
 	if err != nil {
@@ -174,7 +189,7 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 func (l *defaultLogger) acquireLock() (string, func() error, error) {
 	lockFile := l.path + ".lock"
 
-	for attempts := 0; attempts < 300; attempts++ {
+	for attempts := 0; attempts < auditLockTries; attempts++ {
 		file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err == nil {
 			fmt.Fprintf(file, "%d", os.Getpid())
@@ -184,7 +199,7 @@ func (l *defaultLogger) acquireLock() (string, func() error, error) {
 		if !errors.Is(err, os.ErrExist) {
 			return "", nil, fmt.Errorf("acquire audit lock: %w", err)
 		}
-		time.Sleep(100 * time.Millisecond)
+		auditLockSleep(100 * time.Millisecond)
 	}
 	return "", nil, errors.New("timeout acquiring audit lock")
 }
@@ -311,7 +326,7 @@ func (l *defaultLogger) writeState(path string, s state) error {
 	}
 
 	root := filepath.Dir(path)
-	temp, err := os.CreateTemp(root, ".audit-state-*.tmp")
+	temp, err := auditCreateTemp(root, ".audit-state-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -319,36 +334,36 @@ func (l *defaultLogger) writeState(path string, s state) error {
 	tempName := temp.Name()
 	defer os.Remove(tempName)
 
-	if err = temp.Chmod(0600); err != nil {
-		temp.Close()
+	if err = auditChmod(temp, 0600); err != nil {
+		auditClose(temp)
 		return fmt.Errorf("secure audit state file permissions: %w", err)
 	}
 
-	if _, err = temp.Write(append(data, '\n')); err != nil {
-		temp.Close()
+	if _, err = auditWrite(temp, append(data, '\n')); err != nil {
+		auditClose(temp)
 		return fmt.Errorf("write audit state: %w", err)
 	}
 
-	if err = temp.Sync(); err != nil {
-		temp.Close()
+	if err = auditSync(temp); err != nil {
+		auditClose(temp)
 		return fmt.Errorf("sync audit state: %w", err)
 	}
 
-	if err = temp.Close(); err != nil {
+	if err = auditClose(temp); err != nil {
 		return fmt.Errorf("close audit state: %w", err)
 	}
 
-	if err := os.Rename(tempName, path); err != nil {
+	if err := auditRename(tempName, path); err != nil {
 		return err
 	}
 
-	directory, err := os.Open(root)
+	directory, err := auditOpen(root)
 	if err != nil {
 		return err
 	}
 
-	err = directory.Sync()
-	if closeErr := directory.Close(); err == nil {
+	err = auditSync(directory)
+	if closeErr := auditClose(directory); err == nil {
 		err = closeErr
 	}
 	return err

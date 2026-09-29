@@ -1,10 +1,21 @@
 package audit
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+type failingLogger struct{ err error }
+
+func (l failingLogger) Log(context.Context, string, string, string) error           { return l.err }
+func (l failingLogger) LogAs(context.Context, string, string, string, string) error { return l.err }
+func (l failingLogger) Events(http.ResponseWriter, *http.Request)                   {}
+func (l failingLogger) SecurityChecks(http.ResponseWriter, *http.Request)           {}
+func (l failingLogger) PersistenceError() error                                     { return l.err }
+func (l failingLogger) Verify(string) error                                         { return l.err }
 
 func TestModuleHelpersWithoutDefaultLogger(t *testing.T) {
 	previous := defaultAudit
@@ -41,5 +52,24 @@ func TestMustAndShouldLogUseDefaultLogger(t *testing.T) {
 	}
 	if err := MustLog(httptest.NewRecorder(), "admin", "site.create", "site-a", "ok"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestModuleHelpersSurfaceLoggerFailures(t *testing.T) {
+	expected := errors.New("persistence failed")
+	previous := defaultAudit
+	SetDefault(failingLogger{err: expected})
+	t.Cleanup(func() { SetDefault(previous) })
+	if !errors.Is(Log("read", "site-a", "details"), expected) ||
+		!errors.Is(LogAs("admin", "read", "site-a", "details"), expected) ||
+		!errors.Is(PersistenceError(), expected) || !errors.Is(Verify("audit"), expected) {
+		t.Fatal("module helper did not surface logger failure")
+	}
+	response := httptest.NewRecorder()
+	if !errors.Is(MustLog(response, "admin", "delete", "site-a", "details"), expected) || response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("MustLog response = %d", response.Code)
+	}
+	if !errors.Is(ShouldLog("admin", "delete", "site-a", "details"), expected) {
+		t.Fatal("ShouldLog did not surface logger failure")
 	}
 }
