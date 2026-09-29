@@ -90,6 +90,11 @@ context has been cancelled, with a regression test confirming the site remains
 intact. This covers the manager cancellation boundary but does not replace
 full conflicting-workflow recovery evidence.
 
+Route publication and deletion now share the site/vhost fenced lock set, with
+a regression test confirming that deletion cannot enter the vhost boundary
+while publication holds it. Full interrupted-workflow recovery acceptance
+remains open.
+
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,

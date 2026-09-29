@@ -435,12 +435,19 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := siteVHostConfigName(a.Config.WebServer, input.Site, input.Domain)
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
+	// Route publication changes both site-owned state and the vhost helper
+	// boundary.  Use the same compound lock set as route reconciliation and
+	// deletion so publication cannot race a concurrent route removal.
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), input.Site, "vhost:"+name)
 	if lockErr != nil {
 		http.Error(w, "site is busy", http.StatusConflict)
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "route publication cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	if a.Routes != nil {
 		route := routeState(name, input.Site, input.Domain, "pending")
 		if err := a.Routes.save(route); err != nil {
@@ -457,6 +464,10 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		http.Error(w, "site helper rejected the route or webserver reload failed", http.StatusServiceUnavailable)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "route publication cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	if a.Routes != nil {
@@ -497,12 +508,6 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site route not found", http.StatusNotFound)
 		return
 	}
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "vhost:"+name)
-	if lockErr != nil {
-		http.Error(w, "route is busy", http.StatusConflict)
-		return
-	}
-	defer releaseUnlock()
 	var desired RouteDesired
 	hasDesired := false
 	if a.Routes != nil {
@@ -512,6 +517,22 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+	}
+	lockKeys := []string{"vhost:" + name}
+	if hasDesired {
+		lockKeys = append(lockKeys, desired.Site)
+	}
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), lockKeys...)
+	if lockErr != nil {
+		http.Error(w, "route is busy", http.StatusConflict)
+		return
+	}
+	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "route deletion cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
+	if a.Routes != nil {
 		if hasDesired {
 			if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
 				return
@@ -547,6 +568,10 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "site route removed but desired-state cleanup failed", http.StatusServiceUnavailable)
 			return
 		}
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "route deletion cancelled because the mutation lock was lost", http.StatusConflict)
+		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.deleted", name, "managed PHP vhost removed")
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": name})

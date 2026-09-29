@@ -404,3 +404,68 @@ func TestWorkflow_RouteUpdateInterruptedByTermination(t *testing.T) {
 	routeRelease()
 	t.Logf("Test passed: route update interrupted by termination, compound locks enforced")
 }
+
+// TestRouteMutationLockSetSerializesPublicationAndDeletion verifies that the
+// two route endpoints use an overlapping lock set. Route publication owns the
+// site and vhost fences; route deletion must at least contend on the vhost
+// fence, otherwise the helper and desired-state mutations can race.
+func TestRouteMutationLockSetSerializesPublicationAndDeletion(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "control-plane.sqlite")
+	dsn := "file:" + dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+
+	dbA, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbA.Close()
+	dbB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbB.Close()
+
+	publicationLocks, err := operations.NewDBLocks(dbA, "route-publication", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletionLocks, err := operations.NewDBLocks(dbB, "route-deletion", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	publication := &App{dbLocks: publicationLocks, Config: Config{WebRoot: root}}
+	deletion := &App{dbLocks: deletionLocks, Config: Config{WebRoot: root}}
+
+	publicationCtx, publicationRelease, err := publication.acquireSiteMutationLocksContext(
+		context.Background(), "route-site", "vhost:example.test",
+	)
+	if err != nil {
+		t.Fatalf("route publication failed to acquire compound locks: %v", err)
+	}
+	released := false
+	releasePublication := func() {
+		if !released {
+			released = true
+			publicationRelease()
+		}
+	}
+	t.Cleanup(releasePublication)
+	if err := publicationCtx.Err(); err != nil {
+		t.Fatalf("publication context unexpectedly cancelled: %v", err)
+	}
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, release, err := deletion.acquireSiteMutationLocksContext(waitCtx, "vhost:example.test"); err == nil {
+		release()
+		t.Fatal("route deletion acquired the vhost fence while publication held it")
+	}
+
+	releasePublication()
+	if _, release, err := deletion.acquireSiteMutationLocksContext(context.Background(), "vhost:example.test"); err != nil {
+		t.Fatalf("route deletion could not acquire vhost fence after publication released it: %v", err)
+	} else {
+		release()
+	}
+}

@@ -180,6 +180,9 @@ Test 5: backup + filesystem restore simultaneously
 - `DefaultManager.Delete` now checks its operation context before path
   resolution and immediately before filesystem removal; a cancelled-context
   regression test verifies the canonical site remains intact.
+- Route publication and deletion now share the site/vhost fenced lock set;
+  `TestRouteMutationLockSetSerializesPublicationAndDeletion` verifies that a
+  deletion cannot acquire the vhost fence while publication holds it.
 
 These tests prove lock acquisition, helper serialization, and the delete
 cancellation boundary. They do not yet prove that every full workflow remains
