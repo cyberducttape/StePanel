@@ -1,10 +1,21 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func preserveStateHooks(t *testing.T) {
+	t.Helper()
+	mkdirAll, createTemp, rename, open := stateMkdirAll, stateCreateTemp, stateRename, stateOpen
+	chmod, write, syncFile, closeFile := stateChmod, stateWrite, stateSync, stateClose
+	t.Cleanup(func() {
+		stateMkdirAll, stateCreateTemp, stateRename, stateOpen = mkdirAll, createTemp, rename, open
+		stateChmod, stateWrite, stateSync, stateClose = chmod, write, syncFile, closeFile
+	})
+}
 
 func TestWriteAtomicReplacesAndProtectsState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "state.json")
@@ -61,5 +72,53 @@ func TestWriteAtomicFailurePreservesDestinationAndCleansTemporaryFile(t *testing
 	}
 	if len(entries) != 1 || entries[0].Name() != "state.json" || !entries[0].IsDir() {
 		t.Fatalf("destination directory or temporary files changed: %#v", entries)
+	}
+}
+
+func TestWriteAtomicReportsInjectedDurabilityFailures(t *testing.T) {
+	tests := []struct {
+		name   string
+		inject func()
+	}{
+		{name: "mkdir", inject: func() { stateMkdirAll = func(string, os.FileMode) error { return errors.New("mkdir failed") } }},
+		{name: "create temp", inject: func() {
+			stateCreateTemp = func(string, string) (*os.File, error) { return nil, errors.New("create failed") }
+		}},
+		{name: "chmod", inject: func() { stateChmod = func(*os.File, os.FileMode) error { return errors.New("chmod failed") } }},
+		{name: "write", inject: func() { stateWrite = func(*os.File, []byte) (int, error) { return 0, errors.New("write failed") } }},
+		{name: "file sync", inject: func() { stateSync = func(*os.File) error { return errors.New("sync failed") } }},
+		{name: "file close", inject: func() { stateClose = func(*os.File) error { return errors.New("close failed") } }},
+		{name: "rename", inject: func() { stateRename = func(string, string) error { return errors.New("rename failed") } }},
+		{name: "directory open", inject: func() { stateOpen = func(string) (*os.File, error) { return nil, errors.New("open failed") } }},
+		{name: "directory sync", inject: func() {
+			calls := 0
+			stateSync = func(*os.File) error {
+				calls++
+				if calls == 2 {
+					return errors.New("directory sync failed")
+				}
+				return nil
+			}
+		}},
+		{name: "directory close", inject: func() {
+			calls := 0
+			stateClose = func(*os.File) error {
+				calls++
+				if calls == 2 {
+					return errors.New("directory close failed")
+				}
+				return nil
+			}
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			preserveStateHooks(t)
+			test.inject()
+			if err := WriteAtomic(filepath.Join(t.TempDir(), "state"), []byte("data"), 0600); err == nil {
+				t.Fatal("WriteAtomic unexpectedly succeeded")
+			}
+		})
 	}
 }
