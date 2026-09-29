@@ -323,6 +323,9 @@ func (g *GitOperations) Clone(ctx context.Context, req *GitRequest) error {
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_ASKPASS=/bin/false",
 		"SSH_ASKPASS=/bin/false",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_SSH_COMMAND=ssh -oBatchMode=yes -oStrictHostKeyChecking=yes",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to clone repository: %w (output: %s)", err, output)
