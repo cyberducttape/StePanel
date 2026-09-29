@@ -159,9 +159,9 @@ Release approval: use `V1_PRODUCTION_GATES.md`; this catalog is not a release ga
   MFA/password/session controls, scoped automation tokens, verified activity,
   assigned-site viewing, tracked domain routes, databases, environment values,
   Redis allocations, SSH/deploy keys, PHP settings, workers, scheduled tasks,
-  logs, verified backup creation, and restore-to-staging. File management,
-  billing, delegated roles, and production promotion remain outside the beta
-  customer boundary.
+  logs, verified backup creation, restore-to-staging, and owner-managed
+  delegated team roles. File management, billing, and production promotion
+  remain outside the beta customer boundary.
 - PITR/WAL or binlog management, replication orchestration, configuration
   mutation, and automatic failover remain operator-managed and deliberately
   have no unsafe simulated controls.
@@ -187,7 +187,9 @@ must be implemented before offering untrusted customer access:
   unfinished. The shipped deploy-key, resource-profile, Security Center,
   scheduled-task, and restore-to-staging APIs are tenant-enforced on the
   single host, but remain beta controls until delegated roles, durable
-  multi-host state, and the broader provider lifecycle are complete.
+  multi-host state, and the broader provider lifecycle are complete. Owner,
+  manager, developer, and viewer roles are shipped for the customer tenant;
+  scoped support and reseller roles remain unfinished.
 
 These are product and architecture work items, not safe one-file patches. The
 sequencing, acceptance gates, and operational prerequisites are tracked in
