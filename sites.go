@@ -558,7 +558,10 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	if err := runHelperCommand(operationCtx, a.Config, a.Config.VHostCtl, "delete", name); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
-			a.SaveRouteState(desired)
+			if saveErr := a.SaveRouteState(desired); saveErr != nil {
+				http.Error(w, "site route removal failed and pending state could not be persisted", http.StatusServiceUnavailable)
+				return
+			}
 		}
 		http.Error(w, "site route was not removed because validation or webserver reload failed", http.StatusServiceUnavailable)
 		return
@@ -566,7 +569,10 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	if err := operationCtx.Err(); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
-			a.SaveRouteState(desired)
+			if saveErr := a.SaveRouteState(desired); saveErr != nil {
+				http.Error(w, "route deletion was cancelled and pending state could not be persisted", http.StatusServiceUnavailable)
+				return
+			}
 		}
 		http.Error(w, "route deletion cancelled because the mutation lock was lost", http.StatusConflict)
 		return

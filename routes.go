@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -135,12 +136,17 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 	if a.Routes == nil {
 		return nil, failed
 	}
+	recordFailure := func(route RouteDesired, cause error) string {
+		if saveErr := a.SaveRouteState(route); saveErr != nil {
+			return fmt.Sprintf("%v; pending state persistence failed: %v", cause, saveErr)
+		}
+		return cause.Error()
+	}
 	for _, route := range a.Routes.list() {
 		path, pathErr := safePath(a.Config.VHostRoot, route.Name)
 		if pathErr != nil {
 			route.LastError = pathErr.Error()
-			failed[route.Name] = pathErr.Error()
-			a.SaveRouteState(route)
+			failed[route.Name] = recordFailure(route, pathErr)
 			continue
 		}
 		if route.State == "applied" {
@@ -152,8 +158,7 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 		operationCtx, release, lockErr := a.acquireSiteMutationLocksContext(ctx, route.Site, "vhost:"+route.Name)
 		if lockErr != nil {
 			route.LastError = lockErr.Error()
-			failed[route.Name] = lockErr.Error()
-			a.SaveRouteState(route)
+			failed[route.Name] = recordFailure(route, lockErr)
 			continue
 		}
 		var err error
@@ -164,15 +169,13 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 		}
 		if err != nil {
 			route.LastError = err.Error()
-			failed[route.Name] = err.Error()
-			a.SaveRouteState(route)
+			failed[route.Name] = recordFailure(route, err)
 			release()
 			continue
 		}
 		if ctxErr := operationCtx.Err(); ctxErr != nil {
 			route.LastError = ctxErr.Error()
-			failed[route.Name] = ctxErr.Error()
-			a.SaveRouteState(route)
+			failed[route.Name] = recordFailure(route, ctxErr)
 			release()
 			continue
 		}
