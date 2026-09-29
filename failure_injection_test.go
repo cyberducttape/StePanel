@@ -20,6 +20,18 @@ func TestFailureInjectionMatchesOperationAndPoint(t *testing.T) {
 	}
 }
 
+func TestFailureInjectionRecognizesTerminationBoundaries(t *testing.T) {
+	points := []string{"init", "backup", "database", "routes", "proxies", "tasks", "services", "site-state", "ownership"}
+	for _, point := range points {
+		t.Run(point, func(t *testing.T) {
+			t.Setenv("STEPANEL_FAIL_AT", "terminate:"+point)
+			if err := failureInjection("terminate", point); err == nil {
+				t.Fatalf("termination point %q was not instrumented", point)
+			}
+		})
+	}
+}
+
 func TestFailureInjectionAtTransactionCommitRollsBack(t *testing.T) {
 	t.Setenv("STEPANEL_FAIL_AT", "restore:commit")
 	root := t.TempDir()

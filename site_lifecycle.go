@@ -125,6 +125,9 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if journal.isComplete(stepBackupVerified) {
 		backupPath = journal.BackupPath
 	} else {
+		if err := failureInjection("terminate", "backup"); err != nil {
+			return nil, err
+		}
 		backup, err := a.terminationBackup(operationCtx, access, item.StartedAt)
 		if err != nil {
 			return nil, err
@@ -145,6 +148,9 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	// managed-database helper's "drop-managed" verb, which is
 	// idempotent on the DB side; a retry after a crash mid-step is safe.
 	if !journal.isComplete(stepDatabasesRemoved) {
+		if err := failureInjection("terminate", "database"); err != nil {
+			return nil, err
+		}
 		databases, err := managedDatabaseInventory(a.Config)
 		if err != nil {
 			return nil, fmt.Errorf("inspect managed databases before termination: %w", err)
@@ -168,6 +174,9 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	// reconciler able to recreate a route for a site whose filesystem
 	// is already gone.
 	if !journal.isComplete(stepRoutesRemoved) {
+		if err := failureInjection("terminate", "routes"); err != nil {
+			return nil, err
+		}
 		if a.Routes != nil {
 			if err := a.Routes.removeSite(access); err != nil {
 				return nil, fmt.Errorf("remove route desired state before termination: %w", err)
@@ -190,6 +199,9 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 4: PROXIES_REMOVED.
 	if !journal.isComplete(stepProxiesRemoved) {
+		if err := failureInjection("terminate", "proxies"); err != nil {
+			return nil, err
+		}
 		proxies, err := siteProxiesForWithError(a.Config.ProxyRoot, request.Site)
 		if err != nil {
 			return nil, fmt.Errorf("inspect managed proxies before termination: %w", err)
@@ -207,6 +219,9 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 5: TASKS_REMOVED.
 	if !journal.isComplete(stepTasksRemoved) {
+		if err := failureInjection("terminate", "tasks"); err != nil {
+			return nil, err
+		}
 		if err := a.removeSiteTasks(operationCtx, access); err != nil {
 			return nil, err
 		}
@@ -218,6 +233,9 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 6: SERVICES_REMOVED.
 	if !journal.isComplete(stepServicesRemoved) {
+		if err := failureInjection("terminate", "services"); err != nil {
+			return nil, err
+		}
 		if err := a.removeSiteServices(operationCtx, access); err != nil {
 			return nil, err
 		}
@@ -229,6 +247,9 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 7: SITE_STATE_REMOVED.
 	if !journal.isComplete(stepSiteStateRemoved) {
+		if err := failureInjection("terminate", "site-state"); err != nil {
+			return nil, err
+		}
 		if err := a.removeSiteState(operationCtx, access); err != nil {
 			return nil, err
 		}
@@ -240,6 +261,9 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 
 	// Step 8: OWNERSHIP_REMOVED.
 	if !journal.isComplete(stepOwnershipRemoved) {
+		if err := failureInjection("terminate", "ownership"); err != nil {
+			return nil, err
+		}
 		if err := a.detachSiteOwnership(operationCtx, access); err != nil {
 			return nil, err
 		}
