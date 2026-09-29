@@ -2,6 +2,8 @@ package session
 
 import (
 	"database/sql"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -155,5 +157,91 @@ func TestRegistryPersistsAndRevokesByUser(t *testing.T) {
 	}
 	if reopened.Valid("one", "alice", expiry) || !reopened.Valid("two", "bob", expiry) {
 		t.Fatal("user revocation was not persisted")
+	}
+}
+
+func TestOpenMigratesLegacySessionsAndPrunesExpiredEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.json")
+	legacy := map[string]int64{
+		"active":  time.Now().Add(time.Hour).Unix(),
+		"expired": time.Now().Add(-time.Hour).Unix(),
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !registry.Valid("active", "", legacy["active"]) || registry.Valid("expired", "", legacy["expired"]) {
+		t.Fatalf("migrated entries = %#v", registry.Entries)
+	}
+	var migrated map[string]Entry
+	data, err = os.ReadFile(path)
+	if err != nil || json.Unmarshal(data, &migrated) != nil {
+		t.Fatalf("migrated state unreadable: %v", err)
+	}
+	if migrated["active"].Username != "" {
+		t.Fatalf("legacy username unexpectedly changed: %#v", migrated["active"])
+	}
+}
+
+func TestOpenRejectsMalformedAndOversizedState(t *testing.T) {
+	root := t.TempDir()
+	malformed := filepath.Join(root, "bad.json")
+	if err := os.WriteFile(malformed, []byte("not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(malformed); err == nil {
+		t.Fatal("malformed state was accepted")
+	}
+	oversized := filepath.Join(root, "large.json")
+	if err := os.WriteFile(oversized, make([]byte, 1<<20+1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(oversized); err == nil {
+		t.Fatal("oversized state was accepted")
+	}
+}
+
+func TestFilePersistenceFailureRollsBackMemory(t *testing.T) {
+	path := t.TempDir()
+	registry := New(path)
+	err := registry.Add("session", "alice", time.Now().Add(time.Hour).Unix())
+	if err == nil {
+		t.Fatal("write to directory unexpectedly succeeded")
+	}
+	if _, ok := registry.Entries["session"]; ok {
+		t.Fatal("failed add remained in memory")
+	}
+	if err := registry.Revoke("missing"); err == nil {
+		t.Fatal("revoke unexpectedly succeeded with an unwritable state path")
+	}
+	if err := registry.RevokeUserExcept("alice", "missing"); err != nil {
+		t.Fatalf("revoke user with no sessions = %v", err)
+	}
+	if registry.PersistenceError() != nil {
+		t.Fatal("successful no-op cleared state with persistence error")
+	}
+}
+
+func TestRegistryValidatesExpiryAndIdentity(t *testing.T) {
+	registry := New("")
+	expiry := time.Now().Add(time.Hour).Unix()
+	if err := registry.Add("id", "alice", expiry); err != nil {
+		t.Fatal(err)
+	}
+	if !registry.Valid("id", "alice", expiry) || registry.Valid("id", "bob", expiry) || registry.Valid("id", "alice", expiry+1) {
+		t.Fatal("session identity or expiry validation failed")
+	}
+	if registry.Valid("id", "alice", time.Now().Add(-time.Hour).Unix()) {
+		t.Fatal("expired session was accepted")
+	}
+	if registry.PersistenceError() != nil {
+		t.Fatal("unexpected persistence error")
 	}
 }
