@@ -183,6 +183,10 @@ Test 5: backup + filesystem restore simultaneously
 - Route publication and deletion now share the site/vhost fenced lock set;
   `TestRouteMutationLockSetSerializesPublicationAndDeletion` verifies that a
   deletion cannot acquire the vhost fence while publication holds it.
+- Domain claim and verification now share the site fence with termination, and
+  proxy deployment/deletion check the fenced context before reporting helper
+  success. Route reconciliation also refuses to persist applied/deleted state
+  after the lease is lost.
 - Lock-held backup workflows now call `CreateSiteBackupContext`; cancellation
   is checked during archive traversal, file copying, verification, and commit
   so a fenced lease loss cannot publish a backup after takeover.

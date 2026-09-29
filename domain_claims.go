@@ -224,6 +224,16 @@ func (a *App) domainClaim(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for domain operations", http.StatusForbidden)
 		return
 	}
+	operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "domain claim is busy", http.StatusConflict)
+		return
+	}
+	defer release()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "domain claim cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	claim, err := a.Domains.claim(input.Site, input.Domain)
 	if err != nil {
 		http.Error(w, "could not persist domain claim", http.StatusServiceUnavailable)
@@ -258,7 +268,17 @@ func (a *App) domainVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for domain operations", http.StatusForbidden)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "domain verification is busy", http.StatusConflict)
+		return
+	}
+	defer release()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "domain verification cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
+	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Second)
 	defer cancel()
 	claim, err := a.Domains.verify(ctx, input.Site, input.Domain)
 	if err != nil {

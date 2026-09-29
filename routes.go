@@ -169,6 +169,13 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 			release()
 			continue
 		}
+		if ctxErr := operationCtx.Err(); ctxErr != nil {
+			route.LastError = ctxErr.Error()
+			failed[route.Name] = ctxErr.Error()
+			a.SaveRouteState(route)
+			release()
+			continue
+		}
 		if route.State == "delete-pending" {
 			err = a.Routes.remove(route.Name)
 		} else {

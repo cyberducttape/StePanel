@@ -122,6 +122,10 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "proxy mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	path, err := safePath(a.Config.ProxyRoot, name)
 	if err != nil {
 		http.Error(w, "invalid proxy path", 422)
@@ -129,6 +133,10 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "apply", input.Site, strings.ToLower(input.Domain), backend); err != nil {
 		http.Error(w, "proxy helper rejected the configuration or webserver reload failed", http.StatusServiceUnavailable)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "proxy deployment cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.Username, "proxy.deployed", input.Site, input.Domain+" -> "+backend)
@@ -197,8 +205,16 @@ func (a *App) proxyManage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "proxy mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "delete", name); err != nil {
 		http.Error(w, "proxy was not removed because the helper or webserver reload failed", http.StatusServiceUnavailable)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "proxy deletion cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.Username, "proxy.deleted", name, "managed proxy removed")

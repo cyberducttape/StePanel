@@ -95,6 +95,11 @@ a regression test confirming that deletion cannot enter the vhost boundary
 while publication holds it. Full interrupted-workflow recovery acceptance
 remains open.
 
+Domain claim and verification now share the site fence with termination.
+Proxy deployment/deletion and route reconciliation also check the fenced
+operation context before reporting or persisting successful state after helper
+work. Full interrupted-workflow recovery acceptance remains open.
+
 Lock-held backup workflows now propagate their operation context through
 archive traversal and publication, with cancellation checks preventing a
 fenced backup from being committed after lease loss.
