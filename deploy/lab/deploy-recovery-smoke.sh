@@ -12,6 +12,7 @@ command -v systemctl >/dev/null || { echo 'deploy recovery smoke requires system
 : "${STEPANEL_ADMIN_PASSWORD:=ci-install-only-password}"
 : "${STEPANEL_ADMIN_TOTP_SECRET:=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP}"
 : "${DEPLOY_RECOVERY_SMOKE_SITE:=ci-smoke}"
+: "${DEPLOY_KILL_AT:=deploy:activate}"
 
 dropin_dir=/run/systemd/system/stepanel.service.d
 dropin="$dropin_dir/recovery-smoke.conf"
@@ -69,7 +70,7 @@ csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$cookies")
 [[ -n $session && -n $csrf ]] || { echo 'deploy recovery login did not issue session and CSRF cookies' >&2; exit 1; }
 cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
-printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=deploy:activate' > "$dropin"
+printf '%s\n' '[Service]' "Environment=STEPANEL_KILL_AT=$DEPLOY_KILL_AT" > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel.service
 for _ in $(seq 1 60); do
@@ -124,4 +125,4 @@ if find "$journal_root" -maxdepth 1 -type f -name 'release-activation-*.json' -p
   exit 1
 fi
 
-echo "deploy recovery smoke passed (panel was killed during activation and original site content was restored)"
+echo "deploy recovery smoke passed (panel was killed at $DEPLOY_KILL_AT and original site content was restored)"

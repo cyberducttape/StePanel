@@ -12,6 +12,7 @@ command -v systemctl >/dev/null || { echo 'account suspension recovery smoke req
 : "${STEPANEL_ADMIN_PASSWORD:=ci-install-only-password}"
 : "${STEPANEL_ADMIN_TOTP_SECRET:=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP}"
 : "${SUSPENSION_SMOKE_ACCOUNT:=ci-suspension-recovery}"
+: "${SUSPENSION_KILL_AT:=suspend:persisted}"
 
 dropin_dir=/run/systemd/system/stepanel.service.d
 dropin="$dropin_dir/recovery-smoke.conf"
@@ -81,7 +82,7 @@ PY
 )" \
   "$PANEL/api/accounts" >/dev/null
 
-printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=suspend:persisted' > "$dropin"
+printf '%s\n' '[Service]' "Environment=STEPANEL_KILL_AT=$SUSPENSION_KILL_AT" > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel.service
 for _ in $(seq 1 60); do
@@ -142,4 +143,4 @@ if not match or match.get("suspended") is not True:
     sys.exit(1)
 PY
 
-echo "account suspension recovery smoke passed (panel process was killed after persistence)"
+echo "account suspension recovery smoke passed (panel process was killed at $SUSPENSION_KILL_AT)"

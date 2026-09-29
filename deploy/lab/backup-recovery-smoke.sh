@@ -19,6 +19,9 @@ command -v systemctl >/dev/null || { echo 'backup recovery smoke requires system
 : "${STEPANEL_ADMIN_PASSWORD:=ci-install-only-password}"
 : "${STEPANEL_ADMIN_TOTP_SECRET:=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP}"
 : "${BACKUP_RECOVERY_SMOKE_SITE:=ci-import-recovery}"
+: "${BACKUP_KILL_AT:=backup:archive}"
+: "${RESTORE_KILL_AT:=restore:activate}"
+: "${TERMINATE_KILL_AT:=terminate:site-state}"
 
 dropin_dir=/run/systemd/system/stepanel-worker.service.d
 dropin="$dropin_dir/recovery-smoke.conf"
@@ -70,7 +73,7 @@ cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
 printf '%s\n' '[Service]' \
   'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \
-  'Environment=STEPANEL_KILL_AT=backup:archive' > "$dropin"
+  "Environment=STEPANEL_KILL_AT=$BACKUP_KILL_AT" > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
@@ -124,7 +127,7 @@ done
 backups=$(curl --fail --silent --show-error --max-time 10 \
   -H "Cookie: $cookie_header" "$PANEL/api/backups?site=$BACKUP_RECOVERY_SMOKE_SITE")
 printf '%s' "$backups" | grep -Fq "\"site\":\"$BACKUP_RECOVERY_SMOKE_SITE\""
-echo "backup recovery smoke passed (worker $before was killed during archive finalization)"
+echo "backup recovery smoke passed (worker $before was killed at $BACKUP_KILL_AT)"
 
 # Reuse the verified artifact for a durable file restore and kill the worker
 # after activation has begun. Recovery must replay the job without leaving a
@@ -134,7 +137,7 @@ backup_name=$(printf '%s' "$backups" | python3 -c 'import json, sys; items=json.
 
 printf '%s\n' '[Service]' \
   'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \
-  'Environment=STEPANEL_KILL_AT=restore:activate' > "$dropin"
+  "Environment=STEPANEL_KILL_AT=$RESTORE_KILL_AT" > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
@@ -183,7 +186,7 @@ for _ in $(seq 1 240); do
   sleep 1
 done
 [[ "$state" == completed ]] || { echo "restore recovery job $restore_job_id did not complete: ${status:-}" >&2; exit 1; }
-echo "restore recovery smoke passed (worker $before was killed during restore activation)"
+echo "restore recovery smoke passed (worker $before was killed at $RESTORE_KILL_AT)"
 
 # Finally exercise the irreversible lifecycle journal. The worker dies after
 # the site-state step starts; the restarted worker must roll the journal
@@ -195,7 +198,7 @@ echo "restore recovery smoke passed (worker $before was killed during restore ac
 # privilege boundaries remain identical to production.
 printf '%s\n' '[Service]' \
   'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \
-  'Environment=STEPANEL_KILL_AT=terminate:site-state' > "$dropin"
+  "Environment=STEPANEL_KILL_AT=$TERMINATE_KILL_AT" > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
@@ -259,4 +262,4 @@ for _ in $(seq 1 240); do
 done
 [[ "$state" == completed ]] || { echo "termination recovery job $terminate_job_id did not complete: ${status:-}" >&2; exit 1; }
 [[ ! -d "/var/www/sites/$BACKUP_RECOVERY_SMOKE_SITE" ]] || { echo 'terminated site directory still exists' >&2; exit 1; }
-echo "termination recovery smoke passed (worker $before was killed during site-state removal)"
+echo "termination recovery smoke passed (worker $before was killed at $TERMINATE_KILL_AT)"

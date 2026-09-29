@@ -12,6 +12,8 @@ trap on_error ERR
 [[ $EUID -eq 0 ]] || { echo 'cpmove recovery smoke must run as root' >&2; exit 1; }
 command -v systemctl >/dev/null || { echo 'cpmove recovery smoke requires systemd' >&2; exit 77; }
 
+: "${CPMOVE_KILL_AT:=cpmove:activate}"
+
 dropin_dir=/run/systemd/system/stepanel-worker.service.d
 dropin="$dropin_dir/recovery-smoke.conf"
 mkdir -p "$dropin_dir"
@@ -22,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-printf '%s\n' '[Service]' 'Environment=STEPANEL_KILL_AT=cpmove:activate' > "$dropin"
+printf '%s\n' '[Service]' "Environment=STEPANEL_KILL_AT=$CPMOVE_KILL_AT" > "$dropin"
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
@@ -65,4 +67,4 @@ wait "$import_pid"
 test -f "/var/www/sites/${CPMOVE_RECOVERY_SMOKE_SITE:-ci-import-recovery}/public/index.html"
 grep -Fx 'stepanel cpmove import smoke' \
   "/var/www/sites/${CPMOVE_RECOVERY_SMOKE_SITE:-ci-import-recovery}/public/index.html" >/dev/null
-echo "cpmove recovery smoke passed (worker $before was killed during activation)"
+echo "cpmove recovery smoke passed (worker $before was killed at $CPMOVE_KILL_AT)"
