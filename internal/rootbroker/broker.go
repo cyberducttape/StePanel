@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 )
 
 // ErrNotImplemented is returned when a broker operation is not yet implemented
@@ -650,7 +652,7 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 // prohibit sudo elevation with no_new_privs. The root broker can run this
 // read-only helper without changing the panel or worker service identity.
 func (b *Broker) dbInventory(ctx context.Context, _ *DBRequest) (*Response, error) {
-	cmd := exec.CommandContext(ctx, "/usr/local/sbin/stepanel-dbctl", "inventory")
+	cmd := stepanelhelper.NewCommand(ctx, "/usr/local/sbin/stepanel-dbctl", "inventory")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("database inventory failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
@@ -1102,7 +1104,7 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 }
 
 func (b *Broker) runLabHelper(ctx context.Context, path string, args ...string) (*Response, error) {
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := stepanelhelper.NewCommand(ctx, path, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("lab helper failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
@@ -1138,11 +1140,11 @@ func (b *Broker) createSystemUser(ctx context.Context, username, home string) er
 	// Make the operation idempotent only for the specific existing-user case.
 	// Other useradd failures must stop the workflow before it creates a site
 	// tree that cannot be owned by the intended account.
-	if err := exec.CommandContext(ctx, "id", "-u", username).Run(); err == nil {
+	if err := stepanelhelper.NewCommand(ctx, "id", "-u", username).Run(); err == nil {
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, "useradd", "--system", "--home-dir", home, "--shell", "/usr/sbin/nologin", "--user-group", username)
+	cmd := stepanelhelper.NewCommand(ctx, "useradd", "--system", "--home-dir", home, "--shell", "/usr/sbin/nologin", "--user-group", username)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("useradd failed: %w (output: %s)", err, output)
 	}
@@ -1156,7 +1158,7 @@ func (b *Broker) deleteSystemUser(ctx context.Context, username string) error {
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, "userdel", username)
+	cmd := stepanelhelper.NewCommand(ctx, "userdel", username)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		var exitErr *exec.ExitError
 		// userdel exits with status 6 when the account is already absent. Treat
@@ -1176,7 +1178,7 @@ func (b *Broker) setOwnership(ctx context.Context, path, user, group string) err
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, "chown", "-R", user+":"+group, path)
+	cmd := stepanelhelper.NewCommand(ctx, "chown", "-R", user+":"+group, path)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("chown failed: %w", err)
 	}

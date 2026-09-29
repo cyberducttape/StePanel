@@ -6,8 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+
+	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 )
 
 // SiteOperations contains handlers for site-level privileged operations.
@@ -158,7 +159,7 @@ func (s *SiteOperations) rollback(ctx context.Context, siteUser, siteRoot string
 
 // rollbackUser removes just the user.
 func (s *SiteOperations) rollbackUser(ctx context.Context, siteUser string) error {
-	cmd := exec.CommandContext(ctx, "userdel", siteUser)
+	cmd := stepanelhelper.NewCommand(ctx, "userdel", siteUser)
 	return cmd.Run()
 }
 
@@ -189,7 +190,7 @@ func (a *AppOperations) Start(ctx context.Context, req *AppRequest) error {
 	}
 
 	serviceName := fmt.Sprintf("stepanel-app-%s", req.Site)
-	cmd := exec.CommandContext(ctx, "systemctl", "start", serviceName)
+	cmd := stepanelhelper.NewCommand(ctx, "systemctl", "start", serviceName)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to start app: %w (output: %s)", err, output)
 	}
@@ -203,7 +204,7 @@ func (a *AppOperations) Stop(ctx context.Context, req *AppRequest) error {
 	}
 
 	serviceName := fmt.Sprintf("stepanel-app-%s", req.Site)
-	cmd := exec.CommandContext(ctx, "systemctl", "stop", serviceName)
+	cmd := stepanelhelper.NewCommand(ctx, "systemctl", "stop", serviceName)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Continue if already stopped
 		if !bytes.Contains(output, []byte("not-found")) {
@@ -220,7 +221,7 @@ func (a *AppOperations) Restart(ctx context.Context, req *AppRequest) error {
 	}
 
 	serviceName := fmt.Sprintf("stepanel-app-%s", req.Site)
-	cmd := exec.CommandContext(ctx, "systemctl", "restart", serviceName)
+	cmd := stepanelhelper.NewCommand(ctx, "systemctl", "restart", serviceName)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to restart app: %w (output: %s)", err, output)
 	}
@@ -315,7 +316,7 @@ func (g *GitOperations) Clone(ctx context.Context, req *GitRequest) error {
 	}
 
 	// Clone repository
-	cmd := exec.CommandContext(ctx, "git", "clone", "--branch", req.Ref, req.Repository, req.Destination)
+	cmd := stepanelhelper.NewCommand(ctx, "git", "clone", "--branch", req.Ref, req.Repository, req.Destination)
 	// A root broker must never block on an interactive credential or host-key
 	// prompt. Callers receive a deterministic failure and can provide an
 	// explicitly configured non-interactive credential path instead.
@@ -381,7 +382,7 @@ func (p *ProxyOperations) Reload(ctx context.Context, req *ProxyRequest) error {
 		return fmt.Errorf("unknown webserver: %s", req.WebServer)
 	}
 
-	cmd := exec.CommandContext(ctx, "systemctl", "reload", serviceName)
+	cmd := stepanelhelper.NewCommand(ctx, "systemctl", "reload", serviceName)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to reload %s: %w (output: %s)", serviceName, err, output)
 	}

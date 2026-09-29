@@ -7,9 +7,10 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
+
+	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 )
 
 // Client communicates with the root broker via the production subprocess
@@ -70,7 +71,7 @@ func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Respo
 		command = c.brokerPath
 		args = []string{"-webroot", c.webRoot}
 	}
-	cmd := exec.CommandContext(ctx, command, args...)
+	cmd := stepanelhelper.NewCommand(ctx, command, args...)
 
 	// Get stdin/stdout pipes
 	stdin, err := cmd.StdinPipe()
