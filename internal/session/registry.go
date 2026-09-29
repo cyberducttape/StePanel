@@ -145,6 +145,14 @@ func (r *Registry) Add(id, username string, expiry int64) error {
 func (r *Registry) Valid(id, username string, expiry int64) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if r.db != nil {
+		var storedUsername string
+		var storedExpiry int64
+		if err := r.db.QueryRow(`SELECT username, expiry FROM sessions WHERE id = ?`, id).Scan(&storedUsername, &storedExpiry); err != nil {
+			return false
+		}
+		return storedExpiry == expiry && storedUsername == username && storedExpiry > time.Now().Unix()
+	}
 	entry, ok := r.Entries[id]
 	return ok && entry.Expiry == expiry && entry.Username == username && expiry > time.Now().Unix()
 }
@@ -191,7 +199,13 @@ func (r *Registry) RevokeUserExcept(username, keepID string) error {
 		r.err = nil
 		return nil
 	}
-	if err := r.persistDeleteManyLocked(revoked); err != nil {
+	var err error
+	if r.db != nil {
+		_, err = r.db.Exec(`DELETE FROM sessions WHERE username = ? AND id <> ?`, username, keepID)
+	} else {
+		err = r.persistDeleteManyLocked(revoked)
+	}
+	if err != nil {
 		r.Entries = previous
 		r.err = err
 		return err

@@ -90,6 +90,31 @@ func TestRegistryDBBackedIncrementalPersistence(t *testing.T) {
 	}
 }
 
+func TestRegistryDBValidationSeesOtherProcessMutations(t *testing.T) {
+	db := openTestSessionDB(t)
+	first, err := OpenDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := OpenDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiry := time.Now().Add(time.Hour).Unix()
+	if err := first.Add("shared", "alice", expiry); err != nil {
+		t.Fatal(err)
+	}
+	if !second.Valid("shared", "alice", expiry) {
+		t.Fatal("second registry did not observe a session created by the first registry")
+	}
+	if err := first.Revoke("shared"); err != nil {
+		t.Fatal(err)
+	}
+	if second.Valid("shared", "alice", expiry) {
+		t.Fatal("second registry accepted a session revoked by the first registry")
+	}
+}
+
 // TestRevokeUserExceptKeepsOnlyTheGivenSession backs the "log out of all
 // other devices" self-service action: it must revoke every other session
 // for the user, leave the caller's own current session valid, and never
