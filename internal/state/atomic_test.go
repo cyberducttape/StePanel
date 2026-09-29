@@ -33,3 +33,33 @@ func TestWriteAtomicReplacesAndProtectsState(t *testing.T) {
 		t.Fatalf("replacement = %q err=%v", data, err)
 	}
 }
+
+func TestWriteAtomicFailurePreservesDestinationAndCleansTemporaryFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("old\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// A directory at the destination forces Rename to fail after the temporary
+	// file has been fully written, while keeping the parent directory usable.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteAtomic(path, []byte("new\n"), 0600); err == nil {
+		t.Fatal("expected replacement failure")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "state.json" || !entries[0].IsDir() {
+		t.Fatalf("destination directory or temporary files changed: %#v", entries)
+	}
+}
