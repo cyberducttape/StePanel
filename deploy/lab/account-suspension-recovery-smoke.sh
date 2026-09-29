@@ -63,6 +63,10 @@ PY
   CSRF_TOKEN=$csrf
 }
 
+# The preceding backup recovery drill authenticates with the same disposable
+# TOTP identity. Wait for the next counter so replay protection cannot make
+# this independent suspension drill fail nondeterministically.
+sleep $((31 - $(date +%s) % 30))
 login
 
 curl --fail --silent --show-error --max-time 30 \
