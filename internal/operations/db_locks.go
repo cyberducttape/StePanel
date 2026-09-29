@@ -312,7 +312,8 @@ func (dl *DBLocks) Renew(lease Lease) (Lease, error) {
 // is the recommended way to hold a lock across a long operation without
 // letting the lease expire mid-flight. Renewal interval is leaseTime / 3
 // so two consecutive renewal failures still leave >1/3 of a lease before
-// takeover becomes possible.
+// takeover becomes possible. The 1ms floor keeps short, valid test or
+// operator-configured leases renewable as well.
 //
 // Returns nil when ctx is cancelled (normal shutdown), or a non-nil error
 // if the lease is lost (ErrLeaseLost) — in which case the caller MUST
@@ -323,8 +324,8 @@ func (dl *DBLocks) Hold(ctx context.Context, lease Lease) error {
 		return errors.New("lease has no resource_key")
 	}
 	interval := dl.leaseTime / 3
-	if interval < 100*time.Millisecond {
-		interval = 100 * time.Millisecond
+	if interval < time.Millisecond {
+		interval = time.Millisecond
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

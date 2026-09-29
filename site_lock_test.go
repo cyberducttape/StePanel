@@ -12,6 +12,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func expireTestLease(t *testing.T, db *sql.DB, key string) {
+	t.Helper()
+	if _, err := db.Exec(`UPDATE resource_locks SET lease_until = 0 WHERE resource_key = ?`, key); err != nil {
+		t.Fatalf("expire test lease %s: %v", key, err)
+	}
+}
+
 func TestAcquireSiteMutationLocksFencesIndependentAppInstances(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "control-plane.sqlite")
 	dsn := "file:" + dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
@@ -85,7 +92,7 @@ func TestAcquireSiteMutationLockContextCancelsAfterLeaseLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	time.Sleep(100 * time.Millisecond)
+	expireTestLease(t, dbA, "site-loss")
 	if _, err := locksB.TryAcquire("site-loss"); err != nil {
 		t.Fatalf("takeover failed: %v", err)
 	}
@@ -123,7 +130,7 @@ func TestAcquireSiteMutationLocksContextCancelsWhenAnyLeaseIsLost(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer release()
-	time.Sleep(100 * time.Millisecond)
+	expireTestLease(t, dbA, "vhost:compound")
 	if _, err := locksB.TryAcquire("vhost:compound"); err != nil {
 		t.Fatalf("compound-lock takeover failed: %v", err)
 	}

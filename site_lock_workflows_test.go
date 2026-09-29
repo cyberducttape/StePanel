@@ -56,8 +56,10 @@ func TestWorkflow_RestoreInterruptedByDelete(t *testing.T) {
 		t.Fatalf("restore failed to acquire lock: %v", err)
 	}
 
-	// Phase 2: Wait past the lease duration so delete can take over
-	time.Sleep(150 * time.Millisecond)
+	// Phase 2: Expire the durable lease so delete can take over. The holder's
+	// renewal goroutine is intentionally active; direct expiry models a real
+	// lease loss without depending on renewal timing.
+	expireTestLease(t, dbA, "site:"+siteName)
 
 	// Phase 3: Delete tries to acquire the lock (should succeed due to lease expiry)
 	deleteCtx, deleteRelease, err := deleteApp.acquireSiteMutationLockContext(context.Background(), "site:"+siteName)
@@ -138,8 +140,8 @@ func TestWorkflow_DeployInterruptedByRestore(t *testing.T) {
 		t.Fatalf("deploy failed to acquire lock: %v", err)
 	}
 
-	// Phase 2: Wait for lease expiry
-	time.Sleep(150 * time.Millisecond)
+	// Phase 2: Force lease expiry to model a fenced holder deterministically.
+	expireTestLease(t, dbA, "site:"+siteName)
 
 	// Phase 3: Restore acquires the lock (deploy's lease expired)
 	restoreCtx, restoreRelease, err := restoreApp.acquireSiteMutationLockContext(context.Background(), "site:"+siteName)
@@ -218,8 +220,8 @@ func TestWorkflow_ResourceUpdateInterruptedBySuspension(t *testing.T) {
 		t.Fatalf("resource update failed to acquire locks: %v", err)
 	}
 
-	// Phase 2: Wait for lease expiry
-	time.Sleep(150 * time.Millisecond)
+	// Phase 2: Force lease expiry to model a fenced holder deterministically.
+	expireTestLease(t, dbA, "account:"+accountName)
 
 	// Phase 3: Suspension tries to acquire account lock (should succeed)
 	suspensionCtx, suspensionRelease, err := suspensionApp.acquireSiteMutationLockContext(
@@ -294,8 +296,8 @@ func TestWorkflow_BackupInterruptedByRestore(t *testing.T) {
 		t.Fatalf("backup failed to acquire lock: %v", err)
 	}
 
-	// Phase 2: Wait for lease expiry
-	time.Sleep(150 * time.Millisecond)
+	// Phase 2: Force lease expiry to model a fenced holder deterministically.
+	expireTestLease(t, dbA, "site:"+siteName)
 
 	// Phase 3: Restore acquires the lock
 	restoreCtx, restoreRelease, err := restoreApp.acquireSiteMutationLockContext(context.Background(), "site:"+siteName)
@@ -372,8 +374,8 @@ func TestWorkflow_RouteUpdateInterruptedByTermination(t *testing.T) {
 		t.Fatalf("route update failed to acquire locks: %v", err)
 	}
 
-	// Phase 2: Wait for lease expiry
-	time.Sleep(150 * time.Millisecond)
+	// Phase 2: Force lease expiry to model a fenced holder deterministically.
+	expireTestLease(t, dbA, "site:"+siteName)
 
 	// Phase 3: Termination acquires site lock (should succeed after route lease expires)
 	terminationCtx, terminationRelease, err := terminationApp.acquireSiteMutationLockContext(

@@ -302,6 +302,39 @@ func TestDBLocks_HoldRenewsUntilCancel(t *testing.T) {
 	}
 }
 
+func TestDBLocks_HoldRenewsShortLease(t *testing.T) {
+	a, b, cleanup := openTwoHandles(t)
+	defer cleanup()
+
+	owner, err := NewDBLocks(a, "short-owner", 45*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stealer, err := NewDBLocks(b, "short-stealer", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := owner.TryAcquire("site-short-hold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- owner.Hold(ctx, lease) }()
+
+	time.Sleep(150 * time.Millisecond)
+	if _, err := stealer.TryAcquire("site-short-hold"); !errors.Is(err, ErrLockHeld) {
+		t.Fatalf("short lease was not renewed: %v", err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Hold returned %v on cancellation", err)
+	}
+	if err := owner.Release(lease); err != nil {
+		t.Fatalf("release after short Hold cancellation failed: %v", err)
+	}
+}
+
 // TestDBLocks_TakeoverInvalidatesFencing is the multi-holder race: after
 // takeover, the original holder's Renew must be refused. Otherwise a
 // slow-motion split-brain becomes possible: two holders both believe they
