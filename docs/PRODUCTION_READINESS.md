@@ -177,7 +177,7 @@ The following must be resolved before multi-tenant deployment:
 5. ✅ Path traversal prevention (RESOLVED in v0.7.0)
 6. ⚠️ Customer RBAC (OWNER, MANAGER, DEVELOPER, and VIEWER roles shipped; reseller/support scopes remain)
 7. ⚠️ Audit log segregation (CUSTOMER ACTIVITY SCOPING SHIPPED; the operator audit chain remains global)
-8. ❌ Cross-host session replication (NOT STARTED)
+8. ⚠️ Cross-host session validation (shared control-plane DB reads are authoritative; HA datastore and failover remain open)
 9. ⚠️ Resource quota enforcement (HOST CPU/memory/process/PHP-worker/disk/inode envelopes shipped; provider-specific bandwidth/database/mail/Redis quotas remain)
 10. ❌ Multi-region replication (NOT STARTED)
 
@@ -186,7 +186,7 @@ The following must be resolved before multi-tenant deployment:
 ### v0.8.0 (Planned)
 
 - [ ] High-availability datastore (etcd or PostgreSQL)
-- [ ] Stateless API servers with load balancing
+- [~] Stateless API servers with load balancing (session validation supports shared control-plane instances; HA datastore is still required)
 - [ ] Cross-host durable job routing
 - [ ] Canary deployment support
 

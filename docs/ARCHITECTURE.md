@@ -135,9 +135,11 @@ The shared-hosting beta adds separately persisted customer credentials,
 relational tenant-site ownership, customer-specific TOTP, and an explicit
 assignment allowlist. Customer sessions may see only their assigned site
 workspaces, matching backups, and matching job records; administrator-only APIs
-retain the privileged operational boundary. The ownership data is durable on
-the single host, but multi-host identity, RBAC, and agent authorization remain
-outside the current contract.
+retain the privileged operational boundary. Ownership data is durable in the
+control-plane database, and session validation reads that shared database so
+multiple panel instances do not accept stale or revoked sessions. High-
+availability database failover, durable cross-host job routing, and agent
+authorization still remain outside the current contract.
 Cloud CLI children receive a filtered environment so panel session, audit, and
 database secrets are not inherited.
 Local database administration crosses a root-owned helper boundary. Uploaded
