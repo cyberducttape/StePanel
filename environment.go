@@ -209,6 +209,9 @@ func (a *App) removeEnvironment(ctx context.Context, access SiteCapability) erro
 // and site lifecycle operations. This is intentionally excluded from the
 // capability model for internal cleanup operations.
 func (a *App) removeEnvironmentLocked(ctx context.Context, site string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	a.Environments.mu.RLock()
 	_, existed := a.Environments.values[site]
 	a.Environments.mu.RUnlock()
@@ -217,6 +220,10 @@ func (a *App) removeEnvironmentLocked(ctx context.Context, site string) error {
 	// stops after this point, startup reconciliation will still remove the host
 	// environment instead of restoring stale values from an older snapshot.
 	a.Environments.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		a.Environments.mu.Unlock()
+		return err
+	}
 	previous := cloneEnvironmentValues(a.Environments.values[site])
 	a.Environments.values[site] = empty
 	err := a.Environments.persistLocked()
@@ -235,6 +242,10 @@ func (a *App) removeEnvironmentLocked(ctx context.Context, site string) error {
 		return fmt.Errorf("remove environment from host: %w", err)
 	}
 	a.Environments.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		a.Environments.mu.Unlock()
+		return fmt.Errorf("environment removal completed but reconciliation is pending: %w", err)
+	}
 	delete(a.Environments.values, site)
 	if err := a.Environments.persistLocked(); err != nil {
 		// The durable empty map is already the desired state. Retain it in
@@ -327,6 +338,10 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := a.applyEnvironment(operationCtx, access, input); err != nil {
 			http.Error(w, "environment is pending host reconciliation", 502)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "environment update cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.environment.updated", site, fmt.Sprintf("%d variables", len(input)))
