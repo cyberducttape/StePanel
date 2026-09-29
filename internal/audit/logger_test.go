@@ -66,6 +66,27 @@ func TestLoggerWritesVerifiesAndFiltersSignedEvents(t *testing.T) {
 	if resp.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("invalid limit status = %d", resp.Code)
 	}
+
+	for _, raw := range []string{"501", "not-a-number"} {
+		req = httptest.NewRequest(http.MethodGet, "/audit?limit="+raw, nil)
+		resp = httptest.NewRecorder()
+		logger.Events(resp, req)
+		if resp.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("invalid limit %q status = %d", raw, resp.Code)
+		}
+	}
+	req = httptest.NewRequest(http.MethodGet, "/audit?action=site.create&limit=1", nil)
+	resp = httptest.NewRecorder()
+	logger.Events(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("action filter status = %d", resp.Code)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/audit?limit=1", nil)
+	resp = httptest.NewRecorder()
+	logger.Events(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("rolling limit status = %d", resp.Code)
+	}
 }
 
 func TestLoggerRejectsTamperedLogAndMissingIdentity(t *testing.T) {
@@ -117,5 +138,314 @@ func TestAuditClassificationAndHandlerLevels(t *testing.T) {
 	}
 	if len(messages) != 3 {
 		t.Fatalf("handler messages = %d", len(messages))
+	}
+}
+
+func signedTestEvent(t *testing.T, sequence uint64, previous string) Event {
+	t.Helper()
+	event := Event{
+		Time:         "2026-01-01T00:00:00Z",
+		Sequence:     sequence,
+		Actor:        "admin",
+		Action:       "site.update",
+		Target:       "site-a",
+		Detail:       "test",
+		PreviousHash: previous,
+	}
+	var err error
+	event.Hash, err = hashEvent(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event
+}
+
+func writeTestEvents(t *testing.T, path string, events ...Event) {
+	t.Helper()
+	data := make([]byte, 0)
+	for _, event := range events {
+		line, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data = append(data, line...)
+		data = append(data, '\n')
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReconcileTailRecoveryAndCorruptionBranches(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	first := signedTestEvent(t, 1, "")
+	second := signedTestEvent(t, 2, first.Hash)
+	base := state{Version: 1, Sequence: 1, Hash: first.Hash, FirstSequence: 1}
+
+	t.Run("missing log", func(t *testing.T) {
+		os.Remove(logger.path)
+		got, err := logger.reconcileTail(base)
+		if err != nil || got.FirstSequence != 2 || got.FirstPreviousHash != first.Hash {
+			t.Fatalf("missing log recovery = %#v, %v", got, err)
+		}
+	})
+	t.Run("empty log", func(t *testing.T) {
+		if err := os.WriteFile(logger.path, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := logger.reconcileTail(base)
+		if err != nil || got.FirstSequence != 2 {
+			t.Fatalf("empty log recovery = %#v, %v", got, err)
+		}
+	})
+	t.Run("committed tail", func(t *testing.T) {
+		writeTestEvents(t, logger.path, first)
+		got, err := logger.reconcileTail(base)
+		if err != nil || got.Sequence != base.Sequence {
+			t.Fatalf("committed tail = %#v, %v", got, err)
+		}
+	})
+	t.Run("uncommitted tail", func(t *testing.T) {
+		writeTestEvents(t, logger.path, first, second)
+		got, err := logger.reconcileTail(base)
+		if err != nil || got.Sequence != 2 || got.Hash != second.Hash {
+			t.Fatalf("uncommitted tail = %#v, %v", got, err)
+		}
+	})
+
+	invalidCases := []struct {
+		name  string
+		data  []byte
+		state state
+	}{
+		{name: "malformed event", data: []byte("not-json\n"), state: base},
+		{name: "invalid event", data: []byte(`{"sequence":0}` + "\n"), state: base},
+		{name: "prefix mismatch", state: state{Version: 1, Sequence: 1, Hash: first.Hash, FirstSequence: 9}},
+		{name: "tail mismatch", state: state{Version: 1, Sequence: 1, Hash: strings.Repeat("0", 64), FirstSequence: 1}},
+		{name: "inconsistent chain", state: state{Version: 1, Sequence: 9, Hash: first.Hash, FirstSequence: 1}},
+	}
+	for _, test := range invalidCases {
+		t.Run(test.name, func(t *testing.T) {
+			if test.data == nil {
+				writeTestEvents(t, logger.path, first)
+			} else if err := os.WriteFile(logger.path, test.data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := logger.reconcileTail(test.state); err == nil {
+				t.Fatal("corrupt chain was accepted")
+			}
+		})
+	}
+
+	badSignature := second
+	badSignature.Hash = strings.Repeat("f", 64)
+	writeTestEvents(t, logger.path, first, badSignature)
+	if _, err := logger.reconcileTail(base); err == nil {
+		t.Fatal("invalid uncommitted signature was accepted")
+	}
+}
+
+func TestAuditChainStateValidationBranches(t *testing.T) {
+	logger, root := newTestLogger(t)
+	missing := filepath.Join(root, "missing.state")
+	if got, err := logger.loadState(missing); err != nil || got.Version != 0 {
+		t.Fatalf("missing state = %#v, %v", got, err)
+	}
+	statePath := logger.path + ".state"
+	keyCheck, err := auditKeyCheck()
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := state{Version: 1, Sequence: 1, Hash: strings.Repeat("a", 64), FirstSequence: 1, KeyCheck: keyCheck}
+	if err := logger.writeState(statePath, valid); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := logger.loadState(statePath); err != nil || got.Sequence != 1 {
+		t.Fatalf("valid state = %#v, %v", got, err)
+	}
+
+	variants := []struct {
+		name string
+		edit func(*state)
+	}{
+		{name: "malformed", edit: nil},
+		{name: "version", edit: func(s *state) { s.Version = 2 }},
+		{name: "hash with zero sequence", edit: func(s *state) { s.Sequence = 0 }},
+		{name: "first sequence", edit: func(s *state) { s.FirstSequence = 3 }},
+		{name: "key check", edit: func(s *state) { s.KeyCheck = "wrong" }},
+		{name: "signature", edit: func(s *state) { s.Signature = "wrong" }},
+	}
+	for _, variant := range variants {
+		t.Run(variant.name, func(t *testing.T) {
+			if variant.edit == nil {
+				if err := os.WriteFile(statePath, []byte("not-json"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				candidate := valid
+				variant.edit(&candidate)
+				data, err := json.Marshal(candidate)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(statePath, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := logger.loadState(statePath); err == nil {
+				t.Fatal("invalid state was accepted")
+			}
+		})
+	}
+
+	if err := logger.writeState(filepath.Join(root, "missing", "state"), valid); err == nil {
+		t.Fatal("writeState succeeded in a missing directory")
+	}
+}
+
+func TestAuditUtilityValidationAndFallbacks(t *testing.T) {
+	if got := truncateValue("abcdef", 3); got != "abc" {
+		t.Fatalf("truncateValue = %q", got)
+	}
+	if got := truncateValue("héllo", 3); got != "hél" {
+		t.Fatalf("unicode truncateValue = %q", got)
+	}
+	if err := validateEvent(Event{}); err == nil {
+		t.Fatal("empty event was accepted")
+	}
+	if err := validateEvent(Event{Sequence: 1, Actor: "admin", Action: "read", Time: "bad"}); err == nil {
+		t.Fatal("invalid timestamp was accepted")
+	}
+	if err := validateEvent(Event{Sequence: 1, Actor: "admin", Action: "read", Time: "2026-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	logger, _ := newTestLogger(t)
+	if err := logger.Log(context.Background(), "site.read", "site-a", "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if logger.PersistenceError() != nil {
+		t.Fatal("successful log recorded a persistence error")
+	}
+	t.Setenv("STEPANEL_AUDIT_KEY", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", strings.Repeat("s", 32))
+	if _, err := auditSigningKey(); err != nil {
+		t.Fatal("session secret fallback failed: ", err)
+	}
+	previousKeyPath := auditKeyPath
+	TestSetKeyPath(filepath.Join(t.TempDir(), "missing-key"))
+	t.Cleanup(func() { TestSetKeyPath(previousKeyPath) })
+	t.Setenv("STEPANEL_SESSION_SECRET", "short")
+	if _, err := auditSigningKey(); err == nil {
+		t.Fatal("short audit key was accepted")
+	}
+}
+
+func TestVerifyAndRetentionFailures(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	if err := logger.Verify(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing audit log verified")
+	}
+	empty := filepath.Join(t.TempDir(), "empty")
+	if err := os.WriteFile(empty, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Verify(empty); err == nil {
+		t.Fatal("empty audit log verified")
+	}
+	if err := logger.Log(context.Background(), "site.read", "site-a", "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Verify(logger.path); err != nil {
+		t.Fatal(err)
+	}
+	statePath := logger.path + ".state"
+	if err := os.Remove(statePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Verify(logger.path); err == nil {
+		t.Fatal("audit log without chain state verified")
+	}
+	for name, events := range map[string][]Event{
+		"chain break": {
+			signedTestEvent(t, 1, ""),
+			signedTestEvent(t, 3, "wrong-previous"),
+		},
+		"invalid event": {{Sequence: 0, Actor: "admin", Action: "read", Time: "2026-01-01T00:00:00Z"}},
+	} {
+		path := filepath.Join(t.TempDir(), name+".log")
+		writeTestEvents(t, path, events...)
+		if err := logger.Verify(path); err == nil {
+			t.Fatalf("%s unexpectedly verified", name)
+		}
+	}
+	badSignature := signedTestEvent(t, 1, "")
+	badSignature.Hash = strings.Repeat("0", 64)
+	badPath := filepath.Join(t.TempDir(), "bad-signature.log")
+	writeTestEvents(t, badPath, badSignature)
+	if err := logger.Verify(badPath); err == nil {
+		t.Fatal("invalid event signature verified")
+	}
+
+	retained := filepath.Join(t.TempDir(), "retained.log")
+	retainedLogger := New(retained).(*defaultLogger)
+	if err := os.WriteFile(retained, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(retained, maxAuditLogBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := retainedLogger.Log(context.Background(), "site.read", "site-a", "too large"); err == nil {
+		t.Fatal("oversized audit log accepted")
+	}
+}
+
+func TestAuditAppendFailureBoundaries(t *testing.T) {
+	logger, root := newTestLogger(t)
+	parent := filepath.Join(root, "lock-parent")
+	if err := os.WriteFile(parent, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	originalPath := logger.path
+	logger.path = filepath.Join(parent, "audit.jsonl")
+	if _, _, err := logger.acquireLock(); err == nil {
+		t.Fatal("audit lock parent failure was ignored")
+	}
+	logger.path = originalPath
+	if err := os.WriteFile(logger.path+".state", []byte("not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Log(context.Background(), "site.read", "site-a", "state failure"); err == nil {
+		t.Fatal("invalid audit state was ignored")
+	}
+	if err := os.Remove(logger.path + ".state"); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.LogAs(context.Background(), "", "site.read", "site-a", "bad actor"); err == nil {
+		t.Fatal("missing actor was accepted")
+	}
+}
+
+func TestAuditLegacyLogIsPreservedBeforeStartingChain(t *testing.T) {
+	logger, root := newTestLogger(t)
+	if err := os.WriteFile(logger.path, []byte("legacy audit data\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Log(context.Background(), "site.read", "site-a", "new chain"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundLegacy := false
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "audit.jsonl.legacy-") {
+			foundLegacy = true
+			break
+		}
+	}
+	if !foundLegacy {
+		t.Fatal("legacy audit log was not preserved")
 	}
 }
