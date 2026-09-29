@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -8,6 +9,25 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestDatabaseResourceDeniesCrossTenantDatabase(t *testing.T) {
+	helper := filepath.Join(t.TempDir(), "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf 'bob_db\\tbob-site\\tbob_user\\t4096\\tutf8mb4\\n'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{DBEngine: "mysql", DBCtl: helper}, Auth: Auth{Username: "admin"}}
+	app.Accounts = &AccountStore{accounts: map[string]HostingAccount{
+		"alice": {Username: "alice", Plan: "starter", Sites: []string{"alice-site"}},
+		"bob":   {Username: "bob", Plan: "starter", Sites: []string{"bob-site"}},
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/api/databases/bob_db", nil)
+	req = req.WithContext(context.WithValue(req.Context(), apiTokenUsernameKey{}, "alice"))
+	response := httptest.NewRecorder()
+	app.databaseResource(response, req)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("cross-tenant database access = %d %s, want 403", response.Code, response.Body.String())
+	}
+}
 
 func TestMySQLCompatibleDatabaseModes(t *testing.T) {
 	for engine, want := range map[string]bool{"": true, "mysql": true, "mariadb": true, "postgresql": false} {
