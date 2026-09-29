@@ -205,15 +205,18 @@ PASS: TestRecoveryDeterminism
   ✓ Event sequences match exactly
 ```
 
-## How It Proves Gate 5
+## What This Framework Proves
 
 Gate 5 requires proving:
-- [x] No mysterious half-states discovered
-- [x] Recovery is deterministic
+- [x] The modeled workflows do not produce half-states under the injected
+      failure points
+- [x] The modeled recovery sequence is deterministic
 
 This framework:
 1. **Injects failures at every operation boundary** (Init, Pre-op, FirstWrite, MidOp, FinalWrite, Cleanup)
-2. **Tests with real failure types** (SIGKILL, filesystem full, SQLite busy, etc.)
+2. **Exercises modeled failure types** (including a real child-process SIGKILL
+   test); filesystem-full, SQLite-busy, and similar failures are injected
+   errors, not host-level resource exhaustion
 3. **Verifies recovery consistency** (no half-states, state is valid)
 4. **Confirms determinism** (5 runs produce identical recovery)
 
@@ -221,38 +224,30 @@ This framework:
 
 To fully meet Gate 5, add:
 
-### 1. OS-Level Process Kill (Already Verified)
+### 1. OS-Level Process Kill (partial evidence only)
 ```bash
-# Test site creation with real SIGKILL
-./scripts/test_sigkill_recovery.sh
-  ├─ Start StePanel
-  ├─ Begin site creation
-  ├─ SIGKILL at random boundary
-  ├─ Reboot machine
-  ├─ Verify recovery
-```
+# Repository-level real child-process boundary
+go test ./internal/testing -run TestFailureInjectorSIGKILLUsesRealSignal -count=1
 
-### 2. Filesystem Exhaustion (Already Verified)
-```bash
-# Test with real filesystem full
-./scripts/test_enospc_recovery.sh
-  ├─ Fill disk to 99%
-  ├─ Start operation that needs persistence
-  ├─ Verify graceful failure
-  ├─ Free disk space
-  ├─ Verify recovery
+# Installed-host worker/panel drills
+bash deploy/lab/install-smoke.sh
 ```
+These checks do not prove host power-loss recovery or every operation boundary.
 
-### 3. Database Unavailability (Already Verified)
+### 2. Filesystem Exhaustion (open)
 ```bash
-# Test with database unavailable
-./scripts/test_db_unavailable.sh
-  ├─ Stop database server
-  ├─ Start operation requiring DB
-  ├─ Verify timeout and recovery
-  ├─ Restart database
-  ├─ Verify reconciliation
+# Use the disposable-VM harness only after a real provider backend is configured.
+./scripts/vm_test_harness.sh test-enospc
 ```
+The current harness fails closed because no provider backend is shipped.
+
+### 3. Database Unavailability (partial evidence only)
+```bash
+# Use the disposable-VM harness after configuring its provider backend.
+./scripts/vm_test_harness.sh test-db-offline
+```
+Installed-host smoke evidence covers a selected MariaDB outage/restart path;
+the complete operation matrix remains open.
 
 ## State Verification Pattern
 
@@ -319,12 +314,12 @@ for i := 0; i < 5; i++ {
 ## Next Steps
 
 ### Immediate
-- [ ] Run failure injection tests for all 5 critical operations
-- [ ] Verify "no half-states" for each
-- [ ] Record recovery timing and determinism
+- [x] Run repository failure-injection tests for the modeled workflows
+- [x] Verify modeled "no half-states" invariants
+- [ ] Record recovery timing and determinism on the disposable host matrix
 
 ### Short-term
-- [ ] Add OS-level process kill tests (actual SIGKILL, not simulated)
+- [ ] Expand OS-level process-kill tests across all critical operations
 - [ ] Test filesystem full conditions (ENOSPC)
 - [ ] Test database unavailability (connection timeout)
 
@@ -336,13 +331,12 @@ for i := 0; i < 5; i++ {
 
 ## Success Criteria for Gate 5
 
-- ✅ Framework: Complete and tested
-- ⏳ No half-states: Zero detected in all workflows
-- ⏳ Deterministic recovery: 5+ runs produce identical sequences
-- ⏳ OS-level failures: SIGKILL recovery proven
-- ⏳ Resource exhaustion: ENOSPC recovery proven
-- ⏳ Database failures: Connection timeout recovery proven
-- ⏳ All 5 operations tested: site, app, db, vhost, termination
+- ✅ Framework: Complete and tested for modeled failures
+- ✅ Modeled no-half-state and deterministic workflow checks pass
+- ⏳ OS-level failures: selected SIGKILL recovery evidence only
+- ⏳ Resource exhaustion: real ENOSPC recovery remains open
+- ⏳ Database failures: selected outage evidence only
+- ⏳ All 5 operations: full host-level matrix remains open
 
 ## Related Documents
 
