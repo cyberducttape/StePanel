@@ -77,3 +77,15 @@ func (a *App) requireSiteAccess(w http.ResponseWriter, r *http.Request, site, de
 	}
 	return access, ok
 }
+
+// requireCustomerScope applies API-token permissions without changing the
+// capabilities of an authenticated browser session or administrator. Legacy
+// unscoped customer tokens retain their existing compatibility behavior in
+// Auth.HasRequiredCustomerScope.
+func (a *App) requireCustomerScope(w http.ResponseWriter, r *http.Request, scope string) bool {
+	if a.Auth.IsAdministrator(r) || a.Auth.HasRequiredCustomerScope(r, scope) {
+		return true
+	}
+	http.Error(w, "API token lacks the "+scope+" scope", http.StatusForbidden)
+	return false
+}

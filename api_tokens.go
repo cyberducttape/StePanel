@@ -46,6 +46,7 @@ var adminAPIScopes = map[string]bool{"admin:read": true, "admin:operate": true}
 // backup or rewrite a database.
 var customerAPIScopes = map[string]bool{
 	"site:read":         true,
+	"site:deploy":       true,
 	"deploy:write":      true,
 	"environment:read":  true,
 	"environment:write": true,
@@ -54,6 +55,8 @@ var customerAPIScopes = map[string]bool{
 	"backup:restore":    true,
 	"database:read":     true,
 	"database:write":    true,
+	"redis:read":        true,
+	"redis:write":       true,
 	"ssh:read":          true,
 	"ssh:write":         true,
 	"logs:read":         true,

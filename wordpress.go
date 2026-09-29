@@ -37,6 +37,9 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
 		return
 	}
+	if !a.requireCustomerScope(w, r, "site:deploy") {
+		return
+	}
 	var input wordpressAction
 	if err := decodeJSON(w, r, 2048, &input); err != nil {
 		http.Error(w, "invalid JSON", 400)
@@ -98,6 +101,9 @@ func (a *App) wordpressStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
+		return
+	}
+	if !a.requireCustomerScope(w, r, "site:read") {
 		return
 	}
 	installed, err := managedSiteFileExists(a.Config.WebRoot, site, "", "wp-config.php")

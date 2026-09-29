@@ -197,6 +197,9 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 	a.Access.mu.RUnlock()
 	switch r.Method {
 	case http.MethodGet:
+		if !a.requireCustomerScope(w, r, "ssh:read") {
+			return
+		}
 		writeJSON(w, 200, access)
 	case http.MethodPatch:
 		if !a.Auth.CSRF(r) {

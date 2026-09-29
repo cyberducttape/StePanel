@@ -23,6 +23,9 @@ func (a *App) siteLogs(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", 403); !ok {
 		return
 	}
+	if !a.requireCustomerScope(w, r, "logs:read") {
+		return
+	}
 	source := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
 	filename, ok := siteLogSources[source]
 	if !ok {

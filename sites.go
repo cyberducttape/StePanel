@@ -40,6 +40,9 @@ func (a *App) canAccessSite(r *http.Request, site string) bool {
 }
 
 func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
+	if !a.requireCustomerScope(w, r, "site:read") {
+		return
+	}
 	sites := map[string]*siteOverview{}
 
 	// Get site list (with caching)
@@ -210,6 +213,9 @@ func managedSiteNames(root string) ([]string, error) {
 }
 
 func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
+	if !a.requireCustomerScope(w, r, "site:read") {
+		return
+	}
 	site := strings.TrimPrefix(r.URL.Path, "/api/sites/overview/")
 	if site == "" || strings.Contains(site, "/") || safeUser(site) == "" {
 		http.Error(w, "invalid site", http.StatusUnprocessableEntity)

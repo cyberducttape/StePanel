@@ -81,6 +81,9 @@ func (a *App) recordDeployment(site, stage, state, detail string, result gitDepl
 	}
 }
 func (a *App) deployments(w http.ResponseWriter, r *http.Request) {
+	if !a.requireCustomerScope(w, r, "site:read") {
+		return
+	}
 	site := safeUser(strings.TrimSpace(r.URL.Query().Get("site")))
 	if strings.TrimSpace(r.URL.Query().Get("site")) != "" && site == "" {
 		http.Error(w, "invalid site", 422)

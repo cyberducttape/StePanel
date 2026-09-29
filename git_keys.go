@@ -23,6 +23,9 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
+		if !a.requireCustomerScope(w, r, "ssh:read") {
+			return
+		}
 		output, err := runBoundedCommand(r.Context(), helperCommandContext(r.Context(), a.Config, a.Config.GitCtl, "public", site))
 		if err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"site": site, "configured": false})
@@ -32,6 +35,9 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+			return
+		}
+		if !a.requireCustomerScope(w, r, "ssh:write") {
 			return
 		}
 		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
@@ -50,6 +56,9 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
+			return
+		}
+		if !a.requireCustomerScope(w, r, "ssh:write") {
 			return
 		}
 		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)

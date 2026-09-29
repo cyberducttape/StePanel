@@ -115,6 +115,9 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, parts[0], "invalid or inaccessible site", 403); !ok {
 		return
 	}
+	if r.Method == http.MethodGet && !a.requireCustomerScope(w, r, "site:read") {
+		return
+	}
 	site := parts[0]
 	name := ""
 	if len(parts) > 1 {
@@ -139,6 +142,9 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 3 && r.Method == http.MethodPost {
 		if !a.Auth.CSRF(r) || (parts[2] != "start" && parts[2] != "stop" && parts[2] != "restart") {
 			http.Error(w, "invalid worker action", 422)
+			return
+		}
+		if !a.requireCustomerScope(w, r, "site:deploy") {
 			return
 		}
 		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
@@ -167,6 +173,9 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodDelete {
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", 403)
+			return
+		}
+		if !a.requireCustomerScope(w, r, "site:deploy") {
 			return
 		}
 		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)

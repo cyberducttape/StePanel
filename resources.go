@@ -462,6 +462,9 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
+		if !a.requireCustomerScope(w, r, "site:read") {
+			return
+		}
 		a.Resources.mu.RLock()
 		p, ok := a.Resources.values[site]
 		a.Resources.mu.RUnlock()

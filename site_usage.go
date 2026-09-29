@@ -22,6 +22,9 @@ func (a *App) siteUsage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, site, "invalid or inaccessible site", 403); !ok {
 		return
 	}
+	if !a.requireCustomerScope(w, r, "site:read") {
+		return
+	}
 	root, err := safePath(a.Config.WebRoot, "sites", site)
 	if err != nil {
 		http.Error(w, "invalid site root", 422)

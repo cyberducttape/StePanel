@@ -194,6 +194,9 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, parts[0], "invalid or inaccessible site", 403); !ok {
 		return
 	}
+	if r.Method == http.MethodGet && !a.requireCustomerScope(w, r, "site:read") {
+		return
+	}
 	if a.Tasks == nil {
 		http.Error(w, "invalid or inaccessible site", 403)
 		return

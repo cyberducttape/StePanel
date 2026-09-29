@@ -120,12 +120,18 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
+		if !a.requireCustomerScope(w, r, "site:read") {
+			return
+		}
 		p, ok := a.PHP.get(access)
 		writeJSON(w, 200, map[string]any{"site": site, "profile": p, "configured": ok, "versions": installedPHPVersions(), "extensions": []string{"curl", "gd", "intl", "mbstring", "mysqli", "opcache", "zip"}})
 		return
 	}
 	if r.Method != http.MethodPut || !a.Auth.CSRF(r) {
 		http.Error(w, "invalid request", 403)
+		return
+	}
+	if !a.requireCustomerScope(w, r, "site:deploy") {
 		return
 	}
 	var p PHPProfile

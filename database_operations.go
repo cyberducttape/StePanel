@@ -180,6 +180,9 @@ func (a *App) cachedDatabaseDiagnostics(maxAge time.Duration) DatabaseDiagnostic
 func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		if !a.requireCustomerScope(w, r, "database:read") {
+			return
+		}
 		items, err := managedDatabaseInventory(a.Config)
 		if err != nil {
 			http.Error(w, "managed database inventory is unavailable", http.StatusServiceUnavailable)
@@ -368,6 +371,9 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !credentialRotation {
+		if !a.requireCustomerScope(w, r, "database:read") {
+			return
+		}
 		for _, item := range items {
 			if item.Name == name {
 				writeJSON(w, http.StatusOK, map[string]any{"database": item, "engine": a.Config.DBEngine})
