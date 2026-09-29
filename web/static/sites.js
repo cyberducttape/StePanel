@@ -1048,20 +1048,26 @@
       },
     }, 'Save environment')]), envOutput]) : el('p', { className: 'import-note' }, 'Environment management requires STEPANEL_ENVIRONMENT_KEY to be configured.'));
 
-    // Resources (administrator only — the enforced side of a plan)
-    if (ctx.isAdministrator) {
-      const resources = await ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`).catch(() => null);
-      if (resources) {
-        panel.append(
-          el('h4', {}, 'Resource profile'),
-          el('div', { className: 'overview-grid' }, [
-            el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'CPU'), el('strong', {}, `${resources.cpu_percent}%`)]),
-            el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Memory'), el('strong', {}, `${resources.memory_mb} MB`)]),
-            el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Tasks'), el('strong', {}, String(resources.tasks_max))]),
-            el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'PHP workers'), el('strong', {}, String(resources.php_workers))]),
-          ]),
-        );
-      }
+    // Resource profiles are administrator-configured but tenant-readable so
+    // customers can see the envelope their plan is actually enforcing.
+    const resources = await ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`).catch(() => null);
+    if (resources) {
+      const profile = resources.profile || resources;
+      const configured = resources.configured !== false;
+      const value = (key, suffix = '') => profile[key] === undefined || profile[key] === null ? '—' : `${profile[key]}${suffix}`;
+      const observedState = resources.observed?.state || 'unavailable';
+      panel.append(
+        el('h4', {}, ctx.isAdministrator ? 'Resource profile' : 'Plan resource envelope'),
+        el('p', { className: 'import-note' }, configured
+          ? `Host enforcement: ${observedState}. These limits are managed by your plan.`
+          : 'No resource profile has been applied yet; the administrator will reconcile it.'),
+        el('div', { className: 'overview-grid' }, [
+          el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'CPU'), el('strong', {}, value('cpu_percent', '%'))]),
+          el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Memory'), el('strong', {}, value('memory_mb', ' MB'))]),
+          el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Tasks'), el('strong', {}, value('tasks_max'))]),
+          el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'PHP workers'), el('strong', {}, value('php_workers'))]),
+        ]),
+      );
     }
 
     // Danger zone
