@@ -62,7 +62,9 @@
     if (!items.length) { tokenList.textContent = 'No automation tokens have been created.'; return; }
     items.forEach((token) => {
       const row = document.createElement('div'); row.className = 'token-row';
-      const detail = document.createElement('span'); detail.textContent = `${token.name} · ${token.prefix}… · ${(token.scopes || []).join(', ') || 'legacy'}`;
+      const expiry = token.expires_at ? ` · expires ${new Date(token.expires_at * 1000).toLocaleDateString()}` : ' · no expiry';
+      const state = token.revoked_at ? ' · revoked' : '';
+      const detail = document.createElement('span'); detail.textContent = `${token.name} · ${token.prefix}… · ${(token.scopes || []).join(', ') || 'legacy'}${expiry}${state}`;
       const revoke = document.createElement('button'); revoke.type = 'button'; revoke.className = 'quiet-action danger'; revoke.textContent = 'Revoke';
       revoke.addEventListener('click', async () => {
         revoke.disabled = true;
@@ -102,13 +104,17 @@
     } catch (error) { activityList.textContent = error.message; }
   };
   const tokenForm = document.querySelector('#accountTokenForm');
+  const expiryInput = document.querySelector('#accountTokenExpiry');
+  if (expiryInput) expiryInput.min = new Date().toISOString().slice(0, 10);
   if (tokenForm) tokenForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const button = tokenForm.querySelector('button[type="submit"]'); button.disabled = true;
     if (tokenStatus) tokenStatus.textContent = 'Creating token…';
     try {
       const form = new FormData(tokenForm);
-      const response = await fetch('/api/account/tokens', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ name: form.get('name'), scopes: form.getAll('scope') }) });
+      const expiry = form.get('expires_at');
+      const expiresAt = expiry ? Math.floor(new Date(`${expiry}T23:59:59Z`).getTime() / 1000) : null;
+      const response = await fetch('/api/account/tokens', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ name: form.get('name'), expires_at: expiresAt, scopes: form.getAll('scope') }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not create token');
       tokenForm.reset();
