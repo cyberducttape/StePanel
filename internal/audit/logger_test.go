@@ -562,6 +562,7 @@ func TestAuditAppendFilesystemFailureBranches(t *testing.T) {
 			auditOpenFile = func(string, int, os.FileMode) (*os.File, error) { return nil, errors.New("open") }
 		}},
 		{name: "write", inject: func() { auditWrite = func(*os.File, []byte) (int, error) { return 0, errors.New("write") } }},
+		{name: "short write", inject: func() { auditWrite = func(_ *os.File, data []byte) (int, error) { return len(data) - 1, nil } }},
 		{name: "sync", inject: func() { auditSync = func(*os.File) error { return errors.New("sync") } }},
 		{name: "close", inject: func() { auditClose = func(*os.File) error { return errors.New("close") } }},
 		{name: "legacy rename", setup: func(logger *defaultLogger) error { return os.WriteFile(logger.path, []byte("legacy\n"), 0600) }, inject: func() { auditRename = func(string, string) error { return errors.New("rename") } }},
@@ -711,6 +712,7 @@ func TestAuditStateWriteAndLockFailureBranches(t *testing.T) {
 		{name: "create temp", inject: func() { auditCreateTemp = func(string, string) (*os.File, error) { return nil, errors.New("create") } }},
 		{name: "chmod", inject: func() { auditChmod = func(*os.File, os.FileMode) error { return errors.New("chmod") } }},
 		{name: "write", inject: func() { auditWrite = func(*os.File, []byte) (int, error) { return 0, errors.New("write") } }},
+		{name: "short write", inject: func() { auditWrite = func(_ *os.File, data []byte) (int, error) { return len(data) - 1, nil } }},
 		{name: "file sync", inject: func() { auditSync = func(*os.File) error { return errors.New("sync") } }},
 		{name: "file close", inject: func() { auditClose = func(*os.File) error { return errors.New("close") } }},
 		{name: "rename", inject: func() { auditRename = func(string, string) error { return errors.New("rename") } }},

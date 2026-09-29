@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,7 +161,12 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 		return err
 	}
 
-	if _, err = auditWrite(file, append(line, '\n')); err == nil {
+	payload := append(line, '\n')
+	if written, writeErr := auditWrite(file, payload); writeErr != nil {
+		err = writeErr
+	} else if written != len(payload) {
+		err = io.ErrShortWrite
+	} else {
 		err = auditSync(file)
 	}
 	if closeErr := auditClose(file); err == nil {
@@ -339,9 +345,13 @@ func (l *defaultLogger) writeState(path string, s state) error {
 		return fmt.Errorf("secure audit state file permissions: %w", err)
 	}
 
-	if _, err = auditWrite(temp, append(data, '\n')); err != nil {
+	payload := append(data, '\n')
+	if written, writeErr := auditWrite(temp, payload); writeErr != nil {
 		auditClose(temp)
-		return fmt.Errorf("write audit state: %w", err)
+		return fmt.Errorf("write audit state: %w", writeErr)
+	} else if written != len(payload) {
+		auditClose(temp)
+		return fmt.Errorf("write audit state: %w", io.ErrShortWrite)
 	}
 
 	if err = auditSync(temp); err != nil {
