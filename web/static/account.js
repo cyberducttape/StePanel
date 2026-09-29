@@ -91,6 +91,20 @@
         const row = document.createElement('div'); row.className = 'token-row';
         const detail = document.createElement('span'); detail.textContent = `${member.username} · ${member.role} · ${member.mfa_enabled ? 'MFA enabled' : 'MFA required'}${member.suspended ? ' · suspended' : ''}`;
         const actions = document.createElement('span'); actions.className = 'account-inventory-actions';
+        const role = document.createElement('select'); role.className = 'member-role'; role.setAttribute('aria-label', `Role for ${member.username}`);
+        ['manager', 'developer', 'viewer'].forEach((value) => {
+          const option = document.createElement('option'); option.value = value; option.textContent = value[0].toUpperCase() + value.slice(1); option.selected = value === member.role; role.append(option);
+        });
+        const saveRole = document.createElement('button'); saveRole.type = 'button'; saveRole.className = 'quiet-action'; saveRole.textContent = 'Save role';
+        saveRole.addEventListener('click', async () => {
+          saveRole.disabled = true;
+          try {
+            const response = await fetch(`/api/account/members/${encodeURIComponent(member.username)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ role: role.value }) });
+            if (!response.ok) throw new Error((await response.text()) || 'Could not update member role');
+            await loadMembers();
+          } catch (error) { if (memberStatus) memberStatus.textContent = error.message; }
+          finally { saveRole.disabled = false; }
+        });
         const suspend = document.createElement('button'); suspend.type = 'button'; suspend.className = 'quiet-action'; suspend.textContent = member.suspended ? 'Unsuspend' : 'Suspend';
         suspend.addEventListener('click', async () => {
           suspend.disabled = true;
@@ -112,7 +126,7 @@
           } catch (error) { if (memberStatus) memberStatus.textContent = error.message; }
           finally { remove.disabled = false; }
         });
-        actions.append(suspend, remove); row.append(detail, actions); memberList.append(row);
+        actions.append(role, saveRole, suspend, remove); row.append(detail, actions); memberList.append(row);
       });
     } catch (error) { memberList.textContent = error.message; }
   };
