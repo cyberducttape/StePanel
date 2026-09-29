@@ -696,6 +696,26 @@ func (a *App) reconcileResourceProfiles(ctx context.Context) (reconciled []strin
 			releaseUnlock()
 			continue
 		}
+		if err := operationCtx.Err(); err != nil {
+			p.State = "pending"
+			if p.hasFilesystemQuota() {
+				p.FilesystemQuotaState = "apply-pending"
+			} else {
+				p.FilesystemQuotaState = "none"
+			}
+			if saveErr := func() error {
+				a.Resources.mu.Lock()
+				defer a.Resources.mu.Unlock()
+				a.Resources.values[p.Site] = p
+				return a.Resources.persistLocked()
+			}(); saveErr != nil {
+				failed[p.Site] = saveErr.Error()
+			} else {
+				failed[p.Site] = err.Error()
+			}
+			releaseUnlock()
+			continue
+		}
 		reconciled = append(reconciled, p.Site)
 		releaseUnlock()
 	}

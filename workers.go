@@ -334,6 +334,12 @@ func (a *App) reconcileWorkers(ctx context.Context) (reconciled []string, failed
 				releaseUnlock()
 				continue
 			}
+			if err := operationCtx.Err(); err != nil {
+				a.recordWorkerError(key, err)
+				failed[key] = err.Error()
+				releaseUnlock()
+				continue
+			}
 		}
 		reconciled = append(reconciled, key)
 		releaseUnlock()

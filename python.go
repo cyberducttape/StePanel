@@ -191,6 +191,16 @@ func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, fai
 			releaseUnlock()
 			continue
 		}
+		if err := operationCtx.Err(); err != nil {
+			app.State, app.LastError = "pending", err.Error()
+			if saveErr := savePythonApp(a.Config.AppRoot, app); saveErr != nil {
+				failed[app.Site] = fmt.Sprintf("apply cancelled: %v; state save failed: %v", err, saveErr)
+			} else {
+				failed[app.Site] = err.Error()
+			}
+			releaseUnlock()
+			continue
+		}
 		reconciled = append(reconciled, app.Site)
 		releaseUnlock()
 	}

@@ -137,6 +137,8 @@ API-token, backup-schedule, webhook, and Git deployment/rollback mutations now
 use the same account/site fencing and completion checks.
 Environment reconciliation also leaves host state pending instead of reporting
 success after lease loss.
+Route, runtime, resource, task, and worker reconciliation now apply the same
+post-persistence lease check and pending-state fallback.
 
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file

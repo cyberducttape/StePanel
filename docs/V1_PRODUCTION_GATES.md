@@ -221,6 +221,9 @@ Test 5: backup + filesystem restore simultaneously
   and check lease loss before reporting completion.
 - Environment reconciliation now retains the item as pending when its helper
   completes after the site lease is lost.
+- Route, PHP/Python runtime, resource, task, and worker reconciliation now
+  re-check the lease after the final applied-state write and restore pending
+  state when cancellation is observed at that boundary.
 - Route deletion now leaves the desired route pending with an error when the
   lease is lost after the webserver helper returns, instead of removing the
   durable desired state.

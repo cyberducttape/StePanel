@@ -181,6 +181,17 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 		} else {
 			route.State, route.LastError, route.UpdatedAt = "applied", "", time.Now().UTC()
 			err = a.Routes.save(route)
+			if err == nil {
+				if ctxErr := operationCtx.Err(); ctxErr != nil {
+					route.State, route.LastError = "pending", ctxErr.Error()
+					failed[route.Name] = ctxErr.Error()
+					if saveErr := a.SaveRouteState(route); saveErr != nil {
+						failed[route.Name] = saveErr.Error()
+					}
+					release()
+					continue
+				}
+			}
 		}
 		release()
 		if err != nil {

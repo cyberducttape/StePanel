@@ -218,6 +218,16 @@ func (a *App) reconcilePHPProfiles(ctx context.Context) (reconciled []string, fa
 			releaseUnlock()
 			continue
 		}
+		if err := operationCtx.Err(); err != nil {
+			profile.State, profile.LastError = "pending", err.Error()
+			if saveErr := a.SavePHPProfileStateLocked(profile.Site, profile); saveErr != nil {
+				failed[profile.Site] = saveErr.Error()
+			} else {
+				failed[profile.Site] = err.Error()
+			}
+			releaseUnlock()
+			continue
+		}
 		reconciled = append(reconciled, profile.Site)
 		releaseUnlock()
 	}

@@ -469,6 +469,12 @@ func (a *App) reconcileTasks(ctx context.Context) (reconciled []string, failed m
 				releaseUnlock()
 				continue
 			}
+			if err := operationCtx.Err(); err != nil {
+				a.recordTaskError(key, err)
+				failed[key] = err.Error()
+				releaseUnlock()
+				continue
+			}
 		}
 		reconciled = append(reconciled, key)
 		releaseUnlock()
