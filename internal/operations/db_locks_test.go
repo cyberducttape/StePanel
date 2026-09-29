@@ -249,10 +249,27 @@ func TestDBLocks_AcquireContextRespectsDeadline(t *testing.T) {
 // when the context is cancelled. This is the primary tool a caller uses
 // to protect a long-running operation.
 func TestDBLocks_HoldRenewsUntilCancel(t *testing.T) {
-	a, _, cleanup := openTwoHandles(t)
-	defer cleanup()
+	path := filepath.Join(t.TempDir(), "locks.sqlite")
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	a, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	other, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
 
-	owner, _ := NewDBLocks(a, "owner-a", 200*time.Millisecond)
+	owner, err := NewDBLocks(a, "owner-a", 200*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stealer, err := NewDBLocks(other, "stealer", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	lease, err := owner.TryAcquire("site-h")
 	if err != nil {
 		t.Fatal(err)
@@ -265,14 +282,10 @@ func TestDBLocks_HoldRenewsUntilCancel(t *testing.T) {
 	// lease would expire and a competing owner could take over.
 	time.Sleep(600 * time.Millisecond)
 
-	// From a second handle, the lock must still be held.
-	_, other, cleanup2 := openTwoHandles(t)
-	defer cleanup2()
-	stealer, _ := NewDBLocks(other, "stealer", 30*time.Second)
-	// The stealer is looking at a DIFFERENT database file (new t.TempDir);
-	// use the same file instead. Rebuild using shared path via openTwoHandles
-	// pattern: reuse `a`'s db path by opening a second handle on it.
-	_ = stealer
+	// From a second database handle, the lock must still be held.
+	if _, err := stealer.TryAcquire("site-h"); !errors.Is(err, ErrLockHeld) {
+		t.Fatalf("renewed lease was not held across handles: %v", err)
+	}
 
 	// Cancel Hold and confirm it returns nil.
 	cancel()
@@ -283,6 +296,9 @@ func TestDBLocks_HoldRenewsUntilCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Hold did not return within 2s of cancel")
+	}
+	if err := owner.Release(lease); err != nil {
+		t.Fatalf("release after Hold cancellation failed: %v", err)
 	}
 }
 
