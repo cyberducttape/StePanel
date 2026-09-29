@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-09-28
+**Last Updated:** 2026-09-29
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -58,7 +58,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ### Gate 5: Failure Injection Testing (partial; Phase 7 remains open)
 
-**Status:** Partial; hosted single-boundary recovery evidence passes on both disposable distributions for cpmove, backup, file restore, termination, account suspension, and Git deploy. A Rocky Linux 9.8 VM passed the same installed-host drills plus abrupt QEMU-process kill/reboot and MariaDB service outage/restart checks; the full Phase 7 failure matrix remains open.
+**Status:** Partial; hosted recovery evidence passes on both disposable distributions for the default drills and the expanded alternate kill-boundary matrix covering cpmove, backup, file restore, termination, account suspension, and Git deploy. A Rocky Linux 9.8 VM passed the same installed-host drills plus abrupt QEMU-process kill/reboot and MariaDB service outage/restart checks; the full Phase 7 failure matrix remains open.
 
 - ✅ Phase 1: Failure Injection Framework (100%)
 - ✅ Phase 2: Durable Checkpoint System (100%)
@@ -140,13 +140,13 @@ success after lease loss.
 Route, runtime, resource, task, and worker reconciliation now apply the same
 post-persistence lease check and pending-state fallback.
 
-Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
-Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
-restore/recovery, termination recovery, account suspension after panel kill,
-and Git deployment recovery after panel kill during activation. A disposable
-Rocky Linux 9.8 VM passed the installed-host recovery sequence, then remained
-healthy after an abrupt QEMU-process kill/reboot and a MariaDB stop/start. These
-checks do not establish real host power-loss or disk-exhaustion safety.
+Hosted installation smoke run `36529280956` passes on AlmaLinux 9 and Rocky
+Linux 9 for the default recovery drills plus alternate kill boundaries across
+cpmove import, backup creation/verification, file restore commit, termination,
+account suspension, and Git deployment activation. A disposable Rocky Linux
+9.8 VM passed the installed-host recovery sequence, then remained healthy after
+an abrupt QEMU-process kill/reboot and a MariaDB stop/start. These checks do
+not establish real host power-loss or disk-exhaustion safety.
 
 **Remaining Work:** Complete the Phase 7 failure matrix
 - Multi-point kill/restart coverage across each critical operation

@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-09-28
+**Last Updated:** 2026-09-29
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -366,14 +366,13 @@ matrix below.
 4. Terminate (hosted worker kill/restart during site-state removal passes; interruptions during backup and cleanup remain)
 5. Account suspension (hosted panel kill/restart after persistence passes; external helper and earlier-stage interruptions remain)
 
-**Evidence currently available:** hosted installation smoke run `36436484546`
-passes on both AlmaLinux 9 and Rocky Linux 9 for cpmove import/recovery, durable
-backup creation/recovery, file restore/recovery, termination recovery, account
-suspension after panel SIGKILL, and Git deployment recovery after panel SIGKILL
-during release activation. The deployment drill verifies that startup recovery
-restores the original site content and clears the activation journal. Earlier
-run `36382583261` passed the cpmove, backup, file-restore, termination, and
-suspension paths before the deploy drill was added. The repository
+**Evidence currently available:** hosted installation smoke run `36529280956`
+passes on both AlmaLinux 9 and Rocky Linux 9 for the default recovery drills
+and an expanded alternate kill-boundary matrix covering cpmove import, backup
+verification, file-restore commit, termination, account suspension, and Git
+deployment activation. The deployment drill verifies that startup recovery
+restores the original site content and clears the activation journal. The
+repository
 recovery-drill harness passes partial SQL import cleanup, interrupted
 transaction recovery, configuration
 rollback, and pending runtime reconciliation. Its generated results explicitly
@@ -403,7 +402,7 @@ the recovery suite under them.
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit
 - [x] Boundary-level failure tests cover all 5 operations
-- [ ] Multi-point process-kill/restart drills cover all 5 operations (single-boundary recovery drills now pass for backup, file restore, deploy, termination, and suspension)
+- [ ] Multi-point process-kill/restart drills cover all 5 operations (the hosted matrix now covers alternate boundaries for the listed workflows, but the full required point-by-point matrix remains open)
 - [ ] No mysterious half-states discovered
 - [ ] Recovery is deterministic
 
