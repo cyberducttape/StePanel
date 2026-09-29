@@ -284,3 +284,72 @@ sleep 0.2
 		t.Fatal("helper critical sections overlapped despite independent durable locks")
 	}
 }
+
+func TestSiteMutationLockLossTerminatesInFlightHelper(t *testing.T) {
+	root := t.TempDir()
+	scriptPath := filepath.Join(root, "long-helper.sh")
+	started := filepath.Join(root, "started")
+	completed := filepath.Join(root, "completed")
+	script := "#!/bin/sh\nset -eu\n: > " + started + "\nsleep 10\n: > " + completed + "\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	dsn := "file:" + filepath.Join(root, "control-plane.sqlite") + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	dbA, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbA.Close()
+	dbB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbB.Close()
+	locksA, err := operations.NewDBLocks(dbA, "helper-owner", 100*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locksB, err := operations.NewDBLocks(dbB, "helper-takeover", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := &App{Config: Config{SiteCtl: scriptPath, WebRoot: root}, dbLocks: locksA}
+
+	ctx, release, err := owner.acquireSiteMutationLockContext(context.Background(), "site:helper-loss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	done := make(chan error, 1)
+	go func() { done <- siteHelperContext(ctx, owner.Config, "seal", "helper-loss") }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("long-running helper did not start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	expireTestLease(t, dbA, "site:helper-loss")
+	takeoverLease, err := locksB.TryAcquire("site:helper-loss")
+	if err != nil {
+		t.Fatal("takeover failed: ", err)
+	}
+	defer locksB.Release(takeoverLease)
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("in-flight helper reported success after lease loss")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight helper was not terminated after lease loss")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(completed); err == nil {
+		t.Fatal("helper completed after its lease was lost")
+	}
+}
