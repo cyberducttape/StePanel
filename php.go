@@ -156,13 +156,19 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 	if e := a.applyPHPProfile(operationCtx, p); e != nil {
 		p.State, p.LastError = "pending", e.Error()
-		a.SavePHPProfileState(access, p)
+		if saveErr := a.SavePHPProfileState(access, p); saveErr != nil {
+			http.Error(w, "PHP runtime profile failed and pending state could not be persisted", http.StatusServiceUnavailable)
+			return
+		}
 		http.Error(w, "PHP runtime profile is pending reconciliation", 502)
 		return
 	}
 	if err := operationCtx.Err(); err != nil {
 		p.State, p.LastError = "pending", err.Error()
-		_ = a.SavePHPProfileState(access, p)
+		if saveErr := a.SavePHPProfileState(access, p); saveErr != nil {
+			http.Error(w, "PHP runtime profile was cancelled and pending state could not be persisted", http.StatusServiceUnavailable)
+			return
+		}
 		http.Error(w, "PHP runtime profile is pending reconciliation", http.StatusConflict)
 		return
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -198,17 +199,22 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := writeAtomic(manifestPath+".bak", current, 0600); err != nil {
-			_ = runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port))
-			http.Error(w, "rollback state could not be persisted; the previous process configuration was restored", 500)
+			restoreErr := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port))
+			if restoreErr != nil {
+				http.Error(w, fmt.Sprintf("rollback state could not be persisted and the previous process configuration could not be restored: %v", restoreErr), http.StatusServiceUnavailable)
+				return
+			}
+			http.Error(w, "rollback state could not be persisted; the previous process configuration was restored", http.StatusInternalServerError)
 			return
 		}
 		if err := writeAtomic(manifestPath, backup, 0600); err != nil {
-			_ = writeAtomic(manifestPath+".bak", backup, 0600)
-			if runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port)) != nil {
-				http.Error(w, "rollback manifest failed and the prior process configuration could not be restored", 503)
+			backupRestoreErr := writeAtomic(manifestPath+".bak", backup, 0600)
+			restoreErr := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port))
+			if backupRestoreErr != nil || restoreErr != nil {
+				http.Error(w, fmt.Sprintf("rollback manifest failed and recovery was incomplete (manifest backup: %v; process configuration: %v)", backupRestoreErr, restoreErr), http.StatusServiceUnavailable)
 				return
 			}
-			http.Error(w, "rollback manifest could not be persisted; the previous process configuration was restored", 500)
+			http.Error(w, "rollback manifest could not be persisted; the previous process configuration was restored", http.StatusInternalServerError)
 			return
 		}
 	} else if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, parts[1], parts[0]); err != nil {
