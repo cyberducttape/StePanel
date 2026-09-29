@@ -70,6 +70,9 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	if !okTarget {
 		return
 	}
+	if !a.requireCustomerScope(w, r, "site:deploy") {
+		return
+	}
 	if !a.Auth.IsAdministrator(r) {
 		if a.Domains == nil {
 			http.Error(w, "domain ownership must be verified before staging activation", http.StatusConflict)

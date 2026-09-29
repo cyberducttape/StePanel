@@ -127,6 +127,9 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "invalid backup", http.StatusUnprocessableEntity); !ok {
 		return
 	}
+	if !a.requireCustomerScope(w, r, "backup:read") {
+		return
+	}
 	path, err := safePath(a.Config.BackupRoot, input.Backup)
 	if err != nil {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
