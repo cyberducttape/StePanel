@@ -267,9 +267,17 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "encoding must be UTF8 for PostgreSQL or utf8mb4 for MySQL/MariaDB", http.StatusUnprocessableEntity)
 			return
 		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "database mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if _, err := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, in.Password, "provision", in.Name, in.User, in.Site, in.Encoding); err != nil {
 			log.Printf("database provision rejected for %s: %v", in.Name, err)
 			http.Error(w, "database or user already exists, or provisioning failed", http.StatusConflict)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "database provisioning cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.provisioned", in.Name, fmt.Sprintf("site=%s user=%s encoding=%s", in.Site, in.User, in.Encoding))
@@ -399,8 +407,16 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "database credential rotation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if _, err := runDatabaseHelperContext(operationCtx, a.Config, 30*time.Second, in.Password, "rotate", name, in.User); err != nil {
 			http.Error(w, "credential rotation failed", http.StatusConflict)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "database credential rotation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.credentials_rotated", name, "user="+in.User)
@@ -428,6 +444,10 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, "", "drop-managed", name, in.User); err != nil {
 			http.Error(w, "database deletion failed", http.StatusConflict)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "database deletion cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.deleted", name, "user="+in.User+" safety_backup="+safetyBackup.Path+" sha256="+safetyBackup.SHA256)

@@ -148,6 +148,10 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Composer install failed", 502)
 		return
 	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Composer operation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	command := "composer install --no-interaction --no-progress --no-scripts --no-plugins"
 	if !input.Development {
 		command += " --no-dev"

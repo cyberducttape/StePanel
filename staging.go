@@ -301,6 +301,10 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not activate staging route", 502)
 		return
 	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "staging route activation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	routeApplied = true
 	if err := txn.Commit(); err != nil {
 		http.Error(w, "could not commit staging transaction", 503)
@@ -308,6 +312,10 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	ok = true
 	stateCommitted = true
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "staging creation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	result := StagingResult{Source: input.Source, Site: input.Site, Domain: input.Domain, FilesCopied: input.Files, EnvironmentCopied: input.Environment, DatabaseCopied: input.Database, TargetDatabase: input.TargetDatabase, SecretsCopied: false, CreatedAt: time.Now().UTC()}
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "staging.created", input.Site, input.Source+" -> "+input.Domain)
 	writeJSON(w, 202, result)

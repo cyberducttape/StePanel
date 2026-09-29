@@ -101,6 +101,10 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "release cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	ctx, cancel := context.WithTimeout(operationCtx, 20*time.Minute)
 	defer cancel()
 	deploymentID, err := newJobID("deployment")
@@ -155,6 +159,10 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	result.Previous = previous
 	a.recordDeployment(input.Site, "activation", "completed", "atomic built release activated", result, "")
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "release cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.release.pipeline", input.Site, input.Repository+"@"+commit)
 	writeJSON(w, 202, result)

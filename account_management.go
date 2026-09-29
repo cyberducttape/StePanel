@@ -204,6 +204,10 @@ func (a *App) accountSuspend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not suspend account: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "account suspension cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 
 	// Audit the suspension
 	auditAction := "account.suspended"
@@ -281,6 +285,10 @@ func (a *App) accountUnsuspend(w http.ResponseWriter, r *http.Request) {
 	_, err := a.setAccountSuspended(operationCtx, req.Username, false)
 	if err != nil {
 		http.Error(w, "could not unsuspend account: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "account unsuspension cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 

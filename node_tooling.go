@@ -52,8 +52,16 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Node tooling operation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	if err := runHelperCommand(operationCtx, a.Config, a.Config.AppCtl, "node-tool", input.Site, input.Action, input.PackageManager, root); err != nil {
 		http.Error(w, "Node tooling action failed", 502)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Node tooling operation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "node."+input.Action, input.Site, input.PackageManager)

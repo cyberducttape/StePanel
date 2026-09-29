@@ -445,6 +445,12 @@ func (a *App) reconcileTasks(ctx context.Context) (reconciled []string, failed m
 			releaseUnlock()
 			continue
 		}
+		if err := operationCtx.Err(); err != nil {
+			failed[key] = err.Error()
+			a.recordTaskError(key, err)
+			releaseUnlock()
+			continue
+		}
 		if task.Deleted {
 			a.Tasks.mu.Lock()
 			err := a.finalizeTaskDeletionLocked(key, task)

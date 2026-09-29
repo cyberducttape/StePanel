@@ -67,12 +67,20 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "WordPress operation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
 	defer cancel()
 	commandArgs := append([]string{"--path=" + root, "--no-color"}, args...)
 	output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, a.Config.WPCLI, commandArgs...))
 	if err != nil {
 		http.Error(w, "WordPress action failed: "+strings.TrimSpace(string(output)), 502)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "WordPress operation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "wordpress."+input.Action, site, "WP-CLI action completed")

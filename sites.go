@@ -563,6 +563,14 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site route was not removed because validation or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
+	if err := operationCtx.Err(); err != nil {
+		if hasDesired {
+			desired.LastError = err.Error()
+			a.SaveRouteState(desired)
+		}
+		http.Error(w, "route deletion cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	if hasDesired {
 		if err := a.Routes.remove(name); err != nil {
 			http.Error(w, "site route removed but desired-state cleanup failed", http.StatusServiceUnavailable)

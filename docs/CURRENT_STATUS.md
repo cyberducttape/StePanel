@@ -124,6 +124,12 @@ state when helper execution completes after lease cancellation.
 Worker lifecycle and desired-state updates now preserve pending reconciliation
 state when their helper execution is interrupted by lease loss.
 
+The same lease boundary is now enforced for Node tooling, WordPress, Composer,
+`.htaccess`, database, Redis, account suspension, release activation, staging,
+and task reconciliation workflows. Route deletion preserves pending desired
+state when its helper completes after lease loss. Full interrupted-workflow
+recovery acceptance remains open.
+
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,

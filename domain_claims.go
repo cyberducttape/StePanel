@@ -239,6 +239,10 @@ func (a *App) domainClaim(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not persist domain claim", http.StatusServiceUnavailable)
 		return
 	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "domain claim cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"domain": claim.Domain, "site": claim.Site, "state": claim.State, "txt_name": "_stepanel." + claim.Domain, "txt_value": claim.Token})
 }
 
@@ -283,6 +287,10 @@ func (a *App) domainVerify(w http.ResponseWriter, r *http.Request) {
 	claim, err := a.Domains.verify(ctx, input.Site, input.Domain)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "domain verification cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"domain": claim.Domain, "site": claim.Site, "state": claim.State, "verified_at": claim.VerifiedAt})

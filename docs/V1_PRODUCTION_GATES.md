@@ -208,6 +208,14 @@ Test 5: backup + filesystem restore simultaneously
   success is recorded.
 - Worker lifecycle, creation, and removal workflows now reject lease loss
   before durable transitions and retain pending state for reconciliation.
+- Node tooling, WordPress, Composer, and `.htaccess` workflows now check the
+  fenced context both before helper execution and before reporting completion.
+- Database provisioning, credential rotation, deletion, Redis desired-state
+  updates, account suspension, release activation, staging publication, and
+  task reconciliation now reject lease loss at their helper-to-state boundary.
+- Route deletion now leaves the desired route pending with an error when the
+  lease is lost after the webserver helper returns, instead of removing the
+  durable desired state.
 
 These tests prove lock acquisition, helper serialization, and the delete
 cancellation boundary. They do not yet prove that every full workflow remains

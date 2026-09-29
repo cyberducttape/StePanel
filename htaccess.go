@@ -217,11 +217,19 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "configuration migration cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	ctx, cancel := context.WithTimeout(operationCtx, time.Minute)
 	defer cancel()
 	command := helperCommandContext(ctx, a.Config, a.Config.VHostCtl, "import-htaccess", input.Site, input.Domain)
 	if _, err := runBoundedCommandInput(ctx, command, strings.NewReader(conversion.CaddyDirectives)); err != nil {
 		http.Error(w, "Caddy rejected the translated configuration", http.StatusServiceUnavailable)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "configuration migration cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	conversion.Applied = true
