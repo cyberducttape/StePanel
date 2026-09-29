@@ -175,10 +175,10 @@ The following must be resolved before multi-tenant deployment:
 3. ✅ Safe config file updates (RESOLVED in v0.7.0)
 4. ✅ Archive type validation (RESOLVED in v0.7.0)
 5. ✅ Path traversal prevention (RESOLVED in v0.7.0)
-6. ❌ RBAC per-customer (NOT STARTED)
-7. ❌ Audit log segregation (NOT STARTED)
+6. ⚠️ Customer RBAC (OWNER-ONLY BOUNDARY SHIPPED; delegated roles and reseller/support scopes remain)
+7. ⚠️ Audit log segregation (CUSTOMER ACTIVITY SCOPING SHIPPED; the operator audit chain remains global)
 8. ❌ Cross-host session replication (NOT STARTED)
-9. ❌ Resource quota enforcement (NOT STARTED)
+9. ⚠️ Resource quota enforcement (HOST CPU/memory/process/PHP-worker/disk/inode envelopes shipped; provider-specific bandwidth/database/mail/Redis quotas remain)
 10. ❌ Multi-region replication (NOT STARTED)
 
 ## Path to GA (v1.0.0)
@@ -192,9 +192,9 @@ The following must be resolved before multi-tenant deployment:
 
 ### v0.9.0 (Planned)
 
-- [ ] Multi-tenant RBAC
+- [~] Multi-tenant RBAC (owner and assigned-site isolation is implemented; delegated roles remain)
 - [ ] Per-customer audit log isolation
-- [ ] Resource quota enforcement
+- [~] Resource quota enforcement (host envelopes implemented; provider-specific quotas remain)
 - [ ] Automated compliance reporting
 
 ### v1.0.0 (GA Target)

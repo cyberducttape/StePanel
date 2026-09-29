@@ -147,16 +147,21 @@ Release approval: use `V1_PRODUCTION_GATES.md`; this catalog is not a release ga
 - Backup verification is available through the CLI and administrator API. Each
   backup records `crash-consistent / logical backup` classification and can be
   authenticated with an external `STEPANEL_BACKUP_SIGNING_KEY`. Administrator
-  files-only restore and restore-to-staging are available for verified files;
+  files-only restore is available for verified files, and assigned customers
+  can restore verified files into an isolated no-index staging route;
   database-only restore is available for existing managed databases with a
   verified pre-restore safety backup. Administrator off-site files-only restore
   is also available when rclone is configured. Administrator off-site
   database-only restore is available for existing managed databases when
   rclone is configured; off-site browsing and full customer self-service
   restore remain deliberately guarded. Schema rollback remains manual.
-- The customer workspace currently authorizes assigned site viewing, verified
-  backup creation, tracked domain route lifecycle, and job history only. It is not yet a full
-  tenant self-service portal.
+- The customer workspace now includes tenant-scoped plan and usage reporting,
+  MFA/password/session controls, scoped automation tokens, verified activity,
+  assigned-site viewing, tracked domain routes, databases, environment values,
+  Redis allocations, SSH/deploy keys, PHP settings, workers, scheduled tasks,
+  logs, verified backup creation, and restore-to-staging. File management,
+  billing, delegated roles, and production promotion remain outside the beta
+  customer boundary.
 - PITR/WAL or binlog management, replication orchestration, configuration
   mutation, and automatic failover remain operator-managed and deliberately
   have no unsafe simulated controls.
@@ -178,10 +183,11 @@ must be implemented before offering untrusted customer access:
   bandwidth and provider-specific database, mail, and Redis quotas remain
   unfinished.
 - Customer-facing file manager, Git-provider App/OAuth integrations, database
-  promotion, notifications, and self-service
-  backup/restore. The shipped deploy-key, resource-profile, Security Center,
-  scheduled-task, and restore-to-staging APIs remain operator/beta controls
-  until tenant enforcement and durable state are complete.
+  promotion, notifications, and full self-service production restore remain
+  unfinished. The shipped deploy-key, resource-profile, Security Center,
+  scheduled-task, and restore-to-staging APIs are tenant-enforced on the
+  single host, but remain beta controls until delegated roles, durable
+  multi-host state, and the broader provider lifecycle are complete.
 
 These are product and architecture work items, not safe one-file patches. The
 sequencing, acceptance gates, and operational prerequisites are tracked in
