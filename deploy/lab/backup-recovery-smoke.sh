@@ -30,7 +30,7 @@ mkdir -p "$dropin_dir"
 cleanup() {
   rm -f -- "$dropin"
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl restart stepanel-worker.service >/dev/null 2>&1 || true
+  timeout --foreground 30s systemctl restart stepanel-worker.service >/dev/null 2>&1 || true
   if [[ -n $work ]]; then
     rm -rf -- "$work"
   fi

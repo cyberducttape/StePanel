@@ -26,7 +26,7 @@ cleanup() {
   local status=$?
   rm -f -- "$dropin"
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl restart stepanel.service >/dev/null 2>&1 || true
+  timeout --foreground 30s systemctl restart stepanel.service >/dev/null 2>&1 || true
   rm -rf -- "$work"
   if (( status != 0 )); then
     echo "deploy recovery smoke failed (status $status)" >&2
