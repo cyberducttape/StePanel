@@ -219,6 +219,16 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 	if actor == "" {
 		actor = a.Auth.Username
 	}
+	operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
+	if lockErr != nil {
+		http.Error(w, "webhook configuration is busy", http.StatusConflict)
+		return
+	}
+	defer release()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "webhook configuration cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	switch r.Method {
 	case http.MethodDelete:
 		if err := AuditAs(a.Config.AuditLog, actor, "webhook.config.disable.initiated", site, "per-site webhook disabled"); err != nil {
@@ -227,6 +237,10 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := a.Webhooks.DisableWebhookConfig(site); err != nil {
 			http.Error(w, "could not disable webhook", http.StatusInternalServerError)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "webhook configuration cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		recordAudit(a.Config.AuditLog, actor, "webhook.config.disabled", site, "per-site webhook disabled")
@@ -277,6 +291,10 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := a.Webhooks.SetWebhookConfig(site, secret, input.Repositories, input.AllowedRefs); err != nil {
 			http.Error(w, "could not persist webhook configuration", http.StatusInternalServerError)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "webhook configuration cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		recordAudit(a.Config.AuditLog, actor, "webhook.config.updated", site, detail)
@@ -587,6 +605,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Git deployment cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	repository, err := parseGitRepository(input.Repository, a.Config.GitAllowedHosts)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
@@ -651,6 +673,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to activate the new release", http.StatusInternalServerError)
 		return
 	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	result := gitDeployResult{Site: input.Site, Repository: input.Repository, Ref: input.Ref, Commit: commit, Previous: previous}
 	if err := pruneGitReleasesWithPolicy(siteRoot, a.Config.GitReleaseRetention, time.Duration(a.Config.GitReleaseMaxAgeHours)*time.Hour, a.Config.GitReleaseMaxBytes); err != nil {
 		log.Printf("Git release retention for %s: %v", input.Site, err)
@@ -706,6 +732,10 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 	replaced, err := a.activatePipelineRelease(operationCtx, input.Site, previous)
 	if err != nil {
 		http.Error(w, "unable to preserve the active release", http.StatusInternalServerError)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.Username, "site.git-rolled-back", input.Site, filepath.Base(previous))

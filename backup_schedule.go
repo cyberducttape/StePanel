@@ -103,6 +103,16 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "site document root does not exist", 422)
 			return
 		}
+		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), in.Site)
+		if lockErr != nil {
+			http.Error(w, "backup schedule mutation is busy", http.StatusConflict)
+			return
+		}
+		defer release()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "backup schedule mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		in.Enabled = true
 		in.NextRun = time.Now().UTC().Add(time.Duration(in.IntervalMinutes) * time.Minute)
 		a.Schedules.mu.Lock()
@@ -121,6 +131,10 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not persist backup schedule", 500)
 			return
 		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "backup schedule mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		recordAudit(a.Config.AuditLog, a.Auth.Username, "backup.schedule.updated", in.Site, fmt.Sprintf("every %d minutes; keep last %d", in.IntervalMinutes, in.KeepLast))
 		writeJSON(w, http.StatusOK, in)
 	case http.MethodDelete:
@@ -133,6 +147,16 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid site", 422)
 			return
 		}
+		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
+		if lockErr != nil {
+			http.Error(w, "backup schedule mutation is busy", http.StatusConflict)
+			return
+		}
+		defer release()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "backup schedule mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		a.Schedules.mu.Lock()
 		previous, existed := a.Schedules.items[site]
 		delete(a.Schedules.items, site)
@@ -143,6 +167,10 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 		a.Schedules.mu.Unlock()
 		if err != nil {
 			http.Error(w, "could not persist backup schedule", 500)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "backup schedule mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		recordAudit(a.Config.AuditLog, a.Auth.Username, "backup.schedule.deleted", site, "schedule removed")

@@ -241,6 +241,24 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// adminAPITokens serializes administrator token mutations with other account
+// control-plane changes. The legacy Auth receiver remains focused on token
+// storage and validation; the App wrapper owns the durable mutation fence.
+func (a *App) adminAPITokens(w http.ResponseWriter, r *http.Request) {
+	username := a.Auth.UsernameForRequest(r)
+	operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+	if lockErr != nil {
+		http.Error(w, "administrator token mutation is busy", http.StatusConflict)
+		return
+	}
+	defer release()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "administrator token mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
+	a.Auth.adminAPITokens(w, r)
+}
+
 func (s *apiTokenStore) revoke(username, id string) error {
 	result, err := s.db.Exec(`UPDATE api_tokens SET revoked_at = unixepoch() WHERE id = ? AND username = ? AND revoked_at IS NULL`, id, username)
 	if err != nil {
@@ -316,9 +334,23 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "at least one scope is required; a token with no scopes can perform no actions", http.StatusUnprocessableEntity)
 			return
 		}
+		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+		if lockErr != nil {
+			http.Error(w, "API token mutation is busy", http.StatusConflict)
+			return
+		}
+		defer release()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		item, secret, err := a.APITokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes, customerAPIScopes)
 		if err != nil {
 			http.Error(w, err.Error(), 422)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		if err := MustAudit(w, a.Config.AuditLog, username, "auth.api_token.created", item.ID, strings.Join(item.Scopes, ",")); err != nil {
@@ -335,8 +367,22 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "token ID is required", 400)
 			return
 		}
+		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+		if lockErr != nil {
+			http.Error(w, "API token mutation is busy", http.StatusConflict)
+			return
+		}
+		defer release()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if err := a.APITokens.revoke(username, id); err != nil {
 			http.Error(w, err.Error(), 404)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		if err := MustAudit(w, a.Config.AuditLog, username, "auth.api_token.revoked", id, "customer token revoked"); err != nil {

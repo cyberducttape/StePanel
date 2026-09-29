@@ -216,6 +216,9 @@ Test 5: backup + filesystem restore simultaneously
 - Account creation, plan/site assignment, deletion, password/MFA changes,
   recovery actions, and session revocation now use the account fence; account
   creation also fences site resource-profile enforcement.
+- API-token creation/revocation, backup schedule changes, webhook
+  configuration, and Git deployment/rollback now use their account/site fence
+  and check lease loss before reporting completion.
 - Route deletion now leaves the desired route pending with an error when the
   lease is lost after the webserver helper returns, instead of removing the
   durable desired state.

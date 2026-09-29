@@ -133,6 +133,8 @@ recovery acceptance remains open.
 Account creation, assignment, deletion, credential recovery, password/MFA
 changes, and session revocation now share the account fence; account resource
 profile enforcement also acquires the affected site fences before host work.
+API-token, backup-schedule, webhook, and Git deployment/rollback mutations now
+use the same account/site fencing and completion checks.
 
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
