@@ -1306,5 +1306,13 @@ textarea[aria-invalid="true"] {
 .token-list { display: grid; gap: 8px; margin-top: 14px; }
 .token-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line, #d8dee8); border-radius: 9px; font-size: .84rem; }
 .token-row span { overflow-wrap: anywhere; }
+.account-inventory { display: grid; gap: 8px; margin: 16px 0 20px; }
+.account-inventory-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 14px 16px; border: 1px solid var(--line, #d8dee8); border-radius: 10px; background: var(--surface, #f8fafc); }
+.account-inventory-row strong, .account-inventory-row small { display: block; }
+.account-inventory-row small { margin-top: 5px; color: var(--muted, #667085); }
+.account-inventory-actions { display: flex; align-items: center; gap: 10px; }
+.account-create { margin-top: 12px; padding-top: 16px; border-top: 1px solid var(--line, #d8dee8); }
+.account-create summary { cursor: pointer; font-weight: 650; }
+@media (max-width: 640px) { .account-inventory-row { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 900px) { .account-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .account-grid { grid-template-columns: 1fr; } }

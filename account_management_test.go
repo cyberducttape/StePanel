@@ -76,6 +76,27 @@ func TestAccountMeIsTenantScopedAndDoesNotExposeCredentials(t *testing.T) {
 	}
 }
 
+func TestAdminAccountInventoryDoesNotExposeCredentialMaterial(t *testing.T) {
+	store := &AccountStore{accounts: map[string]HostingAccount{
+		"alice": {Username: "alice", PasswordHash: "bcrypt-hash", TOTPSecret: testTOTPSecret, RecoveryCodeHashes: []string{"hashed-code"}, Plan: "starter"},
+	}}
+	a := &App{Auth: Auth{Username: "admin"}, Accounts: store}
+	w := httptest.NewRecorder()
+	a.accounts(w, httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("account inventory status = %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, secret := range []string{"password_hash", "totp_secret", "recovery_code_hashes", testTOTPSecret, "bcrypt-hash"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("account inventory exposed %q: %s", secret, body)
+		}
+	}
+	if !strings.Contains(body, `"mfa_enabled":true`) {
+		t.Fatalf("account inventory omitted MFA status: %s", body)
+	}
+}
+
 func withAPIUser(username string) context.Context {
 	return context.WithValue(context.Background(), apiTokenUsernameKey{}, username)
 }

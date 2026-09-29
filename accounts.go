@@ -54,10 +54,35 @@ type HostingAccount struct {
 	SessionGeneration     uint64    `json:"session_generation,omitempty"`
 	PasswordResetRequired bool      `json:"password_reset_required,omitempty"`
 	MFAEnrollmentRequired bool      `json:"mfa_enrollment_required,omitempty"`
+	MFAConfigured         bool      `json:"mfa_configured,omitempty"`
 	Plan                  string    `json:"plan"`
 	Sites                 []string  `json:"sites"`
 	Suspended             bool      `json:"suspended"`
 	CreatedAt             time.Time `json:"created_at"`
+}
+
+// HostingAccountSummary is safe for account inventory and mutation responses.
+// Credential hashes, TOTP material, and recovery-code hashes never cross the
+// HTTP boundary, including to an administrator browser.
+type HostingAccountSummary struct {
+	Username              string    `json:"username"`
+	Plan                  string    `json:"plan"`
+	Sites                 []string  `json:"sites"`
+	Suspended             bool      `json:"suspended"`
+	CreatedAt             time.Time `json:"created_at"`
+	MFAEnabled            bool      `json:"mfa_enabled"`
+	PasswordResetRequired bool      `json:"password_reset_required"`
+	MFAEnrollmentRequired bool      `json:"mfa_enrollment_required"`
+}
+
+func publicHostingAccount(account HostingAccount) HostingAccountSummary {
+	return HostingAccountSummary{
+		Username: account.Username, Plan: account.Plan,
+		Sites: append([]string(nil), account.Sites...), Suspended: account.Suspended,
+		CreatedAt: account.CreatedAt, MFAEnabled: account.MFAConfigured || account.TOTPSecret != "",
+		PasswordResetRequired: account.PasswordResetRequired,
+		MFAEnrollmentRequired: account.MFAEnrollmentRequired,
+	}
 }
 
 // AccountStore holds customer identities and site assignments. Administrator
@@ -329,11 +354,15 @@ func (s *AccountStore) Get(username string) (HostingAccount, bool) {
 			}
 			account.TOTPSecret, account.TOTPEncrypted = plain, false
 		}
+		account.MFAConfigured = account.MFAConfigured || account.TOTPSecret != ""
 		return account, true
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	account, ok := s.accounts[username]
+	if ok {
+		account.MFAConfigured = account.MFAConfigured || account.TOTPSecret != ""
+	}
 	return account, ok
 }
 
@@ -574,6 +603,7 @@ func (s *AccountStore) ListWithError() ([]HostingAccount, error) {
 	defer s.mu.RUnlock()
 	accounts := make([]HostingAccount, 0, len(s.accounts))
 	for _, account := range s.accounts {
+		account.MFAConfigured = account.MFAConfigured || account.TOTPSecret != ""
 		account.PasswordHash = ""
 		account.TOTPSecret = ""
 		account.RecoveryCodeHashes = nil
@@ -1006,7 +1036,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.mfa-reset", username, "TOTP regenerated and sessions revoked"); err != nil {
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"account": account, "totp_secret": secret})
+		writeJSON(w, http.StatusOK, map[string]any{"account": publicHostingAccount(account), "totp_secret": secret})
 		return
 	}
 	if r.Method == http.MethodPost && strings.HasSuffix(strings.Trim(r.URL.Path, "/"), "/recover") {
@@ -1053,7 +1083,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.credentials-recovered", username, "temporary password, new MFA, recovery codes, and session revocation"); err != nil {
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"account": account, "temporary_password": password, "totp_secret": totpSecret, "recovery_codes": recoveryCodes})
+		writeJSON(w, http.StatusOK, map[string]any{"account": publicHostingAccount(account), "temporary_password": password, "totp_secret": totpSecret, "recovery_codes": recoveryCodes})
 		return
 	}
 	if r.Method == http.MethodPost && strings.HasSuffix(strings.Trim(r.URL.Path, "/"), "/recovery-codes") {
@@ -1100,7 +1130,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.recovery-codes-generated", username, "one-time recovery codes generated and sessions revoked"); err != nil {
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"account": account, "recovery_codes": codes})
+		writeJSON(w, http.StatusOK, map[string]any{"account": publicHostingAccount(account), "recovery_codes": codes})
 		return
 	}
 	if r.Method == http.MethodPost && strings.HasSuffix(strings.Trim(r.URL.Path, "/"), "/sessions/revoke") {
@@ -1265,7 +1295,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "account suspended until resource enforcement is applied", http.StatusServiceUnavailable)
 				return
 			}
-			writeJSON(w, http.StatusOK, updated)
+			writeJSON(w, http.StatusOK, publicHostingAccount(updated))
 			return
 		}
 		account, err := a.setAccountSuspended(operationCtx, username, *input.Suspended)
@@ -1291,7 +1321,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), event, username, "account lifecycle changed")
-		writeJSON(w, http.StatusOK, account)
+		writeJSON(w, http.StatusOK, publicHostingAccount(account))
 		return
 	}
 	switch r.Method {
@@ -1301,7 +1331,11 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "unable to inspect account inventory", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts, "plans": hostingPlans})
+		summaries := make([]HostingAccountSummary, 0, len(accounts))
+		for _, account := range accounts {
+			summaries = append(summaries, publicHostingAccount(account))
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"accounts": summaries, "plans": hostingPlans})
 	case http.MethodPost:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid request", http.StatusForbidden)
@@ -1379,7 +1413,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "account creation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		writeJSON(w, http.StatusCreated, account)
+		writeJSON(w, http.StatusCreated, publicHostingAccount(account))
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

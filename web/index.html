@@ -17,7 +17,7 @@
         <a class="is-active" href="#main"><span aria-hidden="true">⌂</span>Overview</a>
         <a href="#sites"><span aria-hidden="true">◌</span>Sites</a>
         {{ if not .IsAdministrator }}<a href="#account"><span aria-hidden="true">◎</span>Account</a>{{ end }}
-        {{ if .IsAdministrator }}<a href="#database"><span aria-hidden="true">▤</span>Databases</a><a href="#migrations"><span aria-hidden="true">⇄</span>Migrations</a><a href="#operations"><span aria-hidden="true">◫</span>Operations</a><a href="#security"><span aria-hidden="true">◇</span>Security</a>{{ end }}
+        {{ if .IsAdministrator }}<a href="#accounts"><span aria-hidden="true">◎</span>Customers</a><a href="#database"><span aria-hidden="true">▤</span>Databases</a><a href="#migrations"><span aria-hidden="true">⇄</span>Migrations</a><a href="#operations"><span aria-hidden="true">◫</span>Operations</a><a href="#security"><span aria-hidden="true">◇</span>Security</a>{{ end }}
         <a href="#jobs"><span aria-hidden="true">◷</span>Activity</a>
       </nav>
       <div class="sidebar-footer"><span class="pulse" aria-hidden="true"></span><span>Control plane connected</span><button type="button" class="appearance-trigger" id="appearanceTrigger" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>Appearance</span></button></div>
@@ -74,6 +74,12 @@
         <div id="siteOverview" class="site-overview-grid"></div>
         <div id="siteDetail" class="site-detail" hidden aria-live="polite"></div>
       </section>
+      {{ if .IsAdministrator }}<section class="import-panel account-admin" id="accounts" aria-labelledby="accounts-heading">
+        <div class="section-heading"><div><p class="eyebrow">Tenant administration</p><h2 id="accounts-heading">Customer accounts</h2></div><span class="account-status" id="adminAccountStatus" role="status" aria-live="polite">Loading account inventory…</span></div>
+        <p class="import-copy">Provision and suspend customer identities, review plan usage, and assign only existing managed sites. Credentials and TOTP secrets are never displayed after submission.</p>
+        <div id="accountInventory" class="account-inventory"></div>
+        <details class="account-create"><summary>Create customer account</summary><form id="accountCreateForm" class="import-form"><div class="field"><label for="newAccountUsername">Username</label><input id="newAccountUsername" name="username" pattern="[a-z0-9_-]{1,32}" required></div><div class="field"><label for="newAccountPassword">Temporary password</label><input id="newAccountPassword" name="password" type="password" minlength="20" required></div><div class="field"><label for="newAccountTOTP">TOTP secret</label><input id="newAccountTOTP" name="totp_secret" pattern="[A-Z2-7=]{16,128}" required><small class="hint">Provision the secret through your approved secure channel.</small></div><div class="field"><label for="newAccountPlan">Plan</label><select id="newAccountPlan" name="plan"><option value="starter">Starter</option><option value="professional">Professional</option><option value="agency">Agency</option></select></div><div class="field"><label for="newAccountSites">Assigned sites</label><input id="newAccountSites" name="sites" placeholder="site-one, site-two"><small class="hint">Comma-separated existing site accounts.</small></div><button class="primary-action" type="submit">Create customer</button><output id="accountCreateStatus" role="status" aria-live="polite"></output></form></details>
+      </section>{{ end }}
       {{ if .IsAdministrator }}{{ if eq .Config.WebServer "caddy" }}<section class="import-panel" id="htaccess" aria-labelledby="htaccess-heading">
         <div><p class="eyebrow">Apache migration</p><h2 id="htaccess-heading">Import .htaccess rules</h2><p class="import-copy">Preview conservative translations of common Apache front-controller and redirect rules, then apply them to an isolated Caddy PHP site.</p><p class="import-note">Unsupported directives are never silently discarded. Review every warning before allowing a partial migration.</p></div>
         <form id="htaccessForm" class="import-form"><div class="field"><label for="htaccessSite">Site account</label><input id="htaccessSite" name="site" placeholder="Site account" pattern="[a-z0-9_-]{1,32}" required></div><div class="field"><label for="htaccessDomain">Site domain</label><input id="htaccessDomain" name="domain" placeholder="www.example.com" required></div><div class="field"><label for="htaccessContent">Apache .htaccess content</label><textarea id="htaccessContent" name="content" placeholder="Paste .htaccess content" maxlength="262144" required></textarea></div><label class="check"><input type="checkbox" name="allow_partial"> Apply supported rules despite warnings</label><button class="quiet-action form-button" data-action="preview" type="button">Preview conversion</button><button class="primary-action" data-action="apply" type="button" {{ if not .Capabilities.htaccess_import }}disabled{{ end }}>Apply to Caddy</button><output id="htaccessResult" class="conversion-output" role="status" aria-live="polite"></output></form>
@@ -128,6 +134,7 @@
 </dialog>
 <script src="/static/dashboard.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/account.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/admin-accounts.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/nav.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/theme.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/cpmove.js?v={{ .AssetVersion }}" defer></script>
