@@ -155,7 +155,13 @@ class ActivityUpdater {
   }
 
   start() {
+    this.refresh();
     this.timer = setInterval(() => this.refresh(), this.updateInterval);
+  }
+
+  csrfToken() {
+    const match = document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
   }
 
   async refresh() {
@@ -174,19 +180,41 @@ class ActivityUpdater {
     if (!this.feed) return;
 
     const html = jobs.map(job => `
-      <a class="activity-item activity-link" href="/api/jobs/${job.id}">
-        <span class="activity-dot ${this.getStatusClass(job.state)}" aria-hidden="true"></span>
-        <div>
-          <strong>${this.escapeHtml(job.kind)}</strong>
-          <p>${this.escapeHtml(job.user)} · ${job.state}</p>
-        </div>
-        <time class="activity-time" datetime="${job.started_at}">
-          ${this.formatTime(new Date(job.started_at))}
-        </time>
-      </a>
+      <div class="activity-item">
+        <a class="activity-link" href="/api/jobs/${encodeURIComponent(job.id)}">
+          <span class="activity-dot ${this.getStatusClass(job.state)}" aria-hidden="true"></span>
+          <div>
+            <strong>${this.escapeHtml(job.kind)}</strong>
+            <p>${this.escapeHtml(job.user)} · ${this.escapeHtml(job.state)}</p>
+          </div>
+          <time class="activity-time" datetime="${this.escapeHtml(job.started_at)}">
+            ${this.formatTime(new Date(job.started_at))}
+          </time>
+        </a>
+        ${job.state === 'queued' || job.state === 'running' ? `<button type="button" class="quiet-action danger activity-cancel" data-job-id="${this.escapeHtml(job.id)}">Cancel</button>` : ''}
+      </div>
     `).join('');
 
     this.feed.innerHTML = html || '<p class="empty-state">No jobs recorded yet.</p>';
+    this.feed.querySelectorAll('.activity-cancel').forEach(button => {
+      button.addEventListener('click', async event => {
+        event.preventDefault();
+        event.stopPropagation();
+        button.disabled = true;
+        try {
+          const response = await fetch(`/api/jobs/${encodeURIComponent(button.dataset.jobId)}`, {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': this.csrfToken() },
+          });
+          if (!response.ok) throw new Error(`Request failed (${response.status})`);
+          await this.refresh();
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = 'Retry cancel';
+          console.error('Failed to cancel job:', error);
+        }
+      });
+    });
   }
 
   getStatusClass(state) {

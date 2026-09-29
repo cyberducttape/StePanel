@@ -1307,6 +1307,8 @@ textarea[aria-invalid="true"] {
 .token-list { display: grid; gap: 8px; margin-top: 14px; }
 .token-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line, #d8dee8); border-radius: 9px; font-size: .84rem; }
 .token-row span { overflow-wrap: anywhere; }
+.activity-cancel { margin-left: auto; white-space: nowrap; }
+.activity-link { display: flex; align-items: center; gap: 13px; flex: 1; min-width: 0; color: inherit; text-decoration: none; }
 .account-inventory { display: grid; gap: 8px; margin: 16px 0 20px; }
 .account-inventory-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 14px 16px; border: 1px solid var(--line, #d8dee8); border-radius: 10px; background: var(--surface, #f8fafc); }
 .account-inventory-row strong, .account-inventory-row small { display: block; }
