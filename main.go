@@ -803,7 +803,9 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		jobs = filterAccountJobs(jobs, a.Accounts, a.Auth.UsernameForRequest(r))
 		if a.Accounts != nil {
 			account, _ = a.Accounts.Get(a.Auth.UsernameForRequest(r))
-			accountSiteCount = len(account.Sites)
+			if sites, err := a.Accounts.GetSitesWithError(a.Auth.UsernameForRequest(r)); err == nil {
+				accountSiteCount = len(sites)
+			}
 		}
 	}
 	healthy, alerts := 0, 0

@@ -163,6 +163,19 @@ func TestCustomerRolesLimitBrowserScopes(t *testing.T) {
 	}
 }
 
+func TestMemberDashboardJobFilterUsesTenantAssignments(t *testing.T) {
+	store := &AccountStore{accounts: map[string]HostingAccount{
+		"alice":     {Username: "alice", TenantID: "alice", Role: "owner", Sites: []string{"alice-site"}},
+		"alice-dev": {Username: "alice-dev", TenantID: "alice", Role: "developer"},
+		"bob":       {Username: "bob", TenantID: "bob", Role: "owner", Sites: []string{"bob-site"}},
+	}}
+	jobs := []Job{{User: "alice-site"}, {User: "bob-site"}, {User: "unassigned"}}
+	filtered := filterAccountJobs(jobs, store, "alice-dev")
+	if len(filtered) != 1 || filtered[0].User != "alice-site" {
+		t.Fatalf("member dashboard jobs = %#v, want only alice-site", filtered)
+	}
+}
+
 func TestAccountStorePersistsOnlyValidatedAssignments(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "accounts.json")
 	store, err := OpenAccountStore(path)
