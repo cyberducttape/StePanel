@@ -85,8 +85,10 @@ jobs:
           set +e
           # Bound host-install validation so a stuck package manager or
           # service transition yields diagnostics rather than consuming the
-          # entire matrix job timeout.
-          timeout --foreground 20m docker exec \
+          # entire matrix job timeout. The optional recovery matrix runs
+          # after the default drills and needs more than the original 20m
+          # budget while remaining below this job's 45m timeout.
+          timeout --foreground 30m docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
             stepanel-install /work/deploy/lab/install-smoke.sh \
