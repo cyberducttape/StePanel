@@ -26,7 +26,6 @@ echo ""
 awk '
 BEGIN {
   targets["github.com/cyberducttape/StePanel/internal/auth"] = 90
-  targets["github.com/cyberducttape/StePanel/internal/backup"] = 85
   targets["github.com/cyberducttape/StePanel/internal/helper"] = 90
   targets["github.com/cyberducttape/StePanel/internal/state"] = 85
   targets["github.com/cyberducttape/StePanel/internal/migration"] = 85
