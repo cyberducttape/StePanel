@@ -34,6 +34,28 @@
   const tokenStatus = document.querySelector('#accountTokenStatus');
   const tokenList = document.querySelector('#accountTokenList');
   const activityList = document.querySelector('#accountActivityList');
+  const securityStatus = document.querySelector('#accountSecurityStatus');
+  const loadSecurity = async () => {
+    if (!securityStatus) return;
+    try {
+      const response = await fetch('/api/account/security');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Token security unavailable');
+      if (data.has_legacy_tokens) {
+        securityStatus.textContent = `${data.legacy_count} legacy token${data.legacy_count === 1 ? '' : 's'} need regeneration.`;
+        securityStatus.classList.add('warning');
+      } else {
+        securityStatus.textContent = 'Token security is compliant.';
+      }
+    } catch (error) { securityStatus.textContent = error.message; }
+  };
+  const reviewSecurity = document.querySelector('#reviewTokenSecurity');
+  if (reviewSecurity) reviewSecurity.addEventListener('click', () => {
+    const tokenDetails = document.querySelector('.account-tokens');
+    if (tokenDetails) tokenDetails.open = true;
+    document.querySelector('.account-tokens')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    loadTokens();
+  });
   const renderTokens = (items) => {
     if (!tokenList) return;
     tokenList.replaceChildren();
@@ -141,5 +163,6 @@
     finally { revoke.disabled = false; }
   });
   load();
+  loadSecurity();
   loadActivity();
 })();

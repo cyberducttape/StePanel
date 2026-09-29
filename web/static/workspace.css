@@ -1298,6 +1298,7 @@ textarea[aria-invalid="true"] {
 .usage-bar span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent, #2563eb); transition: width .25s ease; }
 .account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
 .account-actions [role="status"] { color: var(--muted, #667085); font-size: .82rem; }
+.account-actions [role="status"].warning { color: var(--warning, #a15c00); }
 .account-tokens { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line, #d8dee8); }
 .account-tokens summary { cursor: pointer; font-weight: 650; }
 .token-form { display: grid; gap: 12px; max-width: 760px; margin-top: 14px; }
