@@ -641,11 +641,11 @@
       el('p', { className: 'panel-intro' }, 'Deploy from a Git repository, review release history, and roll back if a release breaks the site.'),
       el('h4', {}, 'Deploy key'),
       keyStatus.configured
-        ? el('div', {}, [el('p', { className: 'import-note' }, 'A deploy key is configured for this site.'), ctx.button('Retire deploy key', async () => {
+        ? el('div', {}, [el('p', { className: 'import-note' }, 'A deploy key is configured for this site.'), ctx.can('ssh:write') ? ctx.button('Retire deploy key', async () => {
           keyOutput.textContent = 'Retiring…';
           try { await ctx.deleteJSON(`/api/sites/git-key/${encodeURIComponent(site)}`); keyOutput.textContent = 'Deploy key retired.'; renderDeploymentsTab(site, panel, ctx); } catch (error) { keyOutput.textContent = error.message; }
-        })])
-        : el('div', {}, [ctx.button('Generate deploy key', async () => {
+        }) : el('span', { className: 'import-note' }, 'Your role can view deployment history but cannot manage deploy keys.')])
+        : el('div', {}, [ctx.can('ssh:write') ? ctx.button('Generate deploy key', async () => {
           keyOutput.textContent = 'Generating…';
           try {
             const key = await ctx.postJSON(`/api/sites/git-key/${encodeURIComponent(site)}`);
@@ -660,7 +660,7 @@
               copyStatus,
             );
           } catch (error) { keyOutput.textContent = error.message; }
-        })]),
+        }) : el('span', { className: 'import-note' }, 'Your role can view deployment history but cannot manage deploy keys.')]),
       keyOutput,
     );
 
