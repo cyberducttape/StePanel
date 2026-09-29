@@ -26,6 +26,22 @@ type PlanUsageMetrics struct {
 	CriticalThreshold int       `json:"critical_threshold_percent"` // 95
 }
 
+// CustomerAccountView is the narrow account representation exposed to a
+// customer. It contains only tenant-owned inventory and plan limits.
+type CustomerAccountView struct {
+	PlanUsageMetrics
+	Sites                 []string `json:"sites"`
+	MFAEnabled            bool     `json:"mfa_enabled"`
+	PasswordResetRequired bool     `json:"password_reset_required"`
+	MFAEnrollmentRequired bool     `json:"mfa_enrollment_required"`
+	CPUPercent            int      `json:"cpu_percent"`
+	MemoryMB              int      `json:"memory_mb"`
+	DiskMB                int      `json:"disk_mb"`
+	Inodes                int      `json:"inodes"`
+	TasksMax              int      `json:"tasks_max"`
+	RedisMemoryMB         int      `json:"redis_memory_mb"`
+}
+
 // SuspensionRequest holds parameters for account suspension
 type SuspensionRequest struct {
 	Username  string `json:"username"`
@@ -103,14 +119,19 @@ func (a *App) accountPlanStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plan, exists := hostingPlans[account.Plan]
-	if !exists {
-		http.Error(w, "plan not found", http.StatusInternalServerError)
+	metrics, err := a.planUsageMetrics(account)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	writeJSON(w, http.StatusOK, metrics)
+}
 
-	// Count sites and databases
-	sitesUsed := len(account.Sites)
+func (a *App) planUsageMetrics(account HostingAccount) (PlanUsageMetrics, error) {
+	plan, exists := hostingPlans[account.Plan]
+	if !exists {
+		return PlanUsageMetrics{}, errors.New("plan not found")
+	}
 	databasesUsed := 0
 	for _, site := range account.Sites {
 		databases, err := managedDatabasesForSite(a.Config, site)
@@ -118,33 +139,54 @@ func (a *App) accountPlanStatus(w http.ResponseWriter, r *http.Request) {
 			databasesUsed += len(databases)
 		}
 	}
-
-	sitesPercent := 0
-	if plan.SiteLimit > 0 {
-		sitesPercent = (sitesUsed * 100) / plan.SiteLimit
+	percent := func(used, limit int) int {
+		if limit <= 0 {
+			return 0
+		}
+		return (used * 100) / limit
 	}
+	return PlanUsageMetrics{
+		Username: account.Username, Plan: account.Plan, Suspended: account.Suspended,
+		CreatedAt: account.CreatedAt, SitesUsed: len(account.Sites), SiteLimit: plan.SiteLimit,
+		SitesPercent: percent(len(account.Sites), plan.SiteLimit), DatabasesUsed: databasesUsed,
+		DatabaseLimit: plan.DatabaseLimit, DatabasesPercent: percent(databasesUsed, plan.DatabaseLimit),
+		WarningThreshold: 80, CriticalThreshold: 95,
+	}, nil
+}
 
-	databasesPercent := 0
-	if plan.DatabaseLimit > 0 {
-		databasesPercent = (databasesUsed * 100) / plan.DatabaseLimit
+// accountMe exposes only the authenticated customer's own tenant boundary.
+// Administrator and bearer-token requests are rejected so this cannot become
+// an account-enumeration primitive.
+func (a *App) accountMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
-
-	metrics := PlanUsageMetrics{
-		Username:          account.Username,
-		Plan:              account.Plan,
-		Suspended:         account.Suspended,
-		CreatedAt:         account.CreatedAt,
-		SitesUsed:         sitesUsed,
-		SiteLimit:         plan.SiteLimit,
-		SitesPercent:      sitesPercent,
-		DatabasesUsed:     databasesUsed,
-		DatabaseLimit:     plan.DatabaseLimit,
-		DatabasesPercent:  databasesPercent,
-		WarningThreshold:  80,
-		CriticalThreshold: 95,
+	username := a.Auth.UsernameForRequest(r)
+	if username == "" || a.Auth.IsAdministrator(r) || a.Auth.IsAPITokenRequest(r) || a.Accounts == nil {
+		http.Error(w, "customer account required", http.StatusForbidden)
+		return
 	}
-
-	writeJSON(w, http.StatusOK, metrics)
+	account, ok := a.Accounts.Get(username)
+	if !ok {
+		http.Error(w, "customer account required", http.StatusForbidden)
+		return
+	}
+	metrics, err := a.planUsageMetrics(account)
+	if err != nil {
+		http.Error(w, "account plan is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	plan := hostingPlans[account.Plan]
+	writeJSON(w, http.StatusOK, CustomerAccountView{
+		PlanUsageMetrics:      metrics,
+		Sites:                 append([]string(nil), account.Sites...),
+		MFAEnabled:            account.TOTPSecret != "",
+		PasswordResetRequired: account.PasswordResetRequired,
+		MFAEnrollmentRequired: account.MFAEnrollmentRequired,
+		CPUPercent:            plan.CPUPercent, MemoryMB: plan.MemoryMB, DiskMB: plan.DiskMB,
+		Inodes: plan.Inodes, TasksMax: plan.TasksMax, RedisMemoryMB: plan.RedisMemoryMB,
+	})
 }
 
 // accountSuspend implements account suspension with audit logging

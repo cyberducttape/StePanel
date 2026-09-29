@@ -294,6 +294,11 @@ paths:
       summary: Customer security center
       responses:
         '200': {description: Security settings and controls}
+  /api/account/me:
+    get:
+      summary: Return the authenticated customer's tenant-scoped plan, usage, and account status
+      responses:
+        '200': {description: Customer account view without credentials or recovery secrets}
   /api/account/sessions/revoke:
     post:
       summary: Log out every other session for the authenticated customer, keeping the current one active

@@ -73,3 +73,7 @@ and installation evidence before the version is tagged.
   promotion, notifications, and self-service backup/restore;
   deploy-key Git webhooks, sandboxed builds, scheduled tasks, and operator
   restore-to-staging are already available with documented beta boundaries.
+
+  The customer portal now includes a tenant-scoped account/usage view and
+  session security controls; the remaining shared-hosting work is the
+  multi-host and delegated-RBAC platform around that portal.

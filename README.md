@@ -49,7 +49,7 @@ constraints, off-site backups, and operational configuration, see the
 [integration guide](docs/INTEGRATIONS.md), [installation guide](docs/INSTALLATION.md),
 [operations runbook](docs/OPERATIONS.md), and [customer workflows](docs/CUSTOMER_WORKFLOWS.md).
 
-> **Status:** StePanel supports single-host operation with account provisioning features (TOTP MFA, assigned-site limits, scoped access). Multi-tenant production deployment is NOT RECOMMENDED: RBAC-per-customer, audit-log segregation, cross-host session replication, and resource quota enforcement are NOT STARTED. See [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for detailed capability status. For single-host deployments, resource profiles, restore-to-staging, and verified restores are available. Always run behind authenticated HTTPS and test restores against a disposable server before using production data.
+> **Status:** StePanel supports single-host operation with tenant-scoped account provisioning (TOTP MFA, assigned-site limits, scoped access, resource profiles, and a customer plan/usage panel). Multi-tenant production deployment is NOT RECOMMENDED yet: customer-level RBAC, audit-log segregation, and cross-host session replication remain open platform requirements. See [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for detailed capability status. For single-host deployments, restore-to-staging and verified restores are available. Always run behind authenticated HTTPS and test restores against a disposable server before using production data.
 
 ## Architecture at a glance
 

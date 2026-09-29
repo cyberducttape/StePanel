@@ -16,6 +16,7 @@
       <nav class="workspace-nav" aria-label="Primary">
         <a class="is-active" href="#main"><span aria-hidden="true">⌂</span>Overview</a>
         <a href="#sites"><span aria-hidden="true">◌</span>Sites</a>
+        {{ if not .IsAdministrator }}<a href="#account"><span aria-hidden="true">◎</span>Account</a>{{ end }}
         {{ if .IsAdministrator }}<a href="#database"><span aria-hidden="true">▤</span>Databases</a><a href="#migrations"><span aria-hidden="true">⇄</span>Migrations</a><a href="#operations"><span aria-hidden="true">◫</span>Operations</a><a href="#security"><span aria-hidden="true">◇</span>Security</a>{{ end }}
         <a href="#jobs"><span aria-hidden="true">◷</span>Activity</a>
       </nav>
@@ -38,6 +39,16 @@
         <article class="metric"><span class="metric-label">Latest verified backup</span><strong id="backupFreshness">—</strong><span class="metric-note">Private recovery point freshness</span></article>
         <article class="metric"><span class="metric-label">{{ if .IsAdministrator }}Needs attention{{ else }}Your plan{{ end }}</span><strong>{{ if .IsAdministrator }}{{ .Alerts }}{{ else }}{{ .Account.Plan }}{{ end }}</strong><span class="metric-note {{ if .IsAdministrator }}warning{{ end }}">{{ if .IsAdministrator }}Platform checks requiring review{{ else }}Site access is limited to your assigned workspace{{ end }}</span></article>
       </section>
+      {{ if not .IsAdministrator }}<section class="account-panel" id="account" aria-labelledby="account-heading">
+        <div class="section-heading"><div><p class="eyebrow">Customer account</p><h2 id="account-heading">Your plan and access</h2></div><span class="account-status" id="accountStatus" role="status" aria-live="polite">Loading account details…</span></div>
+        <div class="account-grid">
+          <article class="account-card"><span class="metric-label">Plan</span><strong id="accountPlan">{{ .Account.Plan }}</strong><small id="accountCreated">Tenant account</small></article>
+          <article class="account-card"><span class="metric-label">Sites</span><strong id="accountSites">{{ .AccountSiteCount }}</strong><small id="accountSitesLimit">Assigned sites</small><div class="usage-bar"><span id="accountSitesBar"></span></div></article>
+          <article class="account-card"><span class="metric-label">Databases</span><strong id="accountDatabases">—</strong><small id="accountDatabasesLimit">Managed databases</small><div class="usage-bar"><span id="accountDatabasesBar"></span></div></article>
+          <article class="account-card"><span class="metric-label">Security</span><strong id="accountMFA">MFA protected</strong><small id="accountSecurityNote">Credentials are scoped to this tenant.</small></article>
+        </div>
+        <div class="account-actions"><a class="quiet-action" href="/api/account/tokens">Manage API tokens</a><a class="quiet-action" href="/api/account/security">Review token security</a><button class="quiet-action" type="button" id="revokeOtherSessions">Sign out other sessions</button><span id="accountActionStatus" role="status" aria-live="polite"></span></div>
+      </section>{{ end }}
       <section class="onboarding" id="start" aria-labelledby="start-heading">
         <div><p class="eyebrow">Start here</p><h2 id="start-heading">What would you like to do?</h2><p>Start with a guided task. You can review the result and recent activity from the site workspace.</p></div>
         <div class="onboarding-actions">{{ if .IsAdministrator }}<a class="task-card" href="#migrations"><strong>Move a cPanel site</strong><span>Inspect a backup before restoring it.</span></a>{{ end }}<a class="task-card" href="#sites"><strong>Manage a site</strong><span>Connect a domain or create a verified backup.</span></a>{{ if .IsAdministrator }}<a class="task-card" href="#deploy"><strong>Deploy an application</strong><span>Route a local Node application safely.</span></a>{{ else }}<a class="task-card" href="#jobs"><strong>Review activity</strong><span>Track work performed for your sites.</span></a>{{ end }}</div>
@@ -113,6 +124,7 @@
   </form>
 </dialog>
 <script src="/static/dashboard.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/account.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/nav.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/theme.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/cpmove.js?v={{ .AssetVersion }}" defer></script>
