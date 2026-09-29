@@ -34,6 +34,7 @@
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Account details unavailable');
       set('accountPlan', data.plan);
+      set('accountRole', `Tenant ${data.role || 'owner'}`);
       set('accountCreated', `Created ${new Date(data.created_at).toLocaleDateString()}`);
       set('accountSites', `${data.sites_used} / ${data.site_limit}`);
       set('accountSitesLimit', `${data.site_limit} site${data.site_limit === 1 ? '' : 's'} included · ${data.sites_percent || 0}% used`);

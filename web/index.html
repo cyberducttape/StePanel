@@ -42,7 +42,7 @@
       {{ if not .IsAdministrator }}<section class="account-panel" id="account" aria-labelledby="account-heading">
         <div class="section-heading"><div><p class="eyebrow">Customer account</p><h2 id="account-heading">Your plan and access</h2></div><span class="account-status" id="accountStatus" role="status" aria-live="polite">Loading account details…</span></div>
         <div class="account-grid">
-          <article class="account-card"><span class="metric-label">Plan</span><strong id="accountPlan">{{ .Account.Plan }}</strong><small id="accountCreated">Tenant account</small></article>
+          <article class="account-card"><span class="metric-label">Plan</span><strong id="accountPlan">{{ .Account.Plan }}</strong><small id="accountRole">Tenant owner</small><small id="accountCreated">Tenant account</small></article>
           <article class="account-card"><span class="metric-label">Sites</span><strong id="accountSites">{{ .AccountSiteCount }}</strong><small id="accountSitesLimit">Assigned sites</small><div class="usage-bar"><span id="accountSitesBar"></span></div></article>
           <article class="account-card"><span class="metric-label">Databases</span><strong id="accountDatabases">—</strong><small id="accountDatabasesLimit">Managed databases</small><div class="usage-bar"><span id="accountDatabasesBar"></span></div></article>
           <article class="account-card"><span class="metric-label">Security</span><strong id="accountMFA">MFA protected</strong><small id="accountSecurityNote">Credentials are scoped to this tenant.</small></article>
