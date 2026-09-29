@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func mustCIDRs(t *testing.T, raw string) TrustedProxies {
@@ -151,5 +152,40 @@ func TestParseTrustedProxyCIDRs(t *testing.T) {
 		if _, err := ParseTrustedProxyCIDRs(bad); err == nil {
 			t.Errorf("ParseTrustedProxyCIDRs(%q) should have failed", bad)
 		}
+	}
+}
+
+func TestClientIPFallbacksAndTrustedChainEdgeCases(t *testing.T) {
+	noPort := httptest.NewRequest("GET", "/", nil)
+	noPort.RemoteAddr = "198.51.100.4"
+	if got := ClientIP(noPort); got != "198.51.100.4" {
+		t.Fatalf("no-port peer = %q", got)
+	}
+	noPeer := httptest.NewRequest("GET", "/", nil)
+	noPeer.RemoteAddr = ""
+	if got := ClientIP(noPeer); got != "unknown" {
+		t.Fatalf("empty peer = %q", got)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "127.0.0.1:8080"
+	req.Header.Set("X-Forwarded-For", "not-an-ip, 127.0.0.1")
+	if got := ClientIPWithTrustedProxies(req, mustCIDRs(t, "127.0.0.1/32")); got != "127.0.0.1" {
+		t.Fatalf("all-invalid/trusted XFF = %q", got)
+	}
+	if mustCIDRs(t, "127.0.0.1/32").Contains(nil) {
+		t.Fatal("nil IP unexpectedly matched trusted proxy")
+	}
+}
+
+func TestLimiterGarbageCollectsExpiredClients(t *testing.T) {
+	limiter := NewLimiter()
+	limiter.attempt["expired"] = loginAttempt{count: 5, start: time.Now().Add(-16 * time.Minute)}
+	limiter.lastGC = time.Now().Add(-2 * time.Minute)
+	if !limiter.Allow("new-client") {
+		t.Fatal("new client rejected after garbage collection")
+	}
+	if _, ok := limiter.attempt["expired"]; ok {
+		t.Fatal("expired client was not garbage-collected")
 	}
 }

@@ -120,3 +120,48 @@ func TestIsLegacyTokenExpired(t *testing.T) {
 		t.Errorf("stale token: expired=%v err=%v (want true, nil)", expired, err)
 	}
 }
+
+func TestLegacyTokenStatusAndCleanup(t *testing.T) {
+	ltd := openDeprecationDB(t)
+	if status, err := ltd.GetLegacyTokenStatus("unknown"); err != nil || status != nil {
+		t.Fatalf("unknown status = %#v err=%v", status, err)
+	}
+	if _, err := ltd.MarkLegacyTokenDeprecated("active"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := ltd.GetLegacyTokenStatus("active")
+	if err != nil || status == nil || !status.IsDeprecated || status.IsExpired || status.Message == "" {
+		t.Fatalf("active status = %#v err=%v", status, err)
+	}
+	past := time.Now().Add(-48 * time.Hour)
+	if _, err := ltd.db.Exec(`INSERT INTO api_token_deprecation (token_hash, deprecation_triggered_at, expires_at, last_use_at) VALUES (?, ?, ?, ?)`, "cleanup", past, past, past); err != nil {
+		t.Fatal(err)
+	}
+	status, err = ltd.GetLegacyTokenStatus("cleanup")
+	if err != nil || status == nil || !status.IsExpired || status.Message != ExpirationMessage {
+		t.Fatalf("expired status = %#v err=%v", status, err)
+	}
+	removed, err := ltd.CleanupExpiredTokens(1)
+	if err != nil || removed != 1 {
+		t.Fatalf("cleanup removed=%d err=%v, want one", removed, err)
+	}
+}
+
+func TestLegacyTokenDeprecationRequiresDatabase(t *testing.T) {
+	ltd := NewLegacyTokenDeprecation(nil)
+	if _, err := ltd.MarkLegacyTokenDeprecated("x"); err == nil {
+		t.Fatal("mark accepted nil database")
+	}
+	if _, err := ltd.IsLegacyTokenExpired("x"); err == nil {
+		t.Fatal("expiry check accepted nil database")
+	}
+	if _, err := ltd.GetLegacyTokenStatus("x"); err == nil {
+		t.Fatal("status accepted nil database")
+	}
+	if _, err := ltd.CleanupExpiredTokens(1); err == nil {
+		t.Fatal("cleanup accepted nil database")
+	}
+	if _, err := ltd.GetExpiredTokens(); err == nil {
+		t.Fatal("expired-token listing accepted nil database")
+	}
+}
