@@ -310,6 +310,7 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := failureInjection("backup", "verify"); err != nil {
 		return result, err
 	}
+	processKillInjection("backup", "verify")
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
