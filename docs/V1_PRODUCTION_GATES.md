@@ -177,10 +177,14 @@ Test 5: backup + filesystem restore simultaneously
 - `TestSiteMutationLockSerializesRealHelperBoundaryAcrossApps` runs two
   independent app instances through the same helper boundary and verifies
   that their critical sections do not overlap.
+- `DefaultManager.Delete` now checks its operation context before path
+  resolution and immediately before filesystem removal; a cancelled-context
+  regression test verifies the canonical site remains intact.
 
-These tests prove lock acquisition and helper serialization. They do not yet
-prove that every full workflow remains consistent after a conflicting
-operation is interrupted, so the operation-level acceptance item remains open.
+These tests prove lock acquisition, helper serialization, and the delete
+cancellation boundary. They do not yet prove that every full workflow remains
+consistent after a conflicting operation is interrupted, so the operation-level
+acceptance item remains open.
 
 **Acceptance Criteria:**
 - [x] Distributed lock acquired before each currently implemented mutation
@@ -311,7 +315,7 @@ matrix below.
 4. Terminate (hosted worker kill/restart during site-state removal passes; interruptions during backup and cleanup remain)
 5. Account suspension (hosted panel kill/restart after persistence passes; external helper and earlier-stage interruptions remain)
 
-**Evidence currently available:** hosted installation smoke run `36432816260`
+**Evidence currently available:** hosted installation smoke run `36436484546`
 passes on both AlmaLinux 9 and Rocky Linux 9 for cpmove import/recovery, durable
 backup creation/recovery, file restore/recovery, termination recovery, account
 suspension after panel SIGKILL, and Git deployment recovery after panel SIGKILL
@@ -325,7 +329,7 @@ rollback, and pending runtime reconciliation. Its generated results explicitly
 exclude power-loss recovery. A disposable Rocky Linux 9.8 VM also passed the
 installed-host cpmove, backup, file-restore, termination, suspension, and deploy
 recovery drills. Abruptly killing the QEMU process and rebooting the guest left
-systemd healthy, all StePanel services active, and `/readyz` reporting ready;
+systemd healthy, the panel and worker units active, and `/readyz` reporting ready;
 stopping/restarting MariaDB separately left the control plane healthy. This is
 limited VM evidence, not a host power-loss or disk-exhaustion test. Local SIGKILL
 regression tests now cover termination journals, filesystem restore
@@ -336,6 +340,14 @@ install the Git runtime required for deploys; the hosted recovery smoke passes
 with those fixes on both distributions. The five-operation acceptance criteria
 remain open for multi-point failure injection, real disk-exhaustion, actual
 host power-loss, and broader workload and recovery-time evidence.
+
+The installed systemd units now enable `ProtectSystem=full`, private `/tmp`,
+and kernel/control-group protections. On Rocky Linux 9.8,
+`systemd-analyze security` improved from exposure 8.6 (`EXPOSED`) to 6.7
+(`MEDIUM`). `NoNewPrivileges` and SUID/SGID restrictions remain intentionally
+disabled because production root-helper calls cross the exact-command sudoers
+boundary; the hosted install smoke asserts the enabled protections and runs
+the recovery suite under them.
 
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit

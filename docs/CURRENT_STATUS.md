@@ -85,7 +85,12 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - ✅ Safe retry behavior for the tested journal paths
 - ⚠️ Full host-level crash safety remains unproven until the Phase 7 matrix runs
 
-Hosted installation smoke run `36432816260` passes on AlmaLinux 9 and Rocky
+`DefaultManager.Delete` now refuses to remove a site when its operation
+context has been cancelled, with a regression test confirming the site remains
+intact. This covers the manager cancellation boundary but does not replace
+full conflicting-workflow recovery evidence.
+
+Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,
 and Git deployment recovery after panel kill during activation. A disposable
@@ -156,6 +161,10 @@ All workflows use **journaled staged activation** — operations are staged in a
 ✅ **Security improvements:**
 - P1 state persistence error handling (77 lines of safe error helpers)
 - 7 locations fixed to no longer silently ignore persistence errors
+- Panel and worker systemd units now use filesystem, private-temp, kernel, and
+  control-group protections; audited exposure is 6.7 MEDIUM on Rocky 9.8
+- `NoNewPrivileges`/SUID restrictions remain off by design because allow-listed
+  root helper calls require sudo elevation
 
 ✅ **Helper Layer foundation:**
 - Broker foundation (types, validator, operations, client, and bridge)
