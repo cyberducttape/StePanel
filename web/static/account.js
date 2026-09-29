@@ -26,6 +26,8 @@
       if (databasesBar) databasesBar.style.width = `${Math.min(100, data.databases_percent || 0)}%`;
       set('accountMFA', data.mfa_enabled ? 'MFA enabled' : 'MFA setup needed');
       set('accountSecurityNote', data.password_reset_required ? 'Password update required.' : (data.mfa_enrollment_required ? 'MFA enrollment required.' : 'Credentials are scoped to this tenant.'));
+      const mfaSetup = document.querySelector('#accountMFASetup');
+      if (mfaSetup && data.mfa_enabled && !data.mfa_enrollment_required) mfaSetup.hidden = true;
       if (status) status.textContent = data.suspended ? 'Account suspended' : 'Account active';
     } catch (error) { if (status) status.textContent = error.message; }
   };
@@ -108,6 +110,22 @@
       if (!response.ok) throw new Error((await response.text()) || 'Could not change password');
       passwordForm.reset();
       if (output) output.textContent = 'Password changed. Sign in again with the new password.';
+    } catch (error) { if (output) output.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+  const mfaForm = document.querySelector('#accountMFAForm');
+  if (mfaForm) mfaForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = mfaForm.querySelector('button[type="submit"]');
+    const output = document.querySelector('#accountMFAStatus');
+    button.disabled = true;
+    if (output) output.textContent = 'Saving MFA configuration…';
+    try {
+      const totpSecret = new FormData(mfaForm).get('totp_secret');
+      const response = await fetch('/api/account/mfa', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ totp_secret: totpSecret }) });
+      if (!response.ok) throw new Error((await response.text()) || 'Could not configure MFA');
+      mfaForm.reset();
+      if (output) output.textContent = 'MFA saved. Sign in again with an authenticator code.';
     } catch (error) { if (output) output.textContent = error.message; }
     finally { button.disabled = false; }
   });
