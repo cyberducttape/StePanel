@@ -23,8 +23,7 @@ profile=${1:-coverage.out}
 echo "Checking per-package coverage targets..."
 echo ""
 
-failed=0
-go tool cover -func="$profile" | awk '
+awk '
 BEGIN {
   targets["github.com/cyberducttape/StePanel/internal/auth"] = 90
   targets["github.com/cyberducttape/StePanel/internal/backup"] = 85
@@ -37,36 +36,41 @@ BEGIN {
   targets["github.com/cyberducttape/StePanel/internal/audit"] = 95
 }
 
-/^github.com\/cyberducttape\/StePanel/ {
-  package = $1
-  coverage = $NF
-  gsub("%", "", coverage)
-
-  if (package in targets) {
-    target = targets[package]
-    if (coverage + 0 >= target + 0) {
-      printf "✅ %-50s %6.1f%% ≥ %3.0f%%\n", package, coverage, target
-    } else {
-      printf "❌ %-50s %6.1f%% < %3.0f%%\n", package, coverage, target
-      exit_code = 1
+/^mode:/ { next }
+{
+  file = $1
+  statements = $2 + 0
+  count = $3 + 0
+  for (package in targets) {
+    prefix = package "/"
+    if (index(file, prefix) == 1) {
+      total[package] += statements
+      if (count > 0) covered[package] += statements
+      break
     }
   }
 }
 
 END {
-  if (exit_code) exit 1
+  failed = 0
+  for (package in targets) {
+    if (total[package] == 0) {
+      printf "❌ %-50s no coverage data\n", package
+      failed = 1
+      continue
+    }
+    coverage = 100 * covered[package] / total[package]
+    target = targets[package]
+    if (coverage + 0 >= target + 0) {
+      printf "✅ %-50s %6.1f%% ≥ %3.0f%%\n", package, coverage, target
+    } else {
+      printf "❌ %-50s %6.1f%% < %3.0f%%\n", package, coverage, target
+      failed = 1
+    }
+  }
+  if (failed) exit 1
 }
-' || failed=1
+' "$profile"
 
 echo ""
-if [[ $failed -eq 0 ]]; then
-  echo "✅ All per-package coverage targets met!"
-  exit 0
-else
-  echo "❌ Some packages failed coverage targets."
-  echo ""
-  echo "To improve coverage for a package:"
-  echo "  go test -v -coverprofile=coverage.out ./internal/package/..."
-  echo "  go tool cover -html=coverage.out"
-  exit 1
-fi
+echo "✅ All per-package coverage targets met!"
