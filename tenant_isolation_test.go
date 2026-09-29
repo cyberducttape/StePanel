@@ -49,6 +49,20 @@ func TestTenantIsolationMatrix(t *testing.T) {
 
 	attempts := []attempt{
 		{
+			name: "GET site overview for another tenant's site",
+			request: func() *http.Request {
+				return asAlice(httptest.NewRequest(http.MethodGet, "/api/sites/overview/bob-site", nil))
+			},
+			handle: a.siteOverviewResource,
+		},
+		{
+			name: "GET deployment history for another tenant's site",
+			request: func() *http.Request {
+				return asAlice(httptest.NewRequest(http.MethodGet, "/api/deployments?site=bob-site", nil))
+			},
+			handle: a.deployments,
+		},
+		{
 			name: "GET environment for another tenant's site",
 			request: func() *http.Request {
 				return asAlice(httptest.NewRequest(http.MethodGet, "/api/sites/environment/bob-site", nil))
@@ -171,6 +185,40 @@ func TestTenantIsolationMatrix(t *testing.T) {
 				t.Fatalf("cross-tenant access = %d %s, want %d", w.Code, w.Body.String(), http.StatusForbidden)
 			}
 		})
+	}
+}
+
+// TestSiteOverviewListFiltersTenantInventory verifies that the aggregate
+// customer inventory endpoint returns only the caller's assigned sites, not
+// merely that individual site detail requests reject cross-tenant access.
+func TestSiteOverviewListFiltersTenantInventory(t *testing.T) {
+	webRoot := t.TempDir()
+	for _, site := range []string{"alice-site", "bob-site"} {
+		if err := os.MkdirAll(filepath.Join(webRoot, "sites", site, "public"), 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &App{Config: Config{WebRoot: webRoot}}
+	a.Accounts = &AccountStore{accounts: map[string]HostingAccount{
+		"alice": {Username: "alice", Plan: "starter", Sites: []string{"alice-site"}},
+		"bob":   {Username: "bob", Plan: "starter", Sites: []string{"bob-site"}},
+	}}
+	a.Auth = Auth{Username: "admin"}
+	r := httptest.NewRequest(http.MethodGet, "/api/sites/overview", nil)
+	r = r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, "alice"))
+	w := httptest.NewRecorder()
+	a.siteOverviewList(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("overview status = %d %s", w.Code, w.Body.String())
+	}
+	var response struct {
+		Sites []siteOverview `json:"sites"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Sites) != 1 || response.Sites[0].Site != "alice-site" {
+		t.Fatalf("alice overview leaked or omitted sites: %#v", response.Sites)
 	}
 }
 
