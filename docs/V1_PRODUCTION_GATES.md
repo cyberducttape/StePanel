@@ -192,6 +192,10 @@ Test 5: backup + filesystem restore simultaneously
 - App deployment/actions and containerized runner completion now check the
   fenced operation context before durable completion records, preventing a
   lost lease from being reported as a successful mutation.
+- SSH access and environment desired-state workflows now reject a fenced
+  operation before persistence and retain pending state when cancellation is
+  observed after helper execution, allowing reconciliation to repair host
+  state instead of recording false success.
 
 These tests prove lock acquisition, helper serialization, and the delete
 cancellation boundary. They do not yet prove that every full workflow remains

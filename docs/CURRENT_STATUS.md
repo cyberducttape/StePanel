@@ -106,6 +106,10 @@ job cancellation.
 Application deployment/actions and runner builds now verify the fenced
 operation context before recording successful completion after helper work.
 
+SSH access and environment desired-state updates now check the fenced context
+before persistence and preserve pending reconciliation state when cancellation
+is observed after helper execution.
+
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,

@@ -305,6 +305,10 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "environment mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		a.Environments.mu.Lock()
 		previous, existed := a.Environments.values[site]
 		a.Environments.values[site] = input
@@ -342,6 +346,10 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "environment mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if err := a.removeEnvironment(operationCtx, access); err != nil {
 			if strings.Contains(err.Error(), "desired state save failed") {
 				http.Error(w, "environment state could not be saved", 503)

@@ -120,11 +120,24 @@ func (a *App) saveSiteAccess(access SiteAccess) error {
 }
 
 func (a *App) applyAndSaveSiteAccess(ctx context.Context, access SiteAccess) (SiteAccess, error) {
+	if err := ctx.Err(); err != nil {
+		access.State = "pending"
+		access.LastError = err.Error()
+		return access, err
+	}
 	if err := a.applySiteAccess(ctx, access); err != nil {
 		access.State = "pending"
 		access.LastError = err.Error()
 		if saveErr := a.saveSiteAccess(access); saveErr != nil {
 			return access, fmt.Errorf("apply site access: %w; save pending state: %v", err, saveErr)
+		}
+		return access, err
+	}
+	if err := ctx.Err(); err != nil {
+		access.State = "pending"
+		access.LastError = err.Error()
+		if saveErr := a.saveSiteAccess(access); saveErr != nil {
+			return access, fmt.Errorf("save pending site access after cancellation: %v; %w", saveErr, err)
 		}
 		return access, err
 	}
@@ -208,6 +221,10 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "SSH access mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if input.SFTPEnabled != nil {
 			access.SFTPEnabled = *input.SFTPEnabled
 		}
@@ -260,6 +277,10 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "SSH key mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		for _, existing := range access.Keys {
 			if existing.Label == key.Label || existing.Fingerprint == key.Fingerprint {
 				http.Error(w, "SSH key label or fingerprint already exists", 409)
@@ -311,6 +332,10 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "SSH key mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	a.Access.mu.Lock()
 	access, ok := a.Access.values[site]
 	if !ok {
