@@ -1,8 +1,13 @@
 package operations
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestLocksSerializeSameKey(t *testing.T) {
@@ -29,6 +34,44 @@ func TestLocksSerializeSameKey(t *testing.T) {
 	}
 	if locks.Len() != 0 {
 		t.Fatalf("lock entries leaked: %d", locks.Len())
+	}
+}
+
+func TestLocksAcquireManySkipsEmptyAndDuplicateKeys(t *testing.T) {
+	var locks Locks
+	release := locks.AcquireMany("", "demo", "demo", "")
+	if locks.Len() != 1 {
+		t.Fatalf("lock count = %d, want 1", locks.Len())
+	}
+	release()
+	if locks.Len() != 0 {
+		t.Fatalf("lock count after release = %d", locks.Len())
+	}
+}
+
+func TestDBLocksRejectsInvalidInputsAndCancelledAcquire(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:invalid-lock-test?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := NewDBLocks(nil, "owner", time.Second); err == nil {
+		t.Fatal("nil database was accepted")
+	}
+	if _, err := NewDBLocks(db, "", time.Second); err == nil {
+		t.Fatal("empty owner was accepted")
+	}
+	locks, err := NewDBLocks(db, "owner", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := locks.TryAcquire(""); err == nil {
+		t.Fatal("empty resource key was accepted")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := locks.Acquire(ctx, "site-cancelled"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled acquire = %v", err)
 	}
 }
 
