@@ -59,6 +59,11 @@ func (a *App) reconcileEnvironments(ctx context.Context) (reconciled []string, f
 			releaseUnlock()
 			continue
 		}
+		if err := operationCtx.Err(); err != nil {
+			failed[site] = "apply cancelled; reconciliation remains pending"
+			releaseUnlock()
+			continue
+		}
 		reconciled = append(reconciled, site)
 		releaseUnlock()
 	}

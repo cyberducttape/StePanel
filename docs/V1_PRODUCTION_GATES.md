@@ -219,6 +219,8 @@ Test 5: backup + filesystem restore simultaneously
 - API-token creation/revocation, backup schedule changes, webhook
   configuration, and Git deployment/rollback now use their account/site fence
   and check lease loss before reporting completion.
+- Environment reconciliation now retains the item as pending when its helper
+  completes after the site lease is lost.
 - Route deletion now leaves the desired route pending with an error when the
   lease is lost after the webserver helper returns, instead of removing the
   durable desired state.

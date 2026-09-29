@@ -135,6 +135,8 @@ changes, and session revocation now share the account fence; account resource
 profile enforcement also acquires the affected site fences before host work.
 API-token, backup-schedule, webhook, and Git deployment/rollback mutations now
 use the same account/site fencing and completion checks.
+Environment reconciliation also leaves host state pending instead of reporting
+success after lease loss.
 
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
