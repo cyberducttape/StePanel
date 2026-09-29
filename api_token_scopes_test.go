@@ -128,3 +128,21 @@ func TestLegacyTokensRetainFullAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyMemberTokenIsBoundByTenantRole(t *testing.T) {
+	store := &AccountStore{accounts: map[string]HostingAccount{
+		"alice":     {Username: "alice", TenantID: "alice", Role: "owner", PasswordHash: "hash", TOTPSecret: testTOTPSecret, Plan: "starter"},
+		"alice-dev": {Username: "alice-dev", TenantID: "alice", Role: "developer", PasswordHash: "hash", TOTPSecret: testTOTPSecret, Plan: "starter"},
+	}}
+	auth := Auth{Username: "admin", Accounts: store}
+	r := httptest.NewRequest("GET", "/api/test", nil)
+	ctx := context.WithValue(r.Context(), apiTokenUsernameKey{}, "alice-dev")
+	ctx = context.WithValue(ctx, apiTokenScopesKey{}, []string{})
+	r = r.WithContext(ctx)
+	if !auth.HasRequiredCustomerScope(r, "site:deploy") {
+		t.Fatal("developer legacy token lost its allowed deployment scope")
+	}
+	if auth.HasRequiredCustomerScope(r, "database:write") {
+		t.Fatal("developer legacy token retained a disallowed database scope")
+	}
+}
