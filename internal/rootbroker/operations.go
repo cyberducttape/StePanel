@@ -3,6 +3,7 @@ package rootbroker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,7 +31,9 @@ func (s *SiteOperations) Create(ctx context.Context, req *SiteRequest) error {
 
 	// Step 2: Create site root directory
 	if err := os.MkdirAll(siteRoot, 0o750); err != nil {
-		s.rollbackUser(ctx, siteUser)
+		if rollbackErr := s.rollbackUser(ctx, siteUser); rollbackErr != nil {
+			return fmt.Errorf("failed to create site root: %w; rollback failed: %v", err, rollbackErr)
+		}
 		return fmt.Errorf("failed to create site root: %w", err)
 	}
 
@@ -46,20 +49,26 @@ func (s *SiteOperations) Create(ctx context.Context, req *SiteRequest) error {
 
 	for _, dir := range subdirs {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
-			s.rollback(ctx, siteUser, siteRoot)
+			if rollbackErr := s.rollback(ctx, siteUser, siteRoot); rollbackErr != nil {
+				return fmt.Errorf("failed to create subdirectory %s: %w; rollback failed: %v", dir, err, rollbackErr)
+			}
 			return fmt.Errorf("failed to create subdirectory %s: %w", dir, err)
 		}
 	}
 
 	// Step 4: Set ownership to site user
 	if err := s.broker.setOwnership(ctx, siteRoot, siteUser, "www-data"); err != nil {
-		s.rollback(ctx, siteUser, siteRoot)
+		if rollbackErr := s.rollback(ctx, siteUser, siteRoot); rollbackErr != nil {
+			return fmt.Errorf("failed to set ownership: %w; rollback failed: %v", err, rollbackErr)
+		}
 		return fmt.Errorf("failed to set ownership: %w", err)
 	}
 
 	// Step 5: Set proper permissions
 	if err := s.setPermissions(siteRoot); err != nil {
-		s.rollback(ctx, siteUser, siteRoot)
+		if rollbackErr := s.rollback(ctx, siteUser, siteRoot); rollbackErr != nil {
+			return fmt.Errorf("failed to set permissions: %w; rollback failed: %v", err, rollbackErr)
+		}
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
@@ -136,15 +145,21 @@ func (s *SiteOperations) setPermissions(siteRoot string) error {
 }
 
 // rollback removes site and user on error.
-func (s *SiteOperations) rollback(ctx context.Context, siteUser, siteRoot string) {
-	_ = os.RemoveAll(siteRoot)
-	_ = s.broker.deleteSystemUser(ctx, siteUser)
+func (s *SiteOperations) rollback(ctx context.Context, siteUser, siteRoot string) error {
+	var rollbackErrs []error
+	if err := os.RemoveAll(siteRoot); err != nil && !os.IsNotExist(err) {
+		rollbackErrs = append(rollbackErrs, fmt.Errorf("remove site root: %w", err))
+	}
+	if err := s.broker.deleteSystemUser(ctx, siteUser); err != nil {
+		rollbackErrs = append(rollbackErrs, fmt.Errorf("delete site user: %w", err))
+	}
+	return errors.Join(rollbackErrs...)
 }
 
 // rollbackUser removes just the user.
-func (s *SiteOperations) rollbackUser(ctx context.Context, siteUser string) {
+func (s *SiteOperations) rollbackUser(ctx context.Context, siteUser string) error {
 	cmd := exec.CommandContext(ctx, "userdel", siteUser)
-	_ = cmd.Run()
+	return cmd.Run()
 }
 
 // AppOperations handles application-level privileged operations.
