@@ -1023,7 +1023,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
-	result, err := CreateSiteBackup(a.Config, access, request.IncludeDatabases)
+	result, err := CreateSiteBackupContext(operationCtx, a.Config, access, request.IncludeDatabases)
 	if err != nil {
 		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "site.backup.failed", request.Site, err.Error()); auditErr != nil {
 			return nil, fmt.Errorf("%w; audit persistence failed: %v", err, auditErr)

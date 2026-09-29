@@ -125,7 +125,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if journal.isComplete(stepBackupVerified) {
 		backupPath = journal.BackupPath
 	} else {
-		backup, err := a.terminationBackup(access, item.StartedAt)
+		backup, err := a.terminationBackup(operationCtx, access, item.StartedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -271,7 +271,10 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	})
 }
 
-func (a *App) terminationBackup(site SiteCapability, started time.Time) (BackupResult, error) {
+func (a *App) terminationBackup(ctx context.Context, site SiteCapability, started time.Time) (BackupResult, error) {
+	if err := ctx.Err(); err != nil {
+		return BackupResult{}, err
+	}
 	items, err := listBackupsPage(a.Config.BackupRoot, site, 500, a.Config.BackupSigningKey)
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("inspect retained site backups: %w", err)
@@ -285,7 +288,7 @@ func (a *App) terminationBackup(site SiteCapability, started time.Time) (BackupR
 		}
 		return item, nil
 	}
-	result, err := CreateSiteBackup(a.Config, site, true)
+	result, err := CreateSiteBackupContext(ctx, a.Config, site, true)
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("create verified termination backup: %w", err)
 	}

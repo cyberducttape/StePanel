@@ -179,6 +179,17 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (result BackupResult, returnErr error) {
+	return CreateSiteBackupContext(context.Background(), cfg, site, includeDatabases)
+}
+
+// CreateSiteBackupContext creates a verified backup while honoring ctx at
+// every filesystem and publication boundary. Lock-protected callers must use
+// this form so a fenced mutation lease cannot continue publishing a backup
+// after another process has taken over the resource.
+func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapability, includeDatabases bool) (result BackupResult, returnErr error) {
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	siteName := site.Site()
 	if safeUser(siteName) == "" {
 		return result, errors.New("invalid backup site")
@@ -200,6 +211,9 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 		}
 	}()
 	if err := os.Chmod(tempDir, 0700); err != nil {
+		return result, err
+	}
+	if err := ctx.Err(); err != nil {
 		return result, err
 	}
 	if err := failureInjection("backup", "init"); err != nil {
@@ -234,17 +248,25 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 	if maxEntries <= 0 {
 		maxEntries = 1000000
 	}
-	if err := addBackupTree(tw, publicRoot, "site/public", maxEntries, &uncompressedBytes, &manifest); err != nil {
+	if err := addBackupTreeContext(ctx, tw, publicRoot, "site/public", maxEntries, &uncompressedBytes, &manifest); err != nil {
 		_ = closeArchive()
 		return result, err
 	}
 	if includeDatabases {
+		if err := ctx.Err(); err != nil {
+			_ = closeArchive()
+			return result, err
+		}
 		databases, err := managedDatabasesForSite(cfg, siteName)
 		if err != nil {
 			_ = closeArchive()
 			return result, err
 		}
 		for _, database := range databases {
+			if err := ctx.Err(); err != nil {
+				_ = closeArchive()
+				return result, err
+			}
 			if len(manifest.Entries) >= maxEntries {
 				_ = closeArchive()
 				return result, errors.New("backup contains too many entries")
@@ -265,6 +287,10 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 			manifest.Databases = append(manifest.Databases, database)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		_ = closeArchive()
+		return result, err
+	}
 	if err := closeArchive(); err != nil {
 		return result, err
 	}
@@ -282,6 +308,9 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 		return result, err
 	}
 	if err := failureInjection("backup", "verify"); err != nil {
+		return result, err
+	}
+	if err := ctx.Err(); err != nil {
 		return result, err
 	}
 	if err := VerifyBackupArchive(archivePath, manifest); err != nil {
@@ -304,6 +333,9 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 	if err := failureInjection("backup", "commit"); err != nil {
 		return result, err
 	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	if err := os.Rename(tempDir, finalPath); err != nil {
 		return result, err
 	}
@@ -316,8 +348,15 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 }
 
 func addBackupTree(tw *tar.Writer, root, prefix string, maxEntries int, totalBytes *int64, manifest *BackupManifest) error {
+	return addBackupTreeContext(context.Background(), tw, root, prefix, maxEntries, totalBytes, manifest)
+}
+
+func addBackupTreeContext(ctx context.Context, tw *tar.Writer, root, prefix string, maxEntries int, totalBytes *int64, manifest *BackupManifest) error {
 	entries := 0
 	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
@@ -352,7 +391,7 @@ func addBackupTree(tw *tar.Writer, root, prefix string, maxEntries int, totalByt
 		// files can be changed by their owning account while a backup is in
 		// progress; accepting a replacement here would defeat the no-follow
 		// validation performed above.
-		return addBackupFileExpected(tw, path, name, totalBytes, manifest, info)
+		return addBackupFileExpectedContext(ctx, tw, path, name, totalBytes, manifest, info)
 	})
 }
 
@@ -364,6 +403,13 @@ func addBackupFile(tw *tar.Writer, source, name string, totalBytes *int64, manif
 // observed during validation. Callers without a preceding walk, such as the
 // database dump staging path, can use addBackupFile instead.
 func addBackupFileExpected(tw *tar.Writer, source, name string, totalBytes *int64, manifest *BackupManifest, expected os.FileInfo) error {
+	return addBackupFileExpectedContext(context.Background(), tw, source, name, totalBytes, manifest, expected)
+}
+
+func addBackupFileExpectedContext(ctx context.Context, tw *tar.Writer, source, name string, totalBytes *int64, manifest *BackupManifest, expected os.FileInfo) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	file, info, err := openRegularNoFollow(source, expected)
 	if err != nil {
 		return err
@@ -385,13 +431,25 @@ func addBackupFileExpected(tw *tar.Writer, source, name string, totalBytes *int6
 		return err
 	}
 	hash := sha256.New()
-	written, err := io.CopyN(io.MultiWriter(tw, hash), file, info.Size())
+	written, err := io.CopyN(io.MultiWriter(tw, hash), contextReader{ctx: ctx, reader: file}, info.Size())
 	if err != nil {
 		return err
 	}
 	manifest.Entries = append(manifest.Entries, BackupEntry{Path: header.Name, Size: written, SHA256: hex.EncodeToString(hash.Sum(nil))})
 	*totalBytes += written
 	return nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }
 
 func managedDatabasesForSite(cfg Config, site string) ([]string, error) {

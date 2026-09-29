@@ -120,7 +120,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = a.discardSiteReleaseStaging(context.Background(), input.Site, release) }()
 	if input.Backup {
 		a.recordDeployment(input.Site, "backup", "running", "pre-activation backup started", result, "")
-		if _, err := CreateSiteBackup(a.Config, access, true); err != nil {
+		if _, err := CreateSiteBackupContext(operationCtx, a.Config, access, true); err != nil {
 			a.recordDeployment(input.Site, "backup", "failed", err.Error(), result, "")
 			http.Error(w, "pre-activation backup failed", 502)
 			return

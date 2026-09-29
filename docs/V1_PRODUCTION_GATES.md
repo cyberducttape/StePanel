@@ -183,6 +183,9 @@ Test 5: backup + filesystem restore simultaneously
 - Route publication and deletion now share the site/vhost fenced lock set;
   `TestRouteMutationLockSetSerializesPublicationAndDeletion` verifies that a
   deletion cannot acquire the vhost fence while publication holds it.
+- Lock-held backup workflows now call `CreateSiteBackupContext`; cancellation
+  is checked during archive traversal, file copying, verification, and commit
+  so a fenced lease loss cannot publish a backup after takeover.
 
 These tests prove lock acquisition, helper serialization, and the delete
 cancellation boundary. They do not yet prove that every full workflow remains

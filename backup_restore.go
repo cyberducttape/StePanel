@@ -58,7 +58,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		result, restoreErr = backupRestoreFiles(operationCtx, a.Config, request.Backup, access)
 	case "database":
 		var safety BackupResult
-		safety, restoreErr = CreateSiteBackup(a.Config, access, true)
+		safety, restoreErr = CreateSiteBackupContext(operationCtx, a.Config, access, true)
 		if restoreErr == nil {
 			result, restoreErr = restoreManagedDatabase(operationCtx, a.Config, request.Backup, request.Site, request.Database)
 			result.SafetyBackup = safety.Path
@@ -80,7 +80,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		if restoreErr == nil {
 			defer cleanup()
 			var safety BackupResult
-			safety, restoreErr = CreateSiteBackup(a.Config, access, true)
+			safety, restoreErr = CreateSiteBackupContext(operationCtx, a.Config, access, true)
 			if restoreErr == nil {
 				cfg := a.Config
 				cfg.BackupRoot = root

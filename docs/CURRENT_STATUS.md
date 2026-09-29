@@ -95,6 +95,10 @@ a regression test confirming that deletion cannot enter the vhost boundary
 while publication holds it. Full interrupted-workflow recovery acceptance
 remains open.
 
+Lock-held backup workflows now propagate their operation context through
+archive traversal and publication, with cancellation checks preventing a
+fenced backup from being committed after lease loss.
+
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,

@@ -88,6 +88,22 @@ func TestCreateSiteBackupPublishesVerifiedManifest(t *testing.T) {
 	}
 }
 
+func TestCreateSiteBackupContextCancellationDoesNotPublish(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "backup")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := CreateSiteBackupContext(ctx, Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "account"}, false); err == nil {
+		t.Fatal("cancelled backup context unexpectedly completed")
+	}
+	if entries, err := os.ReadDir(backupRoot); err == nil && len(entries) != 0 {
+		t.Fatalf("cancelled backup published artifacts: %#v", entries)
+	}
+}
+
 func TestCreateSiteBackupFailureInjectionCleansTemporaryArchive(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")
