@@ -1294,6 +1294,10 @@ textarea[aria-invalid="true"] {
 .account-card { padding: 16px; border: 1px solid var(--line, #d8dee8); border-radius: 12px; background: var(--surface, #f8fafc); }
 .account-card strong, .account-card small { display: block; margin-top: 6px; }
 .account-card small { color: var(--muted, #667085); min-height: 2.2em; }
+.account-plan-envelope { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line, #d8dee8); }
+.account-resource-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 10px; }
+.account-resource-card { padding: 10px 12px; border: 1px solid var(--line, #d8dee8); border-radius: 9px; background: var(--surface, #f8fafc); }
+.account-resource-card strong { display: block; margin-top: 5px; }
 .usage-bar { height: 5px; margin-top: 12px; overflow: hidden; border-radius: 99px; background: var(--line, #d8dee8); }
 .usage-bar span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent, #2563eb); transition: width .25s ease; }
 .usage-bar.warning span { background: var(--warning, #d97706); }
@@ -1326,3 +1330,5 @@ textarea[aria-invalid="true"] {
 @media (max-width: 640px) { .account-inventory-row { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 900px) { .account-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .account-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .account-resource-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 640px) { .account-resource-grid { grid-template-columns: repeat(2, 1fr); } }

@@ -9,6 +9,25 @@
     return match ? decodeURIComponent(match[1]) : '';
   };
   const set = (id, value) => { const node = document.querySelector(`#${id}`); if (node) node.textContent = value; };
+  const renderPlanResources = (data) => {
+    const container = document.querySelector('#accountPlanResources');
+    if (!container) return;
+    const resources = [
+      ['CPU', `${data.cpu_percent}%`],
+      ['Memory', `${data.memory_mb} MB`],
+      ['Disk', `${data.disk_mb} MB`],
+      ['Inodes', Number(data.inodes || 0).toLocaleString()],
+      ['Tasks', Number(data.tasks_max || 0).toLocaleString()],
+      ['Redis memory', `${data.redis_memory_mb} MB`],
+    ];
+    container.replaceChildren(...resources.map(([label, value]) => {
+      const card = document.createElement('article'); card.className = 'account-resource-card';
+      const labelNode = document.createElement('span'); labelNode.className = 'metric-label'; labelNode.textContent = label;
+      const valueNode = document.createElement('strong'); valueNode.textContent = value;
+      card.append(labelNode, valueNode);
+      return card;
+    }));
+  };
   const load = async () => {
     try {
       const response = await fetch('/api/account/me');
@@ -35,6 +54,7 @@
       };
       markUsage(sitesBar, data.sites_percent);
       markUsage(databasesBar, data.databases_percent);
+      renderPlanResources(data);
       set('accountMFA', data.mfa_enabled ? 'MFA enabled' : 'MFA setup needed');
       set('accountSecurityNote', data.password_reset_required ? 'Password update required.' : (data.mfa_enrollment_required ? 'MFA enrollment required.' : 'Credentials are scoped to this tenant.'));
       const mfaSetup = document.querySelector('#accountMFASetup');
