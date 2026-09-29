@@ -159,3 +159,6 @@ bash /work/deploy/lab/cpmove-recovery-smoke.sh
 bash /work/deploy/lab/backup-recovery-smoke.sh
 bash /work/deploy/lab/account-suspension-recovery-smoke.sh
 bash /work/deploy/lab/deploy-recovery-smoke.sh
+if [[ ${STEPANEL_RUN_RECOVERY_MATRIX:-0} == 1 ]]; then
+  bash /work/deploy/lab/recovery-matrix-smoke.sh
+fi
