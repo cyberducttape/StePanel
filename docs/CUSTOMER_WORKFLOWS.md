@@ -8,10 +8,10 @@ The restore-to-staging feature lets you safely test restoring your site from a b
 
 ### How It Works
 
-1. **Create an isolated staging site** — A temporary, non-indexed copy of your site created specifically for testing
+1. **Create an isolated staging site** — A non-indexed route for testing, separate from your production route
 2. **Restore files and databases** — Your backup is extracted into the staging site, completely isolated from production
 3. **Test the restored site** — Browse your site at the staging domain, verify all content, run tests
-4. **Approve or discard** — If the restore looks good, you can promote it to production; otherwise, discard the staging site
+4. **Decide what to do next** — The beta workflow leaves production untouched; promotion or cleanup is an operator-managed action
 
 ### Step-by-Step Workflow
 
@@ -55,14 +55,7 @@ curl -X POST "https://panel.example.com/api/backups/restore-to-staging" \
 
 #### 3. Verify the Restore Completed
 
-The API returns a job ID. Monitor the job status:
-
-```bash
-curl -X GET "https://panel.example.com/api/jobs?id=JOB_ID" \
-  -H "Authorization: Bearer YOUR_API_TOKEN"
-```
-
-When the job completes with status `done`, your staging site is ready to test.
+The request completes after the verified files have been restored and the staging route has been activated. The response includes the staging domain. If the request fails, no staging route is published.
 
 #### 4. Test Your Site
 
@@ -75,25 +68,11 @@ When the job completes with status `done`, your staging site is ready to test.
    - Third-party integrations function
    - Cron jobs and background tasks execute
 
-If you notice any issues, you can discard the staging restore and investigate the backup or your site configuration.
+If you notice any issues, leave production unchanged and contact an administrator to remove the staging route or investigate the backup.
 
-#### 5. Promote Staging to Production or Discard
+#### 5. Finish the Test
 
-**To promote the staging restore to production:**
-
-```bash
-curl -X POST "https://panel.example.com/api/sites/mysite/restore-complete" \
-  -H "Authorization: Bearer YOUR_API_TOKEN" \
-  -H "X-CSRF-Token: YOUR_CSRF_TOKEN"
-```
-
-**To discard the staging site without affecting production:**
-
-```bash
-curl -X DELETE "https://panel.example.com/api/sites/mysite/staging" \
-  -H "Authorization: Bearer YOUR_API_TOKEN" \
-  -H "X-CSRF-Token: YOUR_CSRF_TOKEN"
-```
+There is no customer self-service promote or discard endpoint in the shared-hosting beta. Promotion is intentionally not exposed as a tenant action because it would replace the managed site state. Ask an administrator to review the staging result and perform any required production change.
 
 ### Best Practices
 
@@ -122,8 +101,8 @@ After a restore-to-staging operation, verify:
 ### Common Issues and Solutions
 
 **Q: "Staging destination already exists" error**
-- A staging site from a previous restore still exists
-- Discard the old staging site first, then retry
+- A staging destination from a previous restore still exists
+- Ask an administrator to clean up the previous staging route before retrying
 
 **Q: "Backup verification failed" error**
 - The backup archive may be corrupted

@@ -777,8 +777,8 @@
             if (!confirmed) return;
             output.textContent = 'Restoring to staging…';
             try {
-              await ctx.postJSON('/api/backups/restore-to-staging', { site, backup: backup.name, domain });
-              output.textContent = 'Restore to staging queued.';
+              const result = await ctx.postJSON('/api/backups/restore-to-staging', { site, backup: backup.name, domain });
+              output.textContent = `Staging restore is ready at ${result.domain || domain}. Production was not changed.`;
             } catch (error) { output.textContent = error.message; }
           }),
         ]),
