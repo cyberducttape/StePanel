@@ -23,7 +23,8 @@
       const info = document.createElement('div');
       const title = document.createElement('strong'); title.textContent = account.username;
       const usage = account.usage ? ` · ${account.usage.sites_used}/${account.usage.site_limit} sites · ${account.usage.databases_used}/${account.usage.database_limit} databases` : '';
-      const detail = document.createElement('small'); detail.textContent = `${account.plan}${usage} · ${account.mfa_enabled ? 'MFA enabled' : 'MFA required'}`;
+      const membership = account.role && account.role !== 'owner' ? ` · ${account.role} member of ${account.tenant_id || 'tenant'}` : '';
+      const detail = document.createElement('small'); detail.textContent = `${account.plan}${usage}${membership} · ${account.mfa_enabled ? 'MFA enabled' : 'MFA required'}`;
       info.append(title, detail);
       const actions = document.createElement('div'); actions.className = 'account-inventory-actions';
       const state = document.createElement('span'); state.className = account.suspended ? 'status status-warn' : 'status status-ok'; state.textContent = account.suspended ? 'Suspended' : 'Active';
@@ -38,24 +39,27 @@
         } catch (error) { if (status) status.textContent = error.message; }
         finally { button.disabled = false; }
       });
-      const edit = document.createElement('details'); edit.className = 'account-edit';
-      const editSummary = document.createElement('summary'); editSummary.textContent = 'Edit plan and sites'; edit.append(editSummary);
-      const editForm = document.createElement('form'); editForm.className = 'account-edit-form';
-      const plan = document.createElement('select'); plan.name = 'plan';
-      ['starter', 'professional', 'agency'].forEach((value) => { const option = document.createElement('option'); option.value = value; option.textContent = value; option.selected = value === account.plan; plan.append(option); });
-      const sites = document.createElement('input'); sites.name = 'sites'; sites.value = (account.sites || []).join(', '); sites.placeholder = 'Assigned sites'; sites.pattern = '[a-z0-9_-]*(,\\s*[a-z0-9_-]+)*';
-      const save = document.createElement('button'); save.type = 'submit'; save.className = 'quiet-action'; save.textContent = 'Save assignment';
-      const output = document.createElement('output'); output.setAttribute('role', 'status');
-      editForm.append(plan, sites, save, output); edit.append(editForm);
-      editForm.addEventListener('submit', async (event) => {
-        event.preventDefault(); save.disabled = true; output.textContent = 'Saving…';
-        try {
-          await request(`/api/accounts/${encodeURIComponent(account.username)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ plan: plan.value, sites: sites.value.split(',').map((site) => site.trim()).filter(Boolean) }) });
-          output.textContent = 'Assignment saved.'; await load();
-        } catch (error) { output.textContent = error.message; }
-        finally { save.disabled = false; }
-      });
-      actions.append(state, button, edit); row.append(info, actions); inventory.append(row);
+      if (!account.role || account.role === 'owner') {
+        const edit = document.createElement('details'); edit.className = 'account-edit';
+        const editSummary = document.createElement('summary'); editSummary.textContent = 'Edit plan and sites'; edit.append(editSummary);
+        const editForm = document.createElement('form'); editForm.className = 'account-edit-form';
+        const plan = document.createElement('select'); plan.name = 'plan';
+        ['starter', 'professional', 'agency'].forEach((value) => { const option = document.createElement('option'); option.value = value; option.textContent = value; option.selected = value === account.plan; plan.append(option); });
+        const sites = document.createElement('input'); sites.name = 'sites'; sites.value = (account.sites || []).join(', '); sites.placeholder = 'Assigned sites'; sites.pattern = '[a-z0-9_-]*(,\\s*[a-z0-9_-]+)*';
+        const save = document.createElement('button'); save.type = 'submit'; save.className = 'quiet-action'; save.textContent = 'Save assignment';
+        const output = document.createElement('output'); output.setAttribute('role', 'status');
+        editForm.append(plan, sites, save, output); edit.append(editForm);
+        editForm.addEventListener('submit', async (event) => {
+          event.preventDefault(); save.disabled = true; output.textContent = 'Saving…';
+          try {
+            await request(`/api/accounts/${encodeURIComponent(account.username)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ plan: plan.value, sites: sites.value.split(',').map((site) => site.trim()).filter(Boolean) }) });
+            output.textContent = 'Assignment saved.'; await load();
+          } catch (error) { output.textContent = error.message; }
+          finally { save.disabled = false; }
+        });
+        actions.append(edit);
+      }
+      actions.prepend(state, button); row.append(info, actions); inventory.append(row);
     });
   };
   const load = async () => {
