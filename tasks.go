@@ -281,6 +281,10 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "task operation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		key := site + "/" + name
 		a.Tasks.mu.RLock()
 		task := a.Tasks.values[key]
@@ -294,6 +298,11 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		if err := a.applyTask(operationCtx, task); err != nil {
 			a.recordTaskError(key, err)
 			http.Error(w, "scheduled task removal is pending reconciliation", 502)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			a.recordTaskError(key, err)
+			http.Error(w, "scheduled task removal is pending reconciliation", http.StatusConflict)
 			return
 		}
 		a.Tasks.mu.Lock()
@@ -336,6 +345,10 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "task mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	key := site + "/" + name
 	err := a.Tasks.save(key, input)
 	if err != nil {
@@ -345,6 +358,11 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	if err := a.applyTask(operationCtx, input); err != nil {
 		a.recordTaskError(key, err)
 		http.Error(w, "scheduled task is pending reconciliation", 502)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		a.recordTaskError(key, err)
+		http.Error(w, "scheduled task is pending reconciliation", http.StatusConflict)
 		return
 	}
 	input.State, input.LastError = "applied", ""

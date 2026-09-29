@@ -196,6 +196,9 @@ Test 5: backup + filesystem restore simultaneously
   operation before persistence and retain pending state when cancellation is
   observed after helper execution, allowing reconciliation to repair host
   state instead of recording false success.
+- Scheduled task and resource-profile workflows now reject fenced operations
+  before desired-state persistence and leave pending state when helper work
+  completes after cancellation.
 
 These tests prove lock acquisition, helper serialization, and the delete
 cancellation boundary. They do not yet prove that every full workflow remains

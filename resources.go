@@ -513,6 +513,10 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "resource mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	a.Resources.mu.Lock()
 	a.Resources.values[site] = p
 	e := a.Resources.persistLocked()
@@ -531,6 +535,10 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 	e = a.applyResourceProfile(operationCtx, p, p.FilesystemQuotaState == "clear-pending")
 	if e != nil {
 		http.Error(w, "resource profile is pending reconciliation", 502)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "resource profile is pending reconciliation", http.StatusConflict)
 		return
 	}
 	p.State = "applied"
@@ -635,6 +643,11 @@ func (a *App) reconcileResourceProfiles(ctx context.Context) (reconciled []strin
 					failed[p.Site] = "apply failed and account suspension failed: " + suspendErr.Error()
 				}
 			}
+			releaseUnlock()
+			continue
+		}
+		if err := operationCtx.Err(); err != nil {
+			failed[p.Site] = "apply cancelled; reconciliation remains pending"
 			releaseUnlock()
 			continue
 		}

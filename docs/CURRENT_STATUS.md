@@ -110,6 +110,9 @@ SSH access and environment desired-state updates now check the fenced context
 before persistence and preserve pending reconciliation state when cancellation
 is observed after helper execution.
 
+Scheduled task and resource-profile updates now use the same pending-state
+behavior when their mutation lease is lost around helper execution.
+
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,
