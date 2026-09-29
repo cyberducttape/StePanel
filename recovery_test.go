@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,6 +86,30 @@ func TestRecoverSiteTransactionAfterProcessDeath(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertTestFile(t, filepath.Join(home, "index.html"), "old")
+}
+
+func TestRecoverSiteTransactionWithoutExistingSiteRemovesInterruptedSite(t *testing.T) {
+	root := t.TempDir()
+	recovery := filepath.Join(root, ".stepanel-recovery")
+	home := filepath.Join(root, "site", "public")
+	txn, err := BeginSiteTransaction(recovery, home, "cpmove.restore", AuthorizedSite{site: "site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(home, "index.html"), "interrupted")
+	recovered, err := RecoverSiteTransactions(recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || recovered[0] != txn.ID {
+		t.Fatalf("recovered = %#v, want %q", recovered, txn.ID)
+	}
+	if _, err := os.Lstat(home); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interrupted new site still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(txn.dir, "failed-site", "index.html")); err != nil {
+		t.Fatalf("failed site was not preserved: %v", err)
+	}
 }
 
 func TestRecoverSiteTransactionsQuarantinesPathOutsideConfiguredRoot(t *testing.T) {

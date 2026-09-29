@@ -483,13 +483,19 @@ func main() {
 				log.Printf("load recovered site transaction %s: %v", id, loadErr)
 				continue
 			}
-			if sealErr := siteHelper(cfg, "seal", txn.Site); sealErr != nil {
-				failures = append(failures, fmt.Errorf("seal recovered site transaction %s: %w", id, sealErr))
-				log.Printf("seal recovered site transaction %s: %v", id, sealErr)
-				continue
+			if txn.HadExisting {
+				if sealErr := siteHelper(cfg, "seal", txn.Site); sealErr != nil {
+					failures = append(failures, fmt.Errorf("seal recovered site transaction %s: %w", id, sealErr))
+					log.Printf("seal recovered site transaction %s: %v", id, sealErr)
+					continue
+				}
 			}
 			log.Printf("recovered interrupted site transaction %s", id)
-			if err := Audit(cfg.AuditLog, "restore.recovered", id, "previous site restored after unclean shutdown"); err != nil {
+			recoveryMessage := "previous site restored after unclean shutdown"
+			if !txn.HadExisting {
+				recoveryMessage = "new site removed after unclean shutdown"
+			}
+			if err := Audit(cfg.AuditLog, "restore.recovered", id, recoveryMessage); err != nil {
 				failures = append(failures, fmt.Errorf("audit site recovery %s: %w", id, err))
 			}
 		}
