@@ -714,6 +714,7 @@ func main() {
 	mux.Handle("/api/account/security", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerSecurityCenter)), http.MethodGet))
 	mux.Handle("/api/account/me", allowMethods(app.Auth.Require(http.HandlerFunc(app.accountMe)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/account/members", allowMethods(app.Auth.Require(http.HandlerFunc(app.accountMembers)), http.MethodGet, http.MethodHead, http.MethodPost))
+	mux.Handle("/api/account/members/", allowMethods(app.Auth.Require(http.HandlerFunc(app.accountMembers)), http.MethodPatch, http.MethodDelete))
 	mux.Handle("/api/account/activity", allowMethods(app.Auth.Require(http.HandlerFunc(app.accountActivity)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/tokens", allowMethods(app.Auth.Require(http.HandlerFunc(app.adminAPITokens)), http.MethodGet, http.MethodPost))
 	mux.Handle("/api/admin/tokens/", allowMethods(app.Auth.Require(http.HandlerFunc(app.adminAPITokens)), http.MethodDelete))

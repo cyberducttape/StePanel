@@ -80,8 +80,30 @@
       if (!(data.members || []).length) { memberList.textContent = 'No team members have been added.'; return; }
       data.members.forEach((member) => {
         const row = document.createElement('div'); row.className = 'token-row';
-        row.textContent = `${member.username} · ${member.role} · ${member.mfa_enabled ? 'MFA enabled' : 'MFA required'}${member.suspended ? ' · suspended' : ''}`;
-        memberList.append(row);
+        const detail = document.createElement('span'); detail.textContent = `${member.username} · ${member.role} · ${member.mfa_enabled ? 'MFA enabled' : 'MFA required'}${member.suspended ? ' · suspended' : ''}`;
+        const actions = document.createElement('span'); actions.className = 'account-inventory-actions';
+        const suspend = document.createElement('button'); suspend.type = 'button'; suspend.className = 'quiet-action'; suspend.textContent = member.suspended ? 'Unsuspend' : 'Suspend';
+        suspend.addEventListener('click', async () => {
+          suspend.disabled = true;
+          try {
+            const response = await fetch(`/api/account/members/${encodeURIComponent(member.username)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ suspended: !member.suspended }) });
+            if (!response.ok) throw new Error((await response.text()) || 'Could not update member');
+            await loadMembers();
+          } catch (error) { if (memberStatus) memberStatus.textContent = error.message; }
+          finally { suspend.disabled = false; }
+        });
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'quiet-action danger'; remove.textContent = 'Remove';
+        remove.addEventListener('click', async () => {
+          if (!window.confirm(`Remove ${member.username} from this tenant?`)) return;
+          remove.disabled = true;
+          try {
+            const response = await fetch(`/api/account/members/${encodeURIComponent(member.username)}`, { method: 'DELETE', headers: { 'X-CSRF-Token': csrf() } });
+            if (!response.ok) throw new Error((await response.text()) || 'Could not remove member');
+            await loadMembers();
+          } catch (error) { if (memberStatus) memberStatus.textContent = error.message; }
+          finally { remove.disabled = false; }
+        });
+        actions.append(suspend, remove); row.append(detail, actions); memberList.append(row);
       });
     } catch (error) { memberList.textContent = error.message; }
   };

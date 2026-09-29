@@ -137,6 +137,18 @@ func TestAccountStoreMembersInheritOnlyTheirTenantSites(t *testing.T) {
 	if !store.TenantSuspended("alice-dev") || !store.TenantSuspended("alice") {
 		t.Fatal("tenant suspension did not cover owner and member identities")
 	}
+	if _, err := store.SetMemberRole("alice-dev", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	if member, ok := store.Get("alice-dev"); !ok || member.Role != "viewer" {
+		t.Fatalf("member role update = %#v, found=%v", member, ok)
+	}
+	if err := store.RemoveLogin("alice-dev"); err != nil {
+		t.Fatal(err)
+	}
+	if store.OwnsSite("alice-dev", "alice-site") {
+		t.Fatal("removed member retained tenant site access")
+	}
 }
 
 func TestCustomerRolesLimitBrowserScopes(t *testing.T) {

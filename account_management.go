@@ -223,6 +223,12 @@ func (a *App) accountMembers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "tenant owner access required", http.StatusForbidden)
 		return
 	}
+	memberName := strings.TrimPrefix(r.URL.Path, "/api/account/members/")
+	memberName = safeUser(strings.Trim(memberName, "/"))
+	if r.URL.Path != "/api/account/members" && memberName == "" {
+		http.Error(w, "member username is required", http.StatusBadRequest)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
 		members, err := a.Accounts.ListMembers(owner.Username)
@@ -264,6 +270,66 @@ func (a *App) accountMembers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusCreated, publicHostingAccount(member))
+	case http.MethodPatch, http.MethodDelete:
+		if !a.Auth.CSRF(r) {
+			http.Error(w, "invalid csrf token", http.StatusForbidden)
+			return
+		}
+		member, exists := a.Accounts.Get(memberName)
+		if !exists || accountRole(member) == "owner" || accountTenantID(member) != owner.Username {
+			http.Error(w, "tenant member not found", http.StatusNotFound)
+			return
+		}
+		if r.Method == http.MethodDelete {
+			if a.APITokens != nil {
+				if err := a.APITokens.revokeAll(memberName); err != nil {
+					http.Error(w, "member API token revocation could not be persisted", http.StatusServiceUnavailable)
+					return
+				}
+			}
+			if err := a.Accounts.RemoveLogin(memberName); err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if a.Auth.sessions != nil {
+				_ = a.Auth.sessions.revokeUser(memberName)
+			}
+			if err := AuditAs(a.Config.AuditLog, owner.Username, "tenant.member.removed", memberName, "member identity removed"); err != nil {
+				http.Error(w, "member removed but audit persistence failed", http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		var input struct {
+			Suspended *bool  `json:"suspended"`
+			Role      string `json:"role"`
+		}
+		if err := decodeJSON(w, r, 2048, &input); err != nil {
+			return
+		}
+		if input.Suspended == nil && strings.TrimSpace(input.Role) == "" {
+			http.Error(w, "suspended or role is required", http.StatusBadRequest)
+			return
+		}
+		if input.Suspended != nil {
+			if _, err := a.Accounts.SetSuspended(memberName, *input.Suspended); err != nil {
+				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+				return
+			}
+		}
+		if strings.TrimSpace(input.Role) != "" {
+			if _, err := a.Accounts.SetMemberRole(memberName, input.Role); err != nil {
+				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+				return
+			}
+		}
+		updated, _ := a.Accounts.Get(memberName)
+		if err := AuditAs(a.Config.AuditLog, owner.Username, "tenant.member.updated", memberName, fmt.Sprintf("role=%s suspended=%t", accountRole(updated), updated.Suspended)); err != nil {
+			http.Error(w, "member updated but audit persistence failed", http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(w, http.StatusOK, publicHostingAccount(updated))
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

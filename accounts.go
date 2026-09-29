@@ -797,6 +797,34 @@ func (s *AccountStore) CreateMember(tenantID, username, password, totpSecret, ro
 	return member, nil
 }
 
+func (s *AccountStore) SetMemberRole(username, role string) (HostingAccount, error) {
+	username, role = safeUser(username), strings.ToLower(strings.TrimSpace(role))
+	if role != "manager" && role != "developer" && role != "viewer" {
+		return HostingAccount{}, errors.New("member role must be manager, developer, or viewer")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshFromDBLocked(); err != nil {
+		return HostingAccount{}, err
+	}
+	account, ok := s.accounts[username]
+	if !ok || accountRole(account) == "owner" {
+		return HostingAccount{}, errors.New("tenant member not found")
+	}
+	previous := account
+	account.Role = role
+	if err := validateHostingAccount(account, true); err != nil {
+		return HostingAccount{}, err
+	}
+	s.accounts[username] = account
+	if err := s.persistLocked(); err != nil {
+		s.accounts[username] = previous
+		return HostingAccount{}, err
+	}
+	account.PasswordHash, account.TOTPSecret, account.RecoveryCodeHashes = "", "", nil
+	return account, nil
+}
+
 func (s *AccountStore) ListMembers(tenantID string) ([]HostingAccount, error) {
 	tenantID = safeUser(tenantID)
 	if tenantID == "" {

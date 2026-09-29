@@ -309,6 +309,15 @@ paths:
       responses:
         '201': {description: Tenant member created without password or TOTP secret disclosure}
         '422': {description: Invalid member identity, role, password, or MFA seed}
+  /api/account/members/:
+    patch:
+      summary: Change a tenant member role or suspension state (owner only)
+      responses:
+        '200': {description: Tenant member updated}
+    delete:
+      summary: Remove a tenant member login (owner only)
+      responses:
+        '204': {description: Tenant member removed and credentials revoked}
   /api/account/activity:
     get:
       summary: Return verified activity scoped to the authenticated customer's tenant
