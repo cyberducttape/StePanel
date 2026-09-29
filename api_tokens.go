@@ -218,6 +218,10 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
+		if err := r.Context().Err(); err != nil {
+			http.Error(w, "administrator token mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if err := MustAudit(w, a.AuditLog, username, "auth.admin_api_token.created", item.ID, strings.Join(item.Scopes, ",")); err != nil {
 			return
 		}
@@ -230,6 +234,10 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := a.apiTokens.revoke(username, id); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := r.Context().Err(); err != nil {
+			http.Error(w, "administrator token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		if err := MustAudit(w, a.AuditLog, username, "auth.admin_api_token.revoked", id, "administrator token revoked"); err != nil {
@@ -256,7 +264,7 @@ func (a *App) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "administrator token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	a.Auth.adminAPITokens(w, r)
+	a.Auth.adminAPITokens(w, r.WithContext(operationCtx))
 }
 
 func (s *apiTokenStore) revoke(username, id string) error {
