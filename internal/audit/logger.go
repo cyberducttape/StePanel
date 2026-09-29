@@ -175,6 +175,9 @@ func (l *defaultLogger) appendEvent(actor, action, target, detail string) error 
 	if err != nil {
 		return err
 	}
+	if err := syncAuditDirectory(root); err != nil {
+		return err
+	}
 
 	finalSize := int64(0)
 	if info, statErr := os.Stat(l.path); statErr == nil {
@@ -198,8 +201,15 @@ func (l *defaultLogger) acquireLock() (string, func() error, error) {
 	for attempts := 0; attempts < auditLockTries; attempts++ {
 		file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err == nil {
-			fmt.Fprintf(file, "%d", os.Getpid())
-			file.Close()
+			if _, writeErr := fmt.Fprintf(file, "%d", os.Getpid()); writeErr != nil {
+				_ = file.Close()
+				_ = os.Remove(lockFile)
+				return "", nil, fmt.Errorf("write audit lock: %w", writeErr)
+			}
+			if closeErr := file.Close(); closeErr != nil {
+				_ = os.Remove(lockFile)
+				return "", nil, fmt.Errorf("close audit lock: %w", closeErr)
+			}
 			return lockFile, func() error { return os.Remove(lockFile) }, nil
 		}
 		if !errors.Is(err, os.ErrExist) {
@@ -208,6 +218,22 @@ func (l *defaultLogger) acquireLock() (string, func() error, error) {
 		auditLockSleep(100 * time.Millisecond)
 	}
 	return "", nil, errors.New("timeout acquiring audit lock")
+}
+
+func syncAuditDirectory(root string) error {
+	directory, err := auditOpen(root)
+	if err != nil {
+		return fmt.Errorf("open audit directory for sync: %w", err)
+	}
+	syncErr := auditSync(directory)
+	closeErr := auditClose(directory)
+	if syncErr != nil {
+		return fmt.Errorf("sync audit directory: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close audit directory: %w", closeErr)
+	}
+	return nil
 }
 
 func (l *defaultLogger) reconcileTail(s state) (state, error) {

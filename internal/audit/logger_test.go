@@ -565,6 +565,7 @@ func TestAuditAppendFilesystemFailureBranches(t *testing.T) {
 		{name: "short write", inject: func() { auditWrite = func(_ *os.File, data []byte) (int, error) { return len(data) - 1, nil } }},
 		{name: "sync", inject: func() { auditSync = func(*os.File) error { return errors.New("sync") } }},
 		{name: "close", inject: func() { auditClose = func(*os.File) error { return errors.New("close") } }},
+		{name: "directory open", inject: func() { auditOpen = func(string) (*os.File, error) { return nil, errors.New("directory open") } }},
 		{name: "legacy rename", setup: func(logger *defaultLogger) error { return os.WriteFile(logger.path, []byte("legacy\n"), 0600) }, inject: func() { auditRename = func(string, string) error { return errors.New("rename") } }},
 	}
 	for _, test := range tests {
