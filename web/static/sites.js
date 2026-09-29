@@ -7,7 +7,13 @@
   if (!grid || !gridStatus || !detail) return;
 
   const isAdministrator = document.body.dataset.isAdministrator === 'true';
+  const accountRole = document.body.dataset.accountRole || 'owner';
   const webserver = document.body.dataset.webserver || 'caddy';
+  const roleScopes = {
+    developer: new Set(['site:read', 'site:deploy', 'deploy:write', 'environment:read', 'environment:write', 'logs:read', 'backup:read', 'backup:create', 'database:read', 'redis:read']),
+    viewer: new Set(['site:read', 'environment:read', 'backup:read', 'database:read', 'redis:read', 'logs:read']),
+  };
+  const can = (scope) => isAdministrator || accountRole === 'owner' || accountRole === 'manager' || (roleScopes[accountRole] || new Set()).has(scope);
 
   // ---------------------------------------------------------------------
   // Shared request helpers
@@ -300,7 +306,7 @@
       const token = ++requestToken;
       panel.replaceChildren(el('p', { className: 'import-note' }, 'Loading…'));
       try {
-        await TABS[index].render(site, panel, { isAdministrator, webserver, getJSON, postJSON, putJSON, patchJSON, deleteJSON, field, button, badge, formatAge, formatBytes, el, confirmDangerous, statusOutput });
+        await TABS[index].render(site, panel, { isAdministrator, accountRole, can, webserver, getJSON, postJSON, putJSON, patchJSON, deleteJSON, field, button, badge, formatAge, formatBytes, el, confirmDangerous, statusOutput });
       } catch (error) {
         if (token === requestToken) panel.replaceChildren(el('p', { className: 'import-note' }, error.message));
       }
@@ -427,7 +433,7 @@
 
     const list = el('ul', { className: 'resource-list' }, routes.length ? routes.map((route) => el('li', { className: 'resource-list-item' }, [
       el('div', { className: 'item-meta' }, [el('strong', {}, route.domain), el('small', {}, 'Active route')]),
-      el('div', { className: 'item-actions' }, [ctx.button('Remove', async () => {
+      ctx.can('site:deploy') ? el('div', { className: 'item-actions' }, [ctx.button('Remove', async () => {
         const confirmed = await ctx.confirmDangerous({
           title: `Remove ${route.domain}?`,
           message: 'The route stops serving this domain immediately. DNS still points here until you update it elsewhere.',
@@ -441,7 +447,7 @@
           output.textContent = `${route.domain} removed.`;
           renderDomainsTab(site, panel, ctx);
         } catch (error) { output.textContent = error.message; }
-      }, { className: 'danger' })]),
+      }, { className: 'danger' })]) : null,
     ])) : [el('p', { className: 'empty-state' }, 'No domains connected yet.')]);
 
     panel.replaceChildren(
@@ -463,6 +469,11 @@
           } catch (error) { output.textContent = error.message; }
         },
       }, [domainInput, el('button', { type: 'submit', className: 'primary-action' }, 'Add domain'), output]));
+      return;
+    }
+
+    if (!ctx.can('site:deploy')) {
+      panel.append(el('p', { className: 'import-note' }, 'Your role can review domains but cannot change routes. Ask a tenant owner or manager to make this change.'));
       return;
     }
 
@@ -547,6 +558,7 @@
         el('button', { type: 'submit', className: 'primary-action' }, 'Apply PHP runtime'),
         phpOutput,
       ]);
+      if (!ctx.can('site:deploy')) form.querySelectorAll('input, select, button').forEach((node) => { node.disabled = true; });
       panel.append(form);
     }
 
@@ -564,10 +576,10 @@
 
     if (nodeApp) {
       const toolingOutput = ctx.statusOutput();
-      panel.append(el('div', { className: 'workspace-panel-actions' }, [
+      panel.append(el('div', { className: 'workspace-panel-actions' }, ctx.can('site:deploy') ? [
         ctx.button('npm install', async () => { toolingOutput.textContent = 'Installing dependencies…'; try { await ctx.postJSON('/api/node/tooling', { site, action: 'install', package_manager: 'npm' }); toolingOutput.textContent = 'Dependencies installed.'; } catch (error) { toolingOutput.textContent = error.message; } }),
         ctx.button('npm run build', async () => { toolingOutput.textContent = 'Building…'; try { await ctx.postJSON('/api/node/tooling', { site, action: 'build', package_manager: 'npm' }); toolingOutput.textContent = 'Build completed.'; } catch (error) { toolingOutput.textContent = error.message; } }),
-      ]), toolingOutput);
+      ] : [el('span', { className: 'import-note' }, 'Your role can view this application but cannot run build commands.')]), toolingOutput);
     }
 
     // Python
@@ -598,16 +610,17 @@
       ]),
       pythonOutput,
     ]);
+    if (!ctx.can('site:deploy')) pyForm.querySelectorAll('input, select, button').forEach((node) => { node.disabled = true; });
     panel.append(pyForm);
 
     // Composer
     const composerOutput = ctx.statusOutput();
-    panel.append(el('h4', {}, 'Composer'), el('div', { className: 'workspace-panel-actions' }, [
+    panel.append(el('h4', {}, 'Composer'), el('div', { className: 'workspace-panel-actions' }, ctx.can('site:deploy') ? [
       ctx.button('Run composer install', async () => {
         composerOutput.textContent = 'Running composer install…';
         try { await ctx.postJSON(`/api/composer/${encodeURIComponent(site)}`, { development: false, optimize: true }); composerOutput.textContent = 'Composer install completed.'; } catch (error) { composerOutput.textContent = error.message; }
       }),
-    ]), composerOutput);
+      ] : [el('span', { className: 'import-note' }, 'Your role can view this site but cannot run Composer operations.')]), composerOutput);
   }
 
   // ---------------------------------------------------------------------
@@ -705,7 +718,7 @@
       el('p', { className: 'panel-intro' }, "This site's managed databases. StePanel never displays stored passwords or runs arbitrary SQL." ),
       el('ul', { className: 'resource-list' }, owned.length ? owned.map((db) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [el('strong', {}, db.name), el('small', {}, `${ctx.formatBytes(db.bytes)}${db.user ? ` · user ${db.user}` : ''}`)]),
-        el('div', { className: 'item-actions' }, [
+        ctx.can('database:write') ? el('div', { className: 'item-actions' }, [
           ctx.button('Delete', async () => {
             const confirmed = await ctx.confirmDangerous({
               title: `Delete ${db.name}?`,
@@ -722,7 +735,7 @@
               renderDatabasesTab(site, panel, ctx);
             } catch (error) { output.textContent = error.message; }
           }, { className: 'danger' }),
-        ]),
+        ]) : null,
       ])) : [el('p', { className: 'empty-state' }, 'No databases for this site yet.')]),
       output,
     );
@@ -731,7 +744,7 @@
     const userField = field({ label: 'Database user', name: 'user', pattern: '[a-z][a-z0-9_]{0,31}', required: true, hint: 'Must start with a lowercase letter.' });
     const passwordField = withGenerateButton(field({ label: 'Password', name: 'password', type: 'password', minlength: 20, required: true, hint: '20+ characters.' }));
     const createOutput = ctx.statusOutput();
-    panel.append(el('h4', {}, 'Create a database'), el('form', {
+    const createForm = el('form', {
       className: 'import-form', onSubmit: async (event) => {
         event.preventDefault();
         createOutput.textContent = 'Creating…';
@@ -746,7 +759,10 @@
           renderDatabasesTab(site, panel, ctx);
         } catch (error) { createOutput.textContent = error.message; }
       },
-    }, [nameField, userField, passwordField, el('button', { type: 'submit', className: 'primary-action' }, 'Create database'), createOutput]));
+    }, [nameField, userField, passwordField, el('button', { type: 'submit', className: 'primary-action' }, 'Create database'), createOutput]);
+    panel.append(...(ctx.can('database:write')
+      ? [el('h4', {}, 'Create a database'), createForm]
+      : [el('p', { className: 'import-note' }, 'Your role can inspect databases but cannot create or delete them.')]));
   }
 
   // ---------------------------------------------------------------------
@@ -798,7 +814,7 @@
 
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'Backups are checksummed and, when a signing key is configured, cryptographically signed and verified before they are trusted for restore.'),
-      el('div', { className: 'workspace-panel-actions' }, [
+      el('div', { className: 'workspace-panel-actions' }, ctx.can('backup:create') ? [
         ctx.button('Create verified backup', async () => {
           output.textContent = 'Creating a verified backup…';
           try {
@@ -806,7 +822,7 @@
             output.textContent = `Backup queued (job ${result.job_id}). Refresh in a moment to see it listed.`;
           } catch (error) { output.textContent = error.message; }
         }),
-      ]),
+      ] : [el('span', { className: 'import-note' }, 'Your role can review backups but cannot create them.')]),
       output,
       el('ul', { className: 'resource-list' }, backups.length ? backups.map((backup) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [
@@ -814,12 +830,12 @@
           el('small', {}, backup.verified_at ? `Verified ${ctx.formatAge(backup.verified_at)}` : 'Not yet verified'),
         ]),
         el('div', { className: 'item-actions' }, [
-          ctx.button('Verify', async () => {
+          ctx.can('backup:read') ? ctx.button('Verify', async () => {
             output.textContent = 'Verifying…';
             try { await ctx.postJSON('/api/backups/verify', { site, backup: backup.name || backup.path }); output.textContent = 'Backup verified.'; } catch (error) { output.textContent = error.message; }
-          }),
-          ctx.button('Restore to staging', () => restoreToStaging(backup, false)),
-          (backup.databases || []).length ? ctx.button('Restore files + database', () => restoreToStaging(backup, true)) : null,
+          }) : null,
+          ctx.can('backup:restore') ? ctx.button('Restore to staging', () => restoreToStaging(backup, false)) : null,
+          (backup.databases || []).length && ctx.can('backup:restore') ? ctx.button('Restore files + database', () => restoreToStaging(backup, true)) : null,
         ]),
       ])) : [el('p', { className: 'empty-state' }, 'No backups yet. Create one above.')]),
     );
@@ -911,6 +927,7 @@
         } catch (error) { createOutput.textContent = error.message; }
       },
     }, [el('div', { className: 'field-row' }, [nameField, typeField, processesField, memoryField, retriesField]), el('button', { type: 'submit', className: 'primary-action' }, 'Add worker'), createOutput]));
+    if (!ctx.can('site:deploy')) panel.querySelectorAll('button').forEach((node) => { node.disabled = true; });
   }
 
   // ---------------------------------------------------------------------
@@ -976,6 +993,7 @@
         } catch (error) { createOutput.textContent = error.message; }
       },
     }, [nameField, el('div', { className: 'field-row' }, [runtimeField, calendarField, timeoutField]), commandField, enabledField, el('button', { type: 'submit', className: 'primary-action' }, 'Add task'), createOutput]));
+    if (!ctx.can('site:deploy')) panel.querySelectorAll('button').forEach((node) => { node.disabled = true; });
   }
 
   // ---------------------------------------------------------------------
@@ -1035,6 +1053,8 @@
     }, [labelField, keyField, el('button', { type: 'submit', className: 'primary-action' }, 'Add SSH key'), keyOutput]);
 
     panel.replaceChildren(accessForm, el('h4', {}, 'SSH keys'), keyList, keyForm);
+
+    if (!ctx.can('ssh:write')) panel.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
 
     if (ctx.isAdministrator) {
       const scanOutput = ctx.statusOutput();
@@ -1133,6 +1153,7 @@
         dangerOutput,
       );
     }
+    if (!ctx.can('environment:write')) panel.querySelectorAll('button, input, textarea, select').forEach((node) => { node.disabled = true; });
   }
 
   // ---------------------------------------------------------------------

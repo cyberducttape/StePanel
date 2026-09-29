@@ -6,7 +6,7 @@
   <title>{{ .Title }} · hosting workspace</title><link rel="icon" href="/static/favicon.svg?v={{ .AssetVersion }}" type="image/svg+xml">
   <link rel="stylesheet" href="/static/app.css?v={{ .AssetVersion }}"><link rel="stylesheet" href="/static/import.css?v={{ .AssetVersion }}"><link rel="stylesheet" href="/static/workspace.css?v={{ .AssetVersion }}">
 </head>
-<body data-is-administrator="{{ if .IsAdministrator }}true{{ else }}false{{ end }}" data-webserver="{{ .Config.WebServer }}">
+<body data-is-administrator="{{ if .IsAdministrator }}true{{ else }}false{{ end }}" data-account-role="{{ if .Account.Role }}{{ .Account.Role }}{{ else }}owner{{ end }}" data-webserver="{{ .Config.WebServer }}">
   <a class="skip-link" href="#main">Skip to main content</a>
   <div class="app-shell">
     <div class="nav-backdrop" id="navBackdrop" hidden></div>
