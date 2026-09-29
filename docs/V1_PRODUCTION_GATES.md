@@ -177,6 +177,9 @@ Test 5: backup + filesystem restore simultaneously
 - `TestSiteMutationLockSerializesRealHelperBoundaryAcrossApps` runs two
   independent app instances through the same helper boundary and verifies
   that their critical sections do not overlap.
+- `TestSiteMutationLockLossTerminatesInFlightHelper` starts a real long-running
+  helper, fences its durable lease from an independent database connection,
+  and verifies the helper is terminated before it can record completion.
 - `DefaultManager.Delete` now checks its operation context before path
   resolution and immediately before filesystem removal; a cancelled-context
   regression test verifies the canonical site remains intact.
