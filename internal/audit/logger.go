@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -201,7 +202,7 @@ func (l *defaultLogger) acquireLock() (string, func() error, error) {
 	for attempts := 0; attempts < auditLockTries; attempts++ {
 		file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err == nil {
-			if _, writeErr := fmt.Fprintf(file, "%d", os.Getpid()); writeErr != nil {
+			if _, writeErr := fmt.Fprintf(file, "%d %d", os.Getpid(), processStartTime(os.Getpid())); writeErr != nil {
 				_ = file.Close()
 				_ = os.Remove(lockFile)
 				return "", nil, fmt.Errorf("write audit lock: %w", writeErr)
@@ -215,9 +216,66 @@ func (l *defaultLogger) acquireLock() (string, func() error, error) {
 		if !errors.Is(err, os.ErrExist) {
 			return "", nil, fmt.Errorf("acquire audit lock: %w", err)
 		}
+		if reclaimStaleLock(lockFile) {
+			continue
+		}
 		auditLockSleep(100 * time.Millisecond)
 	}
 	return "", nil, errors.New("timeout acquiring audit lock")
+}
+
+// reclaimStaleLock removes a lock left behind by a process that was killed
+// while appending an audit event. Ambiguous or legacy lock contents remain
+// held; only a lock with a verifiable, dead Linux process owner is reclaimed.
+func reclaimStaleLock(lockFile string) bool {
+	contents, err := os.ReadFile(lockFile)
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(string(contents))
+	if len(fields) != 2 {
+		return false
+	}
+	pid, err := strconv.Atoi(fields[0])
+	if err != nil || pid <= 0 {
+		return false
+	}
+	startTime, err := strconv.ParseUint(fields[1], 10, 64)
+	if err != nil || startTime == 0 {
+		return false
+	}
+	if processStartTime(pid) == startTime {
+		return false
+	}
+	return os.Remove(lockFile) == nil
+}
+
+func processStartTime(pid int) uint64 {
+	if pid <= 0 {
+		return 0
+	}
+	file, err := os.Open(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return 0
+	}
+	closeParen := strings.LastIndexByte(string(data), ')')
+	if closeParen < 0 {
+		return 0
+	}
+	fields := strings.Fields(string(data[closeParen+1:]))
+	if len(fields) <= 19 {
+		return 0
+	}
+	startTime, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return startTime
 }
 
 func syncAuditDirectory(root string) error {

@@ -764,6 +764,25 @@ func TestAuditStateWriteAndLockFailureBranches(t *testing.T) {
 	}
 }
 
+func TestAuditReclaimsLockOwnedByDeadProcess(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	lockPath := logger.path + ".lock"
+	if err := os.WriteFile(lockPath, []byte("999999 1"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	lock, unlock, err := logger.acquireLock()
+	if err != nil {
+		t.Fatalf("stale audit lock was not reclaimed: %v", err)
+	}
+	if lock != lockPath {
+		t.Fatalf("lock path = %q, want %q", lock, lockPath)
+	}
+	if err := unlock(); err != nil {
+		t.Fatalf("release reclaimed audit lock: %v", err)
+	}
+}
+
 func TestAuditLegacyLogIsPreservedBeforeStartingChain(t *testing.T) {
 	logger, root := newTestLogger(t)
 	if err := os.WriteFile(logger.path, []byte("legacy audit data\n"), 0600); err != nil {
