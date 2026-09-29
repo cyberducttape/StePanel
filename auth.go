@@ -584,7 +584,7 @@ func (a Auth) HasRequiredCustomerScope(r *http.Request, scope string) bool {
 		return true
 	}
 	for _, candidate := range scopes {
-		if candidate == scope {
+		if candidate == scope || (scope == "site:deploy" && candidate == "deploy:write") || (scope == "deploy:write" && candidate == "site:deploy") {
 			return true
 		}
 	}

@@ -1298,5 +1298,13 @@ textarea[aria-invalid="true"] {
 .usage-bar span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent, #2563eb); transition: width .25s ease; }
 .account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
 .account-actions [role="status"] { color: var(--muted, #667085); font-size: .82rem; }
+.account-tokens { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line, #d8dee8); }
+.account-tokens summary { cursor: pointer; font-weight: 650; }
+.token-form { display: grid; gap: 12px; max-width: 760px; margin-top: 14px; }
+.token-scopes { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.token-scopes label { color: var(--muted, #667085); font-size: .86rem; }
+.token-list { display: grid; gap: 8px; margin-top: 14px; }
+.token-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line, #d8dee8); border-radius: 9px; font-size: .84rem; }
+.token-row span { overflow-wrap: anywhere; }
 @media (max-width: 900px) { .account-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .account-grid { grid-template-columns: 1fr; } }

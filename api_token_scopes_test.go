@@ -51,6 +51,13 @@ func TestAPITokenScopeEnforcement(t *testing.T) {
 			shouldAllow:   true,
 		},
 		{
+			name:          "deploy:write token satisfies site deployment handlers",
+			scopes:        []string{"deploy:write"},
+			isAPIToken:    true,
+			requiredScope: "site:deploy",
+			shouldAllow:   true,
+		},
+		{
 			name:          "deploy:write token CANNOT create backup (backup:create required)",
 			scopes:        []string{"deploy:write"},
 			isAPIToken:    true,

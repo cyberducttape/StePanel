@@ -29,6 +29,71 @@
       if (status) status.textContent = data.suspended ? 'Account suspended' : 'Account active';
     } catch (error) { if (status) status.textContent = error.message; }
   };
+  const tokenStatus = document.querySelector('#accountTokenStatus');
+  const tokenList = document.querySelector('#accountTokenList');
+  const renderTokens = (items) => {
+    if (!tokenList) return;
+    tokenList.replaceChildren();
+    if (!items.length) { tokenList.textContent = 'No automation tokens have been created.'; return; }
+    items.forEach((token) => {
+      const row = document.createElement('div'); row.className = 'token-row';
+      const detail = document.createElement('span'); detail.textContent = `${token.name} · ${token.prefix}… · ${(token.scopes || []).join(', ') || 'legacy'}`;
+      const revoke = document.createElement('button'); revoke.type = 'button'; revoke.className = 'quiet-action danger'; revoke.textContent = 'Revoke';
+      revoke.addEventListener('click', async () => {
+        revoke.disabled = true;
+        try {
+          const response = await fetch(`/api/account/tokens/${encodeURIComponent(token.id)}`, { method: 'DELETE', headers: { 'X-CSRF-Token': csrf() } });
+          if (!response.ok) throw new Error((await response.text()) || 'Could not revoke token');
+          await loadTokens();
+        } catch (error) { if (tokenStatus) tokenStatus.textContent = error.message; }
+        finally { revoke.disabled = false; }
+      });
+      row.append(detail, revoke); tokenList.append(row);
+    });
+  };
+  const loadTokens = async () => {
+    if (!tokenList) return;
+    try {
+      const response = await fetch('/api/account/tokens');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Token list unavailable');
+      renderTokens(data.tokens || []);
+    } catch (error) { tokenList.textContent = error.message; }
+  };
+  const tokenForm = document.querySelector('#accountTokenForm');
+  if (tokenForm) tokenForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = tokenForm.querySelector('button[type="submit"]'); button.disabled = true;
+    if (tokenStatus) tokenStatus.textContent = 'Creating token…';
+    try {
+      const form = new FormData(tokenForm);
+      const response = await fetch('/api/account/tokens', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ name: form.get('name'), scopes: form.getAll('scope') }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not create token');
+      tokenForm.reset();
+      if (tokenStatus) tokenStatus.textContent = `Copy this token now; it will not be shown again: ${data.token}`;
+      await loadTokens();
+    } catch (error) { if (tokenStatus) tokenStatus.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+  const tokenDetails = document.querySelector('.account-tokens');
+  if (tokenDetails) tokenDetails.addEventListener('toggle', () => { if (tokenDetails.open) loadTokens(); });
+  const passwordForm = document.querySelector('#accountPasswordForm');
+  if (passwordForm) passwordForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = passwordForm.querySelector('button[type="submit"]');
+    const output = document.querySelector('#accountPasswordStatus');
+    button.disabled = true;
+    if (output) output.textContent = 'Changing password…';
+    try {
+      const password = new FormData(passwordForm).get('password');
+      const response = await fetch('/api/account/password', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ password }) });
+      if (!response.ok) throw new Error((await response.text()) || 'Could not change password');
+      passwordForm.reset();
+      if (output) output.textContent = 'Password changed. Sign in again with the new password.';
+    } catch (error) { if (output) output.textContent = error.message; }
+    finally { button.disabled = false; }
+  });
   const revoke = document.querySelector('#revokeOtherSessions');
   if (revoke) revoke.addEventListener('click', async () => {
     revoke.disabled = true;
