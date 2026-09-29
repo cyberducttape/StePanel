@@ -103,6 +103,14 @@ func clampResourceProfileToPlan(profile ResourceProfile, plan HostingPlan) Resou
 // Host application is deliberately separate so a helper failure leaves a
 // durable pending profile for reconciliation.
 func (a *App) ensurePlanResources(account HostingAccount) ([]string, error) {
+	return a.ensurePlanResourcesContext(context.Background(), account)
+}
+
+// ensurePlanResourcesContext serializes both desired resource persistence and
+// host enforcement with concurrent site mutations. Account creation already
+// holds the account fence; this function acquires the site fences in the same
+// order used by the other resource workflows.
+func (a *App) ensurePlanResourcesContext(ctx context.Context, account HostingAccount) ([]string, error) {
 	if a.Resources == nil {
 		return nil, nil
 	}
@@ -115,6 +123,18 @@ func (a *App) ensurePlanResources(account HostingAccount) ([]string, error) {
 	plan, ok := hostingPlans[account.Plan]
 	if !ok {
 		return nil, errors.New("account plan is not available")
+	}
+	lockKeys := make([]string, 0, len(account.Sites))
+	for _, site := range account.Sites {
+		lockKeys = append(lockKeys, site)
+	}
+	operationCtx, release, lockErr := a.acquireSiteMutationLocksContext(ctx, lockKeys...)
+	if lockErr != nil {
+		return nil, fmt.Errorf("acquire account resource site locks: %w", lockErr)
+	}
+	defer release()
+	if err := operationCtx.Err(); err != nil {
+		return nil, err
 	}
 	profiles := make([]ResourceProfile, 0, len(account.Sites))
 	a.Resources.mu.Lock()
@@ -137,7 +157,7 @@ func (a *App) ensurePlanResources(account HostingAccount) ([]string, error) {
 		return nil, fmt.Errorf("persist plan resource profiles: %w", err)
 	}
 	pending := make([]string, 0, len(profiles))
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(operationCtx, 5*time.Minute)
 	defer cancel()
 	for _, profile := range profiles {
 		if err := a.applyResourceProfile(ctx, profile, false); err != nil {

@@ -130,6 +130,10 @@ and task reconciliation workflows. Route deletion preserves pending desired
 state when its helper completes after lease loss. Full interrupted-workflow
 recovery acceptance remains open.
 
+Account creation, assignment, deletion, credential recovery, password/MFA
+changes, and session revocation now share the account fence; account resource
+profile enforcement also acquires the affected site fences before host work.
+
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,

@@ -213,6 +213,9 @@ Test 5: backup + filesystem restore simultaneously
 - Database provisioning, credential rotation, deletion, Redis desired-state
   updates, account suspension, release activation, staging publication, and
   task reconciliation now reject lease loss at their helper-to-state boundary.
+- Account creation, plan/site assignment, deletion, password/MFA changes,
+  recovery actions, and session revocation now use the account fence; account
+  creation also fences site resource-profile enforcement.
 - Route deletion now leaves the desired route pending with an error when the
   lease is lost after the webserver helper returns, instead of removing the
   durable desired state.

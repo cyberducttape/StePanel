@@ -978,9 +978,23 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid account", http.StatusBadRequest)
 			return
 		}
+		operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+		if lockErr != nil {
+			http.Error(w, "account recovery mutation is busy", http.StatusConflict)
+			return
+		}
+		defer releaseAccountLock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account recovery mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		account, secret, err := a.Accounts.ResetTOTP(username)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account recovery mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		if a.Auth.sessions != nil {
@@ -1011,9 +1025,23 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid account", http.StatusBadRequest)
 			return
 		}
+		operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+		if lockErr != nil {
+			http.Error(w, "account recovery mutation is busy", http.StatusConflict)
+			return
+		}
+		defer releaseAccountLock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account recovery mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		account, password, totpSecret, recoveryCodes, err := a.Accounts.RecoverCredentials(username)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account recovery mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		if a.Auth.sessions != nil {
@@ -1044,9 +1072,23 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid account", http.StatusBadRequest)
 			return
 		}
+		operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+		if lockErr != nil {
+			http.Error(w, "account recovery mutation is busy", http.StatusConflict)
+			return
+		}
+		defer releaseAccountLock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account recovery mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		account, codes, err := a.Accounts.GenerateRecoveryCodes(username)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account recovery mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		if a.Auth.sessions != nil {
@@ -1077,6 +1119,16 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid account", http.StatusBadRequest)
 			return
 		}
+		operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+		if lockErr != nil {
+			http.Error(w, "account session mutation is busy", http.StatusConflict)
+			return
+		}
+		defer releaseAccountLock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account session mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if _, exists := a.Accounts.Get(username); !exists {
 			http.Error(w, "account not found", http.StatusNotFound)
 			return
@@ -1086,6 +1138,10 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "session revocation could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account session mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
 		}
 		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.sessions-revoked-by-admin", username, "administrator forced logout"); err != nil {
 			return
@@ -1110,6 +1166,10 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseAccountLock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if r.Method == http.MethodDelete {
 			if account, exists := a.Accounts.Get(username); exists && len(account.Sites) > 0 {
 				http.Error(w, "account still owns managed sites; detach or terminate workloads before removing the login", http.StatusConflict)
@@ -1123,6 +1183,10 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := a.Accounts.RemoveLogin(username); err != nil {
 				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if err := operationCtx.Err(); err != nil {
+				http.Error(w, "account deletion cancelled because the mutation lock was lost", http.StatusConflict)
 				return
 			}
 			if a.Auth.sessions != nil {
@@ -1178,6 +1242,10 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 				return
 			}
+			if err := operationCtx.Err(); err != nil {
+				http.Error(w, "account update cancelled because the mutation lock was lost", http.StatusConflict)
+				return
+			}
 			pendingResources, resourceErr := a.reconcileAccountResourcePlan(operationCtx, account, updated)
 			if resourceErr != nil {
 				if _, suspendErr := a.setAccountSuspended(operationCtx, username, true); suspendErr != nil {
@@ -1203,6 +1271,10 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		account, err := a.setAccountSuspended(operationCtx, username, *input.Suspended)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account update cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		event := "hosting.account.unsuspended"
@@ -1246,6 +1318,21 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
+		accountUsername := safeUser(input.Username)
+		if accountUsername == "" {
+			http.Error(w, "invalid account username", http.StatusUnprocessableEntity)
+			return
+		}
+		operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+accountUsername)
+		if lockErr != nil {
+			http.Error(w, "account creation is busy", http.StatusConflict)
+			return
+		}
+		defer releaseAccountLock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account creation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		for _, site := range input.Sites {
 			site = safeUser(site)
 			root, pathErr := safePath(a.Config.WebRoot, "sites", site, "public")
@@ -1263,7 +1350,11 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
-		pendingResources, resourceErr := a.ensurePlanResources(account)
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account creation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
+		pendingResources, resourceErr := a.ensurePlanResourcesContext(operationCtx, account)
 		if resourceErr != nil {
 			if removeErr := a.Accounts.RemoveLogin(account.Username); removeErr != nil {
 				resourceErr = fmt.Errorf("%w; account rollback failed: %v", resourceErr, removeErr)
@@ -1276,18 +1367,16 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			log.Printf("account created but audit persistence is unavailable: %v", err)
 		}
 		if len(pendingResources) > 0 {
-			operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+account.Username)
-			if lockErr != nil {
-				http.Error(w, "account suspension is busy", http.StatusConflict)
-				return
-			}
-			defer releaseAccountLock()
 			if _, suspendErr := a.setAccountSuspended(operationCtx, account.Username, true); suspendErr != nil {
 				http.Error(w, "resource enforcement is pending and account suspension could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
 			recordAudit(a.Config.AuditLog, a.Auth.Username, "hosting.account.suspended", account.Username, "resource enforcement pending for: "+strings.Join(pendingResources, ","))
 			http.Error(w, "account suspended until resource enforcement is applied", http.StatusServiceUnavailable)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "account creation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
 		writeJSON(w, http.StatusCreated, account)
@@ -1306,6 +1395,16 @@ func (a *App) customerPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "customer account required", http.StatusForbidden)
 		return
 	}
+	operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+	if lockErr != nil {
+		http.Error(w, "account credential mutation is busy", http.StatusConflict)
+		return
+	}
+	defer releaseAccountLock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "account credential mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	var input struct {
 		Password string `json:"password"`
 	}
@@ -1315,6 +1414,10 @@ func (a *App) customerPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := a.Accounts.SetPassword(username, input.Password); err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "account credential mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	if a.Auth.sessions != nil {
@@ -1337,6 +1440,16 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "customer account required", http.StatusForbidden)
 		return
 	}
+	operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+	if lockErr != nil {
+		http.Error(w, "account credential mutation is busy", http.StatusConflict)
+		return
+	}
+	defer releaseAccountLock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "account credential mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	var input struct {
 		TOTPSecret string `json:"totp_secret"`
 	}
@@ -1346,6 +1459,10 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := a.Accounts.SetTOTP(username, input.TOTPSecret); err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "account credential mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	if a.Auth.sessions != nil {
@@ -1374,12 +1491,26 @@ func (a *App) customerSessionsRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "customer account required", http.StatusForbidden)
 		return
 	}
+	operationCtx, releaseAccountLock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
+	if lockErr != nil {
+		http.Error(w, "account session mutation is busy", http.StatusConflict)
+		return
+	}
+	defer releaseAccountLock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "account session mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	if a.Auth.sessions != nil {
 		currentID := a.Auth.sessionID(r)
 		if err := a.Auth.sessions.revokeUserExcept(username, currentID); err != nil {
 			http.Error(w, "sessions could not be revoked", http.StatusServiceUnavailable)
 			return
 		}
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "account session mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
 	}
 	recordAudit(a.Config.AuditLog, username, "hosting.account.sessions-revoked", username, "customer logged out other sessions")
 	w.WriteHeader(http.StatusNoContent)
