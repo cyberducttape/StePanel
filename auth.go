@@ -588,7 +588,12 @@ func (a Auth) HasRequiredCustomerScope(r *http.Request, scope string) bool {
 	}
 	scopes, _ := r.Context().Value(apiTokenScopesKey{}).([]string)
 	if len(scopes) == 0 {
-		return true
+		username, _ := r.Context().Value(apiTokenUsernameKey{}).(string)
+		if a.Accounts == nil {
+			return true
+		}
+		account, ok := a.Accounts.Get(username)
+		return ok && roleAllowsCustomerScope(accountRole(account), scope)
 	}
 	for _, candidate := range scopes {
 		if candidate == scope || (scope == "site:deploy" && candidate == "deploy:write") || (scope == "deploy:write" && candidate == "site:deploy") {

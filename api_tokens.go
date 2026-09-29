@@ -345,6 +345,19 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "at least one scope is required; a token with no scopes can perform no actions", http.StatusUnprocessableEntity)
 			return
 		}
+		if a.Accounts != nil {
+			account, exists := a.Accounts.Get(username)
+			if !exists || a.Accounts.TenantSuspended(username) {
+				http.Error(w, "customer tenant is unavailable", http.StatusForbidden)
+				return
+			}
+			for _, scope := range request.Scopes {
+				if !roleAllowsCustomerScope(accountRole(account), scope) {
+					http.Error(w, "API token scope exceeds the member role", http.StatusForbidden)
+					return
+				}
+			}
+		}
 		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
 		if lockErr != nil {
 			http.Error(w, "API token mutation is busy", http.StatusConflict)
