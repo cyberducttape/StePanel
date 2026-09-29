@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -120,5 +121,35 @@ func TestWriteAtomicReportsInjectedDurabilityFailures(t *testing.T) {
 				t.Fatal("WriteAtomic unexpectedly succeeded")
 			}
 		})
+	}
+}
+
+func TestWriteAtomicRejectsShortWrite(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("old\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	preserveStateHooks(t)
+	stateWrite = func(_ *os.File, data []byte) (int, error) {
+		return len(data) - 1, nil
+	}
+	if err := WriteAtomic(path, []byte("new\n"), 0600); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("WriteAtomic error = %v, want io.ErrShortWrite", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "old\n" {
+		t.Fatalf("destination = %q, want original state", data)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "state.json" {
+		t.Fatalf("temporary files remain: %#v", entries)
 	}
 }

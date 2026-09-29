@@ -4,6 +4,7 @@ package state
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -37,9 +38,14 @@ func WriteAtomic(path string, data []byte, mode os.FileMode) error {
 		_ = stateClose(tmp)
 		return fmt.Errorf("set state file permissions: %w", err)
 	}
-	if _, err := stateWrite(tmp, data); err != nil {
+	written, err := stateWrite(tmp, data)
+	if err != nil {
 		_ = stateClose(tmp)
 		return fmt.Errorf("write state file: %w", err)
+	}
+	if written != len(data) {
+		_ = stateClose(tmp)
+		return fmt.Errorf("write state file: %w", io.ErrShortWrite)
 	}
 	if err := stateSync(tmp); err != nil {
 		_ = stateClose(tmp)
