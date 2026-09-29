@@ -116,6 +116,9 @@ behavior when their mutation lease is lost around helper execution.
 PHP and Python runtime/application updates now preserve pending reconciliation
 state when helper execution completes after lease cancellation.
 
+Worker lifecycle and desired-state updates now preserve pending reconciliation
+state when their helper execution is interrupted by lease loss.
+
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,

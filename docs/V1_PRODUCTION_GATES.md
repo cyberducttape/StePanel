@@ -202,6 +202,8 @@ Test 5: backup + filesystem restore simultaneously
 - PHP and Python runtime/application workflows now use the same pending-state
   fallback around helper completion and reject lease loss before durable
   success is recorded.
+- Worker lifecycle, creation, and removal workflows now reject lease loss
+  before durable transitions and retain pending state for reconciliation.
 
 These tests prove lock acquisition, helper serialization, and the delete
 cancellation boundary. They do not yet prove that every full workflow remains

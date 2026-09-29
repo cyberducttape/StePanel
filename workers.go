@@ -151,6 +151,10 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "worker action failed", 502)
 			return
 		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "worker action cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "worker."+parts[2], site, name)
 		writeJSON(w, 202, map[string]string{"site": site, "name": name, "action": parts[2]})
 		return
@@ -171,6 +175,10 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "worker mutation cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		key := site + "/" + name
 		a.Workers.mu.RLock()
 		previous := a.Workers.values[key]
@@ -186,6 +194,11 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		if e := a.applyWorker(operationCtx, worker); e != nil {
 			a.recordWorkerError(key, e)
 			http.Error(w, "worker removal is pending reconciliation", http.StatusBadGateway)
+			return
+		}
+		if err := operationCtx.Err(); err != nil {
+			a.recordWorkerError(key, err)
+			http.Error(w, "worker removal is pending reconciliation", http.StatusConflict)
 			return
 		}
 		e = a.Workers.remove(key)
@@ -224,6 +237,10 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "worker mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	key := site + "/" + name
 	e := a.Workers.save(key, input)
 	if e != nil {
@@ -233,6 +250,11 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 	if e := a.applyWorker(operationCtx, input); e != nil {
 		a.recordWorkerError(key, e)
 		http.Error(w, "worker is pending reconciliation", 502)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		a.recordWorkerError(key, err)
+		http.Error(w, "worker is pending reconciliation", http.StatusConflict)
 		return
 	}
 	input.State, input.LastError = "applied", ""
@@ -286,6 +308,12 @@ func (a *App) reconcileWorkers(ctx context.Context) (reconciled []string, failed
 			continue
 		}
 		if err := a.applyWorker(operationCtx, worker); err != nil {
+			failed[key] = err.Error()
+			a.recordWorkerError(key, err)
+			releaseUnlock()
+			continue
+		}
+		if err := operationCtx.Err(); err != nil {
 			failed[key] = err.Error()
 			a.recordWorkerError(key, err)
 			releaseUnlock()
