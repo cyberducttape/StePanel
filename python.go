@@ -85,6 +85,10 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Python application mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	app.State, app.LastError = "pending", ""
 	if err := savePythonApp(a.Config.AppRoot, app); err != nil {
 		http.Error(w, "could not persist desired Python application", 503)
@@ -97,6 +101,14 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 			recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python.state_save_failed", app.Site, saveErr.Error())
 		}
 		http.Error(w, "Python application is pending reconciliation", 502)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		app.State, app.LastError = "pending", err.Error()
+		if saveErr := savePythonApp(a.Config.AppRoot, app); saveErr != nil {
+			recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python.state_save_failed", app.Site, saveErr.Error())
+		}
+		http.Error(w, "Python application is pending reconciliation", http.StatusConflict)
 		return
 	}
 	app.State, app.LastError = "running", ""
@@ -162,6 +174,17 @@ func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, fai
 			releaseUnlock()
 			continue
 		}
+		if err := operationCtx.Err(); err != nil {
+			app.LastError = err.Error()
+			if saveErr := savePythonApp(a.Config.AppRoot, app); saveErr != nil {
+				failed[app.Site] = fmt.Sprintf("apply cancelled: %v; state save failed: %v", err, saveErr)
+				releaseUnlock()
+				continue
+			}
+			failed[app.Site] = err.Error()
+			releaseUnlock()
+			continue
+		}
 		app.State, app.LastError = "running", ""
 		if err := savePythonApp(a.Config.AppRoot, app); err != nil {
 			failed[app.Site] = err.Error()
@@ -199,6 +222,10 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 	defer releaseUnlock()
 	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
 		http.Error(w, "Python action failed", 502)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "Python action cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python."+parts[1], parts[0], "systemd action")

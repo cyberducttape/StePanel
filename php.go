@@ -145,6 +145,10 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "PHP profile mutation cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	p.State, p.LastError = "pending", ""
 	if e := a.PHP.save(access, p); e != nil {
 		http.Error(w, "could not persist desired PHP profile", 503)
@@ -154,6 +158,12 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		p.State, p.LastError = "pending", e.Error()
 		a.SavePHPProfileState(access, p)
 		http.Error(w, "PHP runtime profile is pending reconciliation", 502)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		p.State, p.LastError = "pending", err.Error()
+		_ = a.SavePHPProfileState(access, p)
+		http.Error(w, "PHP runtime profile is pending reconciliation", http.StatusConflict)
 		return
 	}
 	p.State, p.LastError = "applied", ""
@@ -189,6 +199,13 @@ func (a *App) reconcilePHPProfiles(ctx context.Context) (reconciled []string, fa
 			continue
 		}
 		if err := a.applyPHPProfile(operationCtx, profile); err != nil {
+			profile.LastError = err.Error()
+			a.SavePHPProfileStateLocked(profile.Site, profile)
+			failed[profile.Site] = err.Error()
+			releaseUnlock()
+			continue
+		}
+		if err := operationCtx.Err(); err != nil {
 			profile.LastError = err.Error()
 			a.SavePHPProfileStateLocked(profile.Site, profile)
 			failed[profile.Site] = err.Error()
