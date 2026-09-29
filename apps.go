@@ -73,6 +73,10 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 	defer releaseUnlock()
 	a.appLifecycleMu.Lock()
 	defer a.appLifecycleMu.Unlock()
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	if err := os.MkdirAll(a.Config.AppRoot, 0750); err != nil {
 		http.Error(w, "unable to create app state directory", 500)
 		return
@@ -89,10 +93,18 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	hadPrevious := previousErr == nil
 	if hadPrevious {
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if err := writeAtomic(manifestPath+".bak", previous, 0600); err != nil {
 			http.Error(w, "unable to save app rollback state", 500)
 			return
 		}
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
+		return
 	}
 	app.State = "running"
 	data, err := json.MarshalIndent(app, "", "  ")
@@ -119,6 +131,10 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, "app manifest saved but systemd helper failed", 503)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	recordAudit(a.Config.AuditLog, a.Auth.Username, "app.deployed", app.Site, app.Domain+" on port "+strconv.Itoa(app.Port))
@@ -177,6 +193,10 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "rollback failed", 502)
 			return
 		}
+		if err := operationCtx.Err(); err != nil {
+			http.Error(w, "app rollback cancelled because the mutation lock was lost", http.StatusConflict)
+			return
+		}
 		if err := writeAtomic(manifestPath+".bak", current, 0600); err != nil {
 			_ = runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port))
 			http.Error(w, "rollback state could not be persisted; the previous process configuration was restored", 500)
@@ -193,6 +213,10 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, parts[1], parts[0]); err != nil {
 		http.Error(w, "app action failed", 502)
+		return
+	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "app action cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	if err := AuditAs(a.Config.AuditLog, a.Auth.Username, "app."+parts[1], parts[0], "systemd action"); err != nil {

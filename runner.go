@@ -104,6 +104,10 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sandboxed build failed", 502)
 		return
 	}
+	if err := operationCtx.Err(); err != nil {
+		http.Error(w, "sandboxed build cancelled because the mutation lock was lost", http.StatusConflict)
+		return
+	}
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "runner.build", input.Site, input.Image)
 	artifact, err := safePath(a.Config.WebRoot, "sites", input.Site, ".stepanel-artifact")
 	if err != nil {

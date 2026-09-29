@@ -103,6 +103,9 @@ Offsite backup transfers in lock-held jobs now inherit the same operation
 context, preventing cloud transfer work from continuing after lease loss or
 job cancellation.
 
+Application deployment/actions and runner builds now verify the fenced
+operation context before recording successful completion after helper work.
+
 Hosted installation smoke run `36436484546` passes on AlmaLinux 9 and Rocky
 Linux 9 for cpmove import/recovery, durable backup creation/recovery, file
 restore/recovery, termination recovery, account suspension after panel kill,

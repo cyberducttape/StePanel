@@ -189,6 +189,9 @@ Test 5: backup + filesystem restore simultaneously
 - Lock-held offsite backup transfers now inherit the operation context, so
   cloud upload/download work is cancelled when the site lease or job context
   is cancelled.
+- App deployment/actions and containerized runner completion now check the
+  fenced operation context before durable completion records, preventing a
+  lost lease from being reported as a successful mutation.
 
 These tests prove lock acquisition, helper serialization, and the delete
 cancellation boundary. They do not yet prove that every full workflow remains
