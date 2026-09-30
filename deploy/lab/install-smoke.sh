@@ -156,6 +156,7 @@ fi
 # creates a separate disposable site so the helper smoke remains intact.
 bash /work/deploy/lab/cpmove-import-smoke.sh
 bash /work/deploy/lab/cpmove-recovery-smoke.sh
+bash /work/deploy/lab/dbctl-lock-smoke.sh
 bash /work/deploy/lab/backup-recovery-smoke.sh
 bash /work/deploy/lab/account-suspension-recovery-smoke.sh
 bash /work/deploy/lab/deploy-recovery-smoke.sh

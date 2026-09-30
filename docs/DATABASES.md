@@ -20,7 +20,11 @@ site-owned login. PostgreSQL roles are created without superuser, database,
 role, or replication administration and have a 20-connection ceiling. MySQL
 and MariaDB users receive privileges only on their database and only from the
 local host. Names are validated identifiers and existing objects are never
-overwritten.
+overwritten. Mutations are fenced by per-database, per-user, and where
+applicable per-site locks; reconciliation locks one pending database at a
+time. Independent tenant databases therefore do not wait behind an unrelated
+restore or credential operation, while the database engine still enforces
+its own catalog and transactional constraints.
 
 Passwords are accepted only on the provisioning or rotation request, streamed
 to the root helper over standard input, and never returned, logged, or added to

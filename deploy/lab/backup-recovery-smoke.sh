@@ -37,6 +37,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+wait_for_panel_ready() {
+  for _ in $(seq 1 120); do
+    if systemctl is-active --quiet stepanel.service && \
+       curl --fail --silent --max-time 2 "$PANEL/readyz" >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo 'panel did not become ready after worker restart' >&2
+  systemctl status stepanel.service stepanel-worker.service --no-pager >&2 || true
+  return 1
+}
+
 # The cpmove recovery smoke immediately before this test already created the
 # disposable site. Wait for a fresh TOTP counter so the two drills cannot
 # share a boundary-window code.
@@ -77,6 +90,7 @@ printf '%s\n' '[Service]' \
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
+wait_for_panel_ready
 before=$(systemctl show stepanel-worker.service -p MainPID --value)
 [[ "$before" =~ ^[1-9][0-9]*$ ]] || { echo "could not determine worker PID: $before" >&2; exit 1; }
 
@@ -97,6 +111,7 @@ for _ in $(seq 1 90); do
     rm -f -- "$dropin"
     systemctl daemon-reload
     systemctl restart stepanel-worker.service
+    wait_for_panel_ready
     break
   fi
   sleep 1
@@ -141,6 +156,7 @@ printf '%s\n' '[Service]' \
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
+wait_for_panel_ready
 before=$(systemctl show stepanel-worker.service -p MainPID --value)
 
 response=$(curl --fail --silent --show-error --max-time 30 \
@@ -164,6 +180,7 @@ for _ in $(seq 1 90); do
     rm -f -- "$dropin"
     systemctl daemon-reload
     systemctl restart stepanel-worker.service
+    wait_for_panel_ready
     break
   fi
   sleep 1
@@ -202,6 +219,7 @@ printf '%s\n' '[Service]' \
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
+wait_for_panel_ready
 before=$(systemctl show stepanel-worker.service -p MainPID --value)
 
 response=$(curl --fail --silent --show-error --max-time 30 \
@@ -226,6 +244,7 @@ for _ in $(seq 1 240); do
     rm -f -- "$dropin"
     systemctl daemon-reload
     systemctl restart stepanel-worker.service
+    wait_for_panel_ready
     break
   fi
   status=$(curl --fail --silent --show-error --max-time 10 \
