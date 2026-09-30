@@ -147,8 +147,7 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.Redis.mu.Lock()
-		a.Redis.values[site] = input
-		err := a.Redis.persistLocked()
+		err := persistMapKeyChange(a.Redis.values, site, &input, a.Redis.persistLocked)
 		a.Redis.mu.Unlock()
 		if err != nil {
 			http.Error(w, "Redis allocation could not be saved", 503)
@@ -180,8 +179,7 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.Redis.mu.Lock()
-		delete(a.Redis.values, site)
-		err := a.Redis.persistLocked()
+		err := persistMapKeyChange(a.Redis.values, site, (*RedisAllocation)(nil), a.Redis.persistLocked)
 		a.Redis.mu.Unlock()
 		if err != nil {
 			http.Error(w, "Redis allocation could not be saved", 503)

@@ -50,7 +50,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - Integration documentation and migration guide
 - `broker_bridge.go` — App integration convenience wrapper
 
-**Status:** Production app/proxy/site/vhost/runner/Git mutation wrappers now use the broker's fixed-path, allow-listed bridge, and their independent sudo grants have been removed. Database streaming restore/dump and TLS certificate operations still use dedicated helper paths; dedicated typed broker operations remain the target. The broker is not yet a complete replacement for every shell helper.
+**Status:** Production app/proxy/site/vhost/runner/Git mutation wrappers use the root broker, and TLS certificate issuance now uses a dedicated typed broker request with no separate certbot sudo grant. Database streaming restore/dump still uses dedicated helper paths, so the broker is not yet a complete replacement for every shell helper. Database helper grants and remaining streaming callsites are still migration work.
 
 **Next Action:** Begin Phase 4 callsite replacement in v0.8.0 or v1.0.x release cycle.
 

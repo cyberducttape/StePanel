@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -110,6 +111,47 @@ func TestReadScopedEventsFiltersTenantTargetsAndActor(t *testing.T) {
 	}
 	if len(events) != 2 || events[0].Target != "alice-site" || events[1].Actor != "alice" {
 		t.Fatalf("scoped events = %#v", events)
+	}
+}
+
+func TestReadScopedEventsRejectsLimitsAndHandlesMissingLogs(t *testing.T) {
+	for _, limit := range []int{0, 501} {
+		if _, err := ReadScopedEvents("", nil, "", limit); err == nil {
+			t.Fatalf("invalid limit %d was accepted", limit)
+		}
+	}
+	if events, err := ReadScopedEvents("", nil, "", 10); err != nil || len(events) != 0 {
+		t.Fatalf("unconfigured audit log = %#v, %v", events, err)
+	}
+	missing := filepath.Join(t.TempDir(), "missing.jsonl")
+	if events, err := ReadScopedEvents(missing, nil, "", 10); err != nil || len(events) != 0 {
+		t.Fatalf("missing audit log = %#v, %v", events, err)
+	}
+
+	logger, _ := newTestLogger(t)
+	for _, target := range []string{"site-a", "site-b", "site-c"} {
+		if err := logger.LogAs(context.Background(), "admin", "site.update", target, "updated"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := ReadScopedEvents(logger.path, []string{"site-a", "site-b", "site-c"}, "", 1)
+	if err != nil || len(events) != 1 || events[0].Target != "site-c" {
+		t.Fatalf("scoped rolling limit = %#v, %v", events, err)
+	}
+}
+
+func TestAuditHTTPHandlersReportConfiguredMissingLog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-yet-created.jsonl")
+	logger := &defaultLogger{path: path}
+	response := httptest.NewRecorder()
+	logger.Events(response, httptest.NewRequest(http.MethodGet, "/audit", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"integrity":"empty"`) {
+		t.Fatalf("missing-log events response = %d %s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	logger.SecurityChecks(response, httptest.NewRequest(http.MethodGet, "/security-checks", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"integrity":"empty"`) {
+		t.Fatalf("missing-log security response = %d %s", response.Code, response.Body.String())
 	}
 }
 
@@ -802,6 +844,76 @@ func TestAuditReclaimsLockOwnedByDeadProcess(t *testing.T) {
 	}
 	if err := unlock(); err != nil {
 		t.Fatalf("release reclaimed audit lock: %v", err)
+	}
+}
+
+func TestAuditLockOwnerValidationRejectsMalformedAndLiveOwners(t *testing.T) {
+	if processStartTime(0) != 0 || processStartTime(-1) != 0 {
+		t.Fatal("nonpositive process IDs must not have a start time")
+	}
+	if processStartTime(2147483647) != 0 {
+		t.Fatal("nonexistent process unexpectedly had a start time")
+	}
+	start := processStartTime(os.Getpid())
+	if start == 0 {
+		t.Fatal("could not read current process start time")
+	}
+	root := t.TempDir()
+	for i, contents := range []string{"", "123", "bad 1", "-1 1", "123 nope", "123 0", fmt.Sprintf("%d %d", os.Getpid(), start)} {
+		path := filepath.Join(root, fmt.Sprintf("lock-%d", i))
+		if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if reclaimStaleLock(path) {
+			t.Fatalf("reclaimed malformed or live lock %q", contents)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("retained lock %q is missing: %v", contents, err)
+		}
+	}
+}
+
+func TestReconcileTailInitializesMissingPrefixFromFirstEvent(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	first := signedTestEvent(t, 1, "")
+	writeTestEvents(t, logger.path, first)
+	got, err := logger.reconcileTail(state{Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FirstSequence != first.Sequence || got.FirstPreviousHash != first.PreviousHash {
+		t.Fatalf("initialized audit prefix = %#v", got)
+	}
+}
+
+func TestReconcileTailFailsClosedWhenSigningKeyIsUnavailable(t *testing.T) {
+	logger, root := newTestLogger(t)
+	first := signedTestEvent(t, 1, "")
+	writeTestEvents(t, logger.path, first)
+	previousKeyPath := auditKeyPath
+	auditKeyPath = filepath.Join(root, "missing.key")
+	t.Cleanup(func() { auditKeyPath = previousKeyPath })
+	_, err := logger.reconcileTail(state{Version: 1, Sequence: first.Sequence, Hash: first.Hash, FirstSequence: first.Sequence})
+	if err == nil {
+		t.Fatal("reconciliation accepted an unverifiable tail without a signing key")
+	}
+}
+
+func TestAuditReadHandlersRejectInvalidStateFile(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	if err := logger.LogAs(context.Background(), "admin", "site.update", "site-a", "updated"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logger.path+".state", []byte("not a signed state"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	logger.Events(response, httptest.NewRequest(http.MethodGet, "/audit", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("invalid state events status = %d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := ReadScopedEvents(logger.path, []string{"site-a"}, "admin", 10); err == nil {
+		t.Fatal("scoped reader accepted an invalid chain state")
 	}
 }
 

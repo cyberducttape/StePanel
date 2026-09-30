@@ -44,15 +44,16 @@ func (s *ComposerStore) save(site SiteCapability, op ComposerOperation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	siteName := site.Site()
-	s.latest[siteName] = op
-	data, err := json.MarshalIndent(s.latest, "", "  ")
-	if err != nil {
-		return err
-	}
-	if bound, err := persistBoundControlPlaneState(s, data); bound {
-		return err
-	}
-	return writeAtomic(s.path, append(data, '\n'), 0600)
+	return persistMapKeyChange(s.latest, siteName, &op, func() error {
+		data, err := json.MarshalIndent(s.latest, "", "  ")
+		if err != nil {
+			return err
+		}
+		if bound, err := persistBoundControlPlaneState(s, data); bound {
+			return err
+		}
+		return writeAtomic(s.path, append(data, '\n'), 0600)
+	})
 }
 func (s *ComposerStore) get(site SiteCapability) (ComposerOperation, bool) {
 	s.mu.RLock()

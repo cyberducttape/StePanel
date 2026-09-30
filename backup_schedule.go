@@ -116,16 +116,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 		in.Enabled = true
 		in.NextRun = time.Now().UTC().Add(time.Duration(in.IntervalMinutes) * time.Minute)
 		a.Schedules.mu.Lock()
-		previous, existed := a.Schedules.items[in.Site]
-		a.Schedules.items[in.Site] = in
-		err := a.Schedules.persistLocked()
-		if err != nil {
-			if existed {
-				a.Schedules.items[in.Site] = previous
-			} else {
-				delete(a.Schedules.items, in.Site)
-			}
-		}
+		err := persistMapKeyChange(a.Schedules.items, in.Site, &in, a.Schedules.persistLocked)
 		a.Schedules.mu.Unlock()
 		if err != nil {
 			http.Error(w, "could not persist backup schedule", 500)
@@ -158,12 +149,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.Schedules.mu.Lock()
-		previous, existed := a.Schedules.items[site]
-		delete(a.Schedules.items, site)
-		err := a.Schedules.persistLocked()
-		if err != nil && existed {
-			a.Schedules.items[site] = previous
-		}
+		err := persistMapKeyChange(a.Schedules.items, site, (*BackupSchedule)(nil), a.Schedules.persistLocked)
 		a.Schedules.mu.Unlock()
 		if err != nil {
 			http.Error(w, "could not persist backup schedule", 500)
@@ -191,6 +177,7 @@ func (a *App) runDueBackups() {
 		if !s.Enabled || s.NextRun.After(now) {
 			continue
 		}
+		previous := s
 		operationKey := fmt.Sprintf("schedule:%s:%d", site, s.NextRun.UnixNano())
 		s.LastRun = &now
 		s.NextRun = now.Add(time.Duration(s.IntervalMinutes) * time.Minute)
@@ -204,6 +191,7 @@ func (a *App) runDueBackups() {
 		}
 		a.Schedules.items[site] = s
 		if err := a.Schedules.persistLocked(); err != nil {
+			a.Schedules.items[site] = previous
 			recordAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", site, err.Error())
 		}
 	}
@@ -226,8 +214,7 @@ func (s *backupSchedules) recordResult(site string, started time.Time, resultErr
 		item.LastError = ""
 		item.ConsecutiveFails = 0
 	}
-	s.items[site] = item
-	if err := s.persistLocked(); err != nil {
+	if err := persistMapKeyChange(s.items, site, &item, s.persistLocked); err != nil {
 		log.Printf("persist backup result for %s: %v", site, err)
 	}
 }

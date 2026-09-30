@@ -1,0 +1,89 @@
+name: Quota-enabled production install smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stepanel-quota-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quota-install:
+    # GitHub-hosted jobs run in disposable VMs. A loop-backed ext4 filesystem
+    # gives the nested systemd install host a real quota-enabled mount.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.26.7'
+          cache: true
+      - name: Build release-shaped installer tree
+        run: |
+          go build -trimpath -ldflags='-s -w' -o stepanel .
+          go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root
+      - name: Create and enable disposable ext4 user-quota filesystem
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs quota
+          quota_root="$RUNNER_TEMP/stepanel-quota-vm"
+          quota_mount="$quota_root/www"
+          sudo mkdir -p "$quota_mount"
+          sudo truncate -s 2G "$quota_root.ext4"
+          sudo mkfs.ext4 -F -O quota "$quota_root.ext4"
+          sudo mount -o loop,usrquota "$quota_root.ext4" "$quota_mount"
+          # ext4's -O quota stores accounting in hidden inodes; quotacheck's
+          # external aquota.* files are inappropriate for this format.
+          sudo quotaon -v -u "$quota_mount"
+          sudo quotaon -p -u "$quota_mount"
+          echo "STEPANEL_QUOTA_MOUNT=$quota_mount" >> "$GITHUB_ENV"
+          echo "STEPANEL_QUOTA_ROOT=$quota_root" >> "$GITHUB_ENV"
+      - name: Install on a quota-enabled disposable systemd host
+        run: |
+          set -Eeuo pipefail
+          diagnostics_dir="$RUNNER_TEMP/stepanel-quota-diagnostics"
+          mkdir -p "$diagnostics_dir"
+          cleanup() {
+            sudo docker rm -f stepanel-quota-install >/dev/null 2>&1 || true
+            sudo umount "$STEPANEL_QUOTA_MOUNT" >/dev/null 2>&1 || true
+            sudo rm -rf "$STEPANEL_QUOTA_ROOT" "$STEPANEL_QUOTA_ROOT.ext4"
+          }
+          trap cleanup EXIT
+          docker build --build-arg BASE_IMAGE=ubuntu:24.04 -f deploy/lab/Dockerfile.systemd -t stepanel-quota-systemd .
+          sudo docker run -d --privileged --name stepanel-quota-install \
+            --security-opt=no-new-privileges:false --userns=host --cgroupns=host \
+            --tmpfs /run --tmpfs /run/lock \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -v "$PWD:/work" -v "$STEPANEL_QUOTA_MOUNT:/var/www:rw" \
+            stepanel-quota-systemd /sbin/init
+          systemd_ready=0
+          for _ in $(seq 1 30); do
+            if timeout --foreground 5s sudo docker exec stepanel-quota-install systemctl is-system-running >/dev/null 2>&1; then
+              systemd_ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$systemd_ready" = 1 || { sudo docker logs stepanel-quota-install >&2; exit 1; }
+          set +e
+          timeout --foreground 30m sudo docker exec \
+            -e STEPANEL_QUOTA_SMOKE=1 -e STEPANEL_DB_ENGINE=mariadb -e STEPANEL_WEBSERVER=caddy \
+            stepanel-quota-install /work/deploy/lab/install-smoke.sh \
+            >"$diagnostics_dir/install-output.txt" 2>&1
+          smoke_status=$?
+          set -e
+          if [[ "$smoke_status" != 0 ]]; then
+            sudo docker exec stepanel-quota-install systemctl status stepanel.service stepanel-worker.service --no-pager >"$diagnostics_dir/systemctl-status.txt" 2>&1 || true
+            sudo docker exec stepanel-quota-install journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 >"$diagnostics_dir/journal.txt" 2>&1 || true
+            sudo docker logs stepanel-quota-install >"$diagnostics_dir/container.log" 2>&1 || true
+            cat "$diagnostics_dir"/* >&2 || true
+            exit "$smoke_status"
+          fi

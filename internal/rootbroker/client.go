@@ -289,6 +289,14 @@ func (c *Client) VhostApply(ctx context.Context, site, domain, webserver string)
 	return c.Execute(ctx, req)
 }
 
+// IssueCertificate requests one certificate for a validated domain and email.
+func (c *Client) IssueCertificate(ctx context.Context, domain, email string) (*Response, error) {
+	return c.Execute(ctx, &Request{
+		RequestType: "certificate",
+		Certificate: &CertificateRequest{Action: "issue", Domain: domain, Email: email},
+	})
+}
+
 // GitClone clones a git repository.
 func (c *Client) GitClone(ctx context.Context, repo, ref, destination string) (*Response, error) {
 	req := &Request{

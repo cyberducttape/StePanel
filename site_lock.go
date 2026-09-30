@@ -35,7 +35,9 @@ func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (c
 	}
 	operationCtx, cancelOperation := context.WithCancel(ctx)
 	holdCtx, cancelHold := context.WithCancel(context.Background())
+	holdDone := make(chan struct{})
 	go func() {
+		defer close(holdDone)
 		if err := a.dbLocks.Hold(holdCtx, lease); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("durable site lock %s was lost: %v", key, err)
 			cancelOperation()
@@ -43,6 +45,7 @@ func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (c
 	}()
 	return operationCtx, func() {
 		cancelHold()
+		<-holdDone
 		cancelOperation()
 		if err := a.dbLocks.Release(lease); err != nil && !errors.Is(err, operations.ErrLeaseLost) {
 			log.Printf("release durable site lock %s: %v", key, err)
@@ -88,6 +91,7 @@ func (a *App) acquireSiteMutationLocksContext(ctx context.Context, keys ...strin
 		key    string
 		lease  operations.Lease
 		cancel context.CancelFunc
+		done   chan struct{}
 	}
 	held := make([]heldLease, 0, len(ordered))
 	for _, key := range ordered {
@@ -95,6 +99,7 @@ func (a *App) acquireSiteMutationLocksContext(ctx context.Context, keys ...strin
 		if err != nil {
 			for i := len(held) - 1; i >= 0; i-- {
 				held[i].cancel()
+				<-held[i].done
 				if releaseErr := a.dbLocks.Release(held[i].lease); releaseErr != nil && !errors.Is(releaseErr, operations.ErrLeaseLost) {
 					log.Printf("release durable site lock %s after acquire failure: %v", held[i].key, releaseErr)
 				}
@@ -104,8 +109,10 @@ func (a *App) acquireSiteMutationLocksContext(ctx context.Context, keys ...strin
 			return nil, nil, err
 		}
 		holdCtx, cancelHold := context.WithCancel(context.Background())
-		held = append(held, heldLease{key: key, lease: lease, cancel: cancelHold})
+		holdDone := make(chan struct{})
+		held = append(held, heldLease{key: key, lease: lease, cancel: cancelHold, done: holdDone})
 		go func(key string, lease operations.Lease, holdCtx context.Context) {
+			defer close(holdDone)
 			if err := a.dbLocks.Hold(holdCtx, lease); err != nil && !errors.Is(err, context.Canceled) {
 				log.Printf("durable site lock %s was lost: %v", key, err)
 				cancelOperation()
@@ -115,6 +122,7 @@ func (a *App) acquireSiteMutationLocksContext(ctx context.Context, keys ...strin
 	return operationCtx, func() {
 		for i := len(held) - 1; i >= 0; i-- {
 			held[i].cancel()
+			<-held[i].done
 			if err := a.dbLocks.Release(held[i].lease); err != nil && !errors.Is(err, operations.ErrLeaseLost) {
 				log.Printf("release durable site lock %s: %v", held[i].key, err)
 			}

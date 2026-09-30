@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -23,13 +25,55 @@ var probeOffsiteRemote = func(target string) error {
 	if err != nil {
 		return errOffsiteToolMissing
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, rclone, "lsf", target, "--max-depth", "1")
-	cmd.Env = cloudCommandEnv()
-	output, err := cmd.CombinedOutput()
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
+	name := fmt.Sprintf(".stepanel-health/probe-%x", nonce[:])
+	remote := strings.TrimRight(target, "/") + "/" + name
+	want := []byte("stepanel-offsite-health-v1:" + fmt.Sprintf("%x", nonce[:]))
+	tmp, err := os.CreateTemp("", "stepanel-offsite-probe-")
 	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+		return err
+	}
+	local := tmp.Name()
+	defer os.Remove(local)
+	if _, err = tmp.Write(want); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	run := func(args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, rclone, args...)
+		cmd.Env = cloudCommandEnv()
+		return runBoundedCommand(ctx, cmd)
+	}
+	if output, err := run("copyto", local, remote); err != nil {
+		return fmt.Errorf("offsite probe write failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	readback, err := os.CreateTemp("", "stepanel-offsite-readback-")
+	if err != nil {
+		_, _ = run("deletefile", remote)
+		return err
+	}
+	readPath := readback.Name()
+	_ = readback.Close()
+	defer os.Remove(readPath)
+	if output, err := run("copyto", remote, readPath); err != nil {
+		_, _ = run("deletefile", remote)
+		return fmt.Errorf("offsite probe read failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	got, err := os.ReadFile(readPath)
+	if err != nil || !bytes.Equal(got, want) {
+		_, _ = run("deletefile", remote)
+		return fmt.Errorf("offsite probe readback did not match written object")
+	}
+	if output, err := run("deletefile", remote); err != nil {
+		return fmt.Errorf("offsite probe cleanup failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
@@ -53,6 +97,17 @@ func cachedOffsiteRemoteProbe(target string) error {
 	err := probeOffsiteRemote(target)
 	offsiteProbeCache.results[target] = offsiteProbeResult{checked: time.Now(), err: err}
 	return err
+}
+
+func offsiteProbeCheckedAt(target string) *time.Time {
+	offsiteProbeCache.Lock()
+	defer offsiteProbeCache.Unlock()
+	result, ok := offsiteProbeCache.results[target]
+	if !ok {
+		return nil
+	}
+	t := result.checked
+	return &t
 }
 
 const (
@@ -434,7 +489,30 @@ func (a *App) checkOffsiteBackupCapability() Capability {
 		}
 		return newCapability(CapabilityLocal, fmt.Sprintf("rclone and target syntax are valid, but remote access was not verified: %v", err))
 	}
-	return newCapability(CapabilityRemote, "rclone authenticated and listed the configured remote target")
+	if a.BackupIndex == nil {
+		return newCapability(CapabilityRemote, "remote health object was written, read back, and deleted; backup history is unavailable")
+	}
+	summary, err := a.BackupIndex.OffsiteSummary(a.Config.OffsiteTarget)
+	if err != nil {
+		return newCapability(CapabilityRemote, "remote health object was written, read back, and deleted; backup history query failed")
+	}
+	detail := "remote health object write/read/delete verified"
+	if summary.LastSuccessfulBackup != nil {
+		detail += "; last successful backup " + time.Since(*summary.LastSuccessfulBackup).Round(time.Minute).String() + " ago"
+	} else {
+		detail += "; no successful backup recorded"
+	}
+	if summary.LastVerifiedRestore != nil {
+		detail += "; last verified restore " + time.Since(*summary.LastVerifiedRestore).Round(time.Minute).String() + " ago"
+	} else {
+		detail += "; no offsite restore recorded"
+	}
+	if summary.OldestUnreplicated != nil {
+		detail += "; oldest tracked unreplicated backup " + time.Since(*summary.OldestUnreplicated).Round(time.Minute).String() + " ago"
+	} else {
+		detail += "; no tracked unreplicated backups"
+	}
+	return newCapability(CapabilityRemote, detail)
 }
 
 // checkBuildCapability reports on the sandboxed-build path end-to-end.

@@ -29,6 +29,7 @@ type Broker struct {
 	webRoot      string
 	recoveryRoot string
 	dbctlPath    string
+	certbotPath  string
 	validator    *Validator
 	logger       *log.Logger
 	isTestMode   bool // True when webRoot is in /tmp (indicates test environment)
@@ -77,6 +78,7 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		webRoot:      webRoot,
 		recoveryRoot: recoveryRoot,
 		dbctlPath:    "/usr/local/sbin/stepanel-dbctl",
+		certbotPath:  "/usr/local/sbin/stepanel-certbot",
 		validator:    NewValidator(webRoot),
 		logger:       logger,
 		isTestMode:   isTestMode,
@@ -126,12 +128,27 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 		return b.handleGitRequest(ctx, req.Git)
 	case "helper":
 		return b.handleHelperRequest(ctx, req.Helper)
+	case "certificate":
+		return b.handleCertificateRequest(ctx, req.Certificate)
 	default:
 		return &Response{
 			OK:    false,
 			Error: fmt.Sprintf("unknown request type: %s", req.RequestType),
 		}, nil
 	}
+}
+
+func (b *Broker) handleCertificateRequest(ctx context.Context, req *CertificateRequest) (*Response, error) {
+	cmd := stepanelhelper.NewCommand(ctx, b.certbotPath, req.Domain, req.Email)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("certificate issuance failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, err := json.Marshal(CertificateResponse{Issued: true, Domain: req.Domain, Output: strings.TrimSpace(string(output))})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 func (b *Broker) handleHelperRequest(ctx context.Context, req *HelperRequest) (*Response, error) {

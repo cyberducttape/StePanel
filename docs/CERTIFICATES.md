@@ -29,9 +29,11 @@ sudo stepanel-certbot panel.example.com admin@example.com
 
 The authenticated `POST /api/certificates/issue` endpoint accepts a domain and
 email address, validates both values, queues a bounded certificate job, invokes
-Certbot with non-interactive terms acceptance and HTTP-to-HTTPS redirect, and
-records an audit event. Poll `/api/jobs/<job_id>` for completion. Only one
-certificate request for a given domain can run at a time.
+the fixed root-owned helper through a typed root-broker request (without a
+separate certbot sudo grant), uses non-interactive terms acceptance and
+HTTP-to-HTTPS redirect, and records an audit event. Poll `/api/jobs/<job_id>`
+for completion. Only one certificate request for a given domain can run at a
+time.
 
 Issuance is deliberately explicit because DNS, firewall, Apache, and rate-limit
 failures require operator review. Renewal is handled by the host’s Certbot

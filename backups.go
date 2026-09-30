@@ -326,7 +326,7 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := writeBackupManifest(tempDir, manifest, cfg.BackupSigningKey); err != nil {
 		return result, err
 	}
-	if err := writeSyncedFile(filepath.Join(tempDir, "backup.tar.gz.sha256"), []byte(manifest.ArchiveSHA256+"  backup.tar.gz\n"), 0600); err != nil {
+	if err := writeSyncedFile(tempDir, "backup.tar.gz.sha256", []byte(manifest.ArchiveSHA256+"  backup.tar.gz\n"), 0600); err != nil {
 		return result, err
 	}
 	if err := syncDirectory(tempDir); err != nil {
@@ -518,7 +518,7 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 	if err != nil {
 		return result, err
 	}
-	if err := writeSyncedFile(filepath.Join(temp, database+".sql.sha256"), []byte(result.SHA256+"  "+database+".sql\n"), 0600); err != nil {
+	if err := writeSyncedFile(temp, database+".sql.sha256", []byte(result.SHA256+"  "+database+".sql\n"), 0600); err != nil {
 		return result, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -712,6 +712,11 @@ func VerifyBackupArchive(path string, manifest BackupManifest) error {
 }
 
 func writeBackupManifest(root string, manifest BackupManifest, signingKey ...string) error {
+	dir, err := os.OpenRoot(root)
+	if err != nil {
+		return fmt.Errorf("open backup manifest directory: %w", err)
+	}
+	defer dir.Close()
 	key := ""
 	if len(signingKey) > 0 {
 		key = signingKey[0]
@@ -727,8 +732,8 @@ func writeBackupManifest(root string, manifest BackupManifest, signingKey ...str
 	if err != nil {
 		return err
 	}
-	tempName := temp.Name()
-	defer os.Remove(tempName)
+	tempName := filepath.Base(temp.Name())
+	defer dir.Remove(tempName)
 	// Set restrictive permissions immediately to protect backup manifest
 	if err = temp.Chmod(0600); err != nil {
 		temp.Close()
@@ -750,20 +755,28 @@ func writeBackupManifest(root string, manifest BackupManifest, signingKey ...str
 	if err = temp.Close(); err != nil {
 		return fmt.Errorf("close backup manifest: %w", err)
 	}
-	if err := os.Rename(tempName, filepath.Join(root, "manifest.json")); err != nil {
+	if err := dir.Rename(tempName, "manifest.json"); err != nil {
 		return err
 	}
 	if key != "" {
 		signedData := append(append([]byte(nil), data...), '\n')
-		if err := writeSyncedFile(filepath.Join(root, "manifest.sig"), []byte(backupManifestSignature(signedData, key)+"\n"), 0600); err != nil {
+		if err := writeSyncedFile(root, "manifest.sig", []byte(backupManifestSignature(signedData, key)+"\n"), 0600); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func writeSyncedFile(path string, data []byte, mode os.FileMode) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+func writeSyncedFile(directory, name string, data []byte, mode os.FileMode) error {
+	if !filepath.IsLocal(name) || filepath.Base(name) != name {
+		return fmt.Errorf("refusing non-local synced file name %q", name)
+	}
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return fmt.Errorf("open synced-file directory: %w", err)
+	}
+	defer root.Close()
+	file, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
 		return err
 	}

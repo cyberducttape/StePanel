@@ -717,8 +717,11 @@ TXN_TEMPS+=("$sudoers_tmp")
 # accepts -webroot for tests, but production sudo must not allow the service
 # account to retarget privileged filesystem operations.
 printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-root -webroot /var/www\n' "$APP_USER" >> "$sudoers_tmp"
-if [[ "$DB_LOCAL_HELPER" == "1" ]]; then printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-dbctl *\n' "$APP_USER" >> "$sudoers_tmp"; fi
-if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-certbot *\n' "$APP_USER" >> "$sudoers_tmp"; fi
+if [[ "$DB_LOCAL_HELPER" == "1" ]]; then
+  # Keep the transitional sudo surface limited to database operations that
+  # still stream large SQL payloads or outputs outside the broker JSON ABI.
+  printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-dbctl restore *, /usr/local/sbin/stepanel-dbctl restore-dump *, /usr/local/sbin/stepanel-dbctl restore-wordpress *, /usr/local/sbin/stepanel-dbctl dump *\n' "$APP_USER" >> "$sudoers_tmp"
+fi
 visudo -cf "$sudoers_tmp" >/dev/null
 install -m 0440 -o root -g root "$sudoers_tmp" /etc/sudoers.d/stepanel
 if [[ "$INSTALL_SECURITY" == "1" ]]; then install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-malware-guard" /usr/local/sbin/stepanel-malware-guard; install -m 0644 "$ROOT_DIR/deploy/stepanel-malware-guard.service" /etc/systemd/system/stepanel-malware-guard.service; fi

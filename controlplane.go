@@ -17,8 +17,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const maxInt = int(^uint(0) >> 1)
-
 const controlPlaneSchema = `
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
@@ -360,6 +358,8 @@ var controlPlaneStateSnapshots sync.Map // Tracks the last durable payload per s
 
 const controlPlaneStateRetryLimit = 3
 
+var errControlPlaneStateRefreshed = errors.New("control-plane state refreshed from durable peer state")
+
 // bindControlPlaneState makes a legacy JSON-backed store use a transactional
 // database blob as its live authority. The target must be a pointer to the
 // store's persisted value (normally a map). Existing database state wins;
@@ -370,11 +370,11 @@ const controlPlaneStateRetryLimit = 3
 // in-memory recovery contract shared by the panel and external worker.
 func bindControlPlaneState(store any, db *sql.DB, name string, target any) (bool, error) {
 	controlPlaneStateBindings.Store(store, controlPlaneStateBinding{db: db, name: name, target: target})
-	payload, found, err := readControlPlaneBlob(db, name)
+	payload, revision, err := readControlPlaneBlobWithRevision(db, name)
 	if err != nil {
 		return false, fmt.Errorf("read control-plane state %s: %w", name, err)
 	}
-	if !found {
+	if revision < 0 {
 		controlPlaneStateRevisions.Store(store, int64(-1))
 		controlPlaneStateSnapshots.Store(store, []byte(nil))
 		return false, nil
@@ -383,14 +383,7 @@ func bindControlPlaneState(store any, db *sql.DB, name string, target any) (bool
 		return false, fmt.Errorf("decode control-plane state %s: %w", name, err)
 	}
 
-	// Record the monotonic revision at read time for later conflict detection.
-	var revision int64
-	if err := db.QueryRow(`SELECT revision FROM state_blobs WHERE name = ?`, name).Scan(&revision); err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return false, fmt.Errorf("read control-plane state %s revision: %w", name, err)
-		}
-		revision = -1
-	}
+	// Payload and revision were read together so they describe one snapshot.
 	controlPlaneStateRevisions.Store(store, revision)
 	controlPlaneStateSnapshots.Store(store, append([]byte(nil), payload...))
 
@@ -461,28 +454,39 @@ func persistBoundControlPlaneState(store any, payload []byte) (bool, error) {
 	for attempt := 0; attempt < controlPlaneStateRetryLimit; attempt++ {
 		_, err := compareAndSwapControlPlaneState(store, state.name, payload, state.db)
 		if err == nil {
+			// A conflict merge may have incorporated peer-owned keys. Keep the
+			// live legacy store in sync with the exact image now made durable.
+			if restoreErr := restoreBoundControlPlaneTarget(state.target, payload); restoreErr != nil {
+				return true, fmt.Errorf("decode persisted control-plane state %s: %w", state.name, restoreErr)
+			}
 			controlPlaneStateSnapshots.Store(store, append([]byte(nil), payload...))
 			return true, nil
 		}
 
 		remote, revision, readErr := readControlPlaneBlobWithRevision(state.db, state.name)
 		if readErr != nil {
-			restoreBoundControlPlaneTarget(state.target, base)
-			return true, err
+			if restoreErr := restoreBoundControlPlaneTarget(state.target, base); restoreErr != nil {
+				return true, fmt.Errorf("control-plane state %s reload failed (%v) and base restore failed: %w", state.name, err, restoreErr)
+			}
+			return true, fmt.Errorf("reload control-plane state %s after CAS failure (%v): %w", state.name, err, readErr)
 		}
 		merged, mergeErr := mergeControlPlaneState(base, intended, remote)
 		if mergeErr != nil {
-			restoreBoundControlPlaneTarget(state.target, remote)
+			if restoreErr := restoreBoundControlPlaneTarget(state.target, remote); restoreErr != nil {
+				return true, fmt.Errorf("reload conflicting control-plane state %s: %w (merge failure: %v; CAS failure: %v)", state.name, restoreErr, mergeErr, err)
+			}
 			controlPlaneStateRevisions.Store(store, revision)
 			controlPlaneStateSnapshots.Store(store, append([]byte(nil), remote...))
-			return true, fmt.Errorf("control-plane state %s conflict cannot be merged: %w", state.name, err)
+			return true, fmt.Errorf("%w: control-plane state %s conflict cannot be merged: %v (CAS: %v)", errControlPlaneStateRefreshed, state.name, mergeErr, err)
 		}
 		payload = merged
 		controlPlaneStateRevisions.Store(store, revision)
 		if attempt == controlPlaneStateRetryLimit-1 {
-			restoreBoundControlPlaneTarget(state.target, remote)
+			if restoreErr := restoreBoundControlPlaneTarget(state.target, remote); restoreErr != nil {
+				return true, fmt.Errorf("reload control-plane state %s after retry exhaustion: %w (CAS failure: %v)", state.name, restoreErr, err)
+			}
 			controlPlaneStateSnapshots.Store(store, append([]byte(nil), remote...))
-			return true, fmt.Errorf("control-plane state %s remained busy after %d retries: %w", state.name, controlPlaneStateRetryLimit, err)
+			return true, fmt.Errorf("%w: control-plane state %s remained busy after %d retries: %v", errControlPlaneStateRefreshed, state.name, controlPlaneStateRetryLimit, err)
 		}
 	}
 	return true, errors.New("control-plane state persistence retry exhausted")
@@ -500,17 +504,18 @@ func readControlPlaneBlobWithRevision(db *sql.DB, name string) ([]byte, int64, e
 	return payload, revision, nil
 }
 
-func restoreBoundControlPlaneTarget(target any, payload []byte) {
+func restoreBoundControlPlaneTarget(target any, payload []byte) error {
 	if target == nil || len(payload) == 0 {
-		return
+		return nil
 	}
-	_ = json.Unmarshal(payload, target)
+	return json.Unmarshal(payload, target)
 }
 
 // mergeControlPlaneState reapplies a local map mutation to the latest durable
-// map. Keys changed only by the peer are retained; keys changed locally are
-// retained from intended. This is the bounded compatibility layer for legacy
-// JSON stores while they migrate to relational tables.
+// map. Independent key changes are combined, while divergent changes to the
+// same key fail closed so a stale whole-object update cannot silently clobber
+// peer state. This is the bounded compatibility layer for legacy JSON stores
+// while they migrate to relational tables.
 func mergeControlPlaneState(base, intended, remote []byte) ([]byte, error) {
 	var baseMap, intendedMap, remoteMap map[string]json.RawMessage
 	if len(base) > 0 {
@@ -532,17 +537,11 @@ func mergeControlPlaneState(base, intended, remote []byte) ([]byte, error) {
 	if remoteMap == nil {
 		remoteMap = map[string]json.RawMessage{}
 	}
-	if len(remoteMap) > maxInt-len(intendedMap) {
-		return nil, errors.New("control-plane state too large to merge")
-	}
-	merged := make(map[string]json.RawMessage, len(remoteMap)+len(intendedMap))
+	merged := make(map[string]json.RawMessage)
 	for key, value := range remoteMap {
 		merged[key] = value
 	}
-	if len(baseMap) > maxInt-len(intendedMap) {
-		return nil, errors.New("control-plane state too large to merge")
-	}
-	keys := make(map[string]struct{}, len(baseMap)+len(intendedMap))
+	keys := make(map[string]struct{})
 	for key := range baseMap {
 		keys[key] = struct{}{}
 	}
@@ -552,14 +551,19 @@ func mergeControlPlaneState(base, intended, remote []byte) ([]byte, error) {
 	for key := range keys {
 		baseValue, hadBase := baseMap[key]
 		intendedValue, hasIntended := intendedMap[key]
-		if hadBase && (!hasIntended || !bytes.Equal(baseValue, intendedValue)) {
-			if hasIntended {
-				merged[key] = intendedValue
-			} else {
-				delete(merged, key)
-			}
-		} else if !hadBase && hasIntended {
+		remoteValue, hasRemote := remoteMap[key]
+		localChanged := hadBase != hasIntended || hadBase && hasIntended && !bytes.Equal(baseValue, intendedValue)
+		remoteChanged := hadBase != hasRemote || hadBase && hasRemote && !bytes.Equal(baseValue, remoteValue)
+		if !localChanged {
+			continue
+		}
+		if remoteChanged && (hasIntended != hasRemote || hasIntended && !bytes.Equal(intendedValue, remoteValue)) {
+			return nil, fmt.Errorf("concurrent control-plane changes conflict at key %q", key)
+		}
+		if hasIntended {
 			merged[key] = intendedValue
+		} else {
+			delete(merged, key)
 		}
 	}
 	return json.Marshal(merged)

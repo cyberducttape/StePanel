@@ -115,8 +115,7 @@ func (a *App) applySiteAccess(ctx context.Context, access SiteAccess) error {
 func (a *App) saveSiteAccess(access SiteAccess) error {
 	a.Access.mu.Lock()
 	defer a.Access.mu.Unlock()
-	a.Access.values[access.Site] = access
-	return a.Access.persistLocked()
+	return persistMapKeyChange(a.Access.values, access.Site, &access, a.Access.persistLocked)
 }
 
 func (a *App) applyAndSaveSiteAccess(ctx context.Context, access SiteAccess) (SiteAccess, error) {
@@ -237,8 +236,7 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 		access.Site = site
 		access.State, access.LastError = "pending", ""
 		a.Access.mu.Lock()
-		a.Access.values[site] = access
-		err := a.Access.persistLocked()
+		err := persistMapKeyChange(a.Access.values, site, &access, a.Access.persistLocked)
 		a.Access.mu.Unlock()
 		if err != nil {
 			http.Error(w, "SSH access state could not be saved", 503)
@@ -292,10 +290,10 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 		}
 		access.Site = site
 		access.State, access.LastError = "pending", ""
+		access.Keys = append([]SSHKey(nil), access.Keys...)
 		access.Keys = append(access.Keys, key)
 		a.Access.mu.Lock()
-		a.Access.values[site] = access
-		err = a.Access.persistLocked()
+		err = persistMapKeyChange(a.Access.values, site, &access, a.Access.persistLocked)
 		a.Access.mu.Unlock()
 		if err != nil {
 			http.Error(w, "SSH key could not be saved", 503)
@@ -347,7 +345,7 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found := false
-	keys := access.Keys[:0]
+	keys := make([]SSHKey, 0, len(access.Keys))
 	for _, key := range access.Keys {
 		if key.Label == label {
 			found = true
@@ -363,8 +361,7 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	a.Access.values[site] = access
-	err := a.Access.persistLocked()
+	err := persistMapKeyChange(a.Access.values, site, &access, a.Access.persistLocked)
 	a.Access.mu.Unlock()
 	if err != nil {
 		http.Error(w, "SSH key could not be removed", 503)

@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/user"
 	"strconv"
-	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
@@ -64,8 +63,9 @@ func serveRequests(broker *rootbroker.Broker, reader io.Reader, writer io.Writer
 			continue
 		}
 
-		// Set a reasonable timeout for each operation
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Bound each operation. Long-running typed operations have explicit
+		// budgets; the client context remains an independent, often shorter cap.
+		ctx, cancel := context.WithTimeout(context.Background(), rootbroker.RequestTimeout(&req))
 		resp, err := broker.Execute(ctx, &req)
 		cancel()
 

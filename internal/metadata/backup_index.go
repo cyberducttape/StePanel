@@ -1,7 +1,9 @@
 package metadata
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -82,10 +84,94 @@ func (idx *BackupIndex) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_site ON backup_index(site);
 	CREATE INDEX IF NOT EXISTS idx_created ON backup_index(created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_verified ON backup_index(verified_at DESC);
+
+	CREATE TABLE IF NOT EXISTS offsite_backup_state (
+		target_hash TEXT NOT NULL,
+		site TEXT NOT NULL,
+		backup_name TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		uploaded_at INTEGER,
+		restore_verified_at INTEGER,
+		PRIMARY KEY(target_hash, site, backup_name)
+	);
+	CREATE INDEX IF NOT EXISTS idx_offsite_pending ON offsite_backup_state(target_hash, uploaded_at, created_at);
 	`
 
 	_, err := idx.db.Exec(schema)
 	return err
+}
+
+// OffsiteBackupSummary only describes backups first observed after tracking
+// was introduced. Legacy backups remain explicitly untracked.
+type OffsiteBackupSummary struct {
+	LastSuccessfulBackup *time.Time `json:"last_successful_backup,omitempty"`
+	LastVerifiedRestore  *time.Time `json:"last_verified_restore,omitempty"`
+	OldestUnreplicated   *time.Time `json:"oldest_unreplicated_backup,omitempty"`
+	TrackedBackups       int64      `json:"tracked_backups"`
+}
+
+func offsiteTargetHash(target string) string {
+	sum := sha256.Sum256([]byte(target))
+	return hex.EncodeToString(sum[:])
+}
+
+func (idx *BackupIndex) TrackOffsiteBackup(target, site, backup string, createdAt time.Time) error {
+	if idx == nil || idx.db == nil {
+		return errors.New("backup index is unavailable")
+	}
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	_, err := idx.db.Exec(`INSERT INTO offsite_backup_state(target_hash,site,backup_name,created_at) VALUES(?,?,?,?) ON CONFLICT(target_hash,site,backup_name) DO NOTHING`, offsiteTargetHash(target), site, backup, createdAt.UTC().UnixNano())
+	return err
+}
+
+func (idx *BackupIndex) MarkOffsiteUploaded(target, site, backup string, at time.Time) error {
+	if idx == nil || idx.db == nil {
+		return errors.New("backup index is unavailable")
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	_, err := idx.db.Exec(`UPDATE offsite_backup_state SET uploaded_at=? WHERE target_hash=? AND site=? AND backup_name=?`, at.UTC().UnixNano(), offsiteTargetHash(target), site, backup)
+	return err
+}
+
+func (idx *BackupIndex) MarkOffsiteRestoreVerified(target, site, backup string, at time.Time) error {
+	if idx == nil || idx.db == nil {
+		return errors.New("backup index is unavailable")
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	_, err := idx.db.Exec(`UPDATE offsite_backup_state SET restore_verified_at=? WHERE target_hash=? AND site=? AND backup_name=?`, at.UTC().UnixNano(), offsiteTargetHash(target), site, backup)
+	return err
+}
+
+func (idx *BackupIndex) OffsiteSummary(target string) (OffsiteBackupSummary, error) {
+	var s OffsiteBackupSummary
+	if idx == nil || idx.db == nil {
+		return s, errors.New("backup index is unavailable")
+	}
+	hash := offsiteTargetHash(target)
+	var uploaded, restored, pending sql.NullInt64
+	err := idx.db.QueryRow(`SELECT MAX(uploaded_at),MAX(restore_verified_at),MIN(CASE WHEN uploaded_at IS NULL THEN created_at END),COUNT(*) FROM offsite_backup_state WHERE target_hash=?`, hash).Scan(&uploaded, &restored, &pending, &s.TrackedBackups)
+	if err != nil {
+		return s, err
+	}
+	if uploaded.Valid {
+		t := time.Unix(0, uploaded.Int64).UTC()
+		s.LastSuccessfulBackup = &t
+	}
+	if restored.Valid {
+		t := time.Unix(0, restored.Int64).UTC()
+		s.LastVerifiedRestore = &t
+	}
+	if pending.Valid {
+		t := time.Unix(0, pending.Int64).UTC()
+		s.OldestUnreplicated = &t
+	}
+	return s, nil
 }
 
 // AddBackup indexes a new backup

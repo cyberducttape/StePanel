@@ -88,6 +88,45 @@ func TestBrokerSiteDelete(t *testing.T) {
 	}
 }
 
+func TestBrokerCertificateIssuanceUsesFixedHelper(t *testing.T) {
+	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(t.TempDir(), "stepanel-certbot")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf '%s|%s' \"$1\" \"$2\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker.certbotPath = helper
+	response, err := broker.Execute(context.Background(), &Request{
+		RequestType: "certificate",
+		Certificate: &CertificateRequest{Action: "issue", Domain: "example.test", Email: "ops@example.test"},
+	})
+	if err != nil || !response.OK {
+		t.Fatalf("certificate request = %#v, %v", response, err)
+	}
+	var result CertificateResponse
+	if err := json.Unmarshal(response.Details, &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Issued || result.Domain != "example.test" || result.Output != "example.test|ops@example.test" {
+		t.Fatalf("certificate result = %#v", result)
+	}
+}
+
+func TestCertificateRequestValidationRejectsArgumentInjection(t *testing.T) {
+	validator := NewValidator(t.TempDir())
+	for _, request := range []*CertificateRequest{
+		{Action: "issue", Domain: "example.test;touch /tmp/pwned", Email: "ops@example.test"},
+		{Action: "issue", Domain: "example.test", Email: "ops@example.test\n--webroot"},
+		{Action: "arbitrary", Domain: "example.test", Email: "ops@example.test"},
+	} {
+		if err := validator.ValidateRequest(&Request{RequestType: "certificate", Certificate: request}); err == nil {
+			t.Fatalf("unsafe certificate request was accepted: %#v", request)
+		}
+	}
+}
+
 func TestCreateSystemUserSurfacesUseraddFailure(t *testing.T) {
 	bin := t.TempDir()
 	writeFakeCommand(t, bin, "id", "#!/bin/sh\nexit 1\n")

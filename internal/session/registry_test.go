@@ -185,6 +185,37 @@ func TestRegistryPersistsAndRevokesByUser(t *testing.T) {
 	}
 }
 
+func TestFileRegistryRevokeUserExceptPersistsOnlyTheCurrentSession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	registry, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiry := time.Now().Add(time.Hour).Unix()
+	for _, id := range []string{"alice-current", "alice-other", "bob-session"} {
+		username := "alice"
+		if id == "bob-session" {
+			username = "bob"
+		}
+		if err := registry.Add(id, username, expiry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := registry.RevokeUserExcept("alice", "alice-current"); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.Valid("alice-current", "alice", expiry) || reopened.Valid("alice-other", "alice", expiry) || !reopened.Valid("bob-session", "bob", expiry) {
+		t.Fatalf("file-backed revoke-except state = %#v", reopened.Entries)
+	}
+	if err := registry.RevokeUserExcept("alice", "alice-current"); err != nil {
+		t.Fatalf("repeating revoke-except should be idempotent: %v", err)
+	}
+}
+
 func TestOpenMigratesLegacySessionsAndPrunesExpiredEntries(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.json")
 	legacy := map[string]int64{
@@ -428,4 +459,27 @@ func TestDBPersistenceRejectsTransactionOperations(t *testing.T) {
 			t.Fatal("RevokeUserExcept ignored incremental delete failure")
 		}
 	})
+}
+
+func TestDBPersistDeleteManyUsesOneTransaction(t *testing.T) {
+	db := openTestSessionDB(t)
+	registry, err := OpenDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"first", "second"} {
+		if _, err := db.Exec(`INSERT INTO sessions (id, username, expiry, updated_at) VALUES (?, 'alice', unixepoch() + 3600, unixepoch())`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := registry.persistDeleteManyLocked([]string{"first", "second"}); err != nil {
+		t.Fatalf("delete many: %v", err)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id IN ('first', 'second')`).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("persistDeleteMany left %d session rows", remaining)
+	}
 }

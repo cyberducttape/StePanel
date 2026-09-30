@@ -109,6 +109,7 @@ func (s *TaskStore) normalizeSafeguards() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := false
+	previous := make(map[string]ScheduledTask)
 	for key, task := range s.values {
 		original := task
 		if err := normalizeScheduledTask(&task); err != nil {
@@ -119,12 +120,18 @@ func (s *TaskStore) normalizeSafeguards() error {
 		}
 		if !reflect.DeepEqual(original, task) {
 			task.State = "pending"
+			previous[key] = original
 			s.values[key] = task
 			changed = true
 		}
 	}
 	if changed {
-		return s.persistLocked()
+		if err := s.persistLocked(); err != nil {
+			for key, task := range previous {
+				s.values[key] = task
+			}
+			return err
+		}
 	}
 	return nil
 }
@@ -278,8 +285,7 @@ func (s *TaskStore) recordTaskExecution(key string, exitCode int, output []strin
 		}
 	}
 
-	s.values[key] = task
-	return s.persistLocked()
+	return persistMapKeyChange(s.values, key, &task, s.persistLocked)
 }
 
 // captureTaskOutput captures and limits output from task execution
@@ -322,9 +328,10 @@ func (a *App) killTask(ctx context.Context, site, name string) error {
 	return runHelperCommandWithTimeout(operationCtx, a.Config, 15*time.Second, a.Config.AppCtl, "task-kill", site, name)
 }
 
-// Phase 2 safeguards (canExecuteTask, incrementTaskRunCount, decrementTaskRunCount)
-// are reserved for future implementation when rate limiting and concurrency control
-// are fully integrated. See SECURITY_GAPS_FOUND.md for details.
+// Task overlap is prevented by systemd's single active oneshot service per
+// task unit. Runtime, resource, recurrence, missed-run, failure, history,
+// notification, and manual-stop safeguards are enforced by task-apply and the
+// generated unit; do not add a second in-memory run counter as an authority.
 
 func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/"), "/")

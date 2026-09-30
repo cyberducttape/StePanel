@@ -32,8 +32,8 @@ jobs:
             web: caddy
     name: ${{ matrix.name }}
     steps:
-      - uses: actions/checkout@v4 # v4
-      - uses: actions/setup-go@v5 # v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: '1.26.7'
           cache: true
@@ -113,7 +113,7 @@ jobs:
           fi
       - name: Upload install diagnostics
         if: always()
-        uses: actions/upload-artifact@v7 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stepanel-install-diagnostics-${{ matrix.name }}
           path: ${{ runner.temp }}/stepanel-install-diagnostics

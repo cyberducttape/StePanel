@@ -146,6 +146,48 @@ func TestSignedBackupManifestRequiresValidExternalKey(t *testing.T) {
 	}
 }
 
+func TestWriteSyncedFileRejectsNonLocalName(t *testing.T) {
+	directory := t.TempDir()
+	if err := writeSyncedFile(directory, "../outside", []byte("unexpected"), 0600); err == nil {
+		t.Fatal("writeSyncedFile accepted a parent-traversal name")
+	}
+}
+
+func TestWriteBackupManifestDoesNotFollowManifestSymlink(t *testing.T) {
+	root := t.TempDir()
+	directory := filepath.Join(root, "backup")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, "outside.json")
+	const outsideContents = "leave this file untouched"
+	if err := os.WriteFile(outside, []byte(outsideContents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(directory, "manifest.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := BackupManifest{Version: 1, Archive: "backup.tar.gz"}
+	if err := writeBackupManifest(directory, manifest); err != nil {
+		t.Fatalf("write backup manifest: %v", err)
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != outsideContents {
+		t.Fatalf("manifest publication changed symlink target: %q", got)
+	}
+	info, err := os.Lstat(filepath.Join(directory, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("manifest publication left the symlink in place")
+	}
+}
+
 func TestBackupManifestReportsLogicalConsistency(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "www", "sites", "account", "public", "index.html"), "logical")

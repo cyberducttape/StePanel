@@ -333,7 +333,7 @@ func (a *App) ensureTerminationOffsiteBackup(ctx context.Context, result BackupR
 	if !a.Config.RequireOffsiteBackup {
 		return nil
 	}
-	if err := uploadOffsiteContext(ctx, a.Config, result); err != nil {
+	if err := a.uploadOffsiteBackup(ctx, result); err != nil {
 		return fmt.Errorf("offsite backup is required before site termination: %w", err)
 	}
 	return nil
@@ -506,8 +506,7 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.Access.mu.Lock()
-		delete(a.Access.values, siteName)
-		err := a.Access.persistLocked()
+		err := persistMapKeyChange(a.Access.values, siteName, (*SiteAccess)(nil), a.Access.persistLocked)
 		a.Access.mu.Unlock()
 		if err != nil {
 			return err
@@ -518,11 +517,9 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.Environments.mu.Lock()
-		had := a.Environments.values[siteName] != nil
-		delete(a.Environments.values, siteName)
-		err := a.Environments.persistLocked()
+		err := persistMapKeyChange(a.Environments.values, siteName, (*map[string]environmentValue)(nil), a.Environments.persistLocked)
 		a.Environments.mu.Unlock()
-		if err != nil && had {
+		if err != nil {
 			return fmt.Errorf("remove site environment state: %w", err)
 		}
 	}
@@ -531,8 +528,7 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.Redis.mu.Lock()
-		delete(a.Redis.values, siteName)
-		err := a.Redis.persistLocked()
+		err := persistMapKeyChange(a.Redis.values, siteName, (*RedisAllocation)(nil), a.Redis.persistLocked)
 		a.Redis.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("remove Redis allocation state: %w", err)
@@ -543,8 +539,7 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.Resources.mu.Lock()
-		delete(a.Resources.values, siteName)
-		err := a.Resources.persistLocked()
+		err := persistMapKeyChange(a.Resources.values, siteName, (*ResourceProfile)(nil), a.Resources.persistLocked)
 		a.Resources.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("remove resource profile state: %w", err)
@@ -555,8 +550,7 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.PHP.mu.Lock()
-		delete(a.PHP.values, siteName)
-		err := persistPHPProfilesLocked(a.PHP)
+		err := persistMapKeyChange(a.PHP.values, siteName, (*PHPProfile)(nil), func() error { return persistPHPProfilesLocked(a.PHP) })
 		a.PHP.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("remove PHP profile state: %w", err)
@@ -567,8 +561,7 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.Composer.mu.Lock()
-		delete(a.Composer.latest, siteName)
-		err := persistComposerLocked(a.Composer)
+		err := persistMapKeyChange(a.Composer.latest, siteName, (*ComposerOperation)(nil), func() error { return persistComposerLocked(a.Composer) })
 		a.Composer.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("remove Composer state: %w", err)
@@ -579,12 +572,7 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.Workers.mu.Lock()
-		for key, value := range a.Workers.values {
-			if value.Site == siteName {
-				delete(a.Workers.values, key)
-			}
-		}
-		err := a.Workers.persistLocked()
+		err := persistMapFilter(a.Workers.values, func(_ string, value Worker) bool { return value.Site == siteName }, a.Workers.persistLocked)
 		a.Workers.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("remove worker state: %w", err)
@@ -595,12 +583,7 @@ func (a *App) removeSiteState(ctx context.Context, site SiteCapability) error {
 			return err
 		}
 		a.Tasks.mu.Lock()
-		for key, value := range a.Tasks.values {
-			if value.Site == siteName {
-				delete(a.Tasks.values, key)
-			}
-		}
-		err := a.Tasks.persistLocked()
+		err := persistMapFilter(a.Tasks.values, func(_ string, value ScheduledTask) bool { return value.Site == siteName }, a.Tasks.persistLocked)
 		a.Tasks.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("remove scheduled task state: %w", err)

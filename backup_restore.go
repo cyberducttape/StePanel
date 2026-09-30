@@ -95,6 +95,11 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		recordAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".failed", request.Site, restoreErr.Error())
 		return nil, restoreErr
 	}
+	if strings.HasPrefix(request.Mode, "offsite-") && a.BackupIndex != nil {
+		if err := a.BackupIndex.MarkOffsiteRestoreVerified(a.Config.OffsiteTarget, request.Site, request.Backup, time.Now().UTC()); err != nil {
+			return nil, fmt.Errorf("restore completed but recording offsite restore verification failed: %w", err)
+		}
+	}
 	recordAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".completed", request.Site, request.Backup)
 	output, err := json.Marshal(result)
 	if err != nil {

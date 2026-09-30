@@ -3,11 +3,14 @@ package rootbroker
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
+
+var certificateDomainPattern = regexp.MustCompile(`(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
 // Validator performs input validation at the root boundary.
 // All user-supplied data is validated before any system operations.
@@ -335,9 +338,28 @@ func (v *Validator) ValidateRequest(req *Request) error {
 		return v.validateGitRequest(req.Git)
 	case "helper":
 		return v.validateHelperRequest(req.Helper)
+	case "certificate":
+		return v.validateCertificateRequest(req.Certificate)
 	default:
 		return fmt.Errorf("unknown request type: %s", req.RequestType)
 	}
+}
+
+func (v *Validator) validateCertificateRequest(req *CertificateRequest) error {
+	if req == nil || req.Action != "issue" {
+		return errors.New("certificate request must specify the issue action")
+	}
+	if len(req.Domain) > 253 || !certificateDomainPattern.MatchString(req.Domain) {
+		return errors.New("invalid certificate domain")
+	}
+	if len(req.Email) > 254 || strings.ContainsAny(req.Email, "\x00\r\n") {
+		return errors.New("invalid certificate email")
+	}
+	address, err := mail.ParseAddress(req.Email)
+	if err != nil || address.Address != req.Email {
+		return errors.New("invalid certificate email")
+	}
+	return nil
 }
 
 func (v *Validator) validateHelperRequest(req *HelperRequest) error {

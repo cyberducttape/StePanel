@@ -10,7 +10,18 @@ if [[ ! -f /sys/fs/cgroup/cgroup.controllers && ! -d /sys/fs/cgroup/systemd ]]; 
 fi
 
 export STEPANEL_ENV=production
-export STEPANEL_SKIP_QUOTA_CHECK=1
+if [[ ${STEPANEL_QUOTA_SMOKE:-0} != 1 ]]; then
+  export STEPANEL_SKIP_QUOTA_CHECK=1
+else
+  if [[ ${STEPANEL_SKIP_QUOTA_CHECK:-0} == 1 ]]; then
+    echo 'quota smoke must not bypass production quota validation' >&2
+    exit 1
+  fi
+  if ! awk '$2 == "/var/www" && $4 ~ /(^|,)usrquota(,|$)/ { found=1 } END { exit !found }' /proc/mounts; then
+    echo '/var/www is not mounted with user quotas enabled' >&2
+    exit 1
+  fi
+fi
 export STEPANEL_SKIP_STARTUP_DB_RECONCILE=1
 export STEPANEL_SKIP_STARTUP_HOST_RECONCILE=1
 export STEPANEL_LAB_HTTP_COOKIES=1
@@ -46,6 +57,10 @@ fi
 if ! ./install.sh; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
+  exit 1
+fi
+if grep -Eq 'stepanel-dbctl[[:space:]]+\*([[:space:]]|$)|stepanel-certbot[[:space:]]+\*' /etc/sudoers.d/stepanel; then
+  echo 'installer emitted an unrestricted database/certificate helper sudo grant' >&2
   exit 1
 fi
 # The recovery smoke runs the separately supervised worker, so make the

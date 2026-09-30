@@ -46,6 +46,26 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	return nil
 }
 
+func (a *App) uploadOffsiteBackup(ctx context.Context, result BackupResult) error {
+	if a.Config.OffsiteTarget == "" {
+		return nil
+	}
+	if a.BackupIndex != nil {
+		if err := a.BackupIndex.TrackOffsiteBackup(a.Config.OffsiteTarget, result.Site, filepath.Base(result.Path), result.CreatedAt); err != nil {
+			return fmt.Errorf("record offsite backup before upload: %w", err)
+		}
+	}
+	if err := uploadOffsiteContext(ctx, a.Config, result); err != nil {
+		return err
+	}
+	if a.BackupIndex != nil {
+		if err := a.BackupIndex.MarkOffsiteUploaded(a.Config.OffsiteTarget, result.Site, filepath.Base(result.Path), time.Now().UTC()); err != nil {
+			return fmt.Errorf("offsite upload succeeded but recording its status failed: %w", err)
+		}
+	}
+	return nil
+}
+
 // downloadOffsiteBackup retrieves only the fixed backup objects for one site
 // and backup ID. It never accepts a caller-supplied remote path or performs a
 // recursive copy, which keeps the restore boundary tied to the configured

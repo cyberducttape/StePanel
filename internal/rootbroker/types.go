@@ -5,7 +5,7 @@ import "encoding/json"
 // Request is the top-level RPC request type sent from the unprivileged app.
 // All fields are strongly-typed to prevent parsing ambiguity.
 type Request struct {
-	// RequestType identifies which operation to perform: "site", "app", "db", "vhost", "proxy"
+	// RequestType identifies which operation to perform, such as "site", "app", "db", "vhost", "proxy", or "certificate".
 	RequestType string `json:"type"`
 
 	// Site operations: create, delete, seal, prepare, access, resources, quota, quota-clear, runtime
@@ -30,6 +30,22 @@ type Request struct {
 	// have not yet gained a dedicated typed operation. The broker still owns
 	// the executable path and validates the helper/action pair.
 	Helper *HelperRequest `json:"helper,omitempty"`
+
+	// Certificate requests expose only the bounded issuance operation; they
+	// cannot select an executable, arbitrary arguments, or certificate paths.
+	Certificate *CertificateRequest `json:"certificate,omitempty"`
+}
+
+type CertificateRequest struct {
+	Action string `json:"action"`
+	Domain string `json:"domain"`
+	Email  string `json:"email"`
+}
+
+type CertificateResponse struct {
+	Issued bool   `json:"issued"`
+	Domain string `json:"domain"`
+	Output string `json:"output,omitempty"`
 }
 
 type HelperRequest struct {

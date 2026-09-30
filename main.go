@@ -11,6 +11,7 @@ import (
 	httputil "github.com/cyberducttape/StePanel/internal/http"
 	"github.com/cyberducttape/StePanel/internal/metadata"
 	"github.com/cyberducttape/StePanel/internal/operations"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"html/template"
 	"io"
@@ -1053,7 +1054,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		return nil, err
 	}
-	if err = uploadOffsiteContext(operationCtx, a.Config, result); err != nil {
+	if err = a.uploadOffsiteBackup(operationCtx, result); err != nil {
 		recordAudit(a.Config.AuditLog, request.Actor, "site.backup.offsite_failed", request.Site, err.Error())
 		if request.Scheduled {
 			started := request.StartedAt
@@ -1094,8 +1095,16 @@ func (a *App) handleCertificateJob(ctx context.Context, item Job) ([]byte, error
 	}
 	certificateCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
-	if output, err := runBoundedCommand(certificateCtx, helperCommandContext(certificateCtx, a.Config, a.Config.Certbot, request.Domain, request.Email)); err != nil {
-		return nil, fmt.Errorf("certificate helper failed: %w: %s", err, strings.TrimSpace(string(output)))
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
+	if err != nil {
+		return nil, fmt.Errorf("configure certificate broker: %w", err)
+	}
+	response, err := client.IssueCertificate(certificateCtx, request.Domain, request.Email)
+	if err != nil {
+		return nil, fmt.Errorf("certificate broker failed: %w", err)
+	}
+	if !response.OK {
+		return nil, fmt.Errorf("certificate helper failed: %s", response.Error)
 	}
 	if err := AuditAs(a.Config.AuditLog, request.Actor, "certificate.issued", request.Domain, "Let's Encrypt certificate requested"); err != nil {
 		log.Printf("certificate issued but audit persistence is unavailable: %v", err)

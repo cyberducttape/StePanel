@@ -20,6 +20,10 @@ func (a *App) livez(w http.ResponseWriter, _ *http.Request) {
 
 func (a *App) readyz(w http.ResponseWriter, r *http.Request) {
 	checks := readinessChecks(a.Config, a.Jobs)
+	if a.Config.RequireOffsiteBackup {
+		capability := a.checkOffsiteBackupCapability()
+		checks["offsite_backup"] = ReadinessCheck{Ready: capability.Mode == CapabilityRemote, Detail: string(capability.Mode) + ": " + capability.Reason}
+	}
 	startupInProgress, startupError := a.startup.status()
 	if startupInProgress {
 		checks["startup_state"] = ReadinessCheck{Ready: false, Detail: "recovery and reconciliation in progress"}
@@ -60,6 +64,13 @@ func (a *App) readyz(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) operationalHealth(w http.ResponseWriter, r *http.Request) {
 	checks := operationalChecks(a.Config, a.Jobs)
+	var offsiteCapability Capability
+	if a.Config.OffsiteTarget != "" {
+		offsiteCapability = a.checkOffsiteBackupCapability()
+		if a.Config.RequireOffsiteBackup {
+			checks["offsite_backup"] = ReadinessCheck{Ready: offsiteCapability.Mode == CapabilityRemote, Detail: string(offsiteCapability.Mode) + ": " + offsiteCapability.Reason}
+		}
+	}
 	startupInProgress, startupError := a.startup.status()
 	switch {
 	case startupInProgress:
@@ -76,7 +87,22 @@ func (a *App) operationalHealth(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "operational": operational, "checks": checks, "time": time.Now().UTC()})
+	response := map[string]any{"ok": true, "operational": operational, "checks": checks, "time": time.Now().UTC()}
+	if a.Config.OffsiteTarget != "" && a.BackupIndex != nil {
+		if summary, err := a.BackupIndex.OffsiteSummary(a.Config.OffsiteTarget); err == nil {
+			verified := offsiteCapability.Mode == CapabilityRemote
+			response["offsite_backup_status"] = map[string]any{
+				"configured": true, "authenticated": verified, "writable": verified, "readable": verified,
+				"last_remote_verification":   offsiteProbeCheckedAt(a.Config.OffsiteTarget),
+				"last_successful_backup":     summary.LastSuccessfulBackup,
+				"last_verified_restore":      summary.LastVerifiedRestore,
+				"oldest_unreplicated_backup": summary.OldestUnreplicated,
+				"tracked_backups":            summary.TrackedBackups,
+				"tracking_scope":             "backups created after offsite tracking was enabled; legacy backups are not inventoried",
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {

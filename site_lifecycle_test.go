@@ -79,3 +79,85 @@ func TestSiteTerminationFailureInjectionStopsBeforeDestructiveWork(t *testing.T)
 		t.Fatalf("termination removed site before injected init failure: %v", err)
 	}
 }
+
+func TestRemoveSiteStateRestoresLocalEntriesWhenPersistenceFails(t *testing.T) {
+	const site = "customer"
+	tests := []struct {
+		name  string
+		setup func(path string) (*App, func() bool)
+	}{
+		{
+			name: "access",
+			setup: func(path string) (*App, func() bool) {
+				store := &SiteAccessStore{path: path, values: map[string]SiteAccess{site: {Site: site, ShellEnabled: true}}}
+				return &App{Access: store}, func() bool { return store.values[site].ShellEnabled }
+			},
+		},
+		{
+			name: "environment",
+			setup: func(path string) (*App, func() bool) {
+				store := &EnvironmentStore{path: path, values: map[string]map[string]environmentValue{site: {"APP_ENV": {Value: "production"}}}}
+				return &App{Environments: store}, func() bool { return store.values[site]["APP_ENV"].Value == "production" }
+			},
+		},
+		{
+			name: "redis",
+			setup: func(path string) (*App, func() bool) {
+				store := &RedisAllocationStore{path: path, values: map[string]RedisAllocation{site: {Site: site, MemoryMB: 128}}}
+				return &App{Redis: store}, func() bool { return store.values[site].MemoryMB == 128 }
+			},
+		},
+		{
+			name: "resources",
+			setup: func(path string) (*App, func() bool) {
+				store := &ResourceStore{path: path, values: map[string]ResourceProfile{site: {Site: site, MemoryMB: 512}}}
+				return &App{Resources: store}, func() bool { return store.values[site].MemoryMB == 512 }
+			},
+		},
+		{
+			name: "php",
+			setup: func(path string) (*App, func() bool) {
+				store := &PHPProfileStore{path: path, values: map[string]PHPProfile{site: {Site: site, Version: "8.3"}}}
+				return &App{PHP: store}, func() bool { return store.values[site].Version == "8.3" }
+			},
+		},
+		{
+			name: "composer",
+			setup: func(path string) (*App, func() bool) {
+				store := &ComposerStore{path: path, latest: map[string]ComposerOperation{site: {Site: site, Command: "composer install"}}}
+				return &App{Composer: store}, func() bool { return store.latest[site].Command == "composer install" }
+			},
+		},
+		{
+			name: "workers",
+			setup: func(path string) (*App, func() bool) {
+				store := &WorkerStore{path: path, values: map[string]Worker{"customer/queue": {Site: site, Name: "queue", Type: "laravel"}}}
+				return &App{Workers: store}, func() bool { _, ok := store.values["customer/queue"]; return ok }
+			},
+		},
+		{
+			name: "tasks",
+			setup: func(path string) (*App, func() bool) {
+				store := &TaskStore{path: path, values: map[string]ScheduledTask{"customer/nightly": {Site: site, Name: "nightly", Runtime: "php"}}}
+				return &App{Tasks: store}, func() bool { _, ok := store.values["customer/nightly"]; return ok }
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			blocker := filepath.Join(root, "not-a-directory")
+			if err := os.WriteFile(blocker, []byte("block"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			app, retained := tt.setup(filepath.Join(blocker, "state.json"))
+			if err := app.removeSiteState(context.Background(), AuthorizedSite{site: site}); err == nil {
+				t.Fatal("expected durable state deletion to fail")
+			}
+			if !retained() {
+				t.Fatal("failed persistence discarded the in-memory site state")
+			}
+		})
+	}
+}

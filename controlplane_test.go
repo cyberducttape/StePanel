@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"github.com/cyberducttape/StePanel/internal/migration"
 	"os"
 	"os/exec"
@@ -81,15 +82,71 @@ func TestControlPlaneStateCASReloadsAndMergesStaleIndependentConnection(t *testi
 	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"owner":"first-update"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistBoundControlPlaneState(secondStore, []byte(`{"owner":"stale-update","second":"preserved"}`)); err != nil {
+	if _, err := persistBoundControlPlaneState(secondStore, []byte(`{"owner":"seed","second":"preserved"}`)); err != nil {
 		t.Fatalf("stale control-plane write was not retried and merged: %v", err)
 	}
 	var payload string
 	if err := firstDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'cas-test'`).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload != `{"owner":"stale-update","second":"preserved"}` {
+	if payload != `{"owner":"first-update","second":"preserved"}` {
 		t.Fatalf("merged write produced %s", payload)
+	}
+	if second["owner"] != "first-update" || second["second"] != "preserved" {
+		t.Fatalf("writer live state did not adopt merged snapshot: %#v", second)
+	}
+}
+
+func TestControlPlaneStateCASConflictingKeyPreservesDurablePeerValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-plane.db")
+	firstDB, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstDB.Close()
+	secondDB, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondDB.Close()
+	firstStore, secondStore := &struct{ id int }{id: 1}, &struct{ id int }{id: 2}
+	first := map[string]string{"resource": "original"}
+	second := map[string]string{}
+	if _, err := bindControlPlaneState(firstStore, firstDB, "conflict-test", &first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"resource":"original"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := bindControlPlaneState(secondStore, secondDB, "conflict-test", &second); err != nil || !found {
+		t.Fatalf("second bind = found %v err %v", found, err)
+	}
+	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"resource":"panel-value"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := persistBoundControlPlaneState(secondStore, []byte(`{"resource":"stale-worker-value"}`)); err == nil {
+		t.Fatal("conflicting stale write unexpectedly succeeded")
+	}
+	var payload string
+	if err := firstDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'conflict-test'`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload != `{"resource":"panel-value"}` || second["resource"] != "panel-value" {
+		t.Fatalf("conflict did not preserve/refresh durable peer state: payload=%s local=%#v", payload, second)
+	}
+	second["resource"] = "worker-retry-value"
+	encoded, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := persistBoundControlPlaneState(secondStore, encoded); err != nil {
+		t.Fatalf("retry from refreshed state failed: %v", err)
+	}
+	if err := firstDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'conflict-test'`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload != `{"resource":"worker-retry-value"}` {
+		t.Fatalf("retry did not apply from refreshed durable state: %s", payload)
 	}
 }
 
@@ -140,8 +197,18 @@ func TestControlPlaneStateCASCrossProcessMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(payload) != `{"panel":"updated","worker":"updated"}` {
-		t.Fatalf("cross-process merged state = %s", payload)
+	var resultData struct {
+		Durable map[string]string `json:"durable"`
+		Local   map[string]string `json:"local"`
+	}
+	if err := json.Unmarshal(payload, &resultData); err != nil {
+		t.Fatal(err)
+	}
+	if resultData.Durable["panel"] != "updated" || resultData.Durable["worker"] != "updated" {
+		t.Fatalf("cross-process durable state = %#v", resultData.Durable)
+	}
+	if resultData.Local["panel"] != "updated" || resultData.Local["worker"] != "updated" {
+		t.Fatalf("worker live state did not refresh from merged durable state: %#v", resultData.Local)
 	}
 }
 
@@ -170,8 +237,48 @@ func TestControlPlaneStateCASCrossProcessHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(os.Getenv("STEPANEL_CAS_RESULT"), payload, 0600); err != nil {
+	result := struct {
+		Durable map[string]string `json:"durable"`
+		Local   map[string]string `json:"local"`
+	}{Durable: map[string]string{}, Local: workerState}
+	if err := json.Unmarshal(payload, &result.Durable); err != nil {
 		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(os.Getenv("STEPANEL_CAS_RESULT"), encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func BenchmarkMergeControlPlaneState(b *testing.B) {
+	for _, siteCount := range []int{10, 100, 500} {
+		b.Run(fmt.Sprintf("%d_sites", siteCount), func(b *testing.B) {
+			baseState := make(map[string]json.RawMessage, siteCount)
+			for i := 0; i < siteCount; i++ {
+				baseState[fmt.Sprintf("site-%d", i)] = json.RawMessage(`{"revision":0}`)
+			}
+			intendedState := make(map[string]json.RawMessage, len(baseState))
+			remoteState := make(map[string]json.RawMessage, len(baseState))
+			for key, value := range baseState {
+				intendedState[key] = value
+				remoteState[key] = value
+			}
+			intendedState["site-0"] = json.RawMessage(`{"revision":1}`)
+			remoteState[fmt.Sprintf("site-%d", siteCount-1)] = json.RawMessage(`{"revision":2}`)
+			base, _ := json.Marshal(baseState)
+			intended, _ := json.Marshal(intendedState)
+			remote, _ := json.Marshal(remoteState)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := mergeControlPlaneState(base, intended, remote); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 

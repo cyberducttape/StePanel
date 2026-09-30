@@ -1,10 +1,63 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/state"
 	"log"
 )
+
+// persistMapKeyChange applies a single-key desired-state mutation and restores
+// the previous in-memory value if its durable write fails. Callers hold the
+// owning store lock for the whole operation.
+func persistMapKeyChange[K comparable, V any](values map[K]V, key K, next *V, persist func() error) error {
+	previous, existed := values[key]
+	if next == nil {
+		delete(values, key)
+	} else {
+		values[key] = *next
+	}
+	if err := persist(); err != nil {
+		// Bound control-plane persistence can reload a newer peer snapshot
+		// while handling a conflict. Do not overwrite that snapshot with the
+		// stale per-key value captured before the write.
+		if errors.Is(err, errControlPlaneStateRefreshed) {
+			return err
+		}
+		if existed {
+			values[key] = previous
+		} else {
+			delete(values, key)
+		}
+		return err
+	}
+	return nil
+}
+
+// persistMapFilter removes matching entries as one in-memory mutation and
+// restores all of them if the durable write fails. Callers hold the store lock.
+func persistMapFilter[K comparable, V any](values map[K]V, remove func(K, V) bool, persist func() error) error {
+	removed := make(map[K]V)
+	for key, value := range values {
+		if remove(key, value) {
+			removed[key] = value
+			delete(values, key)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	if err := persist(); err != nil {
+		if errors.Is(err, errControlPlaneStateRefreshed) {
+			return err
+		}
+		for key, value := range removed {
+			values[key] = value
+		}
+		return err
+	}
+	return nil
+}
 
 // SaveWorkerState saves worker state and marks readiness unhealthy on failure.
 // This is a required operation whose failure affects reconciliation correctness.
