@@ -146,6 +146,7 @@ mkdir -p "/var/www/sites/$site/public"
 printf '%s\n' 'smoke' > "/var/www/sites/$site/public/index.html"
 /usr/local/sbin/stepanel-sitectl seal "$site"
 /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.example.test
+/usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256
 bash /work/deploy/lab/task-safeguards-smoke.sh "$site"
 if [[ $STEPANEL_WEBSERVER == apache ]]; then
   apachectl -t 2>/dev/null || httpd -t

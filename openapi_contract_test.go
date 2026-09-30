@@ -95,7 +95,8 @@ func getDocumentedRoutes(t *testing.T) []string {
 	for _, line := range strings.Split(text, "\n") {
 		matches := pattern.FindStringSubmatch(line)
 		if len(matches) > 1 {
-			routes[matches[1]] = true
+			route := regexp.MustCompile(`\{[^}]+\}`).ReplaceAllString(matches[1], "{id}")
+			routes[route] = true
 		}
 	}
 

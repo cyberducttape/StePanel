@@ -11,7 +11,15 @@ name=smoke-task
 unit="stepanel-task-$site-$name.service"
 timer="stepanel-task-$site-$name.timer"
 cleanup() { "$appctl" task-delete "$site" "$name" >/dev/null 2>&1 || true; }
+diagnose() {
+  local status=$?
+  echo "scheduled task smoke failed (exit $status)" >&2
+  systemctl status "$unit" "$timer" --no-pager >&2 || true
+  journalctl -u "$unit" -u "$timer" --no-pager -n 100 >&2 || true
+  return "$status"
+}
 trap cleanup EXIT
+trap diagnose ERR
 
 apply_task() {
   "$appctl" task-apply "$site" "$name" shell '*-*-* 00:00:00' 0 30 "$1" 60 "${2:-run_once}" 100 128 64 ''
