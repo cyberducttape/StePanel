@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'task safeguards smoke must run as root' >&2; exit 1; }
 command -v systemd-analyze >/dev/null
-command -v jq >/dev/null
+command -v python3 >/dev/null
 
 site=${1:-ci-smoke}
 appctl=/usr/local/sbin/stepanel-appctl
@@ -39,21 +39,21 @@ fi
 
 systemctl start "$unit"
 history=$("$appctl" task-history "$site" "$name")
-[[ $(jq -r '.executions[0].result' <<< "$history") == success ]]
+[[ $(python3 -c 'import json,sys; print(json.load(sys.stdin)["executions"][0]["result"])' <<< "$history") == success ]]
 
 apply_task ZmFsc2U=
 for _ in $(seq 1 10); do
   systemctl start "$unit" >/dev/null 2>&1 || true
 done
 history=$("$appctl" task-history "$site" "$name")
-[[ $(jq -r '.consecutive_failures' <<< "$history") == 10 ]]
-[[ $(jq -r '.auto_disabled_at > 0' <<< "$history") == true ]]
-[[ $(jq -r '.enabled' <<< "$history") == false ]]
+[[ $(python3 -c 'import json,sys; print(json.load(sys.stdin)["consecutive_failures"])' <<< "$history") == 10 ]]
+[[ $(python3 -c 'import json,sys; print(json.load(sys.stdin)["auto_disabled_at"] > 0)' <<< "$history") == True ]]
+[[ $(python3 -c 'import json,sys; print(json.load(sys.stdin)["enabled"])' <<< "$history") == False ]]
 
 apply_task dHJ1ZQ==
 for _ in $(seq 1 22); do systemctl start "$unit"; done
 history=$("$appctl" task-history "$site" "$name")
-[[ $(jq -r '.executions | length' <<< "$history") == 20 ]]
-[[ $(jq -r '.consecutive_failures' <<< "$history") == 0 ]]
+[[ $(python3 -c 'import json,sys; print(len(json.load(sys.stdin)["executions"]))' <<< "$history") == 20 ]]
+[[ $(python3 -c 'import json,sys; print(json.load(sys.stdin)["consecutive_failures"])' <<< "$history") == 0 ]]
 
 echo 'scheduled task safeguards smoke passed'
