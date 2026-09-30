@@ -87,6 +87,64 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesEndpointRequiresAdministrator(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_USERNAME", "admin")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", []string{"site-one"}); err != nil {
+		t.Fatal(err)
+	}
+	auth.Accounts = accounts
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &apiTokenStore{db: db}
+	_, adminToken, err := store.createScoped("admin", "capability-reader", nil, []string{"admin:read"}, adminAPIScopes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, customerToken, err := store.createScoped("customer", "capability-reader", nil, []string{"site:read"}, customerAPIScopes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.apiTokens = store
+	app := &App{Auth: auth}
+	handler := auth.RequireAdministrator(http.HandlerFunc(app.handleCapabilities))
+
+	tests := []struct {
+		name   string
+		token  string
+		status int
+	}{
+		{name: "anonymous", status: http.StatusUnauthorized},
+		{name: "non-administrator token", token: customerToken, status: http.StatusForbidden},
+		{name: "administrator read token", token: adminToken, status: http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/capabilities", nil)
+			if tt.token != "" {
+				req.Header.Set("Authorization", "Bearer "+tt.token)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			if response.Code != tt.status {
+				t.Fatalf("status = %d, want %d; body=%s", response.Code, tt.status, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestCapabilitiesMethodNotAllowed(t *testing.T) {
 	app := &App{}
 

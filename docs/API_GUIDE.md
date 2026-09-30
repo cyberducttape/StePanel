@@ -15,7 +15,8 @@ export PANEL=https://panel.example.com
 
 ### Capability evidence
 
-`GET /api/capabilities` reports `unsupported`, `configured`,
+`GET /api/capabilities` requires administrator authentication and reports
+`unsupported`, `configured`,
 `locally_validated`, `remote_verified`, `available`, `degraded`, `partial`,
 and `manual` modes. The legacy
 `available` boolean is true only for the `available` mode. In particular,

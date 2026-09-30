@@ -480,14 +480,14 @@ func (a *App) checkDNSCapability() Capability {
 	return newCapability(CapabilityPartial, "core DNS validation available; provider-specific mutations require provider credentials")
 }
 
-// handleCapabilities returns a JSON response of host capabilities
+// handleCapabilities returns the detailed host capability report. The route
+// is administrator-authenticated because it exposes platform inventory.
 func (a *App) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Capabilities endpoint is public (read-only, no sensitive data)
 	capabilities := a.ProbeCapabilities()
 
 	w.Header().Set("Content-Type", "application/json")

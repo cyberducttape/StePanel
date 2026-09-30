@@ -256,11 +256,14 @@ paths:
         '202': {description: SSH action queued; poll the returned job URL}
   /api/capabilities:
     get:
-      summary: Report features available in the current deployment
-      description: Capability modes include unsupported, configured, locally_validated, remote_verified, and available. Only available sets the legacy available boolean. Configuration or local checks do not prove remote service access or a specific restore artifact.
+      summary: Report host capabilities (administrator only)
+      security:
+        - sessionCookie: []
+        - bearerToken: []
+      description: Requires an administrator session or an administrator API token with admin:read. Capability modes include unsupported, configured, locally_validated, remote_verified, available, degraded, partial, and manual. Only available sets the legacy available boolean. Configuration or local checks do not prove remote service access or a specific restore artifact.
       responses:
         '200':
-          description: Capability evidence derived from installed helpers, local dependencies, and bounded remote probes
+          description: Host capability evidence returned to an authenticated administrator
           content:
             application/json:
               schema:
@@ -273,6 +276,8 @@ paths:
                     type: object
                     additionalProperties:
                       $ref: '#/components/schemas/Capability'
+        '401': {description: Authentication required}
+        '403': {description: Administrator access required}
   /api/accounts:
     get:
       summary: List shared-hosting customer accounts and plan limits (administrator only)
@@ -950,3 +955,6 @@ components:
       type: apiKey
       in: cookie
       name: stepanel_session
+    bearerToken:
+      type: http
+      scheme: bearer
