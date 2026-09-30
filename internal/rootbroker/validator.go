@@ -1,6 +1,7 @@
 package rootbroker
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,10 +83,29 @@ func (v *Validator) ValidateFilePath(root, path string) error {
 		return fmt.Errorf("path escapes root directory")
 	}
 
-	// Reject symlinks to prevent link-based breakout
-	info, err := os.Lstat(fullPath)
-	if err == nil && (info.Mode()&os.ModeSymlink) != 0 {
-		return fmt.Errorf("symlinks not allowed")
+	// Reject symlinks in every component, not only the final pathname. A
+	// privileged caller must not validate a path and later follow a customer-
+	// controlled parent symlink during mutation.
+	rel, err := filepath.Rel(rootClean, fullClean)
+	if err != nil {
+		return fmt.Errorf("cannot compare path components: %w", err)
+	}
+	current := rootClean
+	for _, component := range strings.Split(rel, string(filepath.Separator)) {
+		if component == "." || component == "" {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			break
+		}
+		if statErr != nil {
+			return fmt.Errorf("inspect path component: %w", statErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlinks not allowed")
+		}
 	}
 
 	return nil

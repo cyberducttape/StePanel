@@ -328,19 +328,9 @@ func (b *Broker) siteSeal(ctx context.Context, req *SiteRequest) (*Response, err
 
 	b.logger.Printf("sealing site: %s", req.Site)
 
-	// Set restrictive permissions on config files
+	// Set restrictive permissions on config files.
 	sitePublic := filepath.Join(siteRoot, "public")
-	if err := filepath.Walk(sitePublic, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		// Make directories 0o750, files 0o640
-		if info.IsDir() {
-			return os.Chmod(path, 0o750)
-		} else {
-			return os.Chmod(path, 0o640)
-		}
-	}); err != nil {
+	if err := secureSealTree(ctx, sitePublic); err != nil {
 		b.logger.Printf("failed to seal permissions: %v", err)
 		return &Response{OK: false, Error: fmt.Sprintf("permission seal failed: %v", err)}, nil
 	}
