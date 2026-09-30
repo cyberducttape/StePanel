@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,9 @@ import (
 )
 
 func TestCapabilitiesEndpoint(t *testing.T) {
+	previousProbe := probeOffsiteRemote
+	probeOffsiteRemote = func(string) error { return nil }
+	t.Cleanup(func() { probeOffsiteRemote = previousProbe })
 	// Create a minimal app instance for testing
 	app := &App{
 		Auth: Auth{
@@ -109,6 +113,9 @@ func TestCapabilitiesMethodNotAllowed(t *testing.T) {
 }
 
 func TestProbeCapabilities(t *testing.T) {
+	previousProbe := probeOffsiteRemote
+	probeOffsiteRemote = func(string) error { return nil }
+	t.Cleanup(func() { probeOffsiteRemote = previousProbe })
 	app := &App{
 		Auth: Auth{
 			TOTPEnabled: true,
@@ -202,7 +209,7 @@ func TestDatabaseRestorationRequiresExecutableRegularHelper(t *testing.T) {
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	app := &App{Config: Config{DBCtl: helper}}
+	app := &App{Jobs: NewJobs(), Config: Config{DBCtl: helper}}
 	c := app.ProbeCapabilities().Capabilities["archive.import.database_restore"]
 	if c.Available {
 		t.Fatalf("database restoration must not be Available for a non-executable helper, got Mode=%s", c.Mode)
@@ -211,8 +218,8 @@ func TestDatabaseRestorationRequiresExecutableRegularHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	c = app.ProbeCapabilities().Capabilities["archive.import.database_restore"]
-	if !c.Available {
-		t.Fatalf("database restoration should be Available for an executable helper, got Mode=%s reason=%q", c.Mode, c.Reason)
+	if c.Available || c.Mode != CapabilityLocal {
+		t.Fatalf("database restoration should report only local validation, got Mode=%s reason=%q", c.Mode, c.Reason)
 	}
 }
 
@@ -227,6 +234,61 @@ func TestBuildCapabilityRequiresRunnerCtl(t *testing.T) {
 	if c.Available {
 		t.Errorf("deployment.builds must not be Available without RunnerCtl, got Mode=%s reason=%q", c.Mode, c.Reason)
 	}
+}
+
+func TestRestoreCapabilitiesDoNotClaimUnverifiedAvailability(t *testing.T) {
+	app := &App{Config: Config{}}
+	caps := app.ProbeCapabilities().Capabilities
+	for _, name := range []string{"restore.to_staging", "restore.verified_file", "restore.database_only"} {
+		if caps[name].Available {
+			t.Errorf("%s claims available with no dependencies: %#v", name, caps[name])
+		}
+	}
+	if caps["restore.database_only"].Mode != CapabilityUnsupported {
+		t.Errorf("database-only restore mode = %s, want unsupported without DB helper", caps["restore.database_only"].Mode)
+	}
+}
+
+func TestGitCapabilityRequiresExecutableRegularHelper(t *testing.T) {
+	helper := filepath.Join(t.TempDir(), "gitctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{GitCtl: helper, WebRoot: t.TempDir(), AppRoot: t.TempDir()}}
+	capability := app.checkGitDeploymentCapability()
+	if capability.Available || capability.Mode != CapabilityUnsupported || !strings.Contains(capability.Reason, "executable") {
+		t.Fatalf("non-executable Git helper capability = %#v", capability)
+	}
+	if err := os.Chmod(helper, 0700); err != nil {
+		t.Fatal(err)
+	}
+	capability = app.checkGitDeploymentCapability()
+	if capability.Mode != CapabilityLocal || capability.Available {
+		t.Fatalf("locally checked Git helper capability = %#v", capability)
+	}
+}
+
+func TestOffsiteCapabilityDistinguishesConfiguredFromRemoteVerified(t *testing.T) {
+	previousProbe := probeOffsiteRemote
+	t.Cleanup(func() { probeOffsiteRemote = previousProbe })
+	resetOffsiteProbeCache()
+	t.Cleanup(resetOffsiteProbeCache)
+	app := &App{Config: Config{OffsiteTarget: "s3:bucket/stepanel"}}
+	probeOffsiteRemote = func(string) error { return errors.New("access denied") }
+	if capability := app.checkOffsiteBackupCapability(); capability.Mode != CapabilityLocal || capability.Available {
+		t.Fatalf("unreachable offsite capability = %#v", capability)
+	}
+	resetOffsiteProbeCache()
+	probeOffsiteRemote = func(string) error { return nil }
+	if capability := app.checkOffsiteBackupCapability(); capability.Mode != CapabilityRemote || capability.Available {
+		t.Fatalf("remotely verified capability = %#v", capability)
+	}
+}
+
+func resetOffsiteProbeCache() {
+	offsiteProbeCache.Lock()
+	offsiteProbeCache.results = make(map[string]offsiteProbeResult)
+	offsiteProbeCache.Unlock()
 }
 
 func TestBuildCapabilityRequiresExecutableRunnerCtlAndImageLimit(t *testing.T) {

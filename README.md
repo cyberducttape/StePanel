@@ -49,7 +49,7 @@ constraints, off-site backups, and operational configuration, see the
 [integration guide](docs/INTEGRATIONS.md), [installation guide](docs/INSTALLATION.md),
 [operations runbook](docs/OPERATIONS.md), and [customer workflows](docs/CUSTOMER_WORKFLOWS.md).
 
-> **Status:** StePanel supports single-host operation with tenant-scoped account provisioning (TOTP MFA, assigned-site limits, delegated roles, scoped access, resource profiles, and a customer plan/usage panel). Multi-tenant production deployment is NOT RECOMMENDED yet: provider-wide audit segregation, HA datastore/failover, and cross-host durable job routing remain open platform requirements. See [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for detailed capability status. For single-host deployments, restore-to-staging and verified restores are available. Always run behind authenticated HTTPS and test restores against a disposable server before using production data.
+> **Status:** StePanel supports single-host operation with tenant-scoped account provisioning (TOTP MFA, assigned-site limits, delegated roles, scoped access, resource profiles, and a customer plan/usage panel). Multi-tenant production deployment is NOT RECOMMENDED yet: provider-wide audit segregation, HA datastore/failover, and cross-host durable job routing remain open platform requirements. See [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for detailed capability status. Restore workflows report verified local dependencies through `/api/capabilities`; remote backup access and each artifact's integrity are checked when an operation runs. Always run behind authenticated HTTPS and test restores against a disposable server before using production data.
 
 ## Architecture at a glance
 

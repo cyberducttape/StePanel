@@ -13,6 +13,16 @@ export PANEL=https://panel.example.com
 
 ## Authentication
 
+### Capability evidence
+
+`GET /api/capabilities` reports `unsupported`, `configured`,
+`locally_validated`, `remote_verified`, `available`, `degraded`, `partial`,
+and `manual` modes. The legacy
+`available` boolean is true only for the `available` mode. In particular,
+`remote_verified` means a bounded connectivity probe succeeded at request time;
+it does not guarantee future access or prove a particular backup can be
+restored. Restore artifact verification remains part of each restore request.
+
 ### Browser session
 
 The web login is a form POST to `/login`. It sets two cookies:

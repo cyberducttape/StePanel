@@ -105,6 +105,26 @@ func TestOperationalHealthReportsMissingRequiredOffsiteBackup(t *testing.T) {
 	}
 }
 
+func TestOperationalHealthDoesNotTreatConfiguredOffsiteTargetAsVerified(t *testing.T) {
+	previousProbe := probeOffsiteRemote
+	probeOffsiteRemote = func(string) error { return errors.New("remote credentials rejected") }
+	t.Cleanup(func() { probeOffsiteRemote = previousProbe })
+	resetOffsiteProbeCache()
+	t.Cleanup(resetOffsiteProbeCache)
+	root := t.TempDir()
+	for _, path := range []string{filepath.Join(root, "imports"), filepath.Join(root, "backups"), filepath.Join(root, "sites")} {
+		if err := os.MkdirAll(path, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := &App{Config: Config{ImportRoot: filepath.Join(root, "imports"), BackupRoot: filepath.Join(root, "backups"), JobState: filepath.Join(root, "jobs.json"), RecoveryRoot: filepath.Join(root, "sites", ".stepanel-recovery"), MinFreeBytes: 1, RequireOffsiteBackup: true, OffsiteTarget: "s3:bucket/stepanel"}, Jobs: NewJobs()}
+	response := httptest.NewRecorder()
+	app.operationalHealth(response, httptest.NewRequest(http.MethodGet, "/api/health/operational", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"offsite_backup":{"ready":false`) || !strings.Contains(response.Body.String(), "locally_validated") {
+		t.Fatalf("offsite operational state = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestOperationalHealthReportsDurableDeadLetters(t *testing.T) {
 	root := t.TempDir()
 	for _, path := range []string{filepath.Join(root, "imports"), filepath.Join(root, "backups"), filepath.Join(root, "sites")} {

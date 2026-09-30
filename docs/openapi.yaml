@@ -257,8 +257,22 @@ paths:
   /api/capabilities:
     get:
       summary: Report features available in the current deployment
+      description: Capability modes include unsupported, configured, locally_validated, remote_verified, and available. Only available sets the legacy available boolean. Configuration or local checks do not prove remote service access or a specific restore artifact.
       responses:
-        '200': {description: Capability flags derived from installed helpers and dependencies}
+        '200':
+          description: Capability evidence derived from installed helpers, local dependencies, and bounded remote probes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, hostname, capabilities]
+                properties:
+                  version: {type: string}
+                  hostname: {type: string}
+                  capabilities:
+                    type: object
+                    additionalProperties:
+                      $ref: '#/components/schemas/Capability'
   /api/accounts:
     get:
       summary: List shared-hosting customer accounts and plan limits (administrator only)
@@ -919,6 +933,18 @@ paths:
         '200': {description: Import status and progress}
         '404': {description: Job not found}
 components:
+  schemas:
+    Capability:
+      type: object
+      required: [available, mode]
+      properties:
+        available:
+          type: boolean
+          description: True only when mode is available; intermediate evidence modes remain false.
+        mode:
+          type: string
+          enum: [unsupported, manual, partial, available, degraded, configured, locally_validated, remote_verified]
+        reason: {type: string}
   securitySchemes:
     sessionCookie:
       type: apiKey

@@ -121,7 +121,7 @@ In production mode (`STEPANEL_ENV=production`), StePanel performs mandatory chec
 
 - ✅ **Filesystem quotas enforced**: Validates that `STEPANEL_WEB_ROOT` filesystem has usrquota/grpquota enabled. Required because StePanel advertises disk quotas in plans; quotas that aren't enforced create false security guarantees. Startup fails if quotas unavailable; remediation: `mount -o remount,usrquota /var/www`
 - ✅ **Encryption keys configured**: Ensures backup encryption keys are loaded (minimum 32 characters)
-- ⚠️ **Offsite backups configured**: Checks S3/B2 credentials for offsite backup target (warning only; can proceed without)
+- ⚠️ **Offsite backups**: `/api/capabilities` distinguishes target configuration, local rclone availability, and a bounded remote listing check. A successful listing is a point-in-time reachability check; it does not prove future upload permission or backup restorability.
 
 ### Production Readiness Endpoint
 
