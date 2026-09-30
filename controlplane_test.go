@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"github.com/cyberducttape/StePanel/internal/migration"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestControlPlaneStateBlobIsTransactionalAndPersistent(t *testing.T) {
@@ -49,7 +51,7 @@ func TestControlPlaneStateBlobIsTransactionalAndPersistent(t *testing.T) {
 	}
 }
 
-func TestControlPlaneStateCASRejectsStaleIndependentConnection(t *testing.T) {
+func TestControlPlaneStateCASReloadsAndMergesStaleIndependentConnection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control-plane.db")
 	firstDB, err := openControlPlaneDB(path)
 	if err != nil {
@@ -79,16 +81,110 @@ func TestControlPlaneStateCASRejectsStaleIndependentConnection(t *testing.T) {
 	if _, err := persistBoundControlPlaneState(firstStore, []byte(`{"owner":"first-update"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := persistBoundControlPlaneState(secondStore, []byte(`{"owner":"stale-update"}`)); err == nil {
-		t.Fatal("stale control-plane write unexpectedly succeeded")
+	if _, err := persistBoundControlPlaneState(secondStore, []byte(`{"owner":"stale-update","second":"preserved"}`)); err != nil {
+		t.Fatalf("stale control-plane write was not retried and merged: %v", err)
 	}
 	var payload string
 	if err := firstDB.QueryRow(`SELECT payload FROM state_blobs WHERE name = 'cas-test'`).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload != `{"owner":"first-update"}` {
-		t.Fatalf("stale write changed state to %s", payload)
+	if payload != `{"owner":"stale-update","second":"preserved"}` {
+		t.Fatalf("merged write produced %s", payload)
 	}
+}
+
+func TestControlPlaneStateCASCrossProcessMerge(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-plane.db")
+	db, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	panelStore := &struct{ id string }{id: "panel"}
+	panelState := map[string]string{"seed": "value"}
+	if found, err := bindControlPlaneState(panelStore, db, "cross-process", &panelState); err != nil || found {
+		t.Fatalf("panel bind = found %v err %v", found, err)
+	}
+	if _, err := persistBoundControlPlaneState(panelStore, []byte(`{"seed":"value"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	ready := filepath.Join(root, "ready")
+	proceed := filepath.Join(root, "proceed")
+	result := filepath.Join(root, "result")
+	child := exec.Command(os.Args[0], "-test.run=^TestControlPlaneStateCASCrossProcessHelper$", "-test.v")
+	child.Env = append(os.Environ(),
+		"STEPANEL_CAS_CHILD=1",
+		"STEPANEL_CAS_DB="+path,
+		"STEPANEL_CAS_READY="+ready,
+		"STEPANEL_CAS_PROCEED="+proceed,
+		"STEPANEL_CAS_RESULT="+result,
+	)
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer child.Process.Kill()
+	waitForControlPlaneTestFile(t, ready)
+
+	if _, err := persistBoundControlPlaneState(panelStore, []byte(`{"panel":"updated"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proceed, []byte("go"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Wait(); err != nil {
+		t.Fatalf("worker process failed: %v", err)
+	}
+	payload, err := os.ReadFile(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(payload) != `{"panel":"updated","worker":"updated"}` {
+		t.Fatalf("cross-process merged state = %s", payload)
+	}
+}
+
+func TestControlPlaneStateCASCrossProcessHelper(t *testing.T) {
+	if os.Getenv("STEPANEL_CAS_CHILD") != "1" {
+		return
+	}
+	db, err := openControlPlaneDB(os.Getenv("STEPANEL_CAS_DB"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workerStore := &struct{ id string }{id: "worker"}
+	workerState := map[string]string{}
+	if found, err := bindControlPlaneState(workerStore, db, "cross-process", &workerState); err != nil || !found {
+		t.Fatalf("worker bind = found %v err %v", found, err)
+	}
+	if err := os.WriteFile(os.Getenv("STEPANEL_CAS_READY"), []byte("ready"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	waitForControlPlaneTestFile(t, os.Getenv("STEPANEL_CAS_PROCEED"))
+	if _, err := persistBoundControlPlaneState(workerStore, []byte(`{"worker":"updated"}`)); err != nil {
+		t.Fatal(err)
+	}
+	payload, _, err := readControlPlaneBlobWithRevision(db, "cross-process")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(os.Getenv("STEPANEL_CAS_RESULT"), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitForControlPlaneTestFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
 }
 
 func TestControlPlaneBackupCanBeVerified(t *testing.T) {
