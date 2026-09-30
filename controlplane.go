@@ -17,6 +17,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const maxInt = int(^uint(0) >> 1)
+
 const controlPlaneSchema = `
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
@@ -530,9 +532,15 @@ func mergeControlPlaneState(base, intended, remote []byte) ([]byte, error) {
 	if remoteMap == nil {
 		remoteMap = map[string]json.RawMessage{}
 	}
+	if len(remoteMap) > maxInt-len(intendedMap) {
+		return nil, errors.New("control-plane state too large to merge")
+	}
 	merged := make(map[string]json.RawMessage, len(remoteMap)+len(intendedMap))
 	for key, value := range remoteMap {
 		merged[key] = value
+	}
+	if len(baseMap) > maxInt-len(intendedMap) {
+		return nil, errors.New("control-plane state too large to merge")
 	}
 	keys := make(map[string]struct{}, len(baseMap)+len(intendedMap))
 	for key := range baseMap {
