@@ -5,6 +5,11 @@ root-owned `stepanel-appctl` helper to create a restricted systemd unit. The
 unit runs `npm start` with the selected NVM version, restarts after failure, and
 only writes inside the managed site root.
 
+The root helper takes a per-site lifecycle lock. Slow dependency operations
+are run as that site user and do not block other sites. Systemd unit
+publication and manager reload use a separate short host-wide lock; service
+starts, stops, and restarts happen after that lock is released.
+
 Required deployment fields are:
 
 - site account

@@ -4,18 +4,54 @@ if [[ $EUID -ne 0 ]]; then echo 'must run as root' >&2; exit 1; fi
 action=${1:-}; site=${2:-}
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
 command -v flock >/dev/null 2>&1 || { echo 'flock is required for application lifecycle locking' >&2; exit 1; }
-exec 9>/run/lock/stepanel-app.lock
+install -d -o root -g root -m 0755 /run/lock/stepanel/app /run/lock/stepanel/account
+
+# Serialize mutations for this site, while allowing unrelated sites to build
+# dependencies and run lifecycle operations concurrently. Account slice
+# updates use their own lock because the account name is not a site identity.
+if [[ $action == account-resource-apply ]]; then
+  lock_scope=account
+else
+  lock_scope=app
+fi
+exec 9>"/run/lock/stepanel/$lock_scope/$site.lock"
 flock -x 9
+
+# systemd's unit directory and manager reload are shared host state. Keep this
+# lock around only atomic unit publication/removal plus daemon-reload, never
+# around package installation or service start/restart operations.
+systemd_lock() {
+  exec 8>/run/lock/stepanel/systemd.lock
+  flock -x 8
+}
+systemd_unlock() {
+  flock -u 8
+  exec 8>&-
+}
+enable_units() {
+  systemd_lock
+  if ! systemctl --no-reload enable "$@" || ! systemctl daemon-reload; then
+    systemd_unlock
+    return 1
+  fi
+  systemd_unlock
+}
 
 # Dispatch actions that don't require site-user validation first
 if [[ $action == delete ]]; then
   (( $# == 2 )) || { echo 'usage: stepanel-appctl delete SITE' >&2; exit 64; }
-  systemctl disable --now "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
-  rm -f "/etc/systemd/system/stepanel-app-${site}.service" "/etc/systemd/system/stepanel-app-${site}-python.service"
+  systemctl stop "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
   mapfile -t worker_units < <(systemctl list-unit-files --type=service --no-legend "stepanel-worker-$site-*.service" 2>/dev/null | awk '{print $1}')
-  if (( ${#worker_units[@]} > 0 )); then systemctl disable --now "${worker_units[@]}" 2>/dev/null || true; fi
+  if (( ${#worker_units[@]} > 0 )); then systemctl stop "${worker_units[@]}" 2>/dev/null || true; fi
+  systemd_lock
+  systemctl --no-reload disable "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
+  if (( ${#worker_units[@]} > 0 )); then
+    systemctl --no-reload disable "${worker_units[@]}" 2>/dev/null || true
+  fi
+  rm -f "/etc/systemd/system/stepanel-app-${site}.service" "/etc/systemd/system/stepanel-app-${site}-python.service"
   for unit in "${worker_units[@]}"; do rm -f "/etc/systemd/system/$unit"; done
   systemctl daemon-reload
+  systemd_unlock
   exit 0
 fi
 
@@ -26,6 +62,7 @@ if [[ $action == account-resource-apply ]]; then
   [[ $account =~ ^[a-z0-9_-]{1,32}$ && $cpu =~ ^[0-9]+$ && $cpu_weight =~ ^[0-9]+$ && $memory_high =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ && $io_weight =~ ^[0-9]+$ && $tasks =~ ^[0-9]+$ ]] || { echo 'invalid account resource limits' >&2; exit 1; }
   (( cpu >= 25 && cpu <= 6400 && cpu_weight >= 1 && cpu_weight <= 10000 && memory_high >= 64 && memory_high <= memory && memory <= 1048576 && io_weight >= 1 && io_weight <= 10000 && tasks >= 16 && tasks <= 100000 )) || { echo 'account resource limits out of range' >&2; exit 1; }
   slice="/etc/systemd/system/stepanel-account-$account.slice"
+  systemd_lock
   cat > "$slice" <<EOF
 [Unit]
 Description=StePanel aggregate resource boundary for $account
@@ -37,7 +74,9 @@ MemoryMax=${memory}M
 IOWeight=$io_weight
 TasksMax=$tasks
 EOF
-  chmod 0644 "$slice"; chown root:root "$slice"; systemctl daemon-reload; systemctl start "stepanel-account-$account.slice"
+  chmod 0644 "$slice"; chown root:root "$slice"; systemctl daemon-reload
+  systemd_unlock
+  systemctl start "stepanel-account-$account.slice"
   exit 0
 fi
 
@@ -63,14 +102,20 @@ case "$action" in
     if systemctl is-active --quiet "$unit"; then was_active=1; fi
     cleanup() { rm -f "$staged" "$backup"; }
     rollback() {
-      if (( existed )); then mv -f "$backup" "$path"; else rm -f "$path"; fi
+      systemd_lock
+      if (( existed )); then
+        mv -f "$backup" "$path"
+      else
+        rm -f "$path"
+        systemctl --no-reload disable "$unit" || true
+      fi
       systemctl daemon-reload || true
+      systemd_unlock
       if (( existed && was_active )); then
         systemctl restart "$unit" || true
       else
         systemctl stop "$unit" || true
       fi
-      if (( ! existed )); then systemctl disable "$unit" || true; fi
     }
     trap cleanup EXIT
     cat > "$staged" <<EOF
@@ -111,11 +156,14 @@ WantedBy=multi-user.target
 EOF
     chmod 0644 "$staged"
     chown root:root "$staged"
+    systemd_lock
     mv -f "$staged" "$path"
     if ! systemctl daemon-reload; then
+      systemd_unlock
       rollback
       exit 1
     fi
+    systemd_unlock
     # Distinguish first activation from configuration update
     if (( was_active )); then
       # Service was running: restart to apply new configuration
@@ -125,7 +173,7 @@ EOF
       fi
     else
       # Service was not running: enable and start for the first time
-      if ! systemctl enable --now "$unit"; then
+      if ! enable_units "$unit" || ! systemctl start "$unit"; then
         rollback
         exit 1
       fi
@@ -155,7 +203,8 @@ EOF
     # Track whether service was active before update
     was_active=0
     if systemctl is-active --quiet "$unit"; then was_active=1; fi
-    cat > "$path" <<EOF
+    staged=$(mktemp "/etc/systemd/system/.stepanel-worker.XXXXXX")
+    cat > "$staged" <<EOF
 [Unit]
 Description=StePanel worker $site/$name
 After=network-online.target
@@ -179,12 +228,17 @@ UMask=0027
 [Install]
 WantedBy=multi-user.target
 EOF
-    chmod 0644 "$path"; chown root:root "$path"; systemctl daemon-reload
+    chmod 0644 "$staged"; chown root:root "$staged"
+    systemd_lock
+    mv -f "$staged" "$path"
+    systemctl daemon-reload
+    systemd_unlock
     # Distinguish first creation from configuration update
     if (( was_active )); then
       systemctl restart "$unit" || exit 1
     else
-      systemctl enable --now "$unit" || exit 1
+      enable_units "$unit" || exit 1
+      systemctl start "$unit" || exit 1
     fi
     # Verify the service is active
     systemctl is-active --quiet "$unit" || exit 1
@@ -192,7 +246,13 @@ EOF
   worker-delete)
     (( $# == 3 )) || { echo 'usage: stepanel-appctl worker-delete SITE NAME' >&2; exit 64; }
     name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid worker name' >&2; exit 1; }
-    unit="stepanel-worker-${site}-${name}.service"; systemctl disable --now "$unit" 2>/dev/null || true; rm -f "/etc/systemd/system/$unit"; systemctl daemon-reload ;;
+    unit="stepanel-worker-${site}-${name}.service"
+    systemctl stop "$unit" 2>/dev/null || true
+    systemd_lock
+    systemctl --no-reload disable "$unit" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$unit"
+    systemctl daemon-reload
+    systemd_unlock ;;
   python-apply)
     (( $# == 7 )) || { echo 'usage: stepanel-appctl python-apply SITE VERSION ROOT ENTRYPOINT PORT WORKERS' >&2; exit 64; }
     version=$3; root=$4; entry=$5; port=$6; workers=$7
@@ -221,7 +281,8 @@ REQS
     # Track whether service was active before update
     was_active=0
     if systemctl is-active --quiet "$unit"; then was_active=1; fi
-    cat > "/etc/systemd/system/$unit" <<EOF
+    staged=$(mktemp "/etc/systemd/system/.stepanel-python.XXXXXX")
+    cat > "$staged" <<EOF
 [Unit]
 Description=StePanel Python app $site
 After=network-online.target
@@ -245,12 +306,17 @@ UMask=0027
 [Install]
 WantedBy=multi-user.target
 EOF
-    chmod 0644 "/etc/systemd/system/$unit"; systemctl daemon-reload
+    chmod 0644 "$staged"; chown root:root "$staged"
+    systemd_lock
+    mv -f "$staged" "/etc/systemd/system/$unit"
+    systemctl daemon-reload
+    systemd_unlock
     # Distinguish first creation from configuration update
     if (( was_active )); then
       systemctl restart "$unit" || exit 1
     else
-      systemctl enable --now "$unit" || exit 1
+      enable_units "$unit" || exit 1
+      systemctl start "$unit" || exit 1
     fi
     # Verify the service is active
     systemctl is-active --quiet "$unit" || exit 1
@@ -286,6 +352,7 @@ EOF
     slice="/etc/systemd/system/stepanel-site-$site.slice"
     parent_slice=""
     [[ -z $account ]] || parent_slice="Slice=stepanel-account-$account.slice"
+    systemd_lock
     cat > "$slice" <<EOF
 [Unit]
 Description=StePanel resource boundary for $site
@@ -298,7 +365,9 @@ MemoryMax=${memory}M
 IOWeight=$io_weight
 TasksMax=$tasks
 EOF
-    chmod 0644 "$slice"; chown root:root "$slice"; systemctl daemon-reload; systemctl start "stepanel-site-$site.slice" ;;
+    chmod 0644 "$slice"; chown root:root "$slice"; systemctl daemon-reload
+    systemd_unlock
+    systemctl start "stepanel-site-$site.slice" ;;
   resource-status)
     (( $# == 2 )) || { echo 'usage: stepanel-appctl resource-status SITE' >&2; exit 64; }
     systemctl show "stepanel-site-$site.slice" --property=ActiveState --property=CPUQuotaPerSecUSec --property=CPUWeight --property=MemoryHigh --property=MemoryMax --property=MemoryCurrent --property=IOWeight --property=TasksMax --property=TasksCurrent --property=CPUUsageNSec --no-pager ;;
@@ -323,8 +392,9 @@ EOF
     # `bash -lc` receives it as ONE argument (its command string) rather than
     # splitting on whitespace into $0/$1/... positional parameters.
     { printf '#!/usr/bin/env bash\nset -Eeuo pipefail\ncd %q\n' "$root"; printf 'exec /bin/bash -lc %q\n' "$decoded_command"; } > "$staged"
-    chown root:root "$staged"; chmod 0755 "$staged"; mv -f "$staged" "$script"
+    chown root:root "$staged"; chmod 0755 "$staged"
     unit="stepanel-task-${site}-${name}.service"; timer="stepanel-task-${site}-${name}.timer"
+    systemd_lock
     cat > "/etc/systemd/system/$unit" <<EOF
 [Unit]
 Description=StePanel scheduled task $site/$name
@@ -359,12 +429,30 @@ Unit=$unit
 [Install]
 WantedBy=timers.target
 EOF
-    chmod 0644 "/etc/systemd/system/$unit" "/etc/systemd/system/$timer"; chown root:root "/etc/systemd/system/$unit" "/etc/systemd/system/$timer"; systemctl daemon-reload
-    if [[ $enabled == 1 ]]; then systemctl enable --now "$timer"; else systemctl disable --now "$timer" 2>/dev/null || true; fi ;;
+    chmod 0644 "/etc/systemd/system/$unit" "/etc/systemd/system/$timer"; chown root:root "/etc/systemd/system/$unit" "/etc/systemd/system/$timer"
+    mv -f "$staged" "$script"
+    systemctl daemon-reload
+    systemd_unlock
+    if [[ $enabled == 1 ]]; then
+      enable_units "$timer"
+      systemctl start "$timer"
+    else
+      systemctl stop "$timer" 2>/dev/null || true
+      systemd_lock
+      systemctl --no-reload disable "$timer" 2>/dev/null || true
+      systemctl daemon-reload
+      systemd_unlock
+    fi ;;
   task-delete)
     (( $# == 3 )) || { echo 'usage: stepanel-appctl task-delete SITE NAME' >&2; exit 64; }
     name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid task name' >&2; exit 1; }
-    unit="stepanel-task-${site}-${name}.service"; timer="stepanel-task-${site}-${name}.timer"; systemctl disable --now "$timer" 2>/dev/null || true; rm -f "/etc/systemd/system/$unit" "/etc/systemd/system/$timer" "/var/lib/stepanel/tasks/$site/$name.sh" "/var/www/sites/$site/.stepanel-tasks/$name.sh"; systemctl daemon-reload ;;
+    unit="stepanel-task-${site}-${name}.service"; timer="stepanel-task-${site}-${name}.timer"
+    systemctl stop "$timer" 2>/dev/null || true
+    systemd_lock
+    systemctl --no-reload disable "$timer" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$unit" "/etc/systemd/system/$timer" "/var/lib/stepanel/tasks/$site/$name.sh" "/var/www/sites/$site/.stepanel-tasks/$name.sh"
+    systemctl daemon-reload
+    systemd_unlock ;;
   env-apply)
     (( $# == 2 )) || { echo 'usage: stepanel-appctl env-apply SITE' >&2; exit 64; }
     install -d -m 0700 -o root -g root /etc/stepanel/environment

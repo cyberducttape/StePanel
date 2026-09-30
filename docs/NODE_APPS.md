@@ -18,8 +18,12 @@ public root.
 
 Deploying an app asks the root-owned `stepanel-appctl` helper to atomically
 install and start its hardened systemd unit. Application lifecycle operations
-are serialized, and a failed activation restores the prior unit and runtime
-state. Proxy deployment is a separate operation through the selected
+are serialized per site, so dependency installation and builds for different
+sites can proceed concurrently. Node, Composer, and Python package installation
+run as that site user (the Python virtualenv is bootstrapped and chowned first).
+A host-wide lock is held only while publishing/removing systemd unit files
+and coordinating `daemon-reload`; unit start/stop/restart work runs outside
+it. A failed activation restores the prior unit and runtime state. Proxy deployment is a separate operation through the selected
 webserver's `stepanel-proxyctl` helper. The service account cannot write either
 the systemd unit directory or managed webserver configuration directories.
 The backend must be an `http://` endpoint on localhost or a private IP, must
