@@ -1,6 +1,6 @@
 [Unit]
 Description=StePanel durable job worker
-After=network-online.target
+After=network-online.target stepanel.service
 Wants=network-online.target
 
 [Service]
