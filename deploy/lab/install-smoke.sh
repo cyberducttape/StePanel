@@ -54,6 +54,15 @@ else
   dnf install -y rclone
 fi
 
+# The post-install readiness probe now verifies offsite write/read/delete, so
+# provide the harmless local rclone remote before the installer starts the
+# panel. RCLONE_CONFIG is explicitly preserved by install.sh into the systemd
+# environment; provider configuration remains operator-managed in production.
+install -d -m 0750 -o root -g root /etc/stepanel
+printf '[local]\ntype = local\n' > /etc/stepanel/rclone.conf
+chmod 0644 /etc/stepanel/rclone.conf
+export RCLONE_CONFIG=/etc/stepanel/rclone.conf
+
 if ! ./install.sh; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
@@ -61,6 +70,10 @@ if ! ./install.sh; then
 fi
 if grep -Eq 'stepanel-dbctl[[:space:]]+\*([[:space:]]|$)|stepanel-certbot[[:space:]]+\*' /etc/sudoers.d/stepanel; then
   echo 'installer emitted an unrestricted database/certificate helper sudo grant' >&2
+  exit 1
+fi
+if ! grep -Fxq 'RCLONE_CONFIG="/etc/stepanel/rclone.conf"' /etc/ste-panel.env; then
+  echo 'installer did not preserve the explicit rclone config path for systemd' >&2
   exit 1
 fi
 # The recovery smoke runs the separately supervised worker, so make the
@@ -81,14 +94,6 @@ install -m 0644 /work/deploy/lab/stepanel-root-broker.service /etc/systemd/syste
 if ! grep -q '^STEPANEL_LAB_ROOT_BROKER_SOCKET=' /etc/ste-panel.env; then
   printf '%s\n' 'STEPANEL_LAB_ROOT_BROKER_SOCKET="/run/stepanel-root-broker.sock"' >> /etc/ste-panel.env
 fi
-# rclone treats `local:/path` as a configured remote named "local". Create
-# that deliberately disposable remote so the required offsite-backup path is
-# exercised against the host filesystem rather than silently bypassed.
-install -d -m 0750 -o stepanel -g stepanel /opt/stepanel
-install -m 0600 -o stepanel -g stepanel /dev/null /opt/stepanel/.rclone.conf
-printf '[local]\ntype = local\n' > /opt/stepanel/.rclone.conf
-chown stepanel:stepanel /opt/stepanel/.rclone.conf
-chmod 0600 /opt/stepanel/.rclone.conf
 systemctl daemon-reload
 systemctl restart stepanel-root-broker.service
 systemctl is-active --quiet stepanel-root-broker.service

@@ -14,7 +14,7 @@ if [[ -f "$ENV_FILE" ]]; then
   [[ $env_owner == 0 && $env_mode =~ ^[0-7]{3,4}$ && $(( 8#$env_mode & 022 )) == 0 ]] || { echo "$ENV_FILE must be root-owned and not group/world-writable." >&2; exit 1; }
   while IFS='=' read -r env_key env_encoded; do
     [[ -n $env_key ]] || continue
-    [[ $env_key =~ ^STEPANEL_[A-Z0-9_]+$ && $env_encoded == \"*\" ]] || { echo "$ENV_FILE contains an unsupported entry." >&2; exit 1; }
+    [[ ( $env_key =~ ^STEPANEL_[A-Z0-9_]+$ || $env_key == RCLONE_CONFIG ) && $env_encoded == \"*\" ]] || { echo "$ENV_FILE contains an unsupported entry." >&2; exit 1; }
     [[ -v $env_key ]] && continue
     env_encoded=${env_encoded:1:${#env_encoded}-2}
     env_value=
@@ -138,6 +138,8 @@ if [[ "$INSTALL_FAIL2BAN" == "1" && -z "$FAIL2BAN_IGNORE_IP" && -t 0 ]]; then re
 if [[ "$INSTALL_FAIL2BAN" == "1" && -z "$FAIL2BAN_IGNORE_IP" ]]; then echo "Set STEPANEL_FAIL2BAN_IGNORE_IP before enabling Fail2ban; refusing an unattended lockout risk." >&2; exit 1; fi
 if [[ "$FAIL2BAN_IGNORE_IP" == *$'\n'* || "$FAIL2BAN_IGNORE_IP" == *$'\r'* ]]; then echo "STEPANEL_FAIL2BAN_IGNORE_IP may not contain newlines." >&2; exit 1; fi
 if [[ -n "$FPM_LENS_BINARY" && ! -x "$FPM_LENS_BINARY" ]]; then echo "STEPANEL_FPM_LENS_BINARY must point to an executable fpm-lens binary." >&2; exit 1; fi
+RCLONE_CONFIG=${RCLONE_CONFIG:-}
+if [[ -n "$RCLONE_CONFIG" && "$RCLONE_CONFIG" != /* ]]; then echo 'RCLONE_CONFIG must be an absolute path.' >&2; exit 1; fi
 if [[ "$INSTALL_MODSEC" != "0" && "$INSTALL_MODSEC" != "1" ]]; then echo "STEPANEL_INSTALL_MODSEC must be 0 or 1." >&2; exit 1; fi
 if [[ "$MODSEC_MODE" != "Off" && "$MODSEC_MODE" != "DetectionOnly" && "$MODSEC_MODE" != "On" ]]; then echo "STEPANEL_MODSEC_MODE must be Off, DetectionOnly, or On." >&2; exit 1; fi
 if [[ "$INSTALL_MAIL" != "0" && "$INSTALL_MAIL" != "1" ]]; then echo "STEPANEL_INSTALL_MAIL must be 0 or 1." >&2; exit 1; fi
@@ -683,6 +685,7 @@ TXN_TEMPS+=("$env_tmp")
   write_env STEPANEL_BACKUP_ROOT /var/backups/stepanel
   if [[ -n "${STEPANEL_OFFSITE_TARGET:-}" ]]; then write_env STEPANEL_OFFSITE_TARGET "$STEPANEL_OFFSITE_TARGET"; fi
   write_env STEPANEL_REQUIRE_OFFSITE_BACKUP "$REQUIRE_OFFSITE_BACKUP"
+  if [[ -n "$RCLONE_CONFIG" ]]; then write_env RCLONE_CONFIG "$RCLONE_CONFIG"; fi
   if [[ -n "${STEPANEL_CLOUD_PROVIDER:-}" ]]; then write_env STEPANEL_CLOUD_PROVIDER "$STEPANEL_CLOUD_PROVIDER"; fi
   if [[ -n "${STEPANEL_SSH_SERVERS:-}" ]]; then write_env STEPANEL_SSH_SERVERS "$STEPANEL_SSH_SERVERS"; fi
   write_env STEPANEL_JOB_STATE "$DATA_DIR/jobs.json"

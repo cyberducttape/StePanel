@@ -133,6 +133,13 @@ sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
 
 The installer records the selected database engine/version, creates a restricted `stepanel` service account, writes the requested panel hostname into the selected webserver, and binds the control plane to `127.0.0.1:8090`. Caddy provisions HTTPS automatically; Apache installations must complete TLS termination before signing in.
 
+Production installation requires a working offsite target. Set `RCLONE_CONFIG`
+to an absolute path readable by the `stepanel` service account before running
+the installer, for example with `sudo env RCLONE_CONFIG=/etc/stepanel/rclone.conf
+./install.sh`. The installer preserves this explicitly supported child-process
+setting in `/etc/ste-panel.env`, and its post-install readiness probe verifies
+that the configured target can write, read, and delete a health object.
+
 Nightly/manual installation smoke CI exercises real disposable systemd hosts
 for AlmaLinux, Rocky Linux, Ubuntu, and Debian, including package installation,
 service restart, synthetic site creation, and selected-webserver validation.

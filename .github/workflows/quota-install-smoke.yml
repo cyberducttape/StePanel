@@ -15,8 +15,10 @@ concurrency:
 
 jobs:
   quota-install:
-    # GitHub-hosted jobs run in disposable VMs. A loop-backed ext4 filesystem
-    # gives the nested systemd install host a real quota-enabled mount.
+    # Exercise the production installer against a real ext4 user-quota mount
+    # inside an isolated systemd host container. The hosted runner itself does
+    # not grant mount privileges, so loop setup stays inside the privileged
+    # disposable host rather than its outer VM.
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -29,23 +31,6 @@ jobs:
         run: |
           go build -trimpath -ldflags='-s -w' -o stepanel .
           go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root
-      - name: Create and enable disposable ext4 user-quota filesystem
-        run: |
-          set -Eeuo pipefail
-          sudo apt-get update
-          sudo apt-get install -y e2fsprogs quota
-          quota_root="$RUNNER_TEMP/stepanel-quota-vm"
-          quota_mount="$quota_root/www"
-          sudo mkdir -p "$quota_mount"
-          sudo truncate -s 2G "$quota_root.ext4"
-          sudo mkfs.ext4 -F -O quota "$quota_root.ext4"
-          sudo mount -o loop,usrquota "$quota_root.ext4" "$quota_mount"
-          # ext4's -O quota stores accounting in hidden inodes; quotacheck's
-          # external aquota.* files are inappropriate for this format.
-          sudo quotaon -v -u "$quota_mount"
-          sudo quotaon -p -u "$quota_mount"
-          echo "STEPANEL_QUOTA_MOUNT=$quota_mount" >> "$GITHUB_ENV"
-          echo "STEPANEL_QUOTA_ROOT=$quota_root" >> "$GITHUB_ENV"
       - name: Install on a quota-enabled disposable systemd host
         run: |
           set -Eeuo pipefail
@@ -53,8 +38,6 @@ jobs:
           mkdir -p "$diagnostics_dir"
           cleanup() {
             sudo docker rm -f stepanel-quota-install >/dev/null 2>&1 || true
-            sudo umount "$STEPANEL_QUOTA_MOUNT" >/dev/null 2>&1 || true
-            sudo rm -rf "$STEPANEL_QUOTA_ROOT" "$STEPANEL_QUOTA_ROOT.ext4"
           }
           trap cleanup EXIT
           docker build --build-arg BASE_IMAGE=ubuntu:24.04 -f deploy/lab/Dockerfile.systemd -t stepanel-quota-systemd .
@@ -62,7 +45,7 @@ jobs:
             --security-opt=no-new-privileges:false --userns=host --cgroupns=host \
             --tmpfs /run --tmpfs /run/lock \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            -v "$PWD:/work" -v "$STEPANEL_QUOTA_MOUNT:/var/www:rw" \
+            -v "$PWD:/work" \
             stepanel-quota-systemd /sbin/init
           systemd_ready=0
           for _ in $(seq 1 30); do
@@ -73,6 +56,19 @@ jobs:
             sleep 2
           done
           test "$systemd_ready" = 1 || { sudo docker logs stepanel-quota-install >&2; exit 1; }
+          sudo docker exec stepanel-quota-install bash -lc '
+            set -Eeuo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y e2fsprogs quota
+            install -d -m 0755 /var/www
+            truncate -s 2G /var/lib/stepanel-quota.ext4
+            mkfs.ext4 -F -O quota /var/lib/stepanel-quota.ext4
+            loop_device=$(losetup --find --show /var/lib/stepanel-quota.ext4)
+            mount -o usrquota "$loop_device" /var/www
+            quotaon -v -u /var/www
+            quotaon -p -u /var/www
+          '
           set +e
           timeout --foreground 30m sudo docker exec \
             -e STEPANEL_QUOTA_SMOKE=1 -e STEPANEL_DB_ENGINE=mariadb -e STEPANEL_WEBSERVER=caddy \

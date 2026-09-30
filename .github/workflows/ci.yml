@@ -76,6 +76,7 @@ jobs:
         run: |
           set -eu
           smoke_root=$(mktemp -d)
+          printf '[local]\ntype = local\n' > "$smoke_root/rclone.conf"
           cleanup() { kill "$smoke_pid" 2>/dev/null || true; rm -rf "$smoke_root"; }
           trap cleanup EXIT
           STEPANEL_ENV=production \
@@ -89,6 +90,7 @@ jobs:
           STEPANEL_AUDIT_KEY=ci-audit-key-012345678901234567890123456789 \
           STEPANEL_ENVIRONMENT_KEY=ci-environment-key-012345678901234567890123456789 \
           STEPANEL_BACKUP_SIGNING_KEY=ci-backup-signing-key-012345678901234567890123456789 \
+          RCLONE_CONFIG="$smoke_root/rclone.conf" \
           STEPANEL_OFFSITE_TARGET=local:$smoke_root/offsite \
           STEPANEL_REQUIRE_OFFSITE_BACKUP=1 \
           STEPANEL_IMPORT_ROOT="$smoke_root/imports" \
@@ -159,10 +161,12 @@ jobs:
             -e STEPANEL_SESSION_SECRET=ci-session-secret-012345678901234567890123 \
             -e STEPANEL_AUDIT_KEY=ci-audit-key-012345678901234567890123456789 \
             -e STEPANEL_ENVIRONMENT_KEY=ci-environment-key-012345678901234567890123456789 \
-            -e STEPANEL_BACKUP_SIGNING_KEY=ci-backup-signing-key-012345678901234567890123456789 \
-            -e STEPANEL_OFFSITE_TARGET=local:/tmp/stepanel-offsite \
-            -e STEPANEL_REQUIRE_OFFSITE_BACKUP=1 \
-            stepanel:ci
+          -e STEPANEL_BACKUP_SIGNING_KEY=ci-backup-signing-key-012345678901234567890123456789 \
+          -e RCLONE_CONFIG=/run/secrets/rclone.conf \
+          -e STEPANEL_OFFSITE_TARGET=local:/tmp/stepanel-offsite \
+          -e STEPANEL_REQUIRE_OFFSITE_BACKUP=1 \
+          -v "$smoke_root/rclone.conf:/run/secrets/rclone.conf:ro" \
+          stepanel:ci
           ready=0
           for _ in $(seq 1 30); do
             if curl --fail --silent --max-time 1 http://127.0.0.1:18091/livez >/dev/null && \
