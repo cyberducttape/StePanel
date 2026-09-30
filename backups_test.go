@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,6 +124,107 @@ func TestCreateSiteBackupFailureInjectionCleansTemporaryArchive(t *testing.T) {
 		if strings.HasPrefix(entry.Name(), ".backup-") {
 			t.Fatalf("temporary backup survived injected failure: %s", entry.Name())
 		}
+	}
+}
+
+// TestBackupRecoversFromRealENOSPC is enabled only in the disposable QEMU
+// acceptance guest. It requires a small dedicated ext4 filesystem so a bad
+// invocation cannot fill the host or the guest's root filesystem.
+func TestBackupRecoversFromRealENOSPC(t *testing.T) {
+	backupRoot := os.Getenv("STEPANEL_ENOSPC_BACKUP_ROOT")
+	if backupRoot == "" {
+		t.Skip("requires the dedicated ENOSPC acceptance filesystem")
+	}
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(backupRoot, &fs); err != nil {
+		t.Fatal(err)
+	}
+	if fs.Type != 0xef53 {
+		t.Fatalf("ENOSPC target filesystem type = %#x, want ext4", fs.Type)
+	}
+	totalBytes := uint64(fs.Blocks) * uint64(fs.Bsize)
+	if totalBytes < 48<<20 || totalBytes > 256<<20 {
+		t.Fatalf("ENOSPC target filesystem size = %d bytes, want 48..256 MiB", totalBytes)
+	}
+	availableBytes := uint64(fs.Bavail) * uint64(fs.Bsize)
+	if availableBytes < 32<<20 {
+		t.Fatalf("ENOSPC target initially has only %d bytes available; refusing a non-isolated or prefilled target", availableBytes)
+	}
+
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	public := filepath.Join(webRoot, "sites", "enospc", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	// Incompressible content ensures the archive needs substantially more than
+	// the small amount of free space left below.
+	payload := make([]byte, 24<<20)
+	if _, err := rand.Read(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "payload.bin"), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	fillPath := filepath.Join(backupRoot, ".enospc-fill")
+	fill, err := os.OpenFile(fillPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := make([]byte, 1<<20)
+	for {
+		if err := syscall.Statfs(backupRoot, &fs); err != nil {
+			_ = fill.Close()
+			t.Fatal(err)
+		}
+		available := uint64(fs.Bavail) * uint64(fs.Bsize)
+		if available <= 4<<20 {
+			break
+		}
+		if _, err := fill.Write(chunk); err != nil && !errors.Is(err, syscall.ENOSPC) {
+			_ = fill.Close()
+			t.Fatalf("fill dedicated filesystem: %v", err)
+		}
+		if err := fill.Sync(); err != nil && !errors.Is(err, syscall.ENOSPC) {
+			_ = fill.Close()
+			t.Fatalf("sync filesystem filler: %v", err)
+		}
+	}
+	if err := fill.Close(); err != nil && !errors.Is(err, syscall.ENOSPC) {
+		t.Fatalf("close filesystem filler: %v", err)
+	}
+
+	_, backupErr := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "enospc"}, false)
+	if !errors.Is(backupErr, syscall.ENOSPC) {
+		t.Fatalf("backup error = %v, want real ENOSPC", backupErr)
+	}
+	entries, err := os.ReadDir(backupRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(fillPath) {
+		t.Fatalf("backup root after ENOSPC = %#v, want only the filler (no partial publication)", entries)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".backup-") {
+			t.Fatalf("failed backup left staging directory %q", entry.Name())
+		}
+	}
+	if err := os.Remove(fillPath); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "enospc"}, false)
+	if err != nil {
+		t.Fatalf("backup retry after freeing space: %v", err)
+	}
+	manifest, err := VerifySiteBackup(result.Path, "")
+	if err != nil {
+		t.Fatalf("verify backup retry: %v", err)
+	}
+	if manifest.Site != "enospc" || manifest.Bytes == 0 {
+		t.Fatalf("recovered backup manifest = %#v", manifest)
 	}
 }
 

@@ -29,6 +29,7 @@ jobs:
         run: |
           go build -trimpath -ldflags='-s -w' -o stepanel .
           go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root
+          go test -c -trimpath -o stepanel-enospc.test .
       - name: Boot quota-enabled disposable Ubuntu guest and install
         run: |
           set -Eeuo pipefail
@@ -44,6 +45,7 @@ jobs:
           (cd "$vm_root" && grep 'noble-server-cloudimg-amd64.img$' SHA256SUMS | sha256sum --check --status)
           qemu-img resize "$guest_image" 12G
           qemu-img create -f raw "$vm_root/www.ext4" 2G
+          qemu-img create -f raw "$vm_root/enospc.ext4" 96M
 
           ssh-keygen -q -t ed25519 -N '' -f "$vm_root/id_ed25519"
           vm_pubkey=$(<"$vm_root/id_ed25519.pub")
@@ -65,12 +67,16 @@ jobs:
           runcmd:
             - |
               set -eux
-              mkfs.ext4 -F -O quota /dev/vdb
+              mkfs.ext4 -F /dev/vdb
               install -d -m 0755 /var/www
               printf '%s\\n' '/dev/vdb /var/www ext4 usrquota 0 2' >> /etc/fstab
               mount /var/www
+              quotacheck -cugm /var/www
               quotaon -u /var/www
               quotaon -p -u /var/www
+              mkfs.ext4 -F /dev/vdc
+              install -d -m 0700 /mnt/stepanel-enospc
+              mount /dev/vdc /mnt/stepanel-enospc
               touch /run/stepanel-quota-ready
           EOF
           cloud-localds "$vm_root/seed.iso" "$vm_root/user-data"
@@ -80,6 +86,7 @@ jobs:
             -cpu max -smp 2 -m 4096 \
             -drive "file=$guest_image,if=virtio,format=qcow2" \
             -drive "file=$vm_root/www.ext4,if=virtio,format=raw" \
+            -drive "file=$vm_root/enospc.ext4,if=virtio,format=raw" \
             -drive "file=$vm_root/seed.iso,if=virtio,media=cdrom,readonly=on" \
             -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
             -device virtio-net-pci,netdev=net0 \
@@ -118,3 +125,5 @@ jobs:
             'sudo findmnt -no OPTIONS /var/www | tr "," "\\n" | grep -Fx usrquota && sudo quotaon -p -u /var/www'
           ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo env STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy bash /work/deploy/lab/install-smoke.sh'
+          ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+            'sudo test "$(findmnt -n -o FSTYPE --target /mnt/stepanel-enospc)" = ext4 && sudo test "$(findmnt -n -o SOURCE --target /mnt/stepanel-enospc)" = /dev/vdc && sudo env STEPANEL_ENOSPC_BACKUP_ROOT=/mnt/stepanel-enospc /work/stepanel-enospc.test -test.run "^TestBackupRecoversFromRealENOSPC$" -test.v'
