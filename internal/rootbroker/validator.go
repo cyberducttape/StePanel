@@ -283,6 +283,16 @@ func (v *Validator) ValidateEncoding(enc string) error {
 	return nil
 }
 
+func validateDBSecret(secret string, minimum int) error {
+	if len(secret) < minimum || len(secret) > 128 {
+		return fmt.Errorf("database password must be between %d and 128 characters", minimum)
+	}
+	if strings.ContainsAny(secret, "\r\n") {
+		return fmt.Errorf("database password may not contain newlines")
+	}
+	return nil
+}
+
 // ValidateRequest validates the entire RPC request.
 // Returns nil if valid, or an error with the first validation failure.
 func (v *Validator) ValidateRequest(req *Request) error {

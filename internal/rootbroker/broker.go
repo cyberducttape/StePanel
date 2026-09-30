@@ -1,6 +1,7 @@
 package rootbroker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,11 +21,14 @@ import (
 // ErrNotImplemented is returned when a broker operation is not yet implemented
 var ErrNotImplemented = errors.New("operation not yet implemented in broker")
 
+const maxBrokerDBDumpBytes = 64 << 20
+
 // Broker is the root-privileged operations handler.
 // All operations are strongly-typed and validated before execution.
 type Broker struct {
 	webRoot      string
 	recoveryRoot string
+	dbctlPath    string
 	validator    *Validator
 	logger       *log.Logger
 	isTestMode   bool // True when webRoot is in /tmp (indicates test environment)
@@ -72,6 +76,7 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 	return &Broker{
 		webRoot:      webRoot,
 		recoveryRoot: recoveryRoot,
+		dbctlPath:    "/usr/local/sbin/stepanel-dbctl",
 		validator:    NewValidator(webRoot),
 		logger:       logger,
 		isTestMode:   isTestMode,
@@ -642,6 +647,10 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 		return b.dbRestoreDump(ctx, req)
 	case "drop":
 		return b.dbDrop(ctx, req)
+	case "drop-managed", "cleanup-wordpress":
+		return b.dbDropManaged(ctx, req)
+	case "rotate":
+		return b.dbRotate(ctx, req)
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown db action: %s", req.Action)}, nil
 	}
@@ -652,7 +661,7 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 // prohibit sudo elevation with no_new_privs. The root broker can run this
 // read-only helper without changing the panel or worker service identity.
 func (b *Broker) dbInventory(ctx context.Context, _ *DBRequest) (*Response, error) {
-	cmd := stepanelhelper.NewCommand(ctx, "/usr/local/sbin/stepanel-dbctl", "inventory")
+	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, "inventory")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("database inventory failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
@@ -662,7 +671,16 @@ func (b *Broker) dbInventory(ctx context.Context, _ *DBRequest) (*Response, erro
 }
 
 func (b *Broker) dbProvision(ctx context.Context, req *DBRequest) (*Response, error) {
-	return unsupportedBrokerResponse("database provisioning")
+	if err := b.validator.ValidateSiteName(req.Site); err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	if err := b.validator.ValidateEncoding(req.Encoding); err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	if err := validateDBSecret(req.Password, 20); err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	return b.runDBHelper(ctx, []string{"provision", req.Database, req.Username, req.Site, req.Encoding}, []byte(req.Password+"\n"), DBResponse{Provisioned: true, Database: req.Database, Username: req.Username})
 	/*
 		if response, err := unsupportedBrokerResponse("database provisioning"); response != nil || err != nil {
 			return response, err
@@ -777,7 +795,16 @@ func (b *Broker) dbProvision(ctx context.Context, req *DBRequest) (*Response, er
 }
 
 func (b *Broker) dbRestoreDump(ctx context.Context, req *DBRequest) (*Response, error) {
-	return unsupportedBrokerResponse("database restore")
+	if err := b.validator.ValidateSiteName(req.Site); err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	if len(req.DumpData) == 0 {
+		return &Response{OK: false, Error: "dump data is empty"}, nil
+	}
+	if len(req.DumpData) > maxBrokerDBDumpBytes {
+		return &Response{OK: false, Error: "dump data exceeds the broker limit; use the streaming restore path"}, nil
+	}
+	return b.runDBHelper(ctx, []string{"restore-dump", req.Database, req.Site}, req.DumpData, DBResponse{Restored: true, Database: req.Database})
 	/*
 		if response, err := unsupportedBrokerResponse("database restore"); response != nil || err != nil {
 			return response, err
@@ -901,7 +928,40 @@ func (b *Broker) dbRestoreDump(ctx context.Context, req *DBRequest) (*Response, 
 }
 
 func (b *Broker) dbDrop(ctx context.Context, req *DBRequest) (*Response, error) {
-	return unsupportedBrokerResponse("database deletion")
+	return b.runDBHelper(ctx, []string{"drop", req.Database}, nil, DBResponse{Dropped: true, Database: req.Database})
+}
+
+func (b *Broker) dbDropManaged(ctx context.Context, req *DBRequest) (*Response, error) {
+	if err := b.validator.ValidateUsername(req.Username); err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	return b.runDBHelper(ctx, []string{"drop-managed", req.Database, req.Username}, nil, DBResponse{Dropped: true, Database: req.Database, Username: req.Username})
+}
+
+func (b *Broker) dbRotate(ctx context.Context, req *DBRequest) (*Response, error) {
+	if err := b.validator.ValidateUsername(req.Username); err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	if err := validateDBSecret(req.Password, 20); err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	return b.runDBHelper(ctx, []string{"rotate", req.Database, req.Username}, []byte(req.Password+"\n"), DBResponse{Database: req.Database, Username: req.Username})
+}
+
+func (b *Broker) runDBHelper(ctx context.Context, args []string, input []byte, result DBResponse) (*Response, error) {
+	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, args...)
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("database operation failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 // --- Vhost Operations ---

@@ -77,11 +77,57 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 		}
 		return []byte(details.Output), nil
 	}
+	if cfg.Production && typedDatabaseMutation(args) {
+		return runTypedDatabaseMutation(ctx, cfg, input, args...)
+	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, args...)
 	if input == "" {
 		return runBoundedCommand(ctx, cmd)
 	}
 	return runBoundedCommandInput(ctx, cmd, strings.NewReader(input+"\n"))
+}
+
+func typedDatabaseMutation(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "provision", "rotate", "drop-managed", "cleanup-wordpress":
+		return true
+	default:
+		return false
+	}
+}
+
+func runTypedDatabaseMutation(ctx context.Context, cfg Config, input string, args ...string) ([]byte, error) {
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return nil, err
+	}
+	if len(args) < 2 {
+		return nil, errors.New("invalid typed database mutation")
+	}
+	req := &rootbroker.DBRequest{Action: args[0], Database: args[1]}
+	switch args[0] {
+	case "provision":
+		if len(args) != 5 {
+			return nil, errors.New("invalid database provision arguments")
+		}
+		req.Username, req.Site, req.Encoding, req.Password = args[2], args[3], args[4], input
+	case "rotate", "drop-managed", "cleanup-wordpress":
+		if len(args) != 3 {
+			return nil, errors.New("invalid managed database arguments")
+		}
+		req.Username, req.Password = args[2], input
+	}
+	response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "db", DB: req})
+	if err != nil {
+		return nil, err
+	}
+	if !response.OK {
+		return nil, errors.New(response.Error)
+	}
+	return response.Details, nil
 }
 
 func labDirectRootBrokerEnabled() bool {

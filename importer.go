@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/importer"
@@ -435,7 +434,7 @@ func (a *App) restoreImportedDatabase(ctx context.Context, dumpPath, database, u
 		encoding = "UTF8"
 	}
 	provisionCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	_, err := runBoundedCommandInput(provisionCtx, helperCommandContext(provisionCtx, a.Config, a.Config.DBCtl, "provision", database, user, site, encoding), strings.NewReader(password+"\n"))
+	_, err := runDatabaseHelperContext(provisionCtx, a.Config, 2*time.Minute, password, "provision", database, user, site, encoding)
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("provision managed database: %w", err)

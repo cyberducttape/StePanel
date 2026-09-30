@@ -163,6 +163,11 @@ func TestBrokerDBProvision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
+	dbctl := filepath.Join(t.TempDir(), "dbctl")
+	if err := os.WriteFile(dbctl, []byte("#!/bin/sh\ncat >/dev/null\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker.dbctlPath = dbctl
 
 	ctx := context.Background()
 	req := &Request{
@@ -172,6 +177,8 @@ func TestBrokerDBProvision(t *testing.T) {
 			Database: "testdb",
 			Username: "testuser",
 			Site:     "testsite",
+			Encoding: "utf8mb4",
+			Password: "Strong-Database_2026!",
 		},
 	}
 
@@ -179,8 +186,8 @@ func TestBrokerDBProvision(t *testing.T) {
 	if err != nil {
 		t.Errorf("Execute failed: %v", err)
 	}
-	if resp.OK || !strings.Contains(resp.Error, "not implemented") {
-		t.Fatalf("database provision response = %#v, want explicit unsupported response", resp)
+	if !resp.OK {
+		t.Fatalf("database provision response = %#v", resp)
 	}
 }
 
@@ -229,8 +236,6 @@ func TestBrokerRejectsEveryUnimplementedMutation(t *testing.T) {
 		{name: "app stop", req: &Request{RequestType: "app", App: &AppRequest{Action: "stop", Site: "testsite", Port: 3000}}},
 		{name: "app restart", req: &Request{RequestType: "app", App: &AppRequest{Action: "restart", Site: "testsite", Port: 3000}}},
 		{name: "app rollback", req: &Request{RequestType: "app", App: &AppRequest{Action: "rollback", Site: "testsite", Port: 3000}}},
-		{name: "database restore", req: &Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump", Site: "testsite", Database: "testdb", Username: "testuser", DumpData: []byte("CREATE TABLE test (id INT);")}}},
-		{name: "database drop", req: &Request{RequestType: "db", DB: &DBRequest{Action: "drop", Site: "testsite", Database: "testdb", Username: "testuser"}}},
 		{name: "vhost auth", req: &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "apply-auth", Site: "testsite", Domain: "example.com", WebServer: "caddy"}}},
 		{name: "vhost delete", req: &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Site: "testsite", Domain: "example.com", WebServer: "caddy"}}},
 		{name: "proxy apply", req: &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "apply", WebServer: "caddy"}}},

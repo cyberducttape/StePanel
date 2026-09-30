@@ -230,6 +230,24 @@ func (c *Client) DBProvision(ctx context.Context, site, database, username strin
 	return c.Execute(ctx, req)
 }
 
+// DBMutation executes a typed database mutation through the root broker.
+// The caller supplies only the operation-specific fields; the broker remains
+// responsible for validating identifiers and invoking the fixed helper path.
+func (c *Client) DBMutation(ctx context.Context, action, site, database, username, encoding, password string, dump []byte) (*Response, error) {
+	return c.Execute(ctx, &Request{
+		RequestType: "db",
+		DB: &DBRequest{
+			Action:   action,
+			Site:     site,
+			Database: database,
+			Username: username,
+			Encoding: encoding,
+			Password: password,
+			DumpData: dump,
+		},
+	})
+}
+
 // DBInventory returns the helper's read-only managed-database inventory.
 func (c *Client) DBInventory(ctx context.Context) (*Response, error) {
 	return c.dbInventory(ctx, false)
