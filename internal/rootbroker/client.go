@@ -323,3 +323,8 @@ func (c *Client) GitClone(ctx context.Context, repo, ref, destination string) (*
 func (c *Client) GitDelete(ctx context.Context, site string) (*Response, error) {
 	return c.Execute(ctx, &Request{RequestType: "git", Git: &GitRequest{Action: "delete", Site: site}})
 }
+
+// GitPublic reads only the public half of a site's deploy key.
+func (c *Client) GitPublic(ctx context.Context, site string) (*Response, error) {
+	return c.Execute(ctx, &Request{RequestType: "git", Git: &GitRequest{Action: "public", Site: site}})
+}

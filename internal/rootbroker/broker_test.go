@@ -84,6 +84,42 @@ func TestBrokerGitDeleteRemovesOnlySiteKeyEntries(t *testing.T) {
 	}
 }
 
+func TestBrokerGitPublicReadsBoundedRegularFileWithoutFollowingSymlink(t *testing.T) {
+	keyRoot := t.TempDir()
+	const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAExample demo-deploy\n"
+	if err := os.WriteFile(filepath.Join(keyRoot, "demo.pub"), []byte(publicKey), 0644); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.gitKeyRoot = keyRoot
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "git", Git: &GitRequest{Action: "public", Site: "demo"}})
+	if err != nil || !response.OK {
+		t.Fatalf("typed Git public response = %#v, error = %v", response, err)
+	}
+	var details GitResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil || details.PublicKey != strings.TrimSpace(publicKey) {
+		t.Fatalf("typed Git public details = %#v, error = %v", details, err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.pub")
+	if err := os.WriteFile(outside, []byte(publicKey), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(keyRoot, "demo.pub")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(keyRoot, "demo.pub")); err != nil {
+		t.Fatal(err)
+	}
+	response, err = broker.Execute(context.Background(), &Request{RequestType: "git", Git: &GitRequest{Action: "public", Site: "demo"}})
+	if err != nil || response.OK {
+		t.Fatalf("typed Git public accepted symlink: response=%#v error=%v", response, err)
+	}
+}
+
 func TestBrokerSiteCreate(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	broker, err := NewBroker(t.TempDir(), logger)

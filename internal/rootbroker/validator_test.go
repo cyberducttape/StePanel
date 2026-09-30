@@ -393,6 +393,9 @@ func TestValidateHelperRequestAllowlist(t *testing.T) {
 	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "gitctl", Action: "delete", Args: []string{"demo"}}}); err == nil {
 		t.Fatal("Git deploy-key deletion remained available through the generic helper ABI")
 	}
+	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "gitctl", Action: "public", Args: []string{"demo"}}}); err == nil {
+		t.Fatal("Git public-key retrieval remained available through the generic helper ABI")
+	}
 	for _, req := range []*Request{
 		{RequestType: "helper", Helper: &HelperRequest{Name: "not-a-helper", Action: "apply"}},
 		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "shell"}},

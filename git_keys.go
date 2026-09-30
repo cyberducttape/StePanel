@@ -2,12 +2,39 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
+
+func gitDeployPublicKey(ctx context.Context, cfg Config, site string) (string, error) {
+	if cfg.Production || labDirectRootBrokerEnabled() {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if err != nil {
+			return "", err
+		}
+		response, err := client.GitPublic(ctx, site)
+		if err != nil {
+			return "", err
+		}
+		if !response.OK {
+			return "", errors.New(response.Error)
+		}
+		var details rootbroker.GitResponse
+		if err := json.Unmarshal(response.Details, &details); err != nil {
+			return "", err
+		}
+		return details.PublicKey, nil
+	}
+	if cfg.GitCtl == "" {
+		return "", errors.New("Git helper is not configured")
+	}
+	output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.GitCtl, "public", site)
+	return strings.TrimSpace(string(output)), err
+}
 
 func deleteGitDeployKey(ctx context.Context, cfg Config, site string) error {
 	if cfg.Production || labDirectRootBrokerEnabled() {
@@ -51,12 +78,12 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 		if !a.requireCustomerScope(w, r, "ssh:read") {
 			return
 		}
-		output, err, _ := runAllowlistedHelperOutput(r.Context(), a.Config, nil, a.Config.GitCtl, "public", site)
+		publicKey, err := gitDeployPublicKey(r.Context(), a.Config, site)
 		if err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"site": site, "configured": false})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"site": site, "configured": true, "public_key": strings.TrimSpace(string(output))})
+		writeJSON(w, http.StatusOK, map[string]any{"site": site, "configured": true, "public_key": publicKey})
 	case http.MethodPost:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)

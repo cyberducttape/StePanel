@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
@@ -1217,6 +1219,8 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 	switch req.Action {
 	case "delete":
 		return b.gitDelete(req)
+	case "public":
+		return b.gitPublic(req)
 	case "clone":
 		return b.gitClone(ctx, req)
 	case "verify-key":
@@ -1224,6 +1228,42 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown git action: %s", req.Action)}, nil
 	}
+}
+
+func (b *Broker) gitPublic(req *GitRequest) (*Response, error) {
+	info, err := os.Lstat(b.gitKeyRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return &Response{OK: false, Error: "Git deploy key is not configured"}, nil
+	}
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("inspect Git key directory: %v", err)}, nil
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return &Response{OK: false, Error: "Git key path is not a trusted directory"}, nil
+	}
+	root, err := os.OpenRoot(b.gitKeyRoot)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("open Git key directory: %v", err)}, nil
+	}
+	defer root.Close()
+	file, err := root.OpenFile(req.Site+".pub", os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return &Response{OK: false, Error: "Git deploy key is not configured"}, nil
+	}
+	defer file.Close()
+	fileInfo, err := file.Stat()
+	if err != nil || !fileInfo.Mode().IsRegular() || fileInfo.Size() <= 0 || fileInfo.Size() > 16<<10 {
+		return &Response{OK: false, Error: "Git public key is not a bounded regular file"}, nil
+	}
+	data, err := io.ReadAll(io.LimitReader(file, (16<<10)+1))
+	if err != nil || len(data) == 0 || len(data) > 16<<10 {
+		return &Response{OK: false, Error: "Git public key could not be read safely"}, nil
+	}
+	details, err := json.Marshal(GitResponse{PublicKey: strings.TrimSpace(string(data))})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 func (b *Broker) gitDelete(req *GitRequest) (*Response, error) {
