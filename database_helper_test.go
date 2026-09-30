@@ -54,6 +54,17 @@ func TestProductionDatabaseMutationUsesTypedRootBrokerRequest(t *testing.T) {
 	}
 }
 
+func TestProductionDatabaseHelperFailsClosedWithoutBrokerRoute(t *testing.T) {
+	helper := filepath.Join(t.TempDir(), "unrouted-db-helper")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 91\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runDatabaseHelperContext(context.Background(), Config{Production: true, DBCtl: helper}, time.Second, "", "inventory")
+	if err == nil || !strings.Contains(err.Error(), "root broker") {
+		t.Fatalf("production database helper error = %v, want fail-closed broker routing error", err)
+	}
+}
+
 func TestCreateDatabaseSafetyBackupContextHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -75,6 +75,7 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 		if handled {
 			return output, err
 		}
+		return nil, errors.New("production database helper is not routed through the root broker")
 	}
 	if labDirectRootBrokerEnabled() && input == "" && len(args) == 1 && args[0] == "inventory" {
 		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
