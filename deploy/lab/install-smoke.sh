@@ -58,7 +58,7 @@ fi
 # provide the harmless local rclone remote before the installer starts the
 # panel. RCLONE_CONFIG is explicitly preserved by install.sh into the systemd
 # environment; provider configuration remains operator-managed in production.
-install -d -m 0750 -o root -g root /etc/stepanel
+install -d -m 0755 -o root -g root /etc/stepanel
 printf '[local]\ntype = local\n' > /etc/stepanel/rclone.conf
 chmod 0644 /etc/stepanel/rclone.conf
 export RCLONE_CONFIG=/etc/stepanel/rclone.conf
@@ -66,6 +66,10 @@ export RCLONE_CONFIG=/etc/stepanel/rclone.conf
 if ! ./install.sh; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
+  exit 1
+fi
+if ! runuser -u stepanel -- test -r "$RCLONE_CONFIG"; then
+  echo 'StePanel service account cannot read the configured rclone file' >&2
   exit 1
 fi
 if grep -Eq 'stepanel-dbctl[[:space:]]+\*([[:space:]]|$)|stepanel-certbot[[:space:]]+\*' /etc/sudoers.d/stepanel; then
