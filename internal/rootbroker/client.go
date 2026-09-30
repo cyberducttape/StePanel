@@ -328,3 +328,8 @@ func (c *Client) GitDelete(ctx context.Context, site string) (*Response, error) 
 func (c *Client) GitPublic(ctx context.Context, site string) (*Response, error) {
 	return c.Execute(ctx, &Request{RequestType: "git", Git: &GitRequest{Action: "public", Site: site}})
 }
+
+// GitGenerate creates one site's Ed25519 deploy key and returns its public key.
+func (c *Client) GitGenerate(ctx context.Context, site string) (*Response, error) {
+	return c.Execute(ctx, &Request{RequestType: "git", Git: &GitRequest{Action: "generate", Site: site}})
+}

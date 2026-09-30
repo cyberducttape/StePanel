@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/ssh"
 )
 
 func contains(s, substr string) bool {
@@ -48,6 +50,9 @@ func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
 
 func TestBrokerGitDeleteRemovesOnlySiteKeyEntries(t *testing.T) {
 	keyRoot := t.TempDir()
+	if err := os.Chmod(keyRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
 	outside := filepath.Join(t.TempDir(), "outside-key")
 	if err := os.WriteFile(outside, []byte("keep me"), 0600); err != nil {
 		t.Fatal(err)
@@ -86,6 +91,9 @@ func TestBrokerGitDeleteRemovesOnlySiteKeyEntries(t *testing.T) {
 
 func TestBrokerGitPublicReadsBoundedRegularFileWithoutFollowingSymlink(t *testing.T) {
 	keyRoot := t.TempDir()
+	if err := os.Chmod(keyRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
 	const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAExample demo-deploy\n"
 	if err := os.WriteFile(filepath.Join(keyRoot, "demo.pub"), []byte(publicKey), 0644); err != nil {
 		t.Fatal(err)
@@ -117,6 +125,61 @@ func TestBrokerGitPublicReadsBoundedRegularFileWithoutFollowingSymlink(t *testin
 	response, err = broker.Execute(context.Background(), &Request{RequestType: "git", Git: &GitRequest{Action: "public", Site: "demo"}})
 	if err != nil || response.OK {
 		t.Fatalf("typed Git public accepted symlink: response=%#v error=%v", response, err)
+	}
+}
+
+func TestBrokerGitGenerateCreatesEd25519KeyWithoutReplacingExistingKey(t *testing.T) {
+	keyRoot := t.TempDir()
+	if err := os.Chmod(keyRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.gitKeyRoot = keyRoot
+	request := &Request{RequestType: "git", Git: &GitRequest{Action: "generate", Site: "demo"}}
+	response, err := broker.Execute(context.Background(), request)
+	if err != nil || !response.OK {
+		t.Fatalf("typed Git key generation response = %#v, error = %v", response, err)
+	}
+	var details GitResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(details.PublicKey, "ssh-ed25519 ") {
+		t.Fatalf("generated public key = %q, want ssh-ed25519 key", details.PublicKey)
+	}
+	privatePath := filepath.Join(keyRoot, "demo")
+	privateInfo, err := os.Stat(privatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if privateInfo.Mode().Perm() != 0600 {
+		t.Errorf("private key mode = %04o, want 0600", privateInfo.Mode().Perm())
+	}
+	privateData, err := os.ReadFile(privatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ssh.ParsePrivateKey(privateData); err != nil {
+		t.Fatalf("generated private key is not parseable: %v", err)
+	}
+	publicInfo, err := os.Stat(privatePath + ".pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publicInfo.Mode().Perm() != 0644 {
+		t.Errorf("public key mode = %04o, want 0644", publicInfo.Mode().Perm())
+	}
+	originalPrivate := string(privateData)
+	response, err = broker.Execute(context.Background(), request)
+	if err != nil || response.OK {
+		t.Fatalf("duplicate Git key generation accepted: response=%#v error=%v", response, err)
+	}
+	privateData, err = os.ReadFile(privatePath)
+	if err != nil || string(privateData) != originalPrivate {
+		t.Fatalf("duplicate generation changed private key: error=%v", err)
 	}
 }
 

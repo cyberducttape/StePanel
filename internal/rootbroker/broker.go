@@ -3,7 +3,10 @@ package rootbroker
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +21,7 @@ import (
 	"time"
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
+	"golang.org/x/crypto/ssh"
 )
 
 // ErrNotImplemented is returned when a broker operation is not yet implemented
@@ -1219,6 +1223,8 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 	switch req.Action {
 	case "delete":
 		return b.gitDelete(req)
+	case "generate":
+		return b.gitGenerate(req)
 	case "public":
 		return b.gitPublic(req)
 	case "clone":
@@ -1230,22 +1236,175 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 	}
 }
 
-func (b *Broker) gitPublic(req *GitRequest) (*Response, error) {
+func (b *Broker) openGitKeyRoot(create bool) (*os.Root, error) {
+	if create {
+		if err := os.MkdirAll(b.gitKeyRoot, 0700); err != nil {
+			return nil, fmt.Errorf("create Git key directory: %w", err)
+		}
+	}
 	info, err := os.Lstat(b.gitKeyRoot)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("Git key path is not a private directory")
+	}
+	if os.Geteuid() == 0 {
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != 0 {
+			return nil, errors.New("Git key directory is not owned by root")
+		}
+	}
+	root, err := os.OpenRoot(b.gitKeyRoot)
+	if err != nil {
+		return nil, fmt.Errorf("open Git key directory: %w", err)
+	}
+	openedInfo, err := root.Stat(".")
+	if err != nil || !os.SameFile(info, openedInfo) {
+		_ = root.Close()
+		return nil, errors.New("Git key directory changed while opening")
+	}
+	return root, nil
+}
+
+func lockGitKeySite(root *os.Root, site string, exclusive bool) (*os.File, error) {
+	lock, err := root.OpenFile("."+site+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("open Git key lock: %w", err)
+	}
+	if err := lock.Chmod(0600); err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("secure Git key lock: %w", err)
+	}
+	mode := syscall.LOCK_SH
+	if exclusive {
+		mode = syscall.LOCK_EX
+	}
+	if err := syscall.Flock(int(lock.Fd()), mode); err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("lock Git key: %w", err)
+	}
+	return lock, nil
+}
+
+func unlockGitKeySite(lock *os.File) {
+	if lock != nil {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+	}
+}
+
+func (b *Broker) gitGenerate(req *GitRequest) (*Response, error) {
+	root, err := b.openGitKeyRoot(true)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	defer root.Close()
+	lock, err := lockGitKeySite(root, req.Site, true)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	defer unlockGitKeySite(lock)
+	privateName, publicName := req.Site, req.Site+".pub"
+	for _, name := range []string{privateName, publicName} {
+		if _, err := root.Lstat(name); err == nil {
+			return &Response{OK: false, Error: "deploy key already exists"}, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return &Response{OK: false, Error: fmt.Sprintf("inspect existing deploy key: %v", err)}, nil
+		}
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("generate deploy key: %v", err)}, nil
+	}
+	privateBlock, err := ssh.MarshalPrivateKey(private, "stepanel-"+req.Site+"-deploy")
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("encode deploy key: %v", err)}, nil
+	}
+	privateData := pem.EncodeToMemory(privateBlock)
+	publicKey, err := ssh.NewPublicKey(public)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("encode public deploy key: %v", err)}, nil
+	}
+	publicData := append(bytes.TrimSpace(ssh.MarshalAuthorizedKey(publicKey)), []byte(" stepanel-"+req.Site+"-deploy\n")...)
+	created := make([]string, 0, 2)
+	cleanup := func() {
+		for _, name := range created {
+			_ = root.Remove(name)
+		}
+	}
+	for _, item := range []struct {
+		name string
+		data []byte
+		mode os.FileMode
+	}{{privateName, privateData, 0600}, {publicName, publicData, 0644}} {
+		file, err := root.OpenFile(item.name, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, item.mode)
+		if err != nil {
+			cleanup()
+			return &Response{OK: false, Error: fmt.Sprintf("create deploy key: %v", err)}, nil
+		}
+		created = append(created, item.name)
+		if written, writeErr := file.Write(item.data); writeErr != nil || written != len(item.data) {
+			_ = file.Close()
+			cleanup()
+			if writeErr == nil {
+				writeErr = io.ErrShortWrite
+			}
+			return &Response{OK: false, Error: fmt.Sprintf("write deploy key: %v", writeErr)}, nil
+		}
+		if err := file.Chmod(item.mode); err != nil {
+			_ = file.Close()
+			cleanup()
+			return &Response{OK: false, Error: fmt.Sprintf("secure deploy key: %v", err)}, nil
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			cleanup()
+			return &Response{OK: false, Error: fmt.Sprintf("sync deploy key: %v", err)}, nil
+		}
+		if err := file.Close(); err != nil {
+			cleanup()
+			return &Response{OK: false, Error: fmt.Sprintf("close deploy key: %v", err)}, nil
+		}
+	}
+	directory, err := root.Open(".")
+	if err != nil {
+		cleanup()
+		return &Response{OK: false, Error: fmt.Sprintf("open Git key directory for sync: %v", err)}, nil
+	}
+	if err := directory.Sync(); err != nil {
+		if directory != nil {
+			_ = directory.Close()
+		}
+		cleanup()
+		return &Response{OK: false, Error: fmt.Sprintf("sync Git key directory: %v", err)}, nil
+	}
+	if err := directory.Close(); err != nil {
+		cleanup()
+		return &Response{OK: false, Error: fmt.Sprintf("close Git key directory: %v", err)}, nil
+	}
+	details, err := json.Marshal(GitResponse{PublicKey: strings.TrimSpace(string(publicData))})
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
+}
+
+func (b *Broker) gitPublic(req *GitRequest) (*Response, error) {
+	root, err := b.openGitKeyRoot(false)
 	if errors.Is(err, os.ErrNotExist) {
 		return &Response{OK: false, Error: "Git deploy key is not configured"}, nil
 	}
 	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("inspect Git key directory: %v", err)}, nil
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return &Response{OK: false, Error: "Git key path is not a trusted directory"}, nil
-	}
-	root, err := os.OpenRoot(b.gitKeyRoot)
-	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("open Git key directory: %v", err)}, nil
+		return &Response{OK: false, Error: err.Error()}, nil
 	}
 	defer root.Close()
+	lock, err := lockGitKeySite(root, req.Site, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	defer unlockGitKeySite(lock)
 	file, err := root.OpenFile(req.Site+".pub", os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return &Response{OK: false, Error: "Git deploy key is not configured"}, nil
@@ -1267,21 +1426,19 @@ func (b *Broker) gitPublic(req *GitRequest) (*Response, error) {
 }
 
 func (b *Broker) gitDelete(req *GitRequest) (*Response, error) {
-	info, err := os.Lstat(b.gitKeyRoot)
+	root, err := b.openGitKeyRoot(false)
 	if errors.Is(err, os.ErrNotExist) {
 		return gitDeleteResponse()
 	}
 	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("inspect Git key directory: %v", err)}, nil
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return &Response{OK: false, Error: "Git key path is not a trusted directory"}, nil
-	}
-	root, err := os.OpenRoot(b.gitKeyRoot)
-	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("open Git key directory: %v", err)}, nil
+		return &Response{OK: false, Error: err.Error()}, nil
 	}
 	defer root.Close()
+	lock, err := lockGitKeySite(root, req.Site, true)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	defer unlockGitKeySite(lock)
 	for _, name := range []string{req.Site, req.Site + ".pub"} {
 		if err := root.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return &Response{OK: false, Error: fmt.Sprintf("remove Git deploy key %s: %v", name, err)}, nil

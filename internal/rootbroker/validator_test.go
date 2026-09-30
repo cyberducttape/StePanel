@@ -396,6 +396,15 @@ func TestValidateHelperRequestAllowlist(t *testing.T) {
 	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "gitctl", Action: "public", Args: []string{"demo"}}}); err == nil {
 		t.Fatal("Git public-key retrieval remained available through the generic helper ABI")
 	}
+	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "gitctl", Action: "generate", Args: []string{"demo"}}}); err == nil {
+		t.Fatal("Git deploy-key generation remained available through the generic helper ABI")
+	}
+	if err := v.ValidateRequest(&Request{RequestType: "git", Git: &GitRequest{Action: "generate", Site: "demo"}}); err != nil {
+		t.Fatalf("typed Git deploy-key generation rejected: %v", err)
+	}
+	if err := v.ValidateRequest(&Request{RequestType: "git", Git: &GitRequest{Action: "generate", Site: "../outside"}}); err == nil {
+		t.Fatal("typed Git deploy-key generation accepted an invalid site name")
+	}
 	for _, req := range []*Request{
 		{RequestType: "helper", Helper: &HelperRequest{Name: "not-a-helper", Action: "apply"}},
 		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "shell"}},

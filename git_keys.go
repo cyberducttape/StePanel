@@ -36,6 +36,32 @@ func gitDeployPublicKey(ctx context.Context, cfg Config, site string) (string, e
 	return strings.TrimSpace(string(output)), err
 }
 
+func gitDeployKeyGenerate(ctx context.Context, cfg Config, site string) (string, error) {
+	if cfg.Production || labDirectRootBrokerEnabled() {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if err != nil {
+			return "", err
+		}
+		response, err := client.GitGenerate(ctx, site)
+		if err != nil {
+			return "", err
+		}
+		if !response.OK {
+			return "", errors.New(response.Error)
+		}
+		var details rootbroker.GitResponse
+		if err := json.Unmarshal(response.Details, &details); err != nil {
+			return "", err
+		}
+		return details.PublicKey, nil
+	}
+	if cfg.GitCtl == "" {
+		return "", errors.New("Git helper is not configured")
+	}
+	output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.GitCtl, "generate", site)
+	return strings.TrimSpace(string(output)), err
+}
+
 func deleteGitDeployKey(ctx context.Context, cfg Config, site string) error {
 	if cfg.Production || labDirectRootBrokerEnabled() {
 		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
@@ -98,13 +124,13 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
-		output, err, _ := runAllowlistedHelperOutput(operationCtx, a.Config, nil, a.Config.GitCtl, "generate", site)
+		publicKey, err := gitDeployKeyGenerate(operationCtx, a.Config, site)
 		if err != nil {
 			http.Error(w, "could not generate deploy key", http.StatusBadGateway)
 			return
 		}
 		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deploy-key.created", site, "public key generated")
-		writeJSON(w, http.StatusCreated, map[string]any{"site": site, "public_key": strings.TrimSpace(string(output))})
+		writeJSON(w, http.StatusCreated, map[string]any{"site": site, "public_key": publicKey})
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
