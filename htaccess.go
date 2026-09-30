@@ -223,8 +223,7 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(operationCtx, time.Minute)
 	defer cancel()
-	command := helperCommandContext(ctx, a.Config, a.Config.VHostCtl, "import-htaccess", input.Site, input.Domain)
-	if _, err := runBoundedCommandInput(ctx, command, strings.NewReader(conversion.CaddyDirectives)); err != nil {
+	if _, err, _ := runAllowlistedHelperOutput(ctx, a.Config, []byte(conversion.CaddyDirectives), a.Config.VHostCtl, "import-htaccess", input.Site, input.Domain); err != nil {
 		http.Error(w, "Caddy rejected the translated configuration", http.StatusServiceUnavailable)
 		return
 	}

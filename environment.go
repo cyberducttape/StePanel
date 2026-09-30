@@ -36,7 +36,7 @@ func (a *App) applyEnvironmentLocked(ctx context.Context, site string, vars map[
 	sort.Strings(lines)
 	commandCtx, cancel := context.WithTimeout(ctx, helperConfigMutationTimeout)
 	defer cancel()
-	_, err := runBoundedCommandInput(commandCtx, helperCommandContext(commandCtx, a.Config, a.Config.AppCtl, "env-apply", site), strings.NewReader(strings.Join(lines, "\n")+"\n"))
+	_, err, _ := runAllowlistedHelperOutput(commandCtx, a.Config, []byte(strings.Join(lines, "\n")+"\n"), a.Config.AppCtl, "env-apply", site)
 	return err
 }
 

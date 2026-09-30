@@ -454,7 +454,7 @@ func main() {
 		}
 		if cfg.DBCtl != "" && os.Getenv("STEPANEL_SKIP_STARTUP_DB_RECONCILE") != "1" {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			output, err := runBoundedCommand(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, "reconcile"))
+			output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "reconcile")
 			cancel()
 			if err != nil {
 				failures = append(failures, fmt.Errorf("reconcile interrupted database operations: %w: %s", err, strings.TrimSpace(string(output))))

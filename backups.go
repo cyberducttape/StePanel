@@ -473,7 +473,7 @@ func managedDatabasesForSite(cfg Config, site string) ([]string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), helperConfigMutationTimeout)
 	defer cancel()
-	output, err := runBoundedCommand(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, "list", site))
+	output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "list", site)
 	if err != nil {
 		return nil, fmt.Errorf("list managed databases: %w: %s", err, strings.TrimSpace(string(output)))
 	}

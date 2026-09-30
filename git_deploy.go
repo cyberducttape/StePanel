@@ -635,7 +635,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var cloneOutput []byte
 	if repository.Private {
-		cloneOutput, err = runBoundedCommand(ctx, helperCommandContext(ctx, a.Config, a.Config.GitCtl, "clone", input.Site, repository.URL, input.Ref, release, a.Config.GitAllowedHosts))
+		cloneOutput, err, _ = runAllowlistedHelperOutput(ctx, a.Config, nil, a.Config.GitCtl, "clone", input.Site, repository.URL, input.Ref, release, a.Config.GitAllowedHosts)
 	} else {
 		clone := exec.CommandContext(ctx, gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", input.Ref, "--single-branch", "--no-tags", repository.URL, release)
 		clone.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")

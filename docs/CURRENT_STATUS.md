@@ -33,9 +33,9 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ## Key Subsystem Status
 
-### Helper Layer Modernization (foundation complete; callsite migration pending)
+### Helper Layer Modernization (foundation complete; migration in progress)
 
-**Status:** Foundation complete; Phase 4 callsite replacement remains pending
+**Status:** Foundation complete; Phase 4 callsite replacement is in progress
 
 - ✅ Phase 1: Design & Foundation (100%)
 - ✅ Phase 2: Broker foundation and validation (100%)
@@ -50,7 +50,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - Integration documentation and migration guide
 - `broker_bridge.go` — App integration convenience wrapper
 
-**Status:** The safety boundary is validated, but the broker is not a complete replacement for every shell helper. Phase 4 callsite replacement and any required unsupported operations remain release-scope work.
+**Status:** Production app/proxy/site/vhost/runner/Git mutation wrappers now use the broker's fixed-path, allow-listed bridge, and their independent sudo grants have been removed. Database streaming restore/dump and TLS certificate operations still use dedicated helper paths; dedicated typed broker operations remain the target. The broker is not yet a complete replacement for every shell helper.
 
 **Next Action:** Begin Phase 4 callsite replacement in v0.8.0 or v1.0.x release cycle.
 

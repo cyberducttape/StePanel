@@ -26,7 +26,7 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 		if !a.requireCustomerScope(w, r, "ssh:read") {
 			return
 		}
-		output, err := runBoundedCommand(r.Context(), helperCommandContext(r.Context(), a.Config, a.Config.GitCtl, "public", site))
+		output, err, _ := runAllowlistedHelperOutput(r.Context(), a.Config, nil, a.Config.GitCtl, "public", site)
 		if err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"site": site, "configured": false})
 			return
@@ -46,7 +46,7 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
-		output, err := runBoundedCommand(operationCtx, helperCommandContext(operationCtx, a.Config, a.Config.GitCtl, "generate", site))
+		output, err, _ := runAllowlistedHelperOutput(operationCtx, a.Config, nil, a.Config.GitCtl, "generate", site)
 		if err != nil {
 			http.Error(w, "could not generate deploy key", http.StatusBadGateway)
 			return

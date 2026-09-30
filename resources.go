@@ -597,7 +597,7 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) resourceObserved(ctx context.Context, site string) map[string]string {
-	output, err := runBoundedCommand(ctx, helperCommandContext(ctx, a.Config, a.Config.AppCtl, "resource-status", site))
+	output, err, _ := runAllowlistedHelperOutput(ctx, a.Config, nil, a.Config.AppCtl, "resource-status", site)
 	if err != nil {
 		return map[string]string{"state": "unavailable"}
 	}
