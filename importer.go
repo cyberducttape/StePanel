@@ -53,6 +53,12 @@ type archiveInspectionStatus struct {
 	CompletedAt string                      `json:"completed_at,omitempty"`
 }
 
+type archiveInspector interface {
+	InspectArchive(url, configPath string) (*importer.ArchiveInspection, error)
+}
+
+var newArchiveAnalyzer = func() archiveInspector { return importer.NewAnalyzer() }
+
 func (a *App) inspectArchive(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || !a.Auth.IsAdministrator(r) || !a.Auth.CSRF(r) {
 		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
@@ -259,16 +265,16 @@ func (a *App) archiveImportStatus(w http.ResponseWriter, r *http.Request) {
 // activation so a crash between rename and commit is recoverable on boot via
 // RecoverSiteTransactions. On any failure the staging tree is removed and the
 // canonical path is left untouched.
-func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
+func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, error) {
 	var req durableArchiveImportRequest
 	if err := json.Unmarshal(job.Payload, &req); err != nil {
-		return fmt.Errorf("failed to parse job payload: %w", err)
+		return nil, fmt.Errorf("failed to parse job payload: %w", err)
 	}
 	if !validSiteName(req.SiteName) {
-		return errors.New("invalid site name in archive import payload")
+		return nil, errors.New("invalid site name in archive import payload")
 	}
 	if a.Config.WebRoot == "" {
-		return errors.New("archive import requires a configured web root")
+		return nil, errors.New("archive import requires a configured web root")
 	}
 
 	actor := job.User
@@ -277,16 +283,16 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	}
 	access, err := a.authorizeDurableSiteJob(req.SiteName, actor, false)
 	if err != nil {
-		return fmt.Errorf("archive import authorization: %w", err)
+		return nil, fmt.Errorf("archive import authorization: %w", err)
 	}
 
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(job.ID) {
-		return context.Canceled
+		return nil, context.Canceled
 	}
 
 	operationCtx, releaseSite, lockErr := a.acquireSiteMutationLockContext(ctx, req.SiteName)
 	if lockErr != nil {
-		return fmt.Errorf("acquire site mutation lock: %w", lockErr)
+		return nil, fmt.Errorf("acquire site mutation lock: %w", lockErr)
 	}
 	defer releaseSite()
 
@@ -296,24 +302,24 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	// mutation to a different tree.
 	canonical, err := safePath(a.Config.WebRoot, "sites", req.SiteName, "public")
 	if err != nil {
-		return fmt.Errorf("resolve canonical site: %w", err)
+		return nil, fmt.Errorf("resolve canonical site: %w", err)
 	}
 	if _, err := os.Stat(canonical); err == nil {
-		return fmt.Errorf("site %q already exists", req.SiteName)
+		return nil, fmt.Errorf("site %q already exists", req.SiteName)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect canonical site: %w", err)
+		return nil, fmt.Errorf("inspect canonical site: %w", err)
 	}
 
 	manager := a.siteManager
 	if manager == nil {
 		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
 		if err != nil {
-			return fmt.Errorf("initialize site manager for staging: %w", err)
+			return nil, fmt.Errorf("initialize site manager for staging: %w", err)
 		}
 	}
 	stagingDir, err := manager.CreateStaging(operationCtx, ".stepanel-import-")
 	if err != nil {
-		return fmt.Errorf("create import staging directory: %w", err)
+		return nil, fmt.Errorf("create import staging directory: %w", err)
 	}
 
 	activated := false
@@ -350,7 +356,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	})
 	if err != nil {
 		recordAudit(a.Config.AuditLog, actor, "archive.import.failed", req.SiteName, err.Error())
-		return fmt.Errorf("archive extraction failed: %w", err)
+		return nil, fmt.Errorf("archive extraction failed: %w", err)
 	}
 	var databaseCleanup importer.DatabaseCleanup
 	databaseCommitted := false
@@ -367,7 +373,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 
 	txn, err := BeginSiteTransaction(a.Config.RecoveryRoot, canonical, "archive.import", access)
 	if err != nil {
-		return fmt.Errorf("begin archive import transaction: %w", err)
+		return nil, fmt.Errorf("begin archive import transaction: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -380,7 +386,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 	}()
 
 	if _, err := manager.ActivateStaged(operationCtx, req.SiteName, stagingDir); err != nil {
-		return fmt.Errorf("activate imported site: %w", err)
+		return nil, fmt.Errorf("activate imported site: %w", err)
 	}
 	activated = true
 
@@ -394,7 +400,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 		// treats the transaction as pending and rolls it back, which would
 		// destroy the freshly-imported files. Surface the error so the operator
 		// notices before that happens.
-		return fmt.Errorf("commit archive import transaction: %w", err)
+		return nil, fmt.Errorf("commit archive import transaction: %w", err)
 	}
 	committed = true
 	databaseCommitted = true
@@ -411,11 +417,10 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) error {
 
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		return fmt.Errorf("failed to marshal result: %w", err)
+		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
-	job.Output = resultJSON
 
-	return nil
+	return resultJSON, nil
 }
 
 // restoreImportedDatabase is the privileged adapter for generic archive
@@ -484,36 +489,37 @@ func (a *App) restoreImportedDatabase(ctx context.Context, dumpPath, database, u
 }
 
 // handleArchiveInspectionJob processes an archive inspection durable job
-func (a *App) handleArchiveInspectionJob(ctx context.Context, job *Job) error {
+func (a *App) handleArchiveInspectionJob(ctx context.Context, job *Job) ([]byte, error) {
 	var req durableArchiveInspectionRequest
 	if err := json.Unmarshal(job.Payload, &req); err != nil {
-		return fmt.Errorf("failed to parse job payload: %w", err)
+		return nil, fmt.Errorf("failed to parse job payload: %w", err)
 	}
 
 	// Create analyzer and perform inspection
-	analyzer := importer.NewAnalyzer()
-	inspection, err := analyzer.InspectArchive(req.ArchiveURL, req.ConfigPath)
+	analyzer := newArchiveAnalyzer()
+	inspection, inspectionErr := analyzer.InspectArchive(req.ArchiveURL, req.ConfigPath)
 
 	// Always encode result (even if there was an error)
 	result := map[string]interface{}{
 		"inspection": inspection,
 	}
 
-	if err != nil {
-		result["error"] = err.Error()
+	if inspectionErr != nil {
+		result["error"] = inspectionErr.Error()
 		result["success"] = false
 	} else {
 		result["success"] = true
 	}
 
-	// Store result in job output
+	// Return the result so the durable worker can persist it on completion.
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		return fmt.Errorf("failed to marshal result: %w", err)
+		return nil, fmt.Errorf("failed to marshal result: %w", err)
 	}
-	job.Output = resultJSON
-
-	return nil
+	if inspectionErr != nil {
+		return resultJSON, fmt.Errorf("archive inspection failed: %w", inspectionErr)
+	}
+	return resultJSON, nil
 }
 
 // validSiteName checks if a site name is valid (matches standard site helpers: 1-32 chars)

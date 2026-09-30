@@ -1175,15 +1175,9 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 	case "migration.analysis":
 		return a.handleMigrationAnalysisJob(&item)
 	case "archive.inspect":
-		if err := a.handleArchiveInspectionJob(ctx, &item); err != nil {
-			return nil, err
-		}
-		return nil, nil
+		return a.handleArchiveInspectionJob(ctx, &item)
 	case "archive.import":
-		if err := a.handleArchiveImportJob(ctx, &item); err != nil {
-			return nil, err
-		}
-		return nil, nil
+		return a.handleArchiveImportJob(ctx, &item)
 	default:
 		return nil, fmt.Errorf("no durable worker handler for job kind %q", item.Kind)
 	}
