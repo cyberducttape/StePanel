@@ -11,6 +11,7 @@ import (
 )
 
 var certificateDomainPattern = regexp.MustCompile(`(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
+var taskNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 
 // Validator performs input validation at the root boundary.
 // All user-supplied data is validated before any system operations.
@@ -340,9 +341,24 @@ func (v *Validator) ValidateRequest(req *Request) error {
 		return v.validateHelperRequest(req.Helper)
 	case "certificate":
 		return v.validateCertificateRequest(req.Certificate)
+	case "task":
+		return v.validateTaskRequest(req.Task)
 	default:
 		return fmt.Errorf("unknown request type: %s", req.RequestType)
 	}
+}
+
+func (v *Validator) validateTaskRequest(req *TaskRequest) error {
+	if req == nil || req.Action != "kill" {
+		return errors.New("task request must specify the kill action")
+	}
+	if err := v.ValidateSiteName(req.Site); err != nil {
+		return fmt.Errorf("invalid task site: %w", err)
+	}
+	if !taskNamePattern.MatchString(req.Name) {
+		return errors.New("invalid task name")
+	}
+	return nil
 }
 
 func (v *Validator) validateCertificateRequest(req *CertificateRequest) error {
@@ -367,7 +383,7 @@ func (v *Validator) validateHelperRequest(req *HelperRequest) error {
 		return fmt.Errorf("helper request is nil")
 	}
 	allowed := map[string]map[string]bool{
-		"appctl":    {"apply": true, "delete": true, "start": true, "stop": true, "restart": true, "python-apply": true, "python-start": true, "python-stop": true, "python-restart": true, "node-tool": true, "composer-install": true, "env-apply": true, "worker-apply": true, "worker-delete": true, "worker-start": true, "worker-stop": true, "worker-restart": true, "task-apply": true, "task-delete": true, "task-kill": true, "task-history": true, "resource-apply": true, "account-resource-apply": true, "resource-status": true},
+		"appctl":    {"apply": true, "delete": true, "start": true, "stop": true, "restart": true, "python-apply": true, "python-start": true, "python-stop": true, "python-restart": true, "node-tool": true, "composer-install": true, "env-apply": true, "worker-apply": true, "worker-delete": true, "worker-start": true, "worker-stop": true, "worker-restart": true, "task-apply": true, "task-delete": true, "task-history": true, "resource-apply": true, "account-resource-apply": true, "resource-status": true},
 		"proxyctl":  {"apply": true, "delete": true, "reload": true},
 		"sitectl":   {"prepare": true, "seal": true, "delete": true, "access": true, "resources": true, "quota": true, "quota-clear": true, "runtime": true},
 		"vhostctl":  {"apply": true, "delete": true, "apply-auth": true, "import-htaccess": true},

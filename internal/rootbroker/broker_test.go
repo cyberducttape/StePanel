@@ -21,6 +21,31 @@ func TestNewBrokerRejectsUnavailableDurableRecoveryRootOutsideTestMode(t *testin
 	}
 }
 
+func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
+	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeSystemctl := filepath.Join(t.TempDir(), "systemctl")
+	script := "#!/bin/sh\n" +
+		"[ \"$#\" -eq 4 ] && [ \"$1\" = kill ] && [ \"$2\" = --kill-who=all ] && [ \"$3\" = --signal=SIGTERM ] && [ \"$4\" = stepanel-task-demo-nightly.service ]\n"
+	if err := os.WriteFile(fakeSystemctl, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker.systemctlPath = fakeSystemctl
+	response, err := broker.Execute(context.Background(), &Request{
+		RequestType: "task",
+		Task:        &TaskRequest{Action: "kill", Site: "demo", Name: "nightly"},
+	})
+	if err != nil || !response.OK {
+		t.Fatalf("typed task kill response = %#v, error = %v", response, err)
+	}
+	var details TaskResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil || !details.Killed {
+		t.Fatalf("typed task kill details = %#v, error = %v", details, err)
+	}
+}
+
 func TestBrokerSiteCreate(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	broker, err := NewBroker(t.TempDir(), logger)

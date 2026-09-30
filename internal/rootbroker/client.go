@@ -297,6 +297,14 @@ func (c *Client) IssueCertificate(ctx context.Context, domain, email string) (*R
 	})
 }
 
+// TaskKill terminates one validated scheduled-task systemd unit.
+func (c *Client) TaskKill(ctx context.Context, site, name string) (*Response, error) {
+	return c.Execute(ctx, &Request{
+		RequestType: "task",
+		Task:        &TaskRequest{Action: "kill", Site: site, Name: name},
+	})
+}
+
 // GitClone clones a git repository.
 func (c *Client) GitClone(ctx context.Context, repo, ref, destination string) (*Response, error) {
 	req := &Request{

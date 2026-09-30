@@ -34,6 +34,9 @@ type Request struct {
 	// Certificate requests expose only the bounded issuance operation; they
 	// cannot select an executable, arbitrary arguments, or certificate paths.
 	Certificate *CertificateRequest `json:"certificate,omitempty"`
+
+	// Task requests expose validated scheduler controls without helper argv.
+	Task *TaskRequest `json:"task,omitempty"`
 }
 
 type CertificateRequest struct {
@@ -46,6 +49,16 @@ type CertificateResponse struct {
 	Issued bool   `json:"issued"`
 	Domain string `json:"domain"`
 	Output string `json:"output,omitempty"`
+}
+
+type TaskRequest struct {
+	Action string `json:"action"`
+	Site   string `json:"site"`
+	Name   string `json:"name"`
+}
+
+type TaskResponse struct {
+	Killed bool `json:"killed,omitempty"`
 }
 
 type HelperRequest struct {

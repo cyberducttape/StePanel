@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 // ScheduledTask is intentionally a systemd-timer definition, rather than a
@@ -312,11 +314,10 @@ func captureTaskOutput(output string) []string {
 	return result
 }
 
-// killTask stops a running scheduled task via systemd.
-// Uses stepanel-appctl helper (installed at /usr/local/sbin/stepanel-appctl)
-// with task-kill action, invoked through the privileged root wrapper.
+// killTask stops a running scheduled task via the typed root broker in
+// production; non-production development keeps the local helper adapter.
 func (a *App) killTask(ctx context.Context, site, name string) error {
-	if a.Config.AppCtl == "" {
+	if !a.Config.Production && a.Config.AppCtl == "" {
 		return errors.New("app control helper not configured")
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, site)
@@ -324,8 +325,28 @@ func (a *App) killTask(ctx context.Context, site, name string) error {
 		return fmt.Errorf("acquire task lock: %w", lockErr)
 	}
 	defer releaseUnlock()
-	// Use AppCtl with task-kill action instead of missing TaskCtl helper
-	return runHelperCommandWithTimeout(operationCtx, a.Config, 15*time.Second, a.Config.AppCtl, "task-kill", site, name)
+	return killScheduledTask(operationCtx, a.Config, site, name)
+}
+
+func killScheduledTask(ctx context.Context, cfg Config, site, name string) error {
+	if cfg.Production {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if err != nil {
+			return err
+		}
+		response, err := client.TaskKill(ctx, site, name)
+		if err != nil {
+			return err
+		}
+		if !response.OK {
+			return errors.New(response.Error)
+		}
+		return nil
+	}
+	if cfg.AppCtl == "" {
+		return errors.New("app control helper not configured")
+	}
+	return runHelperCommandWithTimeout(ctx, cfg, 15*time.Second, cfg.AppCtl, "task-kill", site, name)
 }
 
 // Task overlap is prevented by systemd's single active oneshot service per

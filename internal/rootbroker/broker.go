@@ -26,13 +26,14 @@ const maxBrokerDBDumpBytes = 64 << 20
 // Broker is the root-privileged operations handler.
 // All operations are strongly-typed and validated before execution.
 type Broker struct {
-	webRoot      string
-	recoveryRoot string
-	dbctlPath    string
-	certbotPath  string
-	validator    *Validator
-	logger       *log.Logger
-	isTestMode   bool // True when webRoot is in /tmp (indicates test environment)
+	webRoot       string
+	recoveryRoot  string
+	dbctlPath     string
+	certbotPath   string
+	systemctlPath string
+	validator     *Validator
+	logger        *log.Logger
+	isTestMode    bool // True when webRoot is in /tmp (indicates test environment)
 }
 
 // NewBroker creates a new root broker with default recovery root.
@@ -75,13 +76,14 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		recoveryRoot = tmpDir
 	}
 	return &Broker{
-		webRoot:      webRoot,
-		recoveryRoot: recoveryRoot,
-		dbctlPath:    "/usr/local/sbin/stepanel-dbctl",
-		certbotPath:  "/usr/local/sbin/stepanel-certbot",
-		validator:    NewValidator(webRoot),
-		logger:       logger,
-		isTestMode:   isTestMode,
+		webRoot:       webRoot,
+		recoveryRoot:  recoveryRoot,
+		dbctlPath:     "/usr/local/sbin/stepanel-dbctl",
+		certbotPath:   "/usr/local/sbin/stepanel-certbot",
+		systemctlPath: "/usr/bin/systemctl",
+		validator:     NewValidator(webRoot),
+		logger:        logger,
+		isTestMode:    isTestMode,
 	}, nil
 }
 
@@ -130,12 +132,31 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 		return b.handleHelperRequest(ctx, req.Helper)
 	case "certificate":
 		return b.handleCertificateRequest(ctx, req.Certificate)
+	case "task":
+		return b.handleTaskRequest(ctx, req.Task)
 	default:
 		return &Response{
 			OK:    false,
 			Error: fmt.Sprintf("unknown request type: %s", req.RequestType),
 		}, nil
 	}
+}
+
+func (b *Broker) handleTaskRequest(ctx context.Context, req *TaskRequest) (*Response, error) {
+	if req == nil || req.Action != "kill" {
+		return &Response{OK: false, Error: "invalid task operation"}, nil
+	}
+	unit := "stepanel-task-" + req.Site + "-" + req.Name + ".service"
+	cmd := stepanelhelper.NewCommand(ctx, b.systemctlPath, "kill", "--kill-who=all", "--signal=SIGTERM", unit)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("task termination failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, err := json.Marshal(TaskResponse{Killed: true})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 func (b *Broker) handleCertificateRequest(ctx context.Context, req *CertificateRequest) (*Response, error) {

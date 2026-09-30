@@ -1,6 +1,7 @@
 package rootbroker
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -380,11 +381,14 @@ func TestValidateHelperRequestAllowlist(t *testing.T) {
 	if err := v.ValidateRequest(valid); err != nil {
 		t.Fatalf("valid helper request rejected: %v", err)
 	}
-	for _, action := range []string{"task-apply", "task-kill", "task-history"} {
+	for _, action := range []string{"task-apply", "task-history"} {
 		request := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: action, Args: []string{"demo", "nightly"}}}
 		if err := v.ValidateRequest(request); err != nil {
 			t.Errorf("task helper action %q rejected: %v", action, err)
 		}
+	}
+	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "task-kill", Args: []string{"demo", "nightly"}}}); err == nil {
+		t.Fatal("task-kill remained available through the generic helper ABI")
 	}
 	for _, req := range []*Request{
 		{RequestType: "helper", Helper: &HelperRequest{Name: "not-a-helper", Action: "apply"}},
@@ -393,6 +397,24 @@ func TestValidateHelperRequestAllowlist(t *testing.T) {
 	} {
 		if err := v.ValidateRequest(req); err == nil {
 			t.Errorf("invalid helper request accepted: %#v", req.Helper)
+		}
+	}
+}
+
+func TestValidateTypedTaskKillRequest(t *testing.T) {
+	v := NewValidator("/var/www")
+	valid := &Request{RequestType: "task", Task: &TaskRequest{Action: "kill", Site: "demo", Name: "nightly"}}
+	if err := v.ValidateRequest(valid); err != nil {
+		t.Fatalf("valid typed task request rejected: %v", err)
+	}
+	for _, req := range []*Request{
+		{RequestType: "task", Task: &TaskRequest{Action: "delete", Site: "demo", Name: "nightly"}},
+		{RequestType: "task", Task: &TaskRequest{Action: "kill", Site: "../demo", Name: "nightly"}},
+		{RequestType: "task", Task: &TaskRequest{Action: "kill", Site: "demo", Name: "../nightly"}},
+		{RequestType: "task", Task: &TaskRequest{Action: "kill", Site: "demo", Name: strings.Repeat("a", 33)}},
+	} {
+		if err := v.ValidateRequest(req); err == nil {
+			t.Errorf("invalid typed task request accepted: %#v", req.Task)
 		}
 	}
 }
