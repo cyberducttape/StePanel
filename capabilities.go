@@ -202,7 +202,7 @@ func (a *App) probeAllCapabilities() map[string]Capability {
 	// Network capabilities
 	caps["runner.network_isolation"] = a.checkNetworkIsolationCapability()
 	if len(a.Config.RunnerAllowedRegistries) > 0 {
-		caps["runner.registry_allowlist"] = newCapability(CapabilityAvailable, "")
+		caps["runner.registry_allowlist"] = newCapability(CapabilityLocal, "registry allowlist is configured; registry access is checked when a build runs")
 	} else {
 		caps["runner.registry_allowlist"] = newCapability(CapabilityUnsupported, "STEPANEL_RUNNER_ALLOWED_REGISTRIES not configured")
 	}
@@ -262,7 +262,7 @@ func (a *App) checkSiteDeletionCapability() Capability {
 	if a.Config.WebRoot == "" {
 		return newCapability(CapabilityUnsupported, "site web root is not configured")
 	}
-	return newCapability(CapabilityAvailable, "")
+	return newCapability(CapabilityLocal, "database and site helpers plus the web root are configured; database connectivity and a full termination are not verified by this probe")
 }
 
 func (a *App) checkArchiveInspectionCapability() Capability {
@@ -272,7 +272,7 @@ func (a *App) checkArchiveInspectionCapability() Capability {
 	if a.Config.ImportRoot == "" {
 		return newCapability(CapabilityUnsupported, "STEPANEL_IMPORT_ROOT is not configured")
 	}
-	return newCapability(CapabilityAvailable, "")
+	return newCapability(CapabilityLocal, "durable jobs and an import root are configured; archive access and inspection are validated per request")
 }
 
 func (a *App) checkGitDeploymentCapability() Capability {
@@ -369,12 +369,10 @@ func (a *App) checkDatabaseCapability(dbType string) Capability {
 	return newCapability(CapabilityLocal, "database helper and client binaries are present; credentials and service access are checked when used")
 }
 
-// checkArchiveImportCapability reports on whether an archive import will
-// actually succeed end-to-end. The prior code hard-coded true, which was
-// wrong while the archive-import lifecycle bug (fixed separately) was
-// live; a hard-coded value cannot detect that a code-path defect has
-// broken it. Now we surface the pieces the orchestrator depends on: the
-// import root exists, and the sites tree is writable.
+// checkArchiveImportCapability reports local path evidence for archive
+// imports. It deliberately does not claim end-to-end availability: the
+// probe does not exercise the root broker, validate a particular archive,
+// or activate a site.
 func (a *App) checkArchiveImportCapability() Capability {
 	if a.Config.ImportRoot == "" {
 		return newCapability(CapabilityUnsupported, "STEPANEL_IMPORT_ROOT is not configured")
@@ -388,7 +386,7 @@ func (a *App) checkArchiveImportCapability() Capability {
 	if info, err := os.Stat(a.Config.WebRoot); err != nil || !info.IsDir() {
 		return newCapability(CapabilityUnsupported, "STEPANEL_WEB_ROOT is not a directory")
 	}
-	return newCapability(CapabilityAvailable, "")
+	return newCapability(CapabilityLocal, "local archive paths are present; broker execution and activation are validated per import")
 }
 
 // checkDatabaseRestorationCapability reports on the archive-import DB
@@ -424,15 +422,16 @@ func (a *App) checkNetworkIsolationCapability() Capability {
 		return newCapability(CapabilityUnsupported, "podman not available on system")
 	}
 	if strings.Contains(string(output), "--network") {
-		return newCapability(CapabilityAvailable, "")
+		return newCapability(CapabilityLocal, "Podman accepts the network option; an isolated build has not been executed")
 	}
 	return newCapability(CapabilityUnsupported, "podman version does not support --network flag")
 }
 
-// checkFilesystemQuotasCapability reports on whether the filesystem
-// hosting the customer sites tree (STEPANEL_WEB_ROOT) is mounted with
-// user quotas enabled — which is the only mount the panel actually cares
-// about. The prior implementation checked whether any mount on the host
+// checkFilesystemQuotasCapability reports whether the filesystem hosting
+// the customer sites tree advertises quota-related mount options. This is
+// local configuration evidence only; it does not prove that quotas are
+// initialized or effective for a site. The prior implementation checked
+// whether any mount on the host
 // had usrquota, and separately whether a `quotactl` binary existed
 // anywhere on PATH. Both are unrelated to whether *this* filesystem can
 // actually enforce a customer quota.
@@ -473,7 +472,7 @@ func (a *App) checkFilesystemQuotasCapability() Capability {
 	if !strings.Contains(bestOptions, "usrquota") && !strings.Contains(bestOptions, "grpquota") && !strings.Contains(bestOptions, "prjquota") {
 		return newCapability(CapabilityUnsupported, fmt.Sprintf("mount %s hosting the sites tree does not have quota options enabled", best))
 	}
-	return newCapability(CapabilityAvailable, "")
+	return newCapability(CapabilityLocal, "the sites filesystem advertises quota mount options; effective quota enforcement is not verified by this probe")
 }
 
 func (a *App) checkOffsiteBackupCapability() Capability {
@@ -537,15 +536,15 @@ func (a *App) checkBuildCapability() Capability {
 	if _, err := exec.LookPath("podman"); err != nil {
 		return newCapability(CapabilityUnsupported, "podman not found in PATH")
 	}
-	return newCapability(CapabilityAvailable, "")
+	return newCapability(CapabilityLocal, "runner helper, Podman, and build limits are locally present; an image pull and build have not been verified")
 }
 
 func (a *App) checkMailCapability() Capability {
 	if _, err := exec.LookPath("exim4"); err == nil {
-		return newCapability(CapabilityAvailable, "")
+		return newCapability(CapabilityLocal, "Exim is installed; service health and mail delivery have not been verified")
 	}
 	if _, err := exec.LookPath("postfix"); err == nil {
-		return newCapability(CapabilityAvailable, "")
+		return newCapability(CapabilityLocal, "Postfix is installed; service health and mail delivery have not been verified")
 	}
 	return newCapability(CapabilityUnsupported, "mail integration not configured; exim4 or postfix not found")
 }

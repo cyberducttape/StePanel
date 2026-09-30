@@ -200,9 +200,10 @@ func TestProbeCapabilities(t *testing.T) {
 		t.Error("site.lifecycle.create should be present")
 	}
 
-	// Verify registry allowlist capability
-	if !result.Capabilities["runner.registry_allowlist"].Available {
-		t.Error("runner.registry_allowlist should be available when registries configured")
+	// A configured allowlist is useful local evidence, not proof that a
+	// registry can currently be reached or that a build can complete.
+	if capability := result.Capabilities["runner.registry_allowlist"]; capability.Available || capability.Mode != CapabilityLocal {
+		t.Errorf("runner.registry_allowlist should report local validation, got %#v", capability)
 	}
 }
 
@@ -291,6 +292,48 @@ func TestBuildCapabilityRequiresRunnerCtl(t *testing.T) {
 	c := app.ProbeCapabilities().Capabilities["deployment.builds"]
 	if c.Available {
 		t.Errorf("deployment.builds must not be Available without RunnerCtl, got Mode=%s reason=%q", c.Mode, c.Reason)
+	}
+}
+
+func TestBuildCapabilityDoesNotClaimRuntimeSuccessFromInstalledDependencies(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.Mkdir(binDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"runnerctl": "#!/bin/sh\nexit 0\n",
+		"podman":    "#!/bin/sh\nprintf '%s\\n' '--network'\n",
+	} {
+		path := filepath.Join(binDir, name)
+		if err := os.WriteFile(path, []byte(body), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previousPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", binDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Setenv("PATH", previousPath) })
+
+	app := &App{Config: Config{
+		RunnerCtl:               filepath.Join(binDir, "runnerctl"),
+		RunnerAllowedRegistries: "registry.example",
+		RunnerMaxImageBytes:     1 << 30,
+	}}
+	if capability := app.checkBuildCapability(); capability.Available || capability.Mode != CapabilityLocal {
+		t.Fatalf("build capability should report local dependencies, got %#v", capability)
+	}
+	if capability := app.checkNetworkIsolationCapability(); capability.Available || capability.Mode != CapabilityLocal {
+		t.Fatalf("network-isolation capability should report local CLI support, got %#v", capability)
+	}
+}
+
+func TestArchiveImportCapabilityReportsLocalEvidenceOnly(t *testing.T) {
+	app := &App{Config: Config{ImportRoot: t.TempDir(), WebRoot: t.TempDir()}}
+	capability := app.checkArchiveImportCapability()
+	if capability.Available || capability.Mode != CapabilityLocal {
+		t.Fatalf("archive import capability should report local path checks, got %#v", capability)
 	}
 }
 
