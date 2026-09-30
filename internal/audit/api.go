@@ -83,7 +83,54 @@ func (l *defaultLogger) Events(w http.ResponseWriter, r *http.Request) {
 }
 
 func (l *defaultLogger) SecurityChecks(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	if strings.TrimSpace(l.path) == "" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"checks": []map[string]string{{
+				"name":     "audit chain",
+				"status":   "unconfigured",
+				"severity": "high",
+				"detail":   "No audit log path is configured.",
+			}},
+			"integrity": "unconfigured",
+		})
+		return
+	}
+
+	if _, err := os.Stat(l.path); os.IsNotExist(err) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"checks": []map[string]string{{
+				"name":     "audit chain",
+				"status":   "empty",
+				"severity": "high",
+				"detail":   "The configured audit log has no signed events yet.",
+			}},
+			"integrity": "empty",
+		})
+		return
+	}
+
+	if _, err := l.readVerifiedEvents("", "", 1); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"checks": []map[string]string{{
+				"name":     "audit chain",
+				"status":   "fail",
+				"severity": "critical",
+				"detail":   "The signed audit chain failed integrity verification.",
+			}},
+			"integrity": "failed",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"checks": []map[string]string{{
+			"name":     "audit chain",
+			"status":   "pass",
+			"severity": "low",
+			"detail":   "The signed audit chain and durable state match.",
+		}},
+		"integrity": "verified",
+	})
 }
 
 func (l *defaultLogger) readVerifiedEvents(target, action string, limit int) ([]Event, error) {

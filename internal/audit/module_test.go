@@ -2,9 +2,11 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -37,8 +39,64 @@ func TestUnconfiguredEventsAndSecurityChecks(t *testing.T) {
 
 	resp = httptest.NewRecorder()
 	logger.SecurityChecks(resp, req)
-	if resp.Code != http.StatusNotImplemented {
+	if resp.Code != http.StatusOK {
 		t.Fatalf("security checks status = %d", resp.Code)
+	}
+	var payload struct {
+		Integrity string `json:"integrity"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Integrity != "unconfigured" {
+		t.Fatalf("security checks integrity = %q", payload.Integrity)
+	}
+}
+
+func TestSecurityChecksVerifiesSignedAuditChain(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	if err := logger.LogAs(context.Background(), "admin", "site.create", "site-a", "created"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := httptest.NewRecorder()
+	logger.SecurityChecks(resp, httptest.NewRequest(http.MethodGet, "/audit/security", nil))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("verified security checks status = %d", resp.Code)
+	}
+	var payload struct {
+		Integrity string `json:"integrity"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Integrity != "verified" {
+		t.Fatalf("verified security checks integrity = %q", payload.Integrity)
+	}
+}
+
+func TestSecurityChecksReportsTamperedAuditChain(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	if err := logger.LogAs(context.Background(), "admin", "site.create", "site-a", "created"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logger.path, []byte("tampered\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := httptest.NewRecorder()
+	logger.SecurityChecks(resp, httptest.NewRequest(http.MethodGet, "/audit/security", nil))
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("tampered security checks status = %d", resp.Code)
+	}
+	var payload struct {
+		Integrity string `json:"integrity"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Integrity != "failed" {
+		t.Fatalf("tampered security checks integrity = %q", payload.Integrity)
 	}
 }
 
