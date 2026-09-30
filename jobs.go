@@ -133,6 +133,97 @@ const jobLeaseDuration = 2 * time.Minute
 
 var errJobLeaseNotHeld = errors.New("job lease is not held by this worker")
 
+const workerHeartbeatFreshness = 30 * time.Second
+
+var durableWorkerJobKinds = []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis", "archive.inspect", "archive.import"}
+
+type workerHeartbeatState struct {
+	mu          sync.RWMutex
+	currentJobs map[string]bool
+}
+
+func workerHostID() string {
+	if data, err := os.ReadFile("/etc/machine-id"); err == nil {
+		if value := strings.TrimSpace(string(data)); value != "" {
+			return value
+		}
+	}
+	if value, err := os.Hostname(); err == nil && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return "unknown-host"
+}
+
+func (j *Jobs) publishWorkerHeartbeat(workerID, hostID string, pid int, startedAt time.Time, supported []string, current []string) error {
+	if j.db == nil {
+		return errors.New("worker heartbeat requires a durable database")
+	}
+	supportedJSON, err := json.Marshal(supported)
+	if err != nil {
+		return err
+	}
+	currentJSON, err := json.Marshal(current)
+	if err != nil {
+		return err
+	}
+	_, err = j.db.Exec(`INSERT INTO worker_heartbeats (worker_id, host_id, pid, started_at, last_seen, supported_job_kinds, current_jobs, version, build)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(worker_id) DO UPDATE SET host_id=excluded.host_id, pid=excluded.pid, started_at=excluded.started_at, last_seen=excluded.last_seen, supported_job_kinds=excluded.supported_job_kinds, current_jobs=excluded.current_jobs, version=excluded.version, build=excluded.build`,
+		workerID, hostID, pid, startedAt.UnixNano(), time.Now().UTC().UnixNano(), string(supportedJSON), string(currentJSON), Version, Commit)
+	return err
+}
+
+func (j *Jobs) removeWorkerHeartbeat(workerID string) error {
+	if j.db == nil {
+		return nil
+	}
+	_, err := j.db.Exec(`DELETE FROM worker_heartbeats WHERE worker_id = ?`, workerID)
+	return err
+}
+
+func (j *Jobs) workerReadiness(requiredKinds []string, maxAge time.Duration) (bool, string, error) {
+	if j == nil || j.db == nil {
+		return false, "durable worker heartbeat store is unavailable", nil
+	}
+	if maxAge <= 0 {
+		maxAge = workerHeartbeatFreshness
+	}
+	rows, err := j.db.Query(`SELECT worker_id, last_seen, supported_job_kinds, version, build FROM worker_heartbeats WHERE last_seen >= ?`, time.Now().UTC().Add(-maxAge).UnixNano())
+	if err != nil {
+		return false, "worker heartbeat query failed: " + err.Error(), err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var workerID, kindsJSON, version, build string
+		var lastSeen int64
+		if err := rows.Scan(&workerID, &lastSeen, &kindsJSON, &version, &build); err != nil {
+			return false, "worker heartbeat row is invalid: " + err.Error(), err
+		}
+		var supported []string
+		if err := json.Unmarshal([]byte(kindsJSON), &supported); err != nil {
+			continue
+		}
+		set := make(map[string]bool, len(supported))
+		for _, kind := range supported {
+			set[kind] = true
+		}
+		compatible := true
+		for _, kind := range requiredKinds {
+			if !set[kind] {
+				compatible = false
+				break
+			}
+		}
+		if compatible {
+			return true, fmt.Sprintf("worker %s is alive (version %s, build %s)", workerID, version, build), nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, "worker heartbeat query failed: " + err.Error(), err
+	}
+	return false, fmt.Sprintf("no compatible durable worker heartbeat within %s", maxAge), nil
+}
+
 // Claim acquires a durable lease for a queued job. It is the boundary used by
 // local workers and future remote agents; only the lease holder may complete
 // or renew the job.
@@ -647,6 +738,48 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 	if _, err := j.RequeueExpired(); err != nil {
 		return err
 	}
+	startedAt := time.Now().UTC()
+	heartbeat := &workerHeartbeatState{currentJobs: make(map[string]bool)}
+	currentJobs := func() []string {
+		heartbeat.mu.RLock()
+		defer heartbeat.mu.RUnlock()
+		result := make([]string, 0, len(heartbeat.currentJobs))
+		for jobID := range heartbeat.currentJobs {
+			result = append(result, jobID)
+		}
+		sort.Strings(result)
+		return result
+	}
+	hostID := workerHostID()
+	if err := j.publishWorkerHeartbeat(owner, hostID, os.Getpid(), startedAt, kinds, currentJobs()); err != nil {
+		return fmt.Errorf("publish worker heartbeat: %w", err)
+	}
+	heartbeatStop := make(chan struct{})
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		ticker := time.NewTicker(workerHeartbeatFreshness / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := j.publishWorkerHeartbeat(owner, hostID, os.Getpid(), startedAt, kinds, currentJobs()); err != nil {
+					log.Printf("publish worker heartbeat %s: %v", owner, err)
+				}
+			case <-heartbeatStop:
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	defer func() {
+		close(heartbeatStop)
+		<-heartbeatDone
+		if err := j.removeWorkerHeartbeat(owner); err != nil {
+			log.Printf("remove worker heartbeat %s: %v", owner, err)
+		}
+	}()
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 	requeueTicker := time.NewTicker(j.leaseDuration() / 3)
@@ -666,14 +799,23 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 			return err
 		}
 		if claimed {
+			heartbeat.mu.Lock()
+			heartbeat.currentJobs[item.ID] = true
+			heartbeat.mu.Unlock()
 			if j.CancellationRequested(item.ID) {
 				if err := j.finishClaim(item.ID, owner, func(job *Job) {
 					job.State = "cancelled"
 					now := time.Now().UTC()
 					job.FinishedAt = &now
 				}); err != nil {
+					heartbeat.mu.Lock()
+					delete(heartbeat.currentJobs, item.ID)
+					heartbeat.mu.Unlock()
 					return err
 				}
+				heartbeat.mu.Lock()
+				delete(heartbeat.currentJobs, item.ID)
+				heartbeat.mu.Unlock()
 				continue
 			}
 			var output []byte
@@ -706,8 +848,14 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				now := time.Now().UTC()
 				job.FinishedAt = &now
 			}); err != nil {
+				heartbeat.mu.Lock()
+				delete(heartbeat.currentJobs, item.ID)
+				heartbeat.mu.Unlock()
 				return err
 			}
+			heartbeat.mu.Lock()
+			delete(heartbeat.currentJobs, item.ID)
+			heartbeat.mu.Unlock()
 			continue
 		}
 		select {

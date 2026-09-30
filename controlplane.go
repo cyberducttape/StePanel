@@ -186,6 +186,20 @@ var controlPlaneMigrations = []*migration.Migration{
 			return err
 		},
 	),
+	migration.NewMigration(7, "add durable worker heartbeats", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS worker_heartbeats (
+            worker_id TEXT PRIMARY KEY,
+            host_id TEXT NOT NULL,
+            pid INTEGER NOT NULL,
+            started_at INTEGER NOT NULL,
+            last_seen INTEGER NOT NULL,
+            supported_job_kinds TEXT NOT NULL,
+            current_jobs TEXT NOT NULL,
+            version TEXT NOT NULL,
+            build TEXT NOT NULL
+        ); CREATE INDEX IF NOT EXISTS worker_heartbeats_seen_idx ON worker_heartbeats(last_seen);`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

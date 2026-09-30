@@ -549,7 +549,7 @@ func main() {
 	if workerMode {
 		app.startup.finish(startupAuditErr)
 		log.Printf("StePanel durable worker started with pid %d", os.Getpid())
-		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis", "archive.inspect", "archive.import"}, 500*time.Millisecond, app.handleDurableJob)
+		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), durableWorkerJobKinds, 500*time.Millisecond, app.handleDurableJob)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Fatalf("durable worker stopped: %v", err)
 		}
@@ -560,7 +560,7 @@ func main() {
 	}
 	if cfg.WorkerMode != "external" {
 		go func() {
-			err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "cloud.action", "site.terminate", "migration.analysis", "archive.inspect", "archive.import"}, 500*time.Millisecond, app.handleDurableJob)
+			err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), durableWorkerJobKinds, 500*time.Millisecond, app.handleDurableJob)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				log.Printf("durable worker stopped: %v", err)
 			}

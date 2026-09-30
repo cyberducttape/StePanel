@@ -101,11 +101,33 @@ func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 	} else {
 		checks["job_state"] = ReadinessCheck{Ready: true}
 	}
+	if cfg.WorkerMode == "external" {
+		if jobs == nil {
+			checks["durable_worker"] = ReadinessCheck{Ready: false, Detail: "external worker mode requires a durable worker"}
+		} else {
+			ready, detail, err := jobs.workerReadiness(durableWorkerJobKinds, workerHeartbeatFreshness)
+			if err != nil {
+				detail = fmt.Sprintf("worker heartbeat unavailable: %v", err)
+			}
+			checks["durable_worker"] = ReadinessCheck{Ready: ready, Detail: detail}
+		}
+	}
 	return checks
 }
 
 func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 	checks := map[string]ReadinessCheck{}
+	if cfg.WorkerMode == "external" {
+		if jobs == nil {
+			checks["durable_worker"] = ReadinessCheck{Ready: false, Detail: "external worker mode requires a durable worker"}
+		} else {
+			ready, detail, err := jobs.workerReadiness(durableWorkerJobKinds, workerHeartbeatFreshness)
+			if err != nil {
+				detail = fmt.Sprintf("worker heartbeat unavailable: %v", err)
+			}
+			checks["durable_worker"] = ReadinessCheck{Ready: ready, Detail: detail}
+		}
+	}
 	if defaultAuditOutbox != nil {
 		if pending, err := defaultAuditOutbox.pendingCount(context.Background()); err != nil {
 			checks["audit_outbox"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("audit outbox unavailable: %v", err)}

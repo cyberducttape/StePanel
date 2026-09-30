@@ -59,6 +59,37 @@ func TestReadyzChecksPersistentCapacity(t *testing.T) {
 	}
 }
 
+func TestReadyzRequiresFreshCompatibleExternalWorker(t *testing.T) {
+	root := t.TempDir()
+	imports, backups, sites := filepath.Join(root, "imports"), filepath.Join(root, "backups"), filepath.Join(root, "sites")
+	for _, path := range []string{imports, backups, sites} {
+		if err := os.MkdirAll(path, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db, err := openControlPlaneDB(filepath.Join(root, "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	cfg := Config{WorkerMode: "external", ImportRoot: imports, BackupRoot: backups, JobState: filepath.Join(root, "jobs.json"), RecoveryRoot: filepath.Join(sites, ".stepanel-recovery"), MinFreeBytes: 1}
+	app := &App{Config: cfg, Jobs: jobs}
+	response := httptest.NewRecorder()
+	app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "durable_worker") {
+		t.Fatalf("dead worker readiness status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if err := jobs.publishWorkerHeartbeat("worker-test", "host-test", 123, time.Now().UTC(), durableWorkerJobKinds, nil); err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"durable_worker":{"ready":true`) {
+		t.Fatalf("live worker readiness status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestOperationalHealthReportsMissingRequiredOffsiteBackup(t *testing.T) {
 	root := t.TempDir()
 	for _, path := range []string{filepath.Join(root, "imports"), filepath.Join(root, "backups"), filepath.Join(root, "sites")} {

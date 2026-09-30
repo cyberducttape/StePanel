@@ -45,6 +45,73 @@ func TestJobsPersistCompletedWork(t *testing.T) {
 	}
 }
 
+func TestWorkerHeartbeatRequiresCompatibleFreshWorker(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	ready, _, err := jobs.workerReadiness(durableWorkerJobKinds, workerHeartbeatFreshness)
+	if err != nil || ready {
+		t.Fatalf("empty worker readiness = %v, err %v", ready, err)
+	}
+	if err := jobs.publishWorkerHeartbeat("worker-a", "host-a", 42, time.Now().UTC(), []string{"archive.inspect"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ready, _, err = jobs.workerReadiness(durableWorkerJobKinds, workerHeartbeatFreshness)
+	if err != nil || ready {
+		t.Fatalf("incompatible worker readiness = %v, err %v", ready, err)
+	}
+	if err := jobs.publishWorkerHeartbeat("worker-a", "host-a", 42, time.Now().UTC(), durableWorkerJobKinds, []string{"job-1"}); err != nil {
+		t.Fatal(err)
+	}
+	ready, detail, err := jobs.workerReadiness(durableWorkerJobKinds, workerHeartbeatFreshness)
+	if err != nil || !ready || !strings.Contains(detail, "worker-a") {
+		t.Fatalf("compatible worker readiness = %v, detail %q, err %v", ready, detail, err)
+	}
+}
+
+func TestRunWorkerPublishesAndRemovesHeartbeat(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- jobs.RunWorker(ctx, "heartbeat-worker", []string{"test.operation"}, time.Millisecond, func(context.Context, Job) ([]byte, error) {
+			return nil, nil
+		})
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM worker_heartbeats WHERE worker_id = ?`, "heartbeat-worker").Scan(&count); err == nil && count == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			<-done
+			t.Fatal("worker heartbeat was not published")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("worker exit = %v, want context canceled", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM worker_heartbeats WHERE worker_id = ?`, "heartbeat-worker").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("worker heartbeat rows after shutdown = %d, want 0", count)
+	}
+}
+
 func TestDurableJobsPersistAndReconcileRunningWork(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "control-plane.db")
 	jobs, err := OpenDurableJobs(databasePath, "")
