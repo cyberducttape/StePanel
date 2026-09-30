@@ -150,7 +150,12 @@ jobs:
       - name: Production container smoke test
         run: |
           set -eu
-          cleanup() { docker rm -f stepanel-container-smoke >/dev/null 2>&1 || true; }
+          smoke_root=$(mktemp -d)
+          printf '[local]\ntype = local\n' > "$smoke_root/rclone.conf"
+          cleanup() {
+            docker rm -f stepanel-container-smoke >/dev/null 2>&1 || true
+            rm -rf "$smoke_root"
+          }
           trap cleanup EXIT
           docker run -d --name stepanel-container-smoke -p 18091:8080 \
             -e STEPANEL_TLS_TERMINATED=1 \
