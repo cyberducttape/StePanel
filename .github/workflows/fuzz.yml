@@ -22,4 +22,7 @@ jobs:
           go-version: '1.26.x'
           cache: true
       - name: Fuzz privileged-input and archive validators
-        run: go test -run=^$ -fuzz=Fuzz -fuzztime=5m .
+        run: |
+          for target in FuzzSafeArchivePath FuzzSafeUser FuzzValidBackupName FuzzManagedDatabaseIdentifier; do
+            go test -run=^$ -fuzz="^${target}$" -fuzztime=75s .
+          done
