@@ -116,10 +116,11 @@ jobs:
       - run: bash -n deploy/integrations/install-fail2ban.sh
       - run: bash -n deploy/lab/install-smoke.sh
       - run: bash -n deploy/lab/dbctl-lock-smoke.sh
+      - run: bash -n deploy/lab/task-safeguards-smoke.sh
       - run: bash -n deploy/lab/recovery-matrix-smoke.sh
       - run: bash -n deploy/integrations/*
       - name: Lint shell scripts
-        run: shellcheck -S warning install.sh deploy/lab/run.sh deploy/lab/dbctl-lock-smoke.sh deploy/lab/recovery-matrix-smoke.sh deploy/integrations/*
+        run: shellcheck -S warning install.sh deploy/lab/run.sh deploy/lab/dbctl-lock-smoke.sh deploy/lab/task-safeguards-smoke.sh deploy/lab/recovery-matrix-smoke.sh deploy/integrations/*
       - name: Lint release and smoke scripts
         run: shellcheck -S warning scripts/check-docs-links.sh scripts/e2e-smoke-test.sh scripts/verify-release-artifacts.sh
       - name: Check documentation links

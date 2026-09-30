@@ -225,6 +225,8 @@ Executes as site user with systemd hardening (good), but missing:
 These aren't small feature requests:
 
 1. **Root helper modernization** is a 5-6 week project to migrate privileged subsystem from Bash to Go with typed APIs
-2. **Scheduled task safeguards** are a 2-3 week project to prevent customers from abusing the feature for resource exhaustion
 
-Both are worth doing, but they're substantial. Budget accordingly.
+Scheduled-task safeguards have since been implemented: bounded recurrence,
+single-run concurrency, runtime and resource limits, missed-run behavior,
+failure auto-disable, webhook notification, cancellation, and bounded execution
+history. Root-helper modernization remains a separate project.

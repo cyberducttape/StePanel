@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -15,6 +17,69 @@ func TestValidTaskRuntime(t *testing.T) {
 		if validTaskRuntime(runtime) {
 			t.Errorf("validTaskRuntime(%q) = true, want false", runtime)
 		}
+	}
+}
+
+func TestNormalizeScheduledTaskSafeguards(t *testing.T) {
+	task := ScheduledTask{}
+	if err := normalizeScheduledTask(&task); err != nil {
+		t.Fatal(err)
+	}
+	if task.MinIntervalSeconds != 60 || task.MaxConcurrentRuns != 1 || task.MissedRunPolicy != "run_once" || task.CPUPercent != 100 || task.MemoryMB != 1024 || task.TasksMax != 256 {
+		t.Fatalf("safeguard defaults = %+v", task)
+	}
+	for _, invalid := range []ScheduledTask{
+		{MaxConcurrentRuns: 2},
+		{MinIntervalSeconds: 30},
+		{MissedRunPolicy: "replay-all"},
+		{NotifyWebhook: "http://localhost/hook"},
+		{CPUPercent: 10},
+	} {
+		if err := normalizeScheduledTask(&invalid); err == nil {
+			t.Errorf("unsafe task safeguards accepted: %+v", invalid)
+		}
+	}
+}
+
+func TestTaskCalendarMinimumInterval(t *testing.T) {
+	calendar := "*-*-* *:00:00"
+	if err := validateTaskCalendarInterval(context.Background(), calendar, 3600); err != nil {
+		t.Fatalf("hourly schedule rejected at 60-minute minimum: %v", err)
+	}
+	if err := validateTaskCalendarInterval(context.Background(), calendar, 3601); err == nil {
+		t.Fatal("hourly schedule accepted with a longer than hourly minimum")
+	}
+	if err := validateTaskCalendarInterval(context.Background(), "*-*-* *:00/1:00", 61); err == nil {
+		t.Fatal("minute schedule accepted at one-minute minimum")
+	}
+}
+
+func TestTaskStoreMigratesSafeguardDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	legacy := `{"demo/nightly":{"site":"demo","name":"nightly","runtime":"shell","command":"true","on_calendar":"*-*-* *:00:00","timeout_sec":300,"enabled":true,"state":"applied"}}`
+	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenTaskStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.normalizeSafeguards(); err != nil {
+		t.Fatal(err)
+	}
+	got := store.values["demo/nightly"]
+	if got.MinIntervalSeconds != 60 || got.MaxConcurrentRuns != 1 || got.State != "pending" {
+		t.Fatalf("upgraded task = %+v", got)
+	}
+	if err := store.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenTaskStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.values["demo/nightly"]; got.MissedRunPolicy != "run_once" || got.CPUPercent != 100 {
+		t.Fatalf("persisted safeguards = %+v", got)
 	}
 }
 
@@ -67,6 +132,13 @@ func tasksEqual(a, b ScheduledTask) bool {
 		a.OnCalendar == b.OnCalendar &&
 		a.TimeoutSec == b.TimeoutSec &&
 		a.Enabled == b.Enabled &&
+		a.MinIntervalSeconds == b.MinIntervalSeconds &&
+		a.MaxConcurrentRuns == b.MaxConcurrentRuns &&
+		a.MissedRunPolicy == b.MissedRunPolicy &&
+		a.CPUPercent == b.CPUPercent &&
+		a.MemoryMB == b.MemoryMB &&
+		a.TasksMax == b.TasksMax &&
+		a.NotifyWebhook == b.NotifyWebhook &&
 		a.State == b.State &&
 		a.LastError == b.LastError &&
 		a.Deleted == b.Deleted

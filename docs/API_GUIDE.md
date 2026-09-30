@@ -189,7 +189,8 @@ Common site resources:
 | `GET`/`PUT` | `/api/sites/resources/{site}` | CPU, memory, I/O, task, and PHP-worker limits |
 | `GET`/`PUT`/`DELETE` | `/api/sites/access/{site}` | SSH/SFTP policy and public keys |
 | `GET`/`PUT`/`DELETE` | `/api/sites/redis/{site}` | Logical Redis/Valkey allocation |
-| `GET`/`PUT`/`DELETE` | `/api/tasks/{site}/{name}` | Hardened systemd scheduled task |
+| `GET`/`PUT`/`DELETE` | `/api/tasks/{site}/{name}` | Systemd task with bounded interval, single-run concurrency, timeout/resources, missed-run policy, webhook, failure auto-disable, and 20-run history |
+| `POST` | `/api/tasks/{site}/{name}/kill` | Stop the active task run |
 | `GET`/`PUT`/`POST`/`DELETE` | `/api/workers/{site}/{name}` | Managed site worker |
 
 Customer route activation requires a DNS ownership proof:

@@ -609,13 +609,20 @@ paths:
   /api/tasks/:
     get:
       summary: List bounded systemd-timer scheduled tasks for a site
+      description: Returns the effective timer state and bounded execution history for each task.
       responses: {'200': {description: Scheduled task definitions}}
     put:
       summary: Create or replace a site-identity scheduled task
+      description: Enforces a minimum recurrence interval, one concurrent run, runtime and CPU/memory/process limits, missed-run policy, and optional HTTPS completion webhook. Ten consecutive failures disable the timer.
       responses: {'202': {description: Systemd service and timer applied}}
     delete:
       summary: Remove a scheduled task service and timer
       responses: {'204': {description: Scheduled task removed}}
+  /api/tasks/{site}/{name}/kill:
+    post:
+      summary: Stop the active run of a scheduled task
+      description: Sends SIGTERM to all processes in the task service; systemd force-kills remaining processes after the configured stop grace period.
+      responses: {'202': {description: Stop requested}}
   /api/sites/logs/:
     get:
       summary: Read bounded, filtered site logs from allowlisted sources

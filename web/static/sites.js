@@ -955,8 +955,27 @@
         el('p', {}, `API error: ${apiError.message}. Retry when the API becomes available.`)
       ]) : null,
       el('ul', { className: 'resource-list' }, tasks.length ? tasks.map((task) => el('li', { className: 'resource-list-item' }, [
-        el('div', { className: 'item-meta' }, [el('strong', {}, task.name), el('small', {}, `${task.on_calendar} · ${task.runtime} · ${task.enabled ? 'enabled' : 'disabled'}`)]),
+        el('div', { className: 'item-meta' }, [el('strong', {}, task.name), el('small', {}, `${task.on_calendar} · ${task.runtime} · ${task.enabled ? 'enabled' : 'disabled'} · ${task.current_run_count ? 'running' : 'idle'} · ${task.consecutive_failures || 0} consecutive failures · timeout ${task.timeout_sec}s · min interval ${task.min_interval_seconds || 60}s`)]),
         el('div', { className: 'item-actions' }, [
+          ctx.button('History', async () => {
+            try {
+              const details = await ctx.getJSON(`/api/tasks/${encodeURIComponent(site)}/${encodeURIComponent(task.name)}`);
+              const executions = details.executions || [];
+              output.textContent = executions.length
+                ? `${details.consecutive_failures || 0} consecutive failure(s); ${executions.map((run) => `${new Date(run.started_at * 1000).toLocaleString()} · ${run.result} (${run.duration_seconds}s)`).join('\n')}`
+                : 'No recorded executions yet.';
+            } catch (error) { output.textContent = error.message; }
+          }),
+          ctx.button('Stop run', async () => {
+            try {
+              const details = await ctx.getJSON(`/api/tasks/${encodeURIComponent(site)}/${encodeURIComponent(task.name)}`);
+              if (!details.current_run_count) { output.textContent = 'Task is not currently running.'; return; }
+              const confirmed = await ctx.confirmDangerous({ title: `Stop task ${task.name}?`, message: 'The active task process will receive SIGTERM.', confirmText: task.name, actionLabel: 'Stop task' });
+              if (!confirmed) return;
+              await ctx.postJSON(`/api/tasks/${encodeURIComponent(site)}/${encodeURIComponent(task.name)}/kill`);
+              output.textContent = 'Stop requested.';
+            } catch (error) { output.textContent = error.message; }
+          }, { className: 'danger' }),
           ctx.button('Delete', async () => {
             const confirmed = await ctx.confirmDangerous({ title: `Delete task ${task.name}?`, message: 'The scheduled timer is removed immediately.', confirmText: task.name, actionLabel: 'Delete task' });
             if (!confirmed) return;
@@ -973,6 +992,12 @@
     const calendarField = field({ label: 'Schedule (systemd OnCalendar)', name: 'on_calendar', value: '*-*-* *:00:00', hint: 'e.g. *-*-* *:00:00 for hourly.' });
     const commandField = field({ label: 'Command', tag: 'textarea', name: 'command', required: true, hint: 'Runs as a single shell command, e.g. php artisan schedule:run.', rows: 3 });
     const timeoutField = field({ label: 'Timeout (seconds)', name: 'timeout_sec', type: 'number', value: 300, min: 1, max: 86400 });
+    const minIntervalField = field({ label: 'Minimum interval (seconds)', name: 'min_interval_seconds', type: 'number', value: 60, min: 60, max: 31536000, hint: 'The calendar schedule must not run more frequently than this.' });
+    const missedPolicyField = field({ label: 'Missed-run policy', tag: 'select', name: 'missed_run_policy', value: 'run_once', options: [{ value: 'run_once', label: 'Run once after downtime' }, { value: 'skip', label: 'Skip missed runs' }] });
+    const cpuField = field({ label: 'CPU quota (%)', name: 'cpu_percent', type: 'number', value: 100, min: 25, max: 6400 });
+    const memoryField = field({ label: 'Memory limit (MiB)', name: 'memory_mb', type: 'number', value: 1024, min: 64, max: 1048576 });
+    const tasksField = field({ label: 'Process limit', name: 'tasks_max', type: 'number', value: 256, min: 16, max: 100000 });
+    const webhookField = field({ label: 'Completion webhook (HTTPS)', name: 'notify_webhook', type: 'url', hint: 'Receives a small JSON result notification after each run.' });
     const enabledField = field({ label: 'Enabled', tag: 'checkbox-field', name: 'enabled', checked: true });
     const createOutput = ctx.statusOutput();
     panel.append(el('h4', {}, 'Add a scheduled task'), el('form', {
@@ -986,13 +1011,20 @@
             on_calendar: calendarField.querySelector('input').value,
             command: commandField.querySelector('textarea').value,
             timeout_sec: Number(timeoutField.querySelector('input').value),
+            min_interval_seconds: Number(minIntervalField.querySelector('input').value),
+            max_concurrent_runs: 1,
+            missed_run_policy: missedPolicyField.querySelector('select').value,
+            cpu_percent: Number(cpuField.querySelector('input').value),
+            memory_mb: Number(memoryField.querySelector('input').value),
+            tasks_max: Number(tasksField.querySelector('input').value),
+            notify_webhook: webhookField.querySelector('input').value,
             enabled: enabledField.querySelector('input').checked,
           });
           createOutput.textContent = 'Task created.';
           renderTasksTab(site, panel, ctx);
         } catch (error) { createOutput.textContent = error.message; }
       },
-    }, [nameField, el('div', { className: 'field-row' }, [runtimeField, calendarField, timeoutField]), commandField, enabledField, el('button', { type: 'submit', className: 'primary-action' }, 'Add task'), createOutput]));
+    }, [nameField, el('div', { className: 'field-row' }, [runtimeField, calendarField, timeoutField]), el('div', { className: 'field-row' }, [minIntervalField, missedPolicyField]), el('div', { className: 'field-row' }, [cpuField, memoryField, tasksField]), commandField, webhookField, enabledField, el('button', { type: 'submit', className: 'primary-action' }, 'Add task'), createOutput]));
     if (!ctx.can('site:deploy')) panel.querySelectorAll('button').forEach((node) => { node.disabled = true; });
   }
 

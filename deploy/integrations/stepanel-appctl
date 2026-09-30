@@ -14,8 +14,13 @@ if [[ $action == account-resource-apply ]]; then
 else
   lock_scope=app
 fi
-exec 9>"/run/lock/stepanel/$lock_scope/$site.lock"
-flock -x 9
+case "$action" in
+  # These are invoked from the task unit's ExecStartPre/ExecStopPost hooks.
+  # They must not wait on the site lock while a task-delete/site-delete helper
+  # holds that lock and synchronously asks systemd to stop the task unit.
+  task-start|task-result) ;;
+  *) exec 9>"/run/lock/stepanel/$lock_scope/$site.lock"; flock -x 9 ;;
+esac
 
 # systemd's unit directory and manager reload are shared host state. Keep this
 # lock around only atomic unit publication/removal plus daemon-reload, never
@@ -27,6 +32,38 @@ systemd_lock() {
 systemd_unlock() {
   flock -u 8
   exec 8>&-
+}
+validate_task_calendar_interval() {
+  local calendar=$1 minimum=$2 rendered occurrence previous=0 current
+  local -a occurrences=()
+  rendered=$(LC_ALL=C TZ=UTC systemd-analyze calendar --iterations=32 "$calendar") || return 1
+  while IFS= read -r occurrence; do
+    current=$(date -u -d "$occurrence UTC" +%s) || return 1
+    occurrences+=("$current")
+  done < <(sed -n -E 's/^[[:space:]]*(Next elapse:|Iteration #[0-9]+:)[[:space:]]*(.*) UTC$/\2/p' <<< "$rendered")
+  (( ${#occurrences[@]} >= 2 )) || return 1
+  for current in "${occurrences[@]}"; do
+    if (( previous > 0 && current - previous < minimum )); then return 1; fi
+    previous=$current
+  done
+}
+valid_task_webhook() {
+  local value=$1 host
+  [[ -z $value ]] && return 0
+  [[ $value == https://* && $value != *[[:space:]]* && $value != *"'"* && $value != *'"'* && $value != *\\* && $value != *$'\r'* && $value != *$'\n'* ]] || return 1
+  host=${value#https://}; host=${host%%[/:?#]*}
+  [[ $host == *.* && $host != .* && $host != *..* ]]
+}
+task_state_dir() { printf '/var/lib/stepanel/tasks/%s' "$1"; }
+task_unit_name() { printf 'stepanel-task-%s-%s.service' "$1" "$2"; }
+disable_task_timer() {
+  local timer
+  timer="stepanel-task-$1-$2.timer"
+  systemctl stop "$timer" 2>/dev/null || true
+  systemd_lock
+  systemctl --no-reload disable "$timer" 2>/dev/null || true
+  systemctl daemon-reload
+  systemd_unlock
 }
 enable_units() {
   systemd_lock
@@ -43,13 +80,22 @@ if [[ $action == delete ]]; then
   systemctl stop "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
   mapfile -t worker_units < <(systemctl list-unit-files --type=service --no-legend "stepanel-worker-$site-*.service" 2>/dev/null | awk '{print $1}')
   if (( ${#worker_units[@]} > 0 )); then systemctl stop "${worker_units[@]}" 2>/dev/null || true; fi
+  mapfile -t task_timer_units < <(systemctl list-unit-files --type=timer --no-legend "stepanel-task-$site-*.timer" 2>/dev/null | awk '{print $1}')
+  task_service_units=()
+  for timer_unit in "${task_timer_units[@]}"; do task_service_units+=("${timer_unit%.timer}.service"); done
+  if (( ${#task_timer_units[@]} > 0 )); then systemctl stop "${task_timer_units[@]}" "${task_service_units[@]}" 2>/dev/null || true; fi
   systemd_lock
   systemctl --no-reload disable "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
   if (( ${#worker_units[@]} > 0 )); then
     systemctl --no-reload disable "${worker_units[@]}" 2>/dev/null || true
   fi
+  if (( ${#task_timer_units[@]} > 0 )); then
+    systemctl --no-reload disable "${task_timer_units[@]}" 2>/dev/null || true
+    for timer_unit in "${task_timer_units[@]}"; do rm -f "/etc/systemd/system/$timer_unit" "/etc/systemd/system/${timer_unit%.timer}.service"; done
+  fi
   rm -f "/etc/systemd/system/stepanel-app-${site}.service" "/etc/systemd/system/stepanel-app-${site}-python.service"
   for unit in "${worker_units[@]}"; do rm -f "/etc/systemd/system/$unit"; done
+  rm -rf "/var/lib/stepanel/tasks/$site"
   systemctl daemon-reload
   systemd_unlock
   exit 0
@@ -150,6 +196,7 @@ UMask=0027
 LimitNOFILE=65536
 TasksMax=256
 ReadWritePaths=$root
+ReadWritePaths=$task_root
 
 [Install]
 WantedBy=multi-user.target
@@ -372,20 +419,25 @@ EOF
     (( $# == 2 )) || { echo 'usage: stepanel-appctl resource-status SITE' >&2; exit 64; }
     systemctl show "stepanel-site-$site.slice" --property=ActiveState --property=CPUQuotaPerSecUSec --property=CPUWeight --property=MemoryHigh --property=MemoryMax --property=MemoryCurrent --property=IOWeight --property=TasksMax --property=TasksCurrent --property=CPUUsageNSec --no-pager ;;
   task-apply)
-    (( $# == 8 || $# == 11 )) || { echo 'usage: stepanel-appctl task-apply SITE NAME RUNTIME ON_CALENDAR ENABLED TIMEOUT COMMAND_B64 [CPU_PERCENT MEMORY_MB TASKS_MAX]' >&2; exit 64; }
-    name=$3; runtime=$4; on_calendar=$5; enabled=$6; timeout=$7; command_b64=$8
+    (( $# == 14 )) || { echo 'usage: stepanel-appctl task-apply SITE NAME RUNTIME ON_CALENDAR ENABLED TIMEOUT COMMAND_B64 MIN_INTERVAL MISSED_POLICY CPU_PERCENT MEMORY_MB TASKS_MAX WEBHOOK' >&2; exit 64; }
+    name=$3; runtime=$4; on_calendar=$5; enabled=$6; timeout=$7; command_b64=$8; minimum=$9; missed=${10}; task_cpu=${11}; task_memory=${12}; task_tasks=${13}; webhook=${14}
     # Accept standard Base64 with optional padding (=) for cross-platform compatibility
-    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $runtime =~ ^(php|node|python|shell)$ && $enabled =~ ^[01]$ && $timeout =~ ^[0-9]+$ && $command_b64 =~ ^[A-Za-z0-9+/]+=*$ ]] || { echo 'invalid scheduled task parameters' >&2; exit 1; }
+    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $runtime =~ ^(php|node|python|shell)$ && $enabled =~ ^[01]$ && $timeout =~ ^[0-9]+$ && $command_b64 =~ ^[A-Za-z0-9+/]+=*$ && $minimum =~ ^[0-9]+$ && $missed =~ ^(run_once|skip)$ ]] || { echo 'invalid scheduled task parameters' >&2; exit 1; }
     (( timeout >= 1 && timeout <= 86400 )) || { echo 'invalid scheduled task timeout' >&2; exit 1; }
-    task_cpu=100; task_memory=1024; task_tasks=256
-    if (( $# == 11 )); then
-      task_cpu=$9; task_memory=${10}; task_tasks=${11}
-      [[ $task_cpu =~ ^[0-9]+$ && $task_memory =~ ^[0-9]+$ && $task_tasks =~ ^[0-9]+$ ]] || { echo 'invalid scheduled task resource limits' >&2; exit 1; }
-      (( task_cpu >= 25 && task_cpu <= 6400 && task_memory >= 64 && task_memory <= 1048576 && task_tasks >= 16 && task_tasks <= 100000 )) || { echo 'scheduled task resource limits out of range' >&2; exit 1; }
+    (( minimum >= 60 && minimum <= 31536000 )) || { echo 'task minimum interval out of range' >&2; exit 1; }
+    [[ $task_cpu =~ ^[0-9]+$ && $task_memory =~ ^[0-9]+$ && $task_tasks =~ ^[0-9]+$ ]] || { echo 'invalid scheduled task resource limits' >&2; exit 1; }
+    (( task_cpu >= 25 && task_cpu <= 6400 && task_memory >= 64 && task_memory <= 1048576 && task_tasks >= 16 && task_tasks <= 100000 )) || { echo 'scheduled task resource limits out of range' >&2; exit 1; }
+    valid_task_webhook "$webhook" || { echo 'notification webhook must be a safe HTTPS URL' >&2; exit 1; }
+    if ! validate_task_calendar_interval "$on_calendar" "$minimum"; then
+      disable_task_timer "$site" "$name"
+      echo 'task calendar is invalid or runs more frequently than its minimum interval' >&2
+      exit 1
     fi
-    systemd-analyze calendar "$on_calendar" >/dev/null || { echo 'invalid systemd calendar expression' >&2; exit 1; }
     root="/var/www/sites/$site/public"; task_root="/var/lib/stepanel/tasks/$site"; install -d -m 0755 -o root -g root /var/lib/stepanel/tasks "$task_root"
     script="$task_root/$name.sh"; staged=$(mktemp "$task_root/.stepanel-task.XXXXXX")
+    notify_env="$task_root/$name.env"; notify_staged=$(mktemp "$task_root/.stepanel-task-env.XXXXXX")
+    if [[ -n $webhook ]]; then printf 'STEPANEL_TASK_WEBHOOK_URL=%s\n' "$webhook" > "$notify_staged"; fi
+    chmod 0600 "$notify_staged"; chown root:root "$notify_staged"
     # Decode base64 command (supports both padded and unpadded variants)
     decoded_command=$(printf '%s' "$command_b64" | base64 -d)
     # %q quotes the whole decoded command as a single shell word, so
@@ -407,6 +459,8 @@ Slice=stepanel-site-$site.slice
 WorkingDirectory=$root
 ExecStart=$script
 TimeoutStartSec=${timeout}s
+TimeoutStopSec=7s
+KillMode=control-group
 CPUQuota=${task_cpu}%
 MemoryMax=${task_memory}M
 TasksMax=$task_tasks
@@ -416,21 +470,33 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=$root
+RuntimeDirectory=stepanel-task-$site-$name
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStartPre=+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-start $site $name
+ExecStopPost=+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-result $site $name \${SERVICE_RESULT} \${EXIT_CODE} \${EXIT_STATUS}
 EnvironmentFile=-/etc/stepanel/environment/$site.env
+EnvironmentFile=-$notify_env
 UMask=0027
 EOF
+    if [[ -n $webhook ]]; then
+      cat >> "/etc/systemd/system/$unit" <<EOF
+ExecStopPost=-/usr/bin/curl --silent --fail --max-time=5 --max-redirs=0 --proto =https --header "Content-Type: application/json" --data-binary "{\"site\":\"$site\",\"task\":\"$name\",\"result\":\"\${SERVICE_RESULT}\",\"exit_code\":\"\${EXIT_CODE}\",\"exit_status\":\"\${EXIT_STATUS}\"}" "\${STEPANEL_TASK_WEBHOOK_URL}"
+EOF
+    fi
     cat > "/etc/systemd/system/$timer" <<EOF
 [Unit]
 Description=StePanel scheduled task timer $site/$name
 [Timer]
 OnCalendar=$on_calendar
-Persistent=true
+Persistent=$([[ $missed == run_once ]] && printf true || printf false)
 Unit=$unit
 [Install]
 WantedBy=timers.target
 EOF
     chmod 0644 "/etc/systemd/system/$unit" "/etc/systemd/system/$timer"; chown root:root "/etc/systemd/system/$unit" "/etc/systemd/system/$timer"
     mv -f "$staged" "$script"
+    mv -f "$notify_staged" "$notify_env"
     systemctl daemon-reload
     systemd_unlock
     if [[ $enabled == 1 ]]; then
@@ -443,14 +509,74 @@ EOF
       systemctl daemon-reload
       systemd_unlock
     fi ;;
+  task-validate)
+    (( $# == 4 )) || { echo 'usage: stepanel-appctl task-validate SITE ON_CALENDAR MIN_INTERVAL' >&2; exit 64; }
+    minimum=$4
+    if [[ ! $minimum =~ ^[0-9]+$ ]] || (( minimum < 60 || minimum > 31536000 )); then echo 'invalid task minimum interval' >&2; exit 1; fi
+    validate_task_calendar_interval "$3" "$minimum" || { echo 'task calendar is invalid or runs more frequently than its minimum interval' >&2; exit 1; } ;;
+  task-start)
+    (( $# == 3 )) || { echo 'usage: stepanel-appctl task-start SITE NAME' >&2; exit 64; }
+    name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid task name' >&2; exit 1; }
+    task_root=$(task_state_dir "$site"); install -d -m 0755 -o root -g root "$task_root"
+    printf '%s\n' "$(date +%s)" > "$task_root/$name.started"; chmod 0600 "$task_root/$name.started" ;;
+  task-result)
+    (( $# == 6 )) || { echo 'usage: stepanel-appctl task-result SITE NAME RESULT EXIT_CODE EXIT_STATUS' >&2; exit 64; }
+    name=$3; result=$4; exit_code=$5; exit_status=$6
+    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $result =~ ^[A-Za-z0-9_-]{1,32}$ && $exit_code =~ ^[A-Za-z0-9_-]{1,32}$ && $exit_status =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid task result' >&2; exit 1; }
+    task_root=$(task_state_dir "$site"); history="$task_root/$name.history.tsv"; start=0
+    [[ ! -f $task_root/$name.started ]] || read -r start < "$task_root/$name.started"
+    [[ $start =~ ^[0-9]+$ ]] || start=$(date +%s)
+    now=$(date +%s); duration=$((now - start)); (( duration >= 0 )) || duration=0
+    exec 7>"$task_root/.$name.history.lock"; flock -x 7
+    chmod 0600 "$task_root/.$name.history.lock"
+    touch "$history"; chmod 0600 "$history"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$start" "$duration" "$result" "$exit_code" "$exit_status" >> "$history"
+    staged_history=$(mktemp "$task_root/.$name.history.XXXXXX")
+    tail -n 20 "$history" > "$staged_history"; chmod 0600 "$staged_history"; chown root:root "$staged_history"; mv -f "$staged_history" "$history"
+    rm -f "$task_root/$name.started"
+    failures=$(tac "$history" | awk -F '\t' '$3 != "success" {n++; next} {exit} END {print n+0}')
+    if (( failures >= 10 )); then
+      date +%s > "$task_root/$name.auto-disabled"; chmod 0600 "$task_root/$name.auto-disabled"
+      disable_task_timer "$site" "$name"
+    elif [[ $result == success ]]; then
+      rm -f "$task_root/$name.auto-disabled"
+    fi
+    flock -u 7; exec 7>&- ;;
+  task-history)
+    (( $# == 3 )) || { echo 'usage: stepanel-appctl task-history SITE NAME' >&2; exit 64; }
+    name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid task name' >&2; exit 1; }
+    task_root=$(task_state_dir "$site"); install -d -m 0755 -o root -g root "$task_root"; history="$task_root/$name.history.tsv"; active=0; enabled=false; failures=0; disabled_at=0
+    exec 7>"$task_root/.$name.history.lock"; flock -s 7
+    chmod 0600 "$task_root/.$name.history.lock"
+    active_state=$(systemctl show "stepanel-task-$site-$name.service" --property=ActiveState --value 2>/dev/null || true)
+    [[ $active_state != active && $active_state != activating && $active_state != deactivating ]] || active=1
+    systemctl is-enabled --quiet "stepanel-task-$site-$name.timer" && enabled=true
+    [[ ! -f $task_root/$name.auto-disabled ]] || read -r disabled_at < "$task_root/$name.auto-disabled"
+    [[ $disabled_at =~ ^[0-9]+$ ]] || disabled_at=0
+    if [[ -f $history ]]; then failures=$(tac "$history" | awk -F '\t' '$3 != "success" {n++; next} {exit} END {print n+0}'); fi
+    printf '{"current_run_count":%s,"consecutive_failures":%s,"auto_disabled_at":%s,"enabled":%s,"executions":[' "$active" "$failures" "$disabled_at" "$enabled"
+    if [[ -f $history ]]; then
+      first=1
+      while IFS=$'\t' read -r started duration result exit_code exit_status; do
+        [[ $started =~ ^[0-9]+$ && $duration =~ ^[0-9]+$ && $result =~ ^[A-Za-z0-9_-]{1,32}$ && $exit_code =~ ^[A-Za-z0-9_-]{1,32}$ && $exit_status =~ ^[A-Za-z0-9_-]{1,32}$ ]] || continue
+        (( first )) || printf ','
+        printf '{"started_at":%s,"duration_seconds":%s,"result":"%s","exit_code":"%s","exit_status":"%s"}' "$started" "$duration" "$result" "$exit_code" "$exit_status"
+        first=0
+      done < <(tac "$history")
+    fi
+    printf ']}\n'; flock -u 7; exec 7>&- ;;
+  task-kill)
+    (( $# == 3 )) || { echo 'usage: stepanel-appctl task-kill SITE NAME' >&2; exit 64; }
+    name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid task name' >&2; exit 1; }
+    systemctl kill --kill-who=all --signal=SIGTERM "stepanel-task-$site-$name.service" ;;
   task-delete)
     (( $# == 3 )) || { echo 'usage: stepanel-appctl task-delete SITE NAME' >&2; exit 64; }
     name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid task name' >&2; exit 1; }
     unit="stepanel-task-${site}-${name}.service"; timer="stepanel-task-${site}-${name}.timer"
-    systemctl stop "$timer" 2>/dev/null || true
+    systemctl stop "$timer" "$unit" 2>/dev/null || true
     systemd_lock
     systemctl --no-reload disable "$timer" 2>/dev/null || true
-    rm -f "/etc/systemd/system/$unit" "/etc/systemd/system/$timer" "/var/lib/stepanel/tasks/$site/$name.sh" "/var/www/sites/$site/.stepanel-tasks/$name.sh"
+    rm -f "/etc/systemd/system/$unit" "/etc/systemd/system/$timer" "/var/lib/stepanel/tasks/$site/$name.sh" "/var/lib/stepanel/tasks/$site/$name.env" "/var/lib/stepanel/tasks/$site/$name.history.tsv" "/var/lib/stepanel/tasks/$site/$name.started" "/var/lib/stepanel/tasks/$site/$name.auto-disabled" "/var/lib/stepanel/tasks/$site/.$name.history.lock" "/var/www/sites/$site/.stepanel-tasks/$name.sh"
     systemctl daemon-reload
     systemd_unlock ;;
   env-apply)

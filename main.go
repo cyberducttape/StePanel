@@ -397,6 +397,9 @@ func main() {
 		return err
 	})
 	bindState(tasks, "tasks", &tasks.values, tasks.persistLocked)
+	if err := tasks.normalizeSafeguards(); err != nil {
+		log.Fatalf("normalize scheduled task safeguards: %v", err)
+	}
 	bindState(resources, "resources", &resources.values, resources.persistLocked)
 	bindState(dnsDesired, "dns-desired", &dnsDesired.values, dnsDesired.persistLocked)
 	bindState(routes, "routes", &routes.values, routes.persistLocked)

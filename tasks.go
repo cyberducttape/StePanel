@@ -7,7 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
+	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,26 +22,58 @@ import (
 // writable crontab fragment. Commands execute as the isolated site identity;
 // the helper applies time, process and filesystem restrictions consistently.
 type ScheduledTask struct {
-	Site       string `json:"site"`
-	Name       string `json:"name"`
-	Runtime    string `json:"runtime"`
-	Command    string `json:"command"`
-	OnCalendar string `json:"on_calendar"`
-	TimeoutSec int    `json:"timeout_sec"`
-	Enabled    bool   `json:"enabled"`
-	State      string `json:"state,omitempty"`
-	LastError  string `json:"last_error,omitempty"`
-	Deleted    bool   `json:"deleted,omitempty"`
-	// Phase 1 safeguards
-	LastRunAt           int64    `json:"last_run_at,omitempty"`          // Unix timestamp of last execution
-	LastRunExitCode     int      `json:"last_run_exit_code,omitempty"`   // 0 = success, >0 = failure
-	LastRunOutput       []string `json:"last_run_output,omitempty"`      // Last N lines of stdout/stderr
-	ConsecutiveFailures int      `json:"consecutive_failures,omitempty"` // Count failures for auto-disable
-	AutoDisabledAt      int64    `json:"auto_disabled_at,omitempty"`     // When task was auto-disabled
-	// Phase 2 safeguards: NOT YET IMPLEMENTED - fields intentionally omitted from API
-	// See: https://github.com/cyberducttape/StePanel/docs/SECURITY_GAPS_FOUND.md
-	// NotifyEmail, MinIntervalSeconds, MaxConcurrentRuns, CurrentRunCount reserved for future use
-	// Do not expose these fields until enforcement is complete
+	Site                string          `json:"site"`
+	Name                string          `json:"name"`
+	Runtime             string          `json:"runtime"`
+	Command             string          `json:"command"`
+	OnCalendar          string          `json:"on_calendar"`
+	TimeoutSec          int             `json:"timeout_sec"`
+	Enabled             bool            `json:"enabled"`
+	MinIntervalSeconds  int             `json:"min_interval_seconds"`
+	MaxConcurrentRuns   int             `json:"max_concurrent_runs"`
+	MissedRunPolicy     string          `json:"missed_run_policy"`
+	CPUPercent          int             `json:"cpu_percent"`
+	MemoryMB            int             `json:"memory_mb"`
+	TasksMax            int             `json:"tasks_max"`
+	NotifyWebhook       string          `json:"notify_webhook,omitempty"`
+	State               string          `json:"state,omitempty"`
+	LastError           string          `json:"last_error,omitempty"`
+	Deleted             bool            `json:"deleted,omitempty"`
+	LastRunAt           int64           `json:"last_run_at,omitempty"`
+	LastRunExitCode     int             `json:"last_run_exit_code,omitempty"`
+	LastRunOutput       []string        `json:"last_run_output,omitempty"`
+	ConsecutiveFailures int             `json:"consecutive_failures,omitempty"`
+	AutoDisabledAt      int64           `json:"auto_disabled_at,omitempty"`
+	CurrentRunCount     int             `json:"current_run_count,omitempty"`
+	Executions          []TaskExecution `json:"executions,omitempty"`
+}
+
+type TaskExecution struct {
+	StartedAt   int64  `json:"started_at"`
+	DurationSec int64  `json:"duration_seconds"`
+	Result      string `json:"result"`
+	ExitCode    string `json:"exit_code"`
+	ExitStatus  string `json:"exit_status"`
+}
+
+type taskHistorySnapshot struct {
+	Executions          []TaskExecution `json:"executions"`
+	CurrentRunCount     int             `json:"current_run_count"`
+	ConsecutiveFailures int             `json:"consecutive_failures"`
+	AutoDisabledAt      int64           `json:"auto_disabled_at"`
+	Enabled             bool            `json:"enabled"`
+}
+
+func loadTaskHistory(ctx context.Context, cfg Config, site, name string) (taskHistorySnapshot, error) {
+	output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.AppCtl, "task-history", site, name)
+	if err != nil {
+		return taskHistorySnapshot{}, err
+	}
+	var snapshot taskHistorySnapshot
+	if err := json.Unmarshal(output, &snapshot); err != nil {
+		return taskHistorySnapshot{}, fmt.Errorf("decode task history: %w", err)
+	}
+	return snapshot, nil
 }
 
 type TaskStore struct {
@@ -65,6 +101,32 @@ func OpenTaskStore(path string) (*TaskStore, error) {
 		}
 	}
 	return s, nil
+}
+
+// normalizeSafeguards upgrades persisted task definitions before reconciliation
+// so older entries receive the enforced defaults and are republished as units.
+func (s *TaskStore) normalizeSafeguards() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for key, task := range s.values {
+		original := task
+		if err := normalizeScheduledTask(&task); err != nil {
+			return fmt.Errorf("normalize scheduled task %s: %w", key, err)
+		}
+		if task.State == "" {
+			task.State = "applied"
+		}
+		if !reflect.DeepEqual(original, task) {
+			task.State = "pending"
+			s.values[key] = task
+			changed = true
+		}
+	}
+	if changed {
+		return s.persistLocked()
+	}
+	return nil
 }
 func (s *TaskStore) persistLocked() error {
 	d, err := json.MarshalIndent(s.values, "", "  ")
@@ -105,7 +167,84 @@ const (
 	maxTaskOutputSize       = 1024 * 1024     // 1MB max output
 	taskTimeoutDefault      = 5 * time.Minute // 5-minute execution limit
 	autoDisableFailureCount = 10              // Disable after 10 consecutive failures
+	minTaskIntervalSeconds  = 60
+	maxTaskIntervalSeconds  = 31536000
+	maxTaskHistory          = 20
 )
+
+var taskCalendarOccurrence = regexp.MustCompile(`(?m)^\s*(?:Next elapse:|Iteration #[0-9]+:)\s*(.+?) UTC\s*$`)
+
+func normalizeScheduledTask(task *ScheduledTask) error {
+	if task.MinIntervalSeconds == 0 {
+		task.MinIntervalSeconds = minTaskIntervalSeconds
+	}
+	if task.MinIntervalSeconds < minTaskIntervalSeconds || task.MinIntervalSeconds > maxTaskIntervalSeconds {
+		return fmt.Errorf("minimum interval must be between %d and %d seconds", minTaskIntervalSeconds, maxTaskIntervalSeconds)
+	}
+	if task.MaxConcurrentRuns == 0 {
+		task.MaxConcurrentRuns = 1
+	}
+	if task.MaxConcurrentRuns != 1 {
+		return errors.New("scheduled tasks support exactly one concurrent run")
+	}
+	if task.MissedRunPolicy == "" {
+		task.MissedRunPolicy = "run_once"
+	}
+	if task.MissedRunPolicy != "run_once" && task.MissedRunPolicy != "skip" {
+		return errors.New("missed-run policy must be run_once or skip")
+	}
+	if task.CPUPercent == 0 {
+		task.CPUPercent = 100
+	}
+	if task.MemoryMB == 0 {
+		task.MemoryMB = 1024
+	}
+	if task.TasksMax == 0 {
+		task.TasksMax = 256
+	}
+	if task.CPUPercent < 25 || task.CPUPercent > 6400 || task.MemoryMB < 64 || task.MemoryMB > 1048576 || task.TasksMax < 16 || task.TasksMax > 100000 {
+		return errors.New("task CPU, memory, or process limits are out of range")
+	}
+	if task.NotifyWebhook != "" && !validTaskWebhook(task.NotifyWebhook) {
+		return errors.New("notification webhook must be an HTTPS URL without credentials or control characters")
+	}
+	return nil
+}
+
+func validTaskWebhook(raw string) bool {
+	if len(raw) > 2048 || strings.ContainsAny(raw, "\x00\r\n\t '\"\\") {
+		return false
+	}
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.Fragment == ""
+}
+
+func validateTaskCalendarInterval(ctx context.Context, calendar string, minimumSeconds int) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "systemd-analyze", "calendar", "--iterations=32", calendar)
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "TZ=UTC")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("invalid systemd calendar expression: %s", strings.TrimSpace(string(output)))
+	}
+	matches := taskCalendarOccurrence.FindAllStringSubmatch(string(output), -1)
+	if len(matches) < 2 {
+		return errors.New("scheduled task calendar must recur")
+	}
+	var previous time.Time
+	for i, match := range matches {
+		occurrence, parseErr := time.Parse("Mon 2006-01-02 15:04:05", strings.TrimSpace(match[1]))
+		if parseErr != nil {
+			return fmt.Errorf("could not inspect calendar recurrence: %w", parseErr)
+		}
+		if i > 0 && int(occurrence.Sub(previous).Seconds()) < minimumSeconds {
+			return fmt.Errorf("calendar runs more frequently than the configured minimum interval of %d seconds", minimumSeconds)
+		}
+		previous = occurrence
+	}
+	return nil
+}
 
 // recordTaskExecution updates task with execution results
 func (s *TaskStore) recordTaskExecution(key string, exitCode int, output []string) error {
@@ -178,7 +317,7 @@ func (a *App) killTask(ctx context.Context, site, name string) error {
 	}
 	defer releaseUnlock()
 	// Use AppCtl with task-kill action instead of missing TaskCtl helper
-	return runHelperCommandWithTimeout(operationCtx, a.Config, taskTimeoutDefault, a.Config.AppCtl, "task-kill", site, name)
+	return runHelperCommandWithTimeout(operationCtx, a.Config, 15*time.Second, a.Config.AppCtl, "task-kill", site, name)
 }
 
 // Phase 2 safeguards (canExecuteTask, incrementTaskRunCount, decrementTaskRunCount)
@@ -211,6 +350,22 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		a.Tasks.mu.RUnlock()
+		for i := range result {
+			history, err := loadTaskHistory(r.Context(), a.Config, site, result[i].Name)
+			if err != nil {
+				http.Error(w, "task execution state is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			result[i].Enabled = history.Enabled
+			result[i].CurrentRunCount = history.CurrentRunCount
+			result[i].ConsecutiveFailures = history.ConsecutiveFailures
+			result[i].AutoDisabledAt = history.AutoDisabledAt
+			result[i].Executions = history.Executions
+			if len(history.Executions) > 0 {
+				result[i].LastRunAt = history.Executions[0].StartedAt
+				result[i].LastRunExitCode, _ = strconv.Atoi(history.Executions[0].ExitStatus)
+			}
+		}
 		writeJSON(w, 200, map[string]any{"tasks": result})
 		return
 	}
@@ -254,16 +409,27 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "task not found", 404)
 			return
 		}
+		history, err := loadTaskHistory(r.Context(), a.Config, site, name)
+		if err != nil {
+			http.Error(w, "task execution history is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		lastRunAt, lastExitCode := int64(0), 0
+		if len(history.Executions) > 0 {
+			lastRunAt = history.Executions[0].StartedAt
+			lastExitCode, _ = strconv.Atoi(history.Executions[0].ExitStatus)
+		}
 		response := map[string]any{
 			"site":                 task.Site,
 			"name":                 task.Name,
-			"last_run_at":          task.LastRunAt,
-			"last_run_exit_code":   task.LastRunExitCode,
-			"last_run_output":      task.LastRunOutput,
-			"consecutive_failures": task.ConsecutiveFailures,
-			"auto_disabled_at":     task.AutoDisabledAt,
-			"enabled":              task.Enabled,
+			"last_run_at":          lastRunAt,
+			"last_run_exit_code":   lastExitCode,
 			"last_error":           task.LastError,
+			"executions":           history.Executions,
+			"current_run_count":    history.CurrentRunCount,
+			"consecutive_failures": history.ConsecutiveFailures,
+			"auto_disabled_at":     history.AutoDisabledAt,
+			"enabled":              history.Enabled,
 		}
 		writeJSON(w, 200, response)
 		return
@@ -336,10 +502,27 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 	input.State = "pending"
 	input.LastError = ""
 	input.Deleted = false
+	// Execution telemetry is owned by the privileged task runner. Never accept
+	// client-supplied history or counters as part of a definition update.
+	input.LastRunAt = 0
+	input.LastRunExitCode = 0
+	input.LastRunOutput = nil
+	input.ConsecutiveFailures = 0
+	input.AutoDisabledAt = 0
+	input.CurrentRunCount = 0
+	input.Executions = nil
 
 	input.Command, input.OnCalendar = strings.TrimSpace(input.Command), strings.TrimSpace(input.OnCalendar)
+	if err := normalizeScheduledTask(&input); err != nil {
+		http.Error(w, "invalid scheduled task safeguards: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	if !validTaskRuntime(input.Runtime) || input.Command == "" || len(input.Command) > 1024 || strings.ContainsAny(input.Command, "\x00\r\n") || input.OnCalendar == "" || len(input.OnCalendar) > 128 || strings.ContainsAny(input.OnCalendar, "\x00\r\n") || input.TimeoutSec < 1 || input.TimeoutSec > 86400 {
 		http.Error(w, "invalid scheduled task definition", 422)
+		return
+	}
+	if err := validateTaskCalendarInterval(r.Context(), input.OnCalendar, input.MinIntervalSeconds); err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
@@ -401,15 +584,8 @@ func (a *App) applyTask(ctx context.Context, task ScheduledTask) error {
 	encodedCommand := base64.StdEncoding.EncodeToString([]byte(task.Command))
 	// Keep task limits aligned with the site's desired resource profile. The
 	// helper retains a conservative fallback for sites that have no profile.
-	args := []string{"task-apply", task.Site, task.Name, task.Runtime, task.OnCalendar, stringBool(task.Enabled), itoa(task.TimeoutSec), encodedCommand}
-	if a.Resources != nil {
-		a.Resources.mu.RLock()
-		profile, configured := a.Resources.values[task.Site]
-		a.Resources.mu.RUnlock()
-		if configured {
-			args = append(args, strconv.Itoa(profile.CPUPercent), strconv.Itoa(profile.MemoryMB), strconv.Itoa(profile.TasksMax))
-		}
-	}
+	args := []string{"task-apply", task.Site, task.Name, task.Runtime, task.OnCalendar, stringBool(task.Enabled), itoa(task.TimeoutSec), encodedCommand,
+		strconv.Itoa(task.MinIntervalSeconds), task.MissedRunPolicy, strconv.Itoa(task.CPUPercent), strconv.Itoa(task.MemoryMB), strconv.Itoa(task.TasksMax), task.NotifyWebhook}
 	return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, args...)
 }
 

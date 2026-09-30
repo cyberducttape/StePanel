@@ -14,13 +14,28 @@ command -v systemctl >/dev/null || { echo 'cpmove recovery smoke requires system
 
 : "${CPMOVE_KILL_AT:=cpmove:activate}"
 
+wait_for_panel_ready() {
+  for _ in $(seq 1 120); do
+    if systemctl is-active --quiet stepanel.service && \
+       curl --fail --silent --max-time 2 http://127.0.0.1:8090/readyz >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo 'panel did not become ready after worker restart' >&2
+  systemctl status stepanel.service stepanel-worker.service --no-pager >&2 || true
+  return 1
+}
+
 dropin_dir=/run/systemd/system/stepanel-worker.service.d
 dropin="$dropin_dir/recovery-smoke.conf"
 mkdir -p "$dropin_dir"
 cleanup() {
   rm -f -- "$dropin"
   systemctl daemon-reload >/dev/null 2>&1 || true
-  timeout --foreground 30s systemctl restart stepanel-worker.service >/dev/null 2>&1 || true
+  if timeout --foreground 30s systemctl restart stepanel-worker.service >/dev/null 2>&1; then
+    wait_for_panel_ready || true
+  fi
 }
 trap cleanup EXIT
 
@@ -28,6 +43,7 @@ printf '%s\n' '[Service]' "Environment=STEPANEL_KILL_AT=$CPMOVE_KILL_AT" > "$dro
 systemctl daemon-reload
 systemctl restart stepanel-worker.service
 systemctl is-active --quiet stepanel-worker.service
+wait_for_panel_ready
 before=$(systemctl show stepanel-worker.service -p MainPID --value)
 [[ "$before" =~ ^[1-9][0-9]*$ ]] || { echo "could not determine worker PID: $before" >&2; exit 1; }
 
@@ -48,6 +64,7 @@ for _ in $(seq 1 90); do
     rm -f -- "$dropin"
     systemctl daemon-reload
     systemctl restart stepanel-worker.service
+    wait_for_panel_ready
     break
   fi
   if ! kill -0 "$import_pid" 2>/dev/null; then

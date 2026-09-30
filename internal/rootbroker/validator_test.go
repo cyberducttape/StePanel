@@ -380,6 +380,12 @@ func TestValidateHelperRequestAllowlist(t *testing.T) {
 	if err := v.ValidateRequest(valid); err != nil {
 		t.Fatalf("valid helper request rejected: %v", err)
 	}
+	for _, action := range []string{"task-apply", "task-kill", "task-history"} {
+		request := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: action, Args: []string{"demo", "nightly"}}}
+		if err := v.ValidateRequest(request); err != nil {
+			t.Errorf("task helper action %q rejected: %v", action, err)
+		}
+	}
 	for _, req := range []*Request{
 		{RequestType: "helper", Helper: &HelperRequest{Name: "not-a-helper", Action: "apply"}},
 		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "shell"}},
