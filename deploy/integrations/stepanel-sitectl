@@ -52,6 +52,8 @@ fi
 if ! id "$site_user" >/dev/null 2>&1; then
   useradd --system --home-dir "$site_root" --shell /usr/sbin/nologin --user-group "$site_user"
 fi
+[[ -d /var/www/sites && ! -L /var/www/sites ]] || { echo 'shared site root is missing or unsafe' >&2; exit 1; }
+chmod 2711 /var/www/sites
 install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root" "$public_root"
 install -d -m 0750 -o "$site_user" -g "$web_group" "$php_state" "$php_state/sessions" "$php_state/tmp"
 

@@ -627,7 +627,10 @@ if [[ -d "$APP_DIR/.nvm" ]]; then
 fi
 chown -R "$APP_USER:$APP_USER" "$DATA_DIR"
 chown "$APP_USER:$WEB_GROUP" /var/www/sites
-chmod 2750 /var/www/sites
+# Site users need to traverse the shared parent to reach their own directory,
+# but must not be able to enumerate sibling tenant names. Each site directory
+# enforces its own read/write boundary below this execute-only parent.
+chmod 2711 /var/www/sites
 install -d -m 0700 -o "$APP_USER" -g "$APP_USER" /var/www/sites/.stepanel-recovery
 write_env() {
   local key=$1 value=$2
