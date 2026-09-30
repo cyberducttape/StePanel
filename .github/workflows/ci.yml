@@ -206,7 +206,7 @@ jobs:
         run: docker run --rm -v "$PWD:/work:ro" -v /tmp:/tmp:ro ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary /work/deploy/kubernetes/stepanel.yaml /tmp/stepanel-rendered.yaml
       - name: Enforce immutable deployment references
         run: |
-          ! rg -n --glob '!**/.terraform/**' 'stepanel:(latest|v[0-9])' deploy Dockerfile
+          if rg -n --glob '!**/.terraform/**' 'stepanel:(latest|v[0-9])' deploy Dockerfile; then exit 1; fi
           grep -Eq 'stepanel@sha256:[a-f0-9]{64}' deploy/kubernetes/stepanel.yaml
           grep -Eq 'stepanel@sha256:[a-f0-9]{64}' deploy/terraform/variables.tf
           grep -Eq 'digest: sha256:[a-f0-9]{64}' deploy/helm/stepanel/values.yaml

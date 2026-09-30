@@ -15,12 +15,10 @@ concurrency:
 
 jobs:
   quota-install:
-    # Exercise the production installer against a real ext4 user-quota mount
-    # inside an isolated systemd host container. The hosted runner itself does
-    # not grant mount privileges, so loop setup stays inside the privileged
-    # disposable host rather than its outer VM.
+    # Run the installer in a genuine guest because the hosted runner's outer
+    # mount namespace cannot create loop mounts. TCG avoids requiring nested KVM.
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -31,55 +29,91 @@ jobs:
         run: |
           go build -trimpath -ldflags='-s -w' -o stepanel .
           go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root
-      - name: Install on a quota-enabled disposable systemd host
+      - name: Boot quota-enabled disposable Ubuntu guest and install
         run: |
           set -Eeuo pipefail
-          diagnostics_dir="$RUNNER_TEMP/stepanel-quota-diagnostics"
-          mkdir -p "$diagnostics_dir"
+          vm_root="$RUNNER_TEMP/stepanel-quota-vm"
+          mkdir -p "$vm_root"
+          sudo apt-get update
+          sudo apt-get install -y cloud-image-utils openssh-client qemu-system-x86 qemu-utils
+
+          image_url=https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+          curl --fail --silent --show-error --location "$image_url" -o "$vm_root/ubuntu.img"
+          curl --fail --silent --show-error --location https://cloud-images.ubuntu.com/noble/current/SHA256SUMS -o "$vm_root/SHA256SUMS"
+          (cd "$vm_root" && grep 'noble-server-cloudimg-amd64.img$' SHA256SUMS | sha256sum --check --status)
+          qemu-img resize "$vm_root/ubuntu.img" 12G
+          qemu-img create -f raw "$vm_root/www.ext4" 2G
+
+          ssh-keygen -q -t ed25519 -N '' -f "$vm_root/id_ed25519"
+          vm_pubkey=$(<"$vm_root/id_ed25519.pub")
+          cat > "$vm_root/user-data" <<EOF
+          #cloud-config
+          users:
+            - default
+            - name: vmtest
+              shell: /bin/bash
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              ssh_authorized_keys:
+                - $vm_pubkey
+          package_update: true
+          packages:
+            - cloud-init
+            - e2fsprogs
+            - openssh-server
+            - quota
+          runcmd:
+            - |
+              set -eux
+              mkfs.ext4 -F -O quota /dev/vdb
+              install -d -m 0755 /var/www
+              printf '%s\\n' '/dev/vdb /var/www ext4 usrquota 0 2' >> /etc/fstab
+              mount /var/www
+              quotaon -u /var/www
+              quotaon -p -u /var/www
+              touch /run/stepanel-quota-ready
+          EOF
+          cloud-localds "$vm_root/seed.iso" "$vm_root/user-data"
+
+          qemu-system-x86_64 \
+            -machine accel=tcg \
+            -cpu max -smp 2 -m 4096 \
+            -drive "file=$vm_root/ubuntu.img,if=virtio,format=qcow2" \
+            -drive "file=$vm_root/www.ext4,if=virtio,format=raw" \
+            -drive "file=$vm_root/seed.iso,if=virtio,media=cdrom,readonly=on" \
+            -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
+            -device virtio-net-pci,netdev=net0 \
+            -display none -serial "file:$vm_root/console.log" -monitor none \
+            -daemonize -pidfile "$vm_root/qemu.pid"
+
           cleanup() {
-            sudo docker rm -f stepanel-quota-install >/dev/null 2>&1 || true
+            status=$?
+            if (( status != 0 )); then
+              cat "$vm_root/console.log" >&2 2>/dev/null || true
+              ssh -i "$vm_root/id_ed25519" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 vmtest@127.0.0.1 \
+                'sudo journalctl -b --no-pager -n 200; sudo findmnt /var/www; sudo quotaon -p -u /var/www' >&2 || true
+            fi
+            if [[ -s "$vm_root/qemu.pid" ]]; then
+              kill "$(<"$vm_root/qemu.pid")" 2>/dev/null || true
+            fi
           }
           trap cleanup EXIT
-          docker build --build-arg BASE_IMAGE=ubuntu:24.04 -f deploy/lab/Dockerfile.systemd -t stepanel-quota-systemd .
-          sudo docker run -d --privileged --name stepanel-quota-install \
-            --security-opt=no-new-privileges:false --userns=host --cgroupns=host \
-            --tmpfs /run --tmpfs /run/lock \
-            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            -v "$PWD:/work" \
-            stepanel-quota-systemd /sbin/init
-          systemd_ready=0
-          for _ in $(seq 1 30); do
-            if timeout --foreground 5s sudo docker exec stepanel-quota-install systemctl is-system-running >/dev/null 2>&1; then
-              systemd_ready=1
+
+          ssh_args=(-i "$vm_root/id_ed25519" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3)
+          guest_ready=0
+          for _ in $(seq 1 240); do
+            if ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --wait >/dev/null && test -e /run/stepanel-quota-ready'; then
+              guest_ready=1
               break
             fi
-            sleep 2
+            sleep 5
           done
-          test "$systemd_ready" = 1 || { sudo docker logs stepanel-quota-install >&2; exit 1; }
-          sudo docker exec stepanel-quota-install bash -lc '
-            set -Eeuo pipefail
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update
-            apt-get install -y e2fsprogs quota
-            install -d -m 0755 /var/www
-            truncate -s 2G /var/lib/stepanel-quota.ext4
-            mkfs.ext4 -F -O quota /var/lib/stepanel-quota.ext4
-            loop_device=$(losetup --find --show /var/lib/stepanel-quota.ext4)
-            mount -o usrquota "$loop_device" /var/www
-            quotaon -v -u /var/www
-            quotaon -p -u /var/www
-          '
-          set +e
-          timeout --foreground 30m sudo docker exec \
-            -e STEPANEL_QUOTA_SMOKE=1 -e STEPANEL_DB_ENGINE=mariadb -e STEPANEL_WEBSERVER=caddy \
-            stepanel-quota-install /work/deploy/lab/install-smoke.sh \
-            >"$diagnostics_dir/install-output.txt" 2>&1
-          smoke_status=$?
-          set -e
-          if [[ "$smoke_status" != 0 ]]; then
-            sudo docker exec stepanel-quota-install systemctl status stepanel.service stepanel-worker.service --no-pager >"$diagnostics_dir/systemctl-status.txt" 2>&1 || true
-            sudo docker exec stepanel-quota-install journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 >"$diagnostics_dir/journal.txt" 2>&1 || true
-            sudo docker logs stepanel-quota-install >"$diagnostics_dir/container.log" 2>&1 || true
-            cat "$diagnostics_dir"/* >&2 || true
-            exit "$smoke_status"
-          fi
+          test "$guest_ready" = 1 || { echo 'quota-enabled Ubuntu guest did not finish cloud-init' >&2; exit 1; }
+
+          tar -czf "$vm_root/stepanel-source.tar.gz" --exclude=.git -C "$GITHUB_WORKSPACE" .
+          scp -i "$vm_root/id_ed25519" -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 \
+            "$vm_root/stepanel-source.tar.gz" vmtest@127.0.0.1:/tmp/stepanel-source.tar.gz
+          ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo mkdir -p /work && sudo tar -xzf /tmp/stepanel-source.tar.gz -C /work'
+          ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+            'sudo findmnt -no OPTIONS /var/www | tr "," "\\n" | grep -Fx usrquota && sudo quotaon -p -u /var/www'
+          ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+            'sudo env STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy bash /work/deploy/lab/install-smoke.sh'
