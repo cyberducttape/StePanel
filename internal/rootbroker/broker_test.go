@@ -46,6 +46,44 @@ func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
 	}
 }
 
+func TestBrokerGitDeleteRemovesOnlySiteKeyEntries(t *testing.T) {
+	keyRoot := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside-key")
+	if err := os.WriteFile(outside, []byte("keep me"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(keyRoot, "demo")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(keyRoot, "demo.pub"), []byte("public key"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.gitKeyRoot = keyRoot
+	response, err := broker.Execute(context.Background(), &Request{
+		RequestType: "git",
+		Git:         &GitRequest{Action: "delete", Site: "demo"},
+	})
+	if err != nil || !response.OK {
+		t.Fatalf("typed Git delete response = %#v, error = %v", response, err)
+	}
+	var details GitResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil || !details.Deleted {
+		t.Fatalf("typed Git delete details = %#v, error = %v", details, err)
+	}
+	for _, name := range []string{"demo", "demo.pub"} {
+		if _, err := os.Lstat(filepath.Join(keyRoot, name)); !os.IsNotExist(err) {
+			t.Errorf("Git key entry %q remains: %v", name, err)
+		}
+	}
+	if data, err := os.ReadFile(outside); err != nil || string(data) != "keep me" {
+		t.Fatalf("symlink target after Git delete = %q, error = %v", data, err)
+	}
+}
+
 func TestBrokerSiteCreate(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	broker, err := NewBroker(t.TempDir(), logger)

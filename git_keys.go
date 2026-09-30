@@ -1,9 +1,34 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
+
+func deleteGitDeployKey(ctx context.Context, cfg Config, site string) error {
+	if cfg.Production || labDirectRootBrokerEnabled() {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if err != nil {
+			return err
+		}
+		response, err := client.GitDelete(ctx, site)
+		if err != nil {
+			return err
+		}
+		if !response.OK {
+			return errors.New(response.Error)
+		}
+		return nil
+	}
+	if cfg.GitCtl == "" {
+		return errors.New("Git helper is not configured")
+	}
+	return runHelperCommandWithTimeout(ctx, cfg, helperServiceLifecycleTimeout, cfg.GitCtl, "delete", site)
+}
 
 // siteGitKey exposes only the public half of a site-scoped deploy key.  The
 // private half is generated, stored and consumed exclusively by stepanel-gitctl
@@ -67,7 +92,7 @@ func (a *App) siteGitKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
-		if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.GitCtl, "delete", site); err != nil {
+		if err := deleteGitDeployKey(operationCtx, a.Config, site); err != nil {
 			http.Error(w, "could not retire deploy key", http.StatusBadGateway)
 			return
 		}

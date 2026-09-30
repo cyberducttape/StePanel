@@ -388,7 +388,7 @@ func (v *Validator) validateHelperRequest(req *HelperRequest) error {
 		"sitectl":   {"prepare": true, "seal": true, "delete": true, "access": true, "resources": true, "quota": true, "quota-clear": true, "runtime": true},
 		"vhostctl":  {"apply": true, "delete": true, "apply-auth": true, "import-htaccess": true},
 		"runnerctl": {"build": true},
-		"gitctl":    {"clone": true, "generate": true, "public": true, "delete": true, "verify": true},
+		"gitctl":    {"clone": true, "generate": true, "public": true, "verify": true},
 		"dbctl":     {"reconcile": true, "list": true, "inventory": true, "diagnostics": true, "sessions": true, "settings": true, "terminate": true, "provision": true, "rotate": true, "drop-managed": true, "restore": true, "restore-dump": true, "restore-wordpress": true, "cleanup-wordpress": true, "drop": true, "dump": true},
 	}
 	actions, ok := allowed[req.Name]

@@ -199,6 +199,7 @@ type GitRequest struct {
 type GitResponse struct {
 	Cloned   bool   `json:"cloned,omitempty"`
 	Verified bool   `json:"verified,omitempty"`
+	Deleted  bool   `json:"deleted,omitempty"`
 	Commit   string `json:"commit,omitempty"`
 }
 

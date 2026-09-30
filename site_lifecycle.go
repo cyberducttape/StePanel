@@ -401,18 +401,7 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 		}
 	}
 	if a.Config.GitCtl != "" {
-		var err error
-		if labBroker != nil {
-			resp, callErr := labBroker.GitDelete(ctx, siteName)
-			if callErr != nil {
-				err = callErr
-			} else if !resp.OK {
-				err = errors.New(resp.Error)
-			}
-		} else {
-			err = runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.GitCtl, "delete", siteName)
-		}
-		if err != nil {
+		if err := deleteGitDeployKey(ctx, a.Config, siteName); err != nil {
 			return fmt.Errorf("remove Git deploy key for %s: %w", siteName, err)
 		}
 	}

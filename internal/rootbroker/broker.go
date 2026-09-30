@@ -31,6 +31,7 @@ type Broker struct {
 	dbctlPath     string
 	certbotPath   string
 	systemctlPath string
+	gitKeyRoot    string
 	validator     *Validator
 	logger        *log.Logger
 	isTestMode    bool // True when webRoot is in /tmp (indicates test environment)
@@ -81,6 +82,7 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		dbctlPath:     "/usr/local/sbin/stepanel-dbctl",
 		certbotPath:   "/usr/local/sbin/stepanel-certbot",
 		systemctlPath: "/usr/bin/systemctl",
+		gitKeyRoot:    "/etc/stepanel/git-keys",
 		validator:     NewValidator(webRoot),
 		logger:        logger,
 		isTestMode:    isTestMode,
@@ -1214,10 +1216,7 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 
 	switch req.Action {
 	case "delete":
-		if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
-			return b.runLabHelper(ctx, "/usr/local/sbin/stepanel-gitctl", "delete", req.Site)
-		}
-		return unsupportedBrokerResponse("git delete")
+		return b.gitDelete(req)
 	case "clone":
 		return b.gitClone(ctx, req)
 	case "verify-key":
@@ -1225,6 +1224,38 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown git action: %s", req.Action)}, nil
 	}
+}
+
+func (b *Broker) gitDelete(req *GitRequest) (*Response, error) {
+	info, err := os.Lstat(b.gitKeyRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return gitDeleteResponse()
+	}
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("inspect Git key directory: %v", err)}, nil
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return &Response{OK: false, Error: "Git key path is not a trusted directory"}, nil
+	}
+	root, err := os.OpenRoot(b.gitKeyRoot)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("open Git key directory: %v", err)}, nil
+	}
+	defer root.Close()
+	for _, name := range []string{req.Site, req.Site + ".pub"} {
+		if err := root.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return &Response{OK: false, Error: fmt.Sprintf("remove Git deploy key %s: %v", name, err)}, nil
+		}
+	}
+	return gitDeleteResponse()
+}
+
+func gitDeleteResponse() (*Response, error) {
+	details, err := json.Marshal(GitResponse{Deleted: true})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 func (b *Broker) runLabHelper(ctx context.Context, path string, args ...string) (*Response, error) {
