@@ -71,7 +71,7 @@ jobs:
               install -d -m 0755 /var/www
               printf '%s\\n' '/dev/vdb /var/www ext4 usrquota 0 2' >> /etc/fstab
               mount /var/www
-              apt-get install -y "linux-modules-extra-$(uname -r)"
+              apt-get install -y "linux-modules-extra-\$(uname -r)"
               modprobe quota_v2
               quotacheck -cugm /var/www
               quotaon -u /var/www
@@ -114,6 +114,12 @@ jobs:
             if ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --wait >/dev/null && test -e /run/stepanel-quota-ready'; then
               guest_ready=1
               break
+            fi
+            cloud_init_status=$(ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --format json' 2>/dev/null || true)
+            if grep -Eq '"(status|extended_status)"[[:space:]]*:[[:space:]]*"(error|degraded)"' <<< "$cloud_init_status"; then
+              echo 'quota-enabled Ubuntu guest cloud-init failed' >&2
+              ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --long; sudo tail -n 120 /var/log/cloud-init-output.log' >&2 || true
+              exit 1
             fi
             sleep 5
           done
