@@ -25,6 +25,22 @@ type Request struct {
 
 	// Git operations: clone, verify-key
 	Git *GitRequest `json:"git,omitempty"`
+
+	// Helper is a transitional, allow-listed bridge for helper callsites that
+	// have not yet gained a dedicated typed operation. The broker still owns
+	// the executable path and validates the helper/action pair.
+	Helper *HelperRequest `json:"helper,omitempty"`
+}
+
+type HelperRequest struct {
+	Name   string   `json:"name"`
+	Action string   `json:"action"`
+	Args   []string `json:"args,omitempty"`
+	Input  []byte   `json:"input,omitempty"`
+}
+
+type HelperResponse struct {
+	Output string `json:"output,omitempty"`
 }
 
 // Response is the top-level RPC response sent back to the app.

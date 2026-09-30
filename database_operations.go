@@ -59,6 +59,16 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	if cfg.Production {
+		var helperInput []byte
+		if input != "" {
+			helperInput = []byte(input + "\n")
+		}
+		output, err, handled := runAllowlistedHelperOutput(ctx, cfg, helperInput, cfg.DBCtl, args...)
+		if handled {
+			return output, err
+		}
+	}
 	if labDirectRootBrokerEnabled() && input == "" && len(args) == 1 && args[0] == "inventory" {
 		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 		if err != nil {

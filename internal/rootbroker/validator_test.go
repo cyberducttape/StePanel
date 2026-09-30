@@ -373,3 +373,20 @@ func TestValidateEncoding(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateHelperRequestAllowlist(t *testing.T) {
+	v := NewValidator("/var/www")
+	valid := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "apply", Args: []string{"site", "18.0.0", "/var/www/sites/site/public", "3000"}}}
+	if err := v.ValidateRequest(valid); err != nil {
+		t.Fatalf("valid helper request rejected: %v", err)
+	}
+	for _, req := range []*Request{
+		{RequestType: "helper", Helper: &HelperRequest{Name: "not-a-helper", Action: "apply"}},
+		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "shell"}},
+		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "apply", Args: []string{"bad\narg"}}},
+	} {
+		if err := v.ValidateRequest(req); err == nil {
+			t.Errorf("invalid helper request accepted: %#v", req.Helper)
+		}
+	}
+}

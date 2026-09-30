@@ -124,12 +124,44 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 		return b.handleProxyRequest(ctx, req.Proxy)
 	case "git":
 		return b.handleGitRequest(ctx, req.Git)
+	case "helper":
+		return b.handleHelperRequest(ctx, req.Helper)
 	default:
 		return &Response{
 			OK:    false,
 			Error: fmt.Sprintf("unknown request type: %s", req.RequestType),
 		}, nil
 	}
+}
+
+func (b *Broker) handleHelperRequest(ctx context.Context, req *HelperRequest) (*Response, error) {
+	paths := map[string]string{
+		"appctl": "/usr/local/sbin/stepanel-appctl", "proxyctl": "/usr/local/sbin/stepanel-proxyctl",
+		"sitectl": "/usr/local/sbin/stepanel-sitectl", "vhostctl": "/usr/local/sbin/stepanel-vhostctl",
+		"runnerctl": "/usr/local/sbin/stepanel-runnerctl", "gitctl": "/usr/local/sbin/stepanel-gitctl",
+		"dbctl": "/usr/local/sbin/stepanel-dbctl",
+	}
+	path := paths[req.Name]
+	args := append([]string{req.Action}, req.Args...)
+	cmd := stepanelhelper.NewCommand(ctx, path, args...)
+	if len(req.Input) > 64<<20 {
+		return &Response{OK: false, Error: "helper input exceeds broker limit"}, nil
+	}
+	if len(req.Input) > 0 {
+		cmd.Stdin = bytes.NewReader(req.Input)
+	}
+	output, err := cmd.CombinedOutput()
+	if len(output) > 8<<20 {
+		return &Response{OK: false, Error: "helper output exceeds broker limit"}, nil
+	}
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("helper %s failed: %v: %s", req.Name, err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, marshalErr := json.Marshal(HelperResponse{Output: string(output)})
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 // --- Site Operations ---

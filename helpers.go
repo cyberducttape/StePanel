@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	h "github.com/cyberducttape/StePanel/internal/helper"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
@@ -169,15 +171,77 @@ func existingRegularEntry(root, name string) (string, error) {
 }
 
 func runHelperCommand(ctx context.Context, cfg Config, path string, args ...string) error {
+	if cfg.Production {
+		if err, handled := runAllowlistedHelperViaBroker(ctx, cfg, path, args...); handled {
+			return err
+		}
+	}
 	return h.RunHelperCommand(ctx, cfg.Sudo, path, args...)
 }
 
 func runHelperCommandWithTimeout(ctx context.Context, cfg Config, timeout time.Duration, path string, args ...string) error {
+	if cfg.Production {
+		if err, handled := runAllowlistedHelperViaBroker(ctx, cfg, path, args...); handled {
+			return err
+		}
+	}
 	return h.RunHelperCommandWithTimeout(ctx, cfg.Sudo, path, timeout, args...)
 }
 
+func runAllowlistedHelperViaBroker(ctx context.Context, cfg Config, path string, args ...string) (error, bool) {
+	_, err, handled := runAllowlistedHelperOutputViaBroker(ctx, cfg, nil, path, args...)
+	return err, handled
+}
+
+func runAllowlistedHelperOutput(ctx context.Context, cfg Config, input []byte, path string, args ...string) ([]byte, error, bool) {
+	if cfg.Production {
+		if output, err, handled := runAllowlistedHelperOutputViaBroker(ctx, cfg, input, path, args...); handled {
+			return output, err, true
+		}
+	}
+	cmd := helperCommandContext(ctx, cfg, path, args...)
+	if input == nil {
+		output, err := runBoundedCommand(ctx, cmd)
+		return output, err, true
+	}
+	output, err := runBoundedCommandInput(ctx, cmd, bytes.NewReader(input))
+	return output, err, true
+}
+
+func runAllowlistedHelperOutputViaBroker(ctx context.Context, cfg Config, input []byte, path string, args ...string) ([]byte, error, bool) {
+	name := filepath.Base(path)
+	if !strings.HasPrefix(name, "stepanel-") || !strings.HasSuffix(name, "ctl") {
+		return nil, nil, false
+	}
+	name = strings.TrimPrefix(name, "stepanel-")
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return nil, err, true
+	}
+	if len(args) == 0 {
+		return nil, errors.New("privileged helper action is required"), true
+	}
+	resp, err := client.Execute(ctx, &rootbroker.Request{
+		RequestType: "helper",
+		Helper:      &rootbroker.HelperRequest{Name: name, Action: args[0], Args: args[1:], Input: input},
+	})
+	if err != nil {
+		return nil, err, true
+	}
+	if !resp.OK {
+		return nil, errors.New(resp.Error), true
+	}
+	var details rootbroker.HelperResponse
+	if len(resp.Details) > 0 {
+		if err := json.Unmarshal(resp.Details, &details); err != nil {
+			return nil, err, true
+		}
+	}
+	return []byte(details.Output), nil, true
+}
+
 func siteHelper(cfg Config, action, site string) error {
-	if labDirectRootBrokerEnabled() {
+	if cfg.Production || labDirectRootBrokerEnabled() {
 		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 		if err != nil {
 			return err
