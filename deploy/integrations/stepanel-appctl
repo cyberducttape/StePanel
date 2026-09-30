@@ -34,17 +34,16 @@ systemd_unlock() {
   exec 8>&-
 }
 validate_task_calendar_interval() {
-  local calendar=$1 minimum=$2 rendered occurrence previous=0 current
-  local -a occurrences=()
-  rendered=$(LC_ALL=C TZ=UTC systemd-analyze calendar --iterations=32 "$calendar") || return 1
-  while IFS= read -r occurrence; do
+  local calendar=$1 minimum=$2 rendered occurrence previous=0 current base
+  base=$(date -u +%s) || return 1
+  for ((i = 0; i < 32; i++)); do
+    rendered=$(LC_ALL=C TZ=UTC systemd-analyze --base-time="@$base" calendar "$calendar") || return 1
+    occurrence=$(sed -n -E 's/^[[:space:]]*Next elapse:[[:space:]]*(.*) UTC$/\1/p' <<< "$rendered")
+    [[ -n $occurrence ]] || return 1
     current=$(date -u -d "$occurrence UTC" +%s) || return 1
-    occurrences+=("$current")
-  done < <(sed -n -E 's/^[[:space:]]*(Next elapse:|Iteration #[0-9]+:)[[:space:]]*(.*) UTC$/\2/p' <<< "$rendered")
-  (( ${#occurrences[@]} >= 2 )) || return 1
-  for current in "${occurrences[@]}"; do
     if (( previous > 0 && current - previous < minimum )); then return 1; fi
     previous=$current
+    base=$((current + 1))
   done
 }
 valid_task_webhook() {

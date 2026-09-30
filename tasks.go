@@ -222,26 +222,28 @@ func validTaskWebhook(raw string) bool {
 func validateTaskCalendarInterval(ctx context.Context, calendar string, minimumSeconds int) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "systemd-analyze", "calendar", "--iterations=32", calendar)
-	cmd.Env = append(os.Environ(), "LC_ALL=C", "TZ=UTC")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("invalid systemd calendar expression: %s", strings.TrimSpace(string(output)))
-	}
-	matches := taskCalendarOccurrence.FindAllStringSubmatch(string(output), -1)
-	if len(matches) < 2 {
-		return errors.New("scheduled task calendar must recur")
-	}
+	base := time.Now().UTC().Truncate(time.Second)
 	var previous time.Time
-	for i, match := range matches {
+	for range 32 {
+		cmd := exec.CommandContext(ctx, "systemd-analyze", "--base-time=@"+strconv.FormatInt(base.Unix(), 10), "calendar", calendar)
+		cmd.Env = append(os.Environ(), "LC_ALL=C", "TZ=UTC")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("invalid systemd calendar expression: %s", strings.TrimSpace(string(output)))
+		}
+		match := taskCalendarOccurrence.FindStringSubmatch(string(output))
+		if len(match) < 2 {
+			return errors.New("scheduled task calendar must recur")
+		}
 		occurrence, parseErr := time.Parse("Mon 2006-01-02 15:04:05", strings.TrimSpace(match[1]))
 		if parseErr != nil {
 			return fmt.Errorf("could not inspect calendar recurrence: %w", parseErr)
 		}
-		if i > 0 && int(occurrence.Sub(previous).Seconds()) < minimumSeconds {
+		if !previous.IsZero() && int(occurrence.Sub(previous).Seconds()) < minimumSeconds {
 			return fmt.Errorf("calendar runs more frequently than the configured minimum interval of %d seconds", minimumSeconds)
 		}
 		previous = occurrence
+		base = occurrence.Add(time.Second)
 	}
 	return nil
 }
