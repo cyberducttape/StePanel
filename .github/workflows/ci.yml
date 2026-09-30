@@ -38,6 +38,8 @@ jobs:
       - run: make release-check
       - run: go vet ./...
       - run: go test -p 1 -timeout 10m ./... -coverprofile=coverage.out -covermode=atomic
+      - name: Smoke-test control-plane load benchmarks
+        run: go test -p 1 -run '^$' -bench '^BenchmarkControlPlane' -benchtime=1x -count=1 .
       - name: Enforce coverage floor
         run: bash scripts/check-coverage.sh coverage.out
       - name: Race tests
