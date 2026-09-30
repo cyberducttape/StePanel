@@ -533,27 +533,124 @@ func (a *Analyzer) parseWordPressConfig(content string, inspection *ArchiveInspe
 
 // extractDefine extracts a WordPress define() value
 func (a *Analyzer) extractDefine(content, key string) string {
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, fmt.Sprintf("define('%s'", key)) || strings.Contains(line, fmt.Sprintf("define(\"%s\"", key)) {
-			// Simple extraction
-			start := strings.Index(line, "'") + 1
-			if start == 0 {
-				start = strings.Index(line, "\"") + 1
-			}
-			if start > 0 {
-				rest := line[start:]
-				end := strings.Index(rest, "'")
-				if end < 0 {
-					end = strings.Index(rest, "\"")
-				}
-				if end > 0 {
-					return rest[:end]
-				}
-			}
+	for i := 0; i < len(content); {
+		if next, ok := skipPHPCommentOrString(content, i); ok {
+			i = next
+			continue
+		}
+		if !isPHPIdentifierStart(content[i]) {
+			i++
+			continue
+		}
+
+		start := i
+		for i < len(content) && isPHPIdentifierPart(content[i]) {
+			i++
+		}
+		if !strings.EqualFold(content[start:i], "define") || (start > 0 && isPHPIdentifierPart(content[start-1])) {
+			continue
+		}
+
+		pos := skipPHPWhitespace(content, i)
+		if pos >= len(content) || content[pos] != '(' {
+			continue
+		}
+		pos = skipPHPWhitespace(content, pos+1)
+		name, pos, ok := readPHPStringArgument(content, pos)
+		if !ok || name != key {
+			continue
+		}
+		pos = skipPHPWhitespace(content, pos)
+		if pos >= len(content) || content[pos] != ',' {
+			continue
+		}
+		pos = skipPHPWhitespace(content, pos+1)
+		value, _, ok := readPHPStringArgument(content, pos)
+		if ok {
+			return value
 		}
 	}
 	return ""
+}
+
+func isPHPIdentifierStart(b byte) bool {
+	return b == '_' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+}
+
+func isPHPIdentifierPart(b byte) bool {
+	return isPHPIdentifierStart(b) || b >= '0' && b <= '9'
+}
+
+func skipPHPWhitespace(content string, pos int) int {
+	for pos < len(content) {
+		switch content[pos] {
+		case ' ', '\t', '\r', '\n', '\v', '\f':
+			pos++
+		case '/', '#':
+			if next, ok := skipPHPCommentOrString(content, pos); ok {
+				pos = next
+				continue
+			}
+			return pos
+		default:
+			return pos
+		}
+	}
+	return pos
+}
+
+// skipPHPCommentOrString skips quoted text or PHP comments so fake define calls
+// in comments and string literals are not treated as executable code.
+func skipPHPCommentOrString(content string, pos int) (int, bool) {
+	if pos >= len(content) {
+		return pos, false
+	}
+	if content[pos] == '\'' || content[pos] == '"' {
+		quote := content[pos]
+		for i := pos + 1; i < len(content); i++ {
+			if content[i] == '\\' {
+				i++
+				continue
+			}
+			if content[i] == quote {
+				return i + 1, true
+			}
+		}
+		return len(content), true
+	}
+	if content[pos] == '#' || (content[pos] == '/' && pos+1 < len(content) && (content[pos+1] == '/' || content[pos+1] == '*')) {
+		if content[pos] == '/' && content[pos+1] == '*' {
+			if end := strings.Index(content[pos+2:], "*/"); end >= 0 {
+				return pos + 2 + end + 2, true
+			}
+			return len(content), true
+		}
+		if end := strings.IndexByte(content[pos:], '\n'); end >= 0 {
+			return pos + end + 1, true
+		}
+		return len(content), true
+	}
+	return pos, false
+}
+
+func readPHPStringArgument(content string, pos int) (string, int, bool) {
+	if pos >= len(content) || content[pos] != '\'' && content[pos] != '"' {
+		return "", pos, false
+	}
+	quote := content[pos]
+	var value strings.Builder
+	for i := pos + 1; i < len(content); i++ {
+		if content[i] == '\\' && i+1 < len(content) {
+			i++
+			value.WriteByte(content[i])
+			continue
+		}
+		if content[i] == quote {
+			return value.String(), i + 1, true
+		}
+		value.WriteByte(content[i])
+	}
+	return "", len(content), false
 }
 
 // extractLargestFiles identifies the top files by size

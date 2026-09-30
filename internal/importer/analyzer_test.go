@@ -41,6 +41,66 @@ func TestAnalyzerRedirectLimit(t *testing.T) {
 	}
 }
 
+func TestAnalyzerExtractDefineArguments(t *testing.T) {
+	tests := []struct {
+		name, content, key, want string
+	}{
+		{
+			name:    "single quoted arguments",
+			content: "define('DB_NAME', 'wordpress_db');",
+			key:     "DB_NAME",
+			want:    "wordpress_db",
+		},
+		{
+			name:    "double quoted arguments with spacing",
+			content: `define ( "DB_USER" , "wp_user" );`,
+			key:     "DB_USER",
+			want:    "wp_user",
+		},
+		{
+			name:    "multiline arguments",
+			content: "define(\n    'DB_NAME',\n    'foo'\n);",
+			key:     "DB_NAME",
+			want:    "foo",
+		},
+		{
+			name:    "comments and strings are ignored",
+			content: "// define('DB_NAME', 'commented');\n$example = \"define('DB_NAME', 'string');\";\ndefine('DB_NAME', 'real');",
+			key:     "DB_NAME",
+			want:    "real",
+		},
+		{
+			name:    "escaped quote in value",
+			content: `define('DB_PASSWORD', 'p\'ass');`,
+			key:     "DB_PASSWORD",
+			want:    "p'ass",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := (&Analyzer{}).extractDefine(tt.content, tt.key)
+			if got != tt.want {
+				t.Fatalf("extractDefine(%q, %q) = %q, want %q", tt.content, tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseWordPressConfigUsesDefineValues(t *testing.T) {
+	inspection := &ArchiveInspection{}
+	(&Analyzer{}).parseConfig("<?php\ndefine(\n  'DB_NAME',\n  'wordpress_db'\n);\ndefine(\"DB_USER\", \"wp_user\");", inspection)
+	if inspection.Requirements.DatabaseName != "wordpress_db" {
+		t.Errorf("DatabaseName = %q, want wordpress_db", inspection.Requirements.DatabaseName)
+	}
+	if inspection.Requirements.DatabaseUser != "wp_user" {
+		t.Errorf("DatabaseUser = %q, want wp_user", inspection.Requirements.DatabaseUser)
+	}
+	if len(inspection.Issues) != 0 {
+		t.Errorf("unexpected config issues: %+v", inspection.Issues)
+	}
+}
+
 func TestIsReservedIP(t *testing.T) {
 	tests := []struct {
 		ip       string
