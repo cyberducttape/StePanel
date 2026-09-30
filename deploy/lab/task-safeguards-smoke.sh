@@ -43,6 +43,7 @@ history=$("$appctl" task-history "$site" "$name")
 
 apply_task ZmFsc2U=
 for _ in $(seq 1 10); do
+  systemctl reset-failed "$unit" || true
   systemctl start "$unit" >/dev/null 2>&1 || true
 done
 history=$("$appctl" task-history "$site" "$name")
@@ -51,7 +52,7 @@ history=$("$appctl" task-history "$site" "$name")
 [[ $(python3 -c 'import json,sys; print(json.load(sys.stdin)["enabled"])' <<< "$history") == False ]]
 
 apply_task dHJ1ZQ==
-for _ in $(seq 1 22); do systemctl start "$unit"; done
+for _ in $(seq 1 22); do systemctl reset-failed "$unit" || true; systemctl start "$unit"; done
 history=$("$appctl" task-history "$site" "$name")
 [[ $(python3 -c 'import json,sys; print(len(json.load(sys.stdin)["executions"]))' <<< "$history") == 20 ]]
 [[ $(python3 -c 'import json,sys; print(json.load(sys.stdin)["consecutive_failures"])' <<< "$history") == 0 ]]
