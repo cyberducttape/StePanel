@@ -38,10 +38,11 @@ jobs:
           sudo apt-get install -y cloud-image-utils openssh-client qemu-system-x86 qemu-utils
 
           image_url=https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
-          curl --fail --silent --show-error --location "$image_url" -o "$vm_root/ubuntu.img"
+          guest_image="$vm_root/noble-server-cloudimg-amd64.img"
+          curl --fail --silent --show-error --location "$image_url" -o "$guest_image"
           curl --fail --silent --show-error --location https://cloud-images.ubuntu.com/noble/current/SHA256SUMS -o "$vm_root/SHA256SUMS"
           (cd "$vm_root" && grep 'noble-server-cloudimg-amd64.img$' SHA256SUMS | sha256sum --check --status)
-          qemu-img resize "$vm_root/ubuntu.img" 12G
+          qemu-img resize "$guest_image" 12G
           qemu-img create -f raw "$vm_root/www.ext4" 2G
 
           ssh-keygen -q -t ed25519 -N '' -f "$vm_root/id_ed25519"
@@ -77,7 +78,7 @@ jobs:
           qemu-system-x86_64 \
             -machine accel=tcg \
             -cpu max -smp 2 -m 4096 \
-            -drive "file=$vm_root/ubuntu.img,if=virtio,format=qcow2" \
+            -drive "file=$guest_image,if=virtio,format=qcow2" \
             -drive "file=$vm_root/www.ext4,if=virtio,format=raw" \
             -drive "file=$vm_root/seed.iso,if=virtio,media=cdrom,readonly=on" \
             -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
