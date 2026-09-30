@@ -1,6 +1,32 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestCloudCommandEnvKeepsRcloneConfigButFiltersPanelSecrets(t *testing.T) {
+	t.Setenv("RCLONE_CONFIG", "/run/secrets/rclone.conf")
+	t.Setenv("STEPANEL_RCLONE_CONFIG", "/wrong/path")
+	t.Setenv("STEPANEL_SESSION_SECRET", "must-not-leak")
+
+	env := cloudCommandEnv()
+	var hasRcloneConfig, hasPanelSecrets bool
+	for _, item := range env {
+		if item == "RCLONE_CONFIG=/run/secrets/rclone.conf" {
+			hasRcloneConfig = true
+		}
+		if strings.HasPrefix(item, "STEPANEL_") || strings.Contains(item, "must-not-leak") {
+			hasPanelSecrets = true
+		}
+	}
+	if !hasRcloneConfig {
+		t.Fatal("cloud command environment omitted RCLONE_CONFIG")
+	}
+	if hasPanelSecrets {
+		t.Fatal("cloud command environment leaked a STEPANEL variable or panel secret")
+	}
+}
 
 func TestCloudDNSRecordValidation(t *testing.T) {
 	valid := []cloudDNSRequest{{Type: "A", Name: "@", Target: "192.0.2.10", TTL: 300}, {Type: "AAAA", Name: "www", Target: "2001:db8::1", TTL: 300}, {Type: "MX", Name: "@", Target: "10 mail.example.com", TTL: 300}, {Type: "SRV", Name: "_https._tcp", Target: "10 5 443 service.example.com", TTL: 300}}

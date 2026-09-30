@@ -101,7 +101,7 @@ docker run --rm -p 8080:8080 \
   -e STEPANEL_ADMIN_TOTP_SECRET='BASE32_SECRET' \
   -e STEPANEL_ACCOUNT_KEY='another-high-entropy-secret' \
   -e STEPANEL_OFFSITE_TARGET='s3:bucket/stepanel' \
-  -e STEPANEL_RCLONE_CONFIG=/run/secrets/rclone.conf \
+  -e RCLONE_CONFIG=/run/secrets/rclone.conf \
   -v "$PWD/rclone.conf:/run/secrets/rclone.conf:ro" \
   stepanel:local
 ```
