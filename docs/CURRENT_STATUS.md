@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-09-29
+**Last Updated:** 2026-09-30
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -28,6 +28,29 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 | **Gate 2 extension** | Interrupted Workflow Acceptance | 🔄 OPEN | Full conflicting-workflow recovery evidence |
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
+
+### Verified hardening since the previous status update
+
+- Legacy shared-state blobs remain temporary compatibility storage, but writes
+  now use revision CAS with bounded reload/merge retries for independent map
+  keys. Conflicting same-key writes refresh the local snapshot and fail closed;
+  persistence helpers restore in-memory values on failure. A subprocess test
+  exercises a panel/worker-style stale writer against the same SQLite file.
+- External-worker mode publishes durable worker identity, host, PID, start and
+  last-seen times, supported job kinds, current jobs, and build/version. Both
+  readiness and operational health require a fresh compatible worker.
+- Archive inspection/import handlers return durable output and report operation
+  errors through the job state. Archive scanning is context-bound and bounded
+  for redirects, compressed bytes, entries, and decompressed content.
+- Scheduled-task termination and Git deploy-key generation, retrieval, and
+  deletion use typed root-broker requests; corresponding generic helper actions
+  are rejected. The wider helper-callsite migration remains incomplete.
+- The four reported CodeQL alerts are resolved; CodeQL reported zero open
+  alerts on `bf429a3`. CI and the installer matrix passed on that commit; the
+  security fuzz workflow passed on `d1d3032`. The offsite-probe cleanup fix at
+  `3cfbded` is locally tested but still awaits hosted validation. The
+  quota-enabled installation/ENOSPC VM gate remains unverified until its
+  current hosted run succeeds.
 
 ---
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -383,6 +384,48 @@ func TestOffsiteCapabilityDistinguishesConfiguredFromRemoteVerified(t *testing.T
 	probeOffsiteRemote = func(string) error { return nil }
 	if capability := app.checkOffsiteBackupCapability(); capability.Mode != CapabilityRemote || capability.Available {
 		t.Fatalf("remotely verified capability = %#v", capability)
+	}
+}
+
+func TestOffsiteProbeCleansRemoteObjectAfterProbeContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls [][]string
+	cleanupUsedLiveContext := false
+	cleanupHasDeadline := false
+	cleanupErr := errors.New("remote deletion denied")
+	run := func(runCtx context.Context, _ string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		if len(args) == 3 && args[0] == "copyto" && !strings.HasPrefix(args[1], "s3:") {
+			return nil, nil
+		}
+		if len(args) == 3 && args[0] == "copyto" && strings.HasPrefix(args[1], "s3:") {
+			cancel()
+			return nil, runCtx.Err()
+		}
+		if len(args) == 2 && args[0] == "deletefile" {
+			cleanupUsedLiveContext = runCtx.Err() == nil
+			_, cleanupHasDeadline = runCtx.Deadline()
+			return nil, cleanupErr
+		}
+		return nil, errors.New("unexpected offsite probe command")
+	}
+
+	err := probeOffsiteRemoteWithRunner(ctx, "s3:bucket", "/usr/bin/rclone", run)
+	if err == nil {
+		t.Fatal("cancelled remote read unexpectedly succeeded")
+	}
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("probe and cleanup failures were not both retained: %v", err)
+	}
+	if len(calls) != 3 || calls[0][0] != "copyto" || calls[1][0] != "copyto" || calls[2][0] != "deletefile" {
+		t.Fatalf("offsite probe error=%v commands=%#v, want write, read, cleanup", err, calls)
+	}
+	if !cleanupUsedLiveContext {
+		t.Fatal("remote cleanup inherited the cancelled probe context")
+	}
+	if !cleanupHasDeadline {
+		t.Fatal("remote cleanup context has no bounded deadline")
 	}
 }
 

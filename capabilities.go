@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -27,6 +28,16 @@ var probeOffsiteRemote = func(target string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	return probeOffsiteRemoteWithRunner(ctx, target, rclone, func(runCtx context.Context, executable string, args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(runCtx, executable, args...)
+		cmd.Env = cloudCommandEnv()
+		return runBoundedCommand(runCtx, cmd)
+	})
+}
+
+type offsiteProbeRunner func(context.Context, string, ...string) ([]byte, error)
+
+func probeOffsiteRemoteWithRunner(ctx context.Context, target, rclone string, run offsiteProbeRunner) (resultErr error) {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
@@ -47,33 +58,35 @@ var probeOffsiteRemote = func(target string) error {
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	run := func(args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, rclone, args...)
-		cmd.Env = cloudCommandEnv()
-		return runBoundedCommand(ctx, cmd)
-	}
-	if output, err := run("copyto", local, remote); err != nil {
+	writeAttempted := false
+	defer func() {
+		if !writeAttempted {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		output, cleanupErr := run(cleanupCtx, rclone, "deletefile", remote)
+		if cleanupErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("offsite probe cleanup failed: %w: %s", cleanupErr, strings.TrimSpace(string(output))))
+		}
+	}()
+	writeAttempted = true
+	if output, err := run(ctx, rclone, "copyto", local, remote); err != nil {
 		return fmt.Errorf("offsite probe write failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	readback, err := os.CreateTemp("", "stepanel-offsite-readback-")
 	if err != nil {
-		_, _ = run("deletefile", remote)
 		return err
 	}
 	readPath := readback.Name()
 	_ = readback.Close()
 	defer os.Remove(readPath)
-	if output, err := run("copyto", remote, readPath); err != nil {
-		_, _ = run("deletefile", remote)
+	if output, err := run(ctx, rclone, "copyto", remote, readPath); err != nil {
 		return fmt.Errorf("offsite probe read failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	got, err := os.ReadFile(readPath)
 	if err != nil || !bytes.Equal(got, want) {
-		_, _ = run("deletefile", remote)
 		return fmt.Errorf("offsite probe readback did not match written object")
-	}
-	if output, err := run("deletefile", remote); err != nil {
-		return fmt.Errorf("offsite probe cleanup failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
