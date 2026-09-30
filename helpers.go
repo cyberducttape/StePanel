@@ -175,6 +175,7 @@ func runHelperCommand(ctx context.Context, cfg Config, path string, args ...stri
 		if err, handled := runAllowlistedHelperViaBroker(ctx, cfg, path, args...); handled {
 			return err
 		}
+		return errors.New("production helper is not routed through the root broker")
 	}
 	return h.RunHelperCommand(ctx, cfg.Sudo, path, args...)
 }
@@ -184,6 +185,7 @@ func runHelperCommandWithTimeout(ctx context.Context, cfg Config, timeout time.D
 		if err, handled := runAllowlistedHelperViaBroker(ctx, cfg, path, args...); handled {
 			return err
 		}
+		return errors.New("production helper is not routed through the root broker")
 	}
 	return h.RunHelperCommandWithTimeout(ctx, cfg.Sudo, path, timeout, args...)
 }
@@ -198,6 +200,7 @@ func runAllowlistedHelperOutput(ctx context.Context, cfg Config, input []byte, p
 		if output, err, handled := runAllowlistedHelperOutputViaBroker(ctx, cfg, input, path, args...); handled {
 			return output, err, true
 		}
+		return nil, errors.New("production helper is not routed through the root broker"), true
 	}
 	cmd := helperCommandContext(ctx, cfg, path, args...)
 	if input == nil {

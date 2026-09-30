@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,6 +32,25 @@ func TestHelperCommandUsesNonInteractiveSudo(t *testing.T) {
 	command := helperCommandContext(context.Background(), config, "/helper", "argument")
 	if want := []string{"/usr/bin/sudo", "--non-interactive", "/helper", "argument"}; !reflect.DeepEqual(command.Args, want) {
 		t.Fatalf("command args = %q, want %q", command.Args, want)
+	}
+}
+
+func TestProductionHelperDispatchFailsClosedWithoutBrokerRoute(t *testing.T) {
+	helper := filepath.Join(t.TempDir(), "unrouted-helper")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 91\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Production: true}
+
+	if err := runHelperCommand(context.Background(), cfg, helper, "mutate"); err == nil || !strings.Contains(err.Error(), "root broker") {
+		t.Fatalf("runHelperCommand error = %v, want fail-closed broker routing error", err)
+	}
+	if err := runHelperCommandWithTimeout(context.Background(), cfg, time.Second, helper, "mutate"); err == nil || !strings.Contains(err.Error(), "root broker") {
+		t.Fatalf("runHelperCommandWithTimeout error = %v, want fail-closed broker routing error", err)
+	}
+	output, err, handled := runAllowlistedHelperOutput(context.Background(), cfg, nil, helper, "mutate")
+	if !handled || err == nil || !strings.Contains(err.Error(), "root broker") || len(output) != 0 {
+		t.Fatalf("runAllowlistedHelperOutput = (%q, %v, %t), want fail-closed broker routing error", output, err, handled)
 	}
 }
 
