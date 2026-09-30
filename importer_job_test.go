@@ -30,7 +30,7 @@ type testArchiveInspector struct {
 	err        error
 }
 
-func (t testArchiveInspector) InspectArchive(string, string) (*importer.ArchiveInspection, error) {
+func (t testArchiveInspector) InspectArchive(context.Context, string, string) (*importer.ArchiveInspection, error) {
 	return t.inspection, t.err
 }
 

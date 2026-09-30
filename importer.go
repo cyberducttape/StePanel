@@ -54,7 +54,7 @@ type archiveInspectionStatus struct {
 }
 
 type archiveInspector interface {
-	InspectArchive(url, configPath string) (*importer.ArchiveInspection, error)
+	InspectArchive(ctx context.Context, url, configPath string) (*importer.ArchiveInspection, error)
 }
 
 var newArchiveAnalyzer = func() archiveInspector { return importer.NewAnalyzer() }
@@ -497,7 +497,7 @@ func (a *App) handleArchiveInspectionJob(ctx context.Context, job *Job) ([]byte,
 
 	// Create analyzer and perform inspection
 	analyzer := newArchiveAnalyzer()
-	inspection, inspectionErr := analyzer.InspectArchive(req.ArchiveURL, req.ConfigPath)
+	inspection, inspectionErr := analyzer.InspectArchive(ctx, req.ArchiveURL, req.ConfigPath)
 
 	// Always encode result (even if there was an error)
 	result := map[string]interface{}{

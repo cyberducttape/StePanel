@@ -139,6 +139,7 @@ func NewSafeArchiveTransport() *http.Transport {
 		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 }
 
@@ -147,14 +148,26 @@ type Analyzer struct {
 	httpClient *http.Client
 }
 
+const (
+	maxArchiveRedirects      = 10
+	maxArchiveInspectionTime = 15 * time.Minute
+	maxConfigInspectionBytes = 1024 * 1024
+)
+
+var errArchiveLimitExceeded = errors.New("archive inspection limit exceeded")
+
 // NewAnalyzer creates a new archive analyzer with secure redirect handling
 func NewAnalyzer() *Analyzer {
 	return &Analyzer{
 		httpClient: &http.Client{
-			// No global timeout - allows large file downloads
-			// Context deadline should be set per-request by the caller
+			// The request context remains the primary cancellation mechanism;
+			// this is a final defense for callers that provide no deadline.
 			Transport: NewSafeArchiveTransport(),
+			Timeout:   maxArchiveInspectionTime,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= maxArchiveRedirects {
+					return fmt.Errorf("archive redirect limit exceeded (%d)", maxArchiveRedirects)
+				}
 				// Validate redirect destination is safe (prevents SSRF via redirect chain)
 				if !isAllowedURL(req.URL.String()) {
 					return fmt.Errorf("redirect to disallowed URL: %s", req.URL.String())
@@ -166,7 +179,7 @@ func NewAnalyzer() *Analyzer {
 }
 
 // InspectArchive analyzes an archive at a given URL
-func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, error) {
+func (a *Analyzer) InspectArchive(ctx context.Context, url, configPath string) (*ArchiveInspection, error) {
 	if url == "" {
 		return nil, errors.New("archive URL is required")
 	}
@@ -178,9 +191,12 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 	if !isAllowedURL(url) {
 		return nil, fmt.Errorf("archive URL not allowed: %s", url)
 	}
+	ctx, cancel := context.WithTimeout(ctx, maxArchiveInspectionTime)
+	defer cancel()
 
-	// Download archive header to determine type and size
-	req, err := http.NewRequest(http.MethodHead, url, nil)
+	// Fetch the archive once. HEAD is intentionally avoided: valid chunked and
+	// streaming endpoints often cannot provide Content-Length.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("invalid archive URL: %w", err)
 	}
@@ -205,34 +221,15 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 	}
 
 	size := resp.ContentLength
-	if size <= 0 || size > 5*1024*1024*1024 { // 5GB limit
-		return nil, errors.New("archive size invalid or exceeds 5GB limit")
+	if size > maxArchiveSize {
+		return nil, errors.New("archive exceeds 5GB limit")
 	}
-
-	// Download archive with size limit (prevent server from lying about size)
-	maxBytes := size + (1 << 20) // Add 1MB buffer to claimed size
-	bodyReq, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("invalid archive URL: %w", err)
-	}
-
-	// Re-validate URL for static analysis (URL validated at line 176; redirects checked via CheckRedirect policy)
-	if !isAllowedURL(url) {
-		return nil, fmt.Errorf("archive URL not allowed: %s", url)
-	}
-	bodyResp, err := a.httpClient.Do(bodyReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download archive: %w", err)
-	}
-	defer bodyResp.Body.Close()
-
-	// Limit the download to prevent disk exhaustion
-	limitedBody := io.LimitReader(bodyResp.Body, maxBytes)
+	limitedBody := &archiveByteLimiter{reader: resp.Body, remaining: maxArchiveSize + 1}
 
 	inspection := &ArchiveInspection{
 		URL:         url,
 		ArchiveType: archiveType,
-		Size:        size,
+		Size:        maxInt64(size, 0),
 		CreatedAt:   time.Now(),
 		ConfigPath:  configPath,
 		Issues:      []ImportIssue{},
@@ -240,7 +237,7 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 
 	// Parse archive based on type
 	if archiveType == "tar.gz" {
-		err = a.inspectTarGz(limitedBody, configPath, inspection)
+		err = a.inspectTarGz(ctx, limitedBody, configPath, inspection)
 	} else if archiveType == "zip" {
 		// For zip files, we need to seek, so download to temp file
 		tempFile, err := os.CreateTemp("", "archive-*.zip")
@@ -249,12 +246,24 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 		}
 		defer os.Remove(tempFile.Name())
 
-		if _, err := io.Copy(tempFile, limitedBody); err != nil {
+		if _, err := io.Copy(tempFile, inspectionContextReader{ctx: ctx, reader: limitedBody}); err != nil {
 			return nil, fmt.Errorf("failed to download archive: %w", err)
 		}
-		tempFile.Close()
+		if err := tempFile.Close(); err != nil {
+			return nil, fmt.Errorf("failed to close archive: %w", err)
+		}
 
-		err = a.inspectZip(tempFile.Name(), configPath, inspection)
+		if limitedBody.n > maxArchiveSize {
+			return nil, fmt.Errorf("archive exceeds compressed size limit: %d bytes", maxArchiveSize)
+		}
+		inspection.Size = limitedBody.n
+		err = a.inspectZip(ctx, tempFile.Name(), configPath, inspection)
+	}
+	if limitedBody.n > maxArchiveSize {
+		err = fmt.Errorf("archive exceeds compressed size limit: %d bytes", maxArchiveSize)
+	}
+	if inspection.Size == 0 {
+		inspection.Size = limitedBody.n
 	}
 
 	if err != nil {
@@ -270,14 +279,15 @@ func (a *Analyzer) InspectArchive(url, configPath string) (*ArchiveInspection, e
 }
 
 // inspectTarGz analyzes a tar.gz archive
-func (a *Analyzer) inspectTarGz(reader io.Reader, configPath string, inspection *ArchiveInspection) error {
+func (a *Analyzer) inspectTarGz(ctx context.Context, reader io.Reader, configPath string, inspection *ArchiveInspection) error {
 	gz, err := gzip.NewReader(reader)
 	if err != nil {
 		return fmt.Errorf("not a valid gzip file: %w", err)
 	}
 	defer gz.Close()
 
-	tr := tar.NewReader(gz)
+	decompressed := &archiveByteLimiter{reader: inspectionContextReader{ctx: ctx, reader: gz}, remaining: maxDecompressedSize + 1}
+	tr := tar.NewReader(decompressed)
 	inspection.Structure = ArchiveStructure{
 		FileExtensions: []string{},
 		LargestFiles:   []string{},
@@ -291,6 +301,9 @@ func (a *Analyzer) inspectTarGz(reader io.Reader, configPath string, inspection 
 	const maxLargestFiles = 100
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		header, err := tr.Next()
 		if err == io.EOF {
 			break
@@ -298,9 +311,18 @@ func (a *Analyzer) inspectTarGz(reader io.Reader, configPath string, inspection 
 		if err != nil {
 			return fmt.Errorf("tar read error: %w", err)
 		}
+		if inspection.Structure.TotalFiles+inspection.Structure.TotalDirs >= maxArchiveEntries {
+			return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
+		}
+		if header.Size > maxIndividualFileSize {
+			return fmt.Errorf("file %s exceeds size limit (%d bytes)", header.Name, maxIndividualFileSize)
+		}
 
 		if header.Typeflag == tar.TypeDir {
 			inspection.Structure.TotalDirs++
+			if inspection.Structure.TotalDirs > maxDirectoriesInArchive {
+				return fmt.Errorf("archive exceeds directory limit (%d dirs)", maxDirectoriesInArchive)
+			}
 		} else {
 			inspection.Structure.TotalFiles++
 		}
@@ -346,6 +368,9 @@ func (a *Analyzer) inspectTarGz(reader io.Reader, configPath string, inspection 
 			inspection.Structure.HasDatabase = true
 		}
 	}
+	if decompressed.n > maxDecompressedSize {
+		return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
+	}
 
 	// Sort largest files
 	a.extractLargestFiles(largestFiles, inspection)
@@ -355,12 +380,15 @@ func (a *Analyzer) inspectTarGz(reader io.Reader, configPath string, inspection 
 }
 
 // inspectZip analyzes a zip archive
-func (a *Analyzer) inspectZip(path, configPath string, inspection *ArchiveInspection) error {
+func (a *Analyzer) inspectZip(ctx context.Context, path, configPath string, inspection *ArchiveInspection) error {
 	reader, err := zip.OpenReader(path)
 	if err != nil {
 		return fmt.Errorf("not a valid zip file: %w", err)
 	}
 	defer reader.Close()
+	if len(reader.File) > maxArchiveEntries {
+		return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
+	}
 
 	inspection.Structure = ArchiveStructure{
 		FileExtensions: []string{},
@@ -374,9 +402,23 @@ func (a *Analyzer) inspectZip(path, configPath string, inspection *ArchiveInspec
 	}, 0, 100) // Limit to top 100 files
 	const maxLargestFiles = 100
 
+	var totalDecompressed uint64
 	for _, file := range reader.File {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if file.UncompressedSize64 > uint64(maxIndividualFileSize) {
+			return fmt.Errorf("file %s exceeds size limit (%d bytes)", file.Name, maxIndividualFileSize)
+		}
+		if totalDecompressed > uint64(maxDecompressedSize)-file.UncompressedSize64 {
+			return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
+		}
+		totalDecompressed += file.UncompressedSize64
 		if file.FileInfo().IsDir() {
 			inspection.Structure.TotalDirs++
+			if inspection.Structure.TotalDirs > maxDirectoriesInArchive {
+				return fmt.Errorf("archive exceeds directory limit (%d dirs)", maxDirectoriesInArchive)
+			}
 		} else {
 			inspection.Structure.TotalFiles++
 		}
@@ -409,8 +451,12 @@ func (a *Analyzer) inspectZip(path, configPath string, inspection *ArchiveInspec
 		if strings.TrimPrefix(file.Name, "./") == configPath || filepath.Base(file.Name) == filepath.Base(configPath) {
 			f, _ := file.Open()
 			if f != nil {
-				configContent := make([]byte, min(file.FileInfo().Size(), 1024*1024))
-				n, _ := io.ReadFull(f, configContent)
+				configContent := make([]byte, min(file.FileInfo().Size(), maxConfigInspectionBytes))
+				n, readErr := io.ReadFull(inspectionContextReader{ctx: ctx, reader: io.LimitReader(f, maxConfigInspectionBytes)}, configContent)
+				if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+					f.Close()
+					return readErr
+				}
 				a.parseConfig(string(configContent[:n]), inspection)
 				f.Close()
 			}
@@ -573,6 +619,48 @@ func (a *Analyzer) detectArchiveType(url, contentType string) string {
 		return "zip"
 	}
 	return ""
+}
+
+type inspectionContextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r inspectionContextReader) Read(p []byte) (int, error) {
+	select {
+	case <-r.ctx.Done():
+		return 0, r.ctx.Err()
+	default:
+	}
+	return r.reader.Read(p)
+}
+
+// archiveByteLimiter permits one byte beyond the configured limit so callers
+// can distinguish an exact-size archive from a response that continued past it.
+type archiveByteLimiter struct {
+	reader    io.Reader
+	remaining int64
+	n         int64
+}
+
+func (r *archiveByteLimiter) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		return 0, errArchiveLimitExceeded
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.n += int64(n)
+	r.remaining -= int64(n)
+	return n, err
+}
+
+func maxInt64(value, fallback int64) int64 {
+	if value > 0 {
+		return value
+	}
+	return fallback
 }
 
 func min(a, b int64) int64 {

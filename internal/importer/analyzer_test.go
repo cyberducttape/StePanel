@@ -1,9 +1,45 @@
 package importer
 
 import (
+	"context"
 	"net"
+	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 )
+
+type analyzerRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f analyzerRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestAnalyzerPropagatesCancellationToHTTPRequest(t *testing.T) {
+	analyzer := &Analyzer{httpClient: &http.Client{Transport: analyzerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := analyzer.InspectArchive(ctx, "https://example.test/archive.tar.gz", "wp-config.php")
+	if err == nil || !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("InspectArchive cancellation error = %v", err)
+	}
+}
+
+func TestAnalyzerRedirectLimit(t *testing.T) {
+	analyzer := NewAnalyzer()
+	reqURL, err := url.Parse("https://example.test/archive.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := &http.Request{URL: reqURL}
+	via := make([]*http.Request, maxArchiveRedirects)
+	if err := analyzer.httpClient.CheckRedirect(req, via); err == nil {
+		t.Fatal("expected redirect limit error")
+	}
+}
 
 func TestIsReservedIP(t *testing.T) {
 	tests := []struct {
