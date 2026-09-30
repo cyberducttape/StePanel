@@ -71,6 +71,7 @@ jobs:
               install -d -m 0755 /var/www
               printf '%s\\n' '/dev/vdb /var/www ext4 usrquota 0 2' >> /etc/fstab
               mount /var/www
+              apt-get install -y "linux-modules-extra-$(uname -r)"
               modprobe quota_v2
               quotacheck -cugm /var/www
               quotaon -u /var/www
