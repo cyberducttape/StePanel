@@ -462,7 +462,8 @@ func (a *App) removeSiteTasks(ctx context.Context, site SiteCapability) error {
 	}
 	a.Tasks.mu.RUnlock()
 	for _, task := range tasks {
-		if err := runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "task-delete", siteName, task.Name); err != nil {
+		task.Deleted = true
+		if err := a.applyTask(ctx, task); err != nil {
 			return fmt.Errorf("remove scheduled task %s/%s: %w", siteName, task.Name, err)
 		}
 	}

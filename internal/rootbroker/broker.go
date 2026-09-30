@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -37,6 +38,7 @@ type Broker struct {
 	dbctlPath     string
 	certbotPath   string
 	systemctlPath string
+	appctlPath    string
 	gitKeyRoot    string
 	validator     *Validator
 	logger        *log.Logger
@@ -88,6 +90,7 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		dbctlPath:     "/usr/local/sbin/stepanel-dbctl",
 		certbotPath:   "/usr/local/sbin/stepanel-certbot",
 		systemctlPath: "/usr/bin/systemctl",
+		appctlPath:    "/usr/local/sbin/stepanel-appctl",
 		gitKeyRoot:    "/etc/stepanel/git-keys",
 		validator:     NewValidator(webRoot),
 		logger:        logger,
@@ -151,16 +154,47 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 }
 
 func (b *Broker) handleTaskRequest(ctx context.Context, req *TaskRequest) (*Response, error) {
-	if req == nil || req.Action != "kill" {
+	if req == nil {
 		return &Response{OK: false, Error: "invalid task operation"}, nil
 	}
-	unit := "stepanel-task-" + req.Site + "-" + req.Name + ".service"
-	cmd := stepanelhelper.NewCommand(ctx, b.systemctlPath, "kill", "--kill-who=all", "--signal=SIGTERM", unit)
+	var args []string
+	switch req.Action {
+	case "kill":
+		unit := "stepanel-task-" + req.Site + "-" + req.Name + ".service"
+		args = []string{"kill", "--kill-who=all", "--signal=SIGTERM", unit}
+	case "delete", "history":
+		args = []string{req.Action, req.Site, req.Name}
+	case "apply":
+		enabled := "0"
+		if req.Enabled {
+			enabled = "1"
+		}
+		args = []string{"task-apply", req.Site, req.Name, req.Runtime, req.OnCalendar, enabled,
+			strconv.Itoa(req.TimeoutSec), base64.StdEncoding.EncodeToString([]byte(req.Command)),
+			strconv.Itoa(req.MinIntervalSeconds), req.MissedRunPolicy, strconv.Itoa(req.CPUPercent),
+			strconv.Itoa(req.MemoryMB), strconv.Itoa(req.TasksMax), req.NotifyWebhook}
+	default:
+		return &Response{OK: false, Error: "invalid task operation"}, nil
+	}
+	path := b.appctlPath
+	if req.Action == "kill" {
+		path = b.systemctlPath
+	}
+	cmd := stepanelhelper.NewCommand(ctx, path, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("task termination failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+		return &Response{OK: false, Error: fmt.Sprintf("task %s failed: %v: %s", req.Action, err, strings.TrimSpace(string(output)))}, nil
 	}
-	details, err := json.Marshal(TaskResponse{Killed: true})
+	result := TaskResponse{Output: string(output)}
+	switch req.Action {
+	case "kill":
+		result.Killed = true
+	case "delete":
+		result.Deleted = true
+	case "apply":
+		result.Applied = true
+	}
+	details, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
 	}

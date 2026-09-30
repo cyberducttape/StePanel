@@ -52,13 +52,27 @@ type CertificateResponse struct {
 }
 
 type TaskRequest struct {
-	Action string `json:"action"`
-	Site   string `json:"site"`
-	Name   string `json:"name"`
+	Action             string `json:"action"`
+	Site               string `json:"site"`
+	Name               string `json:"name"`
+	Runtime            string `json:"runtime,omitempty"`
+	Command            string `json:"command,omitempty"`
+	OnCalendar         string `json:"on_calendar,omitempty"`
+	TimeoutSec         int    `json:"timeout_sec,omitempty"`
+	Enabled            bool   `json:"enabled,omitempty"`
+	MinIntervalSeconds int    `json:"min_interval_seconds,omitempty"`
+	MissedRunPolicy    string `json:"missed_run_policy,omitempty"`
+	CPUPercent         int    `json:"cpu_percent,omitempty"`
+	MemoryMB           int    `json:"memory_mb,omitempty"`
+	TasksMax           int    `json:"tasks_max,omitempty"`
+	NotifyWebhook      string `json:"notify_webhook,omitempty"`
 }
 
 type TaskResponse struct {
-	Killed bool `json:"killed,omitempty"`
+	Killed  bool   `json:"killed,omitempty"`
+	Applied bool   `json:"applied,omitempty"`
+	Deleted bool   `json:"deleted,omitempty"`
+	Output  string `json:"output,omitempty"`
 }
 
 type HelperRequest struct {

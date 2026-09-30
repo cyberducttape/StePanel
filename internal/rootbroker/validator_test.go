@@ -381,10 +381,10 @@ func TestValidateHelperRequestAllowlist(t *testing.T) {
 	if err := v.ValidateRequest(valid); err != nil {
 		t.Fatalf("valid helper request rejected: %v", err)
 	}
-	for _, action := range []string{"task-apply", "task-history"} {
+	for _, action := range []string{"task-apply", "task-history", "task-delete"} {
 		request := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: action, Args: []string{"demo", "nightly"}}}
-		if err := v.ValidateRequest(request); err != nil {
-			t.Errorf("task helper action %q rejected: %v", action, err)
+		if err := v.ValidateRequest(request); err == nil {
+			t.Errorf("task helper action %q remained available through generic helper ABI", action)
 		}
 	}
 	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "task-kill", Args: []string{"demo", "nightly"}}}); err == nil {
@@ -423,13 +423,37 @@ func TestValidateTypedTaskKillRequest(t *testing.T) {
 		t.Fatalf("valid typed task request rejected: %v", err)
 	}
 	for _, req := range []*Request{
-		{RequestType: "task", Task: &TaskRequest{Action: "delete", Site: "demo", Name: "nightly"}},
 		{RequestType: "task", Task: &TaskRequest{Action: "kill", Site: "../demo", Name: "nightly"}},
 		{RequestType: "task", Task: &TaskRequest{Action: "kill", Site: "demo", Name: "../nightly"}},
 		{RequestType: "task", Task: &TaskRequest{Action: "kill", Site: "demo", Name: strings.Repeat("a", 33)}},
 	} {
 		if err := v.ValidateRequest(req); err == nil {
 			t.Errorf("invalid typed task request accepted: %#v", req.Task)
+		}
+	}
+}
+
+func TestValidateTypedTaskApplyRequest(t *testing.T) {
+	v := NewValidator("/var/www")
+	valid := &Request{RequestType: "task", Task: &TaskRequest{Action: "apply", Site: "demo", Name: "nightly", Runtime: "shell", Command: "echo ok", OnCalendar: "daily", TimeoutSec: 300, MinIntervalSeconds: 60, MissedRunPolicy: "run_once", CPUPercent: 100, MemoryMB: 1024, TasksMax: 256, NotifyWebhook: "https://example.com/hook"}}
+	if err := v.ValidateRequest(valid); err != nil {
+		t.Fatalf("valid typed task apply rejected: %v", err)
+	}
+	invalid := *valid
+	badTask := *valid.Task
+	invalid.Task = &badTask
+	for _, mutate := range []func(*TaskRequest){
+		func(r *TaskRequest) { r.Runtime = "ruby" },
+		func(r *TaskRequest) { r.Command = "echo\nunsafe" },
+		func(r *TaskRequest) { r.TimeoutSec = 0 },
+		func(r *TaskRequest) { r.MinIntervalSeconds = 1 },
+		func(r *TaskRequest) { r.NotifyWebhook = "http://example.com/hook" },
+	} {
+		candidate := *valid.Task
+		mutate(&candidate)
+		invalid.Task = &candidate
+		if err := v.ValidateRequest(&invalid); err == nil {
+			t.Errorf("invalid typed task apply accepted: %+v", candidate)
 		}
 	}
 }

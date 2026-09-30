@@ -305,6 +305,11 @@ func (c *Client) TaskKill(ctx context.Context, site, name string) (*Response, er
 	})
 }
 
+// TaskOperation submits a validated typed task scheduler operation.
+func (c *Client) TaskOperation(ctx context.Context, task TaskRequest) (*Response, error) {
+	return c.Execute(ctx, &Request{RequestType: "task", Task: &task})
+}
+
 // GitClone clones a git repository.
 func (c *Client) GitClone(ctx context.Context, repo, ref, destination string) (*Response, error) {
 	req := &Request{

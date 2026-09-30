@@ -75,7 +75,7 @@ jobs:
               modprobe quota_v2
               quotacheck -cugm /var/www
               quotaon -u /var/www
-              quotaon -p -u /var/www
+              quotaon -p -u /var/www | grep -F 'user quota on /var/www'
               mkfs.ext4 -F /dev/vdc
               install -d -m 0700 /mnt/stepanel-enospc
               mount /dev/vdc /mnt/stepanel-enospc
@@ -130,7 +130,7 @@ jobs:
             "$vm_root/stepanel-source.tar.gz" vmtest@127.0.0.1:/tmp/stepanel-source.tar.gz
           ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo mkdir -p /work && sudo tar -xzf /tmp/stepanel-source.tar.gz -C /work'
           ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
-            'sudo findmnt -no OPTIONS /var/www | tr "," "\\n" | grep -Fx usrquota && sudo quotaon -p -u /var/www'
+            'sudo findmnt -no OPTIONS /var/www | tr "," "\\n" | grep -Fx usrquota && sudo quotaon -p -u /var/www | grep -F "user quota on /var/www"'
           ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo env STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy bash /work/deploy/lab/install-smoke.sh'
           ssh "${ssh_args[@]}" vmtest@127.0.0.1 \

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -349,14 +350,41 @@ func (v *Validator) ValidateRequest(req *Request) error {
 }
 
 func (v *Validator) validateTaskRequest(req *TaskRequest) error {
-	if req == nil || req.Action != "kill" {
-		return errors.New("task request must specify the kill action")
+	if req == nil || (req.Action != "kill" && req.Action != "apply" && req.Action != "delete" && req.Action != "history") {
+		return errors.New("task request must specify a supported action")
 	}
 	if err := v.ValidateSiteName(req.Site); err != nil {
 		return fmt.Errorf("invalid task site: %w", err)
 	}
 	if !taskNamePattern.MatchString(req.Name) {
 		return errors.New("invalid task name")
+	}
+	if req.Action != "apply" {
+		return nil
+	}
+	if req.Runtime != "php" && req.Runtime != "node" && req.Runtime != "python" && req.Runtime != "shell" {
+		return errors.New("invalid task runtime")
+	}
+	if len(req.Command) == 0 || len(req.Command) > 1024 || strings.ContainsAny(req.Command, "\x00\r\n") {
+		return errors.New("invalid task command")
+	}
+	if len(req.OnCalendar) == 0 || len(req.OnCalendar) > 128 || strings.ContainsAny(req.OnCalendar, "\x00\r\n") {
+		return errors.New("invalid task calendar")
+	}
+	if req.TimeoutSec < 1 || req.TimeoutSec > 86400 || req.MinIntervalSeconds < 60 || req.MinIntervalSeconds > 31536000 {
+		return errors.New("task timeout or minimum interval is out of range")
+	}
+	if req.MissedRunPolicy != "run_once" && req.MissedRunPolicy != "skip" {
+		return errors.New("invalid task missed-run policy")
+	}
+	if req.CPUPercent < 25 || req.CPUPercent > 6400 || req.MemoryMB < 64 || req.MemoryMB > 1048576 || req.TasksMax < 16 || req.TasksMax > 100000 {
+		return errors.New("task resource limits are out of range")
+	}
+	if req.NotifyWebhook != "" {
+		u, err := url.ParseRequestURI(req.NotifyWebhook)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" || len(req.NotifyWebhook) > 2048 || strings.ContainsAny(req.NotifyWebhook, "\\\"' \t\r\n\x00") {
+			return errors.New("invalid task notification webhook")
+		}
 	}
 	return nil
 }
@@ -383,7 +411,7 @@ func (v *Validator) validateHelperRequest(req *HelperRequest) error {
 		return fmt.Errorf("helper request is nil")
 	}
 	allowed := map[string]map[string]bool{
-		"appctl":    {"apply": true, "delete": true, "start": true, "stop": true, "restart": true, "python-apply": true, "python-start": true, "python-stop": true, "python-restart": true, "node-tool": true, "composer-install": true, "env-apply": true, "worker-apply": true, "worker-delete": true, "worker-start": true, "worker-stop": true, "worker-restart": true, "task-apply": true, "task-delete": true, "task-history": true, "resource-apply": true, "account-resource-apply": true, "resource-status": true},
+		"appctl":    {"apply": true, "delete": true, "start": true, "stop": true, "restart": true, "python-apply": true, "python-start": true, "python-stop": true, "python-restart": true, "node-tool": true, "composer-install": true, "env-apply": true, "worker-apply": true, "worker-delete": true, "worker-start": true, "worker-stop": true, "worker-restart": true, "resource-apply": true, "account-resource-apply": true, "resource-status": true},
 		"proxyctl":  {"apply": true, "delete": true, "reload": true},
 		"sitectl":   {"prepare": true, "seal": true, "delete": true, "access": true, "resources": true, "quota": true, "quota-clear": true, "runtime": true},
 		"vhostctl":  {"apply": true, "delete": true, "apply-auth": true, "import-htaccess": true},

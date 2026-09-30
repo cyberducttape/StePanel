@@ -48,6 +48,65 @@ func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
 	}
 }
 
+func TestBrokerTaskApplyUsesFixedHelperAndTypedArguments(t *testing.T) {
+	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeAppctl := filepath.Join(t.TempDir(), "appctl")
+	if err := os.WriteFile(fakeAppctl, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker.appctlPath = fakeAppctl
+	req := &Request{RequestType: "task", Task: &TaskRequest{Action: "apply", Site: "demo", Name: "nightly", Runtime: "shell", Command: "echo hi", OnCalendar: "daily", TimeoutSec: 300, Enabled: true, MinIntervalSeconds: 60, MissedRunPolicy: "run_once", CPUPercent: 100, MemoryMB: 1024, TasksMax: 256}}
+	response, err := broker.Execute(context.Background(), req)
+	if err != nil || !response.OK {
+		t.Fatalf("typed task apply response = %#v, error = %v", response, err)
+	}
+	var details TaskResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil || !details.Applied {
+		t.Fatalf("typed task apply details = %#v, error = %v", details, err)
+	}
+	want := "task-apply\ndemo\nnightly\nshell\ndaily\n1\n300\nZWNobyBoaQ==\n60\nrun_once\n100\n1024\n256\n\n"
+	if details.Output != want {
+		t.Fatalf("helper arguments = %q, want %q", details.Output, want)
+	}
+}
+
+func TestBrokerTaskDeleteAndHistoryUseFixedHelper(t *testing.T) {
+	for _, action := range []string{"delete", "history"} {
+		t.Run(action, func(t *testing.T) {
+			broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fakeAppctl := filepath.Join(t.TempDir(), "appctl")
+			script := "#!/bin/sh\n[ \"$#\" -eq 3 ] && [ \"$1\" = \"" + action + "\" ] && [ \"$2\" = demo ] && [ \"$3\" = nightly ] || exit 9\n"
+			if action == "history" {
+				script += "printf '%s' '{\"enabled\":true}'\n"
+			}
+			if err := os.WriteFile(fakeAppctl, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			broker.appctlPath = fakeAppctl
+			response, err := broker.Execute(context.Background(), &Request{RequestType: "task", Task: &TaskRequest{Action: action, Site: "demo", Name: "nightly"}})
+			if err != nil || !response.OK {
+				t.Fatalf("typed task %s response = %#v, error = %v", action, response, err)
+			}
+			var details TaskResponse
+			if err := json.Unmarshal(response.Details, &details); err != nil {
+				t.Fatal(err)
+			}
+			if action == "delete" && !details.Deleted {
+				t.Fatalf("task delete details = %#v", details)
+			}
+			if action == "history" && details.Output != `{"enabled":true}` {
+				t.Fatalf("task history output = %q", details.Output)
+			}
+		})
+	}
+}
+
 func TestBrokerGitDeleteRemovesOnlySiteKeyEntries(t *testing.T) {
 	keyRoot := t.TempDir()
 	if err := os.Chmod(keyRoot, 0700); err != nil {

@@ -67,7 +67,12 @@ type taskHistorySnapshot struct {
 }
 
 func loadTaskHistory(ctx context.Context, cfg Config, site, name string) (taskHistorySnapshot, error) {
-	output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.AppCtl, "task-history", site, name)
+	output, err, handled := runTaskBroker(ctx, cfg, rootbroker.TaskRequest{Action: "history", Site: site, Name: name})
+	if !handled {
+		var raw []byte
+		raw, err, _ = runAllowlistedHelperOutput(ctx, cfg, nil, cfg.AppCtl, "task-history", site, name)
+		output = raw
+	}
 	if err != nil {
 		return taskHistorySnapshot{}, err
 	}
@@ -607,16 +612,52 @@ func (a *App) finalizeTaskDeletionLocked(key string, task ScheduledTask) error {
 
 func (a *App) applyTask(ctx context.Context, task ScheduledTask) error {
 	if task.Deleted {
+		_, err, handled := runTaskBroker(ctx, a.Config, rootbroker.TaskRequest{Action: "delete", Site: task.Site, Name: task.Name})
+		if handled {
+			return err
+		}
 		return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "task-delete", task.Site, task.Name)
 	}
-	// Use standard Base64 with padding for cross-platform compatibility
-	// RawStdEncoding (without padding) fails on GNU base64 -d for commands needing padding
+	request := rootbroker.TaskRequest{Action: "apply", Site: task.Site, Name: task.Name, Runtime: task.Runtime,
+		Command: task.Command, OnCalendar: task.OnCalendar, TimeoutSec: task.TimeoutSec, Enabled: task.Enabled,
+		MinIntervalSeconds: task.MinIntervalSeconds, MissedRunPolicy: task.MissedRunPolicy, CPUPercent: task.CPUPercent,
+		MemoryMB: task.MemoryMB, TasksMax: task.TasksMax, NotifyWebhook: task.NotifyWebhook}
+	if _, err, handled := runTaskBroker(ctx, a.Config, request); handled {
+		return err
+	}
+	// The legacy path remains for development installs until broker rollout is complete.
 	encodedCommand := base64.StdEncoding.EncodeToString([]byte(task.Command))
 	// Keep task limits aligned with the site's desired resource profile. The
 	// helper retains a conservative fallback for sites that have no profile.
 	args := []string{"task-apply", task.Site, task.Name, task.Runtime, task.OnCalendar, stringBool(task.Enabled), itoa(task.TimeoutSec), encodedCommand,
 		strconv.Itoa(task.MinIntervalSeconds), task.MissedRunPolicy, strconv.Itoa(task.CPUPercent), strconv.Itoa(task.MemoryMB), strconv.Itoa(task.TasksMax), task.NotifyWebhook}
 	return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, args...)
+}
+
+func runTaskBroker(ctx context.Context, cfg Config, task rootbroker.TaskRequest) ([]byte, error, bool) {
+	if !cfg.Production && !labDirectRootBrokerEnabled() {
+		return nil, nil, false
+	}
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return nil, err, true
+	}
+	operationCtx, cancel := context.WithTimeout(ctx, helperServiceLifecycleTimeout)
+	defer cancel()
+	resp, err := client.TaskOperation(operationCtx, task)
+	if err != nil {
+		return nil, err, true
+	}
+	if !resp.OK {
+		return nil, errors.New(resp.Error), true
+	}
+	var details rootbroker.TaskResponse
+	if len(resp.Details) > 0 {
+		if err := json.Unmarshal(resp.Details, &details); err != nil {
+			return nil, err, true
+		}
+	}
+	return []byte(details.Output), nil, true
 }
 
 func (a *App) recordTaskError(key string, applyErr error) {

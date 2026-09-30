@@ -51,6 +51,46 @@ func TestProductionTaskKillUsesTypedBrokerRequest(t *testing.T) {
 	}
 }
 
+func TestProductionTaskApplyUsesTypedBrokerFields(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "root-broker.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	t.Setenv("STEPANEL_LAB_DIRECT_ROOT_BROKER", "1")
+	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "1")
+	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", socketPath)
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverErr <- acceptErr
+			return
+		}
+		defer conn.Close()
+		var request rootbroker.Request
+		if decodeErr := json.NewDecoder(conn).Decode(&request); decodeErr != nil {
+			serverErr <- decodeErr
+			return
+		}
+		task := request.Task
+		if request.RequestType != "task" || task == nil || task.Action != "apply" || task.Site != "demo" || task.Name != "nightly" || task.Runtime != "shell" || task.Command != "echo ok" || task.OnCalendar != "daily" || task.TimeoutSec != 300 || !task.Enabled || task.MinIntervalSeconds != 60 || task.MissedRunPolicy != "run_once" || task.CPUPercent != 100 || task.MemoryMB != 1024 || task.TasksMax != 256 || task.NotifyWebhook != "https://example.com/hook" {
+			serverErr <- errors.New("scheduled task apply did not use expected typed broker fields")
+			return
+		}
+		serverErr <- json.NewEncoder(conn).Encode(rootbroker.Response{OK: true})
+	}()
+
+	app := &App{Config: Config{Production: true, WebRoot: "/var/www"}}
+	if err := app.applyTask(context.Background(), ScheduledTask{Site: "demo", Name: "nightly", Runtime: "shell", Command: "echo ok", OnCalendar: "daily", TimeoutSec: 300, Enabled: true, MinIntervalSeconds: 60, MissedRunPolicy: "run_once", CPUPercent: 100, MemoryMB: 1024, TasksMax: 256, NotifyWebhook: "https://example.com/hook"}); err != nil {
+		t.Fatalf("typed production task apply failed: %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestValidTaskRuntime(t *testing.T) {
 	for _, runtime := range []string{"php", "node", "python", "shell"} {
 		if !validTaskRuntime(runtime) {
