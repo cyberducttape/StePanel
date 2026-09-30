@@ -2,13 +2,57 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
+
+func TestProductionDatabaseMutationUsesTypedRootBrokerRequest(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "root-broker.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	t.Setenv("STEPANEL_LAB_DIRECT_ROOT_BROKER", "1")
+	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "1")
+	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", socketPath)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverErr <- acceptErr
+			return
+		}
+		defer conn.Close()
+		var request rootbroker.Request
+		if decodeErr := json.NewDecoder(conn).Decode(&request); decodeErr != nil {
+			serverErr <- decodeErr
+			return
+		}
+		if request.RequestType != "db" || request.DB == nil || request.DB.Action != "provision" || request.DB.Database != "site_db" || request.DB.Username != "site_user" || request.DB.Site != "site" || request.DB.Password != "Strong-Database_2026!" {
+			serverErr <- errors.New("production database mutation did not use the expected typed broker request")
+			return
+		}
+		serverErr <- json.NewEncoder(conn).Encode(rootbroker.Response{OK: true})
+	}()
+
+	_, err = runDatabaseHelperContext(context.Background(), Config{Production: true, DBCtl: "/not/used/stepanel-dbctl", WebRoot: "/var/www"}, time.Minute, "Strong-Database_2026!", "provision", "site_db", "site_user", "site", "utf8mb4")
+	if err != nil {
+		t.Fatalf("typed production database provision failed: %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestCreateDatabaseSafetyBackupContextHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

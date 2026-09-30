@@ -974,7 +974,11 @@ func (b *Broker) dbDropManaged(ctx context.Context, req *DBRequest) (*Response, 
 	if err := b.validator.ValidateUsername(req.Username); err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
-	return b.runDBHelper(ctx, []string{"drop-managed", req.Database, req.Username}, nil, DBResponse{Dropped: true, Database: req.Database, Username: req.Username})
+	helperAction := "drop-managed"
+	if req.Action == "cleanup-wordpress" {
+		helperAction = "cleanup-wordpress"
+	}
+	return b.runDBHelper(ctx, []string{helperAction, req.Database, req.Username}, nil, DBResponse{Dropped: true, Database: req.Database, Username: req.Username})
 }
 
 func (b *Broker) dbRotate(ctx context.Context, req *DBRequest) (*Response, error) {

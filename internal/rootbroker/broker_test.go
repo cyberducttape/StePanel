@@ -230,6 +230,37 @@ func TestBrokerDBProvision(t *testing.T) {
 	}
 }
 
+func TestBrokerCleanupWordPressPreservesDedicatedHelperAction(t *testing.T) {
+	logger := log.New(os.Stderr, "[test] ", 0)
+	broker, err := NewBroker(t.TempDir(), logger)
+	if err != nil {
+		t.Fatalf("NewBroker failed: %v", err)
+	}
+	argsPath := filepath.Join(t.TempDir(), "args")
+	dbctl := filepath.Join(t.TempDir(), "dbctl")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$DBCTL_ARGS\"\n"
+	if err := os.WriteFile(dbctl, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DBCTL_ARGS", argsPath)
+	broker.dbctlPath = dbctl
+
+	response, err := broker.Execute(context.Background(), &Request{
+		RequestType: "db",
+		DB:          &DBRequest{Action: "cleanup-wordpress", Database: "wordpress_db", Username: "wp_user"},
+	})
+	if err != nil || response == nil || !response.OK {
+		t.Fatalf("cleanup-wordpress response = %#v, err = %v", response, err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(args)), "cleanup-wordpress wordpress_db wp_user"; got != want {
+		t.Fatalf("database helper args = %q, want %q", got, want)
+	}
+}
+
 func TestBrokerVhostApply(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	broker, err := NewBroker(t.TempDir(), logger)

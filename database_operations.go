@@ -60,6 +60,13 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	if cfg.Production {
+		// Route managed mutations through their typed broker contract before
+		// the generic compatibility adapter. The generic adapter reports every
+		// helper request as handled, so placing this below it silently bypasses
+		// the typed DB ABI.
+		if typedDatabaseMutation(args) {
+			return runTypedDatabaseMutation(ctx, cfg, input, args...)
+		}
 		var helperInput []byte
 		if input != "" {
 			helperInput = []byte(input + "\n")
@@ -86,9 +93,6 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 			return nil, fmt.Errorf("decode root broker database inventory: %w", err)
 		}
 		return []byte(details.Output), nil
-	}
-	if cfg.Production && typedDatabaseMutation(args) {
-		return runTypedDatabaseMutation(ctx, cfg, input, args...)
 	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, args...)
 	if input == "" {
