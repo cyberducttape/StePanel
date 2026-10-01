@@ -62,6 +62,14 @@ The repository intentionally does not include fabricated pass/fail results.
 Capture real disposable-lab evidence before using the results as release or
 portfolio claims.
 
+For the repository-level gate, run `make production-gate`. For a disposable
+systemd host, set `RECOVERY_MATRIX_FULL=1` when invoking
+`deploy/lab/recovery-matrix-smoke.sh` to execute every supported journal kill
+boundary instead of the bounded default matrix. The full mode is intentionally
+not part of every install smoke because it repeats several multi-minute
+restore/backup workflows; its output and host logs belong in the dated lab
+evidence record.
+
 Repository-level recovery test evidence is recorded in
 [`docs/lab-results/2026-09-06-recovery-unit-drills.md`](lab-results/2026-09-06-recovery-unit-drills.md).
 The repeatable capture command is
