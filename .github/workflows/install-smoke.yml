@@ -58,7 +58,12 @@ jobs:
           mkdir -p "$diagnostics_dir"
           cleanup() { docker rm -f stepanel-install >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-          docker info >/dev/null 2>&1 || { echo 'Docker is unavailable on this runner' >&2; exit 77; }
+          if ! timeout --foreground 15s docker info >/dev/null 2>&1; then
+            echo 'Docker is unavailable or unresponsive on this runner' >&2
+            timeout --foreground 15s docker info >&2 || true
+            timeout --foreground 15s docker ps -a >&2 || true
+            exit 77
+          fi
           if [[ ! -f /sys/fs/cgroup/cgroup.controllers && ! -d /sys/fs/cgroup/systemd ]]; then
             echo 'Runner does not provide a systemd-compatible cgroup hierarchy' >&2
             exit 77
