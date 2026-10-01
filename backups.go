@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/backup"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"io"
 	"log"
 	"net/http"
@@ -549,6 +550,36 @@ func dumpManagedDatabaseContext(parent context.Context, cfg Config, database, de
 	}
 	ctx, cancel := context.WithTimeout(parent, helperBackupRestoreTimeout)
 	defer cancel()
+	if labDirectRootBrokerEnabled() {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if err != nil {
+			_ = out.Close()
+			return err
+		}
+		response, err := client.DBDumpDirect(ctx, database)
+		if err != nil {
+			_ = out.Close()
+			return err
+		}
+		if !response.OK {
+			_ = out.Close()
+			return errors.New(response.Error)
+		}
+		var details rootbroker.DBResponse
+		if err := json.Unmarshal(response.Details, &details); err != nil {
+			_ = out.Close()
+			return fmt.Errorf("decode root broker database dump: %w", err)
+		}
+		if _, err := out.Write(details.DumpData); err != nil {
+			_ = out.Close()
+			return err
+		}
+		if err := out.Sync(); err != nil {
+			_ = out.Close()
+			return err
+		}
+		return out.Close()
+	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "dump", database)
 	var stderr strings.Builder
 	cmd.Stdout = out

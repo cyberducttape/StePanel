@@ -266,6 +266,13 @@ func (c *Client) DBInventoryDirect(ctx context.Context) (*Response, error) {
 	return c.dbInventory(ctx, true)
 }
 
+// DBDumpDirect invokes the database dump through the lab's direct broker
+// transport. This is used by isolated hosts where no-new-privileges prevents
+// the compatibility sudo path from running.
+func (c *Client) DBDumpDirect(ctx context.Context, database string) (*Response, error) {
+	return c.ExecuteDirect(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: "dump", Database: database, Username: "dump", Site: "dump"}})
+}
+
 func (c *Client) dbInventory(ctx context.Context, direct bool) (*Response, error) {
 	req := &Request{
 		RequestType: "db",

@@ -602,6 +602,8 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 	switch req.Action {
 	case "inventory":
 		return b.dbInventory(ctx, req)
+	case "dump":
+		return b.dbDump(ctx, req)
 	case "provision":
 		return b.dbProvision(ctx, req)
 	case "restore-dump":
@@ -615,6 +617,22 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown db action: %s", req.Action)}, nil
 	}
+}
+
+func (b *Broker) dbDump(ctx context.Context, req *DBRequest) (*Response, error) {
+	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, "dump", req.Database)
+	output, err := cmd.Output()
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("database dump failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	if len(output) > maxBrokerDBDumpBytes {
+		return &Response{OK: false, Error: "database dump exceeds the broker limit; use the compatibility helper path"}, nil
+	}
+	details, marshalErr := json.Marshal(DBResponse{Database: req.Database, DumpData: output})
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 // dbInventory is intentionally narrow: the application uses the packaged

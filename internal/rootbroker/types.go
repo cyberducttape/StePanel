@@ -146,7 +146,7 @@ type AppResponse struct {
 // --- Database Operations ---
 
 type DBRequest struct {
-	Action   string `json:"action"`              // inventory, provision, restore-dump, drop
+	Action   string `json:"action"`              // inventory, provision, dump, restore-dump, drop
 	Database string `json:"database"`            // Database name (validated)
 	Username string `json:"username"`            // DB username (validated)
 	Password string `json:"password"`            // DB password (not logged)
@@ -162,6 +162,7 @@ type DBResponse struct {
 	Database    string `json:"database,omitempty"`
 	Username    string `json:"username,omitempty"`
 	Output      string `json:"output,omitempty"`
+	DumpData    []byte `json:"dump_data,omitempty"`
 }
 
 // --- Vhost Operations ---
