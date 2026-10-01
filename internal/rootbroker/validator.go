@@ -413,7 +413,7 @@ func (v *Validator) validateHelperRequest(req *HelperRequest) error {
 	allowed := map[string]map[string]bool{
 		"appctl":    {"python-apply": true, "python-start": true, "python-stop": true, "python-restart": true, "node-tool": true, "composer-install": true, "env-apply": true, "worker-apply": true, "worker-delete": true, "worker-start": true, "worker-stop": true, "worker-restart": true, "resource-apply": true, "account-resource-apply": true, "resource-status": true},
 		"proxyctl":  {"apply": true, "delete": true, "reload": true},
-		"sitectl":   {"prepare": true, "seal": true, "delete": true, "access": true, "resources": true, "quota": true, "quota-clear": true, "runtime": true},
+		"sitectl":   {"prepare": true, "prepare-root": true, "seal": true, "delete": true, "access": true, "resources": true, "quota": true, "quota-clear": true, "runtime": true},
 		"vhostctl":  {"apply": true, "delete": true, "apply-auth": true, "import-htaccess": true},
 		"runnerctl": {"build": true},
 		"gitctl":    {"clone": true, "verify": true},

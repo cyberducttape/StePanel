@@ -55,6 +55,9 @@ type hostOps interface {
 	DeleteSystemUser(ctx context.Context, username string) error
 	Chown(ctx context.Context, path, owner, group string, recursive bool) error
 	WebGroup() (string, error)
+	// RunSiteHelper runs the installed stepanel-sitectl helper, the single
+	// implementation of site isolation (account, ownership, ACLs, PHP pool).
+	RunSiteHelper(ctx context.Context, args ...string) (string, error)
 }
 
 // NewBroker creates a new root broker with default recovery root.
@@ -454,38 +457,22 @@ func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, 
 	}
 
 	b.logger.Printf("preparing site: %s", req.Site)
+	// stepanel-sitectl prepare-root is the single implementation of the
+	// site isolation contract: system account, site-root ownership and mode,
+	// the ACL that lets the panel publish into the root, the PHP state tree,
+	// and the PHP-FPM pool. It deliberately leaves the public tree to the
+	// site manager's staged activation.
+	output, err := b.host.RunSiteHelper(ctx, "prepare-root", req.Site)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("site isolation preparation failed: %v", err)}, nil
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if reported, want := strings.TrimSpace(lines[len(lines)-1]), siteidentity.UnixUser(req.Site); reported != want {
+		return &Response{OK: false, Error: fmt.Sprintf("site helper prepared account %q but the broker derives %q; refusing to continue with divergent site identity", reported, want)}, nil
+	}
 	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
 		if err := ensureLabManagerSiteRoot(siteRoot); err != nil {
 			return &Response{OK: false, Error: fmt.Sprintf("site root preparation failed: %v", err)}, nil
-		}
-	}
-
-	// The PHP state tree must be owned by the site's own account and the web
-	// group, exactly as stepanel-sitectl prepares it, or the site's PHP pool
-	// cannot write sessions or temporary files. The public tree is left to
-	// the site manager's staged activation.
-	siteUser := siteidentity.UnixUser(req.Site)
-	webGroup, err := b.host.WebGroup()
-	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("web group resolution failed: %v", err)}, nil
-	}
-	if err := b.host.EnsureSystemUser(ctx, siteUser, siteRoot); err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("site user creation failed: %v", err)}, nil
-	}
-	dirs := []string{
-		filepath.Join(siteRoot, ".php"),
-		filepath.Join(siteRoot, ".php", "sessions"),
-		filepath.Join(siteRoot, ".php", "tmp"),
-	}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return &Response{OK: false, Error: fmt.Sprintf("directory creation failed: %v", err)}, nil
-		}
-		if err := os.Chmod(dir, 0o750); err != nil {
-			return &Response{OK: false, Error: fmt.Sprintf("directory permission failed: %v", err)}, nil
-		}
-		if err := b.host.Chown(ctx, dir, siteUser, webGroup, false); err != nil {
-			return &Response{OK: false, Error: fmt.Sprintf("directory ownership failed: %v", err)}, nil
 		}
 	}
 
@@ -1425,6 +1412,20 @@ func (execHostOps) Chown(ctx context.Context, path, owner, group string, recursi
 		return fmt.Errorf("chown failed: %w (output: %s)", err, output)
 	}
 	return nil
+}
+
+// siteHelperPath is the installed site isolation helper.
+const siteHelperPath = "/usr/local/sbin/stepanel-sitectl"
+
+func (execHostOps) RunSiteHelper(ctx context.Context, args ...string) (string, error) {
+	cmd := stepanelhelper.NewCommand(ctx, siteHelperPath, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("%s %s: %w: %s", siteHelperPath, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.String(), nil
 }
 
 func (execHostOps) WebGroup() (string, error) {

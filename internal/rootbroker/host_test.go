@@ -17,7 +17,20 @@ type fakeHost struct {
 	users    []string
 	deleted  []string
 	chowns   []string
+	helper   [][]string
 	webGroup string
+	// helperUser overrides the account the fake site helper reports.
+	helperUser string
+}
+
+func (f *fakeHost) RunSiteHelper(_ context.Context, args ...string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.helper = append(f.helper, args)
+	if f.helperUser != "" {
+		return f.helperUser + "\n", nil
+	}
+	return siteidentity.UnixUser(args[len(args)-1]) + "\n", nil
 }
 
 func (f *fakeHost) EnsureSystemUser(_ context.Context, username, _ string) error {
@@ -92,15 +105,25 @@ func TestSiteLifecycleUsesSharedIdentityAndWebGroup(t *testing.T) {
 			t.Fatalf("broker used site user %q, want shared identity %q", user, want)
 		}
 	}
-	if len(host.users) != 2 || len(host.deleted) != 1 {
+	if len(host.users) != 1 || len(host.deleted) != 1 {
 		t.Fatalf("users created = %v, deleted = %v", host.users, host.deleted)
 	}
-	for _, chown := range host.chowns {
-		if !strings.HasPrefix(chown, want+":apache ") {
-			t.Fatalf("chown %q does not use the shared identity and detected web group", chown)
-		}
+	if len(host.chowns) != 1 || !strings.HasPrefix(host.chowns[0], want+":apache ") {
+		t.Fatalf("chowns = %v, want the created site root owned by the shared identity and detected web group", host.chowns)
 	}
-	if len(host.chowns) != 4 {
-		t.Fatalf("chowns = %v, want three PHP state directories plus the created site root", host.chowns)
+	if len(host.helper) != 1 || strings.Join(host.helper[0], " ") != "prepare-root "+site {
+		t.Fatalf("site helper calls = %v, want prepare delegated to prepare-root", host.helper)
+	}
+}
+
+func TestSitePrepareRefusesDivergentHelperIdentity(t *testing.T) {
+	host := &fakeHost{helperUser: "sp-legacy-name"}
+	broker, err := newBroker(t.TempDir(), t.TempDir(), log.New(io.Discard, "", 0), host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := broker.Execute(context.Background(), &Request{RequestType: "site", Site: &SiteRequest{Action: "prepare", Site: "demo"}})
+	if err != nil || resp.OK || !strings.Contains(resp.Error, "divergent site identity") {
+		t.Fatalf("prepare response = %#v, err = %v; want divergent identity refusal", resp, err)
 	}
 }

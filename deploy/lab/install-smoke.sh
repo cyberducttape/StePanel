@@ -169,6 +169,16 @@ site=ci-smoke
 mkdir -p "/var/www/sites/$site/public"
 printf '%s\n' 'smoke' > "/var/www/sites/$site/public/index.html"
 /usr/local/sbin/stepanel-sitectl seal "$site"
+
+# prepare-root is what the typed broker runs before staged activation: the
+# full isolation contract without creating public/.
+root_site=ci-smoke-root
+root_user=$(/usr/local/sbin/stepanel-sitectl prepare-root "$root_site" | tail -n 1)
+[[ $(stat -c %U "/var/www/sites/$root_site") == "$root_user" ]]
+[[ -d "/var/www/sites/$root_site/.php/sessions" && ! -e "/var/www/sites/$root_site/public" ]]
+getfacl -p "/var/www/sites/$root_site" | grep -Fq 'user:stepanel:rwx'
+/usr/local/sbin/stepanel-sitectl delete "$root_site"
+
 /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.example.test
 /usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256
 bash /work/deploy/lab/task-safeguards-smoke.sh "$site"

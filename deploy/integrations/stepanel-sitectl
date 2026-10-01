@@ -2,12 +2,12 @@
 set -Eeuo pipefail
 
 if [[ $EUID -ne 0 ]]; then echo 'must run as root' >&2; exit 1; fi
-(( $# == 2 || $# == 3 || $# == 4 || $# == 11 )) || { echo 'usage: stepanel-sitectl prepare|seal SITE | resources SITE PHP_WORKERS | quota SITE DISK_MB INODES | quota-clear SITE | runtime SITE VERSION MEMORY EXEC UPLOAD POST INPUT OPCACHE DISPLAY ERROR' >&2; exit 64; }
+(( $# == 2 || $# == 3 || $# == 4 || $# == 11 )) || { echo 'usage: stepanel-sitectl prepare|prepare-root|seal SITE | resources SITE PHP_WORKERS | quota SITE DISK_MB INODES | quota-clear SITE | runtime SITE VERSION MEMORY EXEC UPLOAD POST INPUT OPCACHE DISPLAY ERROR' >&2; exit 64; }
 
 action=$1
 site=$2
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
-[[ $action == prepare || $action == seal || $action == delete || $action == runtime || $action == resources || $action == quota || $action == quota-clear || $action == access ]] || { echo 'invalid action' >&2; exit 64; }
+[[ $action == prepare || $action == prepare-root || $action == seal || $action == delete || $action == runtime || $action == resources || $action == quota || $action == quota-clear || $action == access ]] || { echo 'invalid action' >&2; exit 64; }
 
 if getent group www-data >/dev/null; then
   web_group=www-data
@@ -54,7 +54,15 @@ if ! id "$site_user" >/dev/null 2>&1; then
 fi
 [[ -d /var/www/sites && ! -L /var/www/sites ]] || { echo 'shared site root is missing or unsafe' >&2; exit 1; }
 chmod 2711 /var/www/sites
-install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root" "$public_root"
+# prepare-root applies the full isolation contract except creating the
+# public tree, which the panel publishes through the site manager's staged
+# activation (cPanel import, archive import, restore).
+if [[ $action == prepare-root ]]; then
+  install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root"
+  action=prepare
+else
+  install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root" "$public_root"
+fi
 install -d -m 0750 -o "$site_user" -g "$web_group" "$php_state" "$php_state/sessions" "$php_state/tmp"
 
 if [[ $action == access ]]; then

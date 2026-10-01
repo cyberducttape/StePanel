@@ -384,6 +384,12 @@ func siteHelperContext(ctx context.Context, cfg Config, action, site string) err
 		}
 		return nil
 	}
+	if action == "prepare" {
+		// Every prepare caller publishes the public tree through the site
+		// manager afterwards, so ask the helper for the isolation contract
+		// without creating public/ (the typed broker does the same).
+		action = "prepare-root"
+	}
 	return runHelperCommand(ctx, cfg, cfg.SiteCtl, action, site)
 }
 
