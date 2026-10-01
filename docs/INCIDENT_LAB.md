@@ -67,10 +67,10 @@ bounded authenticated mixed HTTP load against a throwaway control plane; run
 that part alone with `make mixed-load` when iterating. For a disposable
 systemd host, set `RECOVERY_MATRIX_FULL=1` when invoking
 `deploy/lab/recovery-matrix-smoke.sh` to execute every supported journal kill
-boundary instead of the bounded default matrix. The full mode is intentionally
-not part of every install smoke because it repeats several multi-minute
-restore/backup workflows; its output and host logs belong in the dated lab
-evidence record.
+boundary instead of the bounded default matrix. The hosted installation-smoke
+workflow enables this full mode on both disposable distributions; local runs
+remain opt-in because it repeats several restore/backup workflows. Its output
+and host logs belong in the dated lab evidence record.
 
 Repository-level recovery test evidence is recorded in
 [`docs/lab-results/2026-09-06-recovery-unit-drills.md`](lab-results/2026-09-06-recovery-unit-drills.md).

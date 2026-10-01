@@ -94,6 +94,7 @@ jobs:
           timeout --foreground 30m docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
+            -e STEPANEL_RUN_RECOVERY_MATRIX_FULL=1 \
             stepanel-install /work/deploy/lab/install-smoke.sh \
             >"$diagnostics_dir/install-smoke-output.txt" 2>&1
           smoke_status=$?

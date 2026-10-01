@@ -198,5 +198,9 @@ bash /work/deploy/lab/account-suspension-recovery-smoke.sh
 bash /work/deploy/lab/deploy-recovery-smoke.sh
 bash /work/deploy/lab/app-lifecycle-smoke.sh
 if [[ ${STEPANEL_RUN_RECOVERY_MATRIX:-0} == 1 ]]; then
-  bash /work/deploy/lab/recovery-matrix-smoke.sh
+  if [[ ${STEPANEL_RUN_RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
+    RECOVERY_MATRIX_FULL=1 bash /work/deploy/lab/recovery-matrix-smoke.sh
+  else
+    bash /work/deploy/lab/recovery-matrix-smoke.sh
+  fi
 fi
