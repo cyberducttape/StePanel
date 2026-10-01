@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 type AppManifest struct {
@@ -66,12 +69,17 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site document root does not exist", 422)
 		return
 	}
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), app.Site)
-	if lockErr != nil {
-		http.Error(w, "app deployment is busy", http.StatusConflict)
-		return
+	operationCtx := r.Context()
+	if _, internal := operationCtx.Value(nodeDeploymentContextKey{}).(bool); !internal {
+		var releaseUnlock func()
+		var lockErr error
+		operationCtx, releaseUnlock, lockErr = a.acquireSiteMutationLockContext(operationCtx, app.Site)
+		if lockErr != nil {
+			http.Error(w, "app deployment is busy", http.StatusConflict)
+			return
+		}
+		defer releaseUnlock()
 	}
-	defer releaseUnlock()
 	a.appLifecycleMu.Lock()
 	defer a.appLifecycleMu.Unlock()
 	if err := operationCtx.Err(); err != nil {
@@ -117,7 +125,8 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to save app manifest", 500)
 		return
 	}
-	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", app.Site, strings.TrimPrefix(app.Version, "v"), app.Root, strconv.Itoa(app.Port)); err != nil {
+	if err := applyAppProcess(operationCtx, a.Config, app); err != nil {
+		log.Printf("app deploy %s: apply service configuration: %v", app.Site, err)
 		var rollbackErr error
 		if hadPrevious {
 			rollbackErr = writeAtomic(manifestPath, previous, 0600)
@@ -128,16 +137,18 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if rollbackErr != nil {
+			log.Printf("app deploy %s: restore previous manifest: %v", app.Site, rollbackErr)
 			http.Error(w, "app helper failed and manifest rollback failed: "+rollbackErr.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		http.Error(w, "app manifest saved but systemd helper failed", 503)
+		http.Error(w, "application service could not be applied; the previous configuration was kept", http.StatusServiceUnavailable)
 		return
 	}
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	a.invalidateAppsCache()
 	recordAudit(a.Config.AuditLog, a.Auth.Username, "app.deployed", app.Site, app.Domain+" on port "+strconv.Itoa(app.Port))
 	writeJSON(w, http.StatusAccepted, app)
 }
@@ -190,7 +201,16 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "current app manifest is invalid", 500)
 			return
 		}
-		if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", previous.Site, strings.TrimPrefix(previous.Version, "v"), previous.Root, strconv.Itoa(previous.Port)); err != nil {
+		// Applying a release always leaves the service enabled and running.
+		previous.State = "running"
+		restored, err := json.MarshalIndent(previous, "", "  ")
+		if err != nil {
+			http.Error(w, "unable to encode previous app release", 500)
+			return
+		}
+		restored = append(restored, '\n')
+		if err := applyAppProcess(operationCtx, a.Config, previous); err != nil {
+			log.Printf("app rollback %s: apply previous release: %v", parts[0], err)
 			http.Error(w, "rollback failed", 502)
 			return
 		}
@@ -199,7 +219,7 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := writeAtomic(manifestPath+".bak", current, 0600); err != nil {
-			restoreErr := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port))
+			restoreErr := restoreAppProcess(operationCtx, a.Config, currentManifest)
 			if restoreErr != nil {
 				http.Error(w, fmt.Sprintf("rollback state could not be persisted and the previous process configuration could not be restored: %v", restoreErr), http.StatusServiceUnavailable)
 				return
@@ -207,9 +227,9 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "rollback state could not be persisted; the previous process configuration was restored", http.StatusInternalServerError)
 			return
 		}
-		if err := writeAtomic(manifestPath, backup, 0600); err != nil {
+		if err := writeAtomic(manifestPath, restored, 0600); err != nil {
 			backupRestoreErr := writeAtomic(manifestPath+".bak", backup, 0600)
-			restoreErr := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "apply", currentManifest.Site, strings.TrimPrefix(currentManifest.Version, "v"), currentManifest.Root, strconv.Itoa(currentManifest.Port))
+			restoreErr := restoreAppProcess(operationCtx, a.Config, currentManifest)
 			if backupRestoreErr != nil || restoreErr != nil {
 				http.Error(w, fmt.Sprintf("rollback manifest failed and recovery was incomplete (manifest backup: %v; process configuration: %v)", backupRestoreErr, restoreErr), http.StatusServiceUnavailable)
 				return
@@ -217,10 +237,13 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "rollback manifest could not be persisted; the previous process configuration was restored", http.StatusInternalServerError)
 			return
 		}
-	} else if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, parts[1], parts[0]); err != nil {
-		http.Error(w, "app action failed", 502)
+	} else if status, message, err := a.runAppStateAction(operationCtx, parts[0], parts[1]); err != nil {
+		log.Printf("app %s %s: %v", parts[1], parts[0], err)
+		a.invalidateAppsCache()
+		http.Error(w, message, status)
 		return
 	}
+	a.invalidateAppsCache()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "app action cancelled because the mutation lock was lost", http.StatusConflict)
 		return
@@ -240,4 +263,105 @@ func validAppManifest(cfg Config, app AppManifest, site string) bool {
 		return false
 	}
 	return filepath.Clean(app.Root) == filepath.Clean(expected)
+}
+
+// applyAppProcess publishes the Node process configuration for app.
+func applyAppProcess(ctx context.Context, cfg Config, app AppManifest) error {
+	version := strings.TrimPrefix(app.Version, "v")
+	if handled, err := runAppBroker(ctx, cfg, rootbroker.AppRequest{Action: "apply", Site: app.Site, Version: version, Root: app.Root, Port: app.Port}); handled {
+		return err
+	}
+	return runHelperCommandWithTimeout(ctx, cfg, helperServiceLifecycleTimeout, cfg.AppCtl, "apply", app.Site, version, app.Root, strconv.Itoa(app.Port))
+}
+
+// restoreAppProcess re-applies manifest after a failed rollback and returns the
+// service to the recorded state, since apply always leaves it running.
+func restoreAppProcess(ctx context.Context, cfg Config, manifest AppManifest) error {
+	if err := applyAppProcess(ctx, cfg, manifest); err != nil {
+		return err
+	}
+	if manifest.State == "stopped" {
+		return runAppLifecycle(ctx, cfg, "stop", manifest.Site)
+	}
+	return nil
+}
+
+// runAppStateAction starts, stops or restarts a deployed application and
+// records the resulting state in its manifest. The manifest is written first
+// and restored if the action fails, so it never claims a state the service was
+// not put into. On failure it returns the HTTP status and message to report.
+func (a *App) runAppStateAction(ctx context.Context, site, action string) (int, string, error) {
+	manifestPath, err := safePath(a.Config.AppRoot, site+".json")
+	if err != nil {
+		return http.StatusInternalServerError, "app manifest path is invalid", err
+	}
+	current, err := os.ReadFile(manifestPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return http.StatusConflict, "application is not deployed", err
+	}
+	if err != nil {
+		return http.StatusInternalServerError, "current app manifest is unavailable", err
+	}
+	var manifest AppManifest
+	if err := json.Unmarshal(current, &manifest); err != nil {
+		return http.StatusInternalServerError, "current app manifest is invalid", err
+	}
+	if !validAppManifest(a.Config, manifest, site) {
+		return http.StatusInternalServerError, "current app manifest is invalid", fmt.Errorf("manifest %s failed validation", manifestPath)
+	}
+	manifest.State = "running"
+	if action == "stop" {
+		manifest.State = "stopped"
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return http.StatusInternalServerError, "unable to encode app manifest", err
+	}
+	if err := writeAtomic(manifestPath, append(data, '\n'), 0600); err != nil {
+		return http.StatusInternalServerError, "unable to save app manifest", err
+	}
+	if err := runAppLifecycle(ctx, a.Config, action, site); err != nil {
+		if restoreErr := writeAtomic(manifestPath, current, 0600); restoreErr != nil {
+			return http.StatusServiceUnavailable, "app action failed and the app manifest could not be restored", errors.Join(err, restoreErr)
+		}
+		return http.StatusBadGateway, "app action failed", err
+	}
+	return 0, "", nil
+}
+
+func (a *App) invalidateAppsCache() {
+	if a.MetadataCache != nil {
+		a.MetadataCache.InvalidateApps()
+	}
+}
+
+// runAppLifecycle performs a start, stop, restart or delete of a site's Node process.
+func runAppLifecycle(ctx context.Context, cfg Config, action, site string) error {
+	if handled, err := runAppBroker(ctx, cfg, rootbroker.AppRequest{Action: action, Site: site}); handled {
+		return err
+	}
+	return runHelperCommandWithTimeout(ctx, cfg, helperServiceLifecycleTimeout, cfg.AppCtl, action, site)
+}
+
+// runAppBroker routes an application operation through the typed root broker
+// in production and direct-broker lab installs. It reports handled=false when
+// the legacy helper path should be used instead.
+func runAppBroker(ctx context.Context, cfg Config, app rootbroker.AppRequest) (bool, error) {
+	if !cfg.Production && !labDirectRootBrokerEnabled() {
+		return false, nil
+	}
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return true, err
+	}
+	operationCtx, cancel := context.WithTimeout(ctx, helperServiceLifecycleTimeout)
+	defer cancel()
+	resp, err := client.AppOperation(operationCtx, app)
+	if err != nil {
+		return true, err
+	}
+	if !resp.OK {
+		return true, errors.New(resp.Error)
+	}
+	return true, nil
 }

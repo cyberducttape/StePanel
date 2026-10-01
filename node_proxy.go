@@ -73,12 +73,17 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site document root does not exist", http.StatusUnprocessableEntity)
 		return
 	}
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
-	if lockErr != nil {
-		http.Error(w, "Node version mutation is busy", http.StatusConflict)
-		return
+	operationCtx := r.Context()
+	if _, internal := operationCtx.Value(nodeDeploymentContextKey{}).(bool); !internal {
+		var releaseUnlock func()
+		var lockErr error
+		operationCtx, releaseUnlock, lockErr = a.acquireSiteMutationLockContext(operationCtx, input.Site)
+		if lockErr != nil {
+			http.Error(w, "Node version mutation is busy", http.StatusConflict)
+			return
+		}
+		defer releaseUnlock()
 	}
-	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "Node version mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
@@ -116,12 +121,17 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := proxyConfigName(a.Config.WebServer, input.Site, input.Domain)
-	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(r.Context(), input.Site, "proxy:"+name)
-	if lockErr != nil {
-		http.Error(w, "proxy mutation is busy", http.StatusConflict)
-		return
+	operationCtx := r.Context()
+	if _, internal := operationCtx.Value(nodeDeploymentContextKey{}).(bool); !internal {
+		var releaseUnlock func()
+		var lockErr error
+		operationCtx, releaseUnlock, lockErr = a.acquireSiteMutationLocksContext(operationCtx, input.Site, "proxy:"+name)
+		if lockErr != nil {
+			http.Error(w, "proxy mutation is busy", http.StatusConflict)
+			return
+		}
+		defer releaseUnlock()
 	}
-	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "proxy mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return

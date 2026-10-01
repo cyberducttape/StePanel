@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"strconv"
+	"syscall"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
@@ -108,13 +109,55 @@ func serveSocket(broker *rootbroker.Broker, socketPath, socketGroup string, logg
 			return fmt.Errorf("set broker socket group: %w", err)
 		}
 	}
+	if socketGroup == "" {
+		return fmt.Errorf("socket-group is required for broker socket authorization")
+	}
+	group, err := user.LookupGroup(socketGroup)
+	if err != nil {
+		return fmt.Errorf("lookup broker socket group %q: %w", socketGroup, err)
+	}
+	allowedGID, err := strconv.Atoi(group.Gid)
+	if err != nil {
+		return fmt.Errorf("parse broker socket group %q: %w", socketGroup, err)
+	}
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			return fmt.Errorf("accept broker socket connection: %w", err)
 		}
-		serveRequests(broker, conn, conn, logger)
+		unixConn, ok := conn.(*net.UnixConn)
+		if !ok {
+			_ = conn.Close()
+			continue
+		}
+		if err := authorizeSocketPeer(unixConn, allowedGID); err != nil {
+			logger.Printf("rejecting broker socket peer: %v", err)
+			_ = conn.Close()
+			continue
+		}
+		serveRequests(broker, unixConn, unixConn, logger)
 		_ = conn.Close()
 	}
+}
+
+func authorizeSocketPeer(conn *net.UnixConn, allowedGID int) error {
+	var credential *syscall.Ucred
+	var controlErr error
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		return fmt.Errorf("inspect socket peer: %w", err)
+	}
+	if err := raw.Control(func(fd uintptr) {
+		credential, controlErr = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+	}); err != nil {
+		return fmt.Errorf("inspect socket peer: %w", err)
+	}
+	if controlErr != nil {
+		return fmt.Errorf("read socket peer credentials: %w", controlErr)
+	}
+	if credential == nil || int(credential.Gid) != allowedGID {
+		return fmt.Errorf("peer group is not authorized")
+	}
+	return nil
 }

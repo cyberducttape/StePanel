@@ -674,7 +674,7 @@ func main() {
 	mux.Handle("/api/reconcile/tasks", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.reconcileTasksHTTP)), http.MethodPost))
 	mux.Handle("/api/staging", allowMethods(app.Auth.Require(http.HandlerFunc(app.stagingCreate)), http.MethodPost))
 	mux.Handle("/api/runner/build", allowMethods(app.Auth.Require(http.HandlerFunc(app.runnerBuild)), http.MethodPost))
-	mux.Handle("/api/deployments", allowMethods(app.Auth.Require(http.HandlerFunc(app.deployments)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/deployments", allowMethods(app.Auth.Require(http.HandlerFunc(app.deployments)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/deployments/run", allowMethods(app.Auth.Require(http.HandlerFunc(app.releasePipeline)), http.MethodPost))
 	mux.Handle("/api/sites/logs/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteLogs)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/deploy", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteDeploy)), http.MethodPost))
@@ -1261,6 +1261,8 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleBackupRestoreJob(ctx, item)
 	case "cloud.action":
 		return a.handleCloudJob(ctx, item)
+	case "node.deployment":
+		return a.handleNodeDeploymentJob(ctx, item)
 	case "site.terminate":
 		return a.handleSiteTermination(ctx, item)
 	case "migration.analysis":
@@ -1282,7 +1284,7 @@ func durableWorkloadClass(kind string) string {
 		return "backup"
 	case "archive.inspect", "archive.import", "migration.analysis":
 		return "extract"
-	case "cloud.action", "certificate.issue":
+	case "cloud.action", "certificate.issue", "node.deployment":
 		return "build"
 	case "site.terminate":
 		return "db_restore"

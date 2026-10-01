@@ -81,6 +81,10 @@ func (a *App) recordDeployment(site, stage, state, detail string, result gitDepl
 	}
 }
 func (a *App) deployments(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		a.startNodeDeployment(w, r)
+		return
+	}
 	if !a.requireCustomerScope(w, r, "site:read") {
 		return
 	}

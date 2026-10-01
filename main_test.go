@@ -85,8 +85,8 @@ func TestNodeDeploymentBrowserPayloadMatchesStrictAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := string(data)
-	if !strings.Contains(script, "node_version:data.version") || strings.Contains(script, "'/api/apps/deploy',{site:data.site,domain:data.domain,version:") {
-		t.Fatal("Node deployment browser payload does not use the AppManifest JSON contract")
+	if !strings.Contains(script, "data.node_version=data.version") || !strings.Contains(script, "api('/api/deployments',data)") || strings.Contains(script, "api('/api/node/select'") || strings.Contains(script, "api('/api/apps/deploy'") || strings.Contains(script, "api('/api/proxy/deploy'") {
+		t.Fatal("Node deployment browser flow is not a single durable deployment request")
 	}
 }
 
