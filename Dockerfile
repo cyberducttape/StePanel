@@ -7,11 +7,14 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Commit=docker -X ma
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 
-# REPRODUCIBILITY: Package versions are pinned to ensure identical builds across
-# different times and environments. The base image digest is fixed, and all
-# runtime packages must use explicit versions from Debian Bookworm.
+# REPRODUCIBILITY: The base image digest is fixed, but apt-get still resolves
+# unpinned runtime packages from the live Debian Bookworm repositories. This
+# provides a reviewable package inventory, not byte-for-byte reproducibility.
+# Use a dated Debian snapshot or a complete external package lock when
+# reproducible image contents are required.
 #
-# To update package versions, see docker/apt-pins.txt for instructions.
+# docker/apt-pins.txt records the inventory and the one package currently
+# version-pinned; it is not a complete package lock.
 # Never use apt-get upgrade, which pulls untested/unreviewed versions.
 # Track version updates in git with CVE or improvement justification.
 RUN apt-get update \

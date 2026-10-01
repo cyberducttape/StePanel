@@ -267,11 +267,14 @@ func sanitizeGitError(output string) (msg string, category GitErrorCategory) {
 
 ---
 
-## Issue 4: Docker Builds Not Reproducible
+## Issue 4: Docker Builds Not Reproducible (still open)
 
-**Problem**: Dockerfile pins base image digest but not package versions, creating false sense of reproducibility.
+**Problem**: The base image digest is pinned, but the Dockerfile still resolves
+most runtime packages from live Debian repositories. The current comments and
+inventory now disclose that limitation; the image is not byte-for-byte
+reproducible until a complete package lock or dated Debian snapshot is used.
 
-**Current Dockerfile**:
+**Historical example of the problem**:
 ```dockerfile
 FROM debian:12@sha256:abc123...
 
