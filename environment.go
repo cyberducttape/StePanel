@@ -74,6 +74,55 @@ type environmentValue struct {
 	Value  string `json:"value"`
 	Secret bool   `json:"secret"`
 }
+
+// environmentUpdate is one entry of a PUT request. Secrets are redacted on
+// read, so a client cannot round-trip them; the operation states intent
+// explicitly instead of letting a blank value imply deletion.
+type environmentUpdate struct {
+	Operation string `json:"operation,omitempty"`
+	Value     string `json:"value"`
+	Secret    bool   `json:"secret"`
+}
+
+const (
+	environmentOperationSet      = "set"
+	environmentOperationPreserve = "preserve"
+	environmentOperationDelete   = "delete"
+)
+
+// mergeEnvironmentUpdate applies updates on top of the current variables.
+// Variables omitted from the update are kept unchanged, "preserve" keeps an
+// existing variable's stored value, and "delete" is the only way to remove one.
+// A blank secret without an explicit operation is rejected because it is
+// indistinguishable from a redacted secret echoed back by a client.
+func mergeEnvironmentUpdate(current map[string]environmentValue, updates map[string]environmentUpdate) (map[string]environmentValue, error) {
+	next := cloneEnvironmentValues(current)
+	if next == nil {
+		next = map[string]environmentValue{}
+	}
+	for name, update := range updates {
+		if !validEnvName(name) {
+			return nil, fmt.Errorf("invalid environment variable name %q", name)
+		}
+		switch update.Operation {
+		case "", environmentOperationSet:
+			if update.Secret && update.Value == "" && update.Operation == "" {
+				return nil, fmt.Errorf("secret %s has a blank value; use operation \"preserve\" to keep it or \"delete\" to remove it", name)
+			}
+			next[name] = environmentValue{Value: update.Value, Secret: update.Secret}
+		case environmentOperationPreserve:
+			if _, ok := next[name]; !ok {
+				return nil, fmt.Errorf("cannot preserve %s: variable does not exist", name)
+			}
+		case environmentOperationDelete:
+			delete(next, name)
+		default:
+			return nil, fmt.Errorf("unsupported operation %q for %s", update.Operation, name)
+		}
+	}
+	return next, nil
+}
+
 type EnvironmentStore struct {
 	mu     sync.RWMutex
 	path   string
@@ -94,25 +143,72 @@ func OpenEnvironmentStore(path, secret string) (*EnvironmentStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(data, &store.values); err != nil {
-		return nil, fmt.Errorf("decode environment state: %w", err)
-	}
-	for site, vars := range store.values {
-		for name, value := range vars {
-			if value.Secret {
-				if len(store.key) == 0 {
-					return nil, errors.New("environment encryption key is required to read secret values")
-				}
-				plain, err := store.decrypt(value.Value)
-				if err != nil {
-					return nil, fmt.Errorf("decrypt %s/%s: %w", site, name, err)
-				}
-				value.Value = plain
-				vars[name] = value
-			}
-		}
+	if err := store.restoreControlPlaneState(data); err != nil {
+		return nil, err
 	}
 	return store, nil
+}
+
+// decodePersisted converts the durable representation (secrets encrypted)
+// into a fresh runtime map (secrets in plaintext). It is the only path from
+// persisted bytes to live environment state.
+func (s *EnvironmentStore) decodePersisted(data []byte) (map[string]map[string]environmentValue, error) {
+	values := map[string]map[string]environmentValue{}
+	if err := json.Unmarshal(data, &values); err != nil {
+		return nil, fmt.Errorf("decode environment state: %w", err)
+	}
+	for site, vars := range values {
+		if vars == nil {
+			vars = map[string]environmentValue{}
+			values[site] = vars
+		}
+		for name, value := range vars {
+			if !value.Secret {
+				continue
+			}
+			if len(s.key) == 0 {
+				return nil, errors.New("environment encryption key is required to read secret values")
+			}
+			plain, err := s.decrypt(value.Value)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt %s/%s: %w", site, name, err)
+			}
+			value.Value = plain
+			vars[name] = value
+		}
+	}
+	return values, nil
+}
+
+// encodePersisted converts runtime state into its durable representation
+// without mutating the live map.
+func (s *EnvironmentStore) encodePersisted() ([]byte, error) {
+	out := make(map[string]map[string]environmentValue, len(s.values))
+	for site, vars := range s.values {
+		out[site] = map[string]environmentValue{}
+		for name, value := range vars {
+			if value.Secret {
+				encrypted, err := s.encrypt(value.Value)
+				if err != nil {
+					return nil, err
+				}
+				value.Value = encrypted
+			}
+			out[site][name] = value
+		}
+	}
+	return json.MarshalIndent(out, "", "  ")
+}
+
+// restoreControlPlaneState implements controlPlaneStateCodec. The caller must
+// hold s.mu or otherwise have exclusive access (startup binding).
+func (s *EnvironmentStore) restoreControlPlaneState(payload []byte) error {
+	values, err := s.decodePersisted(payload)
+	if err != nil {
+		return err
+	}
+	s.values = values
+	return nil
 }
 
 func (s *EnvironmentStore) encrypt(value string) (string, error) {
@@ -154,38 +250,8 @@ func (s *EnvironmentStore) decrypt(value string) (string, error) {
 	return string(plain), err
 }
 
-func (s *EnvironmentStore) decryptLoadedSecrets() error {
-	for site, vars := range s.values {
-		for name, value := range vars {
-			if !value.Secret {
-				continue
-			}
-			plain, err := s.decrypt(value.Value)
-			if err != nil {
-				return fmt.Errorf("decrypt %s/%s: %w", site, name, err)
-			}
-			value.Value = plain
-			vars[name] = value
-		}
-	}
-	return nil
-}
 func (s *EnvironmentStore) persistLocked() error {
-	out := make(map[string]map[string]environmentValue, len(s.values))
-	for site, vars := range s.values {
-		out[site] = map[string]environmentValue{}
-		for name, value := range vars {
-			if value.Secret {
-				encrypted, err := s.encrypt(value.Value)
-				if err != nil {
-					return err
-				}
-				value.Value = encrypted
-			}
-			out[site][name] = value
-		}
-	}
-	data, err := json.MarshalIndent(out, "", "  ")
+	data, err := s.encodePersisted()
 	if err != nil {
 		return err
 	}
@@ -304,12 +370,12 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "API token lacks the environment:write scope", 403)
 			return
 		}
-		var input map[string]environmentValue
-		if err := decodeJSON(w, r, 64<<10, &input); err != nil {
+		var updates map[string]environmentUpdate
+		if err := decodeJSON(w, r, 64<<10, &updates); err != nil {
 			http.Error(w, "invalid JSON", 400)
 			return
 		}
-		for name := range input {
+		for name := range updates {
 			if !validEnvName(name) {
 				http.Error(w, "invalid environment variable name", 422)
 				return
@@ -327,6 +393,12 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Environments.mu.Lock()
 		previous, existed := a.Environments.values[site]
+		input, mergeErr := mergeEnvironmentUpdate(previous, updates)
+		if mergeErr != nil {
+			a.Environments.mu.Unlock()
+			http.Error(w, mergeErr.Error(), 422)
+			return
+		}
 		a.Environments.values[site] = input
 		err := a.Environments.persistLocked()
 		if err != nil {

@@ -397,7 +397,7 @@ func bindControlPlaneState(store any, db *sql.DB, name string, target any) (bool
 		controlPlaneStateSnapshots.Store(store, []byte(nil))
 		return false, nil
 	}
-	if err := json.Unmarshal(payload, target); err != nil {
+	if err := decodeBoundControlPlaneTarget(target, payload); err != nil {
 		return false, fmt.Errorf("decode control-plane state %s: %w", name, err)
 	}
 
@@ -522,11 +522,26 @@ func readControlPlaneBlobWithRevision(db *sql.DB, name string) ([]byte, int64, e
 	return payload, revision, nil
 }
 
+// controlPlaneStateCodec is implemented by stores whose durable payload is not
+// their runtime representation (for example, encrypted secrets). The binder
+// hands such stores the durable bytes instead of unmarshalling them directly
+// into live state, so a store's persisted image can never leak into memory.
+type controlPlaneStateCodec interface {
+	restoreControlPlaneState(payload []byte) error
+}
+
+func decodeBoundControlPlaneTarget(target any, payload []byte) error {
+	if codec, ok := target.(controlPlaneStateCodec); ok {
+		return codec.restoreControlPlaneState(payload)
+	}
+	return json.Unmarshal(payload, target)
+}
+
 func restoreBoundControlPlaneTarget(target any, payload []byte) error {
 	if target == nil || len(payload) == 0 {
 		return nil
 	}
-	return json.Unmarshal(payload, target)
+	return decodeBoundControlPlaneTarget(target, payload)
 }
 
 // mergeControlPlaneState reapplies a local map mutation to the latest durable

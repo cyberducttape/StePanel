@@ -1058,30 +1058,82 @@
     // Environment variables
     const envOutput = ctx.statusOutput();
     const env = await ctx.getJSON(`/api/sites/environment/${encodeURIComponent(site)}`).catch(() => ({ environment: {} }));
-    const entries = Object.entries(env.environment || {});
-    const rows = el('div', {}, entries.map(([name, value]) => {
-      const secret = typeof value === 'object' && value !== null && value.secret;
-      return el('div', { className: 'field-row' }, [
-        field({ label: 'Name', name: `env-name`, value: name }),
-        field({ label: secret ? 'Value (secret, hidden)' : 'Value', name: `env-value`, value: secret ? '' : value, type: secret ? 'password' : 'text', placeholder: secret ? 'Unchanged' : '' }),
-      ]);
-    }));
+    // Each row keeps an explicit model: its original name and secrecy come from
+    // the API, and secrecy is an explicit checkbox, never inferred from the
+    // input type. Redacted secrets are sent as "preserve", removals as
+    // "delete"; a blank secret never implies deletion.
+    const envRows = [];
+    const rows = el('div', {});
+    const addEnvRow = (name = null, value = '') => {
+      const existingSecret = name !== null && typeof value === 'object' && value !== null && value.secret === true;
+      const nameField = field({ label: 'Name', name: 'env-name', value: name || '' });
+      const valueField = field({
+        label: 'Value', name: 'env-value',
+        value: existingSecret ? '' : String(value ?? ''),
+        type: existingSecret ? 'password' : 'text',
+        placeholder: existingSecret ? 'Unchanged (leave blank to keep)' : '',
+      });
+      const secretField = field({ tag: 'checkbox-field', label: 'Secret', name: 'env-secret', checked: existingSecret });
+      const row = {
+        original: name,
+        originalSecret: existingSecret,
+        removed: false,
+        nameInput: nameField.querySelector('input'),
+        valueInput: valueField.querySelector('input'),
+        secretInput: secretField.querySelector('input'),
+      };
+      row.secretInput.addEventListener('change', () => { row.valueInput.type = row.secretInput.checked ? 'password' : 'text'; });
+      const node = el('div', { className: 'field-row' }, [nameField, valueField, secretField, el('button', {
+        type: 'button', className: 'quiet-action', onClick: () => { row.removed = true; node.remove(); },
+      }, 'Remove')]);
+      envRows.push(row);
+      rows.append(node);
+    };
+    Object.entries(env.environment || {}).forEach(([name, value]) => addEnvRow(name, value));
+    const buildEnvironmentPayload = () => {
+      const payload = {};
+      const put = (name, update) => {
+        if (payload[name] && payload[name].operation !== 'delete') throw new Error(`Variable ${name} is listed more than once.`);
+        payload[name] = update;
+      };
+      // Deletions first so a rename onto a removed name is not a duplicate.
+      envRows.forEach((row) => {
+        const name = row.nameInput.value.trim();
+        if (row.original !== null && (row.removed || name !== row.original)) payload[row.original] = { operation: 'delete' };
+      });
+      envRows.forEach((row) => {
+        if (row.removed) return;
+        const name = row.nameInput.value.trim();
+        const value = row.valueInput.value;
+        const secret = row.secretInput.checked;
+        if (!name) {
+          if (row.original === null && value) throw new Error('Every variable with a value needs a name.');
+          return;
+        }
+        const redacted = row.originalSecret && value === '';
+        if (redacted && name === row.original && secret) {
+          put(name, { operation: 'preserve', secret: true });
+        } else if (redacted) {
+          throw new Error(`Enter a new value for ${row.original} to rename it or make it non-secret.`);
+        } else {
+          put(name, { operation: 'set', value, secret });
+        }
+      });
+      return payload;
+    };
     const addRowButton = el('button', {
-      type: 'button', className: 'quiet-action', onClick: () => {
-        rows.append(el('div', { className: 'field-row' }, [field({ label: 'Name', name: 'env-name' }), field({ label: 'Value', name: 'env-value' })]));
-      },
+      type: 'button', className: 'quiet-action', onClick: () => addEnvRow(),
     }, '+ Add variable');
     panel.append(el('h4', {}, 'Environment variables'), env.environment ? el('div', {}, [rows, addRowButton, el('div', { className: 'workspace-panel-actions' }, [el('button', {
       type: 'button', className: 'primary-action', onClick: async () => {
-        const payload = {};
-        rows.querySelectorAll('.field-row').forEach((row) => {
-          const inputs = row.querySelectorAll('input');
-          const name = inputs[0]?.value.trim();
-          const value = inputs[1]?.value;
-          if (name) payload[name] = { value: value || '', secret: inputs[1]?.type === 'password' };
-        });
+        let payload;
+        try { payload = buildEnvironmentPayload(); } catch (error) { envOutput.textContent = error.message; return; }
         envOutput.textContent = 'Saving…';
-        try { await ctx.putJSON(`/api/sites/environment/${encodeURIComponent(site)}`, payload); envOutput.textContent = 'Environment applied.'; } catch (error) { envOutput.textContent = error.message; }
+        try {
+          await ctx.putJSON(`/api/sites/environment/${encodeURIComponent(site)}`, payload);
+          envOutput.textContent = 'Environment applied.';
+          renderSettingsTab(site, panel, ctx);
+        } catch (error) { envOutput.textContent = error.message; }
       },
     }, 'Save environment')]), envOutput]) : el('p', { className: 'import-note' }, 'Environment management requires STEPANEL_ENVIRONMENT_KEY to be configured.'));
 

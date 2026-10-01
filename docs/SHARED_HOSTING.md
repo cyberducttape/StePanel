@@ -106,8 +106,26 @@ Production requires `STEPANEL_ENVIRONMENT_KEY` (at least 32 characters) for
 encrypted site environment storage. Keep it stable and back it up with the
 control-plane database.
 Use `GET`, `PUT`, and `DELETE /api/sites/environment/{site}` to inspect metadata,
-replace variables, or remove them. Secret variables are encrypted at rest and
+update variables, or remove all of them. Secret variables are encrypted at rest and
 are returned only as metadata; values are never returned after they are written.
+
+`PUT` merges: variables omitted from the body are left unchanged. Each entry
+states its intent with `operation`:
+
+```json
+{
+  "DEBUG":       {"operation": "set", "value": "true", "secret": false},
+  "STRIPE_KEY":  {"operation": "set", "value": "sk_live_...", "secret": true},
+  "DB_PASSWORD": {"operation": "preserve", "secret": true},
+  "OLD_TOKEN":   {"operation": "delete"}
+}
+```
+
+`preserve` keeps a stored (redacted) value and fails if the variable does not
+exist; `delete` is the only way to remove a single variable. An entry with no
+`operation` is treated as `set`, except that a blank secret value without an
+explicit operation is rejected with `422`, so a redacted secret echoed back by a
+client can never silently erase the stored credential.
 Back up the environment state file together with the encryption key.
 Updates render a root-owned systemd environment file and restart managed Node,
 Python, and worker services so new values take effect. PHP applications should

@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Environment Variables
+
+- **Saving environment variables no longer erases secrets (SECURITY)**: `PUT
+  /api/sites/environment/{site}` previously replaced the whole map, and the UI
+  submitted redacted secrets as blank values, so editing any variable silently
+  deleted every stored secret. `PUT` now merges per-variable `set`, `preserve`,
+  and `delete` operations; a blank secret without an explicit operation is
+  rejected. **API behavior change:** variables omitted from the body are now kept;
+  send `{"operation": "delete"}` to remove one.
+- **Encrypted environment state no longer leaks into runtime memory (SECURITY)**:
+  after a database-bound persist, the encrypted image was unmarshalled back into
+  the live store, so in-process reconciliation could apply ciphertext to sites and
+  a later persist could encrypt it twice. Bound stores whose durable form differs
+  from their runtime form now implement a codec, and the environment store alone
+  decrypts its durable payload.
+- **Explicit secret flag in the UI**: new and existing variables have a Secret
+  checkbox and a Remove action; secrecy is no longer inferred from the input type.
+
 ### Security Testing & Hardening
 
 - **Comprehensive authorization test suite (SECURITY)**: Implemented 25+ adversarial tests

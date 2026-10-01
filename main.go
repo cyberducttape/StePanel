@@ -404,10 +404,9 @@ func main() {
 			}
 		}
 	}
-	bindState(environments, "environment", &environments.values, environments.persistLocked)
-	if err := environments.decryptLoadedSecrets(); err != nil {
-		log.Fatalf("decrypt control-plane environment state: %v", err)
-	}
+	// The store is its own codec: durable payloads hold encrypted secrets and
+	// must be decrypted by the store, never unmarshalled into live state.
+	bindState(environments, "environment", environments, environments.persistLocked)
 	bindState(redisAllocations, "redis", &redisAllocations.values, redisAllocations.persistLocked)
 	bindState(access, "site-access", &access.values, access.persistLocked)
 	bindState(workers, "workers", &workers.values, workers.persistLocked)
