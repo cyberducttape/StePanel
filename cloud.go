@@ -539,7 +539,14 @@ func (a *App) queueDNSJob(w http.ResponseWriter, r *http.Request, in cloudDNSReq
 	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "dns", Provider: "linode", Action: action, ID: in.DomainID, DNS: in, Actor: a.Auth.UsernameForRequest(r)})
 	if err != nil {
 		if a.DNSDesired != nil {
-			_ = a.DNSDesired.markResult(in, action, err)
+			if desiredErr := a.DNSDesired.markResult(in, action, err); desiredErr != nil {
+				// The desired record now says pending with no job behind it.
+				// Mark readiness unhealthy so the orphan is visible; startup
+				// reconciliation fails it once persistence recovers.
+				a.LogPersistenceFailure("dns_desired_compensation", desiredErr, "DNS job enqueue failed and the pending desired-state record could not be marked failed")
+				http.Error(w, "could not persist DNS job", http.StatusServiceUnavailable)
+				return errors.Join(err, desiredErr)
+			}
 		}
 		http.Error(w, "could not persist DNS job", 500)
 		return nil

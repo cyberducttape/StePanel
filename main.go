@@ -544,6 +544,11 @@ func main() {
 				failures = append(failures, fmt.Errorf("audit release recovery %s: %w", id, err))
 			}
 		}
+		if orphaned, err := app.reconcileOrphanedDNSDesired(); err != nil {
+			failures = append(failures, fmt.Errorf("reconcile DNS desired state: %w", err))
+		} else if orphaned > 0 {
+			log.Printf("marked %d pending DNS change(s) without a durable job as failed", orphaned)
+		}
 		if err := CleanupImportStages(cfg.ImportRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
 			log.Printf("import stage cleanup during startup: %v", err)
 		}

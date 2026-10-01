@@ -1672,6 +1672,43 @@ func (j *Jobs) loadDurableJob(id string) (Job, bool, error) {
 	return item, true, nil
 }
 
+// ActivePayloads returns the decrypted payloads of every queued or running
+// job of kind. It reads durable storage directly so startup reconciliation
+// sees all live work, not only the most recent page of jobs.
+func (j *Jobs) ActivePayloads(kind string) ([]json.RawMessage, error) {
+	if j.db == nil {
+		// Durable jobs only exist with a control-plane database.
+		return nil, nil
+	}
+	rows, err := j.db.Query(`SELECT id FROM jobs WHERE kind = ? AND state IN ('queued', 'running')`, kind)
+	if err != nil {
+		return nil, fmt.Errorf("list active %s jobs: %w", kind, err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("list active %s jobs: %w", kind, err)
+		}
+		ids = append(ids, id)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, fmt.Errorf("list active %s jobs: %w", kind, err)
+	}
+	payloads := make([]json.RawMessage, 0, len(ids))
+	for _, id := range ids {
+		item, ok, err := j.loadDurableJob(id)
+		if err != nil {
+			return nil, fmt.Errorf("load active job %s: %w", id, err)
+		}
+		if ok {
+			payloads = append(payloads, item.Payload)
+		}
+	}
+	return payloads, nil
+}
+
 func (j *Jobs) Get(id string) (Job, bool) {
 	if j.db != nil {
 		if item, ok, err := j.loadDurableJob(id); err == nil && ok {
