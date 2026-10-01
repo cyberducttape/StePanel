@@ -544,6 +544,16 @@ func main() {
 				failures = append(failures, fmt.Errorf("audit release recovery %s: %w", id, err))
 			}
 		}
+		// Pipeline checkout/build staging has no activation journal yet. If the
+		// process dies in that window, discard only manager-owned release trees
+		// after journal recovery has had first opportunity to use them.
+		if err == nil {
+			if orphaned, cleanupErr := siteManager.CleanupOrphanedReleaseStaging(context.Background()); cleanupErr != nil {
+				failures = append(failures, fmt.Errorf("cleanup orphaned release staging: %w", cleanupErr))
+			} else if orphaned > 0 {
+				log.Printf("cleaned %d orphaned release staging tree(s)", orphaned)
+			}
+		}
 		if replayed, err := app.replaySpooledDeployments(); err != nil {
 			failures = append(failures, fmt.Errorf("replay spooled deployment history: %w", err))
 		} else if replayed > 0 {

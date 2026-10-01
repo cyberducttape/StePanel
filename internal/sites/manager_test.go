@@ -124,6 +124,42 @@ func TestReleaseStagingPreservesRunnerLayoutAndOwnership(t *testing.T) {
 	}
 }
 
+func TestCleanupOrphanedReleaseStaging(t *testing.T) {
+	m, root := newManager(t)
+	for _, site := range []string{"orphan-one", "orphan-two"} {
+		public := filepath.Join(root, "sites", site, "public")
+		if err := os.MkdirAll(public, 0750); err != nil {
+			t.Fatal(err)
+		}
+		stage, err := m.CreateReleaseStaging(context.Background(), site, ".stepanel-release-")
+		if err != nil {
+			t.Fatalf("CreateReleaseStaging(%s): %v", site, err)
+		}
+		if err := os.WriteFile(filepath.Join(stage, "partial-artifact"), []byte("incomplete"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A previous release is not an orphaned checkout and must remain intact.
+	previous := filepath.Join(root, "sites", "orphan-one", ".stepanel-previous-release")
+	if err := os.MkdirAll(previous, 0750); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := m.CleanupOrphanedReleaseStaging(context.Background())
+	if err != nil {
+		t.Fatalf("CleanupOrphanedReleaseStaging: %v", err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed = %d, want 2", removed)
+	}
+	for _, path := range []string{
+		filepath.Join(root, "sites", "orphan-one", ".stepanel-previous-release"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("retained release missing: %v", err)
+		}
+	}
+}
+
 func TestActivateStagedReplacingCanRollback(t *testing.T) {
 	m, root := newManager(t)
 	public := filepath.Join(root, "sites", "replace-site", "public")
