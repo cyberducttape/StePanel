@@ -28,6 +28,7 @@ import (
 
 var gitRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
 var gitCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+var webhookDeliveryIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 // WebhookReplayCache prevents replay attacks on webhook deliveries
 type WebhookReplayCache struct {
@@ -56,7 +57,7 @@ func NewDurableWebhookReplayCache(db *sql.DB, maxAge time.Duration) *WebhookRepl
 // key is the replay gate, so concurrent requests and process restarts cannot
 // accept the same delivery twice.
 func (rc *WebhookReplayCache) Accept(site, deliveryID string, timestamp time.Time) (bool, error) {
-	if rc == nil || strings.TrimSpace(site) == "" || strings.TrimSpace(deliveryID) == "" {
+	if rc == nil || strings.TrimSpace(site) == "" || !webhookDeliveryIDPattern.MatchString(deliveryID) {
 		return false, errors.New("webhook replay protection requires site and delivery ID")
 	}
 	now := time.Now().UTC()
@@ -320,14 +321,24 @@ func gitWebhookSitePath(path string) string {
 	return site
 }
 
-// verifyWebhookSignature verifies HMAC-SHA256 signature using per-site webhook secret
-func verifyWebhookSignature(body []byte, signature string, webhookSecret string) bool {
+func webhookSignatureMessage(timestamp, deliveryID string, body []byte) []byte {
+	message := make([]byte, 0, len(timestamp)+len(deliveryID)+len(body)+2)
+	message = append(message, timestamp...)
+	message = append(message, '\n')
+	message = append(message, deliveryID...)
+	message = append(message, '\n')
+	return append(message, body...)
+}
+
+// verifyWebhookSignature verifies HMAC-SHA256 over the exact replay metadata
+// and body using the per-site webhook secret.
+func verifyWebhookSignature(body []byte, timestamp, deliveryID, signature string, webhookSecret string) bool {
 	provided, err := hex.DecodeString(strings.TrimSpace(strings.TrimPrefix(signature, "sha256=")))
 	if err != nil {
 		return false
 	}
 	digest := hmac.New(sha256.New, []byte(webhookSecret))
-	_, _ = digest.Write(body)
+	_, _ = digest.Write(webhookSignatureMessage(timestamp, deliveryID, body))
 	return hmac.Equal(provided, digest.Sum(nil))
 }
 
@@ -456,27 +467,26 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	webhookSecret := config.WebhookSecret
 
-	signature := r.Header.Get("X-StePanel-Signature")
-	if !verifyWebhookSignature(body, signature, webhookSecret) {
-		http.Error(w, "invalid webhook signature", http.StatusUnauthorized)
-		recordAudit(a.Config.AuditLog, "webhook", "webhook.auth.failed", site, "invalid signature")
-		return
-	}
-
-	// Replay protection: verify timestamp is recent and delivery ID hasn't been seen
 	deliveryID := r.Header.Get("X-StePanel-Delivery-ID")
 	timestamp := r.Header.Get("X-StePanel-Delivery-Timestamp")
-	if deliveryID == "" || timestamp == "" {
-		http.Error(w, "missing delivery ID or timestamp", 400)
+	if !webhookDeliveryIDPattern.MatchString(deliveryID) || timestamp == "" {
+		http.Error(w, "missing or invalid delivery ID or timestamp", 400)
 		return
 	}
-
 	ts, err := verifyWebhookTimestamp(timestamp, 5*time.Minute)
 	if err != nil {
 		http.Error(w, "invalid or stale webhook timestamp", 400)
 		return
 	}
 
+	signature := r.Header.Get("X-StePanel-Signature")
+	if !verifyWebhookSignature(body, timestamp, deliveryID, signature, webhookSecret) {
+		http.Error(w, "invalid webhook signature", http.StatusUnauthorized)
+		recordAudit(a.Config.AuditLog, "webhook", "webhook.auth.failed", site, "invalid signature")
+		return
+	}
+
+	// Replay protection: verify timestamp is recent and delivery ID hasn't been seen
 	accepted, err := a.webhookReplayCache.Accept(site, deliveryID, ts)
 	if err != nil {
 		http.Error(w, "webhook replay protection unavailable", http.StatusServiceUnavailable)

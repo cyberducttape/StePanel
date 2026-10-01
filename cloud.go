@@ -56,15 +56,28 @@ type cloudLBRequest struct {
 	Action         string `json:"action"`
 }
 
+// AWSInstanceAction and AWSVolumeSnapshot keep AWS resource types explicit.
+// An EC2 instance ID must never be accidentally used as an EBS volume ID (or
+// vice versa) when constructing provider commands.
+type AWSInstanceAction struct {
+	InstanceID string `json:"instance_id"`
+}
+
+type AWSVolumeSnapshot struct {
+	VolumeID string `json:"volume_id"`
+}
+
 type durableCloudRequest struct {
-	Operation string          `json:"operation"`
-	Provider  string          `json:"provider"`
-	Action    string          `json:"action"`
-	ID        string          `json:"id"`
-	Service   string          `json:"service,omitempty"`
-	DNS       cloudDNSRequest `json:"dns,omitempty"`
-	LB        cloudLBRequest  `json:"load_balancer,omitempty"`
-	Actor     string          `json:"actor"`
+	Operation   string             `json:"operation"`
+	Provider    string             `json:"provider"`
+	Action      string             `json:"action"`
+	ID          string             `json:"id"`
+	AWSInstance *AWSInstanceAction `json:"aws_instance,omitempty"`
+	AWSVolume   *AWSVolumeSnapshot `json:"aws_volume,omitempty"`
+	Service     string             `json:"service,omitempty"`
+	DNS         cloudDNSRequest    `json:"dns,omitempty"`
+	LB          cloudLBRequest     `json:"load_balancer,omitempty"`
+	Actor       string             `json:"actor"`
 }
 
 func (a *App) enqueueCloudJob(request durableCloudRequest) (Job, error) {
@@ -102,6 +115,16 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 	if request.Actor == "" {
 		return nil, errors.New("cloud job actor is required")
 	}
+	// Convert pre-typed AWS jobs written by older panel versions at the
+	// deserialization boundary. All provider execution below still uses the
+	// explicit typed request structs.
+	if request.Operation == "instance" && request.Provider == "aws" && request.AWSInstance == nil && request.AWSVolume == nil {
+		if request.Action == "snapshot" {
+			request.AWSVolume = &AWSVolumeSnapshot{VolumeID: request.ID}
+		} else {
+			request.AWSInstance = &AWSInstanceAction{InstanceID: request.ID}
+		}
+	}
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
 	}
@@ -111,7 +134,18 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 	case "instance":
 		workerCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		err = executeCloudAction(workerCtx, request.Provider, request.Action, request.ID)
+		if request.Provider == "aws" {
+			switch {
+			case request.AWSInstance != nil:
+				err = executeAWSInstanceAction(workerCtx, request.Action, *request.AWSInstance)
+			case request.AWSVolume != nil:
+				err = executeAWSVolumeSnapshot(workerCtx, *request.AWSVolume)
+			default:
+				err = errors.New("AWS cloud job is missing a typed resource request")
+			}
+		} else {
+			err = executeCloudAction(workerCtx, request.Provider, request.Action, request.ID)
+		}
 		result = CloudActionResult{Provider: request.Provider, Action: request.Action, ID: request.ID, CompletedAt: time.Now().UTC()}
 	case "ssh":
 		workerCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -258,7 +292,13 @@ func (a *App) cloudAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusForbidden)
 		return
 	}
-	var in struct{ Provider, Action, ID string }
+	var in struct {
+		Provider   string `json:"provider"`
+		Action     string `json:"action"`
+		ID         string `json:"id"`
+		InstanceID string `json:"instance_id"`
+		VolumeID   string `json:"volume_id"`
+	}
 	if err := decodeJSON(w, r, 4096, &in); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
@@ -271,11 +311,35 @@ func (a *App) cloudAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "provider is not configured for this installation", http.StatusUnprocessableEntity)
 		return
 	}
-	if !cloudIDPattern.MatchString(in.ID) || (in.Action != "start" && in.Action != "stop" && in.Action != "reboot" && in.Action != "snapshot") {
+	if in.Action != "start" && in.Action != "stop" && in.Action != "reboot" && in.Action != "snapshot" {
 		http.Error(w, "invalid provider, action, or resource ID", http.StatusUnprocessableEntity)
 		return
 	}
-	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "instance", Provider: in.Provider, Action: in.Action, ID: in.ID, Actor: a.Auth.UsernameForRequest(r)})
+	request := durableCloudRequest{Operation: "instance", Provider: in.Provider, Action: in.Action, Actor: a.Auth.UsernameForRequest(r)}
+	if in.Provider == "aws" {
+		if in.Action == "snapshot" {
+			if !cloudIDPattern.MatchString(in.VolumeID) || in.ID != "" || in.InstanceID != "" {
+				http.Error(w, "AWS snapshots require a valid volume_id", http.StatusUnprocessableEntity)
+				return
+			}
+			request.ID = in.VolumeID
+			request.AWSVolume = &AWSVolumeSnapshot{VolumeID: in.VolumeID}
+		} else {
+			if !cloudIDPattern.MatchString(in.InstanceID) || in.ID != "" || in.VolumeID != "" {
+				http.Error(w, "AWS instance actions require a valid instance_id", http.StatusUnprocessableEntity)
+				return
+			}
+			request.ID = in.InstanceID
+			request.AWSInstance = &AWSInstanceAction{InstanceID: in.InstanceID}
+		}
+	} else {
+		if !cloudIDPattern.MatchString(in.ID) || in.InstanceID != "" || in.VolumeID != "" {
+			http.Error(w, "invalid provider, action, or resource ID", http.StatusUnprocessableEntity)
+			return
+		}
+		request.ID = in.ID
+	}
+	job, err := a.enqueueCloudJob(request)
 	if err != nil {
 		http.Error(w, "could not persist cloud job", http.StatusInternalServerError)
 		return
@@ -558,6 +622,40 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 
 var cloudIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
+func awsInstanceActionArgs(action string, request AWSInstanceAction) ([]string, error) {
+	if !cloudIDPattern.MatchString(request.InstanceID) {
+		return nil, fmt.Errorf("invalid AWS instance ID format: %s", request.InstanceID)
+	}
+	command := map[string]string{"start": "start-instances", "stop": "stop-instances", "reboot": "reboot-instances"}[action]
+	if command == "" {
+		return nil, fmt.Errorf("unsupported AWS instance action: %s", action)
+	}
+	return []string{"ec2", command, "--instance-ids", request.InstanceID, "--output", "json"}, nil
+}
+
+func awsVolumeSnapshotArgs(request AWSVolumeSnapshot) ([]string, error) {
+	if !cloudIDPattern.MatchString(request.VolumeID) {
+		return nil, fmt.Errorf("invalid AWS volume ID format: %s", request.VolumeID)
+	}
+	return []string{"ec2", "create-snapshot", "--volume-id", request.VolumeID, "--output", "json"}, nil
+}
+
+func executeAWSInstanceAction(ctx context.Context, action string, request AWSInstanceAction) error {
+	args, err := awsInstanceActionArgs(action, request)
+	if err != nil {
+		return err
+	}
+	return runCloudCLI(ctx, "aws", "AWS", args...)
+}
+
+func executeAWSVolumeSnapshot(ctx context.Context, request AWSVolumeSnapshot) error {
+	args, err := awsVolumeSnapshotArgs(request)
+	if err != nil {
+		return err
+	}
+	return runCloudCLI(ctx, "aws", "AWS", args...)
+}
+
 func executeCloudAction(ctx context.Context, provider, action, id string) error {
 	// Validate ID to prevent SSRF attacks via URL manipulation
 	if !cloudIDPattern.MatchString(id) {
@@ -594,19 +692,10 @@ func executeCloudAction(ctx context.Context, provider, action, id string) error 
 		}
 		return nil
 	case "aws":
-		args := []string{"ec2"}
-		switch action {
-		case "start":
-			args = append(args, "start-instances")
-		case "stop":
-			args = append(args, "stop-instances")
-		case "reboot":
-			args = append(args, "reboot-instances")
-		case "snapshot":
-			args = append(args, "create-snapshot", "--volume-id")
+		if action == "snapshot" {
+			return executeAWSVolumeSnapshot(ctx, AWSVolumeSnapshot{VolumeID: id})
 		}
-		args = append(args, id, "--output", "json")
-		return runCloudCLI(ctx, "aws", "AWS", args...)
+		return executeAWSInstanceAction(ctx, action, AWSInstanceAction{InstanceID: id})
 	case "openstack":
 		args := []string{"server"}
 		switch action {

@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +13,41 @@ import (
 	"testing"
 	"time"
 )
+
+func TestWebhookSignatureBindsReplayMetadata(t *testing.T) {
+	body := []byte(`{"ref":"refs/heads/main"}`)
+	secret := "webhook-secret"
+	timestamp := "2026-09-30T12:00:00Z"
+	deliveryID := "delivery-123"
+	digest := hmac.New(sha256.New, []byte(secret))
+	_, _ = digest.Write(webhookSignatureMessage(timestamp, deliveryID, body))
+	signature := "sha256=" + hex.EncodeToString(digest.Sum(nil))
+
+	if !verifyWebhookSignature(body, timestamp, deliveryID, signature, secret) {
+		t.Fatal("valid canonical webhook signature was rejected")
+	}
+	if verifyWebhookSignature(body, timestamp, "delivery-456", signature, secret) {
+		t.Fatal("signature remained valid after changing delivery ID")
+	}
+	if verifyWebhookSignature(body, "2026-09-30T12:01:00Z", deliveryID, signature, secret) {
+		t.Fatal("signature remained valid after changing timestamp")
+	}
+}
+
+func TestWebhookDeliveryIDFormat(t *testing.T) {
+	valid := []string{"delivery-123", "a", "proxy:2026.09.30"}
+	for _, value := range valid {
+		if !webhookDeliveryIDPattern.MatchString(value) {
+			t.Errorf("valid delivery ID rejected: %q", value)
+		}
+	}
+	invalid := []string{"", " delivery", "delivery/123", strings.Repeat("a", 129)}
+	for _, value := range invalid {
+		if webhookDeliveryIDPattern.MatchString(value) {
+			t.Errorf("invalid delivery ID accepted: %q", value)
+		}
+	}
+}
 
 func TestDurableWebhookReplayProtectionIsAtomicAndPersistent(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
