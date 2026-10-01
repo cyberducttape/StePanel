@@ -110,6 +110,13 @@ type Job struct {
 	LeaseExpires *time.Time           `json:"-"`
 }
 
+// JobEvent is emitted after a durable job change has been persisted. Payloads
+// are deliberately omitted from the event stream; the browser only needs the
+// public job state and can fetch a detail record when required.
+type JobEvent struct {
+	Job Job `json:"job"`
+}
+
 type persistedJob struct {
 	Job
 	Payload json.RawMessage `json:"payload,omitempty"`
@@ -381,7 +388,11 @@ func (j *Jobs) finishClaim(id, owner string, apply func(*Job)) error {
 	apply(item)
 	item.LeaseOwner = ""
 	item.LeaseExpires = nil
-	return j.persistDurableItemCAS(item, owner)
+	if err := j.persistDurableItemCAS(item, owner); err != nil {
+		return err
+	}
+	j.publish(*item)
+	return nil
 }
 
 // Enqueue creates a durable job that can be claimed by an independent worker.
@@ -520,6 +531,7 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	j.mu.Lock()
 	j.items[id] = &item
 	j.mu.Unlock()
+	j.publish(item)
 	return item, true, nil
 }
 
@@ -549,7 +561,11 @@ func (j *Jobs) FailClaim(id, owner, message string) error {
 		next := time.Now().UTC().Add(time.Duration(seconds) * time.Second)
 		item.NextAttempt = &next
 	}
-	return j.persistDurableItemCAS(item, owner)
+	if err := j.persistDurableItemCAS(item, owner); err != nil {
+		return err
+	}
+	j.publish(*item)
+	return nil
 }
 
 // UpdateClaim persists worker progress without changing ownership.
@@ -570,7 +586,11 @@ func (j *Jobs) UpdateClaim(id, owner string, progress int) error {
 		return errors.New("job lease is not held by this worker")
 	}
 	item.Progress = progress
-	return j.persistDurableItemCAS(item, owner)
+	if err := j.persistDurableItemCAS(item, owner); err != nil {
+		return err
+	}
+	j.publish(*item)
+	return nil
 }
 
 func (j *Jobs) RequestCancel(id string) error {
@@ -599,6 +619,7 @@ func (j *Jobs) RequestCancel(id string) error {
 		}
 		if item := j.items[id]; item != nil {
 			item.State, item.Cancel, item.FinishedAt = "cancelled", true, &now
+			j.publish(*item)
 		}
 		return nil
 	case "running":
@@ -612,6 +633,7 @@ func (j *Jobs) RequestCancel(id string) error {
 		}
 		if item := j.items[id]; item != nil {
 			item.Cancel = true
+			j.publish(*item)
 		}
 		return nil
 	default:
@@ -1079,6 +1101,8 @@ type Jobs struct {
 	payloadKey    []byte
 	leaseTTL      time.Duration
 	workerLimit   int
+	subscriberMu  sync.RWMutex
+	subscribers   map[chan JobEvent]struct{}
 }
 
 func NewJobs() *Jobs { return newJobs("") }
@@ -1217,6 +1241,47 @@ func newJobs(path string, limits ...int) *Jobs {
 		path:          path,
 		leaseTTL:      jobLeaseDuration,
 		workerLimit:   limit,
+		subscribers:   make(map[chan JobEvent]struct{}),
+	}
+}
+
+// Subscribe returns a bounded best-effort stream of job changes. A slow
+// browser is refreshed from the durable snapshot by the client rather than
+// blocking workers or other subscribers.
+func (j *Jobs) Subscribe() (<-chan JobEvent, func()) {
+	ch := make(chan JobEvent, 32)
+	j.subscriberMu.Lock()
+	j.subscribers[ch] = struct{}{}
+	j.subscriberMu.Unlock()
+	return ch, func() {
+		j.subscriberMu.Lock()
+		if _, ok := j.subscribers[ch]; ok {
+			delete(j.subscribers, ch)
+			close(ch)
+		}
+		j.subscriberMu.Unlock()
+	}
+}
+
+func (j *Jobs) publish(item Job) {
+	item.Payload = nil
+	item.Output = nil
+	item.Result = nil
+	item.WPress = nil
+	item.Certificate = nil
+	item.Backup = nil
+	item.Restore = nil
+	item.Cloud = nil
+	item.LeaseOwner = ""
+	item.LeaseExpires = nil
+	event := JobEvent{Job: item}
+	j.subscriberMu.RLock()
+	defer j.subscriberMu.RUnlock()
+	for ch := range j.subscribers {
+		select {
+		case ch <- event:
+		default:
+		}
 	}
 }
 
@@ -1499,6 +1564,7 @@ func (j *Jobs) add(item *Job) error {
 		return err
 	}
 	j.persistErr = nil
+	j.publish(*item)
 	return nil
 }
 
@@ -1518,6 +1584,7 @@ func (j *Jobs) complete(item *Job) {
 		log.Printf("persist completed job %s: %v", item.ID, err)
 	} else {
 		j.persistErr = nil
+		j.publish(*item)
 	}
 }
 

@@ -1,1 +1,35 @@
-(()=>{'use strict';const form=document.querySelector('#wpressForm'),status=document.querySelector('#wpressStatus');if(!form)return;const button=form.querySelector('button[type="submit"]');const csrf=()=>{const match=document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);return match?decodeURIComponent(match[1]):''};const read=async response=>{const text=await response.text();let data={};try{data=JSON.parse(text)}catch(error){}if(!response.ok)throw new Error(data.error||text||`Request failed (${response.status})`);return data};fetch('/api/wpress/preflight').then(read).then(data=>{if(!data.ready){button.disabled=true;const missing=Object.entries(data.checks||{}).filter(([,ready])=>!ready).map(([name])=>name.replaceAll('_',' '));status.textContent='Unavailable: install '+missing.join(', ')+'.'}}).catch(()=>{button.disabled=true;status.textContent='Unable to verify WordPress restore dependencies.'});const wait=async id=>{for(let attempt=0;attempt<360;attempt++){await new Promise(resolve=>setTimeout(resolve,2000));const job=await read(await fetch('/api/jobs/'+encodeURIComponent(id)));if(job.state==='completed'){status.textContent='WordPress restore completed; verify the site before switching traffic.';return}if(job.state==='failed')throw new Error(job.error||'WordPress restore failed')}throw new Error('Import continues in the background; check Recent jobs for its current state.')};form.addEventListener('submit',async event=>{event.preventDefault();button.disabled=true;status.textContent='Queueing WordPress restore…';const body=new FormData(form);try{const data=await read(await fetch('/api/wpress/import',{method:'POST',headers:{'X-CSRF-Token':csrf()},body}));status.textContent='Restore running…';await wait(data.job_id)}catch(error){status.textContent=error.message}finally{button.disabled=false}})})();
+(() => {
+  'use strict';
+  const form = document.querySelector('#wpressForm');
+  if (!form) return;
+  const status = document.querySelector('#wpressStatus');
+  const button = form.querySelector('button[type="submit"]');
+
+  StepanelAPI.request('/api/wpress/preflight').then((data) => {
+    if (!data.ready) {
+      button.disabled = true;
+      const missing = Object.entries(data.checks || {}).filter(([, ready]) => !ready).map(([name]) => name.replaceAll('_', ' '));
+      status.textContent = `Unavailable: install ${missing.join(', ')}.`;
+    }
+  }).catch(() => {
+    button.disabled = true;
+    status.textContent = 'Unable to verify WordPress restore dependencies.';
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    status.textContent = 'Queueing WordPress restore…';
+    try {
+      const data = await StepanelAPI.request('/api/wpress/import', { method: 'POST', body: new FormData(form) });
+      status.textContent = 'Restore queued; follow it in Operations.';
+      const job = await StepanelJobs.wait(data.job_id);
+      if (job.state === 'completed') status.textContent = 'WordPress restore completed; verify the site before switching traffic.';
+      else throw new Error(job.error || 'WordPress restore failed');
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();

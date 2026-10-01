@@ -1,1 +1,25 @@
-(()=>{'use strict';const form=document.querySelector('#certificateForm'),status=document.querySelector('#certificateStatus');if(!form)return;const button=form.querySelector('button[type="submit"]');const csrf=()=>{const match=document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);return match?decodeURIComponent(match[1]):''};const read=async response=>{const text=await response.text();let data={};try{data=JSON.parse(text)}catch(error){}if(!response.ok)throw new Error(data.error||text||`Request failed (${response.status})`);return data};const waitForJob=async id=>{for(let attempt=0;attempt<180;attempt++){await new Promise(resolve=>setTimeout(resolve,2000));const response=await fetch('/api/jobs/'+encodeURIComponent(id));const job=await read(response);if(job.state==='completed'){status.textContent='Certificate issued; verify the Apache site configuration.';return}if(job.state==='failed'){throw new Error(job.error||'Certificate issuance failed')}}throw new Error('Request continues in the background; check Recent jobs for its current state.')};form.addEventListener('submit',async event=>{event.preventDefault();button.disabled=true;status.textContent='Requesting certificate…';const body=Object.fromEntries(new FormData(form));try{const response=await fetch('/api/certificates/issue',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf()},body:JSON.stringify(body)});const data=await read(response);status.textContent='Certificate request queued…';await waitForJob(data.job_id)}catch(error){status.textContent=error.message}finally{button.disabled=false}})})();
+(() => {
+  'use strict';
+  const form = document.querySelector('#certificateForm');
+  if (!form) return;
+  const status = document.querySelector('#certificateStatus');
+  const button = form.querySelector('button[type="submit"]');
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    status.textContent = 'Requesting certificate…';
+    try {
+      const body = Object.fromEntries(new FormData(form));
+      const data = await StepanelForms.submitJSON('/api/certificates/issue', body);
+      status.textContent = 'Certificate request queued; follow it in Operations.';
+      const job = await StepanelJobs.wait(data.job_id);
+      if (job.state === 'completed') status.textContent = 'Certificate issued; verify the Apache site configuration.';
+      else throw new Error(job.error || 'Certificate issuance failed');
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();

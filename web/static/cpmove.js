@@ -1,11 +1,66 @@
-(()=>{'use strict';
-const form=document.querySelector('#cpmoveForm'),status=document.querySelector('#cpmoveStatus'),result=document.querySelector('#cpmoveResult'),label=document.querySelector('#cpmoveFileLabel');
-if(!form)return;
-const button=form.querySelector('button[type="submit"]'),file=form.querySelector('input[name="backup"]'),user=form.querySelector('input[name="username"]'),database=form.querySelector('input[name="restore_databases"]');
-let inspection,uploadID='';
-const csrf=()=>{const match=document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);return match?decodeURIComponent(match[1]):''};
-const read=async response=>{const text=await response.text();let data={};try{data=JSON.parse(text)}catch(error){}if(!response.ok)throw new Error(data.error||text||`Request failed (${response.status})`);return data};
-const summary=info=>{const parts=[];parts.push(info.has_home?'website files found':'no website files detected');parts.push((info.databases||[]).length+' database dump(s)');parts.push((info.mailboxes||[]).length+' mailbox(es)');return parts.join(', ')};
-const wait=async id=>{for(let attempt=0;attempt<720;attempt++){await new Promise(resolve=>setTimeout(resolve,2500));const job=await read(await fetch('/api/jobs/'+encodeURIComponent(id)));if(job.state==='completed'){const value=job.result||{};const dbs=(value.databases_restored||[]).length;const mail=(value.mailboxes_staged||[]).length;result.textContent='Import completed: files '+(value.files_restored?'restored':'not present')+', '+dbs+' database(s), '+mail+' mailbox(es).';return}if(job.state==='failed')throw new Error(job.error||'Import failed')}throw new Error('Import continues in the background; check Recent jobs for its current state.')};
-file.addEventListener('change',async()=>{if(inspection)inspection.abort();inspection=new AbortController();uploadID='';result.textContent='';const chosen=file.files&&file.files[0];if(!chosen){label.textContent='Choose .tar.gz backup';status.textContent='Choose a backup to inspect it before restoring.';return}label.textContent=chosen.name;status.textContent='Inspecting backup…';const body=new FormData();body.append('backup',chosen);try{const info=await read(await fetch('/api/cpmove/inspect',{method:'POST',headers:{'X-CSRF-Token':csrf()},body,signal:inspection.signal}));uploadID=info.upload_id;if(info.detected_user&&!user.value)user.value=info.detected_user;if((info.databases||[]).length>0)database.checked=true;status.textContent='Ready: '+summary(info)+'.'}catch(error){if(error.name!=='AbortError')status.textContent=error.message}});
-form.addEventListener('submit',async event=>{event.preventDefault();if(!uploadID){result.textContent='Inspect the selected backup before importing.';return}button.disabled=true;result.textContent='Queueing import…';const body=new FormData(form);body.delete('backup');body.append('upload_id',uploadID);try{const data=await read(await fetch('/api/cpmove/import',{method:'POST',headers:{'X-CSRF-Token':csrf()},body}));result.textContent='Import running…';await wait(data.job_id)}catch(error){result.textContent=error.message}finally{button.disabled=false}})})();
+(() => {
+  'use strict';
+  const form = document.querySelector('#cpmoveForm');
+  if (!form) return;
+  const status = document.querySelector('#cpmoveStatus');
+  const result = document.querySelector('#cpmoveResult');
+  const label = document.querySelector('#cpmoveFileLabel');
+  const button = form.querySelector('button[type="submit"]');
+  const file = form.querySelector('input[name="backup"]');
+  const user = form.querySelector('input[name="username"]');
+  const database = form.querySelector('input[name="restore_databases"]');
+  let inspection;
+  let uploadID = '';
+
+  const summary = (info) => [
+    info.has_home ? 'website files found' : 'no website files detected',
+    `${(info.databases || []).length} database dump(s)`,
+    `${(info.mailboxes || []).length} mailbox(es)`,
+  ].join(', ');
+
+  file.addEventListener('change', async () => {
+    if (inspection) inspection.abort();
+    inspection = new AbortController();
+    uploadID = '';
+    result.textContent = '';
+    const chosen = file.files && file.files[0];
+    if (!chosen) {
+      label.textContent = 'Choose .tar.gz backup';
+      status.textContent = 'Choose a backup to inspect it before restoring.';
+      return;
+    }
+    label.textContent = chosen.name;
+    status.textContent = 'Inspecting backup…';
+    const body = new FormData(); body.append('backup', chosen);
+    try {
+      const info = await StepanelAPI.request('/api/cpmove/inspect', { method: 'POST', body, signal: inspection.signal });
+      uploadID = info.upload_id;
+      if (info.detected_user && !user.value) user.value = info.detected_user;
+      if ((info.databases || []).length > 0) database.checked = true;
+      status.textContent = `Ready: ${summary(info)}.`;
+    } catch (error) {
+      if (error.name !== 'AbortError') status.textContent = error.message;
+    }
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!uploadID) { result.textContent = 'Inspect the selected backup before importing.'; return; }
+    button.disabled = true;
+    result.textContent = 'Queueing import…';
+    const body = new FormData(form);
+    body.delete('backup'); body.append('upload_id', uploadID);
+    try {
+      const data = await StepanelAPI.request('/api/cpmove/import', { method: 'POST', body });
+      result.textContent = 'Import queued; follow it in Operations.';
+      const job = await StepanelJobs.wait(data.job_id);
+      if (job.state !== 'completed') throw new Error(job.error || 'Import failed');
+      const value = job.result || {};
+      result.textContent = `Import completed: files ${value.files_restored ? 'restored' : 'not present'}, ${(value.databases_restored || []).length} database(s), ${(value.mailboxes_staged || []).length} mailbox(es).`;
+    } catch (error) {
+      result.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();

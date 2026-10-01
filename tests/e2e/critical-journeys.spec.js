@@ -1,0 +1,87 @@
+const { test, expect } = require('@playwright/test');
+const AxeBuilder = require('@axe-core/playwright').default;
+
+const enabled = Boolean(process.env.STEPANEL_E2E_BASE_URL);
+const username = process.env.STEPANEL_E2E_USERNAME || 'admin';
+const password = process.env.STEPANEL_E2E_PASSWORD;
+const totp = process.env.STEPANEL_E2E_TOTP;
+
+test.beforeEach(async ({ page }) => {
+  test.skip(!enabled || !password, 'Set STEPanel_E2E_BASE_URL and STEPANEL_E2E_PASSWORD for a disposable seeded instance');
+  await page.goto('/login');
+  await page.getByLabel('Username').fill(username);
+  await page.getByLabel('Password').fill(password);
+  if (totp) await page.getByLabel('Authenticator code').fill(totp);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).not.toHaveURL(/\/login$/);
+});
+
+async function checkA11y(page) {
+  const result = await new AxeBuilder({ page }).analyze();
+  expect(result.violations, result.violations.map((violation) => `${violation.id}: ${violation.help}`).join('\n')).toEqual([]);
+}
+
+test('login + TOTP and overview accessibility', async ({ page }) => {
+  await expect(page.getByRole('main')).toBeVisible();
+  await checkA11y(page);
+});
+
+test('keyboard navigation and appearance dialog', async ({ page }) => {
+  await page.getByRole('button', { name: /Appearance/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Appearance' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Appearance' })).toBeHidden();
+  await checkA11y(page);
+});
+
+test('create site journey exposes the Sites workspace', async ({ page }) => {
+  await page.getByRole('link', { name: 'Sites' }).click();
+  await expect(page.locator('#sites')).toBeInViewport();
+});
+
+test('cPanel inspection journey exposes migration controls', async ({ page }) => {
+  await page.getByRole('link', { name: 'Migrations' }).click();
+  await expect(page.locator('#migrations')).toBeInViewport();
+  await expect(page.getByText('Import a cPanel backup')).toBeVisible();
+});
+
+test('migration queue and durable Job Center', async ({ page }) => {
+  await page.getByRole('button', { name: /Operations/ }).click();
+  await expect(page.getByRole('heading', { name: 'Operations' })).toBeVisible();
+  await expect(page.locator('#jobCenterList')).toBeVisible();
+});
+
+test('job cancellation control is available for active work', async ({ page }) => {
+  await page.getByRole('button', { name: /Operations/ }).click();
+  await expect(page.locator('#jobCenter')).toBeVisible();
+  await expect(page.locator('#jobCenter')).toContainText(/No operations|Cancel|Complete/);
+});
+
+test('deploy app journey exposes the durable deployment form', async ({ page }) => {
+  await page.getByRole('link', { name: 'Deployments' }).click();
+  await expect(page.locator('#deployForm')).toBeVisible();
+});
+
+test('restore WordPress journey exposes the restore form', async ({ page }) => {
+  await page.getByText('WordPress migration').scrollIntoViewIfNeeded();
+  await expect(page.locator('#wpressForm')).toBeVisible();
+});
+
+test('database lifecycle journey exposes managed database controls', async ({ page }) => {
+  await page.getByRole('link', { name: 'Databases' }).click();
+  await expect(page.locator('#database')).toBeInViewport();
+  await expect(page.locator('#databaseForm')).toBeVisible();
+});
+
+test('customer isolation journey keeps administrator controls role-scoped', async ({ page }) => {
+  test.skip(!process.env.STEPANEL_E2E_CUSTOMER_PASSWORD, 'Provide customer credentials for the second-context isolation check');
+  const customer = await page.context().browser().newContext({ baseURL: process.env.STEPANEL_E2E_BASE_URL });
+  const customerPage = await customer.newPage();
+  await customerPage.goto('/login');
+  await customerPage.getByLabel('Username').fill(process.env.STEPANEL_E2E_CUSTOMER_USERNAME || 'customer');
+  await customerPage.getByLabel('Password').fill(process.env.STEPANEL_E2E_CUSTOMER_PASSWORD);
+  await customerPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(customerPage.getByRole('link', { name: 'Customers' })).toHaveCount(0);
+  await expect(customerPage.getByRole('link', { name: 'Security' })).toHaveCount(0);
+  await customer.close();
+});

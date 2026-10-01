@@ -28,6 +28,12 @@
       <div class="workspace-context"><span class="eyebrow">Hosting workspace</span><strong>{{ if .IsAdministrator }}Operator overview{{ else }}Your sites{{ end }}</strong></div>
       <div class="topbar-meta"><time datetime="{{ .Now.Format "2006-01-02" }}">{{ .Now.Format "02 Jan 2006" }}</time>{{ if .AuthEnabled }}<form action="/logout" method="post"><input type="hidden" name="csrf" value="{{ .CSRF }}"><button class="avatar" type="submit" aria-label="Sign out {{ .Username }}">{{ if .Username }}{{ .Username }}{{ else }}admin{{ end }} <span aria-hidden="true">↗</span></button></form>{{ end }}</div>
     </header>
+    <button class="job-center-toggle" id="jobCenterToggle" type="button" aria-controls="jobCenter" aria-expanded="false">Operations <span id="jobCenterCount" aria-label="active operations">0</span></button>
+    <aside class="job-center" id="jobCenter" aria-labelledby="jobCenterHeading" hidden>
+      <div class="job-center-header"><h2 id="jobCenterHeading">Operations</h2><button class="appearance-close" id="jobCenterClose" type="button" aria-label="Close operations">×</button></div>
+      <p class="job-center-subtitle">Durable work stays here after you navigate or reload.</p>
+      <div id="jobCenterList" aria-live="polite"><p class="job-center-empty">Loading operations…</p></div>
+    </aside>
     <main class="content" id="main">
       <section class="hero">
         <div><p class="eyebrow">{{ if .IsAdministrator }}Hosting control plane{{ else }}Your hosting workspace{{ end }}</p><h1>{{ if .IsAdministrator }}Manage your sites with confidence{{ else }}Welcome back, {{ .Username }}{{ end }}</h1><p class="lede">{{ if .IsAdministrator }}Domains, applications, databases, and verified backups in one place.{{ else }}Your assigned sites, domains, and verified recovery points—without exposing other customers’ data.{{ end }}</p><p class="import-note">{{ if .IsAdministrator }}Every change is recorded. Backups are verified before they are marked ready.{{ else }}{{ .Account.Plan }} plan · {{ .AccountSiteCount }} assigned site{{ if ne .AccountSiteCount 1 }}s{{ end }} · MFA-protected account{{ end }}</p></div>
@@ -143,6 +149,10 @@
     <div class="appearance-dialog-actions"><button type="button" class="quiet-action" id="appearanceReset">Reset appearance</button><button type="submit" class="primary-action">Done</button></div>
   </form>
 </dialog>
+<script src="/static/api.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/forms.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/ui.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/jobs.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/dashboard.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/account.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/admin-accounts.js?v={{ .AssetVersion }}" defer></script>

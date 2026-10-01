@@ -14,6 +14,25 @@ import (
 	"time"
 )
 
+func TestJobsSubscribePublishesPublicSummaryOnly(t *testing.T) {
+	jobs := NewJobs()
+	updates, unsubscribe := jobs.Subscribe()
+	defer unsubscribe()
+
+	jobs.publish(Job{ID: "job-1", Kind: "site.backup", State: "running", User: "site", Payload: []byte("secret"), Output: []byte("private result")})
+	select {
+	case event := <-updates:
+		if event.Job.ID != "job-1" || event.Job.State != "running" {
+			t.Fatalf("unexpected event: %#v", event)
+		}
+		if len(event.Job.Payload) != 0 || len(event.Job.Output) != 0 {
+			t.Fatal("job event exposed private payload or output")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for job event")
+	}
+}
+
 func TestJobsPersistCompletedWork(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jobs.json")
 	jobs, err := OpenJobs(path)

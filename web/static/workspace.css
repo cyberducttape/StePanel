@@ -432,6 +432,24 @@ body { background: var(--panel-bg); color: var(--panel-text); }
 .workspace-nav a:focus-visible,
 .workspace-nav .is-active { border-color: #34465b; background: #182535; color: #fff; }
 .workspace-nav .is-active span { color: var(--panel-accent); }
+.job-center-toggle { position: fixed; z-index: 6; right: 24px; bottom: 24px; border: 1px solid var(--panel-line); border-radius: 999px; background: var(--panel-surface-raised); color: var(--panel-text); padding: 11px 15px; box-shadow: 0 10px 30px rgba(10, 20, 30, .2); cursor: pointer; font: 600 12px system-ui, sans-serif; }
+.job-center-toggle span { display: inline-grid; place-items: center; min-width: 19px; height: 19px; margin-left: 6px; border-radius: 50%; background: var(--panel-accent); color: var(--panel-bg); font-size: 11px; }
+.job-center { position: fixed; z-index: 7; right: 24px; bottom: 74px; width: min(390px, calc(100vw - 32px)); max-height: min(620px, calc(100vh - 110px)); overflow: auto; padding: 20px; border: 1px solid var(--panel-line); border-radius: 14px; background: var(--panel-bg); color: var(--panel-text); box-shadow: 0 20px 55px rgba(10, 20, 30, .28); }
+.job-center-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.job-center-header h2 { margin: 0; font-size: 20px; }
+.job-center-subtitle, .job-center-empty { color: var(--panel-muted); font-size: 12px; line-height: 1.5; }
+.job-center-subtitle { margin: 5px 0 15px; }
+.job-center-item { padding: 14px 0; border-top: 1px solid var(--panel-line); }
+.job-center-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.job-center-heading strong { font-size: 12px; }
+.job-center-state { color: var(--panel-muted); font-size: 11px; text-transform: capitalize; white-space: nowrap; }
+.job-center-state.completed { color: var(--panel-accent); }
+.job-center-state.failed, .job-center-state.dead-letter { color: var(--panel-warning, #f0b35a); }
+.job-center-item progress { display: block; width: 100%; height: 7px; margin: 12px 0 7px; accent-color: var(--panel-accent); }
+.job-center-item small { display: block; color: var(--panel-muted); font-size: 11px; }
+.job-center-item .quiet-action { margin-top: 10px; }
+.job-center-error { color: var(--panel-warning, #f0b35a) !important; margin-top: 8px; }
+@media (max-width: 600px) { .job-center-toggle { right: 16px; bottom: 16px; } .job-center { right: 16px; bottom: 65px; } }
 .sidebar-footer {
   display: flex;
   align-items: center;

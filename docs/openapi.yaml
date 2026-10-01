@@ -900,6 +900,13 @@ paths:
       summary: List recent persistent jobs
       responses:
         '200': {description: Up to 100 jobs, newest first}
+  /api/jobs/events:
+    get:
+      summary: Stream persistent job changes
+      description: Authenticated server-sent events stream with an initial job snapshot and subsequent durable state changes.
+      responses:
+        '200': {description: text/event-stream job snapshot and updates}
+        '401': {description: Authentication required}
   /api/jobs/:
     get:
       summary: Read a background job

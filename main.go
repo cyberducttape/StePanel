@@ -735,6 +735,7 @@ func main() {
 	mux.Handle("/api/admin/tokens/", allowMethods(app.Auth.Require(http.HandlerFunc(app.adminAPITokens)), http.MethodDelete))
 	mux.Handle("/api/jobs/", allowMethods(app.Auth.Require(http.HandlerFunc(app.jobStatus)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/jobs", allowMethods(app.Auth.Require(http.HandlerFunc(app.jobList)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/jobs/events", allowMethods(app.Auth.Require(http.HandlerFunc(app.jobEvents)), http.MethodGet, http.MethodHead))
 	metricsHandler := http.Handler(http.HandlerFunc(app.metrics))
 	if os.Getenv("STEPANEL_METRICS_PUBLIC") != "1" {
 		metricsHandler = app.Auth.RequireAdministrator(metricsHandler)
@@ -1408,6 +1409,66 @@ func (a *App) jobList(w http.ResponseWriter, r *http.Request) {
 		jobs = filterAccountJobs(jobs, a.Accounts, a.Auth.UsernameForRequest(r))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs, "time": time.Now().UTC()})
+}
+
+func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "event streaming is unavailable", http.StatusNotImplemented)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	visible := func(job Job) bool {
+		if a.Auth.IsAdministrator(r) {
+			return true
+		}
+		return a.Accounts != nil && a.Accounts.OwnsSite(a.Auth.UsernameForRequest(r), job.User)
+	}
+	send := func(event string, value any) bool {
+		data, err := json.Marshal(value)
+		if err != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	updates, unsubscribe := a.Jobs.Subscribe()
+	defer unsubscribe()
+	jobs := a.Jobs.List(100)
+	if !a.Auth.IsAdministrator(r) {
+		jobs = filterAccountJobs(jobs, a.Accounts, a.Auth.UsernameForRequest(r))
+	}
+	if !send("snapshot", map[string]any{"jobs": jobs, "time": time.Now().UTC()}) {
+		return
+	}
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, open := <-updates:
+			if !open {
+				return
+			}
+			if visible(event.Job) && !send("job", event.Job) {
+				return
+			}
+		case <-ticker.C:
+			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }
 func logging(next http.Handler, metrics *Metrics, production bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
