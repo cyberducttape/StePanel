@@ -544,6 +544,11 @@ func main() {
 				failures = append(failures, fmt.Errorf("audit release recovery %s: %w", id, err))
 			}
 		}
+		if replayed, err := app.replaySpooledDeployments(); err != nil {
+			failures = append(failures, fmt.Errorf("replay spooled deployment history: %w", err))
+		} else if replayed > 0 {
+			log.Printf("replayed %d spooled deployment history record(s)", replayed)
+		}
 		if orphaned, err := app.reconcileOrphanedDNSDesired(); err != nil {
 			failures = append(failures, fmt.Errorf("reconcile DNS desired state: %w", err))
 		} else if orphaned > 0 {

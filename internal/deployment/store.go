@@ -85,6 +85,9 @@ func (s *Store) Add(record Record) error {
 	defer s.mu.Unlock()
 	previous := append([]Record(nil), s.values...)
 	s.values = append([]Record{record}, s.values...)
+	// Keep newest-first order even when a spooled record is replayed after
+	// newer ones were written.
+	sort.SliceStable(s.values, func(i, j int) bool { return s.values[i].CreatedAt.After(s.values[j].CreatedAt) })
 	if len(s.values) > 1000 {
 		s.values = s.values[:1000]
 	}
