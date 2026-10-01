@@ -109,8 +109,8 @@ jobs:
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX_FULL=1 \
             stepanel-install /work/deploy/lab/install-smoke.sh \
-            >"$diagnostics_dir/install-smoke-output.txt" 2>&1
-          smoke_status=$?
+            2>&1 | tee "$diagnostics_dir/install-smoke-output.txt"
+          smoke_status=${PIPESTATUS[0]}
           set -e
           if [[ "$smoke_status" != 0 ]]; then
             echo "install smoke exited with status $smoke_status; collecting host diagnostics" >&2

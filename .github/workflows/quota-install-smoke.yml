@@ -135,8 +135,8 @@ jobs:
           set +e
           timeout --foreground 45m ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo env STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy bash /work/deploy/lab/install-smoke.sh' \
-            >"$install_log" 2>&1
-          install_status=$?
+            2>&1 | tee "$install_log"
+          install_status=${PIPESTATUS[0]}
           set -e
           if (( install_status != 0 )); then
             echo "quota-enabled install smoke failed with status $install_status" >&2
