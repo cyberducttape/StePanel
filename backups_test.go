@@ -139,8 +139,14 @@ func TestBackupRecoversFromRealENOSPC(t *testing.T) {
 	if err := syscall.Statfs(backupRoot, &fs); err != nil {
 		t.Fatal(err)
 	}
-	if fs.Type != 0xef53 {
-		t.Fatalf("ENOSPC target filesystem type = %#x, want ext4", fs.Type)
+	allowTmpfs := os.Getenv("STEPANEL_ENOSPC_ALLOW_TMPFS") == "1"
+	if fs.Type != 0xef53 && !(allowTmpfs && fs.Type == 0x01021994) {
+		t.Fatalf("ENOSPC target filesystem type = %#x, want ext4%s", fs.Type, func() string {
+			if allowTmpfs {
+				return " or tmpfs"
+			}
+			return ""
+		}())
 	}
 	totalBytes := uint64(fs.Blocks) * uint64(fs.Bsize)
 	if totalBytes < 48<<20 || totalBytes > 256<<20 {

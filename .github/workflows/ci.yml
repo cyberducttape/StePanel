@@ -63,6 +63,22 @@ jobs:
         run: go test -p 1 -race -timeout 10m ./...
       - name: Recovery drills
         run: bash deploy/lab/run-recovery-drills.sh /tmp/stepanel-recovery-drills.md
+      - name: Real tmpfs ENOSPC recovery
+        run: |
+          set -eu
+          test_binary=$(mktemp "$RUNNER_TEMP/stepanel-enospc.XXXXXX")
+          mount_root=$(mktemp -d "$RUNNER_TEMP/stepanel-enospc-tmpfs.XXXXXX")
+          cleanup() {
+            sudo umount "$mount_root" >/dev/null 2>&1 || true
+            rm -f "$test_binary"
+            rmdir "$mount_root" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          go test -c -trimpath -o "$test_binary" .
+          sudo mount -t tmpfs -o size=64M,nr_inodes=4096 tmpfs "$mount_root"
+          sudo env STEPANEL_ENOSPC_BACKUP_ROOT="$mount_root" \
+            STEPANEL_ENOSPC_ALLOW_TMPFS=1 "$test_binary" \
+            -test.run '^TestBackupRecoversFromRealENOSPC$' -test.v
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: recovery-drill-results
