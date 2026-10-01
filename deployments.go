@@ -2,7 +2,7 @@ package main
 
 import (
 	"database/sql"
-	"log"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -43,24 +43,24 @@ func (s *DeploymentStore) add(item Deployment) error {
 func (s *DeploymentStore) list(site string) []Deployment {
 	return s.inner.List(site)
 }
-func (a *App) recordDeployment(site, stage, state, detail string, result gitDeployResult, artifact string) {
+
+// recordDeployment appends one stage record to deployment history. A
+// persistence failure marks readiness unhealthy and is returned: callers
+// must fail closed when the record precedes a host change, and must report
+// the gap when the host change has already happened.
+func (a *App) recordDeployment(site, stage, state, detail string, result gitDeployResult, artifact string) error {
 	if a.Deployments == nil {
-		return
+		return nil
 	}
 	id := result.DeploymentID
 	if id == "" {
 		var err error
 		id, err = newJobID("deployment")
 		if err != nil {
-			// Failed to generate deployment ID - log but continue.
-			// This is unexpected and indicates state corruption but recording
-			// the deployment is still important for operator visibility.
-			log.Printf("failed to generate deployment ID: %v", err)
-			return
+			a.LogPersistenceFailure("save_deployment", err, "could not create a deployment history identity for "+site)
+			return fmt.Errorf("create deployment history identity: %w", err)
 		}
 	}
-	// Record deployment to persistent store.
-	// State persistence errors are critical - operator history must be accurate.
 	if err := a.Deployments.add(Deployment{
 		ID:         id,
 		Site:       site,
@@ -74,12 +74,19 @@ func (a *App) recordDeployment(site, stage, state, detail string, result gitDepl
 		Previous:   result.Previous,
 		CreatedAt:  time.Now().UTC(),
 	}); err != nil {
-		// Log persistence failure but do not fail the deployment.
-		// The deployment succeeded on the host but recording failed - operator
-		// must know about this discrepancy.
-		log.Printf("deployment recorded but persistence failed for %s: %v (operator should investigate)", site, err)
+		a.LogPersistenceFailure("save_deployment", err, fmt.Sprintf("deployment history for %s stage %s=%s was not persisted", site, stage, state))
+		return fmt.Errorf("persist deployment history: %w", err)
 	}
+	return nil
 }
+
+// historyUnavailable reports a deployment history failure that happened
+// before any host change, so the deployment is refused rather than run
+// without an operator-visible record.
+func historyUnavailable(w http.ResponseWriter) {
+	http.Error(w, "deployment history is unavailable; no changes were made", http.StatusServiceUnavailable)
+}
+
 func (a *App) deployments(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		a.startNodeDeployment(w, r)

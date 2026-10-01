@@ -114,6 +114,9 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid build artifact path", 500)
 		return
 	}
-	a.recordDeployment(input.Site, "build", "completed", input.Image, gitDeployResult{}, artifact)
-	writeJSON(w, 202, map[string]any{"site": input.Site, "image": input.Image, "commands": len(input.Commands), "artifact": artifact})
+	response := map[string]any{"site": input.Site, "image": input.Image, "commands": len(input.Commands), "artifact": artifact}
+	if err := a.recordDeployment(input.Site, "build", "completed", input.Image, gitDeployResult{}, artifact); err != nil {
+		response["history_error"] = "build completed but deployment history was not persisted: " + err.Error()
+	}
+	writeJSON(w, 202, response)
 }

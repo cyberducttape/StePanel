@@ -150,6 +150,9 @@ type gitDeployResult struct {
 	Ref          string `json:"ref"`
 	Commit       string `json:"commit"`
 	Previous     string `json:"previous_release,omitempty"`
+	// HistoryError is set when the host change succeeded but its deployment
+	// history record could not be persisted.
+	HistoryError string `json:"history_error,omitempty"`
 }
 
 type gitRollbackRequest struct {
@@ -678,8 +681,19 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	deploymentID, err := newJobID("deployment")
+	if err != nil {
+		http.Error(w, "could not create deployment identity", http.StatusInternalServerError)
+		return
+	}
+	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Repository: input.Repository, Ref: input.Ref, Commit: commit}
+	if err := a.recordDeployment(input.Site, "activation", "running", "atomic Git release activation started", result, ""); err != nil {
+		historyUnavailable(w)
+		return
+	}
 	previous, err := a.activatePipelineRelease(operationCtx, input.Site, release)
 	if err != nil {
+		_ = a.recordDeployment(input.Site, "activation", "failed", err.Error(), result, "") // failure already marks readiness
 		http.Error(w, "unable to activate the new release", http.StatusInternalServerError)
 		return
 	}
@@ -687,11 +701,14 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	result := gitDeployResult{Site: input.Site, Repository: input.Repository, Ref: input.Ref, Commit: commit, Previous: previous}
+	result.Previous = previous
 	if err := pruneGitReleasesWithPolicy(siteRoot, a.Config.GitReleaseRetention, time.Duration(a.Config.GitReleaseMaxAgeHours)*time.Hour, a.Config.GitReleaseMaxBytes); err != nil {
 		log.Printf("Git release retention for %s: %v", input.Site, err)
 	}
-	a.recordDeployment(input.Site, "activation", "completed", "atomic Git release activated", result, "")
+	if err := a.recordDeployment(input.Site, "activation", "completed", "atomic Git release activated", result, ""); err != nil {
+		// The release is live; say so rather than reporting a failed deploy.
+		result.HistoryError = "release activated but deployment history was not persisted: " + err.Error()
+	}
 	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deployed", input.Site, input.Repository+"@"+commit)
 	writeJSON(w, http.StatusAccepted, result)
 }

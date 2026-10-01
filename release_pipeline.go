@@ -113,32 +113,41 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Repository: input.Repository, Ref: input.Ref}
-	a.recordDeployment(input.Site, "checkout", "running", "pipeline checkout started", result, "")
+	if err := a.recordDeployment(input.Site, "checkout", "running", "pipeline checkout started", result, ""); err != nil {
+		historyUnavailable(w)
+		return
+	}
 	release, commit, err := a.checkoutPipelineRelease(ctx, access, repository, input.Ref)
 	if err != nil {
-		a.recordDeployment(input.Site, "checkout", "failed", err.Error(), result, "")
+		_ = a.recordDeployment(input.Site, "checkout", "failed", err.Error(), result, "") // failure already marks readiness
 		http.Error(w, "Git checkout failed", 502)
 		return
 	}
 	result.Commit = commit
 	defer func() { _ = a.discardSiteReleaseStaging(context.Background(), input.Site, release) }()
 	if input.Backup {
-		a.recordDeployment(input.Site, "backup", "running", "pre-activation backup started", result, "")
+		if err := a.recordDeployment(input.Site, "backup", "running", "pre-activation backup started", result, ""); err != nil {
+			historyUnavailable(w)
+			return
+		}
 		if _, err := CreateSiteBackupContext(operationCtx, a.Config, access, true); err != nil {
-			a.recordDeployment(input.Site, "backup", "failed", err.Error(), result, "")
+			_ = a.recordDeployment(input.Site, "backup", "failed", err.Error(), result, "") // failure already marks readiness
 			http.Error(w, "pre-activation backup failed", 502)
 			return
 		}
-		a.recordDeployment(input.Site, "backup", "completed", "verified pre-activation backup", result, "")
+		if err := a.recordDeployment(input.Site, "backup", "completed", "verified pre-activation backup", result, ""); err != nil {
+			historyUnavailable(w)
+			return
+		}
 	}
 	if err := a.runPipelineBuild(ctx, input.Site, input.Image, input.Commands, release); err != nil {
-		a.recordDeployment(input.Site, "build", "failed", err.Error(), result, "")
+		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, "") // failure already marks readiness
 		http.Error(w, "sandboxed build failed", 502)
 		return
 	}
 	artifact := filepath.Join(siteRoot, ".stepanel-artifact")
 	if err := validateGitRelease(artifact, a.Config.MaxEntries); err != nil {
-		a.recordDeployment(input.Site, "build", "failed", "artifact unsafe: "+err.Error(), result, artifact)
+		_ = a.recordDeployment(input.Site, "build", "failed", "artifact unsafe: "+err.Error(), result, artifact) // failure already marks readiness
 		http.Error(w, "build artifact is unsafe", 422)
 		return
 	}
@@ -150,15 +159,21 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not stage build artifact", 500)
 		return
 	}
-	a.recordDeployment(input.Site, "build", "completed", "validated sandbox artifact", result, release)
+	if err := a.recordDeployment(input.Site, "build", "completed", "validated sandbox artifact", result, release); err != nil {
+		historyUnavailable(w)
+		return
+	}
 	previous, err := a.activatePipelineRelease(operationCtx, input.Site, release)
 	if err != nil {
-		a.recordDeployment(input.Site, "activation", "failed", err.Error(), result, "")
+		_ = a.recordDeployment(input.Site, "activation", "failed", err.Error(), result, "") // failure already marks readiness
 		http.Error(w, "atomic activation failed", 503)
 		return
 	}
 	result.Previous = previous
-	a.recordDeployment(input.Site, "activation", "completed", "atomic built release activated", result, "")
+	if err := a.recordDeployment(input.Site, "activation", "completed", "atomic built release activated", result, ""); err != nil {
+		// The release is live; say so rather than reporting a failed deploy.
+		result.HistoryError = "release activated but deployment history was not persisted: " + err.Error()
+	}
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "release cancelled because the mutation lock was lost", http.StatusConflict)
 		return
