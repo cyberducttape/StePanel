@@ -83,8 +83,8 @@ func (a *App) recordDeployment(site, stage, state, detail string, result gitDepl
 // historyUnavailable reports a deployment history failure that happened
 // before any host change, so the deployment is refused rather than run
 // without an operator-visible record.
-func historyUnavailable(w http.ResponseWriter) {
-	http.Error(w, "deployment history is unavailable; no changes were made", http.StatusServiceUnavailable)
+func historyUnavailable(w http.ResponseWriter, r *http.Request) {
+	writeAPIError(w, r, http.StatusServiceUnavailable, "deployment history is unavailable; no changes were made")
 }
 
 func (a *App) deployments(w http.ResponseWriter, r *http.Request) {

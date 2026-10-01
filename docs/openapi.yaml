@@ -953,6 +953,14 @@ paths:
         '404': {description: Job not found}
 components:
   schemas:
+    Error:
+      type: object
+      description: Envelope for every /api/ error response. 5xx messages are generic; correlate request_id with the server log.
+      required: [error, code]
+      properties:
+        error: {type: string}
+        code: {type: integer}
+        request_id: {type: string}
     Capability:
       type: object
       required: [available, mode]

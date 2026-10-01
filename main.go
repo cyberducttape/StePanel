@@ -1598,6 +1598,14 @@ func (w *statusWriter) Write(body []byte) (int, error) {
 	return w.ResponseWriter.Write(body)
 }
 
+func (w *statusWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func logJSON(r *http.Request, status int, duration time.Duration) {
 	if status == 0 {
 		status = http.StatusOK
@@ -1608,57 +1616,123 @@ func logJSON(r *http.Request, status int, duration time.Duration) {
 
 type requestIDContextKey struct{}
 
-type bufferedResponse struct {
-	header http.Header
-	body   bytes.Buffer
-	status int
+// maxAPIErrorBody bounds how much of a plain-text error body is captured
+// for the JSON error envelope.
+const maxAPIErrorBody = 64 << 10
+
+// apiErrorWriter passes successful API responses straight through (so
+// downloads stream and server-sent events flush) and captures only
+// plain-text error bodies so they can be rewritten as a JSON envelope.
+type apiErrorWriter struct {
+	w           http.ResponseWriter
+	wroteHeader bool
+	capture     bool
+	status      int
+	body        bytes.Buffer
 }
 
-func (w *bufferedResponse) Header() http.Header { return w.header }
-func (w *bufferedResponse) WriteHeader(status int) {
-	if w.status == 0 {
-		w.status = status
+func (e *apiErrorWriter) Header() http.Header { return e.w.Header() }
+
+func (e *apiErrorWriter) WriteHeader(status int) {
+	if e.wroteHeader {
+		return
 	}
-}
-func (w *bufferedResponse) Write(body []byte) (int, error) {
-	if w.status == 0 {
-		w.status = http.StatusOK
+	e.wroteHeader = true
+	e.status = status
+	if status >= 400 && strings.HasPrefix(e.w.Header().Get("Content-Type"), "text/plain") {
+		e.capture = true
+		return
 	}
-	return w.body.Write(body)
+	e.w.WriteHeader(status)
 }
 
-// normalizeAPIErrors preserves existing handlers while giving clients one
-// predictable JSON error envelope. API responses are small and never streamed.
+func (e *apiErrorWriter) Write(body []byte) (int, error) {
+	if !e.wroteHeader {
+		e.WriteHeader(http.StatusOK)
+	}
+	if !e.capture {
+		return e.w.Write(body)
+	}
+	if remaining := maxAPIErrorBody - e.body.Len(); remaining > 0 {
+		if len(body) > remaining {
+			e.body.Write(body[:remaining])
+		} else {
+			e.body.Write(body)
+		}
+	}
+	return len(body), nil
+}
+
+func (e *apiErrorWriter) Flush() {
+	if e.capture {
+		return
+	}
+	if flusher, ok := e.w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (e *apiErrorWriter) Unwrap() http.ResponseWriter { return e.w }
+
+// apiError is the JSON error envelope for every /api/ error response.
+type apiError struct {
+	Error     string `json:"error"`
+	Code      int    `json:"code"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
+// normalizeAPIErrors gives API clients one predictable JSON error envelope
+// carrying the request ID. Server errors (5xx) never echo handler text that
+// may include internal paths or helper output; that detail is logged
+// against the request ID instead.
 func normalizeAPIErrors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		captured := &bufferedResponse{header: make(http.Header)}
+		captured := &apiErrorWriter{w: w}
 		next.ServeHTTP(captured, r)
-		status := captured.status
-		if status == 0 {
-			status = http.StatusOK
-		}
-		for name, values := range captured.header {
-			for _, value := range values {
-				w.Header().Add(name, value)
-			}
-		}
-		if status >= 400 && strings.HasPrefix(captured.header.Get("Content-Type"), "text/plain") {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(status)
-			if err := json.NewEncoder(w).Encode(map[string]string{"error": strings.TrimSpace(captured.body.String())}); err != nil {
-				return
-			}
+		if !captured.capture {
 			return
 		}
-		w.WriteHeader(status)
-		if r.Method != http.MethodHead {
-			_, _ = w.Write(captured.body.Bytes())
+		requestID, _ := r.Context().Value(requestIDContextKey{}).(string)
+		message := strings.TrimSpace(captured.body.String())
+		if captured.status >= 500 {
+			log.Printf(`{"level":"error","request_id":%q,"path":%q,"status":%d,"error":%q}`, requestID, r.URL.Path, captured.status, message)
+			message = safeServerErrorMessage(captured.status)
 		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(captured.status)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = json.NewEncoder(w).Encode(apiError{Error: message, Code: captured.status, RequestID: requestID})
 	})
+}
+
+// writeAPIError writes the JSON error envelope directly. Use it for a server
+// error whose message is deliberately client-safe and actionable; the
+// envelope is not rewritten because it is not plain text.
+func writeAPIError(w http.ResponseWriter, r *http.Request, status int, message string) {
+	requestID, _ := r.Context().Value(requestIDContextKey{}).(string)
+	writeJSON(w, status, apiError{Error: message, Code: status, RequestID: requestID})
+}
+
+// safeServerErrorMessage returns client-safe text for a server error status.
+func safeServerErrorMessage(status int) string {
+	switch status {
+	case http.StatusServiceUnavailable:
+		return "the service is temporarily unavailable; retry later or check readiness"
+	case http.StatusBadGateway, http.StatusGatewayTimeout:
+		return "an upstream service or host helper failed; see the server log for this request ID"
+	case http.StatusInsufficientStorage:
+		return "insufficient storage to complete the request"
+	case http.StatusNotImplemented:
+		return "this operation is not available on this installation"
+	default:
+		return "internal error; see the server log for this request ID"
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

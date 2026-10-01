@@ -688,7 +688,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Repository: input.Repository, Ref: input.Ref, Commit: commit}
 	if err := a.recordDeployment(input.Site, "activation", "running", "atomic Git release activation started", result, ""); err != nil {
-		historyUnavailable(w)
+		historyUnavailable(w, r)
 		return
 	}
 	previous, err := a.activatePipelineRelease(operationCtx, input.Site, release)

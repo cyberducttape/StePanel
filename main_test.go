@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -120,8 +121,72 @@ func TestNormalizeAPIErrors(t *testing.T) {
 	}))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/example", nil))
-	if response.Code != http.StatusBadRequest || response.Header().Get("Content-Type") != "application/json" || !strings.Contains(response.Body.String(), `"error":"invalid request"`) {
+	if response.Code != http.StatusBadRequest || response.Header().Get("Content-Type") != "application/json" || !strings.Contains(response.Body.String(), `"error":"invalid request"`) || !strings.Contains(response.Body.String(), `"code":400`) {
 		t.Fatalf("unexpected normalized error: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestNormalizeAPIErrorsHidesServerErrorDetail(t *testing.T) {
+	handler := normalizeAPIErrors(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "open /var/lib/stepanel/secret.db: permission denied", http.StatusInternalServerError)
+	}))
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/example", nil)
+	request = request.WithContext(context.WithValue(request.Context(), requestIDContextKey{}, "req-123"))
+	handler.ServeHTTP(response, request)
+	body := response.Body.String()
+	if response.Code != http.StatusInternalServerError || strings.Contains(body, "/var/lib") || !strings.Contains(body, `"request_id":"req-123"`) {
+		t.Fatalf("server error envelope leaked detail or lost request ID: %d %s", response.Code, body)
+	}
+}
+
+func TestNormalizeAPIErrorsKeepsExplicitSafeServerMessage(t *testing.T) {
+	handler := normalizeAPIErrors(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeAPIError(w, r, http.StatusServiceUnavailable, "deployment history is unavailable; no changes were made")
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/example", nil))
+	if !strings.Contains(response.Body.String(), "no changes were made") {
+		t.Fatalf("explicit safe message was rewritten: %s", response.Body.String())
+	}
+}
+
+// TestAPIMiddlewareStreamsAndFlushes guards server-sent events and large
+// downloads: successful API responses must reach the client unbuffered.
+func TestAPIMiddlewareStreamsAndFlushes(t *testing.T) {
+	flushed := make(chan struct{})
+	release := make(chan struct{})
+	handler := logging(normalizeAPIErrors(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "event streaming is unavailable", http.StatusNotImplemented)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: ping\ndata: {}\n\n"))
+		flusher.Flush()
+		close(flushed)
+		<-release
+	})), nil, false)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	response, err := http.Get(server.URL + "/api/jobs/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stream status = %d, want 200", response.StatusCode)
+	}
+	select {
+	case <-flushed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler never flushed")
+	}
+	line, err := bufio.NewReader(response.Body).ReadString('\n')
+	close(release)
+	if err != nil || line != "event: ping\n" {
+		t.Fatalf("first streamed line = %q, err = %v", line, err)
 	}
 }
 

@@ -90,6 +90,10 @@ Manage customer tokens with `GET`/`POST /api/account/tokens` and
 ## Response and safety rules
 
 - Every response includes `X-Request-ID`; retain it when opening an incident.
+- Every `/api/` error response uses one JSON envelope:
+  `{"error": "message", "code": 422, "request_id": "..."}`. For `5xx`
+  responses the message is generic and never includes internal paths or
+  helper output; the detail is in the server log under the same request ID.
 - `401` means authentication is missing or expired. `403` means the identity
   is authenticated but lacks the required role, scope, site assignment, or
   CSRF proof.

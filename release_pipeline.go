@@ -114,7 +114,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Repository: input.Repository, Ref: input.Ref}
 	if err := a.recordDeployment(input.Site, "checkout", "running", "pipeline checkout started", result, ""); err != nil {
-		historyUnavailable(w)
+		historyUnavailable(w, r)
 		return
 	}
 	release, commit, err := a.checkoutPipelineRelease(ctx, access, repository, input.Ref)
@@ -127,7 +127,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = a.discardSiteReleaseStaging(context.Background(), input.Site, release) }()
 	if input.Backup {
 		if err := a.recordDeployment(input.Site, "backup", "running", "pre-activation backup started", result, ""); err != nil {
-			historyUnavailable(w)
+			historyUnavailable(w, r)
 			return
 		}
 		if _, err := CreateSiteBackupContext(operationCtx, a.Config, access, true); err != nil {
@@ -136,7 +136,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := a.recordDeployment(input.Site, "backup", "completed", "verified pre-activation backup", result, ""); err != nil {
-			historyUnavailable(w)
+			historyUnavailable(w, r)
 			return
 		}
 	}
@@ -160,7 +160,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.recordDeployment(input.Site, "build", "completed", "validated sandbox artifact", result, release); err != nil {
-		historyUnavailable(w)
+		historyUnavailable(w, r)
 		return
 	}
 	previous, err := a.activatePipelineRelease(operationCtx, input.Site, release)
