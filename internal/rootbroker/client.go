@@ -273,6 +273,13 @@ func (c *Client) DBDumpDirect(ctx context.Context, database string) (*Response, 
 	return c.ExecuteDirect(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: "dump", Database: database, Username: "dump", Site: "dump"}})
 }
 
+// DBRestoreDumpDirect invokes a bounded database restore through the lab's
+// direct broker transport. The broker validates the target and performs the
+// privileged helper invocation.
+func (c *Client) DBRestoreDumpDirect(ctx context.Context, site, database string, dump []byte) (*Response, error) {
+	return c.ExecuteDirect(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump", Database: database, Site: site, Username: "restore", DumpData: dump}})
+}
+
 func (c *Client) dbInventory(ctx context.Context, direct bool) (*Response, error) {
 	req := &Request{
 		RequestType: "db",

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/backup"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"log"
 	"net/http"
 	"os"
@@ -799,6 +800,24 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	defer input.Close()
 	ctx, cancel := context.WithTimeout(ctx, helperBackupRestoreTimeout)
 	defer cancel()
+	if labDirectRootBrokerEnabled() {
+		dumpData, readErr := os.ReadFile(dump)
+		if readErr != nil {
+			return BackupRestoreResult{}, readErr
+		}
+		client, clientErr := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if clientErr != nil {
+			return BackupRestoreResult{}, clientErr
+		}
+		response, brokerErr := client.DBRestoreDumpDirect(ctx, site, database, dumpData)
+		if brokerErr != nil {
+			return BackupRestoreResult{}, brokerErr
+		}
+		if !response.OK {
+			return BackupRestoreResult{}, errors.New(response.Error)
+		}
+		return BackupRestoreResult{Site: site, Backup: filepath.Base(backup), Mode: "database-only", Database: database, DatabaseRestored: true, DatabasePreserved: false, Consistency: manifest.Consistency, SchemaRollback: "manual: restore the safety backup or apply a forward migration", CompletedAt: time.Now().UTC()}, nil
+	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", database, site)
 	cmd.Stdin = input
 	output, err := runBoundedCommand(ctx, cmd)
