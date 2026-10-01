@@ -189,3 +189,20 @@ func TestLimiterGarbageCollectsExpiredClients(t *testing.T) {
 		t.Fatal("expired client was not garbage-collected")
 	}
 }
+
+func TestLimiterReleaseRefundsOneAttemptWithoutForgivingFailures(t *testing.T) {
+	limiter := NewLimiterWithPolicy(3, time.Minute)
+	for i := 0; i < 3; i++ {
+		if !limiter.Allow("client") {
+			t.Fatalf("attempt %d unexpectedly rejected", i+1)
+		}
+	}
+	limiter.Release("client")
+	if !limiter.Allow("client") {
+		t.Fatal("released attempt was not refunded")
+	}
+	if limiter.Allow("client") {
+		t.Fatal("release forgave more than one attempt")
+	}
+	limiter.Release("missing")
+}

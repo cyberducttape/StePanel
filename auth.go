@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
 	"os"
 	"strconv"
@@ -34,13 +35,20 @@ type Auth struct {
 	TrustedProxies                           authpolicy.TrustedProxies
 	totpSecret                               []byte
 	totpReplay                               *totpReplayState
-	loginLimiter                             *authpolicy.Limiter
-	recoveryLimiter                          *authpolicy.Limiter
-	sessions                                 *sessionRegistry
-	Accounts                                 *AccountStore
-	apiTokens                                *apiTokenStore
-	apiTokenLimiter                          *apiTokenRateLimiter
-	legacyTokenDeprecation                   *authpolicy.LegacyTokenDeprecation
+	// loginLimiter is the client-wide abuse bucket. It counts every failed
+	// attempt from a client address and is never reset by a successful
+	// login, so authenticating to one account cannot launder failed guesses
+	// made against another account from the same address.
+	loginLimiter *authpolicy.Limiter
+	// loginAccountLimiter is keyed by client address and username. A
+	// successful login clears only that account's failure history.
+	loginAccountLimiter    *authpolicy.Limiter
+	recoveryLimiter        *authpolicy.Limiter
+	sessions               *sessionRegistry
+	Accounts               *AccountStore
+	apiTokens              *apiTokenStore
+	apiTokenLimiter        *apiTokenRateLimiter
+	legacyTokenDeprecation *authpolicy.LegacyTokenDeprecation
 }
 
 type sessionRegistry struct {
@@ -98,7 +106,7 @@ func NewAuth(secureCookies bool) (Auth, error) {
 		passwordDigest := sha256.Sum256([]byte(password))
 		credentialKey = "password-digest:" + hex.EncodeToString(passwordDigest[:])
 	}
-	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiter(), recoveryLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}, apiTokenLimiter: newAPITokenRateLimiter()}, nil
+	return Auth{Username: username, PasswordHash: hash, Secret: secret, credentialKey: credentialKey, credentialHash: hash, Enabled: true, SecureCookies: secureCookies, TOTPEnabled: len(totpSecret) > 0, totpSecret: totpSecret, totpReplay: &totpReplayState{lastCounter: make(map[string]uint64)}, loginLimiter: authpolicy.NewLimiterWithPolicy(loginClientAttemptLimit, loginAttemptWindow), loginAccountLimiter: authpolicy.NewLimiterWithPolicy(loginAccountAttemptLimit, loginAttemptWindow), recoveryLimiter: authpolicy.NewLimiter(), sessions: &sessionRegistry{inner: sessionstate.New("")}, apiTokenLimiter: newAPITokenRateLimiter()}, nil
 }
 
 func (a *Auth) ConfigureSessionStore(path string) error {
@@ -195,6 +203,16 @@ func (a Auth) SessionPersistenceError() error {
 	return a.sessions.inner.PersistenceError()
 }
 
+const (
+	loginAttemptWindow       = 15 * time.Minute
+	loginAccountAttemptLimit = 5
+	loginClientAttemptLimit  = 20
+)
+
+func loginAccountLimiterKey(clientIP, username string) string {
+	return clientIP + "\x00" + strings.ToLower(strings.TrimSpace(username))
+}
+
 func hashPassword(password string) (string, error) {
 	generated, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(generated), err
@@ -226,6 +244,12 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := r.FormValue("username")
+	accountKey := loginAccountLimiterKey(clientIP, username)
+	if a.loginAccountLimiter != nil && !a.loginAccountLimiter.Allow(accountKey) {
+		recordAudit(a.AuditLog, "unknown", "auth.login.throttled", clientIP, "account login rate limit exceeded")
+		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
+		return
+	}
 	passwordHash, knownAccount := a.passwordHashFor(username)
 	// Always run bcrypt after parsing a syntactically valid login request. The
 	// previous short-circuit made an unknown username substantially cheaper to
@@ -263,8 +287,13 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(loginPage("Invalid credentials", true)))
 		return
 	}
+	// Refund this attempt from the client-wide bucket without forgiving any
+	// earlier failures, and clear only the authenticated account's history.
 	if a.loginLimiter != nil {
-		a.loginLimiter.Reset(clientIP)
+		a.loginLimiter.Release(clientIP)
+	}
+	if a.loginAccountLimiter != nil {
+		a.loginAccountLimiter.Reset(accountKey)
 	}
 	if err := AuditAs(a.AuditLog, username, "auth.login.succeeded", clientIP, "session issued"); err != nil {
 		http.Error(w, "audit persistence is unavailable", http.StatusServiceUnavailable)
@@ -762,7 +791,7 @@ func totpCode(secret []byte, counter uint64) string {
 func loginPage(message string, totpEnabled bool) string {
 	errorBlock := ""
 	if message != "" {
-		errorBlock = fmt.Sprintf(`<div class="error" role="alert">%s</div>`, message)
+		errorBlock = fmt.Sprintf(`<div class="error" role="alert">%s</div>`, html.EscapeString(message))
 	}
 	totp := ""
 	if totpEnabled {

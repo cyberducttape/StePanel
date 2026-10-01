@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -359,5 +360,83 @@ func TestAuthenticatedMutationFailsClosedWhenAuditIsUnavailable(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusServiceUnavailable || called {
 		t.Fatalf("status = %d, handler called = %v", response.Code, called)
+	}
+}
+
+// TestLoginSuccessDoesNotLaunderFailuresAgainstOtherAccounts is the
+// regression test for the shared-IP reset bug: authenticating to one's own
+// account must not clear failed guesses made against a different account,
+// nor the client-wide abuse history.
+func TestLoginSuccessDoesNotLaunderFailuresAgainstOtherAccounts(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := func(username, password string) int {
+		form := "username=" + username + "&password=" + password
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form))
+		req.RemoteAddr = "192.0.2.50:4444"
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response := httptest.NewRecorder()
+		auth.Login(response, req)
+		return response.Code
+	}
+	for attempt := 0; attempt < loginAccountAttemptLimit; attempt++ {
+		if got := login("victim", "guess"); got != http.StatusUnauthorized {
+			t.Fatalf("victim guess %d status = %d, want %d", attempt+1, got, http.StatusUnauthorized)
+		}
+		if got := login("admin", "correct+horse+battery+staple"); got != http.StatusSeeOther {
+			t.Fatalf("own-account login %d status = %d, want %d", attempt+1, got, http.StatusSeeOther)
+		}
+	}
+	if got := login("victim", "guess"); got != http.StatusTooManyRequests {
+		t.Fatalf("victim guess after interleaved successes status = %d, want %d", got, http.StatusTooManyRequests)
+	}
+	if got := login("VICTIM", "guess"); got != http.StatusTooManyRequests {
+		t.Fatalf("case-varied victim guess status = %d, want %d", got, http.StatusTooManyRequests)
+	}
+}
+
+func TestLoginClientWideBucketSurvivesSuccessfulLogin(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := func(username, password string) int {
+		form := "username=" + username + "&password=" + password
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form))
+		req.RemoteAddr = "192.0.2.51:4444"
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response := httptest.NewRecorder()
+		auth.Login(response, req)
+		return response.Code
+	}
+	// Spread guesses across usernames so no account bucket fills, while
+	// interleaving successful logins that previously reset the IP bucket.
+	for attempt := 0; attempt < loginClientAttemptLimit; attempt++ {
+		if got := login("user"+strconv.Itoa(attempt), "guess"); got != http.StatusUnauthorized {
+			t.Fatalf("spray guess %d status = %d, want %d", attempt+1, got, http.StatusUnauthorized)
+		}
+		if attempt < loginClientAttemptLimit-1 {
+			if got := login("admin", "correct+horse+battery+staple"); got != http.StatusSeeOther {
+				t.Fatalf("own-account login %d status = %d, want %d", attempt+1, got, http.StatusSeeOther)
+			}
+		}
+	}
+	if got := login("another", "guess"); got != http.StatusTooManyRequests {
+		t.Fatalf("spray guess past client-wide limit status = %d, want %d", got, http.StatusTooManyRequests)
+	}
+}
+
+func TestLoginPageEscapesMessage(t *testing.T) {
+	page := loginPage(`<script>alert(1)</script>`, false)
+	if strings.Contains(page, "<script>alert(1)") {
+		t.Fatal("login page rendered message without HTML escaping")
 	}
 }

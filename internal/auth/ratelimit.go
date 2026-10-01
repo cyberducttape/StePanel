@@ -21,38 +21,58 @@ type Limiter struct {
 	mu      sync.Mutex
 	attempt map[string]loginAttempt
 	lastGC  time.Time
+	limit   int
+	window  time.Duration
 }
 
 const maxKeys = 10_000
 
-// NewLimiter creates a bounded login-attempt limiter.
+const (
+	defaultLimit  = 5
+	defaultWindow = 15 * time.Minute
+)
+
+// NewLimiter creates a bounded limiter admitting five attempts per key per
+// fifteen-minute window.
 func NewLimiter() *Limiter {
-	return &Limiter{attempt: make(map[string]loginAttempt), lastGC: time.Now()}
+	return NewLimiterWithPolicy(defaultLimit, defaultWindow)
 }
 
-// Allow admits one attempt when the client remains within the five-attempt,
-// fifteen-minute window and the bounded key table has capacity.
+// NewLimiterWithPolicy creates a bounded limiter admitting limit attempts per
+// key per window. Non-positive values fall back to the defaults.
+func NewLimiterWithPolicy(limit int, window time.Duration) *Limiter {
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	if window <= 0 {
+		window = defaultWindow
+	}
+	return &Limiter{attempt: make(map[string]loginAttempt), lastGC: time.Now(), limit: limit, window: window}
+}
+
+// Allow admits one attempt when the client remains within the configured
+// window and the bounded key table has capacity.
 func (l *Limiter) Allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
 	if now.Sub(l.lastGC) >= time.Minute {
 		for candidate, attempt := range l.attempt {
-			if now.Sub(attempt.start) >= 15*time.Minute {
+			if now.Sub(attempt.start) >= l.window {
 				delete(l.attempt, candidate)
 			}
 		}
 		l.lastGC = now
 	}
 	attempt := l.attempt[key]
-	if attempt.start.IsZero() || now.Sub(attempt.start) >= 15*time.Minute {
+	if attempt.start.IsZero() || now.Sub(attempt.start) >= l.window {
 		if len(l.attempt) >= maxKeys {
 			return false
 		}
 		l.attempt[key] = loginAttempt{count: 1, start: now}
 		return true
 	}
-	if attempt.count >= 5 {
+	if attempt.count >= l.limit {
 		return false
 	}
 	attempt.count++
@@ -60,11 +80,32 @@ func (l *Limiter) Allow(key string) bool {
 	return true
 }
 
-// Reset clears the attempt window for one client after successful login.
+// Reset clears the attempt window for one key. Callers must only reset keys
+// whose failure history the successful actor owns (for example an
+// account+client bucket), never a shared client-wide bucket, or one
+// authenticated user could launder failed guesses against other accounts.
 func (l *Limiter) Reset(key string) {
 	l.mu.Lock()
 	delete(l.attempt, key)
 	l.mu.Unlock()
+}
+
+// Release refunds one previously admitted attempt that turned out not to be
+// a failure. Unlike Reset it never forgives failures recorded earlier in the
+// window, so it is safe to use on shared client-wide buckets.
+func (l *Limiter) Release(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	attempt, ok := l.attempt[key]
+	if !ok {
+		return
+	}
+	if attempt.count <= 1 {
+		delete(l.attempt, key)
+		return
+	}
+	attempt.count--
+	l.attempt[key] = attempt
 }
 
 // ClientIP extracts the peer address without trusting forwarded headers.
