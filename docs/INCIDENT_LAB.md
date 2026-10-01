@@ -62,7 +62,9 @@ The repository intentionally does not include fabricated pass/fail results.
 Capture real disposable-lab evidence before using the results as release or
 portfolio claims.
 
-For the repository-level gate, run `make production-gate`. For a disposable
+For the repository-level gate, run `make production-gate`. This includes a
+bounded authenticated mixed HTTP load against a throwaway control plane; run
+that part alone with `make mixed-load` when iterating. For a disposable
 systemd host, set `RECOVERY_MATRIX_FULL=1` when invoking
 `deploy/lab/recovery-matrix-smoke.sh` to execute every supported journal kill
 boundary instead of the bounded default matrix. The full mode is intentionally

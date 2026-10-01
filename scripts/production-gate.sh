@@ -24,6 +24,7 @@ run bash scripts/check-coverage-targets.sh "$coverage_profile"
 run go test -p "${GO_TEST_PARALLELISM:-1}" -race -timeout "${GO_RACE_TIMEOUT:-10m}" ./...
 run bash deploy/lab/run-recovery-drills.sh "${RECOVERY_DRILL_OUTPUT:-/tmp/stepanel-recovery-drills.md}"
 run go test -p 1 -run '^$' -bench '^BenchmarkControlPlane' -benchtime=1x -count=1 .
+run make mixed-load
 run bash scripts/check-docs-links.sh docs
 run bash scripts/check-action-pins.sh
 run bash scripts/validate-assets.sh

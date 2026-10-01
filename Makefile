@@ -2,7 +2,7 @@ APP := stepanel
 GO ?= go
 LDFLAGS := -s -w -X main.Commit=$${GIT_COMMIT:-dev} -X main.BuildDate=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-.PHONY: all build test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke check recovery-drill production-gate audit release-check clean
+.PHONY: all build test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke check recovery-drill mixed-load production-gate audit release-check clean
 
 # The test suite exercises SQLite workers and helper subprocesses. Keep the
 # default local targets within a modest process budget so a developer's host
@@ -48,6 +48,9 @@ check: fmt-check vet test
 
 recovery-drill:
 	bash deploy/lab/run-recovery-drills.sh "$${RECOVERY_DRILL_OUTPUT:-/tmp/stepanel-recovery-drills.md}"
+
+mixed-load: build
+	bash scripts/e2e-mixed-load-test.sh ./$(APP)
 
 production-gate:
 	bash scripts/production-gate.sh
