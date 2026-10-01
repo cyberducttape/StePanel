@@ -592,6 +592,7 @@ EOF
     staged=$(mktemp /etc/stepanel/environment/.stepanel-env.XXXXXX)
     while IFS= read -r line; do
       [[ -z $line ]] && continue
+      # Keep in sync with validEnvName in environment.go.
       [[ $line =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { rm -f "$staged"; echo 'invalid environment entry' >&2; exit 1; }
       printf '%s\n' "$line" >> "$staged"
     done

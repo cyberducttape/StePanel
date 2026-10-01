@@ -14,7 +14,7 @@ func TestValidEnvName(t *testing.T) {
 			t.Errorf("validEnvName(%q) = false, want true", name)
 		}
 	}
-	invalid := []string{"", "=EQUALS_FIRST", "HAS SPACE", "HAS=EQUALS", "HAS/SLASH", strings.Repeat("A", 129)}
+	invalid := []string{"", "=EQUALS_FIRST", "123TOKEN", "9", "HAS SPACE", "HAS=EQUALS", "HAS/SLASH", strings.Repeat("A", 129)}
 	for _, name := range invalid {
 		if validEnvName(name) {
 			t.Errorf("validEnvName(%q) = true, want false", name)

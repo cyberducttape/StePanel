@@ -457,8 +457,11 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// validEnvName must accept exactly what stepanel-appctl env-apply accepts
+// (^[A-Za-z_][A-Za-z0-9_]*=); a name the host rejects would otherwise become
+// desired state that reconciliation can never apply.
 func validEnvName(name string) bool {
-	if name == "" || len(name) > 128 || name[0] == '=' {
+	if name == "" || len(name) > 128 || name[0] >= '0' && name[0] <= '9' {
 		return false
 	}
 	for _, c := range name {
