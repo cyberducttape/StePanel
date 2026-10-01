@@ -60,6 +60,7 @@ if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
 
   for boundary in backup:init backup:archive backup:verify backup:commit; do
     site=$(full_site backup "$boundary")
+    CPMOVE_SMOKE_SITE="$site" bash "$repo/cpmove-import-smoke.sh"
     BACKUP_RECOVERY_SMOKE_SITE="$site" BACKUP_KILL_AT="$boundary" \
       RESTORE_KILL_AT=restore:activate TERMINATE_KILL_AT=terminate:site-state \
       DATABASE_RESTORE_RECOVERY=1 \
@@ -80,6 +81,7 @@ if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
   done
   for boundary in terminate:init terminate:backup terminate:database terminate:routes terminate:proxies terminate:tasks terminate:services terminate:site-state terminate:ownership; do
     site=$(full_site terminate "$boundary")
+    CPMOVE_SMOKE_SITE="$site" bash "$repo/cpmove-import-smoke.sh"
     BACKUP_RECOVERY_SMOKE_SITE="$site" BACKUP_KILL_AT=backup:archive \
       RESTORE_KILL_AT=restore:activate TERMINATE_KILL_AT="$boundary" \
       bash "$repo/backup-recovery-smoke.sh"
