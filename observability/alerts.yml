@@ -42,6 +42,27 @@ groups:
           summary: A StePanel readiness check is failing
           description: A durable control-plane readiness check has remained failed for five minutes; inspect /readyz before making changes.
 
+      - alert: StePanelDurableStateError
+        expr: |
+          sum by (category) (
+            increase(stepanel_state_errors_total{job="stepanel",category=~"persistence|corruption"}[10m])
+          ) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: StePanel durable state error detected
+          description: A persistence or corruption error was recorded; inspect readiness, the audit log, and the recovery spool before replaying work.
+
+      - alert: StePanelTemporaryStateErrors
+        expr: increase(stepanel_state_errors_total{job="stepanel",category="temporary"}[10m]) >= 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: StePanel temporary state errors are recurring
+          description: At least five retryable state errors occurred in ten minutes; inspect SQLite contention, helper health, and worker capacity.
+
   - name: stepanel-restore-operations
     interval: 30s
     rules:
