@@ -71,6 +71,22 @@ func TestResourceBudgetEnforcement(t *testing.T) {
 	}
 }
 
+func TestResourceBudgetEnforcesHostWideCapacity(t *testing.T) {
+	rb := NewResourceBudget(2)
+	if !rb.AcquireSlot("backup") || !rb.AcquireSlot("extract") {
+		t.Fatal("expected two distinct workloads to consume host capacity")
+	}
+	if rb.AcquireSlot("build") {
+		t.Fatal("third workload exceeded host-wide capacity")
+	}
+	rb.ReleaseSlot("backup")
+	if !rb.AcquireSlot("build") {
+		t.Fatal("released host slot was not reusable")
+	}
+	rb.ReleaseSlot("extract")
+	rb.ReleaseSlot("build")
+}
+
 // TestResourceBudgetUtilization verifies utilization reporting.
 func TestResourceBudgetUtilization(t *testing.T) {
 	rb := NewResourceBudget(2)

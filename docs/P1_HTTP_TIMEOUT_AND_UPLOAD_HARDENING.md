@@ -60,7 +60,7 @@ Overly permissive HTTP timeouts and insufficient upload resource protection crea
 - 30s provides buffer for slow storage + network variance
 
 **Upload Endpoints** (large file transfers)
-- Originally: 30 minutes (now configurable per-route)
+- Default: 60 minutes for the durable cPanel upload stream
 - Max transfer time for 20GB at 100Mbps: ~27 minutes
 - Should be replaced with async queue + background job in future
 
@@ -68,11 +68,16 @@ Overly permissive HTTP timeouts and insufficient upload resource protection crea
 - Originally: 30 minutes (now configurable per-route)
 - Same rationale as uploads
 
-### 2. Upload Resource Policy
+### 2. Unified Resource Admission
 
-**File in:** `internal/http/upload_policy.go`
+The authoritative resource governor is `resource.go` (`ResourceBudget`). It
+combines per-workload caps with a host-wide semaphore, and durable workers
+also enforce `STEPANEL_MAX_CONCURRENT_JOBS` in the shared control-plane
+database so separate worker processes cannot multiply the configured limit.
 
-**Enforced Limits:**
+The handler-level upload policy was removed because it was not wired into
+request handling. `ResourceBudget` and the durable SQLite worker admission
+gate are now authoritative.
 
 ```go
 type UploadResourcePolicy struct {
@@ -123,7 +128,7 @@ defer cancel()
 
 ### Timeout Changes
 
-**File:** `main.go` (line ~703)
+**File:** `main.go` (server setup)
 
 **Before:**
 ```go
@@ -137,7 +142,7 @@ server := &http.Server{
 ```go
 server := &http.Server{
     ReadHeaderTimeout: 5 * time.Second,
-    ReadTimeout: 30 * time.Second,     // 30s for normal APIs
+    ReadTimeout: 60 * time.Minute,     // upload ceiling; middleware bounds APIs
     WriteTimeout: 2 * time.Minute,     // 2m for response generation
     IdleTimeout: 30 * time.Second,
 }
@@ -145,7 +150,10 @@ server := &http.Server{
 
 ### Upload Resource Policy Usage
 
-**File:** `internal/http/upload_policy.go`
+The cPanel upload handler streams once into an immutable upload object and
+records its owner, expiry, SHA-256, compressed size, and inspected expanded
+size. Inspection reports `required_free_bytes`; admission reserves room for
+the archive, extracted tree, site-manager staging tree, and safety reserve.
 
 **Create Policy:**
 ```go

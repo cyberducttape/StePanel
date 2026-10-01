@@ -560,10 +560,11 @@ func main() {
 	}
 	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	app.ResourceBudget = NewResourceBudget(cfg.MaxConcurrentJobs)
 	if workerMode {
 		app.startup.finish(startupAuditErr)
 		log.Printf("StePanel durable worker started with pid %d", os.Getpid())
-		err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), durableWorkerJobKinds, 500*time.Millisecond, app.handleDurableJob)
+		err := app.Jobs.RunWorkerPool(runCtx, fmt.Sprintf("worker-%d", os.Getpid()), durableWorkerJobKinds, 500*time.Millisecond, cfg.MaxConcurrentJobs, app.handleDurableJob)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Fatalf("durable worker stopped: %v", err)
 		}
@@ -574,7 +575,7 @@ func main() {
 	}
 	if cfg.WorkerMode != "external" {
 		go func() {
-			err := app.Jobs.RunWorker(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), durableWorkerJobKinds, 500*time.Millisecond, app.handleDurableJob)
+			err := app.Jobs.RunWorkerPool(runCtx, fmt.Sprintf("panel-%d", os.Getpid()), durableWorkerJobKinds, 500*time.Millisecond, cfg.MaxConcurrentJobs, app.handleDurableJob)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				log.Printf("durable worker stopped: %v", err)
 			}
@@ -609,7 +610,6 @@ func main() {
 		}
 	}()
 	mux := http.NewServeMux()
-	app.ResourceBudget = NewResourceBudget(cfg.MaxConcurrentJobs)
 	app.MetadataCache = NewMetadataCache(10 * time.Second) // 10-second TTL for metadata
 	mux.Handle("/livez", allowMethods(http.HandlerFunc(app.livez), http.MethodGet, http.MethodHead))
 	mux.Handle("/readyz", allowMethods(http.HandlerFunc(app.readyz), http.MethodGet, http.MethodHead))
@@ -1239,6 +1239,15 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 }
 
 func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
+	if a.ResourceBudget != nil {
+		workload := durableWorkloadClass(item.Kind)
+		if workload != "" {
+			if !a.ResourceBudget.AcquireSlotContext(ctx, workload) {
+				return nil, ctx.Err()
+			}
+			defer a.ResourceBudget.ReleaseSlot(workload)
+		}
+	}
 	switch item.Kind {
 	case "cpmove.restore":
 		return a.handleCPMoveJob(ctx, item)
@@ -1262,6 +1271,23 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleArchiveImportJob(ctx, &item)
 	default:
 		return nil, fmt.Errorf("no durable worker handler for job kind %q", item.Kind)
+	}
+}
+
+func durableWorkloadClass(kind string) string {
+	switch kind {
+	case "cpmove.restore", "wordpress.restore", "backup.restore":
+		return "restore"
+	case "site.backup":
+		return "backup"
+	case "archive.inspect", "archive.import", "migration.analysis":
+		return "extract"
+	case "cloud.action", "certificate.issue":
+		return "build"
+	case "site.terminate":
+		return "db_restore"
+	default:
+		return ""
 	}
 }
 

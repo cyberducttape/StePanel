@@ -1,18 +1,21 @@
 package main
 
 import (
+	"context"
 	"sync"
+	"time"
 )
 
-// ResourceBudget manages host-wide concurrency limits across different workload classes.
-// Each workload class (uploads, backups, restores, etc.) has independent concurrency
-// limits, but they all draw from the same host capacity to prevent I/O storms where
-// N independent "2 concurrent" limits add up to overwhelming the host.
+// ResourceBudget is the in-process host resource governor. Workload classes
+// retain their own caps, but every acquisition also consumes one host-wide
+// slot so independent classes cannot multiply into an unbounded I/O storm.
 type ResourceBudget struct {
 	mu sync.Mutex
 
 	// Workload class names and their active counts
-	classes map[string]*workloadClass
+	classes   map[string]*workloadClass
+	hostSlots chan struct{}
+	hostMax   int
 }
 
 type workloadClass struct {
@@ -34,6 +37,11 @@ type workloadClass struct {
 func NewResourceBudget(maxConcurrentJobs int) *ResourceBudget {
 	rb := &ResourceBudget{
 		classes: make(map[string]*workloadClass),
+		hostMax: max(1, maxConcurrentJobs),
+	}
+	rb.hostSlots = make(chan struct{}, rb.hostMax)
+	for i := 0; i < rb.hostMax; i++ {
+		rb.hostSlots <- struct{}{}
 	}
 
 	// Define workload classes with their concurrency limits
@@ -77,9 +85,34 @@ func (rb *ResourceBudget) AcquireSlot(workloadClass string) bool {
 
 	select {
 	case <-class.slots:
-		return true
+		select {
+		case <-rb.hostSlots:
+			return true
+		default:
+			class.slots <- struct{}{}
+			return false
+		}
 	default:
 		return false
+	}
+}
+
+// AcquireSlotContext waits for host capacity without turning a durable job
+// into a failed attempt merely because another workload is active.
+func (rb *ResourceBudget) AcquireSlotContext(ctx context.Context, workloadClass string) bool {
+	for {
+		if rb.AcquireSlot(workloadClass) {
+			return true
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return false
+		}
 	}
 }
 
@@ -97,6 +130,10 @@ func (rb *ResourceBudget) ReleaseSlot(workloadClass string) {
 	case class.slots <- struct{}{}:
 	default:
 		// Slot was already available; shouldn't happen in normal operation
+	}
+	select {
+	case rb.hostSlots <- struct{}{}:
+	default:
 	}
 }
 
@@ -126,6 +163,12 @@ func (rb *ResourceBudget) Status() map[string]map[string]int {
 	defer rb.mu.Unlock()
 
 	status := make(map[string]map[string]int)
+	hostAvailable := len(rb.hostSlots)
+	status["host"] = map[string]int{
+		"active":      rb.hostMax - hostAvailable,
+		"max":         rb.hostMax,
+		"utilization": ((rb.hostMax - hostAvailable) * 100) / rb.hostMax,
+	}
 	for name, class := range rb.classes {
 		available := len(class.slots)
 		used := class.maxSlots - available

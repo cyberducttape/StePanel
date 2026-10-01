@@ -455,6 +455,17 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	}
 	defer tx.Rollback()
 	nowNanos := time.Now().UTC().UnixNano()
+	limit := j.workerLimit
+	if limit < 1 {
+		limit = 1
+	}
+	var active int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM jobs WHERE state = 'running' AND (lease_expires_at IS NULL OR lease_expires_at > ?)`, nowNanos).Scan(&active); err != nil {
+		return Job{}, false, err
+	}
+	if active >= limit {
+		return Job{}, false, nil
+	}
 	args := []any{nowNanos, nowNanos}
 	filter := ""
 	if len(kinds) > 0 {
@@ -866,6 +877,45 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 	}
 }
 
+// RunWorkerPool runs the durable worker with the configured number of local
+// consumers. Each consumer has its own lease owner and heartbeat, while
+// ClaimNext provides the cross-process atomic queue admission.
+func (j *Jobs) RunWorkerPool(ctx context.Context, owner string, kinds []string, poll time.Duration, concurrency int, handler DurableJobHandler) error {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if concurrency == 1 {
+		return j.RunWorker(ctx, owner, kinds, poll, handler)
+	}
+	poolCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errs := make(chan error, concurrency)
+	var workers sync.WaitGroup
+	for index := 0; index < concurrency; index++ {
+		workerOwner := fmt.Sprintf("%s-%d", owner, index)
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			err := j.RunWorker(poolCtx, workerOwner, kinds, poll, handler)
+			if err != nil && !errors.Is(err, context.Canceled) {
+				cancel()
+			}
+			errs <- err
+		}()
+	}
+	workers.Wait()
+	close(errs)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for err := range errs {
+		if err != nil && !errors.Is(err, context.Canceled) {
+			return err
+		}
+	}
+	return context.Canceled
+}
+
 // maintainLease keeps a local long-running execution owned until its callback
 // finishes. A worker that loses the lease is logged and must not silently
 // assume another worker will preserve its side effects.
@@ -1021,6 +1071,7 @@ type Jobs struct {
 	persistErr    error
 	payloadKey    []byte
 	leaseTTL      time.Duration
+	workerLimit   int
 }
 
 func NewJobs() *Jobs { return newJobs("") }
@@ -1158,6 +1209,7 @@ func newJobs(path string, limits ...int) *Jobs {
 		activeTargets: make(map[string]bool),
 		path:          path,
 		leaseTTL:      jobLeaseDuration,
+		workerLimit:   limit,
 	}
 }
 

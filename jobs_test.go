@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,58 @@ func TestRunWorkerPublishesAndRemovesHeartbeat(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("worker heartbeat rows after shutdown = %d, want 0", count)
+	}
+}
+
+func TestRunWorkerPoolUsesConfiguredConcurrency(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	j := newJobsWithDB(db, 2)
+	for i := 0; i < 2; i++ {
+		if _, err := j.Enqueue("test.operation", fmt.Sprintf("site-%d", i), "", nil, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var active, maximum atomic.Int32
+	entered := make(chan struct{}, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- j.RunWorkerPool(ctx, "pool-worker", []string{"test.operation"}, time.Millisecond, 2, func(context.Context, Job) ([]byte, error) {
+			current := active.Add(1)
+			for {
+				previous := maximum.Load()
+				if current <= previous || maximum.CompareAndSwap(previous, current) {
+					break
+				}
+			}
+			entered <- struct{}{}
+			time.Sleep(50 * time.Millisecond)
+			active.Add(-1)
+			return nil, nil
+		})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("first pooled worker did not start")
+	}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("second pooled worker did not start")
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("worker pool exit = %v, want context canceled", err)
+	}
+	if got := maximum.Load(); got != 2 {
+		t.Fatalf("maximum concurrent handlers = %d, want 2", got)
 	}
 }
 
