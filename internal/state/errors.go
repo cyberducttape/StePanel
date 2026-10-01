@@ -43,14 +43,14 @@ func (e StateError) Error() string {
 func (e StateError) Handle() {
 	switch e.Category {
 	case Persistence:
-		// Persistence errors are critical - always log, alert operator
+		// Persistence errors are critical. Application callers also publish the
+		// category through readiness and bounded Prometheus counters.
 		log.Printf("CRITICAL: state persistence failed during %s: %v (%s)", e.Operation, e.Err, e.Message)
-		// TODO: Trigger operator alert/health check failure
 
 	case Corruption:
-		// Data corruption - stop and alert
+		// Corruption is critical. Application callers publish the category
+		// through readiness and bounded Prometheus counters.
 		log.Printf("CRITICAL: data corruption detected in %s: %v (%s)", e.Operation, e.Err, e.Message)
-		// TODO: Trigger operator alert immediately
 
 	case Temporary:
 		// Temporary errors will retry - log but don't alert yet

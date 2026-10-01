@@ -35,7 +35,7 @@ while IFS= read -r file; do
             BROKEN_LINKS=$((BROKEN_LINKS + 1))
         fi
     done < <(grep -o '\[.*\](.*\.md)' "$file" | sed 's/.*(\(.*\.md\))/\1/' | sort -u || true)
-done < <(find "$DOCS_DIR" -name "*.md" -type f)
+done < <(find "$DOCS_DIR" -type d \( -name .git -o -name node_modules -o -name vendor \) -prune -o -name "*.md" -type f -print)
 
 if [ $BROKEN_LINKS -eq 0 ]; then
     echo "✓ All documentation links are valid"

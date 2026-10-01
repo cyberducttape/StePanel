@@ -481,16 +481,6 @@ managed_targets=(
   /usr/local/sbin/stepanel-runnerctl
   /etc/stepanel-dbctl.conf
   /etc/stepanel-db.password
-  "$APP_DIR/web/index.html"
-  "$APP_DIR/web/static/app.css"
-  "$APP_DIR/web/static/import.css"
-  "$APP_DIR/web/static/cpmove.js"
-  "$APP_DIR/web/static/deploy.js"
-  "$APP_DIR/web/static/certificates.js"
-  "$APP_DIR/web/static/wpress.js"
-  "$APP_DIR/web/static/database.js"
-  "$APP_DIR/web/static/favicon.svg"
-  "$APP_DIR/web/static/htaccess.js"
   "$ENV_FILE"
   /etc/systemd/system/stepanel.service
   /etc/systemd/system/stepanel-worker.service
@@ -569,16 +559,6 @@ printf '%s' "$DB_PASSWORD" > "$INSTALL_TXN/stepanel-db.password"
 install -m 0640 -o root -g "$APP_USER" "$INSTALL_TXN/stepanel-db.password" /etc/stepanel-db.password
 if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-certbot" /usr/local/sbin/stepanel-certbot; fi
 if [[ -n "$FPM_LENS_BINARY" ]]; then install -m 0755 "$FPM_LENS_BINARY" /usr/local/bin/fpm-lens; fi
-install -m 0644 -D "$ROOT_DIR/web/index.html" "$APP_DIR/web/index.html"
-install -m 0644 -D "$ROOT_DIR/web/static/app.css" "$APP_DIR/web/static/app.css"
-install -m 0644 -D "$ROOT_DIR/web/static/import.css" "$APP_DIR/web/static/import.css"
-install -m 0644 -D "$ROOT_DIR/web/static/cpmove.js" "$APP_DIR/web/static/cpmove.js"
-install -m 0644 -D "$ROOT_DIR/web/static/deploy.js" "$APP_DIR/web/static/deploy.js"
-install -m 0644 -D "$ROOT_DIR/web/static/certificates.js" "$APP_DIR/web/static/certificates.js"
-install -m 0644 -D "$ROOT_DIR/web/static/wpress.js" "$APP_DIR/web/static/wpress.js"
-install -m 0644 -D "$ROOT_DIR/web/static/database.js" "$APP_DIR/web/static/database.js"
-install -m 0644 -D "$ROOT_DIR/web/static/htaccess.js" "$APP_DIR/web/static/htaccess.js"
-install -m 0644 -D "$ROOT_DIR/web/static/favicon.svg" "$APP_DIR/web/static/favicon.svg"
 if [[ "$WEB_SERVER" == "apache" && "$PKG" == "apt" ]]; then
   install -m 0644 "$ROOT_DIR/deploy/apache/stepanel.conf" /etc/apache2/sites-available/stepanel.conf
   sed -i "s/panel\.example\.com/$PANEL_HOSTNAME/g" /etc/apache2/sites-available/stepanel.conf
