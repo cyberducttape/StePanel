@@ -49,12 +49,20 @@ mkdir -p "$work/cpmove-$CPMOVE_SMOKE_SITE/homedir/public_html"
 printf '%s\n' 'stepanel cpmove import smoke' > "$work/cpmove-$CPMOVE_SMOKE_SITE/homedir/public_html/index.html"
 tar -C "$work" -czf "$work/cpmove-$CPMOVE_SMOKE_SITE.tar.gz" "cpmove-$CPMOVE_SMOKE_SITE"
 
+inspect_response=$(curl --fail --silent --show-error --max-time 30 \
+  -H "Cookie: $cookie_header" \
+  -H "X-CSRF-Token: $csrf" \
+  -F "backup=@$work/cpmove-$CPMOVE_SMOKE_SITE.tar.gz;filename=cpmove-$CPMOVE_SMOKE_SITE.tar.gz" \
+  "$PANEL/api/cpmove/inspect")
+upload_id=$(printf '%s' "$inspect_response" | sed -n 's/.*"upload_id":"\([^"]*\)".*/\1/p')
+[[ -n $upload_id ]] || { echo "inspection did not return a durable upload: $inspect_response" >&2; exit 1; }
+
 response=$(curl --fail --silent --show-error --max-time 30 \
   -H "Cookie: $cookie_header" \
   -H "X-CSRF-Token: $csrf" \
   -F 'confirm=IMPORT' \
   -F "username=$CPMOVE_SMOKE_SITE" \
-  -F "backup=@$work/cpmove-$CPMOVE_SMOKE_SITE.tar.gz;filename=cpmove-$CPMOVE_SMOKE_SITE.tar.gz" \
+  -F "upload_id=$upload_id" \
   "$PANEL/api/cpmove/import")
 job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^"]*\)".*/\1/p')
 [[ -n $job_id ]] || { echo "upload did not return a durable job: $response" >&2; exit 1; }
