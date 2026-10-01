@@ -21,9 +21,18 @@ async function checkA11y(page) {
   expect(result.violations, result.violations.map((violation) => `${violation.id}: ${violation.help}`).join('\n')).toEqual([]);
 }
 
-test('login + TOTP and overview accessibility', async ({ page }) => {
+test('login and overview accessibility', async ({ page }) => {
   await expect(page.getByRole('main')).toBeVisible();
   await checkA11y(page);
+});
+
+test('capture seeded administrator overview screenshots', async ({ page }, testInfo) => {
+  const directory = process.env.STEPANEL_E2E_SCREENSHOT_DIR;
+  test.skip(!directory, 'Screenshot capture is enabled only by the release/evidence runner');
+  await expect(page.getByRole('main')).toBeVisible();
+  await page.screenshot({ path: `${directory}/admin-overview-desktop-${testInfo.project.name}.png`, fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: `${directory}/admin-overview-mobile-${testInfo.project.name}.png`, fullPage: true });
 });
 
 test('keyboard navigation and appearance dialog', async ({ page }) => {

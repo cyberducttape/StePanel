@@ -24,3 +24,9 @@ real customer names, domains, credentials, tokens, source code, or IPs.
 
 The capture is evidence of the tagged UI only; it does not replace the
 production-readiness or load-test gates.
+
+The CI browser gate also captures the seeded administrator overview at desktop
+and mobile widths. The `stepanel-live-ui-screenshots` workflow artifact includes
+those PNGs plus `metadata.txt` with the tested commit, UTC timestamp, browser,
+and seed description. Review the artifact from the candidate commit before a
+release; screenshots from an untagged or failed run are not release evidence.

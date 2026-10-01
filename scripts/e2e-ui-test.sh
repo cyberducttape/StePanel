@@ -11,6 +11,7 @@ STEPANEL_BIN="${1:-./stepanel}"
 TEST_ROOT="${2:-$(mktemp -d)}"
 TEST_PORT="${STEPANEL_E2E_PORT:-19190}"
 BASE_URL="http://127.0.0.1:$TEST_PORT"
+SCREENSHOT_DIR="${STEPANEL_E2E_SCREENSHOT_DIR:-$TEST_ROOT/screenshots}"
 ADMIN_USER="e2eadmin"
 ADMIN_PASS="E2E-UI-Password-123!"
 STEPANEL_PID=""
@@ -32,6 +33,12 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$TEST_ROOT"/{imports,backups,www,mail,nvm,proxy,vhosts,apps,quarantine,recovery}
+mkdir -p "$SCREENSHOT_DIR"
+
+if curl --fail --silent --max-time 1 "$BASE_URL/livez" >/dev/null 2>&1; then
+  echo "refusing to run browser E2E: $BASE_URL is already serving a control plane" >&2
+  exit 1
+fi
 
 STEPANEL_ADMIN_USERNAME="$ADMIN_USER" \
 STEPANEL_ADMIN_PASSWORD="$ADMIN_PASS" \
@@ -75,4 +82,16 @@ done
 STEPANEL_E2E_BASE_URL="$BASE_URL" \
 STEPANEL_E2E_USERNAME="$ADMIN_USER" \
 STEPANEL_E2E_PASSWORD="$ADMIN_PASS" \
+STEPANEL_E2E_SCREENSHOT_DIR="$SCREENSHOT_DIR" \
 npx playwright test
+
+if [[ -d $SCREENSHOT_DIR ]]; then
+  {
+    printf 'StePanel live UI evidence\n\n'
+    printf 'commit: %s\n' "$(git rev-parse HEAD 2>/dev/null || printf unknown)"
+    printf 'captured_at_utc: %s\n' "$(date -u +%FT%TZ)"
+    printf 'base_url: %s\n' "$BASE_URL"
+    printf 'browser: Playwright Chromium\n'
+    printf 'seed: disposable administrator account; no customer data\n'
+  } > "$SCREENSHOT_DIR/metadata.txt"
+fi

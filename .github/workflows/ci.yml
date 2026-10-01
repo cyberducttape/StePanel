@@ -249,7 +249,15 @@ jobs:
       - name: Browser end-to-end and accessibility tests
         env:
           CI: 'true'
+          STEPANEL_E2E_SCREENSHOT_DIR: ${{ runner.temp }}/stepanel-live-screenshots
         run: ./scripts/e2e-ui-test.sh ./stepanel
+      - name: Upload live seeded UI screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stepanel-live-ui-screenshots
+          path: ${{ runner.temp }}/stepanel-live-screenshots
+          if-no-files-found: ignore
       - name: Upload Playwright failure artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
