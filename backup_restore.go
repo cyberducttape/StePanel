@@ -549,6 +549,7 @@ func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage st
 	if err := failureInjection("restore", "provision"); err != nil {
 		return false, err
 	}
+	processKillInjection("restore", "provision")
 	encoding := "utf8mb4"
 	if cfg.DBEngine == "postgresql" {
 		encoding = "UTF8"
@@ -570,6 +571,7 @@ func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage st
 	if err := failureInjection("restore", "database"); err != nil {
 		return true, err
 	}
+	processKillInjection("restore", "database")
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", input.TargetDatabase, input.Site)
 	cmd.Stdin = file
 	output, err := runBoundedCommand(ctx, cmd)
@@ -601,6 +603,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err := failureInjection("restore", "verify"); err != nil {
 		return BackupRestoreResult{}, err
 	}
+	processKillInjection("restore", "verify")
 	if manifest.Site != siteName {
 		return BackupRestoreResult{}, errors.New("backup does not belong to destination site")
 	}
@@ -622,6 +625,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err := failureInjection("restore", "extract"); err != nil {
 		return BackupRestoreResult{}, err
 	}
+	processKillInjection("restore", "extract")
 	if err := ctx.Err(); err != nil {
 		return BackupRestoreResult{}, err
 	}

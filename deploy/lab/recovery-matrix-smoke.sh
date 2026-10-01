@@ -58,23 +58,30 @@ if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
   site=$(full_site cpmove cpmove:activate)
   CPMOVE_RECOVERY_SMOKE_SITE="$site" CPMOVE_KILL_AT=cpmove:activate bash "$repo/cpmove-recovery-smoke.sh"
 
-  for boundary in backup:archive backup:verify; do
+  for boundary in backup:init backup:archive backup:verify backup:commit; do
     site=$(full_site backup "$boundary")
     BACKUP_RECOVERY_SMOKE_SITE="$site" BACKUP_KILL_AT="$boundary" \
       RESTORE_KILL_AT=restore:activate TERMINATE_KILL_AT=terminate:site-state \
       bash "$repo/backup-recovery-smoke.sh"
   done
-  for boundary in restore:provisioned restore:activate restore:commit; do
+  # The installed smoke archive is files-only, so these are the restore
+  # boundaries it can exercise without inventing database credentials.
+  for boundary in restore:verify restore:extract restore:activate restore:commit; do
     site=$(full_site restore "$boundary")
     BACKUP_RECOVERY_SMOKE_SITE="$site" BACKUP_KILL_AT=backup:archive \
       RESTORE_KILL_AT="$boundary" TERMINATE_KILL_AT=terminate:site-state \
       bash "$repo/backup-recovery-smoke.sh"
   done
-  for boundary in terminate:backup terminate:database terminate:routes terminate:proxies terminate:tasks terminate:services terminate:site-state terminate:ownership; do
+  for boundary in terminate:init terminate:backup terminate:database terminate:routes terminate:proxies terminate:tasks terminate:services terminate:site-state terminate:ownership; do
     site=$(full_site terminate "$boundary")
     BACKUP_RECOVERY_SMOKE_SITE="$site" BACKUP_KILL_AT=backup:archive \
       RESTORE_KILL_AT=restore:activate TERMINATE_KILL_AT="$boundary" \
       bash "$repo/backup-recovery-smoke.sh"
+  done
+  for boundary in suspend:before-persist suspend:persisted; do
+    account=$(full_site suspend "$boundary")
+    SUSPENSION_SMOKE_ACCOUNT="$account" SUSPENSION_KILL_AT="$boundary" \
+      bash "$repo/account-suspension-recovery-smoke.sh"
   done
 fi
 

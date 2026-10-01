@@ -222,6 +222,7 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := failureInjection("backup", "init"); err != nil {
 		return result, err
 	}
+	processKillInjection("backup", "init")
 	archivePath := filepath.Join(tempDir, "backup.tar.gz")
 	archive, err := os.OpenFile(archivePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
@@ -337,6 +338,7 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := failureInjection("backup", "commit"); err != nil {
 		return result, err
 	}
+	processKillInjection("backup", "commit")
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}

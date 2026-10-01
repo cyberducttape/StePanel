@@ -118,6 +118,7 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if err := failureInjection("terminate", "init"); err != nil {
 		return nil, err
 	}
+	processKillInjection("terminate", "init")
 
 	// Step 1: BACKUP_VERIFIED. The verified backup is the sole
 	// recovery gate; every later step is roll-forward.

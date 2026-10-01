@@ -69,7 +69,11 @@ systemd host, set `RECOVERY_MATRIX_FULL=1` when invoking
 `deploy/lab/recovery-matrix-smoke.sh` to execute every supported journal kill
 boundary instead of the bounded default matrix. The hosted installation-smoke
 workflow enables this full mode on both disposable distributions; local runs
-remain opt-in because it repeats several restore/backup workflows. Its output
+remain opt-in because it repeats several restore/backup workflows. Full mode
+covers every currently exercisable process-kill boundary for backup
+publication, files-only restore, termination, account suspension, and the
+available cpmove/deployment activation boundaries. Database staging restore
+boundaries remain a separate credentialed test requirement. Its output
 and host logs belong in the dated lab evidence record.
 
 Repository-level recovery test evidence is recorded in
