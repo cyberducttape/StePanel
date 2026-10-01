@@ -111,6 +111,9 @@ func TestInspectCPMoveHandlesTopLevelCPanelRoot(t *testing.T) {
 	if info.User != "account" || !info.HasHome || !info.HasMySQL || !info.HasMail {
 		t.Fatalf("unexpected inspection result: %+v", info)
 	}
+	if info.ArchiveBytes <= 0 || info.ExpandedBytes != int64(len("ok")+len("mail")+len("create table posts(id int);")) {
+		t.Fatalf("size estimates = archive %d expanded %d", info.ArchiveBytes, info.ExpandedBytes)
+	}
 	if len(info.Databases) != 1 || info.Databases[0] != "account_blog" {
 		t.Fatalf("databases = %v, want [account_blog]", info.Databases)
 	}

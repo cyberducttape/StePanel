@@ -14,7 +14,7 @@ func TestTimeoutMiddlewareUsesRouteClass(t *testing.T) {
 		want   time.Duration
 		margin time.Duration
 	}{
-		{name: "upload", path: "/api/cpmove/import", want: 5 * time.Minute, margin: 2 * time.Second},
+		{name: "upload", path: "/api/cpmove/import", want: 60 * time.Minute, margin: 2 * time.Second},
 		{name: "download", path: "/api/backup/download/site", want: 5 * time.Minute, margin: 2 * time.Second},
 		{name: "long poll", path: "/api/jobs/123", want: 45 * time.Second, margin: 2 * time.Second},
 		{name: "ordinary api", path: "/api/sites", want: 30 * time.Second, margin: 2 * time.Second},

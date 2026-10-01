@@ -219,3 +219,43 @@ func restoreCapacity(cfg Config) error {
 	}
 	return nil
 }
+
+// restoreCPMoveCapacity conservatively budgets for the durable archive, the
+// extracted inspection tree, and the site-manager staging tree. The archive
+// has already been uploaded when this runs, so the current free-space check
+// needs room for both expanded copies plus the configured safety reserve.
+func restoreCPMoveCapacity(cfg Config, archiveBytes, expandedBytes int64) error {
+	requiredTotal, remaining, err := cpmoveRequiredFreeBytes(cfg, archiveBytes, expandedBytes)
+	if err != nil {
+		return err
+	}
+	paths := []string{cfg.ImportRoot, filepath.Join(cfg.WebRoot, "sites")}
+	checked := map[string]bool{}
+	for _, path := range paths {
+		if checked[path] {
+			continue
+		}
+		checked[path] = true
+		free, err := availableBytes(path)
+		if err != nil {
+			return fmt.Errorf("inspect cpmove capacity at %s: %w", path, err)
+		}
+		if free < remaining {
+			return fmt.Errorf("insufficient free space at %s: %d bytes available, %d required for this cpmove (total estimate %d bytes)", path, free, remaining, requiredTotal)
+		}
+	}
+	return nil
+}
+
+func cpmoveRequiredFreeBytes(cfg Config, archiveBytes, expandedBytes int64) (total, remaining uint64, err error) {
+	if archiveBytes < 0 || expandedBytes < 0 {
+		return 0, 0, fmt.Errorf("invalid cpmove size estimate")
+	}
+	reserve := uint64(cfg.MinFreeBytes)
+	archive := uint64(archiveBytes)
+	expanded := uint64(expandedBytes)
+	if expanded > (^uint64(0)-reserve)/2 || archive > ^uint64(0)-reserve-2*expanded {
+		return 0, 0, fmt.Errorf("cpmove capacity estimate overflow")
+	}
+	return archive + 2*expanded + reserve, 2*expanded + reserve, nil
+}

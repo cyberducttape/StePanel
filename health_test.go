@@ -189,6 +189,23 @@ func TestRestoreCapacityChecksDestinationFilesystem(t *testing.T) {
 	}
 }
 
+func TestRestoreCPMoveCapacityAccountsForExpandedCopies(t *testing.T) {
+	root := t.TempDir()
+	imports := filepath.Join(root, "imports")
+	sites := filepath.Join(root, "web", "sites")
+	for _, path := range []string{imports, sites} {
+		if err := os.MkdirAll(path, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := restoreCPMoveCapacity(Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: ^uint64(0)}, 12<<30, 34<<30); err == nil || !strings.Contains(err.Error(), "capacity estimate overflow") {
+		t.Fatalf("overflow capacity check error = %v", err)
+	}
+	if err := restoreCPMoveCapacity(Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: 1 << 50}, 12<<30, 34<<30); err == nil || !strings.Contains(err.Error(), "required for this cpmove") {
+		t.Fatalf("insufficient capacity check error = %v", err)
+	}
+}
+
 func TestLoadConfigAppliesCapacityLimits(t *testing.T) {
 	t.Setenv("STEPANEL_MAX_UPLOAD_BYTES", "1048576")
 	t.Setenv("STEPANEL_MAX_ARCHIVE_ENTRIES", "500")

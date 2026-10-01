@@ -34,12 +34,13 @@ func DefaultTimeouts() TimeoutConfiguration {
 		// Includes: activity feed polling, status updates
 		LongPoll: 45 * time.Second,
 
-		// Uploads: large archive transfer with network variance
+		// Uploads: large archive transfer with network variance. A 20 GiB
+		// archive takes roughly 27 minutes at 100 Mbps, before overhead.
 		// Includes: cpmove backups (20GB limit), WPress archives, imports
-		// Note: uploads should ideally be async (return 202), but this supports
-		// streaming for backward compatibility. Paired with upload quotas and
-		// concurrent limits to prevent resource exhaustion.
-		UploadRead: 5 * time.Minute,
+		// The upload endpoint streams into an immutable staged object and is
+		// separately concurrency-limited; this deadline is not the slowloris
+		// defense for ordinary API requests.
+		UploadRead: 60 * time.Minute,
 
 		// Downloads: large file transfers
 		// Includes: backup downloads, export streams
@@ -99,10 +100,10 @@ func (tc TimeoutConfiguration) LongPollHandler(handler http.HandlerFunc) http.Ha
 //   - 45s is standard for long-polling (Twitter uses 45s)
 //   - Client can retry if timeout occurs
 //
-// UPLOADS (30 minutes):
+// UPLOADS (60 minutes):
 //   - Backup archives up to 20GB
 //   - Network speed: 100Mbps → 27 minutes to transfer 20GB
-//   - Add margin for network variance and system load
+//   - Add substantial margin for network variance and system load
 //   - Uploads use explicit body size/rate limits (prevent abuse)
 //   - Should be in job queue (async) for better UX
 //

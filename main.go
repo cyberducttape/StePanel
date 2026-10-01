@@ -76,6 +76,15 @@ type startupState struct {
 	err        error
 }
 
+const uploadMultipartOverhead int64 = 32 << 20
+
+func maxUploadRequestBytes(maxArchive int64) int64 {
+	if maxArchive <= 0 {
+		return maxArchive
+	}
+	return maxArchive + uploadMultipartOverhead
+}
+
 func (s *startupState) begin() {
 	s.mu.Lock()
 	s.inProgress = true
@@ -895,11 +904,11 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if a.Config.MaxUpload > 0 && r.ContentLength > a.Config.MaxUpload {
+	if a.Config.MaxUpload > 0 && r.ContentLength > maxUploadRequestBytes(a.Config.MaxUpload) {
 		http.Error(w, "upload exceeds the configured size limit", http.StatusRequestEntityTooLarge)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, a.Config.MaxUpload)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequestBytes(a.Config.MaxUpload))
 	if !a.Auth.CSRF(r) {
 		http.Error(w, "invalid CSRF token", 403)
 		return
@@ -914,6 +923,10 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 	uploadID, err := randomSecret()
 	if err != nil {
 		http.Error(w, "could not create upload ID", 500)
+		return
+	}
+	if err := os.MkdirAll(a.Config.ImportRoot, 0700); err != nil {
+		http.Error(w, "could not prepare upload storage", 500)
 		return
 	}
 	archivePath := cpmoveUploadPath(a.Config.ImportRoot, uploadID)
@@ -931,6 +944,11 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not stage upload", 500)
 		return
 	}
+	if a.Config.MaxUpload > 0 && written > a.Config.MaxUpload {
+		_ = os.Remove(archivePath)
+		http.Error(w, "upload exceeds the configured size limit", http.StatusRequestEntityTooLarge)
+		return
+	}
 	stored, err := os.Open(archivePath)
 	if err != nil {
 		_ = os.Remove(archivePath)
@@ -944,13 +962,21 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 422)
 		return
 	}
+	if err := restoreCPMoveCapacity(a.Config, written, info.ExpandedBytes); err != nil {
+		_ = os.Remove(archivePath)
+		http.Error(w, err.Error(), http.StatusInsufficientStorage)
+		return
+	}
+	if required, _, err := cpmoveRequiredFreeBytes(a.Config, written, info.ExpandedBytes); err == nil {
+		info.RequiredFreeBytes = int64(required)
+	}
 	info.UploadID = uploadID
 	owner := a.Auth.UsernameForRequest(r)
-	metadata := cpmoveUpload{ID: uploadID, Path: archivePath, Filename: header.Filename, Size: written, SHA256: fmt.Sprintf("%x", hasher.Sum(nil)), Owner: owner, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour)}
+	metadata := cpmoveUpload{ID: uploadID, Path: archivePath, Filename: header.Filename, Size: written, ExpandedBytes: info.ExpandedBytes, SHA256: fmt.Sprintf("%x", hasher.Sum(nil)), Owner: owner, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour)}
 	metadataBytes, marshalErr := json.Marshal(metadata)
 	metadataErr := marshalErr
 	if metadataErr == nil && owner != "" {
-		metadataErr = os.WriteFile(cpmoveUploadMetadataPath(a.Config.ImportRoot, uploadID), metadataBytes, 0600)
+		metadataErr = writeAtomic(cpmoveUploadMetadataPath(a.Config.ImportRoot, uploadID), metadataBytes, 0600)
 	}
 	if metadataErr != nil {
 		_ = os.Remove(archivePath)
@@ -1023,6 +1049,9 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 			_ = os.Remove(cpmoveUploadMetadataPath(a.Config.ImportRoot, request.UploadID))
 		}
 	}()
+	if err := restoreCPMoveCapacity(a.Config, upload.Size, upload.ExpandedBytes); err != nil {
+		return nil, err
+	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.User)
 	if lockErr != nil {
 		return nil, fmt.Errorf("acquire cpmove site lock: %w", lockErr)
@@ -1241,17 +1270,13 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if a.Config.MaxUpload > 0 && r.ContentLength > a.Config.MaxUpload {
+	if a.Config.MaxUpload > 0 && r.ContentLength > maxUploadRequestBytes(a.Config.MaxUpload) {
 		http.Error(w, "upload exceeds the configured size limit", http.StatusRequestEntityTooLarge)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, a.Config.MaxUpload)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequestBytes(a.Config.MaxUpload))
 	if !a.Auth.CSRF(r) {
 		http.Error(w, "invalid CSRF token", 403)
-		return
-	}
-	if err := restoreCapacity(a.Config); err != nil {
-		http.Error(w, err.Error(), http.StatusInsufficientStorage)
 		return
 	}
 	err := r.ParseMultipartForm(32 << 20)
@@ -1274,6 +1299,10 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 	upload, err := readCPMoveUpload(a.Config.ImportRoot, uploadID)
 	if err != nil || upload.Owner != actor {
 		http.Error(w, "upload is missing, expired, or belongs to another operator", http.StatusNotFound)
+		return
+	}
+	if err := restoreCPMoveCapacity(a.Config, upload.Size, upload.ExpandedBytes); err != nil {
+		http.Error(w, err.Error(), http.StatusInsufficientStorage)
 		return
 	}
 	user := safeUser(r.FormValue("username"))

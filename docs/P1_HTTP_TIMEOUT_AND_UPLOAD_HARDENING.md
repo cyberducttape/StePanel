@@ -190,7 +190,7 @@ policy.RecordUploadComplete(username, bytesTransferred)
 **Predefined Classes:**
 1. **APIRead/APIWrite** - Fast request/response cycles
 2. **LongPoll** - Client waiting for updates (45s)
-3. **UploadRead** - File transfer with variance (5m with limits)
+3. **UploadRead** - File transfer with variance (60m with limits)
 4. **DownloadWrite** - Large file delivery (5m with limits)
 
 **Usage Pattern:**
@@ -258,7 +258,7 @@ Min free space: 100 GB
 Per-user quota: 500 GB/day
 Per-user uploads: 10/day
 API timeout: 30s
-Upload timeout: 5m (context-based)
+Upload timeout: 60m (context-based)
 ```
 
 ### Monitoring Metrics

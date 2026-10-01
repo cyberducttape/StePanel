@@ -125,8 +125,8 @@ df | awk '{if(NR>1 && $5+0 > 80) print "WARNING: " $6 " at " $5}'
 ### Minimum Free Space
 
 ```bash
-# Default: 1 GB minimum free
-export STEPANEL_MIN_FREE_BYTES=$((1 * 1024 * 1024 * 1024))
+# Default: 5 GB minimum free safety reserve
+export STEPANEL_MIN_FREE_BYTES=$((5 * 1024 * 1024 * 1024))
 
 # For high-volume: 10 GB minimum
 export STEPANEL_MIN_FREE_BYTES=$((10 * 1024 * 1024 * 1024))

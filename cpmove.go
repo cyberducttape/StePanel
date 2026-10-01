@@ -22,26 +22,32 @@ import (
 )
 
 type CPMoveInfo struct {
-	Archive   string   `json:"archive"`
-	UploadID  string   `json:"upload_id,omitempty"`
-	Entries   int      `json:"entries"`
-	User      string   `json:"detected_user"`
-	HasHome   bool     `json:"has_home"`
-	HasMySQL  bool     `json:"has_mysql"`
-	HasMail   bool     `json:"has_mail"`
-	Mailboxes []string `json:"mailboxes,omitempty"`
-	Databases []string `json:"databases"`
+	Archive           string   `json:"archive"`
+	UploadID          string   `json:"upload_id,omitempty"`
+	ArchiveBytes      int64    `json:"archive_bytes"`
+	ExpandedBytes     int64    `json:"expanded_bytes"`
+	RequiredFreeBytes int64    `json:"required_free_bytes"`
+	Entries           int      `json:"entries"`
+	User              string   `json:"detected_user"`
+	HasHome           bool     `json:"has_home"`
+	HasMySQL          bool     `json:"has_mysql"`
+	HasMail           bool     `json:"has_mail"`
+	Mailboxes         []string `json:"mailboxes,omitempty"`
+	Databases         []string `json:"databases"`
 }
 
+const maxCPMoveExpandedBytes int64 = 80 << 30
+
 type cpmoveUpload struct {
-	ID        string    `json:"id"`
-	Path      string    `json:"path"`
-	Filename  string    `json:"filename"`
-	Size      int64     `json:"size"`
-	SHA256    string    `json:"sha256"`
-	Owner     string    `json:"owner"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
+	ID            string    `json:"id"`
+	Path          string    `json:"path"`
+	Filename      string    `json:"filename"`
+	Size          int64     `json:"size"`
+	ExpandedBytes int64     `json:"expanded_bytes"`
+	SHA256        string    `json:"sha256"`
+	Owner         string    `json:"owner"`
+	CreatedAt     time.Time `json:"created_at"`
+	ExpiresAt     time.Time `json:"expires_at"`
 }
 
 func cpmoveUploadPath(root, id string) string {
@@ -61,7 +67,7 @@ func readCPMoveUpload(root, id string) (cpmoveUpload, error) {
 		return cpmoveUpload{}, err
 	}
 	var upload cpmoveUpload
-	if err := json.Unmarshal(data, &upload); err != nil || upload.ID != id || upload.Owner == "" || upload.Size < 0 || upload.SHA256 == "" {
+	if err := json.Unmarshal(data, &upload); err != nil || upload.ID != id || upload.Owner == "" || upload.Size < 0 || upload.ExpandedBytes < 0 || upload.SHA256 == "" {
 		return cpmoveUpload{}, errors.New("invalid upload metadata")
 	}
 	if time.Now().After(upload.ExpiresAt) {
@@ -110,7 +116,7 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
-	info := CPMoveInfo{Archive: header.Filename, User: userFromArchiveName(header.Filename)}
+	info := CPMoveInfo{Archive: header.Filename, ArchiveBytes: header.Size, User: userFromArchiveName(header.Filename)}
 	seen := map[string]bool{}
 	seenMail := map[string]bool{}
 	var total int64
@@ -122,8 +128,8 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 		if err != nil {
 			return info, errors.New("backup tar stream is damaged")
 		}
-		if h.Size < 0 || h.Size > 2<<30 || total+h.Size > 20<<30 {
-			return info, errors.New("archive contents exceed the 20 GiB inspection limit")
+		if h.Size < 0 || h.Size > 2<<30 || total > maxCPMoveExpandedBytes-h.Size {
+			return info, errors.New("archive contents exceed the 80 GiB inspection limit")
 		}
 		total += h.Size
 		if !safeArchivePath(h.Name) {
@@ -165,6 +171,7 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	}
 	sort.Strings(info.Databases)
 	sort.Strings(info.Mailboxes)
+	info.ExpandedBytes = total
 	if info.Entries == 0 {
 		return info, errors.New("backup archive is empty")
 	}
