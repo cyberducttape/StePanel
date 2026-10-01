@@ -293,9 +293,9 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 			return ImportResult{}, err
 		}
 		if findings, scanErr := scanPHP(source); scanErr != nil {
-			return ImportResult{}, fmt.Errorf("malware scan failed: %w", scanErr)
+			return ImportResult{}, fmt.Errorf("suspicious PHP heuristic scan failed: %w", scanErr)
 		} else if len(findings) > 0 {
-			return ImportResult{}, fmt.Errorf("restore blocked: malware scan detected %d suspicious PHP file(s)", len(findings))
+			return ImportResult{}, fmt.Errorf("restore blocked: suspicious PHP heuristic scan found %d file(s) requiring review", len(findings))
 		}
 		if err = copyTreeContext(ctx, source, managerStage); err != nil {
 			return ImportResult{}, err

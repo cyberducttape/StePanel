@@ -318,7 +318,7 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if findings, err := scanPHP(managerStage); err != nil {
 		return WPressResult{}, fmt.Errorf("scan restored WordPress files: %w", err)
 	} else if len(findings) > 0 {
-		return WPressResult{}, fmt.Errorf("restore blocked: malware scan detected %d suspicious PHP file(s)", len(findings))
+		return WPressResult{}, fmt.Errorf("restore blocked: suspicious PHP heuristic scan found %d file(s) requiring review", len(findings))
 	}
 	if err := activateStagedSiteWithConfig(ctx, cfg, site, managerStage); err != nil {
 		return WPressResult{}, fmt.Errorf("activate restored site through manager: %w", err)
@@ -332,7 +332,7 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if findings, err := scanPHP(home); err != nil {
 		return WPressResult{}, fmt.Errorf("scan restored WordPress files: %w", err)
 	} else if len(findings) > 0 {
-		return WPressResult{}, fmt.Errorf("restore blocked: malware scan detected %d suspicious PHP file(s)", len(findings))
+		return WPressResult{}, fmt.Errorf("restore blocked: suspicious PHP heuristic scan found %d file(s) requiring review", len(findings))
 	}
 	if cfg.DBCtl == "" {
 		databaseExists, checkErr := mysqlObjectExistsContext(ctx, cfg, "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME="+sqlString(dbName))

@@ -1029,7 +1029,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Security tab (SSH/SFTP access, keys, malware scan)
+  // Security tab (SSH/SFTP access, keys, suspicious PHP heuristic scan)
   // ---------------------------------------------------------------------
 
   async function renderSecurityTab(site, panel, ctx) {
@@ -1090,12 +1090,13 @@
 
     if (ctx.isAdministrator) {
       const scanOutput = ctx.statusOutput();
-      panel.append(el('h4', {}, 'Malware scan'), el('div', { className: 'workspace-panel-actions' }, [
+      panel.append(el('h4', {}, 'Suspicious PHP / webshell heuristic scan'), el('p', { className: 'panel-intro' }, 'Defense-in-depth review only; this is not authoritative malware detection.'), el('div', { className: 'workspace-panel-actions' }, [
         ctx.button('Scan site files', async () => {
-          scanOutput.textContent = 'Scanning (this can take a while for large sites)…';
+          scanOutput.textContent = 'Scanning PHP files for suspicious webshell indicators…';
           try {
             const result = await ctx.postJSON('/api/security/scan', { site, quarantine: false });
-            scanOutput.textContent = `Scan complete: ${(result.findings || []).length} finding(s).`;
+            const scan = result.scan || {};
+            scanOutput.textContent = `Heuristic review complete: ${(result.findings || []).length} finding(s), ${scan.large_files_skipped || 0} large file(s) skipped.`;
           } catch (error) { scanOutput.textContent = error.message; }
         }),
       ]), scanOutput);
