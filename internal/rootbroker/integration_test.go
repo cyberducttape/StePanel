@@ -14,7 +14,7 @@ import (
 func TestIntegration_RPCRoundTrip(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	webRoot := t.TempDir()
-	broker, err := NewBroker(webRoot, logger)
+	broker, err := newTestBroker(t, webRoot, logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestIntegration_RPCRoundTrip(t *testing.T) {
 // TestIntegration_ValidationBeforeExecution tests that validation happens before any operations.
 func TestIntegration_ValidationBeforeExecution(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestIntegration_ValidationBeforeExecution(t *testing.T) {
 // TestIntegration_ErrorResponses tests that errors are properly formatted and categorized.
 func TestIntegration_ErrorResponses(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestIntegration_ErrorResponses(t *testing.T) {
 // This is a simplified test that validates requests without executing complex operations.
 func TestIntegration_ConcurrentRequests(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestIntegration_ConcurrentRequests(t *testing.T) {
 // TestIntegration_StdinStdoutRPC tests end-to-end RPC communication via pipes.
 func TestIntegration_StdinStdoutRPC(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestIntegration_StdinStdoutRPC(t *testing.T) {
 // TestIntegration_ResponseDetails tests that operation-specific response details are properly formatted.
 func TestIntegration_ResponseDetails(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestIntegration_ResponseDetails(t *testing.T) {
 // TestIntegration_InputValidationConsistency tests that validation is consistent across all operation types.
 func TestIntegration_InputValidationConsistency(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}

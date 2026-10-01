@@ -24,7 +24,7 @@ func TestNewBrokerRejectsUnavailableDurableRecoveryRootOutsideTestMode(t *testin
 }
 
 func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
-	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
 }
 
 func TestBrokerTaskApplyUsesFixedHelperAndTypedArguments(t *testing.T) {
-	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestBrokerTaskApplyUsesFixedHelperAndTypedArguments(t *testing.T) {
 func TestBrokerTaskDeleteAndHistoryUseFixedHelper(t *testing.T) {
 	for _, action := range []string{"delete", "history"} {
 		t.Run(action, func(t *testing.T) {
-			broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+			broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,7 +122,7 @@ func TestBrokerGitDeleteRemovesOnlySiteKeyEntries(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(keyRoot, "demo.pub"), []byte("public key"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestBrokerGitPublicReadsBoundedRegularFileWithoutFollowingSymlink(t *testin
 	if err := os.WriteFile(filepath.Join(keyRoot, "demo.pub"), []byte(publicKey), 0644); err != nil {
 		t.Fatal(err)
 	}
-	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestBrokerGitGenerateCreatesEd25519KeyWithoutReplacingExistingKey(t *testin
 	if err := os.Chmod(keyRoot, 0700); err != nil {
 		t.Fatal(err)
 	}
-	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestBrokerGitGenerateCreatesEd25519KeyWithoutReplacingExistingKey(t *testin
 
 func TestBrokerSiteCreate(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestBrokerSiteCreate(t *testing.T) {
 
 func TestBrokerSiteDelete(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestBrokerSiteDelete(t *testing.T) {
 }
 
 func TestBrokerCertificateIssuanceUsesFixedHelper(t *testing.T) {
-	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,8 +354,8 @@ func TestCreateSystemUserSurfacesUseraddFailure(t *testing.T) {
 	writeFakeCommand(t, bin, "useradd", "#!/bin/sh\necho useradd-failed >&2\nexit 42\n")
 	t.Setenv("PATH", bin)
 
-	broker := &Broker{logger: log.New(os.Stderr, "[test] ", 0)}
-	err := broker.createSystemUser(context.Background(), "sp-test", "/var/www/sites/test")
+	host := execHostOps{}
+	err := host.EnsureSystemUser(context.Background(), "sp-test", "/var/www/sites/test")
 	if err == nil || !strings.Contains(err.Error(), "useradd failed") {
 		t.Fatalf("createSystemUser error = %v, want useradd failure", err)
 	}
@@ -366,8 +366,8 @@ func TestDeleteSystemUserSurfacesUnexpectedUserdelFailure(t *testing.T) {
 	writeFakeCommand(t, bin, "userdel", "#!/bin/sh\necho userdel-failed >&2\nexit 1\n")
 	t.Setenv("PATH", bin)
 
-	broker := &Broker{logger: log.New(os.Stderr, "[test] ", 0)}
-	err := broker.deleteSystemUser(context.Background(), "sp-test")
+	host := execHostOps{}
+	err := host.DeleteSystemUser(context.Background(), "sp-test")
 	if err == nil || !strings.Contains(err.Error(), "userdel failed") {
 		t.Fatalf("deleteSystemUser error = %v, want userdel failure", err)
 	}
@@ -378,8 +378,8 @@ func TestDeleteSystemUserTreatsMissingUserAsIdempotent(t *testing.T) {
 	writeFakeCommand(t, bin, "userdel", "#!/bin/sh\nexit 6\n")
 	t.Setenv("PATH", bin)
 
-	broker := &Broker{logger: log.New(os.Stderr, "[test] ", 0)}
-	if err := broker.deleteSystemUser(context.Background(), "sp-test"); err != nil {
+	host := execHostOps{}
+	if err := host.DeleteSystemUser(context.Background(), "sp-test"); err != nil {
 		t.Fatalf("deleteSystemUser returned %v for an absent user", err)
 	}
 }
@@ -393,7 +393,7 @@ func writeFakeCommand(t *testing.T, dir, name, body string) {
 
 func TestBrokerAppApply(t *testing.T) {
 	webRoot := t.TempDir()
-	broker, err := NewBroker(webRoot, log.New(os.Stderr, "[test] ", 0))
+	broker, err := newTestBroker(t, webRoot, log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestBrokerAppApply(t *testing.T) {
 func TestBrokerAppLifecycleUsesFixedHelper(t *testing.T) {
 	for _, action := range []string{"delete", "start", "stop", "restart"} {
 		t.Run(action, func(t *testing.T) {
-			broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+			broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -447,7 +447,7 @@ func TestBrokerAppLifecycleUsesFixedHelper(t *testing.T) {
 }
 
 func TestBrokerAppHelperFailureIsReported(t *testing.T) {
-	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestBrokerAppHelperFailureIsReported(t *testing.T) {
 
 func TestBrokerDBProvision(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestBrokerDBProvision(t *testing.T) {
 
 func TestBrokerCleanupWordPressPreservesDedicatedHelperAction(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -532,7 +532,7 @@ func TestBrokerCleanupWordPressPreservesDedicatedHelperAction(t *testing.T) {
 
 func TestBrokerVhostApply(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -558,7 +558,7 @@ func TestBrokerVhostApply(t *testing.T) {
 }
 
 func TestBrokerRejectsEveryUnimplementedMutation(t *testing.T) {
-	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +594,7 @@ func TestBrokerRejectsEveryUnimplementedMutation(t *testing.T) {
 
 func TestBrokerInvalidSiteName(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -619,7 +619,7 @@ func TestBrokerInvalidSiteName(t *testing.T) {
 
 func TestBrokerInvalidPort(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -645,7 +645,7 @@ func TestBrokerInvalidPort(t *testing.T) {
 
 func TestBrokerGitCloneFailsClosed(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -672,7 +672,7 @@ func TestBrokerGitCloneFailsClosed(t *testing.T) {
 
 func TestBrokerNilRequest(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
@@ -686,7 +686,7 @@ func TestBrokerNilRequest(t *testing.T) {
 
 func TestBrokerUnknownRequestType(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	broker, err := newTestBroker(t, t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}

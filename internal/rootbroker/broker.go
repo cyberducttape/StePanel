@@ -22,6 +22,7 @@ import (
 	"time"
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
+	"github.com/cyberducttape/StePanel/internal/siteidentity"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -42,7 +43,18 @@ type Broker struct {
 	gitKeyRoot    string
 	validator     *Validator
 	logger        *log.Logger
-	isTestMode    bool // True when webRoot is in /tmp (indicates test environment)
+	host          hostOps
+}
+
+// hostOps performs the privileged host account and ownership mutations
+// behind site lifecycle operations. Production always uses execHostOps; tests
+// inject a fake through newBroker. Whether these mutations run must never be
+// inferred from where the web root lives on disk.
+type hostOps interface {
+	EnsureSystemUser(ctx context.Context, username, home string) error
+	DeleteSystemUser(ctx context.Context, username string) error
+	Chown(ctx context.Context, path, owner, group string, recursive bool) error
+	WebGroup() (string, error)
 }
 
 // NewBroker creates a new root broker with default recovery root.
@@ -58,31 +70,25 @@ func NewBroker(webRoot string, logger *log.Logger) (*Broker, error) {
 	return NewBrokerWithRecoveryRoot(webRoot, recoveryRoot, logger)
 }
 
-// NewBrokerWithRecoveryRoot creates a new root broker with a custom recovery root.
-// This is useful for testing to avoid permission issues.
+// NewBrokerWithRecoveryRoot creates a new root broker with a custom recovery
+// root. The recovery root must be creatable: the broker fails closed rather
+// than running privileged mutations without a durable journal.
 func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger) (*Broker, error) {
+	return newBroker(webRoot, recoveryRoot, logger, execHostOps{})
+}
+
+func newBroker(webRoot, recoveryRoot string, logger *log.Logger, host hostOps) (*Broker, error) {
 	if webRoot == "" {
 		return nil, fmt.Errorf("web root is required")
 	}
 	if logger == nil {
 		logger = log.New(os.Stderr, "[rootbroker] ", log.LstdFlags)
 	}
-
-	// Test fixtures are created below the active system temporary directory.
-	// Use the resolved temp root rather than a literal /tmp prefix because CI
-	// and race tests may relocate TMPDIR. Real installation paths therefore
-	// retain the fail-closed durable-journal requirement.
-	isTestMode := isTemporaryPath(webRoot)
+	if host == nil {
+		return nil, fmt.Errorf("host operations are required")
+	}
 	if err := os.MkdirAll(recoveryRoot, 0700); err != nil {
-		if !isTestMode {
-			return nil, fmt.Errorf("create durable recovery root %q: %w", recoveryRoot, err)
-		}
-		tmpDir, tmpErr := os.MkdirTemp("", "stepanel-recovery-*")
-		if tmpErr != nil {
-			return nil, fmt.Errorf("create test recovery root: %w (production root: %v)", tmpErr, err)
-		}
-		logger.Printf("using temporary test recovery root: %s", tmpDir)
-		recoveryRoot = tmpDir
+		return nil, fmt.Errorf("create durable recovery root %q: %w", recoveryRoot, err)
 	}
 	return &Broker{
 		webRoot:       webRoot,
@@ -94,24 +100,8 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 		gitKeyRoot:    "/etc/stepanel/git-keys",
 		validator:     NewValidator(webRoot),
 		logger:        logger,
-		isTestMode:    isTestMode,
+		host:          host,
 	}, nil
-}
-
-func isTemporaryPath(path string) bool {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-	absTemp, err := filepath.Abs(os.TempDir())
-	if err != nil {
-		return false
-	}
-	rel, err := filepath.Rel(absTemp, absPath)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
 }
 
 // Execute handles an RPC request and returns the response.
@@ -284,7 +274,7 @@ func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, e
 	}
 
 	// Generate site user
-	siteUser := b.generateSiteUser(req.Site)
+	siteUser := siteidentity.UnixUser(req.Site)
 
 	// Use site name as job ID for journaling. In real usage, this comes from
 	// the durable job system. Here we use the site name for simplicity.
@@ -302,7 +292,7 @@ func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, e
 
 	// Step 1: Initialize (create system user, base directories)
 	if !journal.isComplete(stepInitialized) {
-		if err := b.createSystemUser(ctx, siteUser, siteRoot); err != nil {
+		if err := b.host.EnsureSystemUser(ctx, siteUser, siteRoot); err != nil {
 			b.logger.Printf("failed at init: %v", err)
 			return &Response{OK: false, Error: fmt.Sprintf("user creation failed: %v", err)}, nil
 		}
@@ -356,7 +346,12 @@ func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, e
 	// Step 3: Set proper ownership (this is actually part of initialization,
 	// but we journal it separately for fine-grained recovery tracking)
 	if !journal.isComplete(stepCompleted) {
-		if err := b.setOwnership(ctx, siteRoot, siteUser, "www-data"); err != nil {
+		webGroup, err := b.host.WebGroup()
+		if err != nil {
+			b.logger.Printf("failed to resolve web group: %v", err)
+			return &Response{OK: false, Error: fmt.Sprintf("ownership change failed: %v", err)}, nil
+		}
+		if err := b.host.Chown(ctx, siteRoot, siteUser, webGroup, true); err != nil {
 			b.logger.Printf("failed to set ownership: %v", err)
 			return &Response{OK: false, Error: fmt.Sprintf("ownership change failed: %v", err)}, nil
 		}
@@ -409,7 +404,7 @@ func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, e
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 
-	siteUser := b.generateSiteUser(req.Site)
+	siteUser := siteidentity.UnixUser(req.Site)
 
 	b.logger.Printf("deleting site: user=%s root=%s", siteUser, siteRoot)
 
@@ -422,7 +417,7 @@ func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, e
 
 	// Account cleanup is part of the mutation contract. Do not report success
 	// when the site tree is gone but its privileged system user remains.
-	if err := b.deleteSystemUser(ctx, siteUser); err != nil {
+	if err := b.host.DeleteSystemUser(ctx, siteUser); err != nil {
 		b.logger.Printf("failed to delete system user: %v", err)
 		return &Response{OK: false, Error: fmt.Sprintf("system user deletion failed: %v", err)}, nil
 	}
@@ -465,7 +460,18 @@ func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, 
 		}
 	}
 
-	// Create standard directories
+	// The PHP state tree must be owned by the site's own account and the web
+	// group, exactly as stepanel-sitectl prepares it, or the site's PHP pool
+	// cannot write sessions or temporary files. The public tree is left to
+	// the site manager's staged activation.
+	siteUser := siteidentity.UnixUser(req.Site)
+	webGroup, err := b.host.WebGroup()
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("web group resolution failed: %v", err)}, nil
+	}
+	if err := b.host.EnsureSystemUser(ctx, siteUser, siteRoot); err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("site user creation failed: %v", err)}, nil
+	}
 	dirs := []string{
 		filepath.Join(siteRoot, ".php"),
 		filepath.Join(siteRoot, ".php", "sessions"),
@@ -474,6 +480,12 @@ func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, 
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return &Response{OK: false, Error: fmt.Sprintf("directory creation failed: %v", err)}, nil
+		}
+		if err := os.Chmod(dir, 0o750); err != nil {
+			return &Response{OK: false, Error: fmt.Sprintf("directory permission failed: %v", err)}, nil
+		}
+		if err := b.host.Chown(ctx, dir, siteUser, webGroup, false); err != nil {
+			return &Response{OK: false, Error: fmt.Sprintf("directory ownership failed: %v", err)}, nil
 		}
 	}
 
@@ -1370,26 +1382,18 @@ func (b *Broker) gitVerifyKey(ctx context.Context, req *GitRequest) (*Response, 
 
 // --- Helpers ---
 
-func (b *Broker) generateSiteUser(site string) string {
-	// Generate site_user from site name
-	// In production, this would match the Go app's logic
-	return "sp-" + strings.ReplaceAll(site, "_", "-")
-}
+// execHostOps is the production hostOps implementation. Site account names
+// and the web group come from internal/siteidentity, the same derivation the
+// stepanel-sitectl shell helper uses.
+type execHostOps struct{}
 
-func (b *Broker) createSystemUser(ctx context.Context, username, home string) error {
-	// Skip actual user creation in test mode to avoid system state pollution
-	if b.isTestMode {
-		b.logger.Printf("test mode: skipping useradd for %s", username)
-		return nil
-	}
-
+func (execHostOps) EnsureSystemUser(ctx context.Context, username, home string) error {
 	// Make the operation idempotent only for the specific existing-user case.
 	// Other useradd failures must stop the workflow before it creates a site
 	// tree that cannot be owned by the intended account.
 	if err := stepanelhelper.NewCommand(ctx, "id", "-u", username).Run(); err == nil {
 		return nil
 	}
-
 	cmd := stepanelhelper.NewCommand(ctx, "useradd", "--system", "--home-dir", home, "--shell", "/usr/sbin/nologin", "--user-group", username)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("useradd failed: %w (output: %s)", err, output)
@@ -1397,13 +1401,7 @@ func (b *Broker) createSystemUser(ctx context.Context, username, home string) er
 	return nil
 }
 
-func (b *Broker) deleteSystemUser(ctx context.Context, username string) error {
-	// Skip actual user deletion in test mode to avoid system state pollution
-	if b.isTestMode {
-		b.logger.Printf("test mode: skipping userdel for %s", username)
-		return nil
-	}
-
+func (execHostOps) DeleteSystemUser(ctx context.Context, username string) error {
 	cmd := stepanelhelper.NewCommand(ctx, "userdel", username)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		var exitErr *exec.ExitError
@@ -1417,16 +1415,21 @@ func (b *Broker) deleteSystemUser(ctx context.Context, username string) error {
 	return nil
 }
 
-func (b *Broker) setOwnership(ctx context.Context, path, user, group string) error {
-	// Skip actual ownership change in test mode
-	if b.isTestMode {
-		b.logger.Printf("test mode: skipping chown for %s (user %s:%s)", path, user, group)
-		return nil
+func (execHostOps) Chown(ctx context.Context, path, owner, group string, recursive bool) error {
+	args := []string{"--no-dereference", owner + ":" + group, path}
+	if recursive {
+		args = append([]string{"-R"}, args...)
 	}
-
-	cmd := stepanelhelper.NewCommand(ctx, "chown", "-R", user+":"+group, path)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("chown failed: %w", err)
+	cmd := stepanelhelper.NewCommand(ctx, "chown", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("chown failed: %w (output: %s)", err, output)
 	}
 	return nil
+}
+
+func (execHostOps) WebGroup() (string, error) {
+	return siteidentity.WebGroup(func(name string) bool {
+		_, err := user.LookupGroup(name)
+		return err == nil
+	})
 }
