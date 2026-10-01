@@ -554,6 +554,11 @@ paths:
       summary: Verify a backup archive and optional authenticated manifest
       description: Performs archive, entry, checksum, and manifest-signature checks without extracting or changing host state.
       responses: {'200': {description: Verified backup and consistency classification}}
+  /api/backups/rehearse:
+    post:
+      summary: Queue a disposable restore rehearsal
+      description: Verifies the signed backup, extracts it into a temporary isolated directory, validates the site tree and database dumps, then removes the temporary directory. It never activates a site or imports a database.
+      responses: {'202': {description: Restore rehearsal job queued}}
   /api/backups/restore-files:
     post:
       summary: Queue an administrator-only verified files-only site restore

@@ -772,6 +772,13 @@
             output.textContent = 'Verifying…';
             try { await ctx.postJSON('/api/backups/verify', { site, backup: backup.name || backup.path }); output.textContent = 'Backup verified.'; } catch (error) { output.textContent = error.message; }
           }) : null,
+          ctx.can('backup:restore') ? ctx.button('Rehearse restore', async () => {
+            output.textContent = 'Rehearsing restore…';
+            try {
+              const result = await ctx.postJSON('/api/backups/rehearse', { site, backup: backup.name || backup.path });
+              output.textContent = `Restore rehearsal queued (job ${result.job_id}). The live site was not changed.`;
+            } catch (error) { output.textContent = error.message; }
+          }) : null,
           ctx.can('backup:restore') ? ctx.button('Restore to staging', () => restoreToStaging(backup, false)) : null,
           (backup.databases || []).length && ctx.can('backup:restore') ? ctx.button('Restore files + database', () => restoreToStaging(backup, true)) : null,
         ]),

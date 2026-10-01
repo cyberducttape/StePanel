@@ -713,6 +713,7 @@ func main() {
 	mux.Handle("/api/sites/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteManage)), http.MethodDelete))
 	mux.Handle("/api/sites/terminate", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.siteTermination)), http.MethodPost))
 	mux.Handle("/api/backups", allowMethods(app.Auth.Require(http.HandlerFunc(app.backups)), http.MethodGet, http.MethodHead, http.MethodPost))
+	mux.Handle("/api/backups/rehearse", allowMethods(app.Auth.Require(http.HandlerFunc(app.backupRehearse)), http.MethodPost))
 	mux.Handle("/api/backups/restore-to-staging", allowMethods(app.Auth.Require(http.HandlerFunc(app.backupRestoreToStaging)), http.MethodPost))
 	mux.Handle("/api/backups/restore-offsite-to-staging", allowMethods(app.Auth.Require(http.HandlerFunc(app.backupRestoreOffsiteToStaging)), http.MethodPost))
 	mux.Handle("/api/backups/restore-files", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.backupRestoreFilesHTTP)), http.MethodPost))
@@ -1292,6 +1293,8 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleWPressJob(ctx, item)
 	case "backup.restore":
 		return a.handleBackupRestoreJob(ctx, item)
+	case "backup.rehearsal":
+		return a.handleBackupRehearsalJob(ctx, item)
 	case "cloud.action":
 		return a.handleCloudJob(ctx, item)
 	case "node.deployment":
@@ -1311,7 +1314,7 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 
 func durableWorkloadClass(kind string) string {
 	switch kind {
-	case "cpmove.restore", "wordpress.restore", "backup.restore":
+	case "cpmove.restore", "wordpress.restore", "backup.restore", "backup.rehearsal":
 		return "restore"
 	case "site.backup":
 		return "backup"

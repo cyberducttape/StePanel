@@ -58,6 +58,14 @@ passwords, encryption keys, TOTP material, job payloads and outputs, database
 contents, and raw customer logs. Treat site names and operational metadata as
 confidential even though credentials are not included.
 
+For recovery confidence without changing customer state, use the backup
+`Rehearse restore` action (or `POST /api/backups/rehearse`). The durable job
+verifies the signed archive, extracts it into a temporary isolated directory,
+checks the site tree and every recorded database dump, reports counts and
+bytes, and removes the temporary directory. It intentionally does not activate
+a site or run a database engine; use restore-to-staging for that stronger
+end-to-end rehearsal.
+
 ## Health check
 
 ```sh

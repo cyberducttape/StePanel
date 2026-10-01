@@ -471,6 +471,45 @@ func readTestBackupManifest(t *testing.T, root string) BackupManifest {
 	return manifest
 }
 
+func TestBackupRehearsalValidatesAndCleansTemporaryExtraction(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	importRoot := filepath.Join(root, "imports")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "backup")
+	created, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{
+		Auth:   Auth{Username: "admin"},
+		Jobs:   NewJobs(),
+		Config: Config{BackupRoot: backupRoot, ImportRoot: importRoot},
+	}
+	payload, err := json.Marshal(durableBackupRehearsalRequest{Site: "account", Backup: filepath.Base(created.Path), Actor: "admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := app.handleBackupRehearsalJob(context.Background(), Job{ID: "rehearsal-test", Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result backupRehearsalResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.EntriesVerified != 1 || result.FilesExtracted != 1 || result.BytesExtracted != int64(len("backup")) {
+		t.Fatalf("unexpected rehearsal result: %#v", result)
+	}
+	if entries, err := os.ReadDir(importRoot); err != nil || len(entries) != 0 {
+		t.Fatalf("rehearsal staging was not cleaned: entries=%#v err=%v", entries, err)
+	}
+	data, err := os.ReadFile(filepath.Join(webRoot, "sites", "account", "public", "index.html"))
+	if err != nil || string(data) != "backup" {
+		t.Fatalf("rehearsal changed live site: data=%q err=%v", data, err)
+	}
+}
+
 // TestCreateSiteBackupCancelsInFlightDatabaseDump verifies the job context
 // reaches the database dump helper, so cancelling a backup stops a slow dump
 // instead of waiting for the helper's own timeout.

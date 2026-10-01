@@ -22,6 +22,23 @@ type DurableBackupRestoreRequest = backup.DurableBackupRestoreRequest
 // Lowercase alias for backward compatibility with existing code
 type durableBackupRestoreRequest = backup.DurableBackupRestoreRequest
 
+type durableBackupRehearsalRequest struct {
+	Site   string `json:"site"`
+	Backup string `json:"backup"`
+	Actor  string `json:"actor"`
+}
+
+type backupRehearsalResult struct {
+	Site             string    `json:"site"`
+	Backup           string    `json:"backup"`
+	Consistency      string    `json:"consistency"`
+	EntriesVerified  int       `json:"entries_verified"`
+	FilesExtracted   int       `json:"files_extracted"`
+	BytesExtracted   int64     `json:"bytes_extracted"`
+	DatabasesChecked []string  `json:"databases_checked,omitempty"`
+	CompletedAt      time.Time `json:"completed_at"`
+}
+
 func (a *App) enqueueBackupRestoreJob(request durableBackupRestoreRequest) (Job, error) {
 	payload, err := json.Marshal(request)
 	if err != nil {
@@ -106,6 +123,154 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, err
 	}
 	return output, nil
+}
+
+// handleBackupRehearsalJob verifies and extracts a backup into a disposable
+// directory. It deliberately does not activate a site or run a database
+// engine, making it safe to schedule as a recurring recovery check.
+func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, error) {
+	var request durableBackupRehearsalRequest
+	if err := json.Unmarshal(item.Payload, &request); err != nil {
+		return nil, fmt.Errorf("decode backup rehearsal job payload: %w", err)
+	}
+	if safeUser(request.Site) == "" || !validBackupName(request.Backup) || strings.TrimSpace(request.Actor) == "" {
+		return nil, errors.New("invalid backup rehearsal payload")
+	}
+	if _, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false); err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
+		return nil, context.Canceled
+	}
+	// The backup directory is published atomically and is immutable after
+	// publication, so a rehearsal does not need to serialize with live-site
+	// mutations. Avoiding the mutation lock keeps this read-only check from
+	// delaying customer restores or deployments.
+	operationCtx := ctx
+	backupRoot, err := safePath(a.Config.BackupRoot, request.Backup)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := VerifySiteBackup(backupRoot, a.Config.BackupSigningKey)
+	if err != nil {
+		return nil, fmt.Errorf("verify backup: %w", err)
+	}
+	if manifest.Site != request.Site {
+		return nil, errors.New("backup does not belong to site")
+	}
+	if err := os.MkdirAll(a.Config.ImportRoot, 0700); err != nil {
+		return nil, fmt.Errorf("create rehearsal root: %w", err)
+	}
+	stage, err := os.MkdirTemp(a.Config.ImportRoot, "backup-rehearsal-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(stage)
+	archivePath, err := safePath(backupRoot, manifest.Archive)
+	if err != nil {
+		return nil, err
+	}
+	if err := extractArchiveContext(operationCtx, archivePath, stage); err != nil {
+		return nil, fmt.Errorf("extract verified backup: %w", err)
+	}
+	source, err := safePath(stage, "site", "public")
+	if err != nil {
+		return nil, fmt.Errorf("invalid backup layout: %w", err)
+	}
+	if info, err := os.Stat(source); err != nil || !info.IsDir() {
+		return nil, errors.New("backup has no site files")
+	}
+	result := backupRehearsalResult{Site: request.Site, Backup: request.Backup, Consistency: manifest.Consistency, EntriesVerified: len(manifest.Entries), DatabasesChecked: append([]string(nil), manifest.Databases...), CompletedAt: time.Now().UTC()}
+	err = filepath.WalkDir(stage, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := operationCtx.Err(); err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("backup rehearsal found symlink %q", strings.TrimPrefix(path, stage+string(filepath.Separator)))
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("backup rehearsal found non-regular file %q", path)
+		}
+		result.FilesExtracted++
+		result.BytesExtracted += info.Size()
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("validate extracted backup: %w", err)
+	}
+	for _, database := range manifest.Databases {
+		path, err := safePath(stage, "databases", database+".sql")
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("database dump %q is missing", database)
+		}
+	}
+	recordAudit(a.Config.AuditLog, request.Actor, "backup.rehearsal.completed", request.Site, request.Backup)
+	return json.Marshal(result)
+}
+
+func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
+		http.Error(w, "invalid request", http.StatusForbidden)
+		return
+	}
+	var input durableBackupRehearsalRequest
+	if err := decodeJSON(w, r, 4096, &input); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	input.Site = safeUser(input.Site)
+	input.Backup = strings.TrimSpace(input.Backup)
+	if input.Site == "" || !validBackupName(input.Backup) {
+		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
+		return
+	}
+	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
+		return
+	}
+	if !a.requireCustomerScope(w, r, "backup:restore") {
+		return
+	}
+	backupRoot, err := safePath(a.Config.BackupRoot, input.Backup)
+	if err != nil {
+		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
+		return
+	}
+	manifest, err := VerifySiteBackup(backupRoot, a.Config.BackupSigningKey)
+	if err != nil || manifest.Site != input.Site {
+		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
+		return
+	}
+	input.Actor = a.Auth.UsernameForRequest(r)
+	payload, err := json.Marshal(input)
+	if err != nil {
+		http.Error(w, "could not encode rehearsal job", http.StatusInternalServerError)
+		return
+	}
+	operationKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if operationKey != "" && !validJobOperationKey(operationKey) {
+		http.Error(w, "invalid idempotency key", http.StatusUnprocessableEntity)
+		return
+	}
+	job, _, err := a.Jobs.EnqueueIdempotent("backup.rehearsal", input.Site, operationKey, payload, 2)
+	if err != nil {
+		http.Error(w, "could not persist rehearsal job", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": filepath.Join("/api/jobs", job.ID), "kind": "backup.rehearsal"})
 }
 
 // backupVerify performs the same archive and manifest checks used before a
