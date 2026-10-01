@@ -33,6 +33,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	h "github.com/cyberducttape/StePanel/internal/helper"
@@ -427,6 +428,9 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if err := syncTree(ctx, stagedEntry); err != nil {
+		return nil, fmt.Errorf("sites.Manager: persist staged site: %w", err)
+	}
 	if err := renameDurable(stagedEntry, destination); err != nil {
 		return nil, fmt.Errorf("sites.Manager: activate staged site: %w", err)
 	}
@@ -442,6 +446,11 @@ func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stag
 	siteRoot, destination, stagedEntry, err := m.inspectStaged(name, stagedRoot)
 	if err != nil {
 		return "", err
+	}
+	// Make the staged release durable before the current release is moved
+	// aside, so a crash can never leave an unwritten tree published.
+	if err := syncTree(ctx, stagedEntry); err != nil {
+		return "", fmt.Errorf("sites.Manager: persist staged release: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -531,6 +540,37 @@ var syncDir = func(path string) error {
 		err = closeErr
 	}
 	return err
+}
+
+// syncTree fsyncs every regular file and directory under root (without
+// following symlinks) so staged data is durable before it is published.
+// Tests replace it to inject I/O failures.
+const syscallNoFollow = syscall.O_NOFOLLOW
+
+var syncTree = func(ctx context.Context, root string) error {
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !entry.IsDir() && !entry.Type().IsRegular() {
+			return nil
+		}
+		file, err := os.OpenFile(path, os.O_RDONLY|syscallNoFollow, 0)
+		if err != nil {
+			return err
+		}
+		err = file.Sync()
+		if closeErr := file.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return fmt.Errorf("sync %s: %w", path, err)
+		}
+		return nil
+	})
 }
 
 // renameDurable renames from to to and fsyncs the destination's parent so

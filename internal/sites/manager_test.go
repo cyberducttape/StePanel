@@ -564,3 +564,45 @@ func TestRenameDurableReportsPublishedPathWhenReversalFails(t *testing.T) {
 		t.Fatalf("published path should still exist: %v", statErr)
 	}
 }
+
+func TestActivateStagedReplacingRefusesUndurableStage(t *testing.T) {
+	m, root := newManager(t)
+	public := filepath.Join(root, "sites", "durable-site", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "version"), []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stage, err := m.CreateReleaseStaging(context.Background(), "durable-site", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("injected EIO during data sync")
+	original := syncTree
+	syncTree = func(context.Context, string) error { return injected }
+	defer func() { syncTree = original }()
+	if _, err := m.ActivateStagedReplacing(context.Background(), "durable-site", stage); !errors.Is(err, injected) {
+		t.Fatalf("activation error = %v, want staged data sync failure", err)
+	}
+	data, err := os.ReadFile(filepath.Join(public, "version"))
+	if err != nil || string(data) != "old" {
+		t.Fatalf("current release disturbed by refused activation: %q, %v", data, err)
+	}
+}
+
+func TestSyncTreeSyncsFilesAndSkipsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "a", "b"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a", "b", "f"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/nonexistent", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncTree(context.Background(), root); err != nil {
+		t.Fatalf("syncTree: %v", err)
+	}
+}
