@@ -340,12 +340,8 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	if err := os.Rename(tempDir, finalPath); err != nil {
-		return result, err
-	}
-	if err := syncDirectory(cfg.BackupRoot); err != nil {
-		_ = os.Rename(finalPath, tempDir)
-		return result, err
+	if err := publishStagedDirectory(tempDir, finalPath, cfg.BackupRoot); err != nil {
+		return result, fmt.Errorf("publish backup: %w", err)
 	}
 	result = BackupResult{Site: siteName, Path: finalPath, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: cfg.BackupSigningKey != ""}
 	return result, nil
@@ -532,11 +528,11 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 	if err != nil {
 		return result, fmt.Errorf("invalid database safety backup path: %w", err)
 	}
-	if err := os.Rename(temp, final); err != nil {
+	if err := syncDirectory(temp); err != nil {
 		return result, err
 	}
-	if err := syncDirectory(root); err != nil {
-		return result, err
+	if err := publishStagedDirectory(temp, final, root); err != nil {
+		return result, fmt.Errorf("publish database safety backup: %w", err)
 	}
 	result.Path = final
 	return result, nil
@@ -791,6 +787,51 @@ func writeSyncedFile(directory, name string, data []byte, mode os.FileMode) erro
 		err = closeErr
 	}
 	return err
+}
+
+// publishSyncDirectory is the parent-directory fsync used by
+// publishStagedDirectory; tests replace it to inject I/O failures.
+var publishSyncDirectory = syncDirectory
+
+// PublishIndeterminateError reports that a staged directory was renamed to
+// its final name, the parent directory could not be fsynced, and the rename
+// could not be reversed. The published content is complete and still present
+// at Path, but its directory entry may not survive power loss. Callers must
+// surface this state instead of reporting a clean failure.
+type PublishIndeterminateError struct {
+	Path        string
+	SyncErr     error
+	RollbackErr error
+}
+
+func (e *PublishIndeterminateError) Error() string {
+	return fmt.Sprintf("%s was published but is not durable (parent sync: %v) and could not be withdrawn (rollback: %v)", e.Path, e.SyncErr, e.RollbackErr)
+}
+
+func (e *PublishIndeterminateError) Unwrap() []error {
+	return []error{e.SyncErr, e.RollbackErr}
+}
+
+// publishStagedDirectory renames a fully synced staged directory to final
+// and fsyncs parent so the new directory entry is durable. When the parent
+// fsync fails the rename is reversed so a failed result never leaves a
+// half-committed publication behind; if the reversal itself fails, a
+// *PublishIndeterminateError names the path that remains published.
+func publishStagedDirectory(staged, final, parent string) error {
+	if err := os.Rename(staged, final); err != nil {
+		return err
+	}
+	syncErr := publishSyncDirectory(parent)
+	if syncErr == nil {
+		return nil
+	}
+	if rollbackErr := os.Rename(final, staged); rollbackErr != nil {
+		return &PublishIndeterminateError{Path: final, SyncErr: syncErr, RollbackErr: rollbackErr}
+	}
+	if err := publishSyncDirectory(parent); err != nil {
+		return fmt.Errorf("sync parent directory: %w (rollback rename is also not durable: %v)", syncErr, err)
+	}
+	return fmt.Errorf("sync parent directory: %w", syncErr)
 }
 
 func syncDirectory(path string) error {
