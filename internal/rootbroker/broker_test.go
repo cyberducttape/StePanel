@@ -499,6 +499,62 @@ func TestBrokerDBProvision(t *testing.T) {
 	}
 }
 
+func TestBrokerDatabaseDumpAndRestore(t *testing.T) {
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsPath := filepath.Join(t.TempDir(), "args")
+	inputPath := filepath.Join(t.TempDir(), "input")
+	dbctl := filepath.Join(t.TempDir(), "dbctl")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$*\" >> \"$DBCTL_ARGS\"\n" +
+		"if [ \"$1\" = dump ]; then printf 'CREATE TABLE smoke (id INT);\\n'; else cat > \"$DBCTL_INPUT\"; fi\n"
+	if err := os.WriteFile(dbctl, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DBCTL_ARGS", argsPath)
+	t.Setenv("DBCTL_INPUT", inputPath)
+	broker.dbctlPath = dbctl
+
+	dumpResponse, err := broker.Execute(context.Background(), &Request{
+		RequestType: "db",
+		DB:          &DBRequest{Action: "dump", Database: "smoke_db", Username: "dump"},
+	})
+	if err != nil || dumpResponse == nil || !dumpResponse.OK {
+		t.Fatalf("dump response = %#v, err = %v", dumpResponse, err)
+	}
+	var dumpDetails DBResponse
+	if err := json.Unmarshal(dumpResponse.Details, &dumpDetails); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(dumpDetails.DumpData), "CREATE TABLE smoke (id INT);\n"; got != want {
+		t.Fatalf("dump payload = %q, want %q", got, want)
+	}
+
+	restoreResponse, err := broker.Execute(context.Background(), &Request{
+		RequestType: "db",
+		DB:          &DBRequest{Action: "restore-dump", Database: "smoke_db", Username: "restore", Site: "smoke_site", DumpData: []byte("INSERT INTO smoke VALUES (1);\n")},
+	})
+	if err != nil || restoreResponse == nil || !restoreResponse.OK {
+		t.Fatalf("restore response = %#v, err = %v", restoreResponse, err)
+	}
+	input, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(input), "INSERT INTO smoke VALUES (1);\n"; got != want {
+		t.Fatalf("restore input = %q, want %q", got, want)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(args)), "dump smoke_db\nrestore-dump smoke_db smoke_site"; got != want {
+		t.Fatalf("helper args = %q, want %q", got, want)
+	}
+}
+
 func TestBrokerCleanupWordPressPreservesDedicatedHelperAction(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
 	broker, err := newTestBroker(t, t.TempDir(), logger)
