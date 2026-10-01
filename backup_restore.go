@@ -23,6 +23,8 @@ type DurableBackupRestoreRequest = backup.DurableBackupRestoreRequest
 // Lowercase alias for backward compatibility with existing code
 type durableBackupRestoreRequest = backup.DurableBackupRestoreRequest
 
+const maxDirectBrokerDatabaseDumpBytes = 64 << 20
+
 type durableBackupRehearsalRequest struct {
 	Site   string `json:"site"`
 	Backup string `json:"backup"`
@@ -801,6 +803,9 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	ctx, cancel := context.WithTimeout(ctx, helperBackupRestoreTimeout)
 	defer cancel()
 	if labDirectRootBrokerEnabled() {
+		if info.Size() > maxDirectBrokerDatabaseDumpBytes {
+			return BackupRestoreResult{}, errors.New("database dump exceeds the isolated broker limit")
+		}
 		dumpData, readErr := os.ReadFile(dump)
 		if readErr != nil {
 			return BackupRestoreResult{}, readErr
