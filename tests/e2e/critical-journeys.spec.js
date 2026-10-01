@@ -7,10 +7,10 @@ const password = process.env.STEPANEL_E2E_PASSWORD;
 const totp = process.env.STEPANEL_E2E_TOTP;
 
 test.beforeEach(async ({ page }) => {
-  test.skip(!enabled || !password, 'Set STEPanel_E2E_BASE_URL and STEPANEL_E2E_PASSWORD for a disposable seeded instance');
+  test.skip(!enabled || !password, 'Set STEPANEL_E2E_BASE_URL and STEPANEL_E2E_PASSWORD for a disposable seeded instance');
   await page.goto('/login');
   await page.getByLabel('Username').fill(username);
-  await page.getByLabel('Password').fill(password);
+  await page.getByLabel('Password', { exact: true }).fill(password);
   if (totp) await page.getByLabel('Authenticator code').fill(totp);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).not.toHaveURL(/\/login$/);
@@ -35,19 +35,19 @@ test('keyboard navigation and appearance dialog', async ({ page }) => {
 });
 
 test('create site journey exposes the Sites workspace', async ({ page }) => {
-  await page.getByRole('link', { name: 'Sites' }).click();
+  await page.getByRole('link', { name: 'Sites', exact: true }).click();
   await expect(page.locator('#sites')).toBeInViewport();
 });
 
 test('cPanel inspection journey exposes migration controls', async ({ page }) => {
   await page.getByRole('link', { name: 'Migrations' }).click();
   await expect(page.locator('#migrations')).toBeInViewport();
-  await expect(page.getByText('Import a cPanel backup')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Import a cpmove backup' })).toBeVisible();
 });
 
 test('migration queue and durable Job Center', async ({ page }) => {
   await page.getByRole('button', { name: /Operations/ }).click();
-  await expect(page.getByRole('heading', { name: 'Operations' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Operations', exact: true })).toBeVisible();
   await expect(page.locator('#jobCenterList')).toBeVisible();
 });
 
@@ -79,7 +79,7 @@ test('customer isolation journey keeps administrator controls role-scoped', asyn
   const customerPage = await customer.newPage();
   await customerPage.goto('/login');
   await customerPage.getByLabel('Username').fill(process.env.STEPANEL_E2E_CUSTOMER_USERNAME || 'customer');
-  await customerPage.getByLabel('Password').fill(process.env.STEPANEL_E2E_CUSTOMER_PASSWORD);
+  await customerPage.getByLabel('Password', { exact: true }).fill(process.env.STEPANEL_E2E_CUSTOMER_PASSWORD);
   await customerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(customerPage.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await expect(customerPage.getByRole('link', { name: 'Security' })).toHaveCount(0);

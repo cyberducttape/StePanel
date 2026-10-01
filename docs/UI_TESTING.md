@@ -1,12 +1,25 @@
 # UI testing
 
 The browser suite uses Playwright and axe-core against a disposable seeded
-StePanel instance. It is intentionally opt-in because the repository does not
-contain test credentials or a safe demo server.
+StePanel instance. CI runs it on every push and pull request (the `ui-e2e`
+job in `.github/workflows/ci.yml`), so it is a merge gate.
+
+`scripts/e2e-ui-test.sh` starts a throwaway control plane under a temporary
+root with generated test-only secrets, waits for `/livez`, and runs the suite:
 
 ```sh
-npm install
+go build -o stepanel .
+npm ci
 npx playwright install chromium
+./scripts/e2e-ui-test.sh ./stepanel
+```
+
+On hosts where Playwright's bundled Chromium is unsupported, use an installed
+Google Chrome instead with `PLAYWRIGHT_CHANNEL=chrome`.
+
+To run against an instance you started yourself:
+
+```sh
 STEPANEL_E2E_BASE_URL=http://127.0.0.1:18090 \
 STEPANEL_E2E_PASSWORD='disposable-password' \
 npm run test:e2e

@@ -13,6 +13,8 @@ module.exports = defineConfig({
     video: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // PLAYWRIGHT_CHANNEL=chrome uses an installed Google Chrome on hosts
+    // where Playwright's bundled Chromium is unsupported.
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) } },
   ],
 });

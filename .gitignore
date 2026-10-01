@@ -14,3 +14,6 @@ crash.*.log
 .DS_Store
 StePanel
 stepanel
+node_modules/
+test-results/
+playwright-report/
