@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -206,9 +207,15 @@ func (c *Client) AppApply(ctx context.Context, site string, version string, port
 			Site:    site,
 			Version: version,
 			Port:    port,
+			Root:    filepath.Join(c.webRoot, "sites", site, "public"),
 		},
 	}
 	return c.Execute(ctx, req)
+}
+
+// AppOperation submits a validated typed application lifecycle operation.
+func (c *Client) AppOperation(ctx context.Context, app AppRequest) (*Response, error) {
+	return c.Execute(ctx, &Request{RequestType: "app", App: &app})
 }
 
 // AppDelete removes managed application services for a site.

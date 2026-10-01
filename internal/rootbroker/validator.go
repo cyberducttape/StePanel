@@ -411,7 +411,7 @@ func (v *Validator) validateHelperRequest(req *HelperRequest) error {
 		return fmt.Errorf("helper request is nil")
 	}
 	allowed := map[string]map[string]bool{
-		"appctl":    {"apply": true, "delete": true, "start": true, "stop": true, "restart": true, "python-apply": true, "python-start": true, "python-stop": true, "python-restart": true, "node-tool": true, "composer-install": true, "env-apply": true, "worker-apply": true, "worker-delete": true, "worker-start": true, "worker-stop": true, "worker-restart": true, "resource-apply": true, "account-resource-apply": true, "resource-status": true},
+		"appctl":    {"python-apply": true, "python-start": true, "python-stop": true, "python-restart": true, "node-tool": true, "composer-install": true, "env-apply": true, "worker-apply": true, "worker-delete": true, "worker-start": true, "worker-stop": true, "worker-restart": true, "resource-apply": true, "account-resource-apply": true, "resource-status": true},
 		"proxyctl":  {"apply": true, "delete": true, "reload": true},
 		"sitectl":   {"prepare": true, "seal": true, "delete": true, "access": true, "resources": true, "quota": true, "quota-clear": true, "runtime": true},
 		"vhostctl":  {"apply": true, "delete": true, "apply-auth": true, "import-htaccess": true},
@@ -458,12 +458,23 @@ func (v *Validator) validateAppRequest(req *AppRequest) error {
 	if req == nil {
 		return fmt.Errorf("app request is nil")
 	}
+	switch req.Action {
+	case "apply", "delete", "start", "stop", "restart", "rollback":
+	default:
+		return errors.New("unsupported app action")
+	}
 	if err := v.ValidateSiteName(req.Site); err != nil {
 		return fmt.Errorf("invalid site: %w", err)
 	}
-	if req.Port > 0 {
+	if req.Action == "apply" {
+		if err := v.ValidateNodeVersion(req.Version); err != nil {
+			return err
+		}
 		if err := v.ValidatePort(req.Port); err != nil {
 			return err
+		}
+		if filepath.Clean(req.Root) != filepath.Join(v.webRoot, "sites", req.Site, "public") {
+			return errors.New("app root must be the site's public directory")
 		}
 	}
 	return nil

@@ -550,185 +550,45 @@ func (b *Broker) handleAppRequest(ctx context.Context, req *AppRequest) (*Respon
 	b.logger.Printf("app: action=%s site=%s port=%d", req.Action, req.Site, req.Port)
 
 	switch req.Action {
-	case "apply":
-		return b.appApply(ctx, req)
-	case "delete":
-		return b.appDelete(ctx, req)
-	case "start":
-		return b.appStart(ctx, req)
-	case "stop":
-		return b.appStop(ctx, req)
-	case "restart":
-		return b.appRestart(ctx, req)
+	case "apply", "delete", "start", "stop", "restart":
+		return b.runAppHelper(ctx, req)
 	case "rollback":
-		return b.appRollback(ctx, req)
+		// Rollback is orchestrated by the panel as an apply of the previous manifest.
+		return unsupportedBrokerResponse("app rollback")
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown app action: %s", req.Action)}, nil
 	}
 }
 
-func (b *Broker) appDelete(ctx context.Context, req *AppRequest) (*Response, error) {
-	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
-		return b.runLabHelper(ctx, "/usr/local/sbin/stepanel-appctl", "delete", req.Site)
+func (b *Broker) runAppHelper(ctx context.Context, req *AppRequest) (*Response, error) {
+	args := []string{req.Action, req.Site}
+	if req.Action == "apply" {
+		// The helper only accepts bare X.Y.Z versions; the validator permits a leading "v".
+		args = append(args, strings.TrimPrefix(req.Version, "v"), filepath.Clean(req.Root), strconv.Itoa(req.Port))
 	}
-	return unsupportedBrokerResponse("app delete")
-}
-
-func (b *Broker) appApply(ctx context.Context, req *AppRequest) (*Response, error) {
-	return unsupportedBrokerResponse("app apply")
-	/*
-		if response, err := unsupportedBrokerResponse("app apply"); response != nil || err != nil {
-			return response, err
-		}
-		b.logger.Printf("applying app config: site=%s version=%s port=%d", req.Site, req.Version, req.Port)
-
-		// Validate inputs
-		siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
-		if err != nil {
-			return &Response{OK: false, Error: fmt.Sprintf("invalid site: %v", err)}, nil
-		}
-
-		// Use site + version as job ID for journaling
-		jobID := "app-deploy-" + req.Site + "-" + req.Version
-		actor := "root"
-		releaseID := req.Version
-
-		// Load or create durable journal for this deployment
-		journal, err := loadOrCreateDeploymentJournal(b.recoveryRoot, jobID, req.Site, releaseID, actor)
-		if err != nil {
-			b.logger.Printf("failed to load deployment journal: %v", err)
-			return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-		}
-
-		// Step 1: Validate app archive/version
-		if !journal.isComplete(stepAppValidated) {
-			// In real implementation, would verify archive integrity, checksum, etc.
-			b.logger.Printf("validating app version: %s", req.Version)
-
-			if err := journal.markComplete(stepAppValidated); err != nil {
-				b.logger.Printf("failed to journal validation: %v", err)
-				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-			}
-		} else {
-			b.logger.Printf("skipping validation (already complete)")
-		}
-
-		// Step 2: Extract app to staging location
-		if !journal.isComplete(stepAppExtracted) {
-			// In real implementation, would extract archive to staging directory
-			stagingPath := filepath.Join(siteRoot, ".staging", req.Version)
-			journal.setStagingLocation(stagingPath)
-
-			b.logger.Printf("extracting app to: %s", stagingPath)
-			if err := os.MkdirAll(stagingPath, 0o750); err != nil {
-				return &Response{OK: false, Error: fmt.Sprintf("extraction failed: %v", err)}, nil
-			}
-
-			if err := journal.markComplete(stepAppExtracted); err != nil {
-				b.logger.Printf("failed to journal extraction: %v", err)
-				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-			}
-		} else {
-			b.logger.Printf("skipping extraction (already complete)")
-		}
-
-		// Step 3: Save rollback target (current app version)
-		if !journal.isComplete(stepRollbackTargeted) {
-			currentAppPath := filepath.Join(siteRoot, "public")
-			journal.setRollbackPath(currentAppPath)
-
-			b.logger.Printf("saving rollback target at: %s", currentAppPath)
-
-			if err := journal.markComplete(stepRollbackTargeted); err != nil {
-				b.logger.Printf("failed to journal rollback target: %v", err)
-				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-			}
-		} else {
-			b.logger.Printf("skipping rollback target (already complete)")
-		}
-
-		// Step 4: Activate new app (move from staging to live)
-		if !journal.isComplete(stepAppActivated) {
-			stagingPath := filepath.Join(siteRoot, ".staging", req.Version)
-			activePath := filepath.Join(siteRoot, "public")
-
-			b.logger.Printf("activating app from %s to %s", stagingPath, activePath)
-			// In real implementation, would atomically move staging to live
-			// For now, just verify staging exists
-			if _, err := os.Stat(stagingPath); err != nil {
-				return &Response{OK: false, Error: fmt.Sprintf("staging not found: %v", err)}, nil
-			}
-
-			if err := journal.markComplete(stepAppActivated); err != nil {
-				b.logger.Printf("failed to journal activation: %v", err)
-				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-			}
-		} else {
-			b.logger.Printf("skipping activation (already complete)")
-		}
-
-		// Step 5: Verify app is responsive
-		if !journal.isComplete(stepAppVerified) {
-			b.logger.Printf("verifying app responsiveness on port %d", req.Port)
-			// In real implementation, would test HTTP endpoint
-			// For now, just mark complete
-			if err := journal.markComplete(stepAppVerified); err != nil {
-				b.logger.Printf("failed to journal verification: %v", err)
-				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-			}
-		} else {
-			b.logger.Printf("skipping verification (already complete)")
-		}
-
-		// Step 6: Update app metadata
-		if !journal.isComplete(stepMetadataUpdated) {
-			metadataPath := filepath.Join(siteRoot, ".metadata")
-			metadata := map[string]interface{}{
-				"app_version": req.Version,
-				"app_port":    req.Port,
-				"deployed_at": time.Now().UTC(),
-			}
-			metadataJSON, _ := json.Marshal(metadata)
-
-			b.logger.Printf("updating app metadata")
-			if err := writeAtomicBroker(metadataPath, metadataJSON, 0600); err != nil {
-				return &Response{OK: false, Error: fmt.Sprintf("metadata update failed: %v", err)}, nil
-			}
-
-			if err := journal.markComplete(stepMetadataUpdated); err != nil {
-				b.logger.Printf("failed to journal metadata: %v", err)
-				return &Response{OK: false, Error: fmt.Sprintf("journal error: %v", err)}, nil
-			}
-		} else {
-			b.logger.Printf("skipping metadata (already complete)")
-		}
-
-		// All steps complete: clean up journal
-		if err := journal.cleanup(); err != nil {
-			b.logger.Printf("warning: failed to cleanup journal: %v", err)
-			// Don't fail the operation if journal cleanup fails
-		}
-
-		resp := AppResponse{Applied: true, Port: req.Port}
-		details, _ := json.Marshal(resp)
-		return &Response{OK: true, Details: details}, nil
-	*/
-}
-
-func (b *Broker) appStart(ctx context.Context, req *AppRequest) (*Response, error) {
-	return unsupportedBrokerResponse("app start")
-}
-
-func (b *Broker) appStop(ctx context.Context, req *AppRequest) (*Response, error) {
-	return unsupportedBrokerResponse("app stop")
-}
-
-func (b *Broker) appRestart(ctx context.Context, req *AppRequest) (*Response, error) {
-	return unsupportedBrokerResponse("app restart")
-}
-
-func (b *Broker) appRollback(ctx context.Context, req *AppRequest) (*Response, error) {
-	return unsupportedBrokerResponse("app rollback")
+	cmd := stepanelhelper.NewCommand(ctx, b.appctlPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("application %s failed: %v: %s", req.Action, err, strings.TrimSpace(string(output)))}, nil
+	}
+	result := AppResponse{Output: string(output), Port: req.Port}
+	switch req.Action {
+	case "apply":
+		result.Applied = true
+	case "delete":
+		result.Deleted = true
+	case "start":
+		result.Started = true
+	case "stop":
+		result.Stopped = true
+	case "restart":
+		result.Restarted = true
+	}
+	details, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 // --- Database Operations ---

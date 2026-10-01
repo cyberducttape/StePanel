@@ -68,6 +68,14 @@ func (mc *MetadataCache) InvalidateAll() {
 	mc.proxiesMu.Unlock()
 }
 
+// InvalidateApps clears the cached application manifests (called after app operations).
+func (mc *MetadataCache) InvalidateApps() {
+	mc.mu.Lock()
+	mc.apps = nil
+	mc.appsExpires = time.Time{}
+	mc.mu.Unlock()
+}
+
 // InvalidateSite clears cache for a specific site (called after site operations).
 func (mc *MetadataCache) InvalidateSite(site string) {
 	mc.mu.Lock()

@@ -133,12 +133,14 @@ type AppRequest struct {
 }
 
 type AppResponse struct {
-	Applied    bool `json:"applied,omitempty"`
-	Started    bool `json:"started,omitempty"`
-	Stopped    bool `json:"stopped,omitempty"`
-	Restarted  bool `json:"restarted,omitempty"`
-	RolledBack bool `json:"rolled_back,omitempty"`
-	Port       int  `json:"port,omitempty"`
+	Applied    bool   `json:"applied,omitempty"`
+	Deleted    bool   `json:"deleted,omitempty"`
+	Started    bool   `json:"started,omitempty"`
+	Stopped    bool   `json:"stopped,omitempty"`
+	Restarted  bool   `json:"restarted,omitempty"`
+	RolledBack bool   `json:"rolled_back,omitempty"`
+	Port       int    `json:"port,omitempty"`
+	Output     string `json:"output,omitempty"`
 }
 
 // --- Database Operations ---

@@ -394,7 +394,7 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 				err = errors.New(resp.Error)
 			}
 		} else {
-			err = runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "delete", siteName)
+			err = runAppLifecycle(ctx, a.Config, "delete", siteName)
 		}
 		if err != nil {
 			return fmt.Errorf("remove managed application services for %s: %w", siteName, err)

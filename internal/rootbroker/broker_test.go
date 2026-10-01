@@ -392,28 +392,76 @@ func writeFakeCommand(t *testing.T, dir, name, body string) {
 }
 
 func TestBrokerAppApply(t *testing.T) {
-	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := NewBroker(t.TempDir(), logger)
+	webRoot := t.TempDir()
+	broker, err := NewBroker(webRoot, log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
-
-	ctx := context.Background()
-	req := &Request{
-		RequestType: "app",
-		App: &AppRequest{
-			Action: "apply",
-			Site:   "testsite",
-			Port:   3000,
-		},
+	fakeAppctl := filepath.Join(t.TempDir(), "appctl")
+	if err := os.WriteFile(fakeAppctl, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0700); err != nil {
+		t.Fatal(err)
 	}
+	broker.appctlPath = fakeAppctl
+	root := filepath.Join(webRoot, "sites", "testsite", "public")
+	resp, err := broker.Execute(context.Background(), &Request{RequestType: "app", App: &AppRequest{Action: "apply", Site: "testsite", Version: "v18.0.0", Port: 3000, Root: root}})
+	if err != nil || !resp.OK {
+		t.Fatalf("app apply response = %#v, error = %v", resp, err)
+	}
+	var details AppResponse
+	if err := json.Unmarshal(resp.Details, &details); err != nil || !details.Applied || details.Port != 3000 {
+		t.Fatalf("app apply details = %#v, error = %v", details, err)
+	}
+	want := "apply\ntestsite\n18.0.0\n" + root + "\n3000\n"
+	if details.Output != want {
+		t.Fatalf("helper arguments = %q, want %q", details.Output, want)
+	}
+}
 
-	resp, err := broker.Execute(ctx, req)
+func TestBrokerAppLifecycleUsesFixedHelper(t *testing.T) {
+	for _, action := range []string{"delete", "start", "stop", "restart"} {
+		t.Run(action, func(t *testing.T) {
+			broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fakeAppctl := filepath.Join(t.TempDir(), "appctl")
+			script := "#!/bin/sh\n[ \"$#\" -eq 2 ] && [ \"$1\" = \"" + action + "\" ] && [ \"$2\" = demo ] || exit 9\n"
+			if err := os.WriteFile(fakeAppctl, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			broker.appctlPath = fakeAppctl
+			resp, err := broker.Execute(context.Background(), &Request{RequestType: "app", App: &AppRequest{Action: action, Site: "demo"}})
+			if err != nil || !resp.OK {
+				t.Fatalf("typed app %s response = %#v, error = %v", action, resp, err)
+			}
+			var details AppResponse
+			if err := json.Unmarshal(resp.Details, &details); err != nil {
+				t.Fatal(err)
+			}
+			done := map[string]bool{"delete": details.Deleted, "start": details.Started, "stop": details.Stopped, "restart": details.Restarted}
+			if !done[action] {
+				t.Fatalf("typed app %s details = %#v", action, details)
+			}
+		})
+	}
+}
+
+func TestBrokerAppHelperFailureIsReported(t *testing.T) {
+	broker, err := NewBroker(t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
-		t.Errorf("Execute failed: %v", err)
+		t.Fatal(err)
 	}
-	if resp.OK || !strings.Contains(resp.Error, "not implemented") {
-		t.Fatalf("app apply response = %#v, want explicit unsupported response", resp)
+	fakeAppctl := filepath.Join(t.TempDir(), "appctl")
+	if err := os.WriteFile(fakeAppctl, []byte("#!/bin/sh\necho 'application is not configured' >&2\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker.appctlPath = fakeAppctl
+	resp, err := broker.Execute(context.Background(), &Request{RequestType: "app", App: &AppRequest{Action: "start", Site: "demo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK || !strings.Contains(resp.Error, "application is not configured") {
+		t.Fatalf("app start failure response = %#v", resp)
 	}
 }
 
@@ -523,9 +571,6 @@ func TestBrokerRejectsEveryUnimplementedMutation(t *testing.T) {
 		{name: "site quota", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "quota", Site: "testsite"}}},
 		{name: "site quota clear", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "quota-clear", Site: "testsite"}}},
 		{name: "site runtime", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "runtime", Site: "testsite", PHPVersion: "8.2"}}},
-		{name: "app start", req: &Request{RequestType: "app", App: &AppRequest{Action: "start", Site: "testsite", Port: 3000}}},
-		{name: "app stop", req: &Request{RequestType: "app", App: &AppRequest{Action: "stop", Site: "testsite", Port: 3000}}},
-		{name: "app restart", req: &Request{RequestType: "app", App: &AppRequest{Action: "restart", Site: "testsite", Port: 3000}}},
 		{name: "app rollback", req: &Request{RequestType: "app", App: &AppRequest{Action: "rollback", Site: "testsite", Port: 3000}}},
 		{name: "vhost auth", req: &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "apply-auth", Site: "testsite", Domain: "example.com", WebServer: "caddy"}}},
 		{name: "vhost delete", req: &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Site: "testsite", Domain: "example.com", WebServer: "caddy"}}},

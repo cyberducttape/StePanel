@@ -406,6 +406,11 @@ func ValidateConfig(c Config) error {
 		}
 	}
 	if c.Production {
+		// The root helpers and the root broker are pinned to /var/www; any other
+		// web root makes every privileged site and application operation fail.
+		if filepath.Clean(c.WebRoot) != "/var/www" {
+			problems = append(problems, errors.New("production requires STEPANEL_WEB_ROOT=/var/www to match the privileged helpers"))
+		}
 		if len(strings.TrimSpace(c.EnvironmentKey)) < 32 || strings.ContainsAny(c.EnvironmentKey, "\r\n") {
 			problems = append(problems, errors.New("production requires STEPANEL_ENVIRONMENT_KEY of at least 32 characters without newlines"))
 		} else if err := validateEncryptionKey(c.EnvironmentKey, "STEPANEL_ENVIRONMENT_KEY"); err != nil {

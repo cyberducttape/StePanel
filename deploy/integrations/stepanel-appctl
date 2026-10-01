@@ -72,6 +72,14 @@ enable_units() {
   fi
   systemd_unlock
 }
+disable_units() {
+  systemd_lock
+  if ! systemctl --no-reload disable "$@" || ! systemctl daemon-reload; then
+    systemd_unlock
+    return 1
+  fi
+  systemd_unlock
+}
 
 # Dispatch actions that don't require site-user validation first
 if [[ $action == delete ]]; then
@@ -195,7 +203,6 @@ UMask=0027
 LimitNOFILE=65536
 TasksMax=256
 ReadWritePaths=$root
-ReadWritePaths=$task_root
 
 [Install]
 WantedBy=multi-user.target
@@ -604,6 +611,18 @@ EOF
     if (( ${#worker_units[@]} > 0 )); then
       systemctl try-restart "${worker_units[@]}" 2>/dev/null || true
     fi ;;
+  start|stop|restart)
+    (( $# == 2 )) || { echo "usage: stepanel-appctl $action SITE" >&2; exit 64; }
+    [[ -f /etc/systemd/system/$unit ]] || { echo 'application is not configured' >&2; exit 1; }
+    # A stopped application stays stopped across reboots, so stop also
+    # disables the unit and start/restart enable it again.
+    if [[ $action == stop ]]; then
+      systemctl stop "$unit"
+      disable_units "$unit"
+    else
+      enable_units "$unit"
+      systemctl "$action" "$unit"
+    fi ;;
   python-start|python-stop|python-restart)
     (( $# == 2 )) || { echo "usage: stepanel-appctl $action SITE" >&2; exit 64; }
     systemctl "${action#python-}" "stepanel-app-${site}-python.service" ;;
@@ -611,5 +630,5 @@ EOF
     (( $# == 3 )) || { echo "usage: stepanel-appctl $action SITE NAME" >&2; exit 64; }
     name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid worker name' >&2; exit 1; }
     systemctl "${action#worker-}" "stepanel-worker-${site}-${name}.service" ;;
-  *) echo 'usage: stepanel-appctl apply|python-start|python-stop|python-restart|worker-start|worker-stop|worker-restart SITE ...' >&2; exit 64 ;;
+  *) echo 'usage: stepanel-appctl apply|delete|start|stop|restart|python-start|python-stop|python-restart|worker-start|worker-stop|worker-restart SITE ...' >&2; exit 64 ;;
 esac

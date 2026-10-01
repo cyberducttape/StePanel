@@ -377,9 +377,15 @@ func TestValidateEncoding(t *testing.T) {
 
 func TestValidateHelperRequestAllowlist(t *testing.T) {
 	v := NewValidator("/var/www")
-	valid := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "apply", Args: []string{"site", "18.0.0", "/var/www/sites/site/public", "3000"}}}
+	valid := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "python-start", Args: []string{"site"}}}
 	if err := v.ValidateRequest(valid); err != nil {
 		t.Fatalf("valid helper request rejected: %v", err)
+	}
+	for _, action := range []string{"apply", "delete", "start", "stop", "restart"} {
+		request := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: action, Args: []string{"demo"}}}
+		if err := v.ValidateRequest(request); err == nil {
+			t.Errorf("app helper action %q remained available through generic helper ABI", action)
+		}
 	}
 	for _, action := range []string{"task-apply", "task-history", "task-delete"} {
 		request := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: action, Args: []string{"demo", "nightly"}}}
@@ -408,7 +414,7 @@ func TestValidateHelperRequestAllowlist(t *testing.T) {
 	for _, req := range []*Request{
 		{RequestType: "helper", Helper: &HelperRequest{Name: "not-a-helper", Action: "apply"}},
 		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "shell"}},
-		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "apply", Args: []string{"bad\narg"}}},
+		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "python-start", Args: []string{"bad\narg"}}},
 	} {
 		if err := v.ValidateRequest(req); err == nil {
 			t.Errorf("invalid helper request accepted: %#v", req.Helper)
@@ -454,6 +460,35 @@ func TestValidateTypedTaskApplyRequest(t *testing.T) {
 		invalid.Task = &candidate
 		if err := v.ValidateRequest(&invalid); err == nil {
 			t.Errorf("invalid typed task apply accepted: %+v", candidate)
+		}
+	}
+}
+
+func TestValidateTypedAppRequest(t *testing.T) {
+	v := NewValidator("/var/www")
+	for _, req := range []*AppRequest{
+		{Action: "apply", Site: "demo", Version: "18.0.0", Port: 3000, Root: "/var/www/sites/demo/public"},
+		{Action: "apply", Site: "demo", Version: "v18.0.0", Port: 3000, Root: "/var/www/sites/demo/public/"},
+		{Action: "delete", Site: "demo"},
+		{Action: "start", Site: "demo"},
+		{Action: "stop", Site: "demo"},
+		{Action: "restart", Site: "demo"},
+	} {
+		if err := v.ValidateRequest(&Request{RequestType: "app", App: req}); err != nil {
+			t.Errorf("valid typed app request %+v rejected: %v", req, err)
+		}
+	}
+	for _, req := range []*AppRequest{
+		{Action: "shell", Site: "demo"},
+		{Action: "start", Site: "../demo"},
+		{Action: "apply", Site: "demo", Version: "18", Port: 3000, Root: "/var/www/sites/demo/public"},
+		{Action: "apply", Site: "demo", Version: "18.0.0", Port: 80, Root: "/var/www/sites/demo/public"},
+		{Action: "apply", Site: "demo", Version: "18.0.0", Port: 3000},
+		{Action: "apply", Site: "demo", Version: "18.0.0", Port: 3000, Root: "/var/www/sites/other/public"},
+		{Action: "apply", Site: "demo", Version: "18.0.0", Port: 3000, Root: "/var/www/sites/demo/public/../../other/public"},
+	} {
+		if err := v.ValidateRequest(&Request{RequestType: "app", App: req}); err == nil {
+			t.Errorf("invalid typed app request accepted: %+v", req)
 		}
 	}
 }

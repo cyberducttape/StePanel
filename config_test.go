@@ -329,3 +329,17 @@ func TestValidateConfigProductionRequiresFilesystemQuotaSupport(t *testing.T) {
 		t.Fatalf("production config with STEPANEL_SKIP_QUOTA_CHECK=1 rejected: %v", err)
 	}
 }
+
+func TestValidateConfigProductionRequiresHelperWebRoot(t *testing.T) {
+	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_SKIP_QUOTA_CHECK", "1")
+	cfg := LoadConfig()
+	cfg.WebRoot = "/srv/www"
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_WEB_ROOT=/var/www") {
+		t.Fatalf("production config with non-helper web root error = %v", err)
+	}
+	cfg.WebRoot = "/var/www/"
+	if err := ValidateConfig(cfg); err != nil && strings.Contains(err.Error(), "STEPANEL_WEB_ROOT=/var/www") {
+		t.Fatalf("production config rejected the helper web root: %v", err)
+	}
+}
