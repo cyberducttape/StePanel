@@ -1,8 +1,8 @@
 # Migration Doctor
 
-**Status:** Preview only; the endpoint is available, but remote inspection is not implemented
+**Status:** Read-only source preflight is implemented; staged migration orchestration remains separate.
 
-Migration Doctor is a planned pre-migration analysis tool. The current endpoint accepts SSH connection details but deliberately returns a synthetic, not-implemented result; it does not connect to or inspect the source server. Do not use its response as migration approval or production readiness evidence.
+Migration Doctor connects to the source over SSH using a fixed, non-interactive inspection script. It collects operating-system, PHP, database-client, storage, memory, CPU, and user-cron facts, then compares them with the configured destination. It is still an advisory preflight, not migration approval or production readiness evidence.
 
 ## Purpose
 
@@ -13,19 +13,21 @@ Before migrating a production site, operators need confidence that:
 - Custom code won't break in StePanel environment
 - Migration will complete within acceptable timeframe
 
-The future implementation is intended to provide automated analysis to catch issues early. Until then, operators must inspect and validate the source server manually.
+Unknown facts are reported as warnings or blockers rather than replaced with demo data. Operators must still verify mail, DNS, SSL, application plugins, database contents, custom directives, and credentials before migration.
 
 ## Planned Features
 
-### Server Analysis
+### Implemented server analysis
 
-- PHP version compatibility check (7.4 - 8.3 range)
-- Required PHP extensions detection (mysqli, pdo, gd, curl, etc.)
-- System resource assessment (memory, storage, network)
-- Database server type and version detection
-- Mail system configuration scan (Exim, Postfix, Sendmail)
+- PHP version and loaded-extension detection
+- OS, kernel, architecture, CPU, memory, and filesystem capacity
+- MySQL/PostgreSQL client and database-family detection
+- User crontab count
+- Destination free-space comparison and transfer/capacity estimates
 
-### Application Analysis
+SSH host keys should be supplied through `source_ssh_known_hosts`; strict host-key checking remains enabled. Private keys are accepted only when `STEPANEL_ACCOUNT_KEY` is configured, because the queued job must encrypt the durable payload.
+
+### Planned application analysis
 
 - WordPress core/plugin compatibility check
 - Custom code static analysis (deprecated functions, compatibility)
@@ -35,7 +37,7 @@ The future implementation is intended to provide automated analysis to catch iss
 
 ### Migration Impact Assessment
 
-- Estimated migration time based on archive size
+- Estimated migration time based on measured source data where available
 - Required downtime window recommendation
 - Network bandwidth requirements
 - Storage space needed on target
@@ -52,7 +54,7 @@ The future implementation is intended to provide automated analysis to catch iss
 
 ## Integration Points
 
-- `POST /api/admin/migration-doctor` — Queue a preview response (synthetic today)
+- `POST /api/admin/migration-doctor` — Queue a read-only source scan
 - `GET /api/admin/migration-doctor/status?job_id=:id` — Check job status
 - Export as PDF or JSON for stakeholder review is planned
 

@@ -101,17 +101,20 @@ type ExternalService struct {
 
 // MigrationAnalysis compares two inventories and identifies issues
 type MigrationAnalysis struct {
-	Mode                 string          `json:"mode,omitempty"`        // "real" or "not-implemented" or "synthetic-demo"
-	DataSource           string          `json:"data_source,omitempty"` // "actual-server-scan" or "synthetic-demo-only" or "not-implemented"
-	SourceInventory      ServerInventory `json:"source_inventory"`
-	DestinationInventory ServerInventory `json:"destination_inventory"`
-	AnalysisTime         time.Time       `json:"analysis_time"`
-	Blockers             []Issue         `json:"blockers"`      // Migration cannot proceed
-	Warnings             []Issue         `json:"warnings"`      // Migration possible but risky
-	InfoMessages         []string        `json:"info_messages"` // Informational
-	ReadyForMigration    bool            `json:"ready_for_migration"`
-	EstimatedDataGB      int64           `json:"estimated_data_gb"`
-	RecommendedActions   []string        `json:"recommended_actions"`
+	Mode                  string          `json:"mode,omitempty"`        // "real" or "not-implemented" or "synthetic-demo"
+	DataSource            string          `json:"data_source,omitempty"` // "actual-server-scan" or "synthetic-demo-only" or "not-implemented"
+	SourceInventory       ServerInventory `json:"source_inventory"`
+	DestinationInventory  ServerInventory `json:"destination_inventory"`
+	AnalysisTime          time.Time       `json:"analysis_time"`
+	Blockers              []Issue         `json:"blockers"`      // Migration cannot proceed
+	Warnings              []Issue         `json:"warnings"`      // Migration possible but risky
+	InfoMessages          []string        `json:"info_messages"` // Informational
+	ReadyForMigration     bool            `json:"ready_for_migration"`
+	EstimatedDataGB       int64           `json:"estimated_data_gb"`
+	RequiredDestinationGB int64           `json:"required_destination_gb"`
+	EstimatedTransferMin  int             `json:"estimated_transfer_minutes_min"`
+	EstimatedTransferMax  int             `json:"estimated_transfer_minutes_max"`
+	RecommendedActions    []string        `json:"recommended_actions"`
 }
 
 // Issue represents a blocker or warning

@@ -1,13 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/cyberducttape/StePanel/internal/doctor"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/doctor"
 )
 
 // migrationAnalysisRequest is the input for migration analysis
@@ -17,6 +19,7 @@ type migrationAnalysisRequest struct {
 	SourceSSHPort       int    `json:"source_ssh_port"`
 	SourceSSHUser       string `json:"source_ssh_user"`
 	SourceSSHKey        string `json:"source_ssh_key,omitempty"` // Base64-encoded private key
+	SourceSSHKnownHosts string `json:"source_ssh_known_hosts,omitempty"`
 	DestinationHostname string `json:"destination_hostname"`
 }
 
@@ -283,6 +286,10 @@ func (a *App) migrationDoctor(w http.ResponseWriter, r *http.Request) {
 	if req.SourceSSHUser == "" {
 		req.SourceSSHUser = "root"
 	}
+	if req.SourceSSHKey != "" && len(a.Config.AccountKey) < 32 {
+		http.Error(w, "source_ssh_key requires STEPANEL_ACCOUNT_KEY so the durable job can encrypt it", http.StatusUnprocessableEntity)
+		return
+	}
 
 	// Start analysis job
 	jobPayload, err := json.Marshal(req)
@@ -338,42 +345,23 @@ func (a *App) handleMigrationAnalysisJob(r *Job) ([]byte, error) {
 		return nil, fmt.Errorf("decode migration analysis request: %w", err)
 	}
 
-	// SECURITY: Do not accept SSH private keys until the feature is implemented.
-	// Storing SSH keys in durable job state creates a security risk if the
-	// account key is not configured.
-	if req.SourceSSHKey != "" {
-		return nil, fmt.Errorf("SSH key submission is not yet supported; feature implementation pending")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	source, err := inspectMigrationSource(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("inspect source server: %w", err)
 	}
-
-	// FIXME: This feature is not yet implemented. The code currently returns
-	// a synthetic analysis based on mock data, not actual source server inspection.
-	// Until the SSH connection and actual server scanning is implemented,
-	// return a response that clearly indicates this is a demo/not-yet-implemented.
-
-	// For now, return a response that clearly indicates this is synthetic
-	analysis := doctor.MigrationAnalysis{
-		Mode:       "not-implemented",
-		DataSource: "synthetic-demo-only",
-		Blockers: []doctor.Issue{
-			{
-				Severity:    "blocker",
-				Category:    "feature-incomplete",
-				Title:       "Migration Doctor Not Yet Implemented",
-				Description: "This feature is under development and does not yet perform actual server scanning",
-				Solution:    "Wait for feature implementation or contact support",
-			},
-		},
-		ReadyForMigration: false,
-	}
+	analysis := doctor.NewAnalyzer().Analyze(source, a.localMigrationInventory())
+	analysis.Mode = "real"
+	analysis.DataSource = "actual-server-scan"
 
 	result := migrationAnalysisResponse{
-		Analysis: analysis,
+		Analysis: *analysis,
 	}
 
-	// Record that this is a demo analysis
-	recordAudit(a.Config.AuditLog, "admin", "migration.analysis.demo-only",
+	recordAudit(a.Config.AuditLog, "admin", "migration.analysis.completed",
 		fmt.Sprintf("%s -> %s", req.SourceSSHHost, req.DestinationHostname),
-		"analysis returned is synthetic/not-implemented, not based on actual server inspection")
+		fmt.Sprintf("source scan completed: blockers=%d warnings=%d", len(analysis.Blockers), len(analysis.Warnings)))
 
 	output, err := json.Marshal(result)
 	if err != nil {

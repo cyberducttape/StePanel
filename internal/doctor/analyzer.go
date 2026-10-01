@@ -25,6 +25,13 @@ func (a *Analyzer) Analyze(source, destination ServerInventory) *MigrationAnalys
 		DestinationInventory: destination,
 		AnalysisTime:         time.Now().UTC(),
 	}
+	analysis.EstimatedDataGB = a.estimateMigrationSize(source)
+	// Reserve room for the source archive/database dump, staged files, and a
+	// conservative safety margin. This is an estimate, not an admission grant.
+	analysis.RequiredDestinationGB = analysis.EstimatedDataGB*2 + 5
+	// Report a range at 50–100 Mbps of sustained transfer throughput.
+	analysis.EstimatedTransferMin = int((analysis.EstimatedDataGB*8*60 + 100 - 1) / 100)
+	analysis.EstimatedTransferMax = int((analysis.EstimatedDataGB*8*60 + 50 - 1) / 50)
 
 	// Check all compatibility issues
 	a.checkPHPCompatibility(analysis)
@@ -37,7 +44,6 @@ func (a *Analyzer) Analyze(source, destination ServerInventory) *MigrationAnalys
 
 	// Determine readiness
 	analysis.ReadyForMigration = len(analysis.Blockers) == 0
-	analysis.EstimatedDataGB = a.estimateMigrationSize(source)
 
 	// Generate recommended actions
 	analysis.RecommendedActions = a.generateRecommendations(analysis)
@@ -206,15 +212,15 @@ func (a *Analyzer) checkExtensions(analysis *MigrationAnalysis) {
 }
 
 func (a *Analyzer) checkDiskSpace(analysis *MigrationAnalysis) {
-	estimated := a.estimateMigrationSize(analysis.SourceInventory)
+	estimated := analysis.RequiredDestinationGB
 	available := analysis.DestinationInventory.SystemResources.AvailableDiskGB
 
 	if estimated > available {
 		analysis.Blockers = append(analysis.Blockers, Issue{
 			Severity:    "blocker",
 			Category:    "disk_space",
-			Title:       fmt.Sprintf("Insufficient disk space: %d GB needed, %d GB available", estimated, available),
-			Description: fmt.Sprintf("Migration requires ~%d GB but destination only has %d GB available", estimated, available),
+			Title:       fmt.Sprintf("Insufficient disk space: %d GB required, %d GB available", estimated, available),
+			Description: fmt.Sprintf("Migration staging and safety reserve require ~%d GB but destination only has %d GB available", estimated, available),
 			Impact:      "BLOCKER: Migration will fail when extracting files or restoring databases",
 			Solution:    fmt.Sprintf("Free up at least %d GB on destination, or upgrade storage", estimated),
 		})
