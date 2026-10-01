@@ -99,7 +99,7 @@ jobs:
             status=$?
             if (( status != 0 )); then
               cat "$vm_root/console.log" >&2 2>/dev/null || true
-              ssh -i "$vm_root/id_ed25519" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 vmtest@127.0.0.1 \
+              timeout --foreground 20s ssh -i "$vm_root/id_ed25519" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 vmtest@127.0.0.1 \
                 'sudo journalctl -b --no-pager -n 200; sudo findmnt /var/www; sudo quotaon -p -u /var/www' >&2 || true
             fi
             if [[ -s "$vm_root/qemu.pid" ]]; then
@@ -111,14 +111,14 @@ jobs:
           ssh_args=(-i "$vm_root/id_ed25519" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3)
           guest_ready=0
           for _ in $(seq 1 240); do
-            if ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --wait >/dev/null && test -e /run/stepanel-quota-ready'; then
+            if timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --wait >/dev/null && test -e /run/stepanel-quota-ready'; then
               guest_ready=1
               break
             fi
-            cloud_init_status=$(ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --format json' 2>/dev/null || true)
+            cloud_init_status=$(timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --format json' 2>/dev/null || true)
             if grep -Eq '"(status|extended_status)"[[:space:]]*:[[:space:]]*"(error|degraded)"' <<< "$cloud_init_status"; then
               echo 'quota-enabled Ubuntu guest cloud-init failed' >&2
-              ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --long; sudo tail -n 120 /var/log/cloud-init-output.log' >&2 || true
+              timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --long; sudo tail -n 120 /var/log/cloud-init-output.log' >&2 || true
               exit 1
             fi
             sleep 5
@@ -126,14 +126,14 @@ jobs:
           test "$guest_ready" = 1 || { echo 'quota-enabled Ubuntu guest did not finish cloud-init' >&2; exit 1; }
 
           tar -czf "$vm_root/stepanel-source.tar.gz" --exclude=.git -C "$GITHUB_WORKSPACE" .
-          scp -i "$vm_root/id_ed25519" -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 \
+          timeout --foreground 30s scp -i "$vm_root/id_ed25519" -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 \
             "$vm_root/stepanel-source.tar.gz" vmtest@127.0.0.1:/tmp/stepanel-source.tar.gz
-          ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo mkdir -p /work && sudo tar -xzf /tmp/stepanel-source.tar.gz -C /work'
-          ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+          timeout --foreground 30s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo mkdir -p /work && sudo tar -xzf /tmp/stepanel-source.tar.gz -C /work'
+          timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo findmnt -no OPTIONS /var/www | tr "," "\\n" | grep -Fx usrquota && sudo quotaon -p -u /var/www | grep -F "user quota on /var/www"'
           install_log="$vm_root/install-smoke-output.log"
           set +e
-          ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+          timeout --foreground 45m ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo env STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy bash /work/deploy/lab/install-smoke.sh' \
             >"$install_log" 2>&1
           install_status=$?
@@ -143,5 +143,5 @@ jobs:
             cat "$install_log" >&2 || true
             exit "$install_status"
           fi
-          ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+          timeout --foreground 10m ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo test "$(findmnt -n -o FSTYPE --target /mnt/stepanel-enospc)" = ext4 && sudo test "$(findmnt -n -o SOURCE --target /mnt/stepanel-enospc)" = /dev/vdc && sudo env STEPANEL_ENOSPC_BACKUP_ROOT=/mnt/stepanel-enospc /work/stepanel-enospc.test -test.run "^TestBackupRecoversFromRealENOSPC$" -test.v'
