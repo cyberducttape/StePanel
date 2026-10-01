@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 
 type CPMoveInfo struct {
 	Archive   string   `json:"archive"`
+	UploadID  string   `json:"upload_id,omitempty"`
 	Entries   int      `json:"entries"`
 	User      string   `json:"detected_user"`
 	HasHome   bool     `json:"has_home"`
@@ -29,6 +31,46 @@ type CPMoveInfo struct {
 	HasMail   bool     `json:"has_mail"`
 	Mailboxes []string `json:"mailboxes,omitempty"`
 	Databases []string `json:"databases"`
+}
+
+type cpmoveUpload struct {
+	ID        string    `json:"id"`
+	Path      string    `json:"path"`
+	Filename  string    `json:"filename"`
+	Size      int64     `json:"size"`
+	SHA256    string    `json:"sha256"`
+	Owner     string    `json:"owner"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func cpmoveUploadPath(root, id string) string {
+	return filepath.Join(root, "upload-"+id+".tar.gz")
+}
+
+func cpmoveUploadMetadataPath(root, id string) string {
+	return filepath.Join(root, "upload-"+id+".json")
+}
+
+func readCPMoveUpload(root, id string) (cpmoveUpload, error) {
+	if id == "" || strings.ContainsAny(id, `/\\`) {
+		return cpmoveUpload{}, errors.New("invalid upload ID")
+	}
+	data, err := os.ReadFile(cpmoveUploadMetadataPath(root, id))
+	if err != nil {
+		return cpmoveUpload{}, err
+	}
+	var upload cpmoveUpload
+	if err := json.Unmarshal(data, &upload); err != nil || upload.ID != id || upload.Owner == "" || upload.Size < 0 || upload.SHA256 == "" {
+		return cpmoveUpload{}, errors.New("invalid upload metadata")
+	}
+	if time.Now().After(upload.ExpiresAt) {
+		return cpmoveUpload{}, errors.New("upload has expired")
+	}
+	if upload.Path != cpmoveUploadPath(root, id) || ensureInside(root, upload.Path) != nil {
+		return cpmoveUpload{}, errors.New("invalid upload path")
+	}
+	return upload, nil
 }
 
 type cpmovePathInfo struct {
@@ -137,35 +179,61 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	if err := ctx.Err(); err != nil {
 		return ImportResult{}, err
 	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
+	if err := os.MkdirAll(cfg.ImportRoot, 0700); err != nil {
 		return ImportResult{}, err
 	}
-	if _, err := inspectCPMove(file, header, cfg.MaxEntries); err != nil {
+	temp, err := os.CreateTemp(cfg.ImportRoot, "restore-upload-*.tar.gz")
+	if err != nil {
 		return ImportResult{}, err
 	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		temp.Close()
+		return ImportResult{}, err
+	}
+	if _, err := io.Copy(temp, file); err != nil {
+		temp.Close()
+		return ImportResult{}, err
+	}
+	if err := temp.Close(); err != nil {
+		return ImportResult{}, err
+	}
+	return restoreCPMoveArchiveContext(ctx, cfg, tempPath, header, site, databases)
+}
+
+// restoreCPMoveArchiveContext restores from an immutable archive already held
+// under ImportRoot. Keeping the durable upload as the extraction source avoids
+// copying a large archive into every restore stage.
+func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string, header *multipart.FileHeader, site SiteCapability, databases bool) (ImportResult, error) {
+	if ensureInside(cfg.ImportRoot, archive) != nil {
+		return ImportResult{}, errors.New("archive is outside the import root")
+	}
+	input, err := os.Open(archive)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	if _, err := inspectCPMove(input, header, cfg.MaxEntries); err != nil {
+		input.Close()
+		return ImportResult{}, err
+	}
+	if _, err := input.Seek(0, io.SeekStart); err != nil {
+		input.Close()
 		return ImportResult{}, err
 	}
 	randomID, err := randomSecret()
 	if err != nil {
+		input.Close()
 		return ImportResult{}, fmt.Errorf("create import staging ID: %w", err)
 	}
 	user := site.Site()
 	id := time.Now().UTC().Format("20060102-150405") + "-" + user + "-" + randomID[:12]
 	stage := filepath.Join(cfg.ImportRoot, id)
 	if err := os.MkdirAll(stage, 0700); err != nil {
+		input.Close()
 		return ImportResult{}, err
 	}
-	archive := filepath.Join(stage, "backup.tar.gz")
-	out, err := os.OpenFile(archive, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return ImportResult{}, err
-	}
-	if _, err = io.Copy(out, file); err != nil {
-		out.Close()
-		return ImportResult{}, err
-	}
-	out.Close()
+	input.Close()
 	if err = extractArchiveContext(ctx, archive, stage); err != nil {
 		return ImportResult{}, err
 	}

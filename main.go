@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -910,16 +911,58 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	info, err := InspectCPMove(file, header)
+	uploadID, err := randomSecret()
 	if err != nil {
+		http.Error(w, "could not create upload ID", 500)
+		return
+	}
+	archivePath := cpmoveUploadPath(a.Config.ImportRoot, uploadID)
+	temp, err := os.OpenFile(archivePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		http.Error(w, "could not stage upload", 500)
+		return
+	}
+	hasher := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(temp, hasher), file)
+	syncErr := temp.Sync()
+	closeErr := temp.Close()
+	if copyErr != nil || syncErr != nil || closeErr != nil {
+		_ = os.Remove(archivePath)
+		http.Error(w, "could not stage upload", 500)
+		return
+	}
+	stored, err := os.Open(archivePath)
+	if err != nil {
+		_ = os.Remove(archivePath)
+		http.Error(w, "could not inspect staged upload", 500)
+		return
+	}
+	info, err := InspectCPMove(stored, &multipart.FileHeader{Filename: header.Filename, Size: written})
+	stored.Close()
+	if err != nil {
+		_ = os.Remove(archivePath)
 		http.Error(w, err.Error(), 422)
+		return
+	}
+	info.UploadID = uploadID
+	owner := a.Auth.UsernameForRequest(r)
+	metadata := cpmoveUpload{ID: uploadID, Path: archivePath, Filename: header.Filename, Size: written, SHA256: fmt.Sprintf("%x", hasher.Sum(nil)), Owner: owner, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour)}
+	metadataBytes, marshalErr := json.Marshal(metadata)
+	metadataErr := marshalErr
+	if metadataErr == nil && owner != "" {
+		metadataErr = os.WriteFile(cpmoveUploadMetadataPath(a.Config.ImportRoot, uploadID), metadataBytes, 0600)
+	}
+	if metadataErr != nil {
+		_ = os.Remove(archivePath)
+		_ = os.Remove(cpmoveUploadMetadataPath(a.Config.ImportRoot, uploadID))
+		http.Error(w, "could not persist upload", 500)
 		return
 	}
 	writeJSON(w, 200, info)
 }
 
 type durableCPMoveRequest struct {
-	TempPath   string `json:"temp_path"`
+	UploadID   string `json:"upload_id"`
 	Filename   string `json:"filename"`
 	Size       int64  `json:"size"`
 	User       string `json:"user"`
@@ -959,7 +1002,8 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := json.Unmarshal(item.Payload, &request); err != nil {
 		return nil, fmt.Errorf("decode cpmove job payload: %w", err)
 	}
-	if safeUser(request.User) == "" || request.Filename == "" || request.Size < 0 || ensureInside(a.Config.ImportRoot, request.TempPath) != nil {
+	upload, uploadErr := readCPMoveUpload(a.Config.ImportRoot, request.UploadID)
+	if safeUser(request.User) == "" || request.Filename == "" || request.Size < 0 || uploadErr != nil || upload.Owner != request.Actor {
 		return nil, errors.New("invalid durable cpmove job payload")
 	}
 	access, err := a.authorizeDurableSiteJob(request.User, request.Actor, false)
@@ -972,15 +1016,11 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if a.Jobs.CancellationRequested(item.ID) {
 		return nil, errors.New("cpmove restore cancelled before execution")
 	}
-	staged, err := os.Open(request.TempPath)
-	if err != nil {
-		return nil, fmt.Errorf("open staged cpmove archive: %w", err)
-	}
-	defer staged.Close()
-	removeStaged := false
+	removeUpload := false
 	defer func() {
-		if removeStaged {
-			_ = os.Remove(request.TempPath)
+		if removeUpload {
+			_ = os.Remove(upload.Path)
+			_ = os.Remove(cpmoveUploadMetadataPath(a.Config.ImportRoot, request.UploadID))
 		}
 	}()
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.User)
@@ -992,7 +1032,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, err
 	}
 	a.Metrics.RestoreStarted()
-	result, restoreErr := RestoreCPMoveContext(operationCtx, a.Config, staged, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs)
+	result, restoreErr := restoreCPMoveArchiveContext(operationCtx, a.Config, upload.Path, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs)
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
 		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "cpmove.restore.failed", request.User, restoreErr.Error()); auditErr != nil {
@@ -1003,7 +1043,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "cpmove.restore.completed", request.User, result.StagedAt); auditErr != nil {
 		log.Printf("cpmove restore completed but audit persistence is unavailable: %v", auditErr)
 	}
-	removeStaged = true
+	removeUpload = true
 
 	// Invalidate metadata caches after successful site restore
 	if a.MetadataCache != nil {
@@ -1229,12 +1269,13 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cPanel SQL restores require MySQL or MariaDB; PostgreSQL dump conversion is not supported", http.StatusUnprocessableEntity)
 		return
 	}
-	file, header, err := r.FormFile("backup")
-	if err != nil {
-		http.Error(w, "backup file is required", 400)
+	uploadID := strings.TrimSpace(r.FormValue("upload_id"))
+	actor := a.Auth.UsernameForRequest(r)
+	upload, err := readCPMoveUpload(a.Config.ImportRoot, uploadID)
+	if err != nil || upload.Owner != actor {
+		http.Error(w, "upload is missing, expired, or belongs to another operator", http.StatusNotFound)
 		return
 	}
-	defer file.Close()
 	user := safeUser(r.FormValue("username"))
 	if user == "" {
 		http.Error(w, "a valid account username is required", 400)
@@ -1245,44 +1286,17 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Idempotency-Key", http.StatusUnprocessableEntity)
 		return
 	}
-	temp, err := os.CreateTemp(a.Config.ImportRoot, "upload-*.tar.gz")
+	payload, err := json.Marshal(durableCPMoveRequest{UploadID: uploadID, Filename: upload.Filename, Size: upload.Size, User: user, Actor: actor, RestoreDBs: databaseRestore})
 	if err != nil {
-		http.Error(w, "could not stage upload", 500)
-		return
-	}
-	tempPath := temp.Name()
-	if _, err = io.Copy(temp, file); err != nil {
-		temp.Close()
-		_ = os.Remove(tempPath)
-		http.Error(w, "could not stage upload", 500)
-		return
-	}
-	if err = temp.Sync(); err != nil {
-		_ = temp.Close()
-		_ = os.Remove(tempPath)
-		http.Error(w, "could not durably stage upload", 500)
-		return
-	}
-	if err = temp.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		http.Error(w, "could not stage upload", 500)
-		return
-	}
-	payload, err := json.Marshal(durableCPMoveRequest{TempPath: tempPath, Filename: header.Filename, Size: header.Size, User: user, Actor: a.Auth.UsernameForRequest(r), RestoreDBs: databaseRestore})
-	if err != nil {
-		_ = os.Remove(tempPath)
 		http.Error(w, "could not encode restore job", http.StatusInternalServerError)
 		return
 	}
 	queued, existing, err := a.Jobs.EnqueueIdempotent("cpmove.restore", user, operationKey, payload, 3)
 	if err != nil {
-		_ = os.Remove(tempPath)
 		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
 		return
 	}
-	if existing {
-		_ = os.Remove(tempPath)
-	}
+	_ = existing
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": queued.ID, "status_url": filepath.Join("/api/jobs", queued.ID)})
 }
 func (a *App) jobStatus(w http.ResponseWriter, r *http.Request) {

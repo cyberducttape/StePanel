@@ -41,6 +41,7 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 
 func isOrphanUpload(name string) bool {
 	return strings.HasPrefix(name, "upload-") && strings.HasSuffix(name, ".tar.gz") ||
+		strings.HasPrefix(name, "upload-") && strings.HasSuffix(name, ".json") ||
 		strings.HasPrefix(name, "wpress-upload-") && strings.HasSuffix(name, ".wpress")
 }
 

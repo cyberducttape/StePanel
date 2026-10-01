@@ -860,9 +860,9 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [backup, username, confirm]
+              required: [upload_id, username, confirm]
               properties:
-                backup: {type: string, format: binary}
+                upload_id: {type: string}
                 username: {type: string}
                 confirm: {type: string, example: IMPORT}
                 restore_databases: {type: string}

@@ -255,12 +255,14 @@ curl -fsS -X POST -b cookies.txt -H "X-CSRF-Token: $csrf" \
   -F 'backup=@account.tar.gz' "$PANEL/api/cpmove/inspect" | jq
 ```
 
-Queue a cPanel restore. The idempotency key makes client retries safe:
+Queue a cPanel restore using the `upload_id` returned by inspection. The
+archive is uploaded once and retained as an immutable server-side object. The
+idempotency key makes client retries safe:
 
 ```sh
 curl -fsS -X POST -b cookies.txt -H "X-CSRF-Token: $csrf" \
   -H 'Idempotency-Key: restore-example-20260907' \
-  -F 'backup=@account.tar.gz' \
+  -F 'upload_id=UPLOAD_ID_FROM_INSPECTION' \
   -F 'username=example' -F 'confirm=IMPORT' \
   -F 'restore_databases=true' "$PANEL/api/cpmove/import" | jq
 ```
