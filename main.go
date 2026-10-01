@@ -1419,14 +1419,6 @@ func logging(next http.Handler, metrics *Metrics, production bool) http.Handler 
 		r = r.WithContext(context.WithValue(r.Context(), requestIDContextKey{}, requestID))
 		wrapped := &statusWriter{ResponseWriter: w}
 		w.Header().Set("X-Request-ID", requestID)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "same-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'")
-		w.Header().Set("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
-		if production {
-			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		}
 		if !strings.HasPrefix(r.URL.Path, "/static/") {
 			w.Header().Set("Cache-Control", "no-store")
 		} else {

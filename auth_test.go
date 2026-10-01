@@ -13,6 +13,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+func TestLoginPageUsesCSPCompatibleAssets(t *testing.T) {
+	page := loginPage("", false)
+	if strings.Contains(page, "<style") || strings.Contains(page, "onclick=") {
+		t.Fatal("login page contains inline style or script")
+	}
+	for _, asset := range []string{"web/static/login.css", "web/static/login.js"} {
+		if _, err := webAssets.ReadFile(asset); err != nil {
+			t.Fatalf("login asset %s is not embedded: %v", asset, err)
+		}
+	}
+}
+
 func TestRecoveryActionAllowedThrottlesPerActorAfterFiveAttempts(t *testing.T) {
 	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
 	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")

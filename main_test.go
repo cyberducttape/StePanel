@@ -96,9 +96,6 @@ func TestLoggingAddsBrowserSecurityHeaders(t *testing.T) {
 	}), nil, false)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/health", nil))
-	if response.Header().Get("Content-Security-Policy") == "" {
-		t.Fatal("Content-Security-Policy header is missing")
-	}
 	if got := response.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("Cache-Control = %q, want no-store", got)
 	}

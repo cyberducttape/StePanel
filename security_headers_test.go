@@ -49,6 +49,29 @@ func TestSecurityHeadersPresent(t *testing.T) {
 	}
 }
 
+func TestComposedMiddlewareKeepsAuthoritativeSecurityHeaders(t *testing.T) {
+	cfg := Config{Production: false}
+	inner := logging(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), nil, cfg.Production)
+	handler := securityHeadersMiddleware(cfg)(inner)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if got := response.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Fatalf("composed Referrer-Policy = %q, want no-referrer", got)
+	}
+	csp := response.Header().Get("Content-Security-Policy")
+	for _, directive := range []string{"default-src 'none'", "style-src 'self'", "upgrade-insecure-requests"} {
+		if !strings.Contains(csp, directive) {
+			t.Fatalf("composed CSP missing %q: %s", directive, csp)
+		}
+	}
+	if strings.Contains(csp, "unsafe-inline") {
+		t.Fatalf("composed CSP permits unsafe inline content: %s", csp)
+	}
+}
+
 func TestSecurityHeadersHSTSInProduction(t *testing.T) {
 	cfgProd := Config{Production: true, TLSCertFile: "/test.crt", TLSKeyFile: "/test.key"}
 	middleware := securityHeadersMiddleware(cfgProd)
