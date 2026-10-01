@@ -50,6 +50,14 @@ confirmed.
 External audit anchoring and a full disposable-host restore drill remain
 required release gates.
 
+Administrators can download a redacted incident artifact from
+`GET /api/admin/support-bundle`. It is a streamed ZIP containing runtime
+metadata, safe configuration posture, readiness results, production checks,
+Prometheus metrics, and job summaries. The bundle deliberately excludes
+passwords, encryption keys, TOTP material, job payloads and outputs, database
+contents, and raw customer logs. Treat site names and operational metadata as
+confidential even though credentials are not included.
+
 ## Health check
 
 ```sh

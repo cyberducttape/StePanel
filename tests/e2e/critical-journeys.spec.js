@@ -23,6 +23,7 @@ async function checkA11y(page) {
 
 test('login and overview accessibility', async ({ page }) => {
   await expect(page.getByRole('main')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Download support bundle' })).toBeVisible();
   await checkA11y(page);
 });
 

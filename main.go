@@ -746,6 +746,7 @@ func main() {
 	mux.Handle("/api/admin/migration-doctor", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationDoctor)), http.MethodPost))
 	mux.Handle("/api/admin/migration-doctor/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.migrationAnalysisStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/production-readiness", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.productionReadiness)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/admin/support-bundle", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.supportBundle)), http.MethodGet))
 	mux.Handle("/api/admin/resources/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.resourceStatus)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/admin/archive/inspect", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.inspectArchive)), http.MethodPost))
 	mux.Handle("/api/admin/archive/inspect/status", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.inspectArchiveStatus)), http.MethodGet, http.MethodHead))
