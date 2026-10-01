@@ -131,7 +131,17 @@ jobs:
           ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo mkdir -p /work && sudo tar -xzf /tmp/stepanel-source.tar.gz -C /work'
           ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo findmnt -no OPTIONS /var/www | tr "," "\\n" | grep -Fx usrquota && sudo quotaon -p -u /var/www | grep -F "user quota on /var/www"'
+          install_log="$vm_root/install-smoke-output.log"
+          set +e
           ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
-            'sudo env STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy bash /work/deploy/lab/install-smoke.sh'
+            'sudo env STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy bash /work/deploy/lab/install-smoke.sh' \
+            >"$install_log" 2>&1
+          install_status=$?
+          set -e
+          if (( install_status != 0 )); then
+            echo "quota-enabled install smoke failed with status $install_status" >&2
+            cat "$install_log" >&2 || true
+            exit "$install_status"
+          fi
           ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo test "$(findmnt -n -o FSTYPE --target /mnt/stepanel-enospc)" = ext4 && sudo test "$(findmnt -n -o SOURCE --target /mnt/stepanel-enospc)" = /dev/vdc && sudo env STEPANEL_ENOSPC_BACKUP_ROOT=/mnt/stepanel-enospc /work/stepanel-enospc.test -test.run "^TestBackupRecoversFromRealENOSPC$" -test.v'

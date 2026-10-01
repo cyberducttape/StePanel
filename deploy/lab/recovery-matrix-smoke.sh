@@ -65,12 +65,17 @@ if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
       DATABASE_RESTORE_RECOVERY=1 \
       bash "$repo/backup-recovery-smoke.sh"
   done
-  # The installed smoke archive is files-only, so these are the restore
-  # boundaries it can exercise without inventing database credentials.
-  for boundary in restore:verify restore:extract restore:activate restore:commit; do
+  # Exercise every restore checkpoint. The provision/provisioned/database
+  # checkpoints are reached by the database-inclusive restore path; the
+  # remaining checkpoints are reached by the file restore path. Each case
+  # creates its own backup and database so a killed worker cannot contaminate
+  # the next boundary.
+  for boundary in restore:provision restore:provisioned restore:database restore:verify restore:extract restore:activate restore:commit; do
     site=$(full_site restore "$boundary")
+    CPMOVE_SMOKE_SITE="$site" bash "$repo/cpmove-import-smoke.sh"
     BACKUP_RECOVERY_SMOKE_SITE="$site" BACKUP_KILL_AT=backup:archive \
-      RESTORE_KILL_AT="$boundary" TERMINATE_KILL_AT=terminate:site-state \
+      RESTORE_KILL_AT="$boundary" DATABASE_RESTORE_KILL_AT="$boundary" \
+      TERMINATE_KILL_AT=terminate:site-state DATABASE_RESTORE_RECOVERY=1 \
       bash "$repo/backup-recovery-smoke.sh"
   done
   for boundary in terminate:init terminate:backup terminate:database terminate:routes terminate:proxies terminate:tasks terminate:services terminate:site-state terminate:ownership; do
