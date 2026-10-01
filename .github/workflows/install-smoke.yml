@@ -63,13 +63,19 @@ jobs:
             echo 'Runner does not provide a systemd-compatible cgroup hierarchy' >&2
             exit 77
           fi
-          docker run -d --privileged --name stepanel-install \
-            --security-opt=no-new-privileges:false \
-            --userns=host \
-            --cgroupns=host \
-            --tmpfs /run --tmpfs /run/lock \
-            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            -v "$PWD:/work" "$HOST_IMAGE" /sbin/init
+          if ! timeout --foreground 30s docker run -d --privileged --name stepanel-install \
+              --security-opt=no-new-privileges:false \
+              --userns=host \
+              --cgroupns=host \
+              --tmpfs /run --tmpfs /run/lock \
+              -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+              -v "$PWD:/work" "$HOST_IMAGE" /sbin/init; then
+            echo 'Docker did not create the disposable systemd host within 30 seconds' >&2
+            docker info >&2 || true
+            docker ps -a >&2 || true
+            docker events --since 1m --until 0s >&2 || true
+            exit 1
+          fi
           systemd_ready=0
           for _ in $(seq 1 30); do
             # Bound each probe independently. A wedged PID 1 or blocked
