@@ -41,7 +41,11 @@ if [[ $engine == postgresql ]]; then
 else
   client=mysql
   command -v mariadb >/dev/null 2>&1 && client=mariadb
-  admin=("$client" --protocol=socket --batch --skip-column-names)
+  # The helper's machine-readable contract uses literal tabs as field
+  # delimiters. MySQL/MariaDB batch mode otherwise escapes tabs in values as
+  # the two characters "\\t", which makes the Go inventory parser reject the
+  # database size on some distro/client combinations.
+  admin=("$client" --protocol=socket --batch --raw --skip-column-names)
 fi
 
 sql() { printf '%s;\n' "$1" | "${admin[@]}"; }
