@@ -1,20 +1,38 @@
 # StePanel Performance Tuning Guide
 
-## Performance Baselines
+## Evidence labels
 
-### Expected Performance
+This guide separates three different claims:
 
-| Metric | Baseline | Threshold | Notes |
+- **Target** — an operational planning goal, not a guarantee.
+- **Measured** — a repeatable repository or lab measurement under the stated
+  conditions.
+- **Validated production ceiling** — a limit accepted by the production gates
+  after host, HTTP, filesystem, restore, and recovery evidence. No such ceiling
+  is currently certified for StePanel v0.7.0.
+
+The control-plane measurements in [`LOAD_BASELINE_2026-09-29.md`](LOAD_BASELINE_2026-09-29.md)
+are measured SQLite/control-plane microbenchmarks only. They are not HTTP
+latency, full restore throughput, or 100-site production evidence.
+
+### Targets (not measured or production-validated)
+
+| Metric | Target | Notes |
 |--------|----------|-----------|-------|
-| API Latency P50 | 50ms | < 100ms | Cached responses |
-| API Latency P95 | 200ms | < 500ms | Most operations |
-| API Latency P99 | 1s | < 2s | Heavy operations |
-| Restore Throughput | 50-100 MB/s | - | Disk-dependent |
-| Backup Throughput | 50-100 MB/s | - | Disk-dependent |
-| Active Sessions | 100-1000 | - | Per 100GB disk |
-| Concurrent Restores | 2-10 | - | Set via STEPANEL_MAX_CONCURRENT_JOBS |
-| Error Rate | < 0.1% | < 0.5% | Monitor closely |
-| Memory Usage | 100-500 MB | < 2 GB | Process + Go runtime |
+| API Latency P50 | < 100ms | Planning target; no production HTTP measurement yet |
+| API Latency P95 | < 500ms | Planning target; no production HTTP measurement yet |
+| API Latency P99 | < 2s | Planning target; heavy operations vary substantially |
+| Restore/backup throughput | 50–100 MB/s | Disk/network-dependent planning target only |
+| Error rate | < 0.1% | Planning target, not an acceptance threshold |
+| Memory usage | < 2 GB | Host- and workload-dependent planning target |
+
+### Validated production ceilings
+
+None currently certified. Do not convert the targets above into an SLO or
+promise to customers until the open gates in
+[`V1_PRODUCTION_GATES.md`](V1_PRODUCTION_GATES.md) include production HTTP,
+restore-throughput, interruption, disk-exhaustion, power-loss, and recovery
+evidence.
 
 ---
 
@@ -44,11 +62,9 @@ export STEPANEL_MAX_CONCURRENT_JOBS=8
 # Default: 20 GB per upload
 export STEPANEL_MAX_UPLOAD_BYTES=$((20 * 1024 * 1024 * 1024))
 
-# For large archives:
-export STEPANEL_MAX_UPLOAD_BYTES=$((50 * 1024 * 1024 * 1024))  # 50GB
-
-# WARNING: Increases staging disk usage
-# Ensure STEPANEL_IMPORT_ROOT has adequate space
+# Values above 20 GiB are rejected by config validation. There is no supported
+# 50 GiB setting in v0.7.0; larger migrations must be staged with an external
+# workflow until a future release changes and revalidates this ceiling.
 ```
 
 ### Archive Entry Limits
@@ -57,11 +73,8 @@ export STEPANEL_MAX_UPLOAD_BYTES=$((50 * 1024 * 1024 * 1024))  # 50GB
 # Default: 1 million entries max
 export STEPANEL_MAX_ARCHIVE_ENTRIES=1000000
 
-# For complex sites (many small files):
-export STEPANEL_MAX_ARCHIVE_ENTRIES=5000000
-
-# This controls memory usage during tar parsing
-# Larger values = more memory needed
+# Values above 1,000,000 are rejected by config validation. This is a hard
+# safety ceiling, not a suggested tuning point.
 ```
 
 ### Retention Settings
@@ -416,14 +429,14 @@ sudo systemctl restart stepanel
 
 ---
 
-## SLA Targets
+## SLA targets (planning only; not production evidence)
 
 ```
-Availability:      99.9% (43 minutes/month)
-Restore Latency:   < 30 minutes (P95)
-Backup Latency:    < 30 minutes (P95)
-API Latency:       < 500ms (P95)
-Error Rate:        < 0.1%
+Availability:      99.9% (planning target)
+Restore Latency:   < 30 minutes (planning target)
+Backup Latency:    < 30 minutes (planning target)
+API Latency:       < 500ms (planning target)
+Error Rate:        < 0.1% (planning target)
 ```
 
 ---

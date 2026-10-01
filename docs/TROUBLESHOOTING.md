@@ -229,7 +229,7 @@ ls -lh /path/to/archive.tar.gz
 tar -czf archive-split-01.tar.gz --exclude='path/to/large/dir' /path/to/archive
 
 # Or increase limit (if you have disk space)
-export STEPANEL_MAX_UPLOAD_BYTES=$((30 * 1024 * 1024 * 1024))  # 30GB
+export STEPANEL_MAX_UPLOAD_BYTES=$((20 * 1024 * 1024 * 1024))  # 20 GiB maximum
 sudo systemctl restart stepanel
 ```
 
