@@ -85,3 +85,21 @@ test('customer isolation journey keeps administrator controls role-scoped', asyn
   await expect(customerPage.getByRole('link', { name: 'Security' })).toHaveCount(0);
   await customer.close();
 });
+
+test('shared destructive confirmation requires the exact typed value', async ({ page }) => {
+  const result = page.evaluate(() => window.StepanelUI.confirmDangerous({
+    title: 'Remove demo-member?', message: 'Access is revoked immediately.',
+    facts: [['Member', 'demo-member']], confirmText: 'demo-member', actionLabel: 'Remove member',
+  }));
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const action = dialog.getByRole('button', { name: 'Remove member' });
+  await expect(action).toBeDisabled();
+  await dialog.getByLabel('Type demo-member to confirm').fill('demo-membe');
+  await expect(action).toBeDisabled();
+  await dialog.getByLabel('Type demo-member to confirm').fill('demo-member');
+  await expect(action).toBeEnabled();
+  await checkA11y(page);
+  await action.click();
+  expect(await result).toBe(true);
+});

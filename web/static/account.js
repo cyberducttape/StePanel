@@ -4,6 +4,17 @@
   if (!panel) return;
   const status = document.querySelector('#accountStatus');
   const actionStatus = document.querySelector('#accountActionStatus');
+  // Reads the API error envelope ({error, code, request_id}) and falls back
+  // to the raw body or a default message.
+  const errorMessage = async (response, fallback) => {
+    const text = await response.text();
+    try {
+      const data = JSON.parse(text);
+      if (data && data.error) return data.error;
+    } catch (_) { /* plain-text body */ }
+    return text || fallback;
+  };
+
   const csrf = () => {
     const match = document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);
     return match ? decodeURIComponent(match[1]) : '';
@@ -100,7 +111,7 @@
           saveRole.disabled = true;
           try {
             const response = await fetch(`/api/account/members/${encodeURIComponent(member.username)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ role: role.value }) });
-            if (!response.ok) throw new Error((await response.text()) || 'Could not update member role');
+            if (!response.ok) throw new Error(await errorMessage(response, 'Could not update member role'));
             await loadMembers();
           } catch (error) { if (memberStatus) memberStatus.textContent = error.message; }
           finally { saveRole.disabled = false; }
@@ -110,18 +121,25 @@
           suspend.disabled = true;
           try {
             const response = await fetch(`/api/account/members/${encodeURIComponent(member.username)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ suspended: !member.suspended }) });
-            if (!response.ok) throw new Error((await response.text()) || 'Could not update member');
+            if (!response.ok) throw new Error(await errorMessage(response, 'Could not update member'));
             await loadMembers();
           } catch (error) { if (memberStatus) memberStatus.textContent = error.message; }
           finally { suspend.disabled = false; }
         });
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'quiet-action danger'; remove.textContent = 'Remove';
         remove.addEventListener('click', async () => {
-          if (!window.confirm(`Remove ${member.username} from this tenant?`)) return;
+          const confirmed = await window.StepanelUI.confirmDangerous({
+            title: `Remove ${member.username}?`,
+            message: 'The member immediately loses access to every site in this tenant. Their sessions and API tokens stop working.',
+            facts: [['Member', member.username], ['Role', member.role || 'member']],
+            confirmText: member.username,
+            actionLabel: 'Remove member',
+          });
+          if (!confirmed) return;
           remove.disabled = true;
           try {
             const response = await fetch(`/api/account/members/${encodeURIComponent(member.username)}`, { method: 'DELETE', headers: { 'X-CSRF-Token': csrf() } });
-            if (!response.ok) throw new Error((await response.text()) || 'Could not remove member');
+            if (!response.ok) throw new Error(await errorMessage(response, 'Could not remove member'));
             await loadMembers();
           } catch (error) { if (memberStatus) memberStatus.textContent = error.message; }
           finally { remove.disabled = false; }
@@ -165,7 +183,7 @@
         revoke.disabled = true;
         try {
           const response = await fetch(`/api/account/tokens/${encodeURIComponent(token.id)}`, { method: 'DELETE', headers: { 'X-CSRF-Token': csrf() } });
-          if (!response.ok) throw new Error((await response.text()) || 'Could not revoke token');
+          if (!response.ok) throw new Error(await errorMessage(response, 'Could not revoke token'));
           await loadTokens();
         } catch (error) { if (tokenStatus) tokenStatus.textContent = error.message; }
         finally { revoke.disabled = false; }
@@ -246,7 +264,7 @@
     try {
       const password = new FormData(passwordForm).get('password');
       const response = await fetch('/api/account/password', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ password }) });
-      if (!response.ok) throw new Error((await response.text()) || 'Could not change password');
+      if (!response.ok) throw new Error(await errorMessage(response, 'Could not change password'));
       passwordForm.reset();
       if (output) output.textContent = 'Password changed. Sign in again with the new password.';
     } catch (error) { if (output) output.textContent = error.message; }
@@ -262,7 +280,7 @@
     try {
       const totpSecret = new FormData(mfaForm).get('totp_secret');
       const response = await fetch('/api/account/mfa', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ totp_secret: totpSecret }) });
-      if (!response.ok) throw new Error((await response.text()) || 'Could not configure MFA');
+      if (!response.ok) throw new Error(await errorMessage(response, 'Could not configure MFA'));
       mfaForm.reset();
       if (output) output.textContent = 'MFA saved. Sign in again with an authenticator code.';
     } catch (error) { if (output) output.textContent = error.message; }
@@ -274,7 +292,7 @@
     if (actionStatus) actionStatus.textContent = 'Signing out other sessions…';
     try {
       const response = await fetch('/api/account/sessions/revoke', { method: 'POST', headers: { 'X-CSRF-Token': csrf() } });
-      if (!response.ok) throw new Error((await response.text()) || 'Could not revoke sessions');
+      if (!response.ok) throw new Error(await errorMessage(response, 'Could not revoke sessions'));
       if (actionStatus) actionStatus.textContent = 'Other sessions signed out.';
     } catch (error) { if (actionStatus) actionStatus.textContent = error.message; }
     finally { revoke.disabled = false; }
