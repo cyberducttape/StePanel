@@ -79,34 +79,12 @@ The handler-level upload policy was removed because it was not wired into
 request handling. `ResourceBudget` and the durable SQLite worker admission
 gate are now authoritative.
 
-```go
-type UploadResourcePolicy struct {
-    maxConcurrent        int      // Simultaneous uploads
-    maxUploadBytes       int64    // Max single file
-    minFreeSpace         int64    // Minimum free disk space required
-    maxUploadRate        int64    // Bytes/sec rate limit (optional)
-    quotaBytesPerUser    int64    // Daily quota per user
-    quotaUploadsPerUser  int      // Upload count quota per user
-}
-```
-
-**Validation Points:**
-
-1. **AcquireUploadSlot()** - Check concurrency limit
-2. **ValidateUploadStart()** - Before accepting upload:
-   - Validate file size ≤ maxUploadBytes
-   - Check free disk space ≥ minFreeSpace
-   - Validate user quotas (daily reset)
-3. **RecordUploadComplete()** - After successful transfer:
-   - Update user quota tracking
-   - Log metrics
-
 ### 3. Configuration in main.go
 
 **Server-level Timeouts:**
 ```go
 server.ReadHeaderTimeout = 5 * time.Second   // Slowloris prevention
-server.ReadTimeout = 30 * time.Second         // API request deadline
+server.ReadTimeout = 60 * time.Minute         // upload ceiling; middleware bounds APIs
 server.WriteTimeout = 2 * time.Minute         // Response generation
 server.IdleTimeout = 30 * time.Second         // Cleanup idle connections
 ```
@@ -148,46 +126,17 @@ server := &http.Server{
 }
 ```
 
-### Upload Resource Policy Usage
+### Upload Admission
 
 The cPanel upload handler streams once into an immutable upload object and
 records its owner, expiry, SHA-256, compressed size, and inspected expanded
 size. Inspection reports `required_free_bytes`; admission reserves room for
 the archive, extracted tree, site-manager staging tree, and safety reserve.
 
-**Create Policy:**
-```go
-policy := NewUploadResourcePolicy(
-    maxConcurrent: 4,                    // 4 simultaneous uploads
-    maxUploadBytes: 20 * 1024*1024*1024, // 20 GB
-    minFreeSpace: 100 * 1024*1024*1024,  // 100 GB
-    maxUploadRate: 0,                     // No rate limit
-    quotaBytesPerUser: 500*1024*1024*1024, // 500 GB/day
-    quotaUploadsPerUser: 10,              // 10 uploads/day
-)
-```
-
-**Validate Upload:**
-```go
-// Check if upload can proceed
-if err := policy.ValidateUploadStart(username, fileSize); err != nil {
-    http.Error(w, err.Error(), http.StatusPaymentRequired)
-    return
-}
-
-// Acquire concurrent upload slot
-release, err := policy.AcquireUploadSlot()
-if err != nil {
-    http.Error(w, err.Error(), http.StatusTooManyRequests)
-    return
-}
-defer release()
-
-// ... perform upload ...
-
-// Record metrics
-policy.RecordUploadComplete(username, bytesTransferred)
-```
+The cPanel upload handler streams once into an immutable upload object and
+records its owner, expiry, SHA-256, compressed size, and inspected expanded
+size. Inspection reports `required_free_bytes`; admission reserves room for
+the archive, extracted tree, site-manager staging tree, and safety reserve.
 
 ---
 
