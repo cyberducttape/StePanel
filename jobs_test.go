@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -226,6 +227,61 @@ func TestDurableJobLeaseLifecycle(t *testing.T) {
 	}
 	if got, ok := j.Get(item.ID); !ok || got.State != "completed" {
 		t.Fatalf("completed job = %+v, %v", got, ok)
+	}
+}
+
+func TestEmptyOperationKeyIsAtomicallyIdempotentAcrossConnections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control.db")
+	first, err := OpenDurableJobs(path, "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := OpenDurableJobs(path, "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	type result struct {
+		job      Job
+		existing bool
+		err      error
+	}
+	results := make(chan result, 2)
+	var start sync.WaitGroup
+	start.Add(2)
+	var ready sync.WaitGroup
+	ready.Add(2)
+	for _, jobs := range []*Jobs{first, second} {
+		go func(jobs *Jobs) {
+			defer start.Done()
+			ready.Done()
+			ready.Wait()
+			job, existing, enqueueErr := jobs.EnqueueIdempotent("site.terminate", "site", "", []byte(`{"site":"site"}`), 1)
+			results <- result{job: job, existing: existing, err: enqueueErr}
+		}(jobs)
+	}
+	start.Wait()
+	close(results)
+	var jobsSeen int
+	for item := range results {
+		if item.err != nil {
+			t.Fatal(item.err)
+		}
+		if item.job.ID == "" {
+			t.Fatal("empty job ID returned")
+		}
+		jobsSeen++
+	}
+	if jobsSeen != 2 {
+		t.Fatalf("received %d enqueue results, want 2", jobsSeen)
+	}
+	var active int
+	if err := first.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE kind = 'site.terminate' AND owner = 'site' AND operation_key = '' AND state IN ('queued', 'running')`).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active != 1 {
+		t.Fatalf("active empty-key jobs = %d, want 1", active)
 	}
 }
 

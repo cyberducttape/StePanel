@@ -409,9 +409,9 @@ func (j *Jobs) Enqueue(kind, owner, operationKey string, payload []byte, maxAtte
 }
 
 func (j *Jobs) EnqueueIdempotent(kind, owner, operationKey string, payload []byte, maxAttempts int) (Job, bool, error) {
+	var existingID string
 	if j.db == nil || strings.TrimSpace(operationKey) == "" {
 		if j.db != nil && strings.TrimSpace(operationKey) == "" {
-			var existingID string
 			if err := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND state IN ('queued', 'running') ORDER BY started_at LIMIT 1`, kind, owner).Scan(&existingID); err == nil {
 				if item, ok := j.Get(existingID); ok {
 					return item, true, nil
@@ -420,9 +420,16 @@ func (j *Jobs) EnqueueIdempotent(kind, owner, operationKey string, payload []byt
 			}
 		}
 		item, err := j.Enqueue(kind, owner, operationKey, payload, maxAttempts)
+		if err != nil && strings.Contains(strings.ToLower(err.Error()), "unique") {
+			if existingIDErr := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = '' AND state IN ('queued', 'running') ORDER BY started_at LIMIT 1`, kind, owner).Scan(&existingID); existingIDErr == nil {
+				if item, ok := j.Get(existingID); ok {
+					return item, true, nil
+				}
+				return Job{ID: existingID, Kind: kind, User: owner}, true, nil
+			}
+		}
 		return item, false, err
 	}
-	var existingID string
 	err := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID)
 	if err == nil {
 		if item, ok := j.Get(existingID); ok {

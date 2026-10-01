@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS jobs_operation_idx ON jobs(kind, owner, operation_key);
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_operation_unique_idx ON jobs(kind, owner, operation_key) WHERE operation_key <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_active_empty_operation_unique_idx ON jobs(kind, owner) WHERE operation_key = '' AND state IN ('queued', 'running');
 CREATE INDEX IF NOT EXISTS jobs_state_idx ON jobs(state, updated_at);
 CREATE TABLE IF NOT EXISTS accounts (
     username TEXT PRIMARY KEY,
@@ -198,6 +199,23 @@ var controlPlaneMigrations = []*migration.Migration{
             version TEXT NOT NULL,
             build TEXT NOT NULL
         ); CREATE INDEX IF NOT EXISTS worker_heartbeats_seen_idx ON worker_heartbeats(last_seen);`)
+		return err
+	}),
+	migration.NewMigrationWithCheck(8, "make empty-key active jobs idempotent", func(tx *sql.Tx) (bool, error) {
+		var name string
+		err := tx.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'jobs_active_empty_operation_unique_idx'`).Scan(&name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return err == nil, err
+	}, func(tx *sql.Tx) error {
+		// Preserve the oldest active job for each empty-key operation before
+		// installing the unique index. This makes upgrades safe for databases
+		// created before the atomic reservation existed.
+		if _, err := tx.Exec(`UPDATE jobs SET state = 'failed', finished_at = unixepoch(), lease_owner = NULL, lease_expires_at = NULL, updated_at = unixepoch() WHERE operation_key = '' AND state IN ('queued', 'running') AND rowid NOT IN (SELECT MIN(rowid) FROM jobs WHERE operation_key = '' AND state IN ('queued', 'running') GROUP BY kind, owner)`); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`CREATE UNIQUE INDEX jobs_active_empty_operation_unique_idx ON jobs(kind, owner) WHERE operation_key = '' AND state IN ('queued', 'running')`)
 		return err
 	}),
 }
