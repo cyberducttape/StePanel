@@ -791,6 +791,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err := failureInjection("restore", "database"); err != nil {
 		return BackupRestoreResult{}, err
 	}
+	processKillInjection("restore", "database")
 	input, err := os.Open(dump)
 	if err != nil {
 		return BackupRestoreResult{}, err
