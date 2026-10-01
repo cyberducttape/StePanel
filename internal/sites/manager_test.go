@@ -486,3 +486,81 @@ func TestCreateHonorsCancellationBeforePublication(t *testing.T) {
 		t.Fatalf("canceled Create left a site behind: %v", err)
 	}
 }
+
+// TestActivateStagedReplacingRestoresPreviousWhenSyncFails injects a parent
+// fsync failure after the publishing rename: the staged release must be
+// withdrawn and the previous release restored at the canonical path.
+func TestActivateStagedReplacingRestoresPreviousWhenSyncFails(t *testing.T) {
+	m, root := newManager(t)
+	public := filepath.Join(root, "sites", "sync-site", "public")
+	if err := os.MkdirAll(public, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "version"), []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stage, err := m.CreateReleaseStaging(context.Background(), "sync-site", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "version"), []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("injected EIO")
+	original := syncDir
+	failed := false
+	syncDir = func(path string) error {
+		if !failed {
+			failed = true
+			return injected
+		}
+		return original(path)
+	}
+	defer func() { syncDir = original }()
+
+	if _, err := m.ActivateStagedReplacing(context.Background(), "sync-site", stage); !errors.Is(err, injected) {
+		t.Fatalf("activation error = %v, want injected sync failure", err)
+	}
+	data, err := os.ReadFile(filepath.Join(public, "version"))
+	if err != nil || string(data) != "old" {
+		t.Fatalf("active release after failed activation = %q, err=%v", data, err)
+	}
+}
+
+func TestRestorePreviousReleaseReportsRestoreFailure(t *testing.T) {
+	root := t.TempDir()
+	cause := errors.New("activation failed")
+	err := restorePreviousRelease(filepath.Join(root, "missing-previous"), filepath.Join(root, "public"), cause)
+	if !errors.Is(err, cause) {
+		t.Fatalf("restore error = %v, want original cause preserved", err)
+	}
+	if !strings.Contains(err.Error(), "restore previous release") {
+		t.Fatalf("restore failure was masked: %v", err)
+	}
+}
+
+func TestRenameDurableReportsPublishedPathWhenReversalFails(t *testing.T) {
+	root := t.TempDir()
+	from := filepath.Join(root, "stage")
+	to := filepath.Join(root, "final")
+	if err := os.Mkdir(from, 0700); err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("injected ENOSPC")
+	original := syncDir
+	syncDir = func(string) error {
+		if err := os.MkdirAll(filepath.Join(from, "blocker"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		return injected
+	}
+	defer func() { syncDir = original }()
+
+	err := renameDurable(from, to)
+	if !errors.Is(err, injected) || !strings.Contains(err.Error(), "remains published") {
+		t.Fatalf("renameDurable error = %v, want sync failure naming the published path", err)
+	}
+	if _, statErr := os.Stat(to); statErr != nil {
+		t.Fatalf("published path should still exist: %v", statErr)
+	}
+}

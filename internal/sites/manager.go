@@ -427,7 +427,7 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := os.Rename(stagedEntry, destination); err != nil {
+	if err := renameDurable(stagedEntry, destination); err != nil {
 		return nil, fmt.Errorf("sites.Manager: activate staged site: %w", err)
 	}
 	return &Site{Name: name, Status: "ready", CreatedAt: time.Now().UTC(), WebRoot: destination}, nil
@@ -463,22 +463,13 @@ func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stag
 		return "", fmt.Errorf("sites.Manager: inspect activation destination: %w", statErr)
 	}
 	if err := ctx.Err(); err != nil {
-		if previous != "" {
-			_ = os.Rename(previous, destination)
-		}
-		return "", err
+		return "", restorePreviousRelease(previous, destination, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
-		if previous != "" {
-			_ = os.Rename(previous, destination)
-		}
-		return "", fmt.Errorf("sites.Manager: prepare activation parent: %w", err)
+		return "", restorePreviousRelease(previous, destination, fmt.Errorf("sites.Manager: prepare activation parent: %w", err))
 	}
-	if err := os.Rename(stagedEntry, destination); err != nil {
-		if previous != "" {
-			_ = os.Rename(previous, destination)
-		}
-		return "", fmt.Errorf("sites.Manager: activate staged release: %w", err)
+	if err := renameDurable(stagedEntry, destination); err != nil {
+		return "", restorePreviousRelease(previous, destination, fmt.Errorf("sites.Manager: activate staged release: %w", err))
 	}
 	return previous, nil
 }
@@ -522,7 +513,60 @@ func (m *DefaultManager) RollbackStagedActivation(ctx context.Context, name, pre
 	if err := os.Rename(previous, destination); err != nil {
 		return fmt.Errorf("sites.Manager: restore previous release: %w", err)
 	}
+	if err := syncDir(siteRoot); err != nil {
+		return fmt.Errorf("sites.Manager: persist restored release: %w", err)
+	}
 	return nil
+}
+
+// syncDir fsyncs a directory so renames inside it survive power loss. Tests
+// replace it to inject I/O failures.
+var syncDir = func(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	err = directory.Sync()
+	if closeErr := directory.Close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
+
+// renameDurable renames from to to and fsyncs the destination's parent so
+// the new entry is durable, not merely atomic. When the fsync fails the
+// rename is reversed; if the reversal fails too, the returned error says
+// that to remains published so callers never mistake it for a clean failure.
+func renameDurable(from, to string) error {
+	if err := os.Rename(from, to); err != nil {
+		return err
+	}
+	parent := filepath.Dir(to)
+	syncErr := syncDir(parent)
+	if syncErr == nil {
+		return nil
+	}
+	syncErr = fmt.Errorf("sync %s: %w", parent, syncErr)
+	if err := os.Rename(to, from); err != nil {
+		return errors.Join(syncErr, fmt.Errorf("%s remains published; reverse rename failed: %w", to, err))
+	}
+	return syncErr
+}
+
+// restorePreviousRelease moves a preserved release back to destination after
+// a failed replacement and joins any restore failure onto cause, so a site
+// left without its public tree is reported rather than silently masked.
+func restorePreviousRelease(previous, destination string, cause error) error {
+	if previous == "" {
+		return cause
+	}
+	if err := os.Rename(previous, destination); err != nil {
+		return errors.Join(cause, fmt.Errorf("sites.Manager: restore previous release from %s: %w", previous, err))
+	}
+	if err := syncDir(filepath.Dir(destination)); err != nil {
+		return errors.Join(cause, fmt.Errorf("sites.Manager: persist restored previous release: %w", err))
+	}
+	return cause
 }
 
 // Create provisions a new site's directory structure through a private stage
@@ -571,7 +615,7 @@ func (m *DefaultManager) Create(ctx context.Context, req *CreateRequest) (*Site,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := os.Rename(stage, filepath.Dir(publicRoot)); err != nil {
+	if err := renameDurable(stage, filepath.Dir(publicRoot)); err != nil {
 		return nil, fmt.Errorf("sites.Manager: publish site directory: %w", err)
 	}
 	committed = true
@@ -655,7 +699,7 @@ func (m *DefaultManager) Clone(ctx context.Context, req *CloneRequest) (*Site, e
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := os.Rename(stage, destination); err != nil {
+	if err := renameDurable(stage, destination); err != nil {
 		return nil, fmt.Errorf("sites.Manager: activate clone: %w", err)
 	}
 	committed = true
@@ -709,6 +753,9 @@ func copySiteTree(ctx context.Context, source, destination string) error {
 			return err
 		}
 		_, copyErr := io.Copy(out, &contextReader{ctx: ctx, reader: in})
+		if copyErr == nil {
+			copyErr = out.Sync()
+		}
 		closeOutErr := out.Close()
 		closeInErr := in.Close()
 		if copyErr != nil {
@@ -721,7 +768,9 @@ func copySiteTree(ctx context.Context, source, destination string) error {
 			return closeInErr
 		}
 	}
-	return nil
+	// Staged data must be durable before the publishing rename so a crash
+	// cannot expose a site directory whose entries were never written.
+	return syncDir(destination)
 }
 
 type contextReader struct {
