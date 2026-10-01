@@ -62,6 +62,7 @@ if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
     site=$(full_site backup "$boundary")
     BACKUP_RECOVERY_SMOKE_SITE="$site" BACKUP_KILL_AT="$boundary" \
       RESTORE_KILL_AT=restore:activate TERMINATE_KILL_AT=terminate:site-state \
+      DATABASE_RESTORE_RECOVERY=1 \
       bash "$repo/backup-recovery-smoke.sh"
   done
   # The installed smoke archive is files-only, so these are the restore
