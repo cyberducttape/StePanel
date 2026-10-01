@@ -193,7 +193,7 @@ fi
 bash /work/deploy/lab/cpmove-import-smoke.sh
 bash /work/deploy/lab/cpmove-recovery-smoke.sh
 bash /work/deploy/lab/dbctl-lock-smoke.sh
-bash /work/deploy/lab/backup-recovery-smoke.sh
+DATABASE_RESTORE_RECOVERY=1 bash /work/deploy/lab/backup-recovery-smoke.sh
 bash /work/deploy/lab/account-suspension-recovery-smoke.sh
 bash /work/deploy/lab/deploy-recovery-smoke.sh
 # The deploy recovery drill above deliberately kills the panel while holding

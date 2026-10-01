@@ -21,16 +21,22 @@ command -v systemctl >/dev/null || { echo 'backup recovery smoke requires system
 : "${BACKUP_RECOVERY_SMOKE_SITE:=ci-import-recovery}"
 : "${BACKUP_KILL_AT:=backup:archive}"
 : "${RESTORE_KILL_AT:=restore:activate}"
+: "${DATABASE_RESTORE_KILL_AT:=restore:database}"
 : "${TERMINATE_KILL_AT:=terminate:site-state}"
 
 dropin_dir=/run/systemd/system/stepanel-worker.service.d
 dropin="$dropin_dir/recovery-smoke.conf"
 work=''
+database_name=''
+database_user=''
 mkdir -p "$dropin_dir"
 cleanup() {
   rm -f -- "$dropin"
   systemctl daemon-reload >/dev/null 2>&1 || true
   timeout --foreground 30s systemctl restart stepanel-worker.service >/dev/null 2>&1 || true
+  if [[ -n "$database_name" && -x /usr/local/sbin/stepanel-dbctl ]]; then
+    /usr/local/sbin/stepanel-dbctl drop-managed "$database_name" "$database_user" >/dev/null 2>&1 || true
+  fi
   if [[ -n $work ]]; then
     rm -rf -- "$work"
   fi
@@ -204,6 +210,133 @@ for _ in $(seq 1 240); do
 done
 [[ "$state" == completed ]] || { echo "restore recovery job $restore_job_id did not complete: ${status:-}" >&2; exit 1; }
 echo "restore recovery smoke passed (worker $before was killed at $RESTORE_KILL_AT)"
+
+if [[ ${DATABASE_RESTORE_RECOVERY:-0} == 1 ]]; then
+  [[ ${STEPANEL_DB_ENGINE:-mariadb} == mariadb ]] || {
+    echo 'database restore recovery smoke currently requires MariaDB' >&2
+    exit 77
+  }
+
+  # Exercise the database-only restore path separately from the files-only
+  # restore above. The database is disposable and is removed by cleanup even
+  # when a later assertion fails.
+  database_name=$(printf '%s_db' "$BACKUP_RECOVERY_SMOKE_SITE" | tr '-' '_')
+  database_user=$(printf '%s_u' "$BACKUP_RECOVERY_SMOKE_SITE" | tr '-' '_')
+  database_password='ci-database-restore-password-1234'
+  response=$(curl --fail --silent --show-error --max-time 30 \
+    -H "Cookie: $cookie_header" \
+    -H "X-CSRF-Token: $csrf" \
+    -H 'Content-Type: application/json' \
+    --data "$(python3 - "$database_name" "$database_user" "$BACKUP_RECOVERY_SMOKE_SITE" "$database_password" <<'PY'
+import json, sys
+print(json.dumps({"name": sys.argv[1], "user": sys.argv[2], "site": sys.argv[3], "password": sys.argv[4], "encoding": "utf8mb4"}))
+PY
+)" \
+    "$PANEL/api/databases")
+printf '%s\n' \
+  'CREATE TABLE IF NOT EXISTS stepanel_recovery (id INT PRIMARY KEY, value VARCHAR(64) NOT NULL);' \
+  "INSERT INTO stepanel_recovery (id, value) VALUES (1, 'database restore smoke') ON DUPLICATE KEY UPDATE value=VALUES(value);" \
+  | /usr/local/sbin/stepanel-dbctl restore-dump "$database_name" "$BACKUP_RECOVERY_SMOKE_SITE"
+
+  response=$(curl --fail --silent --show-error --max-time 30 \
+    -H "Cookie: $cookie_header" \
+    -H "X-CSRF-Token: $csrf" \
+    -H 'Content-Type: application/json' \
+    --data "{\"site\":\"$BACKUP_RECOVERY_SMOKE_SITE\",\"include_databases\":true}" \
+    "$PANEL/api/backups")
+  database_backup_job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^\"]*\)".*/\1/p')
+  [[ -n "$database_backup_job_id" ]] || { echo "database backup request did not return a durable job: $response" >&2; exit 1; }
+  state=''
+  status=''
+  for _ in $(seq 1 240); do
+    status=$(curl --fail --silent --show-error --max-time 10 \
+      -H "Cookie: $cookie_header" "$PANEL/api/jobs/$database_backup_job_id")
+    state=$(printf '%s' "$status" | sed -n 's/.*"state":"\([^\"]*\)".*/\1/p')
+    case "$state" in
+      completed) break ;;
+      failed|dead-letter|cancelled)
+        echo "database backup job $database_backup_job_id ended in $state: $status" >&2
+        exit 1
+        ;;
+    esac
+    sleep 1
+  done
+  [[ "$state" == completed ]] || { echo "database backup job $database_backup_job_id did not complete: ${status:-}" >&2; exit 1; }
+
+  database_backup_name=$(curl --fail --silent --show-error --max-time 10 \
+    -H "Cookie: $cookie_header" "$PANEL/api/backups?site=$BACKUP_RECOVERY_SMOKE_SITE" \
+    | python3 -c 'import json, sys; database = sys.argv[1]; items = json.load(sys.stdin).get("backups", []); matches = [item["path"].rstrip("/").rsplit("/", 1)[-1] for item in items if database in item.get("databases", [])]; print(matches[0] if matches else "")' "$database_name"
+  )
+  [[ -n "$database_backup_name" ]] || { echo 'database-inclusive backup was not listed' >&2; exit 1; }
+
+  printf '%s\n' '[Service]' \
+    'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \
+    "Environment=STEPANEL_KILL_AT=$DATABASE_RESTORE_KILL_AT" > "$dropin"
+  systemctl daemon-reload
+  systemctl restart stepanel-worker.service
+  systemctl is-active --quiet stepanel-worker.service
+  wait_for_panel_ready
+  before=$(systemctl show stepanel-worker.service -p MainPID --value)
+
+  response=$(curl --fail --silent --show-error --max-time 30 \
+    -H "Cookie: $cookie_header" \
+    -H "X-CSRF-Token: $csrf" \
+    -H 'Content-Type: application/json' \
+    --data "$(python3 - "$database_backup_name" "$BACKUP_RECOVERY_SMOKE_SITE" "$database_name" <<'PY'
+import json, sys
+print(json.dumps({"backup": sys.argv[1], "site": sys.argv[2], "database": sys.argv[3], "confirm": "RESTORE_DATABASE"}))
+PY
+)" \
+    "$PANEL/api/backups/restore-database")
+  database_restore_job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^\"]*\)".*/\1/p')
+  [[ -n "$database_restore_job_id" ]] || { echo "database restore request did not return a durable job: $response" >&2; exit 1; }
+
+  killed=0
+  for _ in $(seq 1 240); do
+    current=$(systemctl show stepanel-worker.service -p MainPID --value)
+    if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
+      killed=1
+      rm -f -- "$dropin"
+      systemctl daemon-reload
+      systemctl restart stepanel-worker.service
+      wait_for_panel_ready
+      break
+    fi
+    status=$(curl --fail --silent --show-error --max-time 10 \
+      -H "Cookie: $cookie_header" "$PANEL/api/jobs/$database_restore_job_id")
+    state=$(printf '%s' "$status" | sed -n 's/.*"state":"\([^\"]*\)".*/\1/p')
+    case "$state" in
+      completed)
+        echo 'database restore completed before the injected kill boundary was observed' >&2
+        exit 1
+        ;;
+      failed|dead-letter|cancelled)
+        echo "database restore job ended in $state before the injected kill boundary: $status" >&2
+        exit 1
+        ;;
+    esac
+    sleep 1
+  done
+  (( killed )) || { echo 'worker PID never changed; injected database restore process-kill boundary was not observed' >&2; exit 1; }
+
+  state=''
+  status=''
+  for _ in $(seq 1 240); do
+    status=$(curl --fail --silent --show-error --max-time 10 \
+      -H "Cookie: $cookie_header" "$PANEL/api/jobs/$database_restore_job_id")
+    state=$(printf '%s' "$status" | sed -n 's/.*"state":"\([^\"]*\)".*/\1/p')
+    case "$state" in
+      completed) break ;;
+      failed|dead-letter|cancelled)
+        echo "database restore recovery job $database_restore_job_id ended in $state: $status" >&2
+        exit 1
+        ;;
+    esac
+    sleep 1
+  done
+  [[ "$state" == completed ]] || { echo "database restore recovery job $database_restore_job_id did not complete: ${status:-}" >&2; exit 1; }
+  echo "database restore recovery smoke passed (worker $before was killed at $DATABASE_RESTORE_KILL_AT)"
+fi
 
 # Finally exercise the irreversible lifecycle journal. The worker dies after
 # the site-state step starts; the restarted worker must roll the journal
