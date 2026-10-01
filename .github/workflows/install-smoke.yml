@@ -56,7 +56,7 @@ jobs:
           set -eu
           diagnostics_dir="$RUNNER_TEMP/stepanel-install-diagnostics"
           mkdir -p "$diagnostics_dir"
-          cleanup() { docker rm -f stepanel-install >/dev/null 2>&1 || true; }
+          cleanup() { timeout --foreground 15s docker rm -f stepanel-install >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           if ! timeout --foreground 15s docker info >/dev/null 2>&1; then
             echo 'Docker is unavailable or unresponsive on this runner' >&2
