@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -363,9 +364,10 @@ func (a *App) cloudDNS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 503)
 			return
 		}
-		desired := []DNSDesiredRecord(nil)
-		if a.DNSDesired != nil {
-			desired = a.DNSDesired.list(domain)
+		desired, err := a.dnsDesiredView(domain)
+		if err != nil {
+			http.Error(w, "could not read DNS desired state", http.StatusServiceUnavailable)
+			return
 		}
 		if response, ok := value.(map[string]any); ok {
 			response["desired"] = desired
@@ -529,30 +531,52 @@ func numeric(value string) bool {
 	return true
 }
 
+// queueDNSJob enqueues the provider change as one durable job. The job is
+// the only write: while it is queued or running, dnsDesiredView reports the
+// record as pending, and the job records applied or failed when it ends, so
+// desired state can never claim a pending change that has no job behind it.
 func (a *App) queueDNSJob(w http.ResponseWriter, r *http.Request, in cloudDNSRequest, action string) error {
-	if a.DNSDesired != nil {
-		if err := a.DNSDesired.markPending(in, action, a.Auth.UsernameForRequest(r)); err != nil {
-			http.Error(w, "could not persist DNS desired state", http.StatusServiceUnavailable)
-			return err
-		}
-	}
 	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "dns", Provider: "linode", Action: action, ID: in.DomainID, DNS: in, Actor: a.Auth.UsernameForRequest(r)})
 	if err != nil {
-		if a.DNSDesired != nil {
-			if desiredErr := a.DNSDesired.markResult(in, action, err); desiredErr != nil {
-				// The desired record now says pending with no job behind it.
-				// Mark readiness unhealthy so the orphan is visible; startup
-				// reconciliation fails it once persistence recovers.
-				a.LogPersistenceFailure("dns_desired_compensation", desiredErr, "DNS job enqueue failed and the pending desired-state record could not be marked failed")
-				http.Error(w, "could not persist DNS job", http.StatusServiceUnavailable)
-				return errors.Join(err, desiredErr)
-			}
-		}
-		http.Error(w, "could not persist DNS job", 500)
-		return nil
+		http.Error(w, "could not persist DNS job", http.StatusServiceUnavailable)
+		return err
 	}
 	writeJSON(w, 202, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID})
 	return nil
+}
+
+// dnsDesiredView returns stored DNS outcomes overlaid with every queued or
+// running DNS job for the domain as a pending record.
+func (a *App) dnsDesiredView(domainID string) ([]DNSDesiredRecord, error) {
+	if a.DNSDesired == nil {
+		return nil, nil
+	}
+	records := map[string]DNSDesiredRecord{}
+	for _, record := range a.DNSDesired.list(domainID) {
+		records[record.Key] = record
+	}
+	if a.Jobs != nil {
+		payloads, err := a.Jobs.ActivePayloads("cloud.action")
+		if err != nil {
+			return nil, err
+		}
+		for _, payload := range payloads {
+			var request durableCloudRequest
+			if err := json.Unmarshal(payload, &request); err != nil {
+				return nil, fmt.Errorf("decode active cloud job payload: %w", err)
+			}
+			if request.Operation != "dns" || request.DNS.DomainID != domainID {
+				continue
+			}
+			records[dnsDesiredKey(request.DNS)] = newPendingDNSRecord(request.DNS, request.Action, request.Actor)
+		}
+	}
+	items := make([]DNSDesiredRecord, 0, len(records))
+	for _, record := range records {
+		items = append(items, record)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Key < items[j].Key })
+	return items, nil
 }
 
 func dnsRecordExists(value any, in cloudDNSRequest) bool {

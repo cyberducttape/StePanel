@@ -80,21 +80,8 @@ func dnsDesiredKey(in cloudDNSRequest) string {
 	return in.DomainID + "/pending-" + hex.EncodeToString(hash[:8])
 }
 
-func (s *DNSDesiredStore) markPending(in cloudDNSRequest, action, actor string) error {
-	key := dnsDesiredKey(in)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	previous, existed := s.values[key]
-	s.values[key] = DNSDesiredRecord{Key: key, DomainID: in.DomainID, RecordID: in.RecordID, Type: strings.ToUpper(in.Type), Name: in.Name, Target: in.Target, TTL: in.TTL, Action: action, Actor: actor, State: "pending", UpdatedAt: time.Now().UTC()}
-	if err := s.persistLocked(); err != nil {
-		if existed {
-			s.values[key] = previous
-		} else {
-			delete(s.values, key)
-		}
-		return err
-	}
-	return nil
+func newPendingDNSRecord(in cloudDNSRequest, action, actor string) DNSDesiredRecord {
+	return DNSDesiredRecord{Key: dnsDesiredKey(in), DomainID: in.DomainID, RecordID: in.RecordID, Type: strings.ToUpper(in.Type), Name: in.Name, Target: in.Target, TTL: in.TTL, Action: action, Actor: actor, State: "pending", UpdatedAt: time.Now().UTC()}
 }
 
 func (s *DNSDesiredStore) markResult(in cloudDNSRequest, action string, resultErr error) error {
@@ -120,10 +107,10 @@ func (s *DNSDesiredStore) markResult(in cloudDNSRequest, action string, resultEr
 	return s.persistLocked()
 }
 
-// failOrphanedPending marks every pending record whose key is not in active
-// as failed. A pending record without a live durable job can only come from
-// an interrupted request between persisting desired state and enqueueing its
-// job; leaving it pending would show an operation that will never run.
+// failOrphanedPending marks every stored pending record whose key is not in
+// active as failed. Pending is no longer stored (it is derived from live
+// jobs), so these are records written by earlier releases before the job
+// was enqueued; leaving them pending would show work that will never run.
 func (s *DNSDesiredStore) failOrphanedPending(active map[string]bool, reason string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -151,8 +138,9 @@ func (s *DNSDesiredStore) failOrphanedPending(active map[string]bool, reason str
 	return len(previous), nil
 }
 
-// reconcileOrphanedDNSDesired fails pending DNS desired-state records that
-// have no queued or running cloud job, so operators see them and resubmit.
+// reconcileOrphanedDNSDesired fails stored pending DNS records left by
+// earlier releases that have no queued or running cloud job, so operators
+// see them and resubmit.
 func (a *App) reconcileOrphanedDNSDesired() (int, error) {
 	if a.DNSDesired == nil || a.Jobs == nil {
 		return 0, nil
