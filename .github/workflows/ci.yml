@@ -72,15 +72,18 @@ jobs:
           name: go-coverage
           path: coverage.out
       - run: go build -trimpath -o stepanel .
-      - name: Production startup smoke test
+      - name: Isolated startup smoke test
         run: |
           set -eu
           smoke_root=$(mktemp -d)
           printf '[local]\ntype = local\n' > "$smoke_root/rclone.conf"
           cleanup() { kill "$smoke_pid" 2>/dev/null || true; rm -rf "$smoke_root"; }
           trap cleanup EXIT
-          STEPANEL_ENV=production \
-          STEPANEL_SKIP_QUOTA_CHECK=1 \
+          # This process uses throwaway paths, so it must not claim to be a
+          # production installation: production mode intentionally requires
+          # /var/www to match the privileged helper boundary. The installer
+          # and disposable-host workflows exercise that production path.
+          STEPANEL_ENV=development \
           STEPANEL_LISTEN=127.0.0.1:18090 \
           STEPANEL_TLS_TERMINATED=0 \
           STEPANEL_ADMIN_PASSWORD=ci-only-password \
