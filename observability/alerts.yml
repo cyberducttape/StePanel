@@ -24,6 +24,24 @@ groups:
           summary: StePanel HTTP error rate is elevated
           description: More than five percent of StePanel requests returned 5xx responses for ten minutes.
 
+      - alert: StePanelSQLiteBusy
+        expr: increase(stepanel_sqlite_busy_errors_total{job="stepanel"}[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: StePanel SQLite contention was observed
+          description: Durable state paths encountered SQLite busy or locked errors; inspect control-plane contention and worker concurrency.
+
+      - alert: StePanelReadinessCheckFailed
+        expr: stepanel_readiness_check_ready{job="stepanel"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: A StePanel readiness check is failing
+          description: A durable control-plane readiness check has remained failed for five minutes; inspect /readyz before making changes.
+
   - name: stepanel-restore-operations
     interval: 30s
     rules:

@@ -7,6 +7,14 @@ import (
 	"log"
 )
 
+func (a *App) observeStateError(err state.StateError) {
+	if a != nil && a.Metrics != nil {
+		a.Metrics.ObserveStateError(string(err.Category))
+		a.Metrics.ObserveSQLiteError(err.Err)
+	}
+	err.Handle()
+}
+
 // persistMapKeyChange applies a single-key desired-state mutation and restores
 // the previous in-memory value if its durable write fails. Callers hold the
 // owning store lock for the whole operation.
@@ -68,7 +76,7 @@ func (a *App) SaveWorkerState(key string, worker Worker) error {
 			err,
 			fmt.Sprintf("failed to persist worker state for key %s", key),
 		)
-		stateErr.Handle()
+		a.observeStateError(stateErr)
 		a.recovery.set(stateErr)
 		return err
 	}
@@ -84,7 +92,7 @@ func (a *App) SaveRouteState(route RouteDesired) error {
 			err,
 			fmt.Sprintf("failed to persist route state for %s", route.Name),
 		)
-		stateErr.Handle()
+		a.observeStateError(stateErr)
 		a.recovery.set(stateErr)
 		return err
 	}
@@ -100,7 +108,7 @@ func (a *App) SaveTaskState(key string, task ScheduledTask) error {
 			err,
 			fmt.Sprintf("failed to persist task state for key %s", key),
 		)
-		stateErr.Handle()
+		a.observeStateError(stateErr)
 		a.recovery.set(stateErr)
 		return err
 	}
@@ -116,7 +124,7 @@ func (a *App) SavePHPProfileState(access SiteCapability, profile PHPProfile) err
 			err,
 			fmt.Sprintf("failed to persist PHP profile state for site %s", profile.Site),
 		)
-		stateErr.Handle()
+		a.observeStateError(stateErr)
 		a.recovery.set(stateErr)
 		return err
 	}
@@ -132,7 +140,7 @@ func (a *App) SavePHPProfileStateLocked(site string, profile PHPProfile) error {
 			err,
 			fmt.Sprintf("failed to persist PHP profile state for site %s (with lock)", site),
 		)
-		stateErr.Handle()
+		a.observeStateError(stateErr)
 		a.recovery.set(stateErr)
 		return err
 	}
@@ -143,7 +151,7 @@ func (a *App) SavePHPProfileStateLocked(site string, profile PHPProfile) error {
 // Use this when a save operation fails and you want centralized error handling.
 func (a *App) LogPersistenceFailure(operation string, err error, context string) {
 	stateErr := state.NewPersistenceError(operation, err, context)
-	stateErr.Handle()
+	a.observeStateError(stateErr)
 	a.recovery.set(stateErr)
 	log.Printf("STATE PERSISTENCE FAILURE: %v", stateErr)
 }

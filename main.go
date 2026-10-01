@@ -896,6 +896,7 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	a.Metrics.Write(w)
 	writeJobMetrics(w, a.Jobs)
 	writeDatabaseMetrics(w, a.cachedDatabaseDiagnostics(15*time.Second))
+	writeReadinessMetrics(w, readinessChecks(a.Config, a.Jobs))
 	if a.Schedules != nil {
 		writeBackupScheduleMetrics(w, a.Schedules.list())
 	}

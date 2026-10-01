@@ -24,9 +24,34 @@ type Metrics struct {
 	httpDurationNanos   atomic.Uint64
 	httpStatus          [6]atomic.Uint64
 	httpDurationBuckets [12]atomic.Uint64
+	stateErrors         [5]atomic.Uint64
+	sqliteBusyErrors    atomic.Uint64
 }
 
 var httpDurationBounds = [...]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+var stateMetricCategories = [...]string{"temporary", "persistence", "corruption", "cleanup", "unsupported"}
+
+func (m *Metrics) ObserveStateError(category string) {
+	if m == nil {
+		return
+	}
+	for i, candidate := range stateMetricCategories {
+		if strings.EqualFold(strings.TrimSpace(category), candidate) {
+			m.stateErrors[i].Add(1)
+			return
+		}
+	}
+}
+
+func (m *Metrics) ObserveSQLiteError(err error) {
+	if m == nil || err == nil {
+		return
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "sqlite_busy") || strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked") {
+		m.sqliteBusyErrors.Add(1)
+	}
+}
 
 func (m *Metrics) ObserveHTTP(status int, duration time.Duration) {
 	if m == nil {
@@ -100,6 +125,26 @@ func (m *Metrics) Write(w io.Writer) {
 	_, _ = fmt.Fprintf(w, "stepanel_http_request_duration_seconds_bucket{le=\"+Inf\"} %d\n", m.httpDurationBuckets[len(httpDurationBounds)].Load())
 	_, _ = fmt.Fprintf(w, "stepanel_http_request_duration_seconds_sum %.6f\n", float64(m.httpDurationNanos.Load())/float64(time.Second))
 	_, _ = fmt.Fprintf(w, "stepanel_http_request_duration_seconds_count %d\n", m.httpRequests.Load())
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_state_errors_total Durable operation errors by bounded category")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_state_errors_total counter")
+	for i, category := range stateMetricCategories {
+		_, _ = fmt.Fprintf(w, "stepanel_state_errors_total{category=\"%s\"} %d\n", category, m.stateErrors[i].Load())
+	}
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_sqlite_busy_errors_total SQLite busy or locked errors observed by durable state paths")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_sqlite_busy_errors_total counter")
+	_, _ = fmt.Fprintf(w, "stepanel_sqlite_busy_errors_total %d\n", m.sqliteBusyErrors.Load())
+}
+
+func writeReadinessMetrics(w io.Writer, checks map[string]ReadinessCheck) {
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_readiness_check_ready Whether a readiness check currently passes")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_readiness_check_ready gauge")
+	for name, check := range checks {
+		value := 0
+		if check.Ready {
+			value = 1
+		}
+		_, _ = fmt.Fprintf(w, "stepanel_readiness_check_ready{check=\"%s\"} %d\n", name, value)
+	}
 }
 
 func writeJobMetrics(w io.Writer, jobs *Jobs) {

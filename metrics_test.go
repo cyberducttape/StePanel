@@ -46,6 +46,22 @@ func TestMetricsDurationHistogramIsCumulativeAndNonNegative(t *testing.T) {
 	}
 }
 
+func TestMetricsExposeStateCategoriesAndSQLiteBusy(t *testing.T) {
+	m := NewMetrics()
+	m.ObserveStateError("persistence")
+	m.ObserveSQLiteError(assertionErrorWithMessage{message: "database is locked (SQLITE_BUSY)"})
+	var output strings.Builder
+	m.Write(&output)
+	for _, want := range []string{
+		`stepanel_state_errors_total{category="persistence"} 1`,
+		"stepanel_sqlite_busy_errors_total 1",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("metrics output missing %q:\n%s", want, output.String())
+		}
+	}
+}
+
 func TestGitReleaseMetricsExposeInventoryReadFailures(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "sites"), []byte("not-a-directory"), 0600); err != nil {
@@ -70,3 +86,7 @@ func TestJobMetricsExposeInventoryReadFailures(t *testing.T) {
 type assertionError struct{}
 
 func (assertionError) Error() string { return "test failure" }
+
+type assertionErrorWithMessage struct{ message string }
+
+func (e assertionErrorWithMessage) Error() string { return e.message }
