@@ -219,6 +219,16 @@ else
   APACHE_SERVICE=caddy
 fi
 
+# Images and existing installs may already have a different web server bound
+# to the public ports. Selecting a web server is an explicit ownership choice:
+# stop and disable the other supported servers before validating or starting
+# the selected one, otherwise package installation can leave a stale listener
+# that makes the final service start fail with an unhelpful bind error.
+for web_service in apache2 httpd caddy lsws; do
+  [[ "$web_service" == "$APACHE_SERVICE" ]] && continue
+  systemctl disable --now "$web_service" >/dev/null 2>&1 || true
+done
+
 if [[ "$DB_ENGINE" == "postgresql" && "$PKG" == "dnf" && "$DB_VERSION" != "default" ]]; then
   dnf module list postgresql --all >/dev/null 2>&1 || { echo 'PostgreSQL AppStream metadata is unavailable; enable the appropriate RHEL-family repositories first.' >&2; exit 1; }
   if ! dnf module list postgresql --all 2>/dev/null | awk -v requested="$DB_VERSION" '$1 == "postgresql" && $2 == requested {found=1} END {exit(found ? 0 : 1)}'; then
