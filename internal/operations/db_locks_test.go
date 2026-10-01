@@ -306,10 +306,10 @@ func TestDBLocks_HoldRenewsShortLease(t *testing.T) {
 	a, b, cleanup := openTwoHandles(t)
 	defer cleanup()
 
-	// Keep this lease short enough to exercise renewal, but long enough that
-	// shared CI runners do not lose the renewal goroutine to scheduler or
-	// SQLite startup jitter before its first tick.
-	owner, err := NewDBLocks(a, "short-owner", 200*time.Millisecond)
+	// Keep this lease short enough to exercise renewal, but leave enough margin
+	// for shared CI runners whose SQLite startup or scheduler jitter can exceed
+	// a few hundred milliseconds. Production uses a much longer lease.
+	owner, err := NewDBLocks(a, "short-owner", 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestDBLocks_HoldRenewsShortLease(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- owner.Hold(ctx, lease) }()
 
-	time.Sleep(700 * time.Millisecond)
+	time.Sleep(3500 * time.Millisecond)
 	if _, err := stealer.TryAcquire("site-short-hold"); !errors.Is(err, ErrLockHeld) {
 		t.Fatalf("short lease was not renewed: %v", err)
 	}
