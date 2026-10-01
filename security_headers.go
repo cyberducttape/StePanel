@@ -29,8 +29,11 @@ func securityHeadersMiddleware(cfg Config) func(http.Handler) http.Handler {
 					"geolocation=(), gyroscope=(), magnetometer=(), "+
 					"microphone=(), midi=(), payment=(), usb=()")
 
-			// Strict Transport Security (production only, if TLS configured)
-			if cfg.Production && cfg.TLSCertFile != "" {
+			// Strict Transport Security in production whenever the panel is
+			// served over HTTPS: either StePanel terminates TLS itself or a
+			// trusted reverse proxy does (STEPANEL_TLS_TERMINATED=1), which
+			// is the normal production deployment.
+			if cfg.Production && (cfg.TLSCertFile != "" || cfg.TLSAlreadyTerminated) {
 				// max-age=31536000 (1 year), include subdomains, preload list
 				w.Header().Set("Strict-Transport-Security",
 					"max-age=31536000; includeSubDomains; preload")

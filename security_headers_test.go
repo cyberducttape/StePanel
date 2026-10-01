@@ -144,3 +144,14 @@ func TestSecurityHeadersPermissionsPolicy(t *testing.T) {
 		t.Errorf("geolocation should be disabled: %s", pp)
 	}
 }
+
+func TestSecurityHeadersHSTSBehindTLSTerminatingProxy(t *testing.T) {
+	handler := securityHeadersMiddleware(Config{Production: true, TLSAlreadyTerminated: true})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if hsts := w.Header().Get("Strict-Transport-Security"); !strings.Contains(hsts, "max-age=31536000") {
+		t.Fatalf("HSTS missing behind a TLS-terminating proxy, got %q", hsts)
+	}
+}
