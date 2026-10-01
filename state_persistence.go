@@ -69,7 +69,7 @@ func (a *App) SaveWorkerState(key string, worker Worker) error {
 			fmt.Sprintf("failed to persist worker state for key %s", key),
 		)
 		stateErr.Handle()
-		a.RecoveryError = stateErr
+		a.recovery.set(stateErr)
 		return err
 	}
 	return nil
@@ -85,7 +85,7 @@ func (a *App) SaveRouteState(route RouteDesired) error {
 			fmt.Sprintf("failed to persist route state for %s", route.Name),
 		)
 		stateErr.Handle()
-		a.RecoveryError = stateErr
+		a.recovery.set(stateErr)
 		return err
 	}
 	return nil
@@ -101,7 +101,7 @@ func (a *App) SaveTaskState(key string, task ScheduledTask) error {
 			fmt.Sprintf("failed to persist task state for key %s", key),
 		)
 		stateErr.Handle()
-		a.RecoveryError = stateErr
+		a.recovery.set(stateErr)
 		return err
 	}
 	return nil
@@ -117,7 +117,7 @@ func (a *App) SavePHPProfileState(access SiteCapability, profile PHPProfile) err
 			fmt.Sprintf("failed to persist PHP profile state for site %s", profile.Site),
 		)
 		stateErr.Handle()
-		a.RecoveryError = stateErr
+		a.recovery.set(stateErr)
 		return err
 	}
 	return nil
@@ -133,7 +133,7 @@ func (a *App) SavePHPProfileStateLocked(site string, profile PHPProfile) error {
 			fmt.Sprintf("failed to persist PHP profile state for site %s (with lock)", site),
 		)
 		stateErr.Handle()
-		a.RecoveryError = stateErr
+		a.recovery.set(stateErr)
 		return err
 	}
 	return nil
@@ -144,6 +144,6 @@ func (a *App) SavePHPProfileStateLocked(site string, profile PHPProfile) error {
 func (a *App) LogPersistenceFailure(operation string, err error, context string) {
 	stateErr := state.NewPersistenceError(operation, err, context)
 	stateErr.Handle()
-	a.RecoveryError = stateErr
+	a.recovery.set(stateErr)
 	log.Printf("STATE PERSISTENCE FAILURE: %v", stateErr)
 }

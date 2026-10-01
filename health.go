@@ -32,8 +32,8 @@ func (a *App) readyz(w http.ResponseWriter, r *http.Request) {
 	} else {
 		checks["startup_state"] = ReadinessCheck{Ready: true}
 	}
-	if a.RecoveryError != nil {
-		checks["recovery_state"] = ReadinessCheck{Ready: false, Detail: a.RecoveryError.Error()}
+	if recoveryErr := a.recovery.get(); recoveryErr != nil {
+		checks["recovery_state"] = ReadinessCheck{Ready: false, Detail: recoveryErr.Error()}
 	} else {
 		checks["recovery_state"] = ReadinessCheck{Ready: true}
 	}

@@ -29,8 +29,9 @@ func TestReadyzFailsWhenRecoveryIsUnresolved(t *testing.T) {
 	}
 	app := &App{
 		Config: Config{ImportRoot: filepath.Join(root, "imports"), BackupRoot: filepath.Join(root, "backups"), JobState: filepath.Join(root, "jobs.json"), RecoveryRoot: filepath.Join(root, "sites", ".stepanel-recovery"), MinFreeBytes: 1},
-		Jobs:   NewJobs(), RecoveryError: errors.New("recovery transaction requires operator action"),
+		Jobs:   NewJobs(),
 	}
+	app.recovery.set(errors.New("recovery transaction requires operator action"))
 	response := httptest.NewRecorder()
 	app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "recovery_state") {
@@ -213,5 +214,25 @@ func TestLoadConfigAppliesCapacityLimits(t *testing.T) {
 	cfg := LoadConfig()
 	if cfg.MaxUpload != 1048576 || cfg.MaxEntries != 500 || cfg.MaxConcurrentJobs != 4 {
 		t.Fatalf("capacity config = upload %d, entries %d, jobs %d", cfg.MaxUpload, cfg.MaxEntries, cfg.MaxConcurrentJobs)
+	}
+}
+
+// TestRecoveryErrorIsSynchronized exercises concurrent persistence failures
+// and readiness reads; run with -race to detect unsynchronized access.
+func TestRecoveryErrorIsSynchronized(t *testing.T) {
+	app := &App{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 100; i++ {
+			app.LogPersistenceFailure("save_test", errors.New("disk full"), "concurrency test")
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		_ = app.recovery.get()
+	}
+	<-done
+	if app.recovery.get() == nil {
+		t.Fatal("recovery error was not recorded")
 	}
 }

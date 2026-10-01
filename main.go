@@ -38,7 +38,7 @@ type App struct {
 	Metrics                  *Metrics
 	Schedules                *backupSchedules
 	Accounts                 *AccountStore
-	RecoveryError            error
+	recovery                 recoveryState
 	startup                  startupState
 	Environments             *EnvironmentStore
 	Redis                    *RedisAllocationStore
@@ -83,6 +83,26 @@ func maxUploadRequestBytes(maxArchive int64) int64 {
 		return maxArchive
 	}
 	return maxArchive + uploadMultipartOverhead
+}
+
+// recoveryState holds the latest required-state persistence failure. It is
+// written by persistence paths on request goroutines and read by /readyz, so
+// access is synchronized.
+type recoveryState struct {
+	mu  sync.RWMutex
+	err error
+}
+
+func (s *recoveryState) set(err error) {
+	s.mu.Lock()
+	s.err = err
+	s.mu.Unlock()
+}
+
+func (s *recoveryState) get() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.err
 }
 
 func (s *startupState) begin() {
