@@ -85,6 +85,7 @@ For release review, capture both roles from the tagged build with synthetic
 data and verify the mobile layout as well as the role boundary. See
 [`SHARED_HOSTING.md`](SHARED_HOSTING.md) for the supported customer scope.
 
-For release reviews, capture a screenshot from the tagged build as a supplement
-to this deterministic preview. Real screenshots are useful for verifying theme,
-responsive layout, and capability-specific controls on a target host.
+For release reviews, capture screenshots from the tagged build as a supplement
+to this deterministic preview. Follow the [live screenshot checklist](LIVE_SCREENSHOTS.md)
+to verify theme, responsive layout, capability-specific controls, and role
+boundaries on a disposable installation.

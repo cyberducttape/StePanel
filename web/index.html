@@ -17,8 +17,8 @@
         <a class="is-active" href="#main"><span aria-hidden="true">⌂</span>Overview</a>
         <a href="#sites"><span aria-hidden="true">◌</span>Sites</a>
         {{ if not .IsAdministrator }}<a href="#account"><span aria-hidden="true">◎</span>Account</a>{{ end }}
-        {{ if .IsAdministrator }}<a href="#accounts"><span aria-hidden="true">◎</span>Customers</a><a href="#database"><span aria-hidden="true">▤</span>Databases</a><a href="#migrations"><span aria-hidden="true">⇄</span>Migrations</a><a href="#operations"><span aria-hidden="true">◫</span>Operations</a><a href="#security"><span aria-hidden="true">◇</span>Security</a>{{ end }}
-        <a href="#jobs"><span aria-hidden="true">◷</span>Activity</a>
+        {{ if .IsAdministrator }}<a href="#migrations"><span aria-hidden="true">⇄</span>Migrations</a><a href="#deploy"><span aria-hidden="true">↗</span>Deployments</a><a href="#accounts"><span aria-hidden="true">◎</span>Customers</a><a href="#database"><span aria-hidden="true">▤</span>Databases</a><a href="#operations"><span aria-hidden="true">◫</span>Infrastructure</a><a href="#security"><span aria-hidden="true">◇</span>Security</a>{{ end }}
+        <a href="#jobs"><span aria-hidden="true">◷</span>Activity / Jobs</a>
       </nav>
       <div class="sidebar-footer"><span class="pulse" aria-hidden="true"></span><span>Control plane connected</span><button type="button" class="appearance-trigger" id="appearanceTrigger" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>Appearance</span></button></div>
     </aside>
