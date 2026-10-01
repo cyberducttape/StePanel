@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"sync"
 	"time"
 )
@@ -10,7 +11,7 @@ import (
 // consume tokens. When tokens are exhausted, requests are rate-limited.
 type apiTokenRateLimiter struct {
 	mu      sync.Mutex
-	state   map[string]*tokenBucket
+	state   map[[sha256.Size]byte]*tokenBucket
 	lastGC  time.Time
 	maxKeys int
 }
@@ -30,7 +31,7 @@ const (
 // newAPITokenRateLimiter creates a bounded per-token rate limiter.
 func newAPITokenRateLimiter() *apiTokenRateLimiter {
 	return &apiTokenRateLimiter{
-		state:   make(map[string]*tokenBucket),
+		state:   make(map[[sha256.Size]byte]*tokenBucket),
 		lastGC:  time.Now(),
 		maxKeys: maxTokenKeys,
 	}
@@ -56,7 +57,8 @@ func (l *apiTokenRateLimiter) allow(tokenID string) bool {
 		l.lastGC = now
 	}
 
-	bucket, exists := l.state[tokenID]
+	key := sha256.Sum256([]byte(tokenID))
+	bucket, exists := l.state[key]
 	if !exists {
 		// New token: check if we have capacity for tracking it
 		if len(l.state) >= l.maxKeys {
@@ -67,7 +69,7 @@ func (l *apiTokenRateLimiter) allow(tokenID string) bool {
 			tokens: tokensPerMinute,
 		}
 		bucket.lastRefill = now
-		l.state[tokenID] = bucket
+		l.state[key] = bucket
 	}
 
 	// Refill tokens based on time elapsed since last refill.
@@ -107,7 +109,7 @@ func (l *apiTokenRateLimiter) reset(tokenID string) {
 	}
 
 	l.mu.Lock()
-	delete(l.state, tokenID)
+	delete(l.state, sha256.Sum256([]byte(tokenID)))
 	l.mu.Unlock()
 }
 

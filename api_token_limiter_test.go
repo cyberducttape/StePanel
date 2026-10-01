@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"testing"
 	"time"
 )
@@ -82,7 +83,7 @@ func TestAPITokenRateLimiter(t *testing.T) {
 		now := time.Now()
 		oldTime := now.Add(-10 * time.Minute) // Older than 5-minute threshold
 		for i := 0; i < 100; i++ {
-			limiter2.state["token-"+string(rune(i))] = &tokenBucket{
+			limiter2.state[sha256.Sum256([]byte("token-"+string(rune(i))))] = &tokenBucket{
 				tokens:     100.0,
 				lastRefill: oldTime,
 			}
@@ -173,5 +174,20 @@ func TestAPITokenLimiterStats(t *testing.T) {
 	tracked, max = limiter.stats()
 	if tracked != 5 {
 		t.Fatalf("expected 5 tracked tokens, got %d", tracked)
+	}
+}
+
+func TestAPITokenLimiterStoresOnlyDigestKeys(t *testing.T) {
+	limiter := newAPITokenRateLimiter()
+	secret := "bearer-secret-that-must-not-be-a-map-key"
+	if !limiter.allow(secret) {
+		t.Fatal("initial token request was rejected")
+	}
+	key := sha256.Sum256([]byte(secret))
+	limiter.mu.Lock()
+	_, found := limiter.state[key]
+	limiter.mu.Unlock()
+	if !found {
+		t.Fatal("token digest was not used as limiter key")
 	}
 }

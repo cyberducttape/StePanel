@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -184,6 +185,15 @@ func TestCSRFMultipartRequiresHeaderWithoutParsingBody(t *testing.T) {
 	req.Header.Set("X-CSRF-Token", "body-token")
 	if !auth.CSRF(req) {
 		t.Fatal("multipart header token should validate")
+	}
+}
+
+func TestCSRFUsesAuthenticatedAPITokenContext(t *testing.T) {
+	auth := Auth{Enabled: true, apiTokens: &apiTokenStore{}, apiTokenLimiter: newAPITokenRateLimiter()}
+	request := httptest.NewRequest(http.MethodPost, "/api/mutate", nil)
+	request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "admin"))
+	if !auth.CSRF(request) {
+		t.Fatal("CSRF rejected an API request already authenticated by Require")
 	}
 }
 

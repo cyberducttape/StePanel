@@ -362,7 +362,10 @@ func (a Auth) CSRF(r *http.Request) bool {
 	if !a.Enabled {
 		return true
 	}
-	if _, ok := a.validAPIToken(r); ok {
+	// Require already authenticated bearer requests and records their identity
+	// in context. Revalidating here would repeat token hashing, storage work,
+	// and rate-limit consumption for every mutating API request.
+	if _, ok := r.Context().Value(apiTokenUsernameKey{}).(string); ok {
 		return true
 	}
 	cookie, err := r.Cookie("stepanel_csrf")
@@ -494,11 +497,6 @@ func (a Auth) IsAPITokenRequest(r *http.Request) bool {
 
 type apiTokenUsernameKey struct{}
 type apiTokenScopesKey struct{}
-
-func (a Auth) validAPIToken(r *http.Request) (string, bool) {
-	username, _, ok := a.validAPITokenWithScopes(r)
-	return username, ok
-}
 
 func (a Auth) validAPITokenWithScopes(r *http.Request) (string, []string, bool) {
 	value := strings.TrimSpace(r.Header.Get("Authorization"))
