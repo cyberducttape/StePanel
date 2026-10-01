@@ -260,7 +260,7 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 			_ = closeArchive()
 			return result, err
 		}
-		databases, err := managedDatabasesForSite(cfg, siteName)
+		databases, err := managedDatabasesForSiteContext(ctx, cfg, siteName)
 		if err != nil {
 			_ = closeArchive()
 			return result, err
@@ -275,11 +275,11 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 				return result, errors.New("backup contains too many entries")
 			}
 			dumpPath := filepath.Join(tempDir, database+".sql")
-			if err := dumpManagedDatabase(cfg, database, dumpPath); err != nil {
+			if err := dumpManagedDatabaseContext(ctx, cfg, database, dumpPath); err != nil {
 				_ = closeArchive()
 				return result, err
 			}
-			if err := addBackupFile(tw, dumpPath, "databases/"+database+".sql", &uncompressedBytes, &manifest); err != nil {
+			if err := addBackupFileExpectedContext(ctx, tw, dumpPath, "databases/"+database+".sql", &uncompressedBytes, &manifest, nil); err != nil {
 				_ = closeArchive()
 				return result, err
 			}
@@ -395,13 +395,9 @@ func addBackupTreeContext(ctx context.Context, tw *tar.Writer, root, prefix stri
 	})
 }
 
-func addBackupFile(tw *tar.Writer, source, name string, totalBytes *int64, manifest *BackupManifest) error {
-	return addBackupFileExpected(tw, source, name, totalBytes, manifest, nil)
-}
-
 // addBackupFileExpected writes a regular file that still matches the file
 // observed during validation. Callers without a preceding walk, such as the
-// database dump staging path, can use addBackupFile instead.
+// database dump staging path, pass a nil expected FileInfo.
 func addBackupFileExpected(tw *tar.Writer, source, name string, totalBytes *int64, manifest *BackupManifest, expected os.FileInfo) error {
 	return addBackupFileExpectedContext(context.Background(), tw, source, name, totalBytes, manifest, expected)
 }
@@ -453,6 +449,13 @@ func (r contextReader) Read(p []byte) (int, error) {
 }
 
 func managedDatabasesForSite(cfg Config, site string) ([]string, error) {
+	return managedDatabasesForSiteContext(context.Background(), cfg, site)
+}
+
+func managedDatabasesForSiteContext(parent context.Context, cfg Config, site string) ([]string, error) {
+	if err := parent.Err(); err != nil {
+		return nil, err
+	}
 	if labDirectRootBrokerEnabled() {
 		items, err := managedDatabaseInventory(cfg)
 		if err != nil {
@@ -467,7 +470,7 @@ func managedDatabasesForSite(cfg Config, site string) ([]string, error) {
 		sort.Strings(databases)
 		return databases, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), helperConfigMutationTimeout)
+	ctx, cancel := context.WithTimeout(parent, helperConfigMutationTimeout)
 	defer cancel()
 	output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "list", site)
 	if err != nil {
@@ -486,10 +489,6 @@ func managedDatabasesForSite(cfg Config, site string) ([]string, error) {
 	}
 	sort.Strings(databases)
 	return databases, nil
-}
-
-func dumpManagedDatabase(cfg Config, database, destination string) error {
-	return dumpManagedDatabaseContext(context.Background(), cfg, database, destination)
 }
 
 func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database string) (DatabaseSafetyBackup, error) {

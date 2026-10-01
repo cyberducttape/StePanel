@@ -470,3 +470,27 @@ func readTestBackupManifest(t *testing.T, root string) BackupManifest {
 	}
 	return manifest
 }
+
+// TestCreateSiteBackupCancelsInFlightDatabaseDump verifies the job context
+// reaches the database dump helper, so cancelling a backup stops a slow dump
+// instead of waiting for the helper's own timeout.
+func TestCreateSiteBackupCancelsInFlightDatabaseDump(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "site")
+	helper := filepath.Join(root, "dbctl")
+	script := "#!/bin/sh\ncase \"$1\" in\n  list) printf 'account_blog\\tcpmove:account\\n';;\n  dump) exec sleep 30;;\n  *) exit 1;;\nesac\n"
+	if err := os.WriteFile(helper, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := CreateSiteBackupContext(ctx, Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), DBCtl: helper}, AuthorizedSite{site: "account"}, true)
+	if err == nil {
+		t.Fatal("backup succeeded although its context was cancelled during the dump")
+	}
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Fatalf("backup ignored cancellation for %s", elapsed)
+	}
+}
