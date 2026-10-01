@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -113,6 +114,49 @@ func TestAuthSessionAndCSRF(t *testing.T) {
 	}
 	if !auth.CSRF(csrfRequest) {
 		t.Fatal("expected valid csrf token")
+	}
+}
+
+func TestAuthClientIPUsesTrustedProxyPolicyForLoginThrottling(t *testing.T) {
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.TrustedProxies, err = authpolicy.ParseTrustedProxyCIDRs("127.0.0.1/32, ::1/128")
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := func(peer, xff string) int {
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=admin&password=wrong"))
+		req.RemoteAddr = peer
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-Forwarded-For", xff)
+		response := httptest.NewRecorder()
+		auth.Login(response, req)
+		return response.Code
+	}
+	for attempt := 0; attempt < 5; attempt++ {
+		if got := login("127.0.0.1:8080", "198.51.100.10"); got != http.StatusUnauthorized {
+			t.Fatalf("trusted-proxy attempt %d status = %d, want %d", attempt+1, got, http.StatusUnauthorized)
+		}
+	}
+	if got := login("127.0.0.1:8080", "198.51.100.10"); got != http.StatusTooManyRequests {
+		t.Fatalf("sixth trusted-proxy attempt status = %d, want %d", got, http.StatusTooManyRequests)
+	}
+	if got := login("127.0.0.1:8080", "198.51.100.11"); got != http.StatusUnauthorized {
+		t.Fatalf("different forwarded client status = %d, want %d", got, http.StatusUnauthorized)
+	}
+	if got := login("203.0.113.9:8080", "198.51.100.10"); got != http.StatusUnauthorized {
+		t.Fatalf("untrusted forwarded client status = %d, want %d", got, http.StatusUnauthorized)
+	}
+	ipv6 := httptest.NewRequest(http.MethodGet, "/", nil)
+	ipv6.RemoteAddr = "[::1]:8080"
+	ipv6.Header.Set("X-Forwarded-For", "2001:db8::10, ::1")
+	if got := auth.ClientIP(ipv6); got != "2001:db8::10" {
+		t.Fatalf("IPv6 trusted proxy client IP = %q, want 2001:db8::10", got)
 	}
 }
 
