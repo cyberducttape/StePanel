@@ -377,6 +377,10 @@ body { background: var(--panel-bg); color: var(--panel-text); }
 .app-shell {
   display: grid;
   grid-template-columns: 218px minmax(0, 1fr);
+  /* The topbar row must size to its content. Without explicit rows the
+     full-height sidebar sat in the topbar's row and stretched the sticky
+     topbar to the whole viewport, hiding the workspace below the fold. */
+  grid-template-rows: auto 1fr;
   max-width: none;
   min-height: 100vh;
   margin: 0;
@@ -385,6 +389,10 @@ body { background: var(--panel-bg); color: var(--panel-text); }
     linear-gradient(135deg, #0a111c, #0b121d 55%, #0d1821);
 }
 .workspace-sidebar {
+  grid-row: 1 / 3;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
   position: sticky;
   top: 0;
   display: flex;
@@ -406,7 +414,7 @@ body { background: var(--panel-bg); color: var(--panel-text); }
 }
 .sidebar-label {
   margin: 42px 10px 9px;
-  color: #718096;
+  color: #8ea0b4;
   font-size: 10px;
   font-weight: 750;
   letter-spacing: .13em;
