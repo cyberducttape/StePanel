@@ -153,7 +153,7 @@ if [[ $action == inventory ]]; then
     if [[ $engine == postgresql ]]; then
       details=$(sql "SELECT pg_database_size(d.datname)::text || E'\\t' || pg_get_userbyid(d.datdba) FROM pg_database d WHERE d.datname='$database'")
     else
-      details=$(sql "SELECT CONCAT(COALESCE(SUM(data_length+index_length),0), '\\t', COALESCE(DEFAULT_CHARACTER_SET_NAME,'unknown')) FROM information_schema.SCHEMATA s LEFT JOIN information_schema.TABLES t ON t.TABLE_SCHEMA=s.SCHEMA_NAME WHERE s.SCHEMA_NAME='$database' GROUP BY s.SCHEMA_NAME, s.DEFAULT_CHARACTER_SET_NAME")
+      details=$(sql "SELECT CONCAT(COALESCE(SUM(data_length+index_length),0), CHAR(9), COALESCE(DEFAULT_CHARACTER_SET_NAME,'unknown')) FROM information_schema.SCHEMATA s LEFT JOIN information_schema.TABLES t ON t.TABLE_SCHEMA=s.SCHEMA_NAME WHERE s.SCHEMA_NAME='$database' GROUP BY s.SCHEMA_NAME, s.DEFAULT_CHARACTER_SET_NAME")
     fi
     [[ -n $details ]] || continue
     printf '%s\t%s\t%s\t%s\t%s\n' "$database" "$site" "$db_user" "${details%%$'\t'*}" "${details#*$'\t'}"
@@ -166,7 +166,7 @@ if [[ $action == diagnostics ]]; then
   if [[ $engine == postgresql ]]; then
     sql "SELECT 'connections' || E'\\t' || COUNT(*) FROM pg_stat_activity; SELECT 'active_connections' || E'\\t' || COUNT(*) FROM pg_stat_activity WHERE state='active'; SELECT 'long_transactions' || E'\\t' || COUNT(*) FROM pg_stat_activity WHERE xact_start < now()-interval '5 minutes'; SELECT 'blocked_sessions' || E'\\t' || COUNT(*) FROM pg_stat_activity WHERE cardinality(pg_blocking_pids(pid)) > 0; SELECT 'deadlocks' || E'\\t' || COALESCE(SUM(deadlocks),0) FROM pg_stat_database; SELECT 'database_bytes' || E'\\t' || COALESCE(SUM(pg_database_size(datname)),0) FROM pg_database WHERE datallowconn"
   else
-    sql "SELECT CONCAT('connections','\\t',COUNT(*)) FROM information_schema.PROCESSLIST; SELECT CONCAT('active_connections','\\t',COUNT(*)) FROM information_schema.PROCESSLIST WHERE COMMAND <> 'Sleep'; SELECT CONCAT('long_transactions','\\t',COUNT(*)) FROM information_schema.innodb_trx WHERE trx_started < NOW()-INTERVAL 5 MINUTE; SELECT CONCAT('database_bytes','\\t',COALESCE(SUM(data_length+index_length),0)) FROM information_schema.TABLES"
+    sql "SELECT CONCAT('connections',CHAR(9),COUNT(*)) FROM information_schema.PROCESSLIST; SELECT CONCAT('active_connections',CHAR(9),COUNT(*)) FROM information_schema.PROCESSLIST WHERE COMMAND <> 'Sleep'; SELECT CONCAT('long_transactions',CHAR(9),COUNT(*)) FROM information_schema.innodb_trx WHERE trx_started < NOW()-INTERVAL 5 MINUTE; SELECT CONCAT('database_bytes',CHAR(9),COALESCE(SUM(data_length+index_length),0)) FROM information_schema.TABLES"
     deadlocks=$(sql "SHOW GLOBAL STATUS LIKE 'Innodb_deadlocks'" | awk '{print $2}')
     [[ $deadlocks =~ ^[0-9]+$ ]] && printf 'deadlocks\t%s\n' "$deadlocks"
     if [[ $engine == mariadb ]]; then blocked=$(sql "SELECT COUNT(*) FROM information_schema.INNODB_LOCK_WAITS"); else blocked=$(sql "SELECT COUNT(*) FROM performance_schema.data_lock_waits"); fi
@@ -180,7 +180,7 @@ if [[ $action == sessions ]]; then
   if [[ $engine == postgresql ]]; then
     sql "SELECT pid || E'\\t' || COALESCE(usename,'') || E'\\t' || COALESCE(datname,'') || E'\\t' || COALESCE(state,'') || E'\\t' || COALESCE(EXTRACT(EPOCH FROM (now()-COALESCE(xact_start,query_start)))::bigint,0) || E'\\t' || COALESCE(wait_event_type,'') FROM pg_stat_activity WHERE pid <> pg_backend_pid() ORDER BY COALESCE(xact_start,query_start) NULLS LAST LIMIT 200"
   else
-    sql "SELECT CONCAT(ID,'\\t',USER,'\\t',COALESCE(DB,''),'\\t',COMMAND,'\\t',TIME,'\\t',COALESCE(STATE,'')) FROM information_schema.PROCESSLIST WHERE ID <> CONNECTION_ID() ORDER BY TIME DESC LIMIT 200"
+    sql "SELECT CONCAT(ID,CHAR(9),USER,CHAR(9),COALESCE(DB,''),CHAR(9),COMMAND,CHAR(9),TIME,CHAR(9),COALESCE(STATE,'')) FROM information_schema.PROCESSLIST WHERE ID <> CONNECTION_ID() ORDER BY TIME DESC LIMIT 200"
   fi
   exit 0
 fi
