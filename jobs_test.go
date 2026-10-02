@@ -833,3 +833,38 @@ func TestJobsFailClosedWhenStateCannotBePersisted(t *testing.T) {
 		t.Fatal("unpersisted job remained visible")
 	}
 }
+
+// TestDurableListAlwaysIncludesActiveJobsOutsideTheRecentWindow keeps the
+// Job Center's active count authoritative: a long-running job must be listed
+// even when many newer jobs have finished since it started.
+func TestDurableListAlwaysIncludesActiveJobsOutsideTheRecentWindow(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	old, err := jobs.Enqueue("long.operation", "site-old", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE jobs SET started_at = 1 WHERE id = ?`, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		finished, err := jobs.Enqueue("short.operation", fmt.Sprintf("site-%d", i), "", nil, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE jobs SET state = 'completed' WHERE id = ?`, finished.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listed := jobs.List(3)
+	if len(listed) != 4 {
+		t.Fatalf("List(3) returned %d jobs; want 3 recent plus the old active job", len(listed))
+	}
+	if last := listed[len(listed)-1]; last.ID != old.ID || last.State != "queued" {
+		t.Fatalf("oldest listed job = %#v; want the old queued job last", last)
+	}
+}

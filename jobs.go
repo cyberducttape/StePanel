@@ -1781,12 +1781,19 @@ func materializeJobOutput(item *Job) {
 	}
 }
 
+// List returns the limit most recent jobs plus every queued or running job,
+// newest first. Active jobs are always included so clients can report active
+// work authoritatively even when it started before the recent window.
 func (j *Jobs) List(limit int) []Job {
 	if limit < 1 {
 		limit = 50
 	}
 	if j.db != nil {
-		rows, err := j.db.Query(`SELECT id FROM jobs ORDER BY started_at DESC, id DESC LIMIT ?`, limit)
+		rows, err := j.db.Query(`SELECT id FROM (
+			SELECT id, started_at FROM (SELECT id, started_at FROM jobs ORDER BY started_at DESC, id DESC LIMIT ?)
+			UNION
+			SELECT id, started_at FROM jobs WHERE state IN ('queued', 'running')
+		) ORDER BY started_at DESC, id DESC`, limit)
 		if err == nil {
 			ids := make([]string, 0, limit)
 			for rows.Next() {
@@ -1828,7 +1835,13 @@ func (j *Jobs) List(limit int) []Job {
 	j.mu.RUnlock()
 	sort.Slice(items, func(i, k int) bool { return items[i].StartedAt.After(items[k].StartedAt) })
 	if len(items) > limit {
-		items = items[:limit]
+		kept := items[:limit:limit]
+		for _, item := range items[limit:] {
+			if item.State == "queued" || item.State == "running" {
+				kept = append(kept, item)
+			}
+		}
+		items = kept
 	}
 	return items
 }

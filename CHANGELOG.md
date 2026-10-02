@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Job Center
+
+- **Active operation count is authoritative**: `/api/jobs` and the event-stream
+  snapshot now always include every queued or running job in addition to the
+  100 most recent, and the browser counts active work across all known jobs
+  instead of only the eight rows on screen.
+- **Snapshots replace stale jobs**: an event-stream snapshot now replaces the
+  browser's job list, so jobs pruned on the server no longer linger.
+- **Cancellation failures are shown**: both cancel buttons show the request in
+  flight and report a failed cancellation next to the job instead of
+  swallowing the error.
+- **Drawer keyboard support**: opening Operations moves focus into the drawer;
+  Escape or Close hides it and returns focus to the toggle.
+
 ### Root Broker
 
 - **Broker subprocess output is bounded while the child runs (SECURITY)**: the
