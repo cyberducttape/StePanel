@@ -933,20 +933,25 @@ func (e *Executor) restoreDatabase(ctx context.Context, sqlFile, dbName, dbUser 
 }
 
 func databaseDumpSize(path string) (int64, error) {
-	info, err := os.Stat(path)
+	file, info, err := h.OpenRegularNoFollow(path, nil)
 	if err != nil {
 		return 0, err
 	}
-	if !info.Mode().IsRegular() {
-		return 0, errors.New("database dump is not a regular file")
+	if err := file.Close(); err != nil {
+		return 0, err
 	}
 	return info.Size(), nil
 }
 
 // extractDatabaseInfo extracts database name/user from config file
 func (e *Executor) extractDatabaseInfo(configFile string) (dbName, dbUser string) {
-	data, err := os.ReadFile(configFile)
+	file, _, err := h.OpenRegularNoFollow(configFile, nil)
 	if err != nil {
+		return "", ""
+	}
+	data, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
 		return "", ""
 	}
 
@@ -966,18 +971,18 @@ func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error 
 	}
 
 	// Verify the file exists and is a regular file (not symlink/directory/etc)
-	info, err := os.Stat(configFile)
+	file, info, err := h.OpenRegularNoFollow(configFile, nil)
 	if err != nil {
 		return fmt.Errorf("cannot access config file: %w", err)
 	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("config path is not a regular file")
-	}
-
-	// Read the config file
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return fmt.Errorf("cannot read config file: %w", err)
+	// Read the same no-follow descriptor that was validated above.
+	data, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
+		if readErr == nil {
+			readErr = closeErr
+		}
+		return fmt.Errorf("cannot read config file: %w", readErr)
 	}
 
 	content := string(data)

@@ -926,16 +926,21 @@ func readBackupManifest(root string) (BackupManifest, error) {
 	if err != nil {
 		return BackupManifest{}, err
 	}
-	info, err := os.Stat(path)
+	file, info, err := openRegularNoFollow(path, nil)
 	if err != nil {
 		return BackupManifest{}, err
 	}
 	if !info.Mode().IsRegular() || info.Size() > 64<<20 {
+		_ = file.Close()
 		return BackupManifest{}, errors.New("backup manifest is not a bounded regular file")
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return BackupManifest{}, err
+	data, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr == nil {
+		readErr = closeErr
+	}
+	if readErr != nil {
+		return BackupManifest{}, readErr
 	}
 	var manifest BackupManifest
 	if err := json.Unmarshal(data, &manifest); err != nil || manifest.Version != 1 || safeUser(manifest.Site) == "" || (manifest.Archive != "backup.tar.gz" && manifest.Archive != "backup.tar.gz.enc") || manifest.VerifiedAt.IsZero() || manifest.Bytes < 0 || len(manifest.ArchiveSHA256) != sha256.Size*2 {

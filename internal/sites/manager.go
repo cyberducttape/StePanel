@@ -833,7 +833,7 @@ func copySiteTree(ctx context.Context, source, destination string) error {
 		if !entryInfo.Mode().IsRegular() {
 			return fmt.Errorf("refuse to clone special file %q", entry.Name())
 		}
-		in, err := os.Open(src)
+		in, _, err := h.OpenRegularNoFollow(src, entryInfo)
 		if err != nil {
 			return err
 		}

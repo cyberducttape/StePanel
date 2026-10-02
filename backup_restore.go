@@ -851,21 +851,18 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	info, err := os.Stat(dump)
+	input, info, err := openRegularNoFollow(dump, nil)
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("inspect selected database dump: %w", err)
 	}
 	if !info.Mode().IsRegular() {
+		_ = input.Close()
 		return BackupRestoreResult{}, errors.New("selected database dump is not a regular file")
 	}
 	if err := failureInjection("restore", "database"); err != nil {
 		return BackupRestoreResult{}, err
 	}
 	processKillInjection("restore", "database")
-	input, err := os.Open(dump)
-	if err != nil {
-		return BackupRestoreResult{}, err
-	}
 	defer input.Close()
 	ctx, cancel := context.WithTimeout(ctx, helperBackupRestoreTimeout)
 	defer cancel()
@@ -873,7 +870,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 		if info.Size() > maxDirectBrokerDatabaseDumpBytes {
 			return BackupRestoreResult{}, errors.New("database dump exceeds the isolated broker limit")
 		}
-		dumpData, readErr := os.ReadFile(dump)
+		dumpData, readErr := io.ReadAll(input)
 		if readErr != nil {
 			return BackupRestoreResult{}, readErr
 		}
