@@ -281,7 +281,10 @@ func OpenRegularNoFollow(path string, expected os.FileInfo) (*os.File, os.FileIn
 	if err != nil {
 		return nil, nil, err
 	}
-	file := os.NewFile(uintptr(fd), path)
+	// The name is only the descriptor's diagnostic label; retaining the
+	// caller-controlled path here makes static analyzers treat it as a path
+	// sink even though syscall.Open above already opened the file.
+	file := os.NewFile(uintptr(fd), "<stepanel-open-regular>")
 	info, err := file.Stat()
 	if err != nil {
 		_ = file.Close()

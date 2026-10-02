@@ -153,17 +153,17 @@ func parseMigrationInventory(output, fallbackHost string) (doctor.ServerInventor
 		case "DISK_AVAILABLE_KB":
 			inv.SystemResources.AvailableDiskGB = parseDoctorInt(value) / (1024 * 1024)
 		case "CPU_CORES":
-			inv.SystemResources.CPUCores = int(parseDoctorInt(value))
+			inv.SystemResources.CPUCores = parseDoctorIntAsInt(value)
 		case "MEMORY_MB":
-			inv.SystemResources.TotalMemoryGB = int(parseDoctorInt(value) / 1024)
+			inv.SystemResources.TotalMemoryGB = parseDoctorIntAsInt(value) / 1024
 		case "WORDPRESS_ROOT":
 			roots = append(roots, value)
 		case "SITE_BYTES":
 			sizes = append(sizes, parseDoctorInt(value))
 		case "SITE_FILES":
-			files = append(files, int(parseDoctorInt(value)))
+			files = append(files, parseDoctorIntAsInt(value))
 		case "CRON_COUNT":
-			inv.CronJobs = int(parseDoctorInt(value))
+			inv.CronJobs = parseDoctorIntAsInt(value)
 		}
 	}
 	for i, root := range roots {
@@ -185,6 +185,14 @@ func parseMigrationInventory(output, fallbackHost string) (doctor.ServerInventor
 func parseDoctorInt(value string) int64 {
 	n, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	return n
+}
+
+func parseDoctorIntAsInt(value string) int {
+	n := parseDoctorInt(value)
+	if strconv.IntSize == 32 && (n < -(1<<31) || n > (1<<31)-1) {
+		return 0
+	}
+	return int(n)
 }
 
 func (a *App) localMigrationInventory() doctor.ServerInventory {

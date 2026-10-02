@@ -1036,7 +1036,16 @@ func verifySiteBackup(root string, allowCache bool, signingKey string, encryptio
 	if err != nil {
 		return BackupManifest{}, err
 	}
-	data, err := os.ReadFile(manifestPath)
+	manifestFile, _, err := openRegularNoFollow(manifestPath, nil)
+	if err != nil {
+		return BackupManifest{}, err
+	}
+	data, readErr := io.ReadAll(manifestFile)
+	closeErr := manifestFile.Close()
+	if readErr == nil {
+		readErr = closeErr
+	}
+	err = readErr
 	if err != nil {
 		return BackupManifest{}, err
 	}

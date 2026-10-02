@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 )
 
 const (
@@ -47,7 +46,7 @@ func encryptBackupArchive(src, dst, key string) error {
 	if err != nil {
 		return err
 	}
-	input, err := os.Open(src)
+	input, _, err := openRegularNoFollow(src, nil)
 	if err != nil {
 		return err
 	}
@@ -112,7 +111,7 @@ func decryptBackupArchive(src, dst, key string) error {
 	if err != nil {
 		return err
 	}
-	input, err := os.Open(src)
+	input, _, err := openRegularNoFollow(src, nil)
 	if err != nil {
 		return err
 	}
@@ -181,7 +180,7 @@ func withDecryptedBackupArchive(path, key string, fn func(string) error) (return
 	if key == "" {
 		return fn(path)
 	}
-	probe, err := os.Open(path)
+	probe, _, err := openRegularNoFollow(path, nil)
 	if err != nil {
 		return err
 	}
@@ -191,7 +190,7 @@ func withDecryptedBackupArchive(path, key string, fn func(string) error) (return
 	if probeErr == io.EOF || probeErr == io.ErrUnexpectedEOF || string(magic) != backupEncryptionFormat {
 		return fn(path)
 	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".backup-decrypt-*")
+	temp, err := os.CreateTemp("", ".backup-decrypt-*")
 	if err != nil {
 		return err
 	}

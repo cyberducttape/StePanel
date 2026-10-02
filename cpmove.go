@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +41,8 @@ type CPMoveInfo struct {
 
 const maxCPMoveExpandedBytes int64 = 80 << 30
 
+var cpmoveUploadIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+
 type cpmoveUpload struct {
 	ID            string    `json:"id"`
 	Path          string    `json:"path"`
@@ -61,7 +64,7 @@ func cpmoveUploadMetadataPath(root, id string) string {
 }
 
 func readCPMoveUpload(root, id string) (cpmoveUpload, error) {
-	if id == "" || strings.ContainsAny(id, `/\\`) {
+	if !cpmoveUploadIDPattern.MatchString(id) {
 		return cpmoveUpload{}, errors.New("invalid upload ID")
 	}
 	data, err := os.ReadFile(cpmoveUploadMetadataPath(root, id))

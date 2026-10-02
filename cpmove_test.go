@@ -37,6 +37,12 @@ func TestVerifyCPMoveUploadRejectsSameSizeMutation(t *testing.T) {
 	}
 }
 
+func TestReadCPMoveUploadRejectsPathTraversalID(t *testing.T) {
+	if _, err := readCPMoveUpload(t.TempDir(), "../outside"); err == nil {
+		t.Fatal("path traversal upload ID was accepted")
+	}
+}
+
 func TestRestoreCPMoveContextHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

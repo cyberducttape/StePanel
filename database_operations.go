@@ -168,7 +168,7 @@ func runDatabaseRestoreFromPath(ctx context.Context, cfg Config, action, site, d
 		}
 		return nil
 	}
-	input, err := os.Open(dumpPath)
+	input, _, err := openRegularNoFollow(dumpPath, nil)
 	if err != nil {
 		return err
 	}

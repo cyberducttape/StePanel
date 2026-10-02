@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -295,7 +296,19 @@ func (a *App) runAppStateAction(ctx context.Context, site, action string) (int, 
 	if err != nil {
 		return http.StatusInternalServerError, "app manifest path is invalid", err
 	}
-	current, err := os.ReadFile(manifestPath)
+	manifestFile, _, err := openRegularNoFollow(manifestPath, nil)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return http.StatusConflict, "application is not deployed", err
+		}
+		return http.StatusInternalServerError, "current app manifest is unavailable", err
+	}
+	current, readErr := io.ReadAll(manifestFile)
+	closeErr := manifestFile.Close()
+	if readErr == nil {
+		readErr = closeErr
+	}
+	err = readErr
 	if errors.Is(err, os.ErrNotExist) {
 		return http.StatusConflict, "application is not deployed", err
 	}
