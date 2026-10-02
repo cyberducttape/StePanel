@@ -116,6 +116,10 @@ func decryptBackupArchive(src, dst, key string) error {
 		return err
 	}
 	defer input.Close()
+	return decryptBackupArchiveReader(input, dst, aead)
+}
+
+func decryptBackupArchiveReader(input io.Reader, dst string, aead cipher.AEAD) error {
 	magic := make([]byte, len(backupEncryptionFormat))
 	if _, err := io.ReadFull(input, magic); err != nil {
 		return fmt.Errorf("read encrypted backup header: %w", err)
@@ -173,6 +177,49 @@ func decryptBackupArchive(src, dst, key string) error {
 		return err
 	}
 	removeOnError = false
+	return nil
+}
+
+// withDecryptedBackupArchiveReader decrypts the already-open encrypted input
+// into a private temporary file. Keeping the input descriptor owned by the
+// caller prevents a path replacement between checksum verification and
+// decryption from changing the bytes that are consumed.
+func withDecryptedBackupArchiveReader(input io.Reader, key string, fn func(string) error) (returnErr error) {
+	aead, err := backupCipher(key)
+	if err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp("", ".backup-decrypt-*")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	if err := temp.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	_ = os.Remove(tempPath)
+	removed := false
+	defer func() {
+		if !removed {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if err := decryptBackupArchiveReader(input, tempPath, aead); err != nil {
+		return err
+	}
+	callbackErr := fn(tempPath)
+	removeErr := os.Remove(tempPath)
+	removed = removeErr == nil || os.IsNotExist(removeErr)
+	if callbackErr != nil && removeErr != nil {
+		return errors.Join(callbackErr, fmt.Errorf("remove decrypted backup archive: %w", removeErr))
+	}
+	if callbackErr != nil {
+		return callbackErr
+	}
+	if removeErr != nil {
+		return fmt.Errorf("remove decrypted backup archive: %w", removeErr)
+	}
 	return nil
 }
 

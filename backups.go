@@ -695,91 +695,103 @@ func VerifyBackupArchiveWithKey(path string, manifest BackupManifest, encryption
 	} else if manifest.Encryption != "" {
 		return errors.New("plaintext backup has unexpected encryption metadata")
 	}
-	info, err := os.Stat(path)
+	file, info, err := openRegularNoFollow(path, nil)
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 	if !info.Mode().IsRegular() || info.Size() != manifest.Bytes {
 		return errors.New("archive size does not match manifest")
 	}
-	archiveHash, err := fileSHA256(path)
-	if err != nil {
-		return err
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return fmt.Errorf("hash backup archive: %w", err)
 	}
+	archiveHash := hex.EncodeToString(hash.Sum(nil))
 	if archiveHash != manifest.ArchiveSHA256 {
 		return errors.New("archive checksum does not match manifest")
 	}
-	return withDecryptedBackupArchive(path, encryptionKey, func(archivePath string) error {
-		file, err := os.Open(archivePath)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-		gz, err := gzip.NewReader(file)
-		if err != nil {
-			return err
-		}
-		defer gz.Close()
-		expected := make(map[string]BackupEntry, len(manifest.Entries))
-		for _, entry := range manifest.Entries {
-			if _, err := hex.DecodeString(entry.SHA256); err != nil || len(entry.SHA256) != sha256.Size*2 {
-				return errors.New("manifest contains an invalid entry checksum")
-			}
-			if _, exists := expected[entry.Path]; exists || !safeArchivePath(entry.Path) || entry.Size < 0 || entry.Size > maxBackupBytes {
-				return errors.New("manifest contains a duplicate or unsafe entry")
-			}
-			expected[entry.Path] = entry
-		}
-		seen := make(map[string]bool, len(expected))
-		tr := tar.NewReader(gz)
-		var total int64
-		for count := 0; ; count++ {
-			if count > 1000000 {
-				return errors.New("backup archive contains too many entries")
-			}
-			header, err := tr.Next()
-			if errors.Is(err, io.EOF) {
-				break
-			}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("rewind backup archive: %w", err)
+	}
+	if manifest.Archive == "backup.tar.gz.enc" {
+		return withDecryptedBackupArchiveReader(file, encryptionKey, func(archivePath string) error {
+			plaintext, _, err := openRegularNoFollow(archivePath, nil)
 			if err != nil {
 				return err
 			}
-			if !safeArchivePath(header.Name) {
-				return errors.New("backup archive contains an unsafe path")
-			}
-			if header.FileInfo().IsDir() {
-				continue
-			}
-			if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
-				return errors.New("backup archive contains an unsupported entry type")
-			}
-			if header.Size < 0 || header.Size > maxBackupBytes {
-				return errors.New("backup archive exceeds the verification limit")
-			}
-			entry, ok := expected[header.Name]
-			if !ok || seen[header.Name] || entry.Size != header.Size {
-				return fmt.Errorf("backup entry %s is unexpected or has the wrong size", header.Name)
-			}
-			if total > maxBackupBytes-header.Size {
-				return errors.New("backup archive exceeds the verification limit")
-			}
-			total += header.Size
-			hash := sha256.New()
-			if copied, err := io.Copy(hash, tr); err != nil {
-				return fmt.Errorf("read backup entry %s: %w", header.Name, err)
-			} else if copied != header.Size {
-				return fmt.Errorf("read backup entry %s: short entry (got %d bytes, want %d)", header.Name, copied, header.Size)
-			}
-			if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
-				return fmt.Errorf("backup entry %s checksum mismatch", header.Name)
-			}
-			seen[header.Name] = true
+			defer plaintext.Close()
+			return verifyBackupArchiveContents(plaintext, manifest)
+		})
+	}
+	return verifyBackupArchiveContents(file, manifest)
+}
+
+func verifyBackupArchiveContents(input io.Reader, manifest BackupManifest) error {
+	gz, err := gzip.NewReader(input)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+	expected := make(map[string]BackupEntry, len(manifest.Entries))
+	for _, entry := range manifest.Entries {
+		if _, err := hex.DecodeString(entry.SHA256); err != nil || len(entry.SHA256) != sha256.Size*2 {
+			return errors.New("manifest contains an invalid entry checksum")
 		}
-		if len(seen) != len(expected) {
-			return errors.New("backup archive is missing manifest entries")
+		if _, exists := expected[entry.Path]; exists || !safeArchivePath(entry.Path) || entry.Size < 0 || entry.Size > maxBackupBytes {
+			return errors.New("manifest contains a duplicate or unsafe entry")
 		}
-		return nil
-	})
+		expected[entry.Path] = entry
+	}
+	seen := make(map[string]bool, len(expected))
+	tr := tar.NewReader(gz)
+	var total int64
+	for count := 0; ; count++ {
+		if count > 1000000 {
+			return errors.New("backup archive contains too many entries")
+		}
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if !safeArchivePath(header.Name) {
+			return errors.New("backup archive contains an unsafe path")
+		}
+		if header.FileInfo().IsDir() {
+			continue
+		}
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			return errors.New("backup archive contains an unsupported entry type")
+		}
+		if header.Size < 0 || header.Size > maxBackupBytes {
+			return errors.New("backup archive exceeds the verification limit")
+		}
+		entry, ok := expected[header.Name]
+		if !ok || seen[header.Name] || entry.Size != header.Size {
+			return fmt.Errorf("backup entry %s is unexpected or has the wrong size", header.Name)
+		}
+		if total > maxBackupBytes-header.Size {
+			return errors.New("backup archive exceeds the verification limit")
+		}
+		total += header.Size
+		hash := sha256.New()
+		if copied, err := io.Copy(hash, tr); err != nil {
+			return fmt.Errorf("read backup entry %s: %w", header.Name, err)
+		} else if copied != header.Size {
+			return fmt.Errorf("read backup entry %s: short entry (got %d bytes, want %d)", header.Name, copied, header.Size)
+		}
+		if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
+			return fmt.Errorf("backup entry %s checksum mismatch", header.Name)
+		}
+		seen[header.Name] = true
+	}
+	if len(seen) != len(expected) {
+		return errors.New("backup archive is missing manifest entries")
+	}
+	return nil
 }
 
 func writeBackupManifest(root string, manifest BackupManifest, signingKey ...string) error {

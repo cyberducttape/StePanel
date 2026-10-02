@@ -584,15 +584,54 @@ func extractBackupArchiveContext(ctx context.Context, archive, destination, encr
 		}
 		return closeErr
 	}
-	if err := VerifyBackupArchiveWithKey(archive, manifest, encryptionKey); err != nil {
-		return fmt.Errorf("reverify encrypted backup before extraction: %w", err)
+	file, info, err := openRegularNoFollow(archive, nil)
+	if err != nil {
+		return err
 	}
-	return withDecryptedBackupArchive(archive, encryptionKey, func(plaintext string) error {
+	if info.Size() != manifest.Bytes {
+		_ = file.Close()
+		return errors.New("encrypted archive size changed after verification")
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("hash verified encrypted backup archive: %w", err)
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != manifest.ArchiveSHA256 {
+		_ = file.Close()
+		return errors.New("encrypted archive changed after verification")
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return err
+	}
+	consumeErr := withDecryptedBackupArchiveReader(file, encryptionKey, func(plaintext string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		return extractArchiveContext(ctx, plaintext, destination)
+		plain, _, err := openRegularNoFollow(plaintext, nil)
+		if err != nil {
+			return err
+		}
+		verifyErr := verifyBackupArchiveContents(plain, manifest)
+		if verifyErr == nil {
+			if _, err := plain.Seek(0, io.SeekStart); err != nil {
+				verifyErr = err
+			} else {
+				verifyErr = extractArchiveReaderContext(ctx, plain, destination, "")
+			}
+		}
+		closeErr := plain.Close()
+		if verifyErr != nil {
+			return verifyErr
+		}
+		return closeErr
 	})
+	closeErr := file.Close()
+	if consumeErr != nil {
+		return consumeErr
+	}
+	return closeErr
 }
 
 func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {
