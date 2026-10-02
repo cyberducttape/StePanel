@@ -1093,6 +1093,9 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	if err := verifyCPMoveUpload(upload); err != nil {
+		return nil, err
+	}
 	if a.Jobs.CancellationRequested(item.ID) {
 		return nil, errors.New("cpmove restore cancelled before execution")
 	}

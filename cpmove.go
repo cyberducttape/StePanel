@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,8 +69,11 @@ func readCPMoveUpload(root, id string) (cpmoveUpload, error) {
 		return cpmoveUpload{}, err
 	}
 	var upload cpmoveUpload
-	if err := json.Unmarshal(data, &upload); err != nil || upload.ID != id || upload.Owner == "" || upload.Size < 0 || upload.ExpandedBytes < 0 || upload.SHA256 == "" {
+	if err := json.Unmarshal(data, &upload); err != nil || upload.ID != id || upload.Owner == "" || upload.Size < 0 || upload.ExpandedBytes < 0 || len(upload.SHA256) != 2*sha256.Size {
 		return cpmoveUpload{}, errors.New("invalid upload metadata")
+	}
+	if _, err := hex.DecodeString(upload.SHA256); err != nil {
+		return cpmoveUpload{}, errors.New("invalid upload checksum")
 	}
 	if time.Now().After(upload.ExpiresAt) {
 		return cpmoveUpload{}, errors.New("upload has expired")
@@ -77,6 +82,28 @@ func readCPMoveUpload(root, id string) (cpmoveUpload, error) {
 		return cpmoveUpload{}, errors.New("invalid upload path")
 	}
 	return upload, nil
+}
+
+// verifyCPMoveUpload revalidates the durable upload immediately before a
+// restore. Inspection happens in the HTTP request, but the worker may execute
+// much later; metadata and byte length alone are not sufficient to prove that
+// the staged archive is still the one that was inspected.
+func verifyCPMoveUpload(upload cpmoveUpload) error {
+	info, err := os.Stat(upload.Path)
+	if err != nil {
+		return fmt.Errorf("inspect staged cpmove archive: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() != upload.Size {
+		return errors.New("staged cpmove archive size does not match upload metadata")
+	}
+	checksum, err := fileSHA256(upload.Path)
+	if err != nil {
+		return fmt.Errorf("hash staged cpmove archive: %w", err)
+	}
+	if checksum != upload.SHA256 {
+		return errors.New("staged cpmove archive checksum does not match upload metadata")
+	}
+	return nil
 }
 
 type cpmovePathInfo struct {

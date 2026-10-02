@@ -15,6 +15,28 @@ import (
 	"testing"
 )
 
+func TestVerifyCPMoveUploadRejectsSameSizeMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "upload.tar.gz")
+	original := []byte("original archive bytes")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	checksum, err := fileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload := cpmoveUpload{Path: path, Size: int64(len(original)), SHA256: checksum}
+	if err := verifyCPMoveUpload(upload); err != nil {
+		t.Fatalf("initial upload verification failed: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("original archive bytez"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyCPMoveUpload(upload); err == nil {
+		t.Fatal("same-size archive mutation was accepted")
+	}
+}
+
 func TestRestoreCPMoveContextHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
