@@ -86,7 +86,7 @@ func TestPathTraversalUnicodeEscape(t *testing.T) {
 			// Note: safePath may or may not decode these, but should not escape validation
 			result, err := safePath("/var/www", path)
 			if err == nil && strings.Contains(result, "../") {
-				t.Logf("WARN: possible escape sequence in path: %s -> %s", path, result)
+				t.Fatalf("path validation returned an escaping path: %s -> %s", path, result)
 			}
 		})
 	}
@@ -194,22 +194,50 @@ func TestArchiveDecompressionBomb(t *testing.T) {
 }
 
 func TestArchiveSymlink(t *testing.T) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
+	archivePath := filepath.Join(t.TempDir(), "backup.tar.gz")
+	file, err := os.OpenFile(archivePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(file)
+	tw := tar.NewWriter(gz)
 
-	// Try to add a symlink entry to tar
-	header := &tar.Header{
+	if err := tw.WriteHeader(&tar.Header{
 		Name:     "malicious_link",
 		Typeflag: tar.TypeSymlink,
 		Linkname: "../../../../etc/passwd",
 		Mode:     0644,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
 	}
 
-	err := tw.WriteHeader(header)
-	tw.Close()
-
-	if err == nil {
-		t.Logf("Note: Symlinks CAN be created in tar, should be REJECTED during extraction")
+	info, err := os.Stat(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checksum, err := fileSHA256(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := BackupManifest{
+		Version:       1,
+		Site:          "adversarial",
+		Archive:       "backup.tar.gz",
+		Bytes:         info.Size(),
+		ArchiveSHA256: checksum,
+		Entries:       []BackupEntry{},
+	}
+	if err := VerifyBackupArchive(archivePath, manifest); err == nil {
+		t.Fatal("backup verifier accepted a symlink archive entry")
 	}
 }
 
@@ -261,31 +289,6 @@ func TestDatabaseNameAllowlist(t *testing.T) {
 // ============================================================================
 // CATEGORY 5: API TOKEN ATTACKS (10 tests)
 // ============================================================================
-
-func TestAPITokenNotInLogs(t *testing.T) {
-	// Tokens should never appear in:
-	// 1. Application logs
-	// 2. Error messages returned to clients
-	// 3. HTTP response bodies
-	// 4. Database records (only hashes)
-
-	token := "stp_test_" + testRandomSecret() // Fake token
-	errorMsg := "authentication failed with token " + token
-
-	// This should NEVER happen in production
-	if strings.Contains(errorMsg, token) {
-		t.Logf("WARN: Token appears in error message (should use hash)")
-	}
-}
-
-func TestAPITokenExpiration(t *testing.T) {
-	// Legacy tokens should expire after grace period
-	// Test verifies the framework enforces this
-
-	// In production: isLegacyTokenExpired(hash) should return true for tokens
-	// older than 30 days. This test documents the requirement.
-	t.Logf("✓ Token expiration framework verified in legacy_token_deprecation_test.go")
-}
 
 // ============================================================================
 // CATEGORY 6: CONTAINER IMAGE VALIDATION (10 tests)
