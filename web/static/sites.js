@@ -99,6 +99,8 @@
 
   const statusOutput = () => el('output', { role: 'status', 'aria-live': 'polite' });
 
+  const errorState = (label, error) => el('p', { className: 'error-state', role: 'alert' }, `${label} unavailable: ${error?.message || 'request failed'}`);
+
   // A high-entropy password so a 20+ character requirement isn't something
   // the person has to type by hand. crypto.getRandomValues works without a
   // secure context, unlike crypto.subtle, so this has no HTTPS dependency.
@@ -489,9 +491,11 @@
     panel.replaceChildren(el('p', { className: 'panel-intro' }, 'The application runtime serving this site.'));
 
     // PHP
-    const php = await ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`).catch(() => null);
+    const php = await ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`).catch((error) => ({ __error: error }));
     const phpOutput = ctx.statusOutput();
-    if (php) {
+    if (php.__error) {
+      panel.append(errorState('PHP runtime status', php.__error));
+    } else if (php) {
       const versionOptions = (php.versions && php.versions.length ? php.versions : ['8.3']).map((v) => ({ value: v, label: `PHP ${v}` }));
       const current = php.configured ? php.profile : { version: versionOptions[0]?.value || '8.3', memory_limit: '256M', max_execution_time: 30, upload_max_filesize: '64M', post_max_size: '64M', max_input_vars: 3000, opcache: true, display_errors: false, error_reporting: 'E_ALL & ~E_DEPRECATED' };
       const versionField = field({ label: 'Version', tag: 'select', name: 'version', value: current.version, options: versionOptions });
@@ -531,9 +535,9 @@
 
     // Node application status (read-only here; initial deployment happens
     // from the administrator "Deploy a Node app" panel).
-    const overview = await ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`).catch(() => ({ applications: [] }));
+    const overview = await ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`).catch((error) => ({ __error: error, applications: [] }));
     const nodeApp = (overview.applications || [])[0];
-    panel.append(el('h4', {}, 'Node.js'), nodeApp
+    panel.append(el('h4', {}, 'Node.js'), overview.__error ? errorState('Node application status', overview.__error) : nodeApp
       ? el('div', { className: 'overview-grid' }, [el('article', { className: 'overview-stat' }, [
         el('span', { className: 'stat-label' }, 'Application'),
         el('strong', {}, `Node ${nodeApp.node_version}`),
@@ -596,8 +600,8 @@
 
   async function renderDeploymentsTab(site, panel, ctx) {
     const [history, keyStatus] = await Promise.all([
-      ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`).catch(() => ({ deployments: [] })),
-      ctx.getJSON(`/api/sites/git-key/${encodeURIComponent(site)}`).catch(() => ({ configured: false })),
+      ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`).catch((error) => ({ __error: error, deployments: [] })),
+      ctx.getJSON(`/api/sites/git-key/${encodeURIComponent(site)}`).catch((error) => ({ __error: error, configured: false })),
     ]);
     const deployments = (history.deployments || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 20);
 
@@ -607,7 +611,7 @@
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'Deploy from a Git repository, review release history, and roll back if a release breaks the site.'),
       el('h4', {}, 'Deploy key'),
-      keyStatus.configured
+      keyStatus.__error ? errorState('Deploy key status', keyStatus.__error) : keyStatus.configured
         ? el('div', {}, [el('p', { className: 'import-note' }, 'A deploy key is configured for this site.'), ctx.can('ssh:write') ? ctx.button('Retire deploy key', async () => {
           keyOutput.textContent = 'Retiring…';
           try { await ctx.deleteJSON(`/api/sites/git-key/${encodeURIComponent(site)}`); keyOutput.textContent = 'Deploy key retired.'; renderDeploymentsTab(site, panel, ctx); } catch (error) { keyOutput.textContent = error.message; }
@@ -664,7 +668,7 @@
 
     panel.append(
       el('h4', {}, 'Release history'),
-      deployments.length
+      history.__error ? errorState('Deployment history', history.__error) : deployments.length
         ? el('ul', { className: 'resource-list' }, deployments.map((item) => el('li', { className: 'resource-list-item' }, [
           el('div', { className: 'item-meta' }, [el('strong', {}, `${item.stage} · ${item.state}`), el('small', {}, [item.repository, item.ref, item.commit ? item.commit.slice(0, 10) : ''].filter(Boolean).join(' · '))]),
           el('small', {}, ctx.formatAge(item.created_at)),
@@ -677,33 +681,34 @@
   // ---------------------------------------------------------------------
 
   async function renderDatabasesTab(site, panel, ctx) {
-    const all = await ctx.getJSON('/api/databases').catch(() => ({ databases: [] }));
+    const all = await ctx.getJSON('/api/databases').catch((error) => ({ __error: error, databases: [] }));
     const owned = (all.databases || []).filter((db) => db.site === site);
     const output = ctx.statusOutput();
+    const databaseList = all.__error ? errorState('Database inventory', all.__error) : el('ul', { className: 'resource-list' }, owned.length ? owned.map((db) => el('li', { className: 'resource-list-item' }, [
+      el('div', { className: 'item-meta' }, [el('strong', {}, db.name), el('small', {}, `${ctx.formatBytes(db.bytes)}${db.user ? ` · user ${db.user}` : ''}`)]),
+      ctx.can('database:write') ? el('div', { className: 'item-actions' }, [
+        ctx.button('Delete', async () => {
+          const confirmed = await ctx.confirmDangerous({
+            title: `Delete ${db.name}?`,
+            message: 'A safety backup is taken automatically before the database is dropped, but the live database will be gone immediately.',
+            facts: [['Database', db.name], ['Size', ctx.formatBytes(db.bytes)], ['Owning site', site]],
+            confirmText: `DROP ${db.name}`,
+            actionLabel: 'Delete database',
+          });
+          if (!confirmed) return;
+          output.textContent = 'Deleting…';
+          try {
+            await mutate('DELETE', `/api/databases/${encodeURIComponent(db.name)}`, { user: db.user, confirm: `DROP ${db.name}` });
+            output.textContent = 'Database deleted.';
+            renderDatabasesTab(site, panel, ctx);
+          } catch (error) { output.textContent = error.message; }
+        }, { className: 'danger' }),
+      ]) : null,
+    ])) : el('p', { className: 'empty-state' }, 'No databases for this site yet.'));
 
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, "This site's managed databases. StePanel never displays stored passwords or runs arbitrary SQL." ),
-      el('ul', { className: 'resource-list' }, owned.length ? owned.map((db) => el('li', { className: 'resource-list-item' }, [
-        el('div', { className: 'item-meta' }, [el('strong', {}, db.name), el('small', {}, `${ctx.formatBytes(db.bytes)}${db.user ? ` · user ${db.user}` : ''}`)]),
-        ctx.can('database:write') ? el('div', { className: 'item-actions' }, [
-          ctx.button('Delete', async () => {
-            const confirmed = await ctx.confirmDangerous({
-              title: `Delete ${db.name}?`,
-              message: 'A safety backup is taken automatically before the database is dropped, but the live database will be gone immediately.',
-              facts: [['Database', db.name], ['Size', ctx.formatBytes(db.bytes)], ['Owning site', site]],
-              confirmText: `DROP ${db.name}`,
-              actionLabel: 'Delete database',
-            });
-            if (!confirmed) return;
-            output.textContent = 'Deleting…';
-            try {
-              await mutate('DELETE', `/api/databases/${encodeURIComponent(db.name)}`, { user: db.user, confirm: `DROP ${db.name}` });
-              output.textContent = 'Database deleted.';
-              renderDatabasesTab(site, panel, ctx);
-            } catch (error) { output.textContent = error.message; }
-          }, { className: 'danger' }),
-        ]) : null,
-      ])) : [el('p', { className: 'empty-state' }, 'No databases for this site yet.')]),
+      databaseList,
       output,
     );
 
@@ -737,7 +742,7 @@
   // ---------------------------------------------------------------------
 
   async function renderBackupsTab(site, panel, ctx) {
-    const data = await ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=100`).catch(() => ({ backups: [] }));
+    const data = await ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=100`).catch((error) => ({ __error: error, backups: [] }));
     const backups = (data.backups || []).sort((a, b) => new Date(b.created_at || b.verified_at) - new Date(a.created_at || a.verified_at));
     const output = ctx.statusOutput();
     const restoreToStaging = async (backup, includeDatabase) => {
@@ -791,7 +796,7 @@
         }),
       ] : [el('span', { className: 'import-note' }, 'Your role can review backups but cannot create them.')]),
       output,
-      el('ul', { className: 'resource-list' }, backups.length ? backups.map((backup) => el('li', { className: 'resource-list-item' }, [
+      data.__error ? errorState('Backup inventory', data.__error) : el('ul', { className: 'resource-list' }, backups.length ? backups.map((backup) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [
           el('strong', {}, backup.name || backup.path || 'Backup'),
           el('small', {}, backup.verified_at ? `Verified ${ctx.formatAge(backup.verified_at)}` : 'Not yet verified'),
@@ -856,13 +861,13 @@
   const WORKER_TYPES = ['laravel', 'horizon', 'node', 'celery', 'rq'];
 
   async function renderWorkersTab(site, panel, ctx) {
-    const data = await ctx.getJSON(`/api/workers/${encodeURIComponent(site)}`).catch(() => ({ workers: [] }));
+    const data = await ctx.getJSON(`/api/workers/${encodeURIComponent(site)}`).catch((error) => ({ __error: error, workers: [] }));
     const workers = data.workers || [];
     const output = ctx.statusOutput();
 
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'Background queue workers for this site (Laravel queues, Horizon, Celery, RQ, or a Node worker process).'),
-      el('ul', { className: 'resource-list' }, workers.length ? workers.map((worker) => el('li', { className: 'resource-list-item' }, [
+      data.__error ? errorState('Worker inventory', data.__error) : el('ul', { className: 'resource-list' }, workers.length ? workers.map((worker) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [el('strong', {}, worker.name), el('small', {}, `${worker.type} · ${worker.processes} process(es) · ${worker.state || 'unknown'}`)]),
         el('div', { className: 'item-actions' }, [
           ctx.button('Restart', async () => { output.textContent = 'Restarting…'; try { await ctx.postJSON(`/api/workers/${encodeURIComponent(site)}/${encodeURIComponent(worker.name)}/restart`); output.textContent = 'Restarted.'; } catch (error) { output.textContent = error.message; } }),
@@ -1007,7 +1012,7 @@
   // ---------------------------------------------------------------------
 
   async function renderSecurityTab(site, panel, ctx) {
-    const access = await ctx.getJSON(`/api/sites/access/${encodeURIComponent(site)}`).catch(() => ({ sftp_enabled: false, shell_enabled: false, keys: [] }));
+    const access = await ctx.getJSON(`/api/sites/access/${encodeURIComponent(site)}`).catch((error) => ({ __error: error, sftp_enabled: false, shell_enabled: false, keys: [] }));
     const output = ctx.statusOutput();
 
     const sftpField = field({ label: 'SFTP access', tag: 'checkbox-field', name: 'sftp_enabled', checked: access.sftp_enabled });
@@ -1058,7 +1063,7 @@
       },
     }, [labelField, keyField, el('button', { type: 'submit', className: 'primary-action' }, 'Add SSH key'), keyOutput]);
 
-    panel.replaceChildren(accessForm, el('h4', {}, 'SSH keys'), keyList, keyForm);
+    panel.replaceChildren(access.__error ? errorState('SSH access status', access.__error) : null, accessForm, el('h4', {}, 'SSH keys'), keyList, keyForm);
 
     if (!ctx.can('ssh:write')) panel.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
 
@@ -1086,7 +1091,7 @@
 
     // Environment variables
     const envOutput = ctx.statusOutput();
-    const env = await ctx.getJSON(`/api/sites/environment/${encodeURIComponent(site)}`).catch(() => ({ environment: {} }));
+    const env = await ctx.getJSON(`/api/sites/environment/${encodeURIComponent(site)}`).catch((error) => ({ __error: error, environment: {} }));
     // Each row keeps an explicit model: its original name and secrecy come from
     // the API, and secrecy is an explicit checkbox, never inferred from the
     // input type. Redacted secrets are sent as "preserve", removals as
@@ -1153,7 +1158,7 @@
     const addRowButton = el('button', {
       type: 'button', className: 'quiet-action', onClick: () => addEnvRow(),
     }, '+ Add variable');
-    panel.append(el('h4', {}, 'Environment variables'), env.environment ? el('div', {}, [rows, addRowButton, el('div', { className: 'workspace-panel-actions' }, [el('button', {
+    panel.append(el('h4', {}, 'Environment variables'), env.__error ? errorState('Environment status', env.__error) : env.environment ? el('div', {}, [rows, addRowButton, el('div', { className: 'workspace-panel-actions' }, [el('button', {
       type: 'button', className: 'primary-action', onClick: async () => {
         let payload;
         try { payload = buildEnvironmentPayload(); } catch (error) { envOutput.textContent = error.message; return; }
@@ -1168,8 +1173,10 @@
 
     // Resource profiles are administrator-configured but tenant-readable so
     // customers can see the envelope their plan is actually enforcing.
-    const resources = await ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`).catch(() => null);
-    if (resources) {
+    const resources = await ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`).catch((error) => ({ __error: error }));
+    if (resources.__error) {
+      panel.append(errorState('Resource profile', resources.__error));
+    } else if (resources) {
       const profile = resources.profile || resources;
       const configured = resources.configured !== false;
       const value = (key, suffix = '') => profile[key] === undefined || profile[key] === null ? '—' : `${profile[key]}${suffix}`;
@@ -1222,18 +1229,19 @@
   async function loadGrid() {
     const [siteData, backupData] = await Promise.all([
       getJSON('/api/sites/overview'),
-      getJSON('/api/backups').catch(() => ({ backups: [] })),
+      getJSON('/api/backups').catch((error) => ({ __error: error, backups: [] })),
     ]);
     grid.replaceChildren();
     let domains = 0;
     for (const site of siteData.sites || []) {
       domains += (site.routes || []).length;
       const backup = latestBackup(backupData.backups, site.site);
+      const backupLabel = backupData.__error ? 'unavailable' : backup ? formatAge(backup.verified_at) : 'never';
       const running = (site.applications || []).some((app) => app.state === 'applied' || app.state === 'running');
       const card = el('article', { className: 'site-card' }, [
         el('div', { className: 'section-heading' }, [el('h3', {}, site.site), (site.applications || []).length ? badge(running ? 'Running' : 'Needs attention', running ? 'ok' : 'warn') : null]),
         el('code', {}, (site.routes || [])[0]?.domain || 'No domain route'),
-        el('p', {}, `${(site.applications || []).length} app · ${site.database_count || 0} database(s) · backup ${backup ? formatAge(backup.verified_at) : 'never'}`),
+        el('p', {}, `${(site.applications || []).length} app · ${site.database_count || 0} database(s) · backup ${backupLabel}`),
         el('div', { className: 'site-actions' }, [button('Manage site →', () => openWorkspace(site.site))]),
       ]);
       grid.append(card);
@@ -1242,7 +1250,7 @@
     setCount('#siteCount', (siteData.sites || []).length);
     setCount('#domainCount', domains);
     const latest = latestBackup(backupData.backups);
-    setCount('#backupFreshness', latest ? formatAge(latest.verified_at) : 'Never');
+    setCount('#backupFreshness', backupData.__error ? 'Unavailable' : latest ? formatAge(latest.verified_at) : 'Never');
     gridStatus.textContent = siteData.sites && siteData.sites.length
       ? `${siteData.sites.length} managed site(s). Select one to open its workspace.`
       : 'No managed sites yet. Start by migrating a cPanel backup or deploying a site.';

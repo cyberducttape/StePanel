@@ -714,6 +714,7 @@ body { background: var(--panel-bg); color: var(--panel-text); }
 .activity-item p,
 .activity-time,
 .empty-state { color: #9eafc2; }
+.error-state { color: #ffb4aa; border-left-color: #ff786b; background: rgba(128, 35, 28, 0.28); }
 .activity-item strong { color: #f1f5f9; }
 .activity-dot {
   width: 8px;
