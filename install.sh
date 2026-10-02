@@ -736,6 +736,13 @@ unset AUDIT_KEY
 install -m 0644 "$ROOT_DIR/deploy/stepanel.service" /etc/systemd/system/stepanel.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-worker.service" /etc/systemd/system/stepanel-worker.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service
+# useradd/usermod take the account database lock files under /etc. Keep the
+# broker's ProtectSystem=full policy narrow while making those namespace paths
+# present; touch never truncates an existing lock held by another process.
+for account_lock in /etc/.pwd.lock /etc/.grp.lock /etc/.shadow.lock /etc/.gshadow.lock; do
+  touch "$account_lock"
+  chmod 0600 "$account_lock"
+done
 install -m 0644 "$ROOT_DIR/deploy/stepanel.logrotate" /etc/logrotate.d/stepanel
 # Native installs use the root-owned broker service and its peer-authorized
 # Unix socket. Remove the pre-socket sudo policy during upgrades so the panel
