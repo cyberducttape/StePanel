@@ -159,6 +159,11 @@ spec:
                 secretKeyRef:
                   name: stepanel-secrets
                   key: backup-signing-key
+            - name: STEPANEL_BACKUP_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stepanel-secrets
+                  key: backup-encryption-key
           readinessProbe:
             httpGet:
               path: /readyz

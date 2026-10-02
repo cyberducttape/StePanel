@@ -38,6 +38,7 @@ type Config struct {
 	ControlPlaneDB                   string
 	AccountKey                       string
 	BackupSigningKey                 string
+	BackupEncryptionKey              string
 	RedisState                       string
 	OffsiteTarget                    string
 	CloudProvider                    string
@@ -122,6 +123,7 @@ func LoadConfig() Config {
 	c.EnvironmentKey = os.Getenv("STEPANEL_ENVIRONMENT_KEY")
 	c.AccountKey = os.Getenv("STEPANEL_ACCOUNT_KEY")
 	c.BackupSigningKey = os.Getenv("STEPANEL_BACKUP_SIGNING_KEY")
+	c.BackupEncryptionKey = os.Getenv("STEPANEL_BACKUP_ENCRYPTION_KEY")
 	// Read STEPANEL_JOB_STATE early, before deriving dependent paths
 	if v := os.Getenv("STEPANEL_JOB_STATE"); v != "" {
 		c.JobState = v
@@ -425,6 +427,11 @@ func ValidateConfig(c Config) error {
 		if len(strings.TrimSpace(c.BackupSigningKey)) < 32 || strings.ContainsAny(c.BackupSigningKey, "\r\n") {
 			problems = append(problems, errors.New("production requires STEPANEL_BACKUP_SIGNING_KEY of at least 32 characters without newlines"))
 		} else if err := validateEncryptionKey(c.BackupSigningKey, "STEPANEL_BACKUP_SIGNING_KEY"); err != nil {
+			problems = append(problems, err)
+		}
+		if len(strings.TrimSpace(c.BackupEncryptionKey)) < 32 || strings.ContainsAny(c.BackupEncryptionKey, "\r\n") {
+			problems = append(problems, errors.New("production requires STEPANEL_BACKUP_ENCRYPTION_KEY of at least 32 characters without newlines"))
+		} else if err := validateEncryptionKey(c.BackupEncryptionKey, "STEPANEL_BACKUP_ENCRYPTION_KEY"); err != nil {
 			problems = append(problems, err)
 		}
 		if len(strings.TrimSpace(c.AccountKey)) > 0 {

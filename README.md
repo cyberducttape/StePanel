@@ -140,6 +140,7 @@ tar -xzf "stepanel_${release#v}_linux_${arch}.tar.gz"
 sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
   STEPANEL_PANEL_HOSTNAME=panel.example.com \
   STEPANEL_DB_ENGINE=mariadb \
+  STEPANEL_BACKUP_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
   STEPANEL_DB_VERSION=default ./install.sh
 ```
 

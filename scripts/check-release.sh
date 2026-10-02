@@ -21,6 +21,10 @@ if ! grep -Eq '^[[:space:]]+write_env STEPANEL_ROOT_BROKER_SOCKET /run/stepanel-
   echo "install.sh does not configure the production root broker socket" >&2
   exit 1
 fi
+if ! grep -Eq '^[[:space:]]+write_env STEPANEL_BACKUP_ENCRYPTION_KEY "\$BACKUP_ENCRYPTION_KEY"$' install.sh; then
+  echo "install.sh does not persist the backup encryption key" >&2
+  exit 1
+fi
 if grep -Fq 'sudoers_tmp' install.sh; then
   echo "install.sh still provisions a panel sudoers policy" >&2
   exit 1

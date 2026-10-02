@@ -101,6 +101,15 @@ resource "kubernetes_deployment" "stepanel" {
             }
           }
           env {
+            name = "STEPANEL_BACKUP_ENCRYPTION_KEY"
+            value_from {
+              secret_key_ref {
+                name = "stepanel-secrets"
+                key  = "backup-encryption-key"
+              }
+            }
+          }
+          env {
             name  = "STEPANEL_IMPORT_ROOT"
             value = "/var/lib/ste-panel/imports"
           }

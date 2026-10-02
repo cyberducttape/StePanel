@@ -20,6 +20,7 @@ kubectl -n stepanel create secret generic stepanel-secrets \
   --from-literal=account-key="$(openssl rand -hex 32)" \
   --from-literal=environment-key="$(openssl rand -hex 32)" \
   --from-literal=backup-signing-key="$(openssl rand -hex 32)" \
+  --from-literal=backup-encryption-key="$(openssl rand -hex 32)" \
   --from-literal=offsite-target='rclone:remote/stepanel'
 ```
 

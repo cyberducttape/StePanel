@@ -154,7 +154,7 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := VerifySiteBackupStrict(backupRoot, a.Config.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backupRoot, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("verify backup: %w", err)
 	}
@@ -173,7 +173,7 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	if err := extractArchiveContext(operationCtx, archivePath, stage); err != nil {
+	if err := extractBackupArchiveContext(operationCtx, archivePath, stage, a.Config.BackupEncryptionKey); err != nil {
 		return nil, fmt.Errorf("extract verified backup: %w", err)
 	}
 	source, err := safePath(stage, "site", "public")
@@ -252,7 +252,7 @@ func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
-	manifest, err := VerifySiteBackupStrict(backupRoot, a.Config.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backupRoot, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
 	if err != nil || manifest.Site != input.Site {
 		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
 		return
@@ -308,7 +308,7 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
-	manifest, err := VerifySiteBackupStrict(path, a.Config.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(path, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
 	if err != nil {
 		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
 		return
@@ -395,7 +395,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	defer releaseUnlock()
-	manifest, e := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey)
+	manifest, e := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
 	if e != nil {
 		http.Error(w, "backup verification failed", 422)
 		return
@@ -441,7 +441,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "invalid verified backup path", 422)
 		return
 	}
-	if e = extractArchiveContext(operationCtx, archivePath, stage); e != nil {
+	if e = extractBackupArchiveContext(operationCtx, archivePath, stage, a.Config.BackupEncryptionKey); e != nil {
 		http.Error(w, "could not extract verified backup", 502)
 		return
 	}
@@ -534,6 +534,18 @@ func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStaging
 	return restoreDatabaseIntoStagingContext(context.Background(), cfg, stage, input)
 }
 
+func extractBackupArchiveContext(ctx context.Context, archive, destination, encryptionKey string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return withDecryptedBackupArchive(archive, encryptionKey, func(plaintext string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return extractArchiveContext(ctx, plaintext, destination)
+	})
+}
+
 func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -596,7 +608,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	manifest, err := VerifySiteBackupStrict(backup, cfg.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backup, cfg.BackupSigningKey, cfg.BackupEncryptionKey)
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("verify backup: %w", err)
 	}
@@ -619,7 +631,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	if err := extractArchiveContext(ctx, archivePath, stage); err != nil {
+	if err := extractBackupArchiveContext(ctx, archivePath, stage, cfg.BackupEncryptionKey); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("extract verified backup: %w", err)
 	}
 	if err := failureInjection("restore", "extract"); err != nil {
@@ -720,7 +732,7 @@ func (a *App) backupRestoreFilesHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
-	if _, err := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey); err != nil {
+	if _, err := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey); err != nil {
 		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
 		return
 	}
@@ -752,7 +764,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	manifest, err := VerifySiteBackupStrict(backup, cfg.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backup, cfg.BackupSigningKey, cfg.BackupEncryptionKey)
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("verify backup: %w", err)
 	}
@@ -774,7 +786,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	if err := extractArchiveContext(ctx, archivePath, stage); err != nil {
+	if err := extractBackupArchiveContext(ctx, archivePath, stage, cfg.BackupEncryptionKey); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("extract verified backup: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
@@ -856,7 +868,7 @@ func (a *App) backupRestoreDatabaseHTTP(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
-	manifest, err := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
 	if err != nil || manifest.Site != input.Site || !backupContainsDatabase(manifest, input.Database) {
 		http.Error(w, "verified backup does not contain the selected site database", http.StatusUnprocessableEntity)
 		return

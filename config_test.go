@@ -99,6 +99,7 @@ func TestValidateConfigRequiresLoopbackOrTLSInProduction(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", "audit-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_ENVIRONMENT_KEY", "environment-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_BACKUP_SIGNING_KEY", "backup-signing-key-that-is-long-enough-123456")
+	t.Setenv("STEPANEL_BACKUP_ENCRYPTION_KEY", "backup-encryption-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_SESSION_SECRET", "session-key-that-is-long-enough-123456")
 	cfg := LoadConfig()
 	cfg.Listen = ":8080"
@@ -117,6 +118,7 @@ func TestValidateConfigAcceptsProductionTLSPaths(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", "audit-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_ENVIRONMENT_KEY", "environment-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_BACKUP_SIGNING_KEY", "backup-signing-key-that-is-long-enough-123456")
+	t.Setenv("STEPANEL_BACKUP_ENCRYPTION_KEY", "backup-encryption-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_SESSION_SECRET", "session-key-that-is-long-enough-123456")
 	cfg := LoadConfig()
 	cfg.TLSCertFile = "/etc/stepanel/cert.pem"
@@ -152,6 +154,7 @@ func TestValidateConfigAcceptsTrustedTLSTermination(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", "audit-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_ENVIRONMENT_KEY", "environment-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_BACKUP_SIGNING_KEY", "backup-signing-key-that-is-long-enough-123456")
+	t.Setenv("STEPANEL_BACKUP_ENCRYPTION_KEY", "backup-encryption-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_SESSION_SECRET", "session-key-that-is-long-enough-123456")
 	cfg := LoadConfig()
 	cfg.Listen = ":8080"
@@ -290,6 +293,7 @@ func TestValidateConfigProductionRequiresFilesystemQuotaSupport(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", "audit-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_ENVIRONMENT_KEY", "environment-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_BACKUP_SIGNING_KEY", "backup-signing-key-that-is-long-enough-123456")
+	t.Setenv("STEPANEL_BACKUP_ENCRYPTION_KEY", "backup-encryption-key-that-is-long-enough-123456")
 	t.Setenv("STEPANEL_SESSION_SECRET", "session-key-that-is-long-enough-123456")
 	cfg := LoadConfig()
 	cfg.TLSCertFile = "/etc/stepanel/cert.pem"

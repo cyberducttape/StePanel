@@ -74,6 +74,7 @@ EXISTING_ADMIN_PASSWORD_HASH="${STEPANEL_ADMIN_PASSWORD_HASH:-}"
 AUDIT_KEY="${STEPANEL_AUDIT_KEY:-}"
 ENVIRONMENT_KEY="${STEPANEL_ENVIRONMENT_KEY:-}"
 BACKUP_SIGNING_KEY="${STEPANEL_BACKUP_SIGNING_KEY:-}"
+BACKUP_ENCRYPTION_KEY="${STEPANEL_BACKUP_ENCRYPTION_KEY:-}"
 ADMIN_TOTP_SECRET="${STEPANEL_ADMIN_TOTP_SECRET:-}"
 ACCOUNT_KEY="${STEPANEL_ACCOUNT_KEY:-}"
 DB_ENGINE="${STEPANEL_DB_ENGINE:-}"; DB_VERSION="${STEPANEL_DB_VERSION:-default}"
@@ -119,11 +120,13 @@ fi
 if [[ -z "$AUDIT_KEY" ]]; then AUDIT_KEY="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"; fi
 if [[ -z "$ENVIRONMENT_KEY" ]]; then ENVIRONMENT_KEY="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"; fi
 if [[ -z "$BACKUP_SIGNING_KEY" ]]; then BACKUP_SIGNING_KEY="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"; fi
+if [[ -z "$BACKUP_ENCRYPTION_KEY" ]]; then BACKUP_ENCRYPTION_KEY="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"; fi
 if [[ -n "$ADMIN_PASSWORD" ]] && (( ${#ADMIN_PASSWORD} < 12 )); then echo "STEPANEL_ADMIN_PASSWORD must be at least 12 characters." >&2; exit 1; fi
 if (( ${#SESSION_SECRET} < 32 )); then echo "STEPANEL_SESSION_SECRET must be at least 32 characters." >&2; exit 1; fi
 if (( ${#AUDIT_KEY} < 32 )) || [[ $AUDIT_KEY == *$'\n'* || $AUDIT_KEY == *$'\r'* ]]; then echo 'STEPANEL_AUDIT_KEY must be at least 32 characters and contain no newlines.' >&2; exit 1; fi
 if (( ${#ENVIRONMENT_KEY} < 32 )) || [[ $ENVIRONMENT_KEY == *$'\n'* || $ENVIRONMENT_KEY == *$'\r'* ]]; then echo 'STEPANEL_ENVIRONMENT_KEY must be at least 32 characters and contain no newlines.' >&2; exit 1; fi
 if (( ${#BACKUP_SIGNING_KEY} < 32 )) || [[ $BACKUP_SIGNING_KEY == *$'\n'* || $BACKUP_SIGNING_KEY == *$'\r'* ]]; then echo 'STEPANEL_BACKUP_SIGNING_KEY must be at least 32 characters and contain no newlines.' >&2; exit 1; fi
+if (( ${#BACKUP_ENCRYPTION_KEY} < 32 )) || [[ $BACKUP_ENCRYPTION_KEY == *$'\n'* || $BACKUP_ENCRYPTION_KEY == *$'\r'* ]]; then echo 'STEPANEL_BACKUP_ENCRYPTION_KEY must be at least 32 characters and contain no newlines.' >&2; exit 1; fi
 if [[ $AUDIT_KEY == "$SESSION_SECRET" ]]; then echo 'STEPANEL_AUDIT_KEY must differ from STEPANEL_SESSION_SECRET.' >&2; exit 1; fi
 ADMIN_TOTP_SECRET=${ADMIN_TOTP_SECRET// /}
 ADMIN_TOTP_SECRET=${ADMIN_TOTP_SECRET^^}
@@ -702,6 +705,7 @@ TXN_TEMPS+=("$env_tmp")
   write_env STEPANEL_AUDIT_LOG "$DATA_DIR/audit.jsonl"
   write_env STEPANEL_AUDIT_KEY "$AUDIT_KEY"
   write_env STEPANEL_BACKUP_SIGNING_KEY "$BACKUP_SIGNING_KEY"
+  write_env STEPANEL_BACKUP_ENCRYPTION_KEY "$BACKUP_ENCRYPTION_KEY"
   write_env STEPANEL_BACKUP_ROOT /var/backups/stepanel
   if [[ -n "${STEPANEL_OFFSITE_TARGET:-}" ]]; then write_env STEPANEL_OFFSITE_TARGET "$STEPANEL_OFFSITE_TARGET"; fi
   write_env STEPANEL_REQUIRE_OFFSITE_BACKUP "$REQUIRE_OFFSITE_BACKUP"

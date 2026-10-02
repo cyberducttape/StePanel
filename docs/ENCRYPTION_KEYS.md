@@ -33,6 +33,7 @@ openssl rand -hex 32
 export STEPANEL_ACCOUNT_KEY='my-super-secret-password'
 export STEPANEL_ENVIRONMENT_KEY='password123'
 export STEPANEL_BACKUP_SIGNING_KEY='backup-key-secret'
+export STEPANEL_BACKUP_ENCRYPTION_KEY='backup-encryption-key-secret'
 ```
 
 ---
@@ -80,6 +81,7 @@ openssl rand -hex 32
 export STEPANEL_ACCOUNT_KEY="$(openssl rand -hex 32)"
 export STEPANEL_ENVIRONMENT_KEY="$(openssl rand -hex 32)"
 export STEPANEL_BACKUP_SIGNING_KEY="$(openssl rand -hex 32)"
+export STEPANEL_BACKUP_ENCRYPTION_KEY="$(openssl rand -hex 32)"
 ```
 
 **Option 2: Secret Management (Recommended)**
@@ -130,6 +132,13 @@ Starting in production, StePanel validates encryption keys at startup and reject
 - **Required:** In production for backups
 - **Generation:** `openssl rand -hex 32`
 - **Example:** `f1a4d7c0e3f6b9a2c5d8e1f4a7b0c3d6e9f2a5b8c1d4e7a0c3f6b9e2d5`
+
+### STEPANEL_BACKUP_ENCRYPTION_KEY
+- **Purpose:** Encrypt backup archive payloads so offsite storage does not receive plaintext-capable objects
+- **Required:** In production
+- **Generation:** `openssl rand -hex 32`
+- **Format:** Streaming AES-256-GCM chunks; the key is never written into the backup manifest
+- **Example:** `d4e7a0c3f6b9e2d5f8a1b4c7d0e3f6a9c2e5f8b1d4e7a0c3f6b9e2d5f8a1b4c7`
 
 ### STEPANEL_AUDIT_KEY
 - **Purpose:** Sign audit log entries for tamper detection

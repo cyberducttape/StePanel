@@ -48,12 +48,14 @@ tar -xzf "stepanel_${release#v}_linux_${arch}.tar.gz"
 ACCOUNT_KEY=$(openssl rand -hex 32)
 ENVIRONMENT_KEY=$(openssl rand -hex 32)
 BACKUP_SIGNING_KEY=$(openssl rand -hex 32)
+BACKUP_ENCRYPTION_KEY=$(openssl rand -hex 32)
 
 sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
   STEPANEL_ADMIN_TOTP_SECRET='BASE32_SECRET' \
   STEPANEL_ACCOUNT_KEY="$ACCOUNT_KEY" \
   STEPANEL_ENVIRONMENT_KEY="$ENVIRONMENT_KEY" \
   STEPANEL_BACKUP_SIGNING_KEY="$BACKUP_SIGNING_KEY" \
+  STEPANEL_BACKUP_ENCRYPTION_KEY="$BACKUP_ENCRYPTION_KEY" \
   STEPANEL_REQUIRE_OFFSITE_BACKUP=1 \
   STEPANEL_OFFSITE_TARGET='s3:bucket/stepanel' \
   STEPANEL_PANEL_HOSTNAME=panel.example.com \
@@ -229,6 +231,7 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_ENVIRONMENT_KEY` | Secret string, at least 32 characters in production | AES-GCM key for encrypted site environment storage; keep stable and back it up securely |
 | `STEPANEL_ACCOUNT_KEY` | Secret string | Encrypts customer TOTP secrets and sensitive durable job payloads (including WordPress restore credentials); required for those features and must be backed up with the control-plane database |
 | `STEPANEL_BACKUP_SIGNING_KEY` | Secret string, at least 32 characters in production | Signs backup manifests with HMAC-SHA256; keep outside the backup root and escrow separately for disaster recovery |
+| `STEPANEL_BACKUP_ENCRYPTION_KEY` | Secret string, at least 32 characters in production | Encrypts backup archive payloads with streaming AES-256-GCM; keep outside the backup root and escrow separately for disaster recovery |
 | `STEPANEL_ENVIRONMENT_STATE` | Filesystem path | Site environment state file; defaults beside the job state |
 | `STEPANEL_REDIS_STATE` | Filesystem path | Redis/Valkey site allocation state; defaults beside the job state |
 

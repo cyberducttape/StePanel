@@ -105,6 +105,8 @@ spec:
               valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: environment-key}}
             - name: STEPANEL_BACKUP_SIGNING_KEY
               valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: backup-signing-key}}
+            - name: STEPANEL_BACKUP_ENCRYPTION_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: backup-encryption-key}}
             - name: STEPANEL_OFFSITE_TARGET
               valueFrom: {secretKeyRef: {name: {{ .Values.secrets.existingSecret }}, key: offsite-target}}
           readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 3}

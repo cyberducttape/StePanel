@@ -88,7 +88,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 					}
 					for _, assignedSite := range assignedSites {
 						access, _ := a.authorizeSite(r, assignedSite)
-						items, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.BackupSigningKey)
+						items, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
 						if err != nil {
 							http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
 							return
@@ -106,7 +106,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			manifests, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.BackupSigningKey)
+			manifests, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
 			if err != nil {
 				http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
 				return
@@ -114,7 +114,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"backups": manifests})
 			return
 		}
-		manifests, err := listBackupsPageUnscoped(a.Config.BackupRoot, site, limit, a.Config.BackupSigningKey)
+		manifests, err := listBackupsPageUnscoped(a.Config.BackupRoot, site, limit, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
 		if err != nil {
 			http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
 			return
@@ -322,13 +322,37 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := VerifyBackupArchive(archivePath, manifest); err != nil {
 		return result, fmt.Errorf("verify completed backup: %w", err)
 	}
+	if cfg.BackupEncryptionKey != "" {
+		encryptedPath := filepath.Join(tempDir, "backup.tar.gz.enc")
+		if err := encryptBackupArchive(archivePath, encryptedPath, cfg.BackupEncryptionKey); err != nil {
+			return result, fmt.Errorf("encrypt backup archive: %w", err)
+		}
+		if err := os.Remove(archivePath); err != nil {
+			return result, fmt.Errorf("remove plaintext backup archive: %w", err)
+		}
+		archivePath = encryptedPath
+		manifest.Archive = "backup.tar.gz.enc"
+		manifest.Encryption = backupEncryptionName
+		archiveInfo, err = os.Stat(archivePath)
+		if err != nil {
+			return result, err
+		}
+		manifest.Bytes = archiveInfo.Size()
+		manifest.ArchiveSHA256, err = fileSHA256(archivePath)
+		if err != nil {
+			return result, err
+		}
+		if err := VerifyBackupArchiveWithKey(archivePath, manifest, cfg.BackupEncryptionKey); err != nil {
+			return result, fmt.Errorf("verify encrypted backup: %w", err)
+		}
+	}
 	manifest.VerifiedAt = time.Now().UTC()
 	manifest.ArchiveVerified = true
 	manifest.DatabaseDumpVerified = len(manifest.Databases) > 0
 	if err := writeBackupManifest(tempDir, manifest, cfg.BackupSigningKey); err != nil {
 		return result, err
 	}
-	if err := writeSyncedFile(tempDir, "backup.tar.gz.sha256", []byte(manifest.ArchiveSHA256+"  backup.tar.gz\n"), 0600); err != nil {
+	if err := writeSyncedFile(tempDir, manifest.Archive+".sha256", []byte(manifest.ArchiveSHA256+"  "+manifest.Archive+"\n"), 0600); err != nil {
 		return result, err
 	}
 	if err := syncDirectory(tempDir); err != nil {
@@ -346,7 +370,7 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := publishStagedDirectory(tempDir, finalPath, cfg.BackupRoot); err != nil {
 		return result, fmt.Errorf("publish backup: %w", err)
 	}
-	result = BackupResult{Site: siteName, Path: finalPath, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: cfg.BackupSigningKey != ""}
+	result = BackupResult{Site: siteName, Path: finalPath, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: cfg.BackupSigningKey != "", Encrypted: manifest.Encryption != ""}
 	return result, nil
 }
 
@@ -656,8 +680,19 @@ func setBackupVerificationCache(path, consistency, checksum string) {
 }
 
 func VerifyBackupArchive(path string, manifest BackupManifest) error {
-	if manifest.Version != 1 || safeUser(manifest.Site) == "" || manifest.Archive != "backup.tar.gz" || len(manifest.ArchiveSHA256) != sha256.Size*2 {
+	return VerifyBackupArchiveWithKey(path, manifest, "")
+}
+
+func VerifyBackupArchiveWithKey(path string, manifest BackupManifest, encryptionKey string) error {
+	if manifest.Version != 1 || safeUser(manifest.Site) == "" || (manifest.Archive != "backup.tar.gz" && manifest.Archive != "backup.tar.gz.enc") || len(manifest.ArchiveSHA256) != sha256.Size*2 {
 		return errors.New("invalid backup manifest metadata")
+	}
+	if manifest.Archive == "backup.tar.gz.enc" {
+		if manifest.Encryption != backupEncryptionName || encryptionKey == "" {
+			return errors.New("encrypted backup requires its encryption key")
+		}
+	} else if manifest.Encryption != "" {
+		return errors.New("plaintext backup has unexpected encryption metadata")
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -673,70 +708,72 @@ func VerifyBackupArchive(path string, manifest BackupManifest) error {
 	if archiveHash != manifest.ArchiveSHA256 {
 		return errors.New("archive checksum does not match manifest")
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	gz, err := gzip.NewReader(file)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	expected := make(map[string]BackupEntry, len(manifest.Entries))
-	for _, entry := range manifest.Entries {
-		if _, err := hex.DecodeString(entry.SHA256); err != nil || len(entry.SHA256) != sha256.Size*2 {
-			return errors.New("manifest contains an invalid entry checksum")
-		}
-		if _, exists := expected[entry.Path]; exists || !safeArchivePath(entry.Path) || entry.Size < 0 {
-			return errors.New("manifest contains a duplicate or unsafe entry")
-		}
-		expected[entry.Path] = entry
-	}
-	seen := make(map[string]bool, len(expected))
-	tr := tar.NewReader(gz)
-	var total int64
-	for count := 0; ; count++ {
-		if count > 1000000 {
-			return errors.New("backup archive contains too many entries")
-		}
-		header, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
+	return withDecryptedBackupArchive(path, encryptionKey, func(archivePath string) error {
+		file, err := os.Open(archivePath)
 		if err != nil {
 			return err
 		}
-		if !safeArchivePath(header.Name) {
-			return errors.New("backup archive contains an unsafe path")
+		defer file.Close()
+		gz, err := gzip.NewReader(file)
+		if err != nil {
+			return err
 		}
-		if header.FileInfo().IsDir() {
-			continue
+		defer gz.Close()
+		expected := make(map[string]BackupEntry, len(manifest.Entries))
+		for _, entry := range manifest.Entries {
+			if _, err := hex.DecodeString(entry.SHA256); err != nil || len(entry.SHA256) != sha256.Size*2 {
+				return errors.New("manifest contains an invalid entry checksum")
+			}
+			if _, exists := expected[entry.Path]; exists || !safeArchivePath(entry.Path) || entry.Size < 0 {
+				return errors.New("manifest contains a duplicate or unsafe entry")
+			}
+			expected[entry.Path] = entry
 		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
-			return errors.New("backup archive contains an unsupported entry type")
+		seen := make(map[string]bool, len(expected))
+		tr := tar.NewReader(gz)
+		var total int64
+		for count := 0; ; count++ {
+			if count > 1000000 {
+				return errors.New("backup archive contains too many entries")
+			}
+			header, err := tr.Next()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			if !safeArchivePath(header.Name) {
+				return errors.New("backup archive contains an unsafe path")
+			}
+			if header.FileInfo().IsDir() {
+				continue
+			}
+			if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+				return errors.New("backup archive contains an unsupported entry type")
+			}
+			entry, ok := expected[header.Name]
+			if !ok || seen[header.Name] || entry.Size != header.Size {
+				return fmt.Errorf("backup entry %s is unexpected or has the wrong size", header.Name)
+			}
+			total += header.Size
+			if total > maxBackupBytes {
+				return errors.New("backup archive exceeds the verification limit")
+			}
+			hash := sha256.New()
+			if copied, err := io.Copy(hash, tr); err != nil || copied != header.Size {
+				return fmt.Errorf("read backup entry %s: %w", header.Name, err)
+			}
+			if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
+				return fmt.Errorf("backup entry %s checksum mismatch", header.Name)
+			}
+			seen[header.Name] = true
 		}
-		entry, ok := expected[header.Name]
-		if !ok || seen[header.Name] || entry.Size != header.Size {
-			return fmt.Errorf("backup entry %s is unexpected or has the wrong size", header.Name)
+		if len(seen) != len(expected) {
+			return errors.New("backup archive is missing manifest entries")
 		}
-		total += header.Size
-		if total > maxBackupBytes {
-			return errors.New("backup archive exceeds the verification limit")
-		}
-		hash := sha256.New()
-		if copied, err := io.Copy(hash, tr); err != nil || copied != header.Size {
-			return fmt.Errorf("read backup entry %s: %w", header.Name, err)
-		}
-		if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
-			return fmt.Errorf("backup entry %s checksum mismatch", header.Name)
-		}
-		seen[header.Name] = true
-	}
-	if len(seen) != len(expected) {
-		return errors.New("backup archive is missing manifest entries")
-	}
-	return nil
+		return nil
+	})
 }
 
 func writeBackupManifest(root string, manifest BackupManifest, signingKey ...string) error {
@@ -895,7 +932,7 @@ func readBackupManifest(root string) (BackupManifest, error) {
 		return BackupManifest{}, err
 	}
 	var manifest BackupManifest
-	if err := json.Unmarshal(data, &manifest); err != nil || manifest.Version != 1 || safeUser(manifest.Site) == "" || manifest.Archive != "backup.tar.gz" || manifest.VerifiedAt.IsZero() || manifest.Bytes < 0 || len(manifest.ArchiveSHA256) != sha256.Size*2 {
+	if err := json.Unmarshal(data, &manifest); err != nil || manifest.Version != 1 || safeUser(manifest.Site) == "" || (manifest.Archive != "backup.tar.gz" && manifest.Archive != "backup.tar.gz.enc") || manifest.VerifiedAt.IsZero() || manifest.Bytes < 0 || len(manifest.ArchiveSHA256) != sha256.Size*2 {
 		return BackupManifest{}, errors.New("invalid backup manifest")
 	}
 	if _, err := hex.DecodeString(manifest.ArchiveSHA256); err != nil {
@@ -953,18 +990,18 @@ func verifyBackupManifestSignature(root string, data []byte, manifest BackupMani
 // large archives on every list request. Call VerifySiteBackupStrict before any
 // restore, rehearsal, migration, staging, or other operation that consumes the
 // archive contents.
-func VerifySiteBackupForListing(root string, signingKey ...string) (BackupManifest, error) {
-	return verifySiteBackup(root, true, signingKey...)
+func VerifySiteBackupForListing(root string, signingKey string, encryptionKey ...string) (BackupManifest, error) {
+	return verifySiteBackup(root, true, signingKey, encryptionKey...)
 }
 
 // VerifySiteBackupStrict always re-hashes and fully validates the archive. It
 // deliberately bypasses the listing cache because a path-only cache cannot
 // establish that the bytes being consumed are the bytes that were verified.
-func VerifySiteBackupStrict(root string, signingKey ...string) (BackupManifest, error) {
-	return verifySiteBackup(root, false, signingKey...)
+func VerifySiteBackupStrict(root string, signingKey string, encryptionKey ...string) (BackupManifest, error) {
+	return verifySiteBackup(root, false, signingKey, encryptionKey...)
 }
 
-func verifySiteBackup(root string, allowCache bool, signingKey ...string) (BackupManifest, error) {
+func verifySiteBackup(root string, allowCache bool, signingKey string, encryptionKey ...string) (BackupManifest, error) {
 	manifest, err := readBackupManifest(root)
 	if err != nil {
 		return BackupManifest{}, err
@@ -981,12 +1018,12 @@ func verifySiteBackup(root string, allowCache bool, signingKey ...string) (Backu
 			manifest.Consistency = cached.Consistency
 			manifest.ArchiveSHA256 = cached.Checksum
 		} else {
-			if err := VerifyBackupArchive(archivePath, manifest); err != nil {
+			if err := VerifyBackupArchiveWithKey(archivePath, manifest, firstOptional(encryptionKey)); err != nil {
 				return BackupManifest{}, err
 			}
 			setBackupVerificationCache(archivePath, manifest.Consistency, manifest.ArchiveSHA256)
 		}
-	} else if err := VerifyBackupArchive(archivePath, manifest); err != nil {
+	} else if err := VerifyBackupArchiveWithKey(archivePath, manifest, firstOptional(encryptionKey)); err != nil {
 		return BackupManifest{}, err
 	}
 	manifestPath, err := safePath(root, "manifest.json")
@@ -997,14 +1034,24 @@ func verifySiteBackup(root string, allowCache bool, signingKey ...string) (Backu
 	if err != nil {
 		return BackupManifest{}, err
 	}
-	key := ""
-	if len(signingKey) > 0 {
-		key = signingKey[0]
-	}
-	if err := verifyBackupManifestSignature(root, data, manifest, key); err != nil {
+	if err := verifyBackupManifestSignature(root, data, manifest, signingKey); err != nil {
 		return BackupManifest{}, err
 	}
 	return manifest, nil
+}
+
+func firstOptional(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func secondOptional(values []string) string {
+	if len(values) < 2 {
+		return ""
+	}
+	return values[1]
 }
 
 func listBackups(root string, signingKey ...string) ([]BackupResult, error) {
@@ -1033,7 +1080,7 @@ func listBackupsPageUnscoped(root, site string, limit int, signingKey ...string)
 			log.Printf("skip backup entry outside backup root %s", entry.Name())
 			continue
 		}
-		manifest, err := VerifySiteBackupForListing(path, signingKey...)
+		manifest, err := VerifySiteBackupForListing(path, firstOptional(signingKey), secondOptional(signingKey))
 		if err != nil {
 			// A damaged artifact must not hide every healthy backup from the
 			// operator. Keep it visible in logs for quarantine/repair workflows.
@@ -1043,7 +1090,7 @@ func listBackupsPageUnscoped(root, site string, limit int, signingKey ...string)
 		if site != "" && manifest.Site != site {
 			continue
 		}
-		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != ""})
+		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != "", Encrypted: manifest.Encryption != ""})
 	}
 	sort.Slice(backups, func(i, j int) bool { return backups[i].CreatedAt.After(backups[j].CreatedAt) })
 	if limit > 0 && len(backups) > limit {
@@ -1074,7 +1121,7 @@ func listBackupsPage(root string, site SiteCapability, limit int, signingKey ...
 			log.Printf("skip backup entry outside backup root %s", entry.Name())
 			continue
 		}
-		manifest, err := VerifySiteBackupForListing(path, signingKey...)
+		manifest, err := VerifySiteBackupForListing(path, firstOptional(signingKey), secondOptional(signingKey))
 		if err != nil {
 			log.Printf("skip invalid backup manifest %s: %v", entry.Name(), err)
 			continue
@@ -1082,7 +1129,7 @@ func listBackupsPage(root string, site SiteCapability, limit int, signingKey ...
 		if manifest.Site != siteName {
 			continue
 		}
-		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != ""})
+		backups = append(backups, BackupResult{Site: manifest.Site, Path: path, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != "", Encrypted: manifest.Encryption != ""})
 	}
 	sort.Slice(backups, func(i, j int) bool { return backups[i].CreatedAt.After(backups[j].CreatedAt) })
 	if limit > 0 && len(backups) > limit {

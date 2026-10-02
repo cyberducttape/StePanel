@@ -55,7 +55,10 @@ This authenticates the manifest but does not make storage immutable. Use
 provider Object Lock or equivalent immutable retention for compromise recovery.
 
 Production mode requires both `STEPANEL_ENVIRONMENT_KEY` and
-`STEPANEL_BACKUP_SIGNING_KEY`, each at least 32 characters without newlines.
+`STEPANEL_BACKUP_SIGNING_KEY` and `STEPANEL_BACKUP_ENCRYPTION_KEY`, each at least
+32 characters without newlines. The signing key authenticates manifest metadata;
+the encryption key protects backup archive contents. Store them separately from
+the backup root and escrow both for disaster recovery.
 The installer generates and preserves them on upgrades; container and
 Kubernetes deployments must supply them through their secret manager.
 

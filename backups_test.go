@@ -255,6 +255,38 @@ func TestSignedBackupManifestRequiresValidExternalKey(t *testing.T) {
 	}
 }
 
+func TestCreateSiteBackupEncryptsArchivePayload(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "secret.txt"), "customer secret")
+	key := "backup-encryption-key-that-is-long-enough-123456"
+	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot, BackupEncryptionKey: key}, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := readTestBackupManifest(t, result.Path)
+	if manifest.Archive != "backup.tar.gz.enc" || manifest.Encryption != backupEncryptionName {
+		t.Fatalf("encrypted manifest = %#v", manifest)
+	}
+	if _, err := os.Stat(filepath.Join(result.Path, "backup.tar.gz")); !os.IsNotExist(err) {
+		t.Fatalf("plaintext archive remains: %v", err)
+	}
+	if err := VerifyBackupArchive(filepath.Join(result.Path, manifest.Archive), manifest); err == nil {
+		t.Fatal("encrypted archive verified without an encryption key")
+	}
+	if _, err := VerifySiteBackupStrict(result.Path, "", key); err != nil {
+		t.Fatalf("encrypted backup verification failed: %v", err)
+	}
+	archive, err := os.ReadFile(filepath.Join(result.Path, manifest.Archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(archive), "customer secret") {
+		t.Fatal("encrypted archive contains plaintext customer data")
+	}
+}
+
 func TestWriteSyncedFileRejectsNonLocalName(t *testing.T) {
 	directory := t.TempDir()
 	if err := writeSyncedFile(directory, "../outside", []byte("unexpected"), 0600); err == nil {
