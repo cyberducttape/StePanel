@@ -1,4 +1,9 @@
-# Helper Layer Refactoring: Foundation Summary
+# Historical Helper Layer Refactoring: Foundation Summary
+
+> This is a historical migration snapshot from 2026-09-26. Native production
+> installs now use the root-owned Unix-socket broker; the sudo/stdin diagrams
+> below describe the compatibility path and must not be used as the current
+> deployment model. See ROOT_BROKER_INTEGRATION.md and CURRENT_STATUS.md.
 
 **Project Status:** Foundation complete; full helper migration and operation coverage remain pending
 **Date:** 2026-09-26  

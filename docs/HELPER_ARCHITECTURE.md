@@ -1,4 +1,8 @@
-# Root Helper Architecture: Boring, Safe, Tested
+# Historical Root Helper Architecture: Boring, Safe, Tested
+
+> This document describes the earlier helper-layer target and migration
+> design. For the current native production privilege boundary, use
+> ROOT_BROKER_INTEGRATION.md, SUDO_THREAT_MODEL.md, and CURRENT_STATUS.md.
 
 ## Current State
 The root helper (`stepanel-helper` helper binaries) currently:
