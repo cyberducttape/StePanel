@@ -1,7 +1,8 @@
 # Root Broker Integration Guide
 
-**Status:** Native production installs use the Unix-socket broker; stdin/sudo
-is retained only as a compatibility path for older installations and tests.
+**Status:** Native production installs use only the Unix-socket broker. A
+missing production socket is a hard failure; stdin/subprocess transport is
+retained only for explicitly non-production compatibility callers and tests.
 **Last Updated:** 2026-10-02
 
 This document explains how to integrate the typed Go root broker (`stepanel-root`) into the main StePanel application to replace shell script helpers.
@@ -67,8 +68,9 @@ sudo systemctl enable --now stepanel-root-broker.service
 ```
 
 Set `STEPANEL_ROOT_BROKER_SOCKET=/run/stepanel-root-broker.sock` in the panel
-environment. The stdin/sudo invocation in older versions is retained only for
-compatibility and tests.
+environment. The stdin/subprocess invocation in older versions is retained
+only for non-production compatibility callers and tests; it is rejected when
+`STEPANEL_ENV=production`.
 
 ## Integration Pattern
 
