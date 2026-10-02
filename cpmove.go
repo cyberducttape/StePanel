@@ -610,7 +610,10 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 		}
 		cmd.Stdin = input
 		output, err = runBoundedCommand(ctx, cmd)
-		input.Close()
+		closeErr := input.Close()
+		if closeErr != nil {
+			failures = append(failures, name+": close dump failed: "+closeErr.Error())
+		}
 		cancel()
 		if err != nil {
 			failures = append(failures, name+": import failed: "+strings.TrimSpace(string(output)))

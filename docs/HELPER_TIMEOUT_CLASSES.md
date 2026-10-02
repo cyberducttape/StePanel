@@ -1,4 +1,10 @@
-# Helper Operation Timeout Classes (HIGH)
+# Helper Operation Timeout Classes (Historical Design Note)
+
+> Native production installs route privileged operations through the
+> root-owned Unix-socket broker. This document records the older helper/sudo
+> timeout design and is not a current implementation specification. For the
+> active boundary, see `docs/ROOT_BROKER_INTEGRATION.md` and
+> `docs/CURRENT_STATUS.md`.
 
 ## Issue: Universal 2-Minute Timeout for All Operations
 
