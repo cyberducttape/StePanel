@@ -87,3 +87,45 @@ func TestReindexFilesystemIndexesSiteBackupPaths(t *testing.T) {
 		t.Fatalf("backup was not reindexed: last_indexed = %q", lastIndexed)
 	}
 }
+
+func TestAddBackupUpsertReplacesMetadataAndDatabases(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "metadata.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	index, err := NewBackupIndex(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := time.Now().UTC()
+	entry := BackupEntry{
+		Site: "example.com", Backup: "backup-1", Path: "/backups/old",
+		ArchiveSHA256: "old-checksum", Bytes: 10, CreatedAt: created,
+		VerifiedAt: created, Consistency: "complete", Databases: []string{"old_db"},
+	}
+	if err := index.AddBackup(entry); err != nil {
+		t.Fatal(err)
+	}
+	entry.Path = "/backups/new"
+	entry.ArchiveSHA256 = "new-checksum"
+	entry.Bytes = 20
+	entry.Databases = []string{"new_db_1", "new_db_2"}
+	if err := index.AddBackup(entry); err != nil {
+		t.Fatal(err)
+	}
+	backups, err := index.ListBackups("example.com", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("backup count = %d, want 1: %+v", len(backups), backups)
+	}
+	got := backups[0]
+	if got.Path != entry.Path || got.ArchiveSHA256 != entry.ArchiveSHA256 || got.Bytes != entry.Bytes {
+		t.Fatalf("upsert metadata = %+v, want path/checksum/bytes from second entry", got)
+	}
+	if len(got.Databases) != 2 || got.Databases[0] != "new_db_1" || got.Databases[1] != "new_db_2" {
+		t.Fatalf("upsert databases = %v, want replacement set", got.Databases)
+	}
+}

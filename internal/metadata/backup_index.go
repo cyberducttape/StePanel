@@ -177,48 +177,61 @@ func (idx *BackupIndex) OffsiteSummary(target string) (OffsiteBackupSummary, err
 
 // AddBackup indexes a new backup
 func (idx *BackupIndex) AddBackup(entry BackupEntry) error {
-	stmt, err := idx.db.Prepare(`
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
 		INSERT INTO backup_index (
 			site, backup_name, backup_path, archive_sha256, bytes_total,
 			created_at, verified_at, consistency, manifest_signed
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(site, backup_name) DO UPDATE SET
+			backup_path = excluded.backup_path,
+			archive_sha256 = excluded.archive_sha256,
+			bytes_total = excluded.bytes_total,
+			created_at = excluded.created_at,
 			verified_at = excluded.verified_at,
 			consistency = excluded.consistency,
+		manifest_signed = excluded.manifest_signed,
 			last_indexed = CURRENT_TIMESTAMP
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	result, err := stmt.Exec(
-		entry.Site, entry.Backup, entry.Path, entry.ArchiveSHA256,
+	`, entry.Site, entry.Backup, entry.Path, entry.ArchiveSHA256,
 		entry.Bytes, entry.CreatedAt, entry.VerifiedAt,
-		entry.Consistency, entry.ManifestSigned,
-	)
+		entry.Consistency, entry.ManifestSigned)
 	if err != nil {
 		return err
 	}
 
-	backupID, err := result.LastInsertId()
+	var backupID int64
+	err = tx.QueryRow("SELECT id FROM backup_index WHERE site = ? AND backup_name = ?", entry.Site, entry.Backup).Scan(&backupID)
 	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM backup_databases WHERE backup_id = ?", backupID); err != nil {
 		return err
 	}
 
 	// Index databases
 	if len(entry.Databases) > 0 {
-		dbStmt, err := idx.db.Prepare("INSERT INTO backup_databases (backup_id, database_name) VALUES (?, ?)")
+		dbStmt, err := tx.Prepare("INSERT INTO backup_databases (backup_id, database_name) VALUES (?, ?)")
 		if err != nil {
 			return err
 		}
-		defer dbStmt.Close()
 
 		for _, db := range entry.Databases {
 			if _, err := dbStmt.Exec(backupID, db); err != nil {
+				_ = dbStmt.Close()
 				return err
 			}
 		}
+		if err := dbStmt.Close(); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
 	}
 
 	return nil
@@ -258,14 +271,23 @@ func (idx *BackupIndex) ListBackups(site string, limit int) ([]BackupEntry, erro
 			"SELECT database_name FROM backup_databases WHERE backup_id = (SELECT id FROM backup_index WHERE site = ? AND backup_name = ?)",
 			entry.Site, entry.Backup,
 		)
-		if err == nil {
-			defer dbRows.Close()
-			for dbRows.Next() {
-				var dbName string
-				if err := dbRows.Scan(&dbName); err == nil {
-					entry.Databases = append(entry.Databases, dbName)
-				}
+		if err != nil {
+			return nil, err
+		}
+		for dbRows.Next() {
+			var dbName string
+			if err := dbRows.Scan(&dbName); err != nil {
+				_ = dbRows.Close()
+				return nil, err
 			}
+			entry.Databases = append(entry.Databases, dbName)
+		}
+		if err := dbRows.Err(); err != nil {
+			_ = dbRows.Close()
+			return nil, err
+		}
+		if err := dbRows.Close(); err != nil {
+			return nil, err
 		}
 
 		backups = append(backups, entry)
