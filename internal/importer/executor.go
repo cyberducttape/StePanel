@@ -762,10 +762,11 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 
 	for _, file := range zr.File {
 		// Archive bomb protection
-		totalDecompressed += file.FileInfo().Size()
-		if totalDecompressed > maxDecompressedSize {
+		size := file.FileInfo().Size()
+		if size < 0 || size > maxIndividualFileSize || totalDecompressed > maxDecompressedSize-size {
 			return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
 		}
+		totalDecompressed += size
 
 		// Check total entry count (including directories)
 		job.EntriesProcessed++
@@ -805,14 +806,21 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 				return fmt.Errorf("failed to create %s: %w", file.Name, err)
 			}
 
-			// Use LimitReader for security
+			// Use LimitReader for defense in depth even after validating the
+			// archive's declared size.
 			limitedReader := io.LimitReader(srcFile, maxIndividualFileSize)
 			copied, err := io.Copy(destFile, limitedReader)
-			destFile.Close()
-			srcFile.Close()
+			destCloseErr := destFile.Close()
+			srcCloseErr := srcFile.Close()
 
 			if err != nil {
 				return fmt.Errorf("failed to write %s: %w", file.Name, err)
+			}
+			if destCloseErr != nil {
+				return fmt.Errorf("failed to finalize %s: %w", file.Name, destCloseErr)
+			}
+			if srcCloseErr != nil {
+				return fmt.Errorf("failed to close %s in zip: %w", file.Name, srcCloseErr)
 			}
 
 			// Restore file permissions from zip entry

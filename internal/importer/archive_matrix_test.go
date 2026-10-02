@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"hash/crc32"
 	"io"
 	"net/http"
 	"os"
@@ -200,6 +201,32 @@ func TestExecutorExtractsArchivesAndRejectsSpecialEntries(t *testing.T) {
 	}
 	if err := (&Executor{}).extractTarGz(bytes.NewReader(special.Bytes()), &ImportJob{WebRoot: t.TempDir()}, func(*ImportJob) {}); err == nil {
 		t.Fatal("unsupported device entry was accepted")
+	}
+}
+
+func TestExtractZipRejectsOversizedDeclaredEntry(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	data := []byte("not actually oversized")
+	writer, err := zw.CreateRaw(&zip.FileHeader{
+		Name:               "oversized",
+		Method:             zip.Store,
+		UncompressedSize64: maxIndividualFileSize + 1,
+		CompressedSize64:   uint64(len(data)),
+		CRC32:              crc32.ChecksumIEEE(data),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = (&Executor{}).extractZip(bytes.NewReader(archive.Bytes()), &ImportJob{WebRoot: t.TempDir()}, func(*ImportJob) {})
+	if err == nil {
+		t.Fatal("ZIP entry over the individual size limit was accepted")
 	}
 }
 
