@@ -622,14 +622,18 @@ func dumpManagedDatabaseContext(parent context.Context, cfg Config, database, de
 }
 
 func fileSHA256(path string) (string, error) {
-	file, err := os.Open(path)
+	file, _, err := openRegularNoFollow(path, nil)
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
+	_, copyErr := io.Copy(hash, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return "", copyErr
+	}
+	if closeErr != nil {
+		return "", closeErr
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
