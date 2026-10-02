@@ -293,7 +293,7 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if err != nil {
 		return WPressResult{}, fmt.Errorf("discover WordPress payload: %w", err)
 	}
-	if source == "" || !fileExists(filepath.Join(source, "database.sql")) {
+	if source == "" {
 		return WPressResult{}, errors.New("archive must contain WordPress files and database.sql")
 	}
 	home, err := safePath(cfg.WebRoot, "sites", site, "public")
@@ -568,8 +568,13 @@ func validateWPressTree(root string, maxEntries int) error {
 }
 
 func findWordPressRoot(root string) (string, error) {
-	if fileExists(filepath.Join(root, "database.sql")) {
+	if info, err := os.Stat(filepath.Join(root, "database.sql")); err == nil {
+		if !info.Mode().IsRegular() {
+			return "", errors.New("database.sql is not a regular file")
+		}
 		return root, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect database.sql: %w", err)
 	}
 	var found string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -582,8 +587,30 @@ func findWordPressRoot(root string) (string, error) {
 		if !info.IsDir() {
 			return nil
 		}
-		if fileExists(filepath.Join(path, "database.sql")) && (fileExists(filepath.Join(path, "wp-config.php")) || fileExists(filepath.Join(path, "wp-config-sample.php"))) {
-			found = path
+		databasePath := filepath.Join(path, "database.sql")
+		databaseInfo, databaseErr := os.Stat(databasePath)
+		if databaseErr != nil {
+			if errors.Is(databaseErr, os.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("inspect %s: %w", databasePath, databaseErr)
+		}
+		if !databaseInfo.Mode().IsRegular() {
+			return fmt.Errorf("database.sql is not a regular file: %s", databasePath)
+		}
+		for _, configName := range []string{"wp-config.php", "wp-config-sample.php"} {
+			configPath := filepath.Join(path, configName)
+			configInfo, configErr := os.Stat(configPath)
+			if configErr == nil {
+				if !configInfo.Mode().IsRegular() {
+					return fmt.Errorf("WordPress config is not a regular file: %s", configPath)
+				}
+				found = path
+				break
+			}
+			if !errors.Is(configErr, os.ErrNotExist) {
+				return fmt.Errorf("inspect %s: %w", configPath, configErr)
+			}
 		}
 		return nil
 	})
