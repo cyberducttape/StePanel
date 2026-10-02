@@ -48,6 +48,58 @@ func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
 	}
 }
 
+func TestBrokerStreamsDatabaseRestoreFromApprovedPath(t *testing.T) {
+	root := t.TempDir()
+	dumpPath := filepath.Join(root, "restore.sql")
+	if err := os.WriteFile(dumpPath, []byte("CREATE TABLE evidence (id INT);\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	received := filepath.Join(root, "received.sql")
+	helper := filepath.Join(root, "dbctl")
+	script := "#!/bin/sh\n[ \"$1\" = restore-dump ] && [ \"$2\" = target_db ] && [ \"$3\" = demo ] || exit 11\ncat >" + received + "\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newTestBroker(t, root, log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.dbctlPath = helper
+	response, err := broker.Execute(context.Background(), &Request{
+		RequestType: "db",
+		DB:          &DBRequest{Action: "restore-dump", Site: "demo", Database: "target_db", Username: "target_user", DumpPath: dumpPath},
+	})
+	if err != nil || !response.OK {
+		t.Fatalf("streaming restore response = %#v, error = %v", response, err)
+	}
+	data, err := os.ReadFile(received)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "CREATE TABLE evidence (id INT);\n" {
+		t.Fatalf("streamed dump = %q", data)
+	}
+}
+
+func TestBrokerRejectsDatabaseRestoreOutsideApprovedRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.sql")
+	if err := os.WriteFile(outside, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newTestBroker(t, root, log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := broker.Execute(context.Background(), &Request{
+		RequestType: "db",
+		DB:          &DBRequest{Action: "restore-dump", Site: "demo", Database: "target_db", Username: "target_user", DumpPath: outside},
+	})
+	if err != nil || response.OK || !strings.Contains(response.Error, "approved") {
+		t.Fatalf("outside restore response = %#v, error = %v", response, err)
+	}
+}
+
 func TestBrokerTaskApplyUsesFixedHelperAndTypedArguments(t *testing.T) {
 	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {
