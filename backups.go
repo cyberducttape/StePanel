@@ -984,7 +984,7 @@ func verifyBackupManifestSignature(root string, data []byte, manifest BackupMani
 	if err != nil {
 		return err
 	}
-	signature, err := os.ReadFile(signaturePath)
+	signatureFile, _, err := openRegularNoFollow(signaturePath, nil)
 	if errors.Is(err, os.ErrNotExist) {
 		if signingKey != "" || manifest.SignatureAlgorithm != "" {
 			return errors.New("backup manifest signature is missing")
@@ -993,6 +993,14 @@ func verifyBackupManifestSignature(root string, data []byte, manifest BackupMani
 	}
 	if err != nil {
 		return err
+	}
+	signature, readErr := io.ReadAll(signatureFile)
+	closeErr := signatureFile.Close()
+	if readErr == nil {
+		readErr = closeErr
+	}
+	if readErr != nil {
+		return readErr
 	}
 	if signingKey == "" {
 		return errors.New("backup manifest is signed but STEPANEL_BACKUP_SIGNING_KEY is unavailable")

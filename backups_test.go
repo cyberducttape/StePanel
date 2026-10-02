@@ -352,6 +352,34 @@ func TestWriteBackupManifestDoesNotFollowManifestSymlink(t *testing.T) {
 	}
 }
 
+func TestBackupManifestSignatureDoesNotFollowSymlink(t *testing.T) {
+	root := t.TempDir()
+	manifest := BackupManifest{
+		Version:       1,
+		Site:          "account",
+		Archive:       "backup.tar.gz",
+		ArchiveSHA256: strings.Repeat("0", sha256.Size*2),
+		VerifiedAt:    time.Now().UTC(),
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "signature")
+	if err := os.WriteFile(target, []byte("invalid"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "manifest.sig")); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyBackupManifestSignature(root, data, manifest, "signing-key-that-is-long-enough"); err == nil {
+		t.Fatal("signature verification followed a symlink")
+	}
+}
+
 func TestBackupManifestReportsLogicalConsistency(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "www", "sites", "account", "public", "index.html"), "logical")
