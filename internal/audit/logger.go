@@ -399,12 +399,30 @@ func (l *defaultLogger) loadState(path string) (state, error) {
 	if err != nil || !hmac.Equal([]byte(s.Signature), []byte(expected)) {
 		return s, errors.New("audit chain state has an invalid signature")
 	}
+	if s.LastValidatedSize > 0 {
+		cacheSignature, cacheErr := signCacheState(s)
+		if cacheErr != nil || !hmac.Equal([]byte(s.CacheSignature), []byte(cacheSignature)) {
+			// The cache is only an optimization. A missing or stale cache
+			// signature must force a full chain reconciliation, never make the
+			// signed audit state fail open.
+			s.LastValidatedSize = 0
+			s.CacheSignature = ""
+		}
+	}
 
 	return s, nil
 }
 
 func (l *defaultLogger) writeState(path string, s state) error {
 	var err error
+	if s.LastValidatedSize > 0 {
+		s.CacheSignature, err = signCacheState(s)
+		if err != nil {
+			return err
+		}
+	} else {
+		s.CacheSignature = ""
+	}
 	s.Signature, err = signState(s)
 	if err != nil {
 		return err
@@ -549,6 +567,11 @@ func auditKeyCheck() (string, error) {
 }
 
 func signState(s state) (string, error) {
+	// Keep the primary state signature byte-for-byte compatible with the v0.6
+	// format. The cache hint is separately authenticated below so an older
+	// binary can still verify and recover from a failed upgrade.
+	s.LastValidatedSize = 0
+	s.CacheSignature = ""
 	s.Signature = ""
 	data, err := json.Marshal(s)
 	if err != nil {
@@ -560,6 +583,37 @@ func signState(s state) (string, error) {
 	}
 	mac := hmac.New(sha256.New, key)
 	_, _ = mac.Write([]byte("stepanel-audit-state-v1\x00"))
+	_, _ = mac.Write(data)
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+func signCacheState(s state) (string, error) {
+	data, err := json.Marshal(struct {
+		Version           int    `json:"version"`
+		Sequence          uint64 `json:"sequence"`
+		Hash              string `json:"hash"`
+		FirstSequence     uint64 `json:"first_sequence"`
+		FirstPreviousHash string `json:"first_previous_hash"`
+		KeyCheck          string `json:"key_check"`
+		Size              int64  `json:"size"`
+	}{
+		Version:           s.Version,
+		Sequence:          s.Sequence,
+		Hash:              s.Hash,
+		FirstSequence:     s.FirstSequence,
+		FirstPreviousHash: s.FirstPreviousHash,
+		KeyCheck:          s.KeyCheck,
+		Size:              s.LastValidatedSize,
+	})
+	if err != nil {
+		return "", err
+	}
+	key, err := auditSigningKey()
+	if err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte("stepanel-audit-cache-v1\x00"))
 	_, _ = mac.Write(data)
 	return hex.EncodeToString(mac.Sum(nil)), nil
 }

@@ -428,6 +428,65 @@ func TestAuditChainStateValidationBranches(t *testing.T) {
 	TestSetKeyPath(previousKeyPath)
 }
 
+func TestAuditStateCacheHintPreservesLegacySignatureCompatibility(t *testing.T) {
+	logger, root := newTestLogger(t)
+	keyCheck, err := auditKeyCheck()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateWithCache := state{
+		Version:           1,
+		Sequence:          1,
+		Hash:              strings.Repeat("a", 64),
+		FirstSequence:     1,
+		KeyCheck:          keyCheck,
+		LastValidatedSize: 123,
+	}
+	if err := logger.writeState(filepath.Join(root, "cached.state"), stateWithCache); err != nil {
+		t.Fatal(err)
+	}
+
+	legacyEquivalent := stateWithCache
+	legacyEquivalent.LastValidatedSize = 0
+	legacyEquivalent.CacheSignature = ""
+	got, err := signState(stateWithCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := signState(legacyEquivalent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatal("cache hint changed the legacy state signature")
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "cached.state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted state
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	persisted.CacheSignature = "tampered"
+	data, err = json.Marshal(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "tampered.state")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := logger.loadState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.LastValidatedSize != 0 || loaded.CacheSignature != "" {
+		t.Fatalf("tampered cache hint was trusted: %#v", loaded)
+	}
+}
+
 func TestAuditUtilityValidationAndFallbacks(t *testing.T) {
 	if err := New("   ").(*defaultLogger).Log(context.Background(), "ignored", "ignored", "ignored"); err != nil {
 		t.Fatal("whitespace audit path was not treated as unconfigured: ", err)

@@ -24,7 +24,11 @@ type state struct {
 	FirstPreviousHash string `json:"first_previous_hash"`
 	KeyCheck          string `json:"key_check"`
 	Signature         string `json:"signature"`
+	// LastValidatedSize is an optimization hint. It is authenticated by
+	// CacheSignature, but deliberately excluded from Signature so releases
+	// that predate this hint can still verify state written by newer releases.
 	LastValidatedSize int64  `json:"last_validated_size,omitempty"`
+	CacheSignature    string `json:"cache_signature,omitempty"`
 }
 
 type Logger interface {
