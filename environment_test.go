@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestValidEnvName(t *testing.T) {
@@ -238,4 +241,186 @@ func TestSystemdEnvironmentFileRoundTrip(t *testing.T) {
 			t.Errorf("%s = %q (present=%v); want %q", name, value, ok, want)
 		}
 	}
+}
+
+// TestEnvironmentSecretLifecycleSurvivesEditsRestartAndReconcile walks the
+// dangerous operator workflow end to end: edits through the HTTP API, an
+// unrelated site's change, a full control-plane restart, and reconciliation
+// into the host helper. The secret must survive every step until it is
+// deleted explicitly.
+func TestEnvironmentSecretLifecycleSurvivesEditsRestartAndReconcile(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "web")
+	for _, site := range []string{"site-a", "site-b"} {
+		if err := os.MkdirAll(filepath.Join(webRoot, "sites", site, "public"), 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hostEnv := filepath.Join(root, "host-env")
+	if err := os.MkdirAll(hostEnv, 0700); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(root, "stepanel-appctl")
+	script := "#!/bin/sh\n[ \"$1\" = env-apply ] || exit 2\ncat > '" + hostEnv + "'/\"$2\".env\n"
+	if err := os.WriteFile(helper, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(root, "control-plane.db")
+	statePath := filepath.Join(root, "environment.json")
+	const key = "test-environment-key-with-32-characters"
+
+	start := func() *App {
+		t.Helper()
+		db, err := openControlPlaneDB(dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		store, err := OpenEnvironmentStore(statePath, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found, err := bindControlPlaneState(store, db, "environment", store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !found {
+			store.mu.Lock()
+			err = store.persistLocked()
+			store.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		return &App{Config: Config{WebRoot: webRoot, AppCtl: helper}, Auth: Auth{Username: "admin"}, Environments: store}
+	}
+	put := func(a *App, site, body string, wantStatus int) {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPut, "/api/sites/environment/"+site, strings.NewReader(body))
+		r = r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, "admin"))
+		w := httptest.NewRecorder()
+		a.siteEnvironment(w, r)
+		if w.Code != wantStatus {
+			t.Fatalf("PUT %s %s = %d %s; want %d", site, body, w.Code, w.Body.String(), wantStatus)
+		}
+	}
+	runtimeSecret := func(a *App) (string, bool) {
+		a.Environments.mu.RLock()
+		defer a.Environments.mu.RUnlock()
+		value, ok := a.Environments.values["site-a"]["DB_PASSWORD"]
+		return value.Value, ok
+	}
+	hostFile := func(site string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(hostEnv, site+".env"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	requireSecret := func(a *App, want, step string) {
+		t.Helper()
+		if got, ok := runtimeSecret(a); !ok || got != want {
+			t.Fatalf("%s: runtime DB_PASSWORD = %q (present=%v); want %q", step, got, ok, want)
+		}
+		if line := `DB_PASSWORD="` + want + `"`; !strings.Contains(hostFile("site-a"), line) {
+			t.Fatalf("%s: host environment %q lacks %s", step, hostFile("site-a"), line)
+		}
+	}
+
+	a := start()
+	put(a, "site-a", `{"DB_PASSWORD":{"operation":"set","value":"alpha","secret":true}}`, 204)
+	requireSecret(a, "alpha", "create secret")
+
+	put(a, "site-a", `{"DB_PASSWORD":{"operation":"preserve","secret":true},"DEBUG":{"value":"true"}}`, 204)
+	requireSecret(a, "alpha", "change unrelated variable")
+	if !strings.Contains(hostFile("site-a"), `DEBUG="true"`) {
+		t.Fatalf("DEBUG was not applied: %q", hostFile("site-a"))
+	}
+
+	put(a, "site-b", `{"OTHER":{"value":"x","secret":true}}`, 204)
+	requireSecret(a, "alpha", "change another site")
+
+	// Restart the control plane and reconcile from durable state only.
+	if err := os.Remove(filepath.Join(hostEnv, "site-a.env")); err != nil {
+		t.Fatal(err)
+	}
+	a = start()
+	if _, failed := a.reconcileEnvironments(context.Background()); len(failed) != 0 {
+		t.Fatalf("reconcile failed: %v", failed)
+	}
+	requireSecret(a, "alpha", "restart and reconcile")
+
+	put(a, "site-a", `{"DB_PASSWORD":{"operation":"set","value":"beta","secret":true}}`, 204)
+	requireSecret(a, "beta", "rotate secret")
+
+	put(a, "site-a", `{"DB_PASSWORD":{"value":"","secret":true}}`, 422)
+	requireSecret(a, "beta", "blank secret without operation")
+
+	put(a, "site-a", `{"DB_PASSWORD":{"operation":"delete"}}`, 204)
+	if _, ok := runtimeSecret(a); ok {
+		t.Fatal("explicit delete left DB_PASSWORD in desired state")
+	}
+	if strings.Contains(hostFile("site-a"), "DB_PASSWORD") {
+		t.Fatalf("explicit delete left DB_PASSWORD on the host: %q", hostFile("site-a"))
+	}
+	if !strings.Contains(hostFile("site-a"), `DEBUG="true"`) {
+		t.Fatalf("explicit delete removed unrelated variables: %q", hostFile("site-a"))
+	}
+}
+
+// FuzzEnvironmentPersistenceBoundary requires that any value survives the
+// encrypted durable image and a reload unchanged, alongside an existing secret.
+func FuzzEnvironmentPersistenceBoundary(f *testing.F) {
+	for _, value := range systemdEnvironmentRoundTripValues {
+		f.Add(value, true)
+	}
+	f.Add("U3pD3KuXkcWj+52e+dqpg5Cq", true)
+	f.Fuzz(func(t *testing.T, value string, secret bool) {
+		if !utf8.ValidString(value) {
+			t.Skip("the API accepts only valid UTF-8 values")
+		}
+		// Fuzz subtest names contain '#', which SQLite would read as a URI
+		// fragment, so use a plainly named directory.
+		dir, err := os.MkdirTemp("", "stepanel-env-fuzz")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(dir)
+		db, err := openControlPlaneDB(filepath.Join(dir, "control-plane.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		store, err := OpenEnvironmentStore(filepath.Join(dir, "environment.json"), "fuzz-environment-key")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := bindControlPlaneState(store, db, "environment", store); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]environmentValue{"VALUE": {Value: value, Secret: secret}, "ANCHOR": {Value: "anchor", Secret: true}}
+		for i := 0; i < 2; i++ {
+			store.mu.Lock()
+			store.values["demo"] = cloneEnvironmentValues(want)
+			err = store.persistLocked()
+			store.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(store.values["demo"], want) {
+				t.Fatalf("runtime after persist %d = %#v; want %#v", i, store.values["demo"], want)
+			}
+		}
+		reloaded, err := OpenEnvironmentStore(filepath.Join(dir, "environment.json"), "fuzz-environment-key")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := bindControlPlaneState(reloaded, db, "environment", reloaded); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(reloaded.values["demo"], want) {
+			t.Fatalf("reloaded = %#v; want %#v", reloaded.values["demo"], want)
+		}
+	})
 }

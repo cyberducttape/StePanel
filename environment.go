@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 func (a *App) applyEnvironment(ctx context.Context, access SiteCapability, vars map[string]environmentValue) error {
@@ -125,6 +126,9 @@ func mergeEnvironmentUpdate(current map[string]environmentValue, updates map[str
 	for name, update := range updates {
 		if !validEnvName(name) {
 			return nil, fmt.Errorf("invalid environment variable name %q", name)
+		}
+		if !utf8.ValidString(update.Value) {
+			return nil, fmt.Errorf("value for %s is not valid UTF-8", name)
 		}
 		switch update.Operation {
 		case "", environmentOperationSet:
