@@ -63,7 +63,7 @@ printf '[local]\ntype = local\n' > /etc/stepanel/rclone.conf
 chmod 0644 /etc/stepanel/rclone.conf
 export RCLONE_CONFIG=/etc/stepanel/rclone.conf
 
-if ! ./install.sh; then
+if ! ./install.sh --unsafe-lab; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
   exit 1

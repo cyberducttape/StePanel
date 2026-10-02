@@ -2,6 +2,19 @@
 set -Eeuo pipefail
 
 if [[ $EUID -ne 0 ]]; then echo "Run as root: sudo ./install.sh" >&2; exit 1; fi
+
+# Safety-invariant bypasses are for disposable lab hosts only. They are
+# persisted only with an explicit --unsafe-lab argument, never because they
+# happen to be in the ambient environment or a previous configuration.
+UNSAFE_LAB=0
+for install_arg in "$@"; do
+  case $install_arg in
+    --unsafe-lab) UNSAFE_LAB=1 ;;
+    -h|--help) echo "usage: sudo ./install.sh [--unsafe-lab]"; exit 0 ;;
+    *) echo "unknown install argument: $install_arg (usage: sudo ./install.sh [--unsafe-lab])" >&2; exit 64 ;;
+  esac
+done
+SAFETY_BYPASS_VARS=(STEPANEL_SKIP_QUOTA_CHECK STEPANEL_SKIP_STARTUP_DB_RECONCILE STEPANEL_SKIP_STARTUP_HOST_RECONCILE STEPANEL_LAB_HTTP_COOKIES STEPANEL_LAB_DIRECT_ROOT_BROKER)
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_USER="stepanel"; APP_DIR="/opt/stepanel"; DATA_DIR="/var/lib/ste-panel"; ENV_FILE="/etc/ste-panel.env"
 if [[ ! -f "$ROOT_DIR/stepanel" || ! -x "$ROOT_DIR/stepanel" ]]; then echo "Build an executable stepanel binary before installing." >&2; exit 1; fi
@@ -34,6 +47,16 @@ if [[ -f "$ENV_FILE" ]]; then
   done < "$ENV_FILE"
 fi
 
+requested_bypasses=()
+for bypass_var in "${SAFETY_BYPASS_VARS[@]}"; do
+  if [[ ${!bypass_var:-} == 1 ]]; then requested_bypasses+=("$bypass_var"); fi
+done
+if (( ${#requested_bypasses[@]} > 0 && UNSAFE_LAB == 0 )); then
+  echo "Refusing to install with safety bypasses: ${requested_bypasses[*]}" >&2
+  echo "They come from the environment or $ENV_FILE. Unset them for a production host," >&2
+  echo "or rerun with --unsafe-lab on a disposable lab host." >&2
+  exit 1
+fi
 if [[ ! -v STEPANEL_DB_PASSWORD ]]; then
   database_password_source=${STEPANEL_DB_PASSWORD_FILE:-/etc/stepanel-db.password}
   if [[ -e $database_password_source || -L $database_password_source ]]; then
@@ -652,11 +675,10 @@ TXN_TEMPS+=("$env_tmp")
   write_env STEPANEL_DB_USER "$DB_USER"
   write_env STEPANEL_IMPORT_ROOT "$DATA_DIR/imports"
   write_env STEPANEL_WEB_ROOT /var/www
-  if [[ "${STEPANEL_SKIP_QUOTA_CHECK:-}" == "1" ]]; then write_env STEPANEL_SKIP_QUOTA_CHECK 1; fi
-  if [[ "${STEPANEL_SKIP_STARTUP_DB_RECONCILE:-}" == "1" ]]; then write_env STEPANEL_SKIP_STARTUP_DB_RECONCILE 1; fi
-  if [[ "${STEPANEL_SKIP_STARTUP_HOST_RECONCILE:-}" == "1" ]]; then write_env STEPANEL_SKIP_STARTUP_HOST_RECONCILE 1; fi
-  if [[ "${STEPANEL_LAB_HTTP_COOKIES:-}" == "1" ]]; then write_env STEPANEL_LAB_HTTP_COOKIES 1; fi
-  if [[ "${STEPANEL_LAB_DIRECT_ROOT_BROKER:-}" == "1" ]]; then write_env STEPANEL_LAB_DIRECT_ROOT_BROKER 1; fi
+  if (( UNSAFE_LAB == 1 )); then
+    write_env STEPANEL_UNSAFE_LAB 1
+    for bypass_var in "${requested_bypasses[@]}"; do write_env "$bypass_var" 1; done
+  fi
   write_env STEPANEL_MAIL_ROOT "$DATA_DIR/mail"
   write_env STEPANEL_NVM_DIR "$APP_DIR/.nvm"
   write_env STEPANEL_PROXY_ROOT "$PROXY_ROOT"

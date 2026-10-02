@@ -179,6 +179,7 @@ jobs:
           trap cleanup EXIT
           docker run -d --name stepanel-container-smoke -p 18091:8080 \
             -e STEPANEL_TLS_TERMINATED=1 \
+            -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_SKIP_QUOTA_CHECK=1 \
             -e STEPANEL_ADMIN_PASSWORD=ci-only-password \
             -e STEPANEL_ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP \

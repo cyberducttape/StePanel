@@ -235,6 +235,11 @@ func main() {
 	if err := ValidateConfig(cfg); err != nil {
 		log.Fatalf("invalid configuration: %v", err)
 	}
+	if bypasses := activeSafetyBypasses(); cfg.Production && len(bypasses) > 0 {
+		detail := "unsafe lab mode: " + strings.Join(bypasses, ", ")
+		log.Printf("CRITICAL: production safety invariants are bypassed (%s); this host is not production-safe", strings.Join(bypasses, ", "))
+		recordAudit(cfg.AuditLog, "system", "control_plane.safety_bypass_active", Version, detail)
+	}
 	if strings.TrimSpace(cfg.AccountState) == "" || strings.ContainsAny(cfg.AccountState, "\x00\r\n") || cfg.Production && !filepath.IsAbs(cfg.AccountState) {
 		log.Fatal("STEPANEL_ACCOUNT_STATE must be a non-empty filesystem path and absolute in production")
 	}

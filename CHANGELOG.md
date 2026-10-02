@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Production Safety
+
+- **Safety bypass flags can no longer persist silently (SECURITY)**: the
+  installer refuses to run when quota/reconciliation/lab bypass variables are
+  present in the environment or an existing `/etc/ste-panel.env` unless invoked
+  with `--unsafe-lab`, which also records `STEPANEL_UNSAFE_LAB=1`. Production
+  startup refuses any bypass without that marker; with it, startup logs a
+  critical warning and records an audit event, and production readiness reports
+  a critical failure. **Upgrade note:** hosts whose env file carries a bypass
+  must remove it or rerun the installer with `--unsafe-lab`.
+
 ### Job Center
 
 - **Active operation count is authoritative**: `/api/jobs` and the event-stream

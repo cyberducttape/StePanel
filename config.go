@@ -315,6 +315,12 @@ func ValidateConfig(c Config) error {
 	if raw := os.Getenv("STEPANEL_REQUIRE_OFFSITE_BACKUP"); raw != "" && raw != "0" && raw != "1" {
 		problems = append(problems, errors.New("STEPANEL_REQUIRE_OFFSITE_BACKUP must be 0 or 1"))
 	}
+	if raw := os.Getenv("STEPANEL_UNSAFE_LAB"); raw != "" && raw != "0" && raw != "1" {
+		problems = append(problems, errors.New("STEPANEL_UNSAFE_LAB must be 0 or 1"))
+	}
+	if bypasses := activeSafetyBypasses(); c.Production && len(bypasses) > 0 && os.Getenv("STEPANEL_UNSAFE_LAB") != "1" {
+		problems = append(problems, fmt.Errorf("production refuses safety bypasses %s; remove them, or set STEPANEL_UNSAFE_LAB=1 (sudo ./install.sh --unsafe-lab) on a disposable lab host", strings.Join(bypasses, ", ")))
+	}
 	if raw := os.Getenv("STEPANEL_LAB_HTTP_COOKIES"); raw != "" && raw != "0" && raw != "1" {
 		problems = append(problems, errors.New("STEPANEL_LAB_HTTP_COOKIES must be 0 or 1"))
 	}
@@ -689,4 +695,26 @@ func validateIntegerEnvironment(problems *[]error, name string, minimum, maximum
 	if err != nil || value < minimum || value > maximum {
 		*problems = append(*problems, fmt.Errorf("%s must be an integer from %d to %d", name, minimum, maximum))
 	}
+}
+
+// safetyBypassVariables disable production invariants (quota enforcement,
+// startup reconciliation, Secure cookies, the root broker boundary). They are
+// valid only on disposable lab hosts that also set STEPANEL_UNSAFE_LAB=1.
+var safetyBypassVariables = []string{
+	"STEPANEL_SKIP_QUOTA_CHECK",
+	"STEPANEL_SKIP_STARTUP_DB_RECONCILE",
+	"STEPANEL_SKIP_STARTUP_HOST_RECONCILE",
+	"STEPANEL_LAB_HTTP_COOKIES",
+	"STEPANEL_LAB_DIRECT_ROOT_BROKER",
+}
+
+// activeSafetyBypasses lists the safety bypass variables set to 1.
+func activeSafetyBypasses() []string {
+	var active []string
+	for _, name := range safetyBypassVariables {
+		if os.Getenv(name) == "1" {
+			active = append(active, name)
+		}
+	}
+	return active
 }

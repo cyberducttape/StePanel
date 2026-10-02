@@ -110,6 +110,7 @@ func TestValidateConfigRequiresLoopbackOrTLSInProduction(t *testing.T) {
 func TestValidateConfigAcceptsProductionTLSPaths(t *testing.T) {
 	t.Setenv("STEPANEL_ENV", "production")
 	t.Setenv("STEPANEL_SKIP_QUOTA_CHECK", "1")
+	t.Setenv("STEPANEL_UNSAFE_LAB", "1")
 	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
 	t.Setenv("STEPANEL_REQUIRE_OFFSITE_BACKUP", "1")
 	t.Setenv("STEPANEL_OFFSITE_TARGET", "s3:stepanel-test")
@@ -143,6 +144,7 @@ func TestValidateConfigAcceptsProductionTLSPaths(t *testing.T) {
 func TestValidateConfigAcceptsTrustedTLSTermination(t *testing.T) {
 	t.Setenv("STEPANEL_ENV", "production")
 	t.Setenv("STEPANEL_SKIP_QUOTA_CHECK", "1")
+	t.Setenv("STEPANEL_UNSAFE_LAB", "1")
 	t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
 	t.Setenv("STEPANEL_REQUIRE_OFFSITE_BACKUP", "1")
 	t.Setenv("STEPANEL_OFFSITE_TARGET", "s3:stepanel-test")
@@ -325,6 +327,7 @@ func TestValidateConfigProductionRequiresFilesystemQuotaSupport(t *testing.T) {
 
 	// Verify that the skip flag allows production configs to bypass the check
 	t.Setenv("STEPANEL_SKIP_QUOTA_CHECK", "1")
+	t.Setenv("STEPANEL_UNSAFE_LAB", "1")
 	if err := ValidateConfig(cfg); err != nil {
 		t.Fatalf("production config with STEPANEL_SKIP_QUOTA_CHECK=1 rejected: %v", err)
 	}
@@ -333,6 +336,7 @@ func TestValidateConfigProductionRequiresFilesystemQuotaSupport(t *testing.T) {
 func TestValidateConfigProductionRequiresHelperWebRoot(t *testing.T) {
 	t.Setenv("STEPANEL_ENV", "production")
 	t.Setenv("STEPANEL_SKIP_QUOTA_CHECK", "1")
+	t.Setenv("STEPANEL_UNSAFE_LAB", "1")
 	cfg := LoadConfig()
 	cfg.WebRoot = "/srv/www"
 	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_WEB_ROOT=/var/www") {
@@ -341,5 +345,37 @@ func TestValidateConfigProductionRequiresHelperWebRoot(t *testing.T) {
 	cfg.WebRoot = "/var/www/"
 	if err := ValidateConfig(cfg); err != nil && strings.Contains(err.Error(), "STEPANEL_WEB_ROOT=/var/www") {
 		t.Fatalf("production config rejected the helper web root: %v", err)
+	}
+}
+
+func TestValidateConfigProductionRefusesSafetyBypassWithoutUnsafeLab(t *testing.T) {
+	for _, name := range safetyBypassVariables {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "1")
+			t.Setenv("STEPANEL_UNSAFE_LAB", "")
+			cfg := LoadConfig()
+			cfg.Production = true
+			if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "production refuses safety bypasses "+name) {
+				t.Fatalf("ValidateConfig with %s=1 and no STEPANEL_UNSAFE_LAB = %v; want refusal", name, err)
+			}
+			t.Setenv("STEPANEL_UNSAFE_LAB", "1")
+			if err := ValidateConfig(cfg); err != nil && strings.Contains(err.Error(), "production refuses safety bypasses") {
+				t.Fatalf("explicit STEPANEL_UNSAFE_LAB=1 still refused: %v", err)
+			}
+		})
+	}
+}
+
+func TestSafetyBypassReadinessIsCritical(t *testing.T) {
+	for _, name := range safetyBypassVariables {
+		t.Setenv(name, "")
+	}
+	if check := checkSafetyBypassReadiness(); check.Status != "pass" {
+		t.Fatalf("readiness without bypasses = %#v; want pass", check)
+	}
+	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "1")
+	check := checkSafetyBypassReadiness()
+	if check.Status != "fail" || check.Severity != "critical" || !strings.Contains(check.Message, "STEPANEL_SKIP_STARTUP_HOST_RECONCILE") {
+		t.Fatalf("readiness with bypass = %#v; want critical failure naming it", check)
 	}
 }

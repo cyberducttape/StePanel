@@ -54,7 +54,8 @@ else
 fi
 
 cd "$previous_root"
-./install.sh
+# Older installers ignore arguments; current ones require the explicit lab opt-in.
+./install.sh --unsafe-lab
 systemctl is-active --quiet stepanel.service
 # The disposable offsite target is a configured rclone local remote. Without
 # this file, rclone interprets `local:/path` as an unknown remote and the
@@ -76,7 +77,7 @@ chown stepanel:stepanel /var/lib/ste-panel/jobs.json
 chmod 0600 /var/lib/ste-panel/jobs.json
 
 cd "$candidate_root"
-if ! ./install.sh; then
+if ! ./install.sh --unsafe-lab; then
   echo 'candidate installer failed; captured runtime environment:' >&2
   sed -n '1,120p' /etc/ste-panel.env >&2 || true
   systemctl show stepanel.service -p FragmentPath -p ExecStart -p EnvironmentFiles -p MainPID --no-pager >&2 || true
@@ -103,7 +104,7 @@ set +a
 # candidate must remain active and ready after the failed replacement.
 if [[ -n "$broken_root" ]]; then
   candidate_version=$("$candidate_root/stepanel" version | awk 'NR == 1 { print $2 }')
-  if (cd "$broken_root" && ./install.sh); then
+  if (cd "$broken_root" && ./install.sh --unsafe-lab); then
     echo 'broken candidate unexpectedly installed successfully' >&2
     exit 1
   fi

@@ -112,6 +112,7 @@ func (a *App) checkProductionReadiness() ProductionReadinessReport {
 		a.checkEncryptionKeysReadiness(),
 		a.checkOfflineBackupReadiness(),
 		a.checkTLSReadiness(),
+		checkSafetyBypassReadiness(),
 	}
 
 	report.Checks = checks
@@ -218,6 +219,22 @@ func (a *App) checkOfflineBackupReadiness() ProductionReadinessCheck {
 		Status:   "pass",
 		Severity: "info",
 		Message:  "Offsite backups required and configured",
+	}
+}
+
+// checkSafetyBypassReadiness fails while any production invariant is bypassed,
+// so a lab-only setting cannot quietly persist on a production host.
+func checkSafetyBypassReadiness() ProductionReadinessCheck {
+	bypasses := activeSafetyBypasses()
+	if len(bypasses) == 0 {
+		return ProductionReadinessCheck{Name: "Safety Bypasses", Status: "pass", Severity: "info", Message: "No production safety invariants are bypassed"}
+	}
+	return ProductionReadinessCheck{
+		Name:        "Safety Bypasses",
+		Status:      "fail",
+		Severity:    "critical",
+		Message:     "Unsafe lab mode is active: " + strings.Join(bypasses, ", "),
+		Remediation: "Remove these variables from /etc/ste-panel.env and rerun sudo ./install.sh without --unsafe-lab",
 	}
 }
 

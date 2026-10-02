@@ -146,6 +146,17 @@ the installer, for example with `sudo env RCLONE_CONFIG=/etc/stepanel/rclone.con
 setting in `/etc/ste-panel.env`, and its post-install readiness probe verifies
 that the configured target can write, read, and delete a health object.
 
+Safety-invariant bypasses (`STEPANEL_SKIP_QUOTA_CHECK`,
+`STEPANEL_SKIP_STARTUP_DB_RECONCILE`, `STEPANEL_SKIP_STARTUP_HOST_RECONCILE`,
+`STEPANEL_LAB_HTTP_COOKIES`, `STEPANEL_LAB_DIRECT_ROOT_BROKER`) exist only for
+disposable lab hosts. The installer refuses to run while any of them is set in
+the environment or in an existing `/etc/ste-panel.env`, unless you pass
+`./install.sh --unsafe-lab`, which also records `STEPANEL_UNSAFE_LAB=1`. A
+production panel refuses to start with a bypass but without that marker; with
+it, startup logs a critical warning, writes a
+`control_plane.safety_bypass_active` audit event, and
+`/api/admin/production-readiness` reports a critical failure.
+
 Nightly/manual installation smoke CI exercises real disposable systemd hosts
 for AlmaLinux, Rocky Linux, Ubuntu, and Debian, including package installation,
 service restart, synthetic site creation, and selected-webserver validation.
