@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Root Broker
+
+- **Broker subprocess output is bounded while the child runs (SECURITY)**: the
+  root broker used `CombinedOutput()`/`Output()` and checked sizes afterwards,
+  so a helper writing gigabytes was fully buffered in the root process first.
+  Every broker subprocess now runs through `helper.RunCapped`/`RunCappedSeparate`,
+  which cap stdout and stderr as they arrive and kill the whole process group on
+  overrun, timeout, or cancellation. A source-level test rejects new unbounded
+  calls in the broker package.
+
 ### Environment Variables
 
 - **Saving environment variables no longer erases secrets (SECURITY)**: `PUT

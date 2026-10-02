@@ -31,6 +31,14 @@ var ErrNotImplemented = errors.New("operation not yet implemented in broker")
 
 const maxBrokerDBDumpBytes = 64 << 20
 
+// Every broker subprocess runs through stepanelhelper.RunCapped so output is
+// bounded while the child runs and overruns kill the whole process group;
+// never buffer first and check the length afterwards.
+const (
+	maxBrokerCommandOutput = 8 << 20
+	maxBrokerCommandStderr = 64 << 10
+)
+
 // Broker is the root-privileged operations handler.
 // All operations are strongly-typed and validated before execution.
 type Broker struct {
@@ -174,7 +182,7 @@ func (b *Broker) handleTaskRequest(ctx context.Context, req *TaskRequest) (*Resp
 		path = b.systemctlPath
 	}
 	cmd := stepanelhelper.NewCommand(ctx, path, args...)
-	output, err := cmd.CombinedOutput()
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("task %s failed: %v: %s", req.Action, err, strings.TrimSpace(string(output)))}, nil
 	}
@@ -196,7 +204,7 @@ func (b *Broker) handleTaskRequest(ctx context.Context, req *TaskRequest) (*Resp
 
 func (b *Broker) handleCertificateRequest(ctx context.Context, req *CertificateRequest) (*Response, error) {
 	cmd := stepanelhelper.NewCommand(ctx, b.certbotPath, req.Domain, req.Email)
-	output, err := cmd.CombinedOutput()
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("certificate issuance failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
 	}
@@ -223,8 +231,8 @@ func (b *Broker) handleHelperRequest(ctx context.Context, req *HelperRequest) (*
 	if len(req.Input) > 0 {
 		cmd.Stdin = bytes.NewReader(req.Input)
 	}
-	output, err := cmd.CombinedOutput()
-	if len(output) > 8<<20 {
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if errors.Is(err, stepanelhelper.ErrOutputLimitExceeded) {
 		return &Response{OK: false, Error: "helper output exceeds broker limit"}, nil
 	}
 	if err != nil {
@@ -566,7 +574,7 @@ func (b *Broker) runAppHelper(ctx context.Context, req *AppRequest) (*Response, 
 		args = append(args, strings.TrimPrefix(req.Version, "v"), filepath.Clean(req.Root), strconv.Itoa(req.Port))
 	}
 	cmd := stepanelhelper.NewCommand(ctx, b.appctlPath, args...)
-	output, err := cmd.CombinedOutput()
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("application %s failed: %v: %s", req.Action, err, strings.TrimSpace(string(output)))}, nil
 	}
@@ -621,12 +629,12 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 
 func (b *Broker) dbDump(ctx context.Context, req *DBRequest) (*Response, error) {
 	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, "dump", req.Database)
-	output, err := cmd.Output()
-	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("database dump failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
-	}
-	if len(output) > maxBrokerDBDumpBytes {
+	output, stderr, err := stepanelhelper.RunCappedSeparate(ctx, cmd, maxBrokerDBDumpBytes, maxBrokerCommandStderr)
+	if errors.Is(err, stepanelhelper.ErrOutputLimitExceeded) {
 		return &Response{OK: false, Error: "database dump exceeds the broker limit; use the compatibility helper path"}, nil
+	}
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("database dump failed: %v: %s", err, strings.TrimSpace(string(stderr)))}, nil
 	}
 	details, marshalErr := json.Marshal(DBResponse{Database: req.Database, DumpData: output})
 	if marshalErr != nil {
@@ -641,7 +649,7 @@ func (b *Broker) dbDump(ctx context.Context, req *DBRequest) (*Response, error) 
 // read-only helper without changing the panel or worker service identity.
 func (b *Broker) dbInventory(ctx context.Context, _ *DBRequest) (*Response, error) {
 	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, "inventory")
-	output, err := cmd.CombinedOutput()
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("database inventory failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
 	}
@@ -936,7 +944,7 @@ func (b *Broker) runDBHelper(ctx context.Context, args []string, input []byte, r
 	if input != nil {
 		cmd.Stdin = bytes.NewReader(input)
 	}
-	output, err := cmd.CombinedOutput()
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("database operation failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
 	}
@@ -1368,7 +1376,7 @@ func gitDeleteResponse() (*Response, error) {
 
 func (b *Broker) runLabHelper(ctx context.Context, path string, args ...string) (*Response, error) {
 	cmd := stepanelhelper.NewCommand(ctx, path, args...)
-	output, err := cmd.CombinedOutput()
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("lab helper failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
 	}
@@ -1400,7 +1408,7 @@ func (execHostOps) EnsureSystemUser(ctx context.Context, username, home string) 
 		return nil
 	}
 	cmd := stepanelhelper.NewCommand(ctx, "useradd", "--system", "--home-dir", home, "--shell", "/usr/sbin/nologin", "--user-group", username)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput); err != nil {
 		return fmt.Errorf("useradd failed: %w (output: %s)", err, output)
 	}
 	return nil
@@ -1408,7 +1416,7 @@ func (execHostOps) EnsureSystemUser(ctx context.Context, username, home string) 
 
 func (execHostOps) DeleteSystemUser(ctx context.Context, username string) error {
 	cmd := stepanelhelper.NewCommand(ctx, "userdel", username)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput); err != nil {
 		var exitErr *exec.ExitError
 		// userdel exits with status 6 when the account is already absent. Treat
 		// that case as idempotent, but surface every other failure.
@@ -1426,7 +1434,7 @@ func (execHostOps) Chown(ctx context.Context, path, owner, group string, recursi
 		args = append([]string{"-R"}, args...)
 	}
 	cmd := stepanelhelper.NewCommand(ctx, "chown", args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput); err != nil {
 		return fmt.Errorf("chown failed: %w (output: %s)", err, output)
 	}
 	return nil
