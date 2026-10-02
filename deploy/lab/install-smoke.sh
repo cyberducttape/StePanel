@@ -169,7 +169,7 @@ test -s /var/lib/ste-panel/stepanel-control.db
 test -s /var/lib/ste-panel/audit.jsonl
 systemd-analyze security stepanel.service stepanel-worker.service
 for unit in stepanel.service stepanel-worker.service; do
-  systemctl show "$unit" -p ProtectSystem --value | grep -Fxq full
+  systemctl show "$unit" -p ProtectSystem --value | grep -Fxq strict
   systemctl show "$unit" -p PrivateTmp --value | grep -Fxq yes
   systemctl show "$unit" -p ProtectKernelTunables --value | grep -Fxq yes
   systemctl show "$unit" -p ProtectKernelModules --value | grep -Fxq yes
