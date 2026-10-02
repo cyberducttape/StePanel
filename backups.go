@@ -724,7 +724,7 @@ func VerifyBackupArchiveWithKey(path string, manifest BackupManifest, encryption
 			if _, err := hex.DecodeString(entry.SHA256); err != nil || len(entry.SHA256) != sha256.Size*2 {
 				return errors.New("manifest contains an invalid entry checksum")
 			}
-			if _, exists := expected[entry.Path]; exists || !safeArchivePath(entry.Path) || entry.Size < 0 {
+			if _, exists := expected[entry.Path]; exists || !safeArchivePath(entry.Path) || entry.Size < 0 || entry.Size > maxBackupBytes {
 				return errors.New("manifest contains a duplicate or unsafe entry")
 			}
 			expected[entry.Path] = entry
@@ -752,17 +752,22 @@ func VerifyBackupArchiveWithKey(path string, manifest BackupManifest, encryption
 			if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
 				return errors.New("backup archive contains an unsupported entry type")
 			}
+			if header.Size < 0 || header.Size > maxBackupBytes {
+				return errors.New("backup archive exceeds the verification limit")
+			}
 			entry, ok := expected[header.Name]
 			if !ok || seen[header.Name] || entry.Size != header.Size {
 				return fmt.Errorf("backup entry %s is unexpected or has the wrong size", header.Name)
 			}
-			total += header.Size
-			if total > maxBackupBytes {
+			if total > maxBackupBytes-header.Size {
 				return errors.New("backup archive exceeds the verification limit")
 			}
+			total += header.Size
 			hash := sha256.New()
-			if copied, err := io.Copy(hash, tr); err != nil || copied != header.Size {
+			if copied, err := io.Copy(hash, tr); err != nil {
 				return fmt.Errorf("read backup entry %s: %w", header.Name, err)
+			} else if copied != header.Size {
+				return fmt.Errorf("read backup entry %s: short entry (got %d bytes, want %d)", header.Name, copied, header.Size)
 			}
 			if hex.EncodeToString(hash.Sum(nil)) != entry.SHA256 {
 				return fmt.Errorf("backup entry %s checksum mismatch", header.Name)

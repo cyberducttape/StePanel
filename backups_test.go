@@ -1,8 +1,11 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"os"
@@ -386,6 +389,53 @@ func TestVerifyBackupArchiveRejectsTampering(t *testing.T) {
 	}
 	if err := VerifyBackupArchive(archive, manifest); err == nil {
 		t.Fatal("tampered backup passed verification")
+	}
+}
+
+func TestVerifyBackupArchiveRejectsOversizedTarEntry(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "backup.tar.gz")
+	file, err := os.OpenFile(archive, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(file)
+	tw := tar.NewWriter(gz)
+	oversized := maxBackupBytes + 1
+	if err := tw.WriteHeader(&tar.Header{Name: "oversized", Typeflag: tar.TypeReg, Size: oversized}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err == nil {
+		t.Fatal("tar writer unexpectedly accepted an unwritten oversized entry")
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checksum, err := fileSHA256(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := BackupManifest{
+		Version:       1,
+		Site:          "oversized",
+		Archive:       "backup.tar.gz",
+		Bytes:         info.Size(),
+		ArchiveSHA256: checksum,
+		Entries: []BackupEntry{{
+			Path:   "oversized",
+			Size:   oversized,
+			SHA256: strings.Repeat("0", sha256.Size*2),
+		}},
+	}
+	if err := VerifyBackupArchive(archive, manifest); err == nil {
+		t.Fatal("oversized tar entry passed verification")
 	}
 }
 
