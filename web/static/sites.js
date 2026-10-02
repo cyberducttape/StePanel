@@ -382,7 +382,9 @@
             ])))
             : el('p', { className: 'empty-state' }, 'No recorded activity yet.'),
         );
-      } catch (error) { /* audit trail is administrator-only; skip quietly for customers */ }
+      } catch (error) {
+        panel.append(el('h4', {}, 'Recent activity'), errorState('Audit trail', error));
+      }
     }
   }
 
