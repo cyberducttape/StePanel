@@ -202,6 +202,22 @@ func TestExecutorExtractsArchivesAndRejectsSpecialEntries(t *testing.T) {
 	if err := (&Executor{}).extractTarGz(bytes.NewReader(special.Bytes()), &ImportJob{WebRoot: t.TempDir()}, func(*ImportJob) {}); err == nil {
 		t.Fatal("unsupported device entry was accepted")
 	}
+
+	var oversized bytes.Buffer
+	gz = gzip.NewWriter(&oversized)
+	tw = tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "oversized", Typeflag: tar.TypeReg, Size: maxIndividualFileSize + 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err == nil {
+		t.Fatal("tar writer unexpectedly accepted an unwritten oversized entry")
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Executor{}).extractTarGz(bytes.NewReader(oversized.Bytes()), &ImportJob{WebRoot: t.TempDir()}, func(*ImportJob) {}); err == nil {
+		t.Fatal("tar entry over the individual size limit was accepted")
+	}
 }
 
 func TestExtractZipRejectsOversizedDeclaredEntry(t *testing.T) {

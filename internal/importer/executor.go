@@ -638,21 +638,17 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 			return fmt.Errorf("tar read error: %w", err)
 		}
 
-		// Archive bomb protection: check decompressed size
-		totalDecompressed += header.Size
-		if totalDecompressed > maxDecompressedSize {
+		// Archive bomb protection: validate before accumulating so malformed
+		// negative or overflowing tar sizes cannot bypass the limit.
+		if header.Size < 0 || header.Size > maxIndividualFileSize || totalDecompressed > maxDecompressedSize-header.Size {
 			return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
 		}
+		totalDecompressed += header.Size
 
 		// Check total entries (files + directories) to prevent directory bombs
 		job.EntriesProcessed++
 		if job.EntriesProcessed > maxArchiveEntries {
 			return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
-		}
-
-		// Check individual file size
-		if header.Size > maxIndividualFileSize {
-			return fmt.Errorf("file %s exceeds size limit (%d bytes)", header.Name, maxIndividualFileSize)
 		}
 
 		// Safely validate path
@@ -688,13 +684,17 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 				return fmt.Errorf("failed to create %s: %w", header.Name, err)
 			}
 
-			// Use LimitReader to prevent oversized files
+			// Use LimitReader for defense in depth even after validating the
+			// archive's declared size.
 			limitedReader := io.LimitReader(tr, maxIndividualFileSize)
 			copied, err := io.Copy(file, limitedReader)
-			file.Close()
+			closeErr := file.Close()
 
 			if err != nil && err != io.EOF {
 				return fmt.Errorf("failed to write %s: %w", header.Name, err)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("failed to finalize %s: %w", header.Name, closeErr)
 			}
 
 			// Restore file permissions from archive
