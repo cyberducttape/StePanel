@@ -69,6 +69,16 @@ test('navigation: Sites workspace is reachable', async ({ page }) => {
 });
 
 test('site overview makes backup failures explicit', async ({ page }) => {
+  // The disposable UI harness intentionally has no host sites. Provide a
+  // minimal inventory fixture so this test can exercise the site workspace
+  // and backup-error rendering without requiring privileged host setup.
+  await page.route('**/api/sites/overview', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ sites: [{ site: 'e2e-site', routes: [], applications: [], database_count: 0 }] }),
+    });
+  });
   await page.route('**/api/backups?site=*&limit=500', async (route) => {
     await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'backup service unavailable' }) });
   });
