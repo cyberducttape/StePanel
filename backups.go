@@ -249,52 +249,49 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		}
 		return archive.Close()
 	}
+	abortArchive := func(cause error) error {
+		if closeErr := closeArchive(); closeErr != nil {
+			return errors.Join(cause, fmt.Errorf("finalize backup archive: %w", closeErr))
+		}
+		return cause
+	}
 	maxEntries := cfg.MaxEntries
 	if maxEntries <= 0 {
 		maxEntries = 1000000
 	}
 	if err := addBackupTreeContext(ctx, tw, publicRoot, "site/public", maxEntries, &uncompressedBytes, &manifest); err != nil {
-		_ = closeArchive()
-		return result, err
+		return result, abortArchive(err)
 	}
 	if includeDatabases {
 		if err := ctx.Err(); err != nil {
-			_ = closeArchive()
-			return result, err
+			return result, abortArchive(err)
 		}
 		databases, err := managedDatabasesForSiteContext(ctx, cfg, siteName)
 		if err != nil {
-			_ = closeArchive()
-			return result, err
+			return result, abortArchive(err)
 		}
 		for _, database := range databases {
 			if err := ctx.Err(); err != nil {
-				_ = closeArchive()
-				return result, err
+				return result, abortArchive(err)
 			}
 			if len(manifest.Entries) >= maxEntries {
-				_ = closeArchive()
-				return result, errors.New("backup contains too many entries")
+				return result, abortArchive(errors.New("backup contains too many entries"))
 			}
 			dumpPath := filepath.Join(tempDir, database+".sql")
 			if err := dumpManagedDatabaseContext(ctx, cfg, database, dumpPath); err != nil {
-				_ = closeArchive()
-				return result, err
+				return result, abortArchive(err)
 			}
 			if err := addBackupFileExpectedContext(ctx, tw, dumpPath, "databases/"+database+".sql", &uncompressedBytes, &manifest, nil); err != nil {
-				_ = closeArchive()
-				return result, err
+				return result, abortArchive(err)
 			}
 			if err := os.Remove(dumpPath); err != nil {
-				_ = closeArchive()
-				return result, err
+				return result, abortArchive(err)
 			}
 			manifest.Databases = append(manifest.Databases, database)
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		_ = closeArchive()
-		return result, err
+		return result, abortArchive(err)
 	}
 	if err := closeArchive(); err != nil {
 		return result, err
