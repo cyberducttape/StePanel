@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -48,6 +49,27 @@ type WPressResult struct {
 	MetadataApplied  bool   `json:"metadata_applied"`
 	HTAccessRestored bool   `json:"htaccess_restored"`
 	StagedAt         string `json:"staged_at"`
+}
+
+// verifyWPressUpload revalidates the staged archive immediately before a
+// durable restore. The HTTP request and worker are separated in time, so the
+// path alone must not be treated as proof of the uploaded bytes.
+func verifyWPressUpload(path string, size int64, checksum string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("inspect staged WordPress archive: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() != size {
+		return errors.New("staged WordPress archive size does not match upload metadata")
+	}
+	actual, err := fileSHA256(path)
+	if err != nil {
+		return fmt.Errorf("hash staged WordPress archive: %w", err)
+	}
+	if actual != checksum {
+		return errors.New("staged WordPress archive checksum does not match upload metadata")
+	}
+	return nil
 }
 
 func WPressPreflight(cfg Config) map[string]bool {
@@ -181,7 +203,9 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tempPath := temp.Name()
-	if _, err = io.Copy(temp, file); err != nil {
+	hasher := sha256.New()
+	written, err := io.Copy(temp, io.TeeReader(file, hasher))
+	if err != nil {
 		_ = temp.Close()
 		_ = os.Remove(tempPath)
 		http.Error(w, "could not stage upload", http.StatusInternalServerError)
@@ -199,7 +223,7 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	force := r.FormValue("overwrite") == "on"
-	payload, err := json.Marshal(durableWPressRequest{TempPath: tempPath, Site: site, DBSuffix: dbSuffix, DBUserSuffix: dbUserSuffix, Password: password, SiteURL: siteURL, TargetPrefix: targetPrefix, Force: force, Actor: a.Auth.UsernameForRequest(r)})
+	payload, err := json.Marshal(durableWPressRequest{TempPath: tempPath, Size: written, SHA256: fmt.Sprintf("%x", hasher.Sum(nil)), Site: site, DBSuffix: dbSuffix, DBUserSuffix: dbUserSuffix, Password: password, SiteURL: siteURL, TargetPrefix: targetPrefix, Force: force, Actor: a.Auth.UsernameForRequest(r)})
 	if err != nil {
 		_ = os.Remove(tempPath)
 		http.Error(w, "could not encode restore job", http.StatusInternalServerError)

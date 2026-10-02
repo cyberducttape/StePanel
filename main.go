@@ -1067,6 +1067,8 @@ type durableCertificateRequest struct {
 
 type durableWPressRequest struct {
 	TempPath     string `json:"temp_path"`
+	Size         int64  `json:"size"`
+	SHA256       string `json:"sha256"`
 	Site         string `json:"site"`
 	DBSuffix     string `json:"db_suffix"`
 	DBUserSuffix string `json:"db_user_suffix"`
@@ -1247,7 +1249,7 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := json.Unmarshal(item.Payload, &request); err != nil {
 		return nil, fmt.Errorf("decode WordPress job payload: %w", err)
 	}
-	if err := validateWPressInput(request.Site, request.DBSuffix, request.DBUserSuffix, request.Password, request.TargetPrefix, request.SiteURL); err != nil || request.Actor == "" || ensureInside(a.Config.ImportRoot, request.TempPath) != nil {
+	if err := validateWPressInput(request.Site, request.DBSuffix, request.DBUserSuffix, request.Password, request.TargetPrefix, request.SiteURL); err != nil || request.Actor == "" || request.Size < 0 || len(request.SHA256) != 64 || ensureInside(a.Config.ImportRoot, request.TempPath) != nil {
 		if err == nil {
 			err = errors.New("invalid WordPress job payload")
 		}
@@ -1259,6 +1261,9 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	}
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
+	}
+	if err := verifyWPressUpload(request.TempPath, request.Size, request.SHA256); err != nil {
+		return nil, err
 	}
 	removeStaged := false
 	defer func() {

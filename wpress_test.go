@@ -8,6 +8,27 @@ import (
 	"testing"
 )
 
+func TestVerifyWPressUploadRejectsSameSizeMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "upload.wpress")
+	original := []byte("original WordPress archive")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	checksum, err := fileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyWPressUpload(path, int64(len(original)), checksum); err != nil {
+		t.Fatalf("initial upload verification failed: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("original WordPress archivE"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyWPressUpload(path, int64(len(original)), checksum); err == nil {
+		t.Fatal("same-size archive mutation was accepted")
+	}
+}
+
 func TestRestoreWPressContextHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
