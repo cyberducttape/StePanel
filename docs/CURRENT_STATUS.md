@@ -71,9 +71,9 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - `internal/rootbroker/` — Broker types, validation, supported operations, client, and explicit unsupported-operation responses
 - Root-broker tests cover validation and fail-closed mutation behavior
 - Integration documentation and migration guide
-- `broker_bridge.go` — App integration convenience wrapper
+- `internal/rootbroker/client.go` — direct typed-client integration surface
 
-**Status:** Native production installs route app/proxy/site/vhost/runner/Git mutations, TLS, and large database restore streams through the root-owned Unix-socket broker. The panel and worker no longer receive a sudoers grant; the remaining stdin/compatibility path is for older installations and tests only.
+**Status:** Native production installs route app/proxy/site/vhost/runner/Git mutations, TLS, and large database restore streams through the root-owned Unix-socket broker. The panel and worker no longer receive a sudoers grant; the remaining stdin/compatibility path is for older installations and tests only. The former `BrokerBridge` wrapper was removed because it had no production callers and exposed unsupported operations through a misleading transitional abstraction.
 
 **Compatibility helper RPC (2026-10):** the generic `helper` request no longer
 accepts up to 32 caller-controlled arguments. Every forwarded action is declared

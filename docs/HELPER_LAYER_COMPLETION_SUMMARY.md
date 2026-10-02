@@ -69,10 +69,10 @@ The helper layer refactoring establishes a typed Go root-broker boundary for red
    - JSON-based RPC over stdin/stdout
    - 30-second operation timeout
 
-6. **Bridge** (`broker_bridge.go` - 161 lines)
-   - Convenience wrapper for app integration
-   - Consistent error handling
-   - Logging for all operations
+6. **Typed client integration** (`internal/rootbroker/client.go`)
+   - Direct Unix-socket request/response client
+   - Typed request constructors for supported operations
+   - Unsupported operations fail explicitly at the broker boundary
 
 ### 3. Operation Handlers (Phase 2 foundation)
 
@@ -99,7 +99,7 @@ Broker Tests:          12 tests ✅
 Operations Tests:      20 tests ✅
 Integration Tests:      7 tests ✅
 Client Tests:           9 tests ✅
-Bridge Tests:           6 tests ✅
+Root-broker boundary tests cover supported and unsupported operations ✅
 ───────────────────────────────
 Total:                 94 tests ✅ ALL PASSING
 ```
@@ -209,7 +209,7 @@ PASSED: 94 tests
   - Operations: 20 tests
   - Integration: 7 tests
   - Client: 9 tests
-  - Bridge: 6 tests
+  - Root-broker boundary behavior is tested directly
 
 Test Execution Time: ~30 seconds
 No race conditions detected
@@ -225,7 +225,7 @@ No memory leaks detected
 - Error handling consistent
 - Concurrent requests safe
 - Response parsing verified
-- Bridge provides easy integration
+- Direct typed-client integration avoids a second transitional abstraction
 
 ### ⏳ What's Queued
 - Phase 4: Gradual callsite replacement
@@ -243,7 +243,7 @@ No memory leaks detected
 
 ### Stage 2: Selective Replacement (Ready)
 - Replace first batch of callsites
-- Use broker bridge
+- Use the typed root-broker client directly
 - Implement proper error handling
 
 ### Stage 3: Monitoring (Ready)
@@ -311,7 +311,6 @@ No memory leaks detected
 - `internal/rootbroker/operations.go` (624 lines)
 - `internal/rootbroker/client.go` (132 lines)
 - `cmd/stepanel-root/main.go` (49 lines)
-- `broker_bridge.go` (161 lines)
 - `state_persistence.go` (77 lines)
 
 ### Tests (2500+ lines)
@@ -320,7 +319,6 @@ No memory leaks detected
 - `broker_test.go` (133 lines)
 - `operations_test.go` (230 lines)
 - `client_test.go` (158 lines)
-- `broker_bridge_test.go` (117 lines)
 
 ### Documentation (2000+ lines)
 - Integration guide
@@ -351,7 +349,7 @@ No memory leaks detected
 1. **Short-term (This Week):**
    - Begin Phase 4 implementation
    - Identify first batch of shell callsites
-   - Create broker bridge methods for each
+   - Add dedicated typed-client methods for each migrated operation
    - Replace first 10-20% of callsites
    - Deploy to staging environment
 
