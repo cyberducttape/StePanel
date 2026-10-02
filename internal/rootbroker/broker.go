@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -52,6 +53,11 @@ type Broker struct {
 	validator     *Validator
 	logger        *log.Logger
 	host          hostOps
+	// accountMutationMu serializes operations that can modify the host's
+	// account database (/etc/passwd, /etc/group, and related locks). The
+	// panel and worker use separate broker clients, so client-local locking
+	// cannot prevent useradd/userdel races at the broker boundary.
+	accountMutationMu sync.Mutex
 }
 
 // hostOps performs the privileged host account and ownership mutations
@@ -279,6 +285,9 @@ func (b *Broker) handleSiteRequest(ctx context.Context, req *SiteRequest) (*Resp
 }
 
 func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
+
 	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
@@ -392,6 +401,9 @@ func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, e
 }
 
 func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
+
 	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
 		resp, err := b.runLabHelper(ctx, "/usr/local/sbin/stepanel-sitectl", "delete", req.Site)
 		if err != nil || resp == nil || !resp.OK {
@@ -459,6 +471,9 @@ func (b *Broker) siteSeal(ctx context.Context, req *SiteRequest) (*Response, err
 }
 
 func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
+
 	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil

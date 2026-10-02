@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cyberducttape/StePanel/internal/siteidentity"
 )
@@ -21,12 +22,39 @@ type fakeHost struct {
 	webGroup string
 	// helperUser overrides the account the fake site helper reports.
 	helperUser string
+	// helperStarted/helperRelease make the helper concurrency test deterministic.
+	helperStarted chan struct{}
+	helperEntered chan string
+	helperRelease <-chan struct{}
+	activeHelpers int
+	maxActive     int
 }
 
 func (f *fakeHost) RunSiteHelper(_ context.Context, args ...string) (string, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.helper = append(f.helper, args)
+	if f.helperStarted != nil {
+		select {
+		case <-f.helperStarted:
+		default:
+			close(f.helperStarted)
+		}
+	}
+	f.activeHelpers++
+	if f.activeHelpers > f.maxActive {
+		f.maxActive = f.activeHelpers
+	}
+	release := f.helperRelease
+	f.mu.Unlock()
+	if f.helperEntered != nil {
+		f.helperEntered <- args[len(args)-1]
+	}
+	if release != nil {
+		<-release
+	}
+	f.mu.Lock()
+	f.activeHelpers--
+	f.mu.Unlock()
 	if f.helperUser != "" {
 		return f.helperUser + "\n", nil
 	}
@@ -126,4 +154,47 @@ func TestSitePrepareRefusesDivergentHelperIdentity(t *testing.T) {
 	if err != nil || resp.OK || !strings.Contains(resp.Error, "divergent site identity") {
 		t.Fatalf("prepare response = %#v, err = %v; want divergent identity refusal", resp, err)
 	}
+}
+
+func TestSiteAccountMutationsAreSerializedAcrossBrokerRequests(t *testing.T) {
+	release := make(chan struct{})
+	host := &fakeHost{helperStarted: make(chan struct{}), helperEntered: make(chan string, 2), helperRelease: release}
+	broker, err := newBroker(t.TempDir(), t.TempDir(), log.New(io.Discard, "", 0), host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(site string) *Request {
+		return &Request{RequestType: "site", Site: &SiteRequest{Action: "prepare", Site: site}}
+	}
+
+	firstDone := make(chan struct{})
+	go func() {
+		_, _ = broker.Execute(context.Background(), request("first"))
+		close(firstDone)
+	}()
+	<-host.helperStarted
+	if site := <-host.helperEntered; site != "first" {
+		t.Fatalf("first helper entered for site %q", site)
+	}
+
+	secondDone := make(chan struct{})
+	go func() {
+		_, _ = broker.Execute(context.Background(), request("second"))
+		close(secondDone)
+	}()
+	select {
+	case site := <-host.helperEntered:
+		t.Fatalf("second account mutation entered host helper for %q before the first was released", site)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	host.mu.Lock()
+	maxActive := host.maxActive
+	host.mu.Unlock()
+	if maxActive != 1 {
+		t.Fatalf("concurrent account mutations reached host helper: max active = %d, want 1", maxActive)
+	}
+	close(release)
+	<-firstDone
+	<-secondDone
 }
