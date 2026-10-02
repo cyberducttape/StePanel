@@ -6,6 +6,12 @@ on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      full_recovery_matrix:
+        description: 'Run the exhaustive recovery-boundary matrix'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: stepanel-install-smoke-${{ github.ref }}
@@ -17,7 +23,7 @@ permissions:
 jobs:
   install:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.full_recovery_matrix && 180 || 45 }}
     strategy:
       fail-fast: false
       matrix:
@@ -101,13 +107,14 @@ jobs:
           # service transition yields diagnostics rather than consuming the
           # entire matrix job timeout. The optional recovery matrix runs
           # after the default drills and needs more than the original 20m
-          # budget while remaining below this job's 45m timeout. The full
-          # matrix exercises every restore checkpoint and therefore needs the
-          # additional wall-clock budget on TCG/shared CI hosts.
-          timeout --foreground 42m docker exec \
+          # budget while remaining below the normal job timeout. The full
+          # matrix exercises every restore checkpoint and is opt-in because
+          # it needs substantially more wall-clock time on TCG/shared CI
+          # hosts.
+          timeout --foreground ${{ inputs.full_recovery_matrix && '170m' || '42m' }} docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
-            -e STEPANEL_RUN_RECOVERY_MATRIX_FULL=1 \
+            -e STEPANEL_RUN_RECOVERY_MATRIX_FULL=${{ inputs.full_recovery_matrix && '1' || '0' }} \
             stepanel-install /work/deploy/lab/install-smoke.sh \
             2>&1 | tee "$diagnostics_dir/install-smoke-output.txt"
           smoke_status=${PIPESTATUS[0]}
