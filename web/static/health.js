@@ -51,18 +51,19 @@
     try {
       const health = await read('/api/health');
       const operational = isAdmin ? await read('/api/health/operational').catch((error) => ({ error })) : null;
-      const checks = operational && !operational.error ? operational.checks || {} : {};
+      const operationalError = operational && operational.error;
+      const checks = operationalError ? {} : (operational && operational.checks) || {};
       const services = health.services || {};
       const tones = [];
       tones.push(add('API', health.ok === true, 'HTTP health endpoint responded'));
       if (isAdmin) {
         const worker = checks.durable_worker;
-        tones.push(add('Worker', worker ? worker.ready : true, worker ? worker.detail : 'In-process job execution'));
+        tones.push(add('Worker', operationalError ? 'Unavailable' : (worker ? worker.ready : true), operationalError ? operationalError.message : (worker ? worker.detail : 'In-process job execution')));
         const queue = checks.dead_letter_jobs;
-        tones.push(add('Job queue', queue ? queue.ready : true, queue ? queue.detail : 'Queue health is not exposed'));
+        tones.push(add('Job queue', operationalError ? 'Unavailable' : (queue ? queue.ready : true), operationalError ? operationalError.message : (queue ? queue.detail : 'Queue health is not exposed')));
         tones.push(add('Database', serviceState(services, ['mariadb', 'mysql', 'postgresql']), 'Database service probe'));
         const broker = checks.root_broker;
-        tones.push(add('Host broker', broker ? broker.ready : 'Not configured', broker ? broker.detail : 'Root broker health probe is not configured'));
+        tones.push(add('Host broker', operationalError ? 'Unavailable' : (broker ? broker.ready : 'Not configured'), operationalError ? operationalError.message : (broker ? broker.detail : 'Root broker health probe is not configured')));
         try {
           const backups = await read('/api/backups?limit=1');
           const latest = (backups.backups || [])[0];
