@@ -70,6 +70,11 @@ chmod 0600 /opt/stepanel/.rclone.conf
 grep -aFq '0.6.0' /opt/stepanel/stepanel
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
 
+# Prove the N-1 audit chain before the candidate installer touches the
+# service. If the candidate later reports a signature failure, this separates
+# an incompatible legacy state from state mutation during the upgrade.
+"$previous_root/stepanel" verify-audit /var/lib/ste-panel/audit.jsonl
+
 # Exercise the N-1 state path before the candidate opens the durable database.
 install -d -m 0750 -o stepanel -g stepanel /var/lib/ste-panel
 printf '%s\n' '[]' > /var/lib/ste-panel/jobs.json
@@ -81,6 +86,12 @@ if ! ./install.sh --unsafe-lab; then
   echo 'candidate installer failed; captured runtime environment:' >&2
   sed -n '1,120p' /etc/ste-panel.env >&2 || true
   systemctl show stepanel.service -p FragmentPath -p ExecStart -p EnvironmentFiles -p MainPID --no-pager >&2 || true
+  echo 'candidate audit files:' >&2
+  stat -c '%n mode=%a uid=%u gid=%g size=%s' /var/lib/ste-panel/audit.jsonl /var/lib/ste-panel/audit.jsonl.state /var/lib/ste-panel/audit.jsonl.lock 2>&1 || true
+  sha256sum /var/lib/ste-panel/audit.jsonl /var/lib/ste-panel/audit.jsonl.state 2>&1 || true
+  sed -n '1,3p' /var/lib/ste-panel/audit.jsonl.state 2>&1 || true
+  echo 'candidate audit verification:' >&2
+  "$candidate_root/stepanel" verify-audit /var/lib/ste-panel/audit.jsonl 2>&1 || true
   exit 1
 fi
 systemctl is-active --quiet stepanel.service stepanel-worker.service
