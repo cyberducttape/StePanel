@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,20 @@ func TestLabDirectBrokerRequiresSmokeMarker(t *testing.T) {
 	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "1")
 	if !labDirectBrokerEnabled() {
 		t.Fatal("direct broker did not enable with explicit smoke markers")
+	}
+}
+
+func TestProductionBrokerFailsClosedWithoutSocket(t *testing.T) {
+	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_ROOT_BROKER_SOCKET", "")
+	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", "")
+	client, err := NewClient("/usr/local/sbin/stepanel-root", "/var/www")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Execute(context.Background(), &Request{RequestType: "health"})
+	if err == nil || !strings.Contains(err.Error(), "production root broker socket") {
+		t.Fatalf("Execute error = %v, want production socket failure", err)
 	}
 }
 

@@ -37,9 +37,9 @@ func NewClient(brokerPath, webRoot string) (*Client, error) {
 	}, nil
 }
 
-// Execute sends a request to the root broker and returns the response. The
-// broker is invoked through the production sudo policy or the isolated lab
-// socket transport.
+// Execute sends a request to the root broker and returns the response. Native
+// production installs use the root-owned Unix socket; lab callers may opt in
+// to the isolated socket or subprocess transports explicitly.
 func (c *Client) Execute(ctx context.Context, req *Request) (*Response, error) {
 	return c.execute(ctx, req, labDirectBrokerEnabled())
 }
@@ -80,10 +80,13 @@ func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Respo
 			return c.executeSocket(ctx, req, socketPath)
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("STEPANEL_ENV")), "production") {
+		return nil, fmt.Errorf("production root broker socket is not configured")
+	}
 
-	// Production installations invoke the broker through sudo. The isolated
-	// install smoke host may use its root-owned socket service because
-	// container runtimes can restrict privilege transitions.
+	// Non-production compatibility callers may invoke the broker subprocess.
+	// Production never reaches this path: it must use the peer-authorized
+	// root-owned socket above.
 	command := "sudo"
 	args := []string{c.brokerPath, "-webroot", c.webRoot}
 	if direct {
