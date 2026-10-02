@@ -44,3 +44,20 @@ func TestValidateFilePathRejectsIntermediateSymlink(t *testing.T) {
 		t.Fatal("ValidateFilePath accepted an intermediate symlink")
 	}
 }
+
+func TestValidateDumpPathRejectsIntermediateSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	dump := filepath.Join(outside, "dump.sql")
+	if err := os.WriteFile(dump, []byte("SELECT 1;\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "staging")); err != nil {
+		t.Fatal(err)
+	}
+
+	validator := NewValidator(root)
+	if err := validator.validateDumpPath(filepath.Join(root, "staging", "dump.sql")); err == nil {
+		t.Fatal("validateDumpPath accepted a symlinked parent")
+	}
+}

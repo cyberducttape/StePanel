@@ -491,6 +491,9 @@ func (v *Validator) validateDumpPath(path string) error {
 	for _, root := range []string{v.webRoot, "/var/lib/ste-panel", "/var/backups/stepanel"} {
 		rootAbs, rootErr := filepath.Abs(root)
 		if rootErr == nil && (cleaned == rootAbs || strings.HasPrefix(cleaned, rootAbs+string(filepath.Separator))) {
+			if err := rejectSymlinkComponents(rootAbs, cleaned); err != nil {
+				return err
+			}
 			allowed = true
 			break
 		}
@@ -504,6 +507,35 @@ func (v *Validator) validateDumpPath(path string) error {
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return errors.New("dump path must be a regular non-symlink file")
+	}
+	return nil
+}
+
+// rejectSymlinkComponents prevents an approved absolute path from escaping
+// through a symlinked parent directory. Checking only the final file is not
+// sufficient for a root broker because every component is resolved by the
+// kernel before the final O_NOFOLLOW open.
+func rejectSymlinkComponents(root, target string) error {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return fmt.Errorf("compare dump path components: %w", err)
+	}
+	current := filepath.Clean(root)
+	for _, component := range strings.Split(rel, string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
+		if statErr != nil {
+			return fmt.Errorf("inspect dump path component: %w", statErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("dump path contains a symlinked parent")
+		}
 	}
 	return nil
 }
