@@ -953,7 +953,7 @@ func (b *Broker) dbRestoreFromPath(ctx context.Context, req *DBRequest, action s
 			return &Response{OK: false, Error: err.Error()}, nil
 		}
 	}
-	file, err := os.Open(req.DumpPath)
+	file, _, err := stepanelhelper.OpenRegularNoFollow(req.DumpPath, nil)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("open database dump: %v", err)}, nil
 	}
