@@ -73,6 +73,7 @@ test('site overview makes backup failures explicit', async ({ page }) => {
     await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'backup service unavailable' }) });
   });
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
+  await expect(page.locator('#siteOverviewStatus')).toContainText(/managed site|No managed sites/);
   const manage = page.getByRole('button', { name: /Manage site/ }).first();
   await expect(manage).toBeVisible();
   await manage.click();
