@@ -302,32 +302,58 @@
   // ---------------------------------------------------------------------
 
   async function renderOverviewTab(site, panel, ctx) {
+    const observe = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
     const [overview, backups, deploymentList, usage, php] = await Promise.all([
       ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
-      ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=500`).catch(() => ({ backups: [] })),
-      ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`).catch(() => ({ deployments: [] })),
-      ctx.getJSON(`/api/sites/usage/${encodeURIComponent(site)}`).catch(() => null),
-      ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`).catch(() => null),
+      observe(ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=500`)),
+      observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
+      observe(ctx.getJSON(`/api/sites/usage/${encodeURIComponent(site)}`)),
+      observe(ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`)),
     ]);
 
     const routes = overview.routes || [];
     const apps = overview.applications || [];
-    const backup = latestBackup(backups.backups, site);
-    const deployments = (deploymentList.deployments || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const backupData = backups.ok ? backups.value : null;
+    const deploymentData = deploymentList.ok ? deploymentList.value : null;
+    const usageData = usage.ok ? usage.value : null;
+    const phpData = php.ok ? php.value : null;
+    const backup = latestBackup(backupData?.backups, site);
+    const deployments = (deploymentData?.deployments || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const lastDeployment = deployments[0];
 
     const running = apps.some((app) => app.state === 'applied' || app.state === 'running');
     const statusBadge = apps.length === 0
       ? ctx.badge('No application deployed', 'off')
       : running ? ctx.badge('Running', 'ok') : ctx.badge('Needs attention', 'warn');
+    const unavailable = (message) => ctx.badge(message, 'warn');
+    const phpValue = !php.ok
+      ? unavailable('Unavailable')
+      : phpData && phpData.configured ? `PHP ${phpData.profile.version}` : 'Not configured';
+    const phpNote = !php.ok
+      ? 'PHP runtime API unavailable; retry to determine health.'
+      : phpData && phpData.configured ? `OPcache ${phpData.profile.opcache ? 'on' : 'off'}` : 'Configure in Runtime';
+    const backupValue = !backups.ok ? unavailable('Unavailable') : backup ? ctx.formatAge(backup.verified_at) : 'None yet';
+    const backupNote = !backups.ok
+      ? 'Backup API unavailable; retry to determine backup state.'
+      : backup ? `${backup.databases ? backup.databases.length : 0} database(s) included` : 'Create one from the Backups tab';
+    const deploymentValue = !deploymentList.ok
+      ? unavailable('Unavailable')
+      : lastDeployment ? `${lastDeployment.stage} · ${lastDeployment.state}` : 'None recorded';
+    const deploymentNote = !deploymentList.ok
+      ? 'Deployment history unavailable; retry to determine state.'
+      : lastDeployment ? ctx.formatAge(lastDeployment.created_at) : 'Use the Deployments tab';
+    const usageValue = !usage.ok ? unavailable('Unavailable') : usageData ? ctx.formatBytes(usageData.bytes) : 'Unavailable';
+    const usageNote = !usage.ok
+      ? 'Usage scan unavailable; retry to determine disk state.'
+      : usageData ? `${usageData.files} files${usageData.complete ? '' : ' (partial scan)'}` : 'No usage data reported.';
 
     const stats = [
       ['Status', statusBadge, apps.length ? `${apps.length} managed application(s)` : 'Site files only, or PHP served directly'],
       ['Domains', routes.length ? routes.map((r) => r.domain).join(', ') : 'No domain connected', `${routes.length} route(s)`],
-      ['PHP runtime', php && php.configured ? `PHP ${php.profile.version}` : 'Not configured', php && php.configured ? `OPcache ${php.profile.opcache ? 'on' : 'off'}` : 'Configure in Runtime'],
-      ['Last verified backup', backup ? ctx.formatAge(backup.verified_at) : 'None yet', backup ? `${backup.databases ? backup.databases.length : 0} database(s) included` : 'Create one from the Backups tab'],
-      ['Last deployment', lastDeployment ? `${lastDeployment.stage} · ${lastDeployment.state}` : 'None recorded', lastDeployment ? ctx.formatAge(lastDeployment.created_at) : 'Use the Deployments tab'],
-      ['Disk usage', usage ? ctx.formatBytes(usage.bytes) : 'Unavailable', usage ? `${usage.files} files${usage.complete ? '' : ' (partial scan)'}` : ''],
+      ['PHP runtime', phpValue, phpNote],
+      ['Last verified backup', backupValue, backupNote],
+      ['Last deployment', deploymentValue, deploymentNote],
+      ['Disk usage', usageValue, usageNote],
     ];
 
     const grid = el('div', { className: 'overview-grid' }, stats.map(([label, value, note]) => el('article', { className: 'overview-stat' }, [

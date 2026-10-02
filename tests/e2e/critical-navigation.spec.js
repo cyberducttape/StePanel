@@ -54,6 +54,18 @@ test('navigation: Sites workspace is reachable', async ({ page }) => {
   await expect(page.locator('#sites')).toBeInViewport();
 });
 
+test('site overview makes backup failures explicit', async ({ page }) => {
+  await page.route('**/api/backups?site=*&limit=500', async (route) => {
+    await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'backup service unavailable' }) });
+  });
+  await page.getByRole('link', { name: 'Sites', exact: true }).click();
+  const manage = page.getByRole('button', { name: /Manage site/ }).first();
+  await expect(manage).toBeVisible();
+  await manage.click();
+  await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Unavailable');
+  await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Backup API unavailable');
+});
+
 test('navigation: cPanel migration controls render', async ({ page }) => {
   await page.getByRole('link', { name: 'Migrations' }).click();
   await expect(page.locator('#migrations')).toBeInViewport();
