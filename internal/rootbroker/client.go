@@ -54,6 +54,19 @@ func (c *Client) ExecuteDirect(ctx context.Context, req *Request) (*Response, er
 	return c.execute(ctx, req, true)
 }
 
+// Ping verifies that the configured root broker is reachable and accepting
+// validated requests without performing a host mutation.
+func (c *Client) Ping(ctx context.Context) error {
+	resp, err := c.Execute(ctx, &Request{RequestType: "health"})
+	if err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("root broker rejected health check: %s", resp.Error)
+	}
+	return nil
+}
+
 func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

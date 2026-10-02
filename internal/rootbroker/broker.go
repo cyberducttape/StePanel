@@ -134,6 +134,8 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 
 	// Route to appropriate handler
 	switch req.RequestType {
+	case "health":
+		return &Response{OK: true}, nil
 	case "site":
 		return b.handleSiteRequest(ctx, req.Site)
 	case "app":

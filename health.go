@@ -4,9 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 type ReadinessCheck struct {
@@ -142,6 +146,9 @@ func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 
 func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 	checks := map[string]ReadinessCheck{}
+	if cfg.Production || strings.TrimSpace(os.Getenv("STEPANEL_ROOT_BROKER_SOCKET")) != "" || strings.TrimSpace(os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET")) != "" {
+		checks["root_broker"] = rootBrokerHealthCheck()
+	}
 	if cfg.WorkerMode == "external" {
 		if jobs == nil {
 			checks["durable_worker"] = ReadinessCheck{Ready: false, Detail: "external worker mode requires a durable worker"}
@@ -199,6 +206,26 @@ func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 		}
 	}
 	return checks
+}
+
+func rootBrokerHealthCheck() ReadinessCheck {
+	socketPath := strings.TrimSpace(os.Getenv("STEPANEL_ROOT_BROKER_SOCKET"))
+	if socketPath == "" {
+		socketPath = strings.TrimSpace(os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET"))
+	}
+	if socketPath == "" {
+		return ReadinessCheck{Ready: false, Detail: "root broker socket is not configured"}
+	}
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", "/var/www")
+	if err != nil {
+		return ReadinessCheck{Ready: false, Detail: err.Error()}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := client.Ping(ctx); err != nil {
+		return ReadinessCheck{Ready: false, Detail: err.Error()}
+	}
+	return ReadinessCheck{Ready: true, Detail: "root broker accepted a non-mutating health probe"}
 }
 
 func restoreCapacity(cfg Config) error {

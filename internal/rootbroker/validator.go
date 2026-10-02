@@ -326,6 +326,8 @@ func (v *Validator) ValidateRequest(req *Request) error {
 	}
 
 	switch req.RequestType {
+	case "health":
+		return nil
 	case "site":
 		return v.validateSiteRequest(req.Site)
 	case "app":

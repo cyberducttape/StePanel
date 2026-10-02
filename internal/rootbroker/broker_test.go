@@ -23,6 +23,23 @@ func TestNewBrokerRejectsUnavailableDurableRecoveryRootOutsideTestMode(t *testin
 	}
 }
 
+func TestBrokerHealthRequestDoesNotMutateHost(t *testing.T) {
+	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "health"})
+	if err != nil || response == nil || !response.OK {
+		t.Fatalf("health response = %#v, error = %v", response, err)
+	}
+	host := broker.host.(*fakeHost)
+	host.mu.Lock()
+	defer host.mu.Unlock()
+	if len(host.users) != 0 || len(host.deleted) != 0 || len(host.chowns) != 0 || len(host.helper) != 0 {
+		t.Fatalf("health request mutated host: users=%v deleted=%v chowns=%v helpers=%v", host.users, host.deleted, host.chowns, host.helper)
+	}
+}
+
 func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
 	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {

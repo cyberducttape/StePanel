@@ -5,7 +5,7 @@ import "encoding/json"
 // Request is the top-level RPC request type sent from the unprivileged app.
 // All fields are strongly-typed to prevent parsing ambiguity.
 type Request struct {
-	// RequestType identifies which operation to perform, such as "site", "app", "db", "vhost", "proxy", or "certificate".
+	// RequestType identifies which operation to perform, such as "health", "site", "app", "db", "vhost", "proxy", or "certificate".
 	RequestType string `json:"type"`
 
 	// Site operations: create, delete, seal, prepare, access, resources, quota, quota-clear, runtime

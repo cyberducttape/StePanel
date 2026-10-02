@@ -61,7 +61,8 @@
         const queue = checks.dead_letter_jobs;
         tones.push(add('Job queue', queue ? queue.ready : true, queue ? queue.detail : 'Queue health is not exposed'));
         tones.push(add('Database', serviceState(services, ['mariadb', 'mysql', 'postgresql']), 'Database service probe'));
-        tones.push(add('Host broker', 'Not probed', 'No safe read-only broker probe is configured'));
+        const broker = checks.root_broker;
+        tones.push(add('Host broker', broker ? broker.ready : 'Not configured', broker ? broker.detail : 'Root broker health probe is not configured'));
         try {
           const backups = await read('/api/backups?limit=1');
           const latest = (backups.backups || [])[0];
