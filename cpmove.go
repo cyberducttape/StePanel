@@ -246,7 +246,7 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	if ensureInside(cfg.ImportRoot, archive) != nil {
 		return ImportResult{}, errors.New("archive is outside the import root")
 	}
-	input, err := os.Open(archive)
+	input, _, err := openRegularNoFollow(archive, nil)
 	if err != nil {
 		return ImportResult{}, err
 	}
@@ -270,9 +270,12 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 		input.Close()
 		return ImportResult{}, err
 	}
-	input.Close()
-	if err = extractArchiveContext(ctx, archive, stage); err != nil {
+	if err = extractArchiveReaderContext(ctx, input, stage, archive); err != nil {
+		_ = input.Close()
 		return ImportResult{}, err
+	}
+	if err = input.Close(); err != nil {
+		return ImportResult{}, fmt.Errorf("close verified cpmove archive: %w", err)
 	}
 	root, err := cpmoveRoot(stage)
 	if err != nil {
@@ -494,12 +497,16 @@ func extractArchive(archive, destination string) error {
 }
 
 func extractArchiveContext(ctx context.Context, archive, destination string) error {
-	f, err := os.Open(archive)
+	f, _, err := openRegularNoFollow(archive, nil)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	gz, err := gzip.NewReader(f)
+	return extractArchiveReaderContext(ctx, f, destination, archive)
+}
+
+func extractArchiveReaderContext(ctx context.Context, input io.Reader, destination, archivePath string) error {
+	gz, err := gzip.NewReader(input)
 	if err != nil {
 		return err
 	}
@@ -524,7 +531,7 @@ func extractArchiveContext(ctx context.Context, archive, destination string) err
 		if !strings.HasPrefix(target, filepath.Clean(destination)+string(os.PathSeparator)) {
 			return errors.New("archive escapes staging directory")
 		}
-		if samePath(target, archive) {
+		if archivePath != "" && samePath(target, archivePath) {
 			return errors.New("archive entry conflicts with staged upload")
 		}
 		if h.FileInfo().IsDir() {
