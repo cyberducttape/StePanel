@@ -31,9 +31,10 @@ dropin_dir=/run/systemd/system/stepanel-worker.service.d
 dropin="$dropin_dir/recovery-smoke.conf"
 mkdir -p "$dropin_dir"
 cleanup() {
+  systemctl stop stepanel-worker.service >/dev/null 2>&1 || true
   rm -f -- "$dropin"
   systemctl daemon-reload >/dev/null 2>&1 || true
-  if timeout --foreground 30s systemctl restart stepanel-worker.service >/dev/null 2>&1; then
+  if timeout --foreground 30s systemctl start stepanel-worker.service >/dev/null 2>&1; then
     wait_for_panel_ready || true
   fi
 }
@@ -61,9 +62,12 @@ for _ in $(seq 1 90); do
   current=$(systemctl show stepanel-worker.service -p MainPID --value)
   if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
     killed=1
+    # Stop systemd's replacement before clearing the kill injection; otherwise
+    # Restart=on-failure can kill the replacement a second time.
+    systemctl stop stepanel-worker.service || true
     rm -f -- "$dropin"
     systemctl daemon-reload
-    systemctl restart stepanel-worker.service
+    systemctl start stepanel-worker.service
     wait_for_panel_ready
     break
   fi

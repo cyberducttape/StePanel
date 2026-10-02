@@ -22,9 +22,10 @@ mkdir -p "$dropin_dir"
 
 cleanup() {
   local status=$?
+  systemctl stop stepanel.service >/dev/null 2>&1 || true
   rm -f -- "$dropin"
   systemctl daemon-reload >/dev/null 2>&1 || true
-  timeout --foreground 30s systemctl restart stepanel.service >/dev/null 2>&1 || true
+  timeout --foreground 30s systemctl start stepanel.service >/dev/null 2>&1 || true
   rm -rf -- "$work"
   if (( status != 0 )); then
     echo "account suspension recovery smoke failed (status $status)" >&2
@@ -124,9 +125,10 @@ for _ in $(seq 1 60); do
 done
 (( killed )) || { echo 'panel PID never changed; suspension kill boundary was not observed' >&2; exit 1; }
 
+systemctl stop stepanel.service || true
 rm -f -- "$dropin"
 systemctl daemon-reload
-systemctl restart stepanel.service
+systemctl start stepanel.service
 for _ in $(seq 1 60); do
   if systemctl is-active --quiet stepanel.service && \
      curl --fail --silent --max-time 2 "$PANEL/readyz" >/dev/null; then

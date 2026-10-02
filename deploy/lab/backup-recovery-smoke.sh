@@ -31,9 +31,10 @@ database_name=''
 database_user=''
 mkdir -p "$dropin_dir"
 cleanup() {
+  systemctl stop stepanel-worker.service >/dev/null 2>&1 || true
   rm -f -- "$dropin"
   systemctl daemon-reload >/dev/null 2>&1 || true
-  timeout --foreground 30s systemctl restart stepanel-worker.service >/dev/null 2>&1 || true
+  timeout --foreground 30s systemctl start stepanel-worker.service >/dev/null 2>&1 || true
   if [[ -n "$database_name" && -x /usr/local/sbin/stepanel-dbctl ]]; then
     /usr/local/sbin/stepanel-dbctl drop-managed "$database_name" "$database_user" >/dev/null 2>&1 || true
   fi
@@ -114,9 +115,12 @@ for _ in $(seq 1 90); do
   current=$(systemctl show stepanel-worker.service -p MainPID --value)
   if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
     killed=1
+    # Stop systemd's replacement before clearing the kill injection; otherwise
+    # Restart=on-failure can kill the replacement a second time.
+    systemctl stop stepanel-worker.service || true
     rm -f -- "$dropin"
     systemctl daemon-reload
-    systemctl restart stepanel-worker.service
+    systemctl start stepanel-worker.service
     wait_for_panel_ready
     break
   fi
@@ -183,9 +187,10 @@ for _ in $(seq 1 90); do
   current=$(systemctl show stepanel-worker.service -p MainPID --value)
   if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
     killed=1
+    systemctl stop stepanel-worker.service || true
     rm -f -- "$dropin"
     systemctl daemon-reload
-    systemctl restart stepanel-worker.service
+    systemctl start stepanel-worker.service
     wait_for_panel_ready
     break
   fi
@@ -296,9 +301,10 @@ PY
     current=$(systemctl show stepanel-worker.service -p MainPID --value)
     if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
       killed=1
+      systemctl stop stepanel-worker.service || true
       rm -f -- "$dropin"
       systemctl daemon-reload
-      systemctl restart stepanel-worker.service
+      systemctl start stepanel-worker.service
       wait_for_panel_ready
       break
     fi
@@ -374,9 +380,10 @@ for _ in $(seq 1 240); do
   current=$(systemctl show stepanel-worker.service -p MainPID --value)
   if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
     killed=1
+    systemctl stop stepanel-worker.service || true
     rm -f -- "$dropin"
     systemctl daemon-reload
-    systemctl restart stepanel-worker.service
+    systemctl start stepanel-worker.service
     wait_for_panel_ready
     break
   fi
