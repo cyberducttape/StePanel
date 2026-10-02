@@ -487,7 +487,9 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 	createdDatabase := false
 	defer func() {
 		if !committed {
-			_ = txn.Rollback()
+			if rollbackErr := txn.Rollback(); rollbackErr != nil {
+				log.Printf("backup staging rollback failed for transaction %s: %v", txn.ID, rollbackErr)
+			}
 			if createdDatabase {
 				if _, cleanupErr := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, "", "drop-managed", input.TargetDatabase, input.TargetUser); cleanupErr != nil {
 					log.Printf("staging database cleanup failed for %s: %v", input.TargetDatabase, cleanupErr)
@@ -669,7 +671,9 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	ok := false
 	defer func() {
 		if !ok {
-			_ = txn.Rollback()
+			if rollbackErr := txn.Rollback(); rollbackErr != nil {
+				log.Printf("backup file restore rollback failed for transaction %s: %v", txn.ID, rollbackErr)
+			}
 		}
 	}()
 	if err := siteHelperContext(ctx, cfg, "prepare", siteName); err != nil {

@@ -248,7 +248,9 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	var ok bool
 	defer func() {
 		if !ok {
-			_ = txn.Rollback()
+			if rollbackErr := txn.Rollback(); rollbackErr != nil {
+				log.Printf("staging clone rollback failed for transaction %s: %v", txn.ID, rollbackErr)
+			}
 		}
 	}()
 	if input.Files {
