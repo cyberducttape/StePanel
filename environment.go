@@ -31,13 +31,35 @@ func (a *App) applyEnvironmentLocked(ctx context.Context, site string, vars map[
 		if strings.ContainsAny(value.Value, "\x00\r\n") {
 			return errors.New("environment values may not contain NUL or newlines")
 		}
-		lines = append(lines, name+"="+value.Value)
+		lines = append(lines, name+"="+encodeSystemdEnvironmentValue(value.Value))
 	}
 	sort.Strings(lines)
 	commandCtx, cancel := context.WithTimeout(ctx, helperConfigMutationTimeout)
 	defer cancel()
 	_, err, _ := runAllowlistedHelperOutput(commandCtx, a.Config, []byte(strings.Join(lines, "\n")+"\n"), a.Config.AppCtl, "env-apply", site)
 	return err
+}
+
+// encodeSystemdEnvironmentValue quotes a value for systemd EnvironmentFile=
+// so the process sees it byte-for-byte. Inside double quotes systemd strips
+// one backslash before ", \, ` and $ and keeps every other byte literally,
+// including spaces, '#', and single quotes. NUL, CR, and LF are rejected
+// before encoding.
+func encodeSystemdEnvironmentValue(value string) string {
+	var b strings.Builder
+	b.Grow(len(value) + 2)
+	b.WriteByte('"')
+	for i := 0; i < len(value); i++ {
+		switch c := value[i]; c {
+		case '"', '\\', '`', '$':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func (a *App) reconcileEnvironments(ctx context.Context) (reconciled []string, failed map[string]string) {

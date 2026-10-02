@@ -21,6 +21,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   a later persist could encrypt it twice. Bound stores whose durable form differs
   from their runtime form now implement a codec, and the environment store alone
   decrypts its durable payload.
+- **Environment values reach processes byte-for-byte**: values are now written
+  to the systemd `EnvironmentFile=` double-quoted with `\`, `"`, `` ` ``, and `$`
+  escaped, so spaces, quotes, backslashes, `#`, and `$` survive unchanged. A
+  round-trip test runs values through a real systemd manager. Existing site
+  environment files are rewritten (and services restarted once) on the next
+  reconciliation.
+- **Environment names match the host helper**: names starting with a digit are
+  rejected by the API instead of becoming unappliable desired state.
 - **Explicit secret flag in the UI**: new and existing variables have a Secret
   checkbox and a Remove action; secrecy is no longer inferred from the input type.
 

@@ -1,10 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidEnvName(t *testing.T) {
@@ -172,5 +178,64 @@ func TestBoundEnvironmentStoreKeepsPlaintextRuntimeState(t *testing.T) {
 	}
 	if got := reloaded.values["demo"]["DB_PASSWORD"].Value; got != "secret123" {
 		t.Fatalf("secret after restart = %q; want single-decrypted plaintext", got)
+	}
+}
+
+var systemdEnvironmentRoundTripValues = []string{
+	"", "plain", "abc def", `abc"def`, `abc\def`, "abc#def", "$foo", "${HOME}", "'foo bar'",
+	"x`whoami`y", `\"`, `trailing\`, "  padded  ", "tab\there", "%h%n", "=;&|<>*?~!",
+	"sk_live_51H\"$\\`'#=", "ünïcödé ✓",
+}
+
+func TestEncodeSystemdEnvironmentValue(t *testing.T) {
+	for value, want := range map[string]string{
+		"":          `""`,
+		"abc def":   `"abc def"`,
+		`abc"def`:   `"abc\"def"`,
+		`abc\def`:   `"abc\\def"`,
+		"abc#def":   `"abc#def"`,
+		"$foo":      `"\$foo"`,
+		"'foo bar'": `"'foo bar'"`,
+		"a`b":       "\"a\\`b\"",
+	} {
+		if got := encodeSystemdEnvironmentValue(value); got != want {
+			t.Errorf("encodeSystemdEnvironmentValue(%q) = %s; want %s", value, got, want)
+		}
+	}
+}
+
+// TestSystemdEnvironmentFileRoundTrip feeds encoded values through a real
+// systemd EnvironmentFile= and requires the process to see every value
+// byte-for-byte. It needs a user systemd manager and is skipped without one.
+func TestSystemdEnvironmentFileRoundTrip(t *testing.T) {
+	if _, err := exec.LookPath("systemd-run"); err != nil {
+		t.Skip("systemd-run is not available")
+	}
+	var file bytes.Buffer
+	for i, value := range systemdEnvironmentRoundTripValues {
+		file.WriteString(fmt.Sprintf("STEPANEL_RT_%d=%s\n", i, encodeSystemdEnvironmentValue(value)))
+	}
+	path := filepath.Join(t.TempDir(), "site.env")
+	if err := os.WriteFile(path, file.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "systemd-run", "--user", "--quiet", "--pipe", "--wait",
+		"-p", "EnvironmentFile="+path, "/usr/bin/env", "-0").Output()
+	if err != nil {
+		t.Skipf("user systemd manager unavailable: %v", err)
+	}
+	got := map[string]string{}
+	for _, entry := range bytes.Split(output, []byte{0}) {
+		if name, value, ok := strings.Cut(string(entry), "="); ok && strings.HasPrefix(name, "STEPANEL_RT_") {
+			got[name] = value
+		}
+	}
+	for i, want := range systemdEnvironmentRoundTripValues {
+		name := fmt.Sprintf("STEPANEL_RT_%d", i)
+		if value, ok := got[name]; !ok || value != want {
+			t.Errorf("%s = %q (present=%v); want %q", name, value, ok, want)
+		}
 	}
 }
