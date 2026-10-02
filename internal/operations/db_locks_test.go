@@ -302,6 +302,27 @@ func TestDBLocks_HoldRenewsUntilCancel(t *testing.T) {
 	}
 }
 
+func TestDBLocks_HoldCanceledBeforeStartIsNoOp(t *testing.T) {
+	a, _, cleanup := openTwoHandles(t)
+	defer cleanup()
+	owner, err := NewDBLocks(a, "owner-canceled", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := owner.TryAcquire("site-canceled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := owner.Hold(ctx, lease); err != nil {
+		t.Fatalf("Hold returned %v for canceled context, want nil", err)
+	}
+	if err := owner.Release(lease); err != nil {
+		t.Fatalf("release after canceled Hold failed: %v", err)
+	}
+}
+
 func TestDBLocks_HoldRenewsShortLease(t *testing.T) {
 	a, b, cleanup := openTwoHandles(t)
 	defer cleanup()

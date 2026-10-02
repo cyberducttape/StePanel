@@ -323,6 +323,9 @@ func (dl *DBLocks) Hold(ctx context.Context, lease Lease) error {
 	if lease.ResourceKey == "" {
 		return errors.New("lease has no resource_key")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil
+	}
 	// Renew before waiting for the first tick. This closes the startup window
 	// where a short lease could expire while the caller's renewal goroutine is
 	// being scheduled.
@@ -342,8 +345,17 @@ func (dl *DBLocks) Hold(ctx context.Context, lease Lease) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+			// Prefer an already-requested shutdown over a renewal attempt. The
+			// select can observe both channels as ready, so checking explicitly
+			// prevents cancellation from spuriously surfacing ErrLeaseLost.
+			if ctx.Err() != nil {
+				return nil
+			}
 			renewed, err := dl.Renew(lease)
 			if err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
 				return err
 			}
 			lease = renewed
