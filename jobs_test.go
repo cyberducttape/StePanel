@@ -868,6 +868,32 @@ func TestJobsDoNotExposeUnpersistedCompletion(t *testing.T) {
 	}
 }
 
+func TestDurableClaimTransitionRestoresMemoryOnPersistenceFailure(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := newJobsWithDB(db, 1)
+	item, err := jobs.Enqueue("test.transition", "site", "", nil, 1)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	claimed, ok, err := jobs.ClaimNext("worker-a")
+	if err != nil || !ok || claimed.ID != item.ID {
+		db.Close()
+		t.Fatalf("claim = %#v, %v, %v", claimed, ok, err)
+	}
+	db.Close()
+	if err := jobs.finishClaim(item.ID, "worker-a", func(job *Job) { job.State = "completed" }); err == nil {
+		t.Fatal("finishClaim unexpectedly succeeded after database close")
+	}
+	got, ok := jobs.Get(item.ID)
+	if !ok || got.State != "running" || got.LeaseOwner != "worker-a" {
+		t.Fatalf("job after failed claim transition = %#v, found = %v", got, ok)
+	}
+}
+
 // TestDurableListAlwaysIncludesActiveJobsOutsideTheRecentWindow keeps the
 // Job Center's active count authoritative: a long-running job must be listed
 // even when many newer jobs have finished since it started.

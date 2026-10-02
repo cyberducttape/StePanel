@@ -246,21 +246,22 @@ func (j *Jobs) Claim(id, owner string) (Job, bool, error) {
 	if !ok || item == nil || item.State != "queued" {
 		return Job{}, false, nil
 	}
+	previous := *item
 	item.State = "running"
 	item.LeaseOwner = owner
 	item.LeaseExpires = &expires
 	result, err := j.db.Exec(`UPDATE jobs SET state='running', lease_owner=?, lease_expires_at=?, updated_at=unixepoch() WHERE id=? AND state='queued'`, owner, expires.UnixNano(), id)
 	if err != nil {
+		*item = previous
 		return Job{}, false, err
 	}
 	count, err := result.RowsAffected()
 	if err != nil {
+		*item = previous
 		return Job{}, false, err
 	}
 	if count != 1 {
-		item.State = "queued"
-		item.LeaseOwner = ""
-		item.LeaseExpires = nil
+		*item = previous
 		return Job{}, false, nil
 	}
 	copy := *item
@@ -338,9 +339,11 @@ func (j *Jobs) Renew(id, owner string) (bool, error) {
 	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner || item.LeaseExpires == nil || time.Now().UTC().After(*item.LeaseExpires) {
 		return false, nil
 	}
+	previous := *item
 	expires := time.Now().UTC().Add(j.leaseDuration())
 	item.LeaseExpires = &expires
 	if err := j.persistDurableItemCAS(item, owner); err != nil {
+		*item = previous
 		return false, err
 	}
 	return true, nil
@@ -355,8 +358,10 @@ func (j *Jobs) RequeueExpired() (int, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	changed := 0
+	previous := make(map[*Job]Job)
 	for _, item := range j.items {
 		if item != nil && item.State == "running" && item.LeaseExpires != nil && now.After(*item.LeaseExpires) {
+			previous[item] = *item
 			item.State = "queued"
 			item.LeaseOwner = ""
 			item.LeaseExpires = nil
@@ -367,6 +372,9 @@ func (j *Jobs) RequeueExpired() (int, error) {
 	// jobs that this process did not load into its local map.
 	result, err := j.db.Exec(`UPDATE jobs SET state='queued', lease_owner=NULL, lease_expires_at=NULL, updated_at=unixepoch() WHERE state='running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`, now.UnixNano())
 	if err != nil {
+		for item, state := range previous {
+			*item = state
+		}
 		return 0, err
 	}
 	if count, err := result.RowsAffected(); err == nil && int(count) > changed {
@@ -385,10 +393,12 @@ func (j *Jobs) finishClaim(id, owner string, apply func(*Job)) error {
 	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
 		return errJobLeaseNotHeld
 	}
+	previous := *item
 	apply(item)
 	item.LeaseOwner = ""
 	item.LeaseExpires = nil
 	if err := j.persistDurableItemCAS(item, owner); err != nil {
+		*item = previous
 		return err
 	}
 	j.publish(*item)
@@ -547,6 +557,7 @@ func (j *Jobs) FailClaim(id, owner, message string) error {
 	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
 		return errors.New("job lease is not held by this worker")
 	}
+	previous := *item
 	item.Attempts++
 	item.Error = strings.TrimSpace(message)
 	item.LeaseOwner = ""
@@ -562,6 +573,7 @@ func (j *Jobs) FailClaim(id, owner, message string) error {
 		item.NextAttempt = &next
 	}
 	if err := j.persistDurableItemCAS(item, owner); err != nil {
+		*item = previous
 		return err
 	}
 	j.publish(*item)
@@ -585,8 +597,10 @@ func (j *Jobs) UpdateClaim(id, owner string, progress int) error {
 	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
 		return errors.New("job lease is not held by this worker")
 	}
+	previous := *item
 	item.Progress = progress
 	if err := j.persistDurableItemCAS(item, owner); err != nil {
+		*item = previous
 		return err
 	}
 	j.publish(*item)
