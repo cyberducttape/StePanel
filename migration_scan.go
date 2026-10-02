@@ -188,11 +188,11 @@ func parseDoctorInt(value string) int64 {
 }
 
 func parseDoctorIntAsInt(value string) int {
-	n := parseDoctorInt(value)
-	if strconv.IntSize == 32 && (n < -(1<<31) || n > (1<<31)-1) {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
 		return 0
 	}
-	return int(n)
+	return n
 }
 
 func (a *App) localMigrationInventory() doctor.ServerInventory {
