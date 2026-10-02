@@ -180,8 +180,12 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 	if err != nil {
 		return nil, fmt.Errorf("invalid backup layout: %w", err)
 	}
-	if info, err := os.Stat(source); err != nil || !info.IsDir() {
-		return nil, errors.New("backup has no site files")
+	info, err := os.Stat(source)
+	if err != nil {
+		return nil, fmt.Errorf("inspect extracted backup site files: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, errors.New("backup site files are not a directory")
 	}
 	result := backupRehearsalResult{Site: request.Site, Backup: request.Backup, Consistency: manifest.Consistency, EntriesVerified: len(manifest.Entries), DatabasesChecked: append([]string(nil), manifest.Databases...), CompletedAt: time.Now().UTC()}
 	err = filepath.WalkDir(stage, func(path string, entry os.DirEntry, walkErr error) error {
@@ -217,8 +221,11 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 			return nil, err
 		}
 		info, err := os.Stat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("database dump %q is missing", database)
+		if err != nil {
+			return nil, fmt.Errorf("inspect database dump %q: %w", database, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("database dump %q is not a regular file", database)
 		}
 	}
 	recordAudit(a.Config.AuditLog, request.Actor, "backup.rehearsal.completed", request.Site, request.Backup)
@@ -450,8 +457,13 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "invalid backup layout", 422)
 		return
 	}
-	if info, statErr := os.Stat(source); statErr != nil || !info.IsDir() {
-		http.Error(w, "backup has no site files", 422)
+	info, statErr := os.Stat(source)
+	if statErr != nil {
+		http.Error(w, "could not inspect backup site files: "+statErr.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if !info.IsDir() {
+		http.Error(w, "backup site files are not a directory", http.StatusUnprocessableEntity)
 		return
 	}
 	managerStage, stageErr := createSiteManagerStaging(operationCtx, a.Config, ".stepanel-backup-restore-")
@@ -647,8 +659,12 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("invalid backup layout: %w", err)
 	}
-	if info, err := os.Stat(source); err != nil || !info.IsDir() {
-		return BackupRestoreResult{}, errors.New("backup has no site files")
+	info, err := os.Stat(source)
+	if err != nil {
+		return BackupRestoreResult{}, fmt.Errorf("inspect backup site files: %w", err)
+	}
+	if !info.IsDir() {
+		return BackupRestoreResult{}, errors.New("backup site files are not a directory")
 	}
 	dest, err := safePath(cfg.WebRoot, "sites", siteName, "public")
 	if err != nil {
@@ -801,8 +817,11 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 		return BackupRestoreResult{}, err
 	}
 	info, err := os.Stat(dump)
-	if err != nil || !info.Mode().IsRegular() {
-		return BackupRestoreResult{}, errors.New("selected database dump is unavailable")
+	if err != nil {
+		return BackupRestoreResult{}, fmt.Errorf("inspect selected database dump: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return BackupRestoreResult{}, errors.New("selected database dump is not a regular file")
 	}
 	if err := failureInjection("restore", "database"); err != nil {
 		return BackupRestoreResult{}, err
