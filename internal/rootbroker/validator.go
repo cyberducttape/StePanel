@@ -410,28 +410,7 @@ func (v *Validator) validateHelperRequest(req *HelperRequest) error {
 	if req == nil {
 		return fmt.Errorf("helper request is nil")
 	}
-	allowed := map[string]map[string]bool{
-		"appctl":    {"python-apply": true, "python-start": true, "python-stop": true, "python-restart": true, "node-tool": true, "composer-install": true, "env-apply": true, "worker-apply": true, "worker-delete": true, "worker-start": true, "worker-stop": true, "worker-restart": true, "resource-apply": true, "account-resource-apply": true, "resource-status": true},
-		"proxyctl":  {"apply": true, "delete": true, "reload": true},
-		"sitectl":   {"prepare": true, "prepare-root": true, "seal": true, "delete": true, "access": true, "resources": true, "quota": true, "quota-clear": true, "runtime": true},
-		"vhostctl":  {"apply": true, "delete": true, "apply-auth": true, "import-htaccess": true},
-		"runnerctl": {"build": true},
-		"gitctl":    {"clone": true, "verify": true},
-		"dbctl":     {"reconcile": true, "list": true, "inventory": true, "diagnostics": true, "sessions": true, "settings": true, "terminate": true, "provision": true, "rotate": true, "drop-managed": true, "restore": true, "restore-dump": true, "restore-wordpress": true, "cleanup-wordpress": true, "drop": true, "dump": true},
-	}
-	actions, ok := allowed[req.Name]
-	if !ok || !actions[req.Action] {
-		return fmt.Errorf("helper action is not allow-listed: %s/%s", req.Name, req.Action)
-	}
-	if len(req.Args) > 32 {
-		return fmt.Errorf("too many helper arguments")
-	}
-	for _, arg := range req.Args {
-		if len(arg) > 4096 || strings.ContainsAny(arg, "\x00\r\n") {
-			return fmt.Errorf("invalid helper argument")
-		}
-	}
-	return nil
+	return v.validateHelperArgs(req.Name, req.Action, req.Args)
 }
 
 func (v *Validator) validateSiteRequest(req *SiteRequest) error {

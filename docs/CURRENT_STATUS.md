@@ -75,7 +75,18 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 **Status:** Production app/proxy/site/vhost/runner/Git mutation wrappers use the root broker, and TLS certificate issuance now uses a dedicated typed broker request with no separate certbot sudo grant. Database streaming restore/dump still uses dedicated helper paths, so the broker is not yet a complete replacement for every shell helper. Database helper grants and remaining streaming callsites are still migration work.
 
-**Next Action:** Begin Phase 4 callsite replacement in v0.8.0 or v1.0.x release cycle.
+**Compatibility helper RPC (2026-10):** the generic `helper` request no longer
+accepts up to 32 caller-controlled arguments. Every forwarded action is declared
+in `internal/rootbroker/helper_schema.go` with exact arity and a semantic type
+per argument: site and account names, database identifiers, ports and bounded
+limits, private proxy backends, digest-pinned images, and paths that must equal
+the named site's `public` or release staging directory under the web root.
+Undeclared actions (including the unused `gitctl verify`) are rejected. This is
+an intermediate step: the remaining goal before 1.0 is one Go request type per
+privileged operation, with ownership checks, so that no generic helper RPC
+remains.
+
+**Next Action:** Replace the schema-validated compatibility actions with dedicated typed requests, starting with database restore/dump streaming.
 
 ---
 

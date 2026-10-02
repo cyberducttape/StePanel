@@ -33,6 +33,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Root Broker
 
+- **Helper RPC arguments are schema-validated (SECURITY)**: the compatibility
+  `helper` request previously forwarded up to 32 caller-controlled arguments
+  checked only for length and control characters. Each allow-listed action now
+  declares its exact arity and a semantic type for every argument (site-bound
+  paths, identifiers, ranges, private backends, pinned images); anything else is
+  rejected before a root process starts. The unused `gitctl verify` action was
+  removed from the allowlist.
 - **Broker subprocess output is bounded while the child runs (SECURITY)**: the
   root broker used `CombinedOutput()`/`Output()` and checked sizes afterwards,
   so a helper writing gigabytes was fully buffered in the root process first.
