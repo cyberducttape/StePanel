@@ -278,6 +278,17 @@ func TestCreateSiteBackupEncryptsArchivePayload(t *testing.T) {
 	if _, err := VerifySiteBackupStrict(result.Path, "", key); err != nil {
 		t.Fatalf("encrypted backup verification failed: %v", err)
 	}
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "secret.txt"), "changed live data")
+	if _, err := backupRestoreFiles(context.Background(), Config{
+		WebRoot: webRoot, BackupRoot: backupRoot, BackupEncryptionKey: key,
+		ImportRoot: filepath.Join(root, "imports"), RecoveryRoot: filepath.Join(root, "recovery"),
+	}, filepath.Base(result.Path), AuthorizedSite{site: "account"}); err != nil {
+		t.Fatalf("encrypted backup restore failed: %v", err)
+	}
+	restored, err := os.ReadFile(filepath.Join(webRoot, "sites", "account", "public", "secret.txt"))
+	if err != nil || string(restored) != "customer secret" {
+		t.Fatalf("encrypted restore data = %q, error = %v", restored, err)
+	}
 	archive, err := os.ReadFile(filepath.Join(result.Path, manifest.Archive))
 	if err != nil {
 		t.Fatal(err)
