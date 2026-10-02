@@ -154,7 +154,7 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := VerifySiteBackup(backupRoot, a.Config.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backupRoot, a.Config.BackupSigningKey)
 	if err != nil {
 		return nil, fmt.Errorf("verify backup: %w", err)
 	}
@@ -252,7 +252,7 @@ func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
-	manifest, err := VerifySiteBackup(backupRoot, a.Config.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backupRoot, a.Config.BackupSigningKey)
 	if err != nil || manifest.Site != input.Site {
 		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
 		return
@@ -308,7 +308,7 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
-	manifest, err := VerifySiteBackup(path, a.Config.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(path, a.Config.BackupSigningKey)
 	if err != nil {
 		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
 		return
@@ -395,7 +395,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	defer releaseUnlock()
-	manifest, e := VerifySiteBackup(backup, a.Config.BackupSigningKey)
+	manifest, e := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey)
 	if e != nil {
 		http.Error(w, "backup verification failed", 422)
 		return
@@ -599,7 +599,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	manifest, err := VerifySiteBackup(backup, cfg.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backup, cfg.BackupSigningKey)
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("verify backup: %w", err)
 	}
@@ -723,7 +723,7 @@ func (a *App) backupRestoreFilesHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
-	if _, err := VerifySiteBackup(backup, a.Config.BackupSigningKey); err != nil {
+	if _, err := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey); err != nil {
 		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
 		return
 	}
@@ -755,7 +755,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	manifest, err := VerifySiteBackup(backup, cfg.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backup, cfg.BackupSigningKey)
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("verify backup: %w", err)
 	}
@@ -862,7 +862,7 @@ func (a *App) backupRestoreDatabaseHTTP(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
-	manifest, err := VerifySiteBackup(backup, a.Config.BackupSigningKey)
+	manifest, err := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey)
 	if err != nil || manifest.Site != input.Site || !backupContainsDatabase(manifest, input.Database) {
 		http.Error(w, "verified backup does not contain the selected site database", http.StatusUnprocessableEntity)
 		return

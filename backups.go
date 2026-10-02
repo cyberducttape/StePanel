@@ -31,9 +31,9 @@ type BackupResult = backup.BackupResult
 
 const maxBackupBytes = backup.MaxBackupBytes
 
-// backupVerificationCache stores recent verification results to avoid re-verifying
-// the same backup on every listing operation. This prevents the "backup listing DoS"
-// where hundreds of backups are fully hashed on each list request.
+// backupVerificationCache stores recent verification results for backup listing
+// only. Restore and other trust-sensitive paths must use VerifySiteBackupStrict,
+// which never consults this cache.
 //
 // Key: backup directory path
 // Value: verification result + timestamp
@@ -948,7 +948,23 @@ func verifyBackupManifestSignature(root string, data []byte, manifest BackupMani
 	return nil
 }
 
-func VerifySiteBackup(root string, signingKey ...string) (BackupManifest, error) {
+// VerifySiteBackupForListing verifies a backup for display in a backup listing.
+// The archive verification result may be cached briefly to avoid re-hashing
+// large archives on every list request. Call VerifySiteBackupStrict before any
+// restore, rehearsal, migration, staging, or other operation that consumes the
+// archive contents.
+func VerifySiteBackupForListing(root string, signingKey ...string) (BackupManifest, error) {
+	return verifySiteBackup(root, true, signingKey...)
+}
+
+// VerifySiteBackupStrict always re-hashes and fully validates the archive. It
+// deliberately bypasses the listing cache because a path-only cache cannot
+// establish that the bytes being consumed are the bytes that were verified.
+func VerifySiteBackupStrict(root string, signingKey ...string) (BackupManifest, error) {
+	return verifySiteBackup(root, false, signingKey...)
+}
+
+func verifySiteBackup(root string, allowCache bool, signingKey ...string) (BackupManifest, error) {
 	manifest, err := readBackupManifest(root)
 	if err != nil {
 		return BackupManifest{}, err
@@ -958,23 +974,20 @@ func VerifySiteBackup(root string, signingKey ...string) (BackupManifest, error)
 		return BackupManifest{}, err
 	}
 
-	// PERFORMANCE: Check cache before doing expensive archive verification.
-	// This prevents re-hashing multi-GB archives on every backup list operation.
-	// Cache is valid for 5 minutes; always verify before destructive operations (restore).
-	// CRITICAL: Cache is ONLY for Consistency and Checksum. NEVER use cached timestamps
-	// for VerifiedAt or CreatedAt - these come from the manifest and are immutable.
-	if cached, ok := getBackupVerificationFromCache(archivePath); ok {
-		// Use cached verification result instead of re-verifying the archive
-		manifest.Consistency = cached.Consistency
-		manifest.ArchiveSHA256 = cached.Checksum
-		// DO NOT update VerifiedAt or CreatedAt from cache - they come from manifest file
-	} else {
-		// No cache hit, perform full archive verification
-		if err := VerifyBackupArchive(archivePath, manifest); err != nil {
-			return BackupManifest{}, err
+	if allowCache {
+		// This cache is intentionally not keyed by file identity. It is safe only
+		// for listing results and must never authorize archive consumption.
+		if cached, ok := getBackupVerificationFromCache(archivePath); ok {
+			manifest.Consistency = cached.Consistency
+			manifest.ArchiveSHA256 = cached.Checksum
+		} else {
+			if err := VerifyBackupArchive(archivePath, manifest); err != nil {
+				return BackupManifest{}, err
+			}
+			setBackupVerificationCache(archivePath, manifest.Consistency, manifest.ArchiveSHA256)
 		}
-		// Cache the verification result for future listing operations
-		setBackupVerificationCache(archivePath, manifest.Consistency, manifest.ArchiveSHA256)
+	} else if err := VerifyBackupArchive(archivePath, manifest); err != nil {
+		return BackupManifest{}, err
 	}
 	manifestPath, err := safePath(root, "manifest.json")
 	if err != nil {
@@ -1020,7 +1033,7 @@ func listBackupsPageUnscoped(root, site string, limit int, signingKey ...string)
 			log.Printf("skip backup entry outside backup root %s", entry.Name())
 			continue
 		}
-		manifest, err := VerifySiteBackup(path, signingKey...)
+		manifest, err := VerifySiteBackupForListing(path, signingKey...)
 		if err != nil {
 			// A damaged artifact must not hide every healthy backup from the
 			// operator. Keep it visible in logs for quarantine/repair workflows.
@@ -1061,7 +1074,7 @@ func listBackupsPage(root string, site SiteCapability, limit int, signingKey ...
 			log.Printf("skip backup entry outside backup root %s", entry.Name())
 			continue
 		}
-		manifest, err := VerifySiteBackup(path, signingKey...)
+		manifest, err := VerifySiteBackupForListing(path, signingKey...)
 		if err != nil {
 			log.Printf("skip invalid backup manifest %s: %v", entry.Name(), err)
 			continue

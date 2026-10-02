@@ -158,7 +158,7 @@ func main() {
 		return
 	}
 	if len(os.Args) == 3 && os.Args[1] == "verify-backup" {
-		manifest, err := VerifySiteBackup(os.Args[2], LoadConfig().BackupSigningKey)
+		manifest, err := VerifySiteBackupStrict(os.Args[2], LoadConfig().BackupSigningKey)
 		if err != nil {
 			log.Fatal(err)
 		}

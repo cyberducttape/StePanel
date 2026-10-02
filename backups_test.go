@@ -225,7 +225,7 @@ func TestBackupRecoversFromRealENOSPC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("backup retry after freeing space: %v", err)
 	}
-	manifest, err := VerifySiteBackup(result.Path, "")
+	manifest, err := VerifySiteBackupStrict(result.Path, "")
 	if err != nil {
 		t.Fatalf("verify backup retry: %v", err)
 	}
@@ -247,10 +247,10 @@ func TestSignedBackupManifestRequiresValidExternalKey(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(result.Path, "manifest.sig")); err != nil {
 		t.Fatalf("manifest signature missing: %v", err)
 	}
-	if _, err := VerifySiteBackup(result.Path, "a-secret-key-with-enough-entropy"); err != nil {
+	if _, err := VerifySiteBackupStrict(result.Path, "a-secret-key-with-enough-entropy"); err != nil {
 		t.Fatalf("signed backup did not verify: %v", err)
 	}
-	if _, err := VerifySiteBackup(result.Path, "wrong-key"); err == nil {
+	if _, err := VerifySiteBackupStrict(result.Path, "wrong-key"); err == nil {
 		t.Fatal("backup verified with the wrong signing key")
 	}
 }
@@ -334,6 +334,36 @@ func TestVerifyBackupArchiveRejectsTampering(t *testing.T) {
 	}
 	if err := VerifyBackupArchive(archive, manifest); err == nil {
 		t.Fatal("tampered backup passed verification")
+	}
+}
+
+func TestStrictBackupVerificationBypassesListingCache(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "original")
+	result, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups")}, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := VerifySiteBackupForListing(result.Path, ""); err != nil {
+		t.Fatalf("initial listing verification: %v", err)
+	}
+	archive := filepath.Join(result.Path, "backup.tar.gz")
+	contents, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contents) == 0 {
+		t.Fatal("backup archive is empty")
+	}
+	contents[len(contents)-1] ^= 0xff
+	if err := os.WriteFile(archive, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := VerifySiteBackupStrict(result.Path, ""); err == nil {
+		t.Fatal("strict verification accepted same-size archive replacement from listing cache")
 	}
 }
 

@@ -107,7 +107,7 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		}
 	}
 	// A signed backup must retain its signature. Unsigned backups do not have
-	// this object, so absence is allowed and VerifySiteBackup enforces the
+	// this object, so absence is allowed and strict backup verification enforces the
 	// configured signing policy.
 	ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
 	cmd := exec.CommandContext(ctx, "rclone", "copyto", remoteRoot+"/manifest.sig", filepath.Join(root, "manifest.sig"), "--immutable")
