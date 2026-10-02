@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/backup"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -173,7 +176,7 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	if err := extractBackupArchiveContext(operationCtx, archivePath, stage, a.Config.BackupEncryptionKey); err != nil {
+	if err := extractBackupArchiveContext(operationCtx, archivePath, stage, a.Config.BackupEncryptionKey, manifest); err != nil {
 		return nil, fmt.Errorf("extract verified backup: %w", err)
 	}
 	source, err := safePath(stage, "site", "public")
@@ -448,7 +451,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "invalid verified backup path", 422)
 		return
 	}
-	if e = extractBackupArchiveContext(operationCtx, archivePath, stage, a.Config.BackupEncryptionKey); e != nil {
+	if e = extractBackupArchiveContext(operationCtx, archivePath, stage, a.Config.BackupEncryptionKey, manifest); e != nil {
 		http.Error(w, "could not extract verified backup", 502)
 		return
 	}
@@ -548,9 +551,41 @@ func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStaging
 	return restoreDatabaseIntoStagingContext(context.Background(), cfg, stage, input)
 }
 
-func extractBackupArchiveContext(ctx context.Context, archive, destination, encryptionKey string) error {
+func extractBackupArchiveContext(ctx context.Context, archive, destination, encryptionKey string, manifest BackupManifest) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if manifest.Archive == "backup.tar.gz" {
+		file, info, err := openRegularNoFollow(archive, nil)
+		if err != nil {
+			return err
+		}
+		if info.Size() != manifest.Bytes {
+			_ = file.Close()
+			return errors.New("archive size changed after verification")
+		}
+		hash := sha256.New()
+		if _, err := io.Copy(hash, file); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("hash verified backup archive: %w", err)
+		}
+		if hex.EncodeToString(hash.Sum(nil)) != manifest.ArchiveSHA256 {
+			_ = file.Close()
+			return errors.New("archive changed after verification")
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			_ = file.Close()
+			return err
+		}
+		extractErr := extractArchiveReaderContext(ctx, file, destination, "")
+		closeErr := file.Close()
+		if extractErr != nil {
+			return extractErr
+		}
+		return closeErr
+	}
+	if err := VerifyBackupArchiveWithKey(archive, manifest, encryptionKey); err != nil {
+		return fmt.Errorf("reverify encrypted backup before extraction: %w", err)
 	}
 	return withDecryptedBackupArchive(archive, encryptionKey, func(plaintext string) error {
 		if err := ctx.Err(); err != nil {
@@ -645,7 +680,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	if err := extractBackupArchiveContext(ctx, archivePath, stage, cfg.BackupEncryptionKey); err != nil {
+	if err := extractBackupArchiveContext(ctx, archivePath, stage, cfg.BackupEncryptionKey, manifest); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("extract verified backup: %w", err)
 	}
 	if err := failureInjection("restore", "extract"); err != nil {
@@ -806,7 +841,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	if err := extractBackupArchiveContext(ctx, archivePath, stage, cfg.BackupEncryptionKey); err != nil {
+	if err := extractBackupArchiveContext(ctx, archivePath, stage, cfg.BackupEncryptionKey, manifest); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("extract verified backup: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
