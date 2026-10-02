@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"sort"
@@ -202,13 +201,12 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		var request struct {
 			Name      string   `json:"name"`
 			ExpiresAt *int64   `json:"expires_at"`
 			Scopes    []string `json:"scopes"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := decodeJSON(w, r, 16<<10, &request); err != nil {
 			http.Error(w, "invalid token request", http.StatusBadRequest)
 			return
 		}
@@ -331,13 +329,12 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 		var request struct {
 			Name      string   `json:"name"`
 			ExpiresAt *int64   `json:"expires_at"`
 			Scopes    []string `json:"scopes"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := decodeJSON(w, r, 16<<10, &request); err != nil {
 			http.Error(w, "invalid token request", 400)
 			return
 		}

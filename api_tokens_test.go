@@ -248,6 +248,12 @@ func TestCustomerAPITokenCreationRequiresExplicitScopes(t *testing.T) {
 	if response := authenticatedPost(`{"name":"automation","scopes":["admin:operate"]}`); response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("token creation with an admin-only scope = %d %s, want %d", response.Code, response.Body.String(), http.StatusUnprocessableEntity)
 	}
+	if response := authenticatedPost(`{"name":"automation","scopes":["backup:create"],"scpoes":["backup:read"]}`); response.Code != http.StatusBadRequest {
+		t.Fatalf("token creation with an unknown field = %d %s, want %d", response.Code, response.Body.String(), http.StatusBadRequest)
+	}
+	if response := authenticatedPost(`{"name":"automation","scopes":["backup:create"]} {"ignored":true}`); response.Code != http.StatusBadRequest {
+		t.Fatalf("token creation with trailing JSON = %d %s, want %d", response.Code, response.Body.String(), http.StatusBadRequest)
+	}
 	response := authenticatedPost(`{"name":"automation","scopes":["backup:create"]}`)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("scoped token creation = %d %s, want %d", response.Code, response.Body.String(), http.StatusCreated)

@@ -49,6 +49,20 @@ test('keyboard navigation and appearance dialog', async ({ page }) => {
   await checkA11y(page);
 });
 
+test('mobile navigation manages focus and background interaction', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const toggle = page.locator('#navToggle');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-label', 'Close navigation');
+  await expect(page.locator('#workspaceSidebar')).toHaveClass(/is-open/);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.closest('#workspaceSidebar') !== null)).toBe(true);
+  await expect(page.locator('main')).toHaveAttribute('inert', '');
+  await page.keyboard.press('Escape');
+  await expect(toggle).toHaveAttribute('aria-label', 'Open navigation');
+  await expect(toggle).toBeFocused();
+  await expect(page.locator('main')).not.toHaveAttribute('inert');
+});
+
 test('navigation: Sites workspace is reachable', async ({ page }) => {
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
   await expect(page.locator('#sites')).toBeInViewport();
