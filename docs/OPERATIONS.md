@@ -240,7 +240,10 @@ database deletion remain under `.database-deletions` for explicit DBA review.
 Backups are classified explicitly as `crash-consistent / logical backup`:
 the archive and any logical database dump are verified, but the application is
 not quiesced and no filesystem snapshot is taken. If
-`STEPANEL_BACKUP_SIGNING_KEY` is configured, publication also creates
+`STEPANEL_BACKUP_ENCRYPTION_KEY` encrypts each new archive payload with
+streaming AES-256-GCM before publication; the key is never placed in the
+manifest or offsite object. `STEPANEL_BACKUP_SIGNING_KEY` is configured,
+publication also creates
 `manifest.sig`, an HMAC-SHA256 signature kept beside the manifest but verified
 with a key held outside the backup root. Keep that key in the host's secret
 store and escrow it separately from backup copies. A signature proves the

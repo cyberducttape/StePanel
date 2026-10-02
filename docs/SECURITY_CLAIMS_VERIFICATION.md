@@ -128,6 +128,13 @@ This document maps StePanel's documented security claims to the code that implem
 - **When:** Before restore, before offsite upload
 - **Test:** `backups_test.go:TestArchiveVerification`
 
+### Archive Confidentiality
+- **Claim:** New production backups encrypt archive payloads before publication or offsite copy
+- **Configuration:** `STEPANEL_BACKUP_ENCRYPTION_KEY` environment variable
+- **Implementation:** `backup_encryption.go` streaming AES-256-GCM chunks; the key is never stored in the manifest
+- **Test:** `backups_test.go:TestCreateSiteBackupEncryptsArchivePayload`
+- **Boundary:** Manifest metadata remains authenticated separately; encryption does not replace HMAC or immutable offsite retention
+
 ### Restore-to-Staging Verification
 - **Claim:** Restores to staging to verify before production
 - **Implementation:** `backup_restore.go:backupRestoreToStaging()`
