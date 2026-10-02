@@ -95,6 +95,7 @@ install -m 0600 -o root -g root /dev/null /etc/stepanel-lab-direct-root-broker
 # containers. Run the broker as a separate root service over a local socket so
 # this smoke still exercises the production unprivileged panel/worker boundary.
 install -m 0644 /work/deploy/lab/stepanel-root-broker.service /etc/systemd/system/stepanel-root-broker.service
+systemctl daemon-reload
 if ! grep -q '^STEPANEL_LAB_ROOT_BROKER_SOCKET=' /etc/ste-panel.env; then
   printf '%s\n' 'STEPANEL_LAB_ROOT_BROKER_SOCKET="/run/stepanel-root-broker.sock"' >> /etc/ste-panel.env
 fi

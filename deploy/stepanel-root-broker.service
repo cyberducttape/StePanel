@@ -27,10 +27,12 @@ RestrictNamespaces=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 SystemCallArchitectures=native
-# The broker writes only the host-management surfaces required by the
-# validated helpers. The helpers enforce narrower operation-specific paths.
+# Account-management tools update /etc/passwd and friends by creating an
+# atomic sibling (for example /etc/passwd.<pid>) before renaming it. The
+# broker is the only root service that needs this host mutation surface; the
+# validated helpers still enforce narrower operation-specific paths.
 ProtectSystem=full
-ReadWritePaths=/etc/apache2 /etc/caddy /etc/httpd /etc/php /etc/php-fpm.d /etc/stepanel /etc/ssh/sshd_config.d /etc/systemd/system /etc/passwd /etc/group /etc/shadow /etc/gshadow /etc/.pwd.lock /etc/.grp.lock /etc/.shadow.lock /etc/.gshadow.lock /etc/subuid /etc/subgid /run /var/backups/stepanel /var/lib/stepanel /var/lib/stepanel-privileged /var/www /var/log/apache2 /var/log/httpd
+ReadWritePaths=/etc /run /var/backups/stepanel /var/lib/stepanel /var/lib/stepanel-privileged /var/www /var/log/apache2 /var/log/httpd
 
 [Install]
 WantedBy=multi-user.target
