@@ -29,6 +29,14 @@ if ! grep -Fqx 'install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" 
   echo "install.sh does not install the root broker service" >&2
   exit 1
 fi
+if grep -Fq 'sudo NOPASSWD' docs/ROOT_BROKER_INTEGRATION.md; then
+  echo "active root broker documentation still describes sudo as the native transport" >&2
+  exit 1
+fi
+if ! grep -Fq 'Long-lived root daemon over a peer-authorized Unix socket' docs/ROOT_BROKER_INTEGRATION.md; then
+  echo "root broker documentation does not describe the native socket boundary" >&2
+  exit 1
+fi
 if grep -En 'helperCommandContext\([^)]*,[[:space:]]*[^)]*,[[:space:]]*[^)]*,[[:space:]]*"restore(-dump|-wordpress)?"' cpmove.go wpress.go importer.go backup_restore.go staging.go >/dev/null; then
   echo "large database restore callsite bypasses the typed root broker" >&2
   exit 1

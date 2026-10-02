@@ -2,7 +2,7 @@
 
 **Status:** Native production installs use the Unix-socket broker; stdin/sudo
 is retained only as a compatibility path for older installations and tests.
-**Last Updated:** 2026-09-26
+**Last Updated:** 2026-10-02
 
 This document explains how to integrate the typed Go root broker (`stepanel-root`) into the main StePanel application to replace shell script helpers.
 
@@ -18,13 +18,13 @@ This document explains how to integrate the typed Go root broker (`stepanel-root
                │
         ┌──────▼──────┐
         │   Client    │  (internal/rootbroker/Client)
-        │  (RPC/JSON) │  Sends requests via stdin/JSON
+        │  (RPC/JSON) │  Connects to the Unix socket
         └──────┬──────┘
                │
         ┌──────▼──────────────────┐
-        │  sudo NOPASSWD          │
-        │  /usr/local/sbin/       │
-        │  stepanel-root          │
+        │ Root-owned systemd      │
+        │ stepanel-root-broker    │
+        │ Unix socket             │
         └──────┬──────────────────┘
                │
         ┌──────▼──────┐
@@ -295,7 +295,7 @@ sudo go test ./internal/rootbroker/integration_test.go -v
 
 Integration tests cover:
 - Actual system operations (useradd, mkdir, chown)
-- RPC communication (stdin/JSON pipes)
+- RPC communication over the root broker's Unix socket
 - Operation atomicity and rollback
 - Permission preservation
 
@@ -322,7 +322,7 @@ Go Broker (400 lines):
   ├─ Clear error types (structured, not exit codes)
   ├─ Unit testable (test functions, not shell)
   ├─ Smaller attack surface (14 → 1 codebase)
-  └─ Same sudo model (but with typed boundaries)
+  └─ Long-lived root daemon over a peer-authorized Unix socket
 ```
 
 ## Gradual Migration Strategy
@@ -332,21 +332,21 @@ Go Broker (400 lines):
    - Client RPC layer implemented
    - Unit tests pass
 
-2. **Phase 2: Parallel Runs** (Current)
-   - Deploy broker alongside shell scripts
-   - New code uses broker
-   - Old code continues using shell helpers
-   - Monitor broker operations in logs
+2. **Phase 2: Native socket deployment** ✅ (Complete)
+   - Install the root broker as a separate systemd service
+   - Authorize the panel and worker through the socket group
+   - Remove the native panel sudoers grant
 
-3. **Phase 3: Coverage** (Next)
-   - Replace all shell helper callsites with broker
-   - Verify functionality in staging
-   - Run integration tests
+3. **Phase 3: Mutation migration** ✅ (Complete for native installs)
+   - Route site, application, vhost, TLS, Git, and large database restore
+     mutations through the typed broker
+   - Keep stdin/helper execution only for lab, development, and legacy upgrade
+     compatibility
 
-4. **Phase 4: Cleanup** (Final)
-   - Remove shell scripts from production
-   - Archive scripts for reference
-   - Complete deprecation
+4. **Phase 4: Hardening and coverage** (Ongoing)
+   - Expand adversarial transition coverage and broker action matrices
+   - Remove remaining compatibility paths when older installations no longer
+     require them
 
 ## Troubleshooting
 
