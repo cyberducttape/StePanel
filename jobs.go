@@ -1596,7 +1596,12 @@ func (j *Jobs) complete(item *Job) {
 		item.Backup = nil
 		item.Restore = nil
 		item.WPress = nil
-		item.Error = fmt.Sprintf("completion state could not be persisted: %v", err)
+		persistenceError := fmt.Sprintf("completion state could not be persisted: %v", err)
+		if item.Error != "" {
+			item.Error += "; " + persistenceError
+		} else {
+			item.Error = persistenceError
+		}
 		log.Printf("persist completed job %s: %v", item.ID, err)
 		j.publish(*item)
 	} else {
