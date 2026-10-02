@@ -9,6 +9,8 @@ kubectl -n stepanel create secret generic stepanel-secrets \
   --from-literal=audit-key="$(openssl rand -hex 32)" \
   --from-literal=admin-totp-secret='BASE32_SECRET' \
   --from-literal=account-key="$(openssl rand -hex 32)" \
+  --from-literal=environment-key="$(openssl rand -hex 32)" \
+  --from-literal=backup-signing-key="$(openssl rand -hex 32)" \
   --from-literal=offsite-target='rclone:remote/stepanel'
 kubectl apply -f deploy/kubernetes/stepanel.yaml
 ```
@@ -20,7 +22,9 @@ labelled `stepanel.ingress=true`; the manifest sets
 ingress path.
 
 The account key encrypts customer TOTP secrets and sensitive durable job
-payloads. Back it up separately from the PVC. The image includes the rclone
+payloads, the environment key encrypts site environment secrets, and the backup
+signing key authenticates backups. Back all three up separately from the PVC;
+state and backups written with them cannot be read without them. The image includes the rclone
 client but no provider credentials; provide the rclone configuration through
 your cluster secret-management system.
 

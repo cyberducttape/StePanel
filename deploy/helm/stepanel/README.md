@@ -8,9 +8,23 @@ helm upgrade --install stepanel deploy/helm/stepanel \
   --set image.digest=sha256:23ac17a2092ce8153ff85dc7662883bedb018615b016586a3643f96d22cdd6d0
 ```
 
-Create `stepanel-secrets` separately with `admin-password`, `session-secret`,
-an independent `audit-key`, mandatory `admin-totp-secret`, `account-key`, and an
-`offsite-target` (for example `rclone:remote/stepanel`). Production installations should pin an
+Create `stepanel-secrets` before installing; the pod fails with
+`CreateContainerConfigError` if any key is missing:
+
+```sh
+kubectl -n stepanel create secret generic stepanel-secrets \
+  --from-literal=admin-password='change-me' \
+  --from-literal=session-secret="$(openssl rand -hex 32)" \
+  --from-literal=audit-key="$(openssl rand -hex 32)" \
+  --from-literal=admin-totp-secret='BASE32_SECRET' \
+  --from-literal=account-key="$(openssl rand -hex 32)" \
+  --from-literal=environment-key="$(openssl rand -hex 32)" \
+  --from-literal=backup-signing-key="$(openssl rand -hex 32)" \
+  --from-literal=offsite-target='rclone:remote/stepanel'
+```
+
+Back up `account-key`, `environment-key`, and `backup-signing-key` outside the
+cluster. Production installations should pin an
 image digest in `values.yaml`, select an appropriate persistent storage class, enable and
 configure the ingress with TLS, and add a network policy appropriate to the
 cluster ingress controller. The chart explicitly enables trusted upstream TLS

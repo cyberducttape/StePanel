@@ -1,3 +1,8 @@
+// Navigation and accessibility smoke tests. These prove that each critical
+// workspace renders for a seeded instance; they do NOT execute the
+// underlying workflows (site creation, deployment, restore, cancellation).
+// End-to-end workflow coverage belongs in separate journey specs that assert
+// job completion, host state, audit events, and state after a restart.
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 
@@ -44,46 +49,46 @@ test('keyboard navigation and appearance dialog', async ({ page }) => {
   await checkA11y(page);
 });
 
-test('create site journey exposes the Sites workspace', async ({ page }) => {
+test('navigation: Sites workspace is reachable', async ({ page }) => {
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
   await expect(page.locator('#sites')).toBeInViewport();
 });
 
-test('cPanel inspection journey exposes migration controls', async ({ page }) => {
+test('navigation: cPanel migration controls render', async ({ page }) => {
   await page.getByRole('link', { name: 'Migrations' }).click();
   await expect(page.locator('#migrations')).toBeInViewport();
   await expect(page.getByRole('heading', { name: 'Import a cpmove backup' })).toBeVisible();
 });
 
-test('migration queue and durable Job Center', async ({ page }) => {
+test('navigation: Job Center opens', async ({ page }) => {
   await page.getByRole('button', { name: /Operations/ }).click();
   await expect(page.getByRole('heading', { name: 'Operations', exact: true })).toBeVisible();
   await expect(page.locator('#jobCenterList')).toBeVisible();
 });
 
-test('job cancellation control is available for active work', async ({ page }) => {
+test('navigation: Job Center lists operations or empty state', async ({ page }) => {
   await page.getByRole('button', { name: /Operations/ }).click();
   await expect(page.locator('#jobCenter')).toBeVisible();
   await expect(page.locator('#jobCenter')).toContainText(/No operations|Cancel|Complete/);
 });
 
-test('deploy app journey exposes the durable deployment form', async ({ page }) => {
+test('navigation: deployment form renders', async ({ page }) => {
   await page.getByRole('link', { name: 'Deployments' }).click();
   await expect(page.locator('#deployForm')).toBeVisible();
 });
 
-test('restore WordPress journey exposes the restore form', async ({ page }) => {
+test('navigation: WordPress restore form renders', async ({ page }) => {
   await page.getByText('WordPress migration').scrollIntoViewIfNeeded();
   await expect(page.locator('#wpressForm')).toBeVisible();
 });
 
-test('database lifecycle journey exposes managed database controls', async ({ page }) => {
+test('navigation: managed database controls render', async ({ page }) => {
   await page.getByRole('link', { name: 'Databases' }).click();
   await expect(page.locator('#database')).toBeInViewport();
   await expect(page.locator('#databaseForm')).toBeVisible();
 });
 
-test('customer isolation journey keeps administrator controls role-scoped', async ({ page }) => {
+test('customer session hides administrator navigation', async ({ page }) => {
   test.skip(!process.env.STEPANEL_E2E_CUSTOMER_PASSWORD, 'Provide customer credentials for the second-context isolation check');
   const customer = await page.context().browser().newContext({ baseURL: process.env.STEPANEL_E2E_BASE_URL });
   const customerPage = await customer.newPage();

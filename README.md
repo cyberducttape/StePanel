@@ -96,18 +96,24 @@ docker build -t stepanel:local .
 docker run --rm -p 8080:8080 \
   -e STEPANEL_TLS_TERMINATED=1 \
   -e STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
-  -e STEPANEL_SESSION_SECRET='use-at-least-32-random-characters' \
-  -e STEPANEL_AUDIT_KEY='use-a-different-32-character-secret' \
+  -e STEPANEL_SESSION_SECRET="$(openssl rand -hex 32)" \
+  -e STEPANEL_AUDIT_KEY="$(openssl rand -hex 32)" \
   -e STEPANEL_ADMIN_TOTP_SECRET='BASE32_SECRET' \
-  -e STEPANEL_ACCOUNT_KEY='another-high-entropy-secret' \
+  -e STEPANEL_ACCOUNT_KEY="$(openssl rand -hex 32)" \
+  -e STEPANEL_ENVIRONMENT_KEY="$(openssl rand -hex 32)" \
+  -e STEPANEL_BACKUP_SIGNING_KEY="$(openssl rand -hex 32)" \
   -e STEPANEL_OFFSITE_TARGET='s3:bucket/stepanel' \
   -e RCLONE_CONFIG=/run/secrets/rclone.conf \
   -v "$PWD/rclone.conf:/run/secrets/rclone.conf:ro" \
   stepanel:local
 ```
 
-The image runs in production mode and requires TOTP, an account key, and a
-working offsite rclone target. `STEPANEL_TLS_TERMINATED=1` means this container
+The image runs in production mode and requires TOTP, an account key, an
+environment key, a backup signing key (each at least 32 machine-generated
+characters), and a working offsite rclone target. The generated keys above are
+for a throwaway trial: for a real installation generate them once, store them in
+your secret manager, and back them up, because encrypted environment state and
+signed backups cannot be read without them. `STEPANEL_TLS_TERMINATED=1` means this container
 must be reachable only through a trusted HTTPS reverse proxy; do not expose
 the published port directly to an untrusted network. Mount provider
 credentials through your secret manager; do not bake them into the image.
