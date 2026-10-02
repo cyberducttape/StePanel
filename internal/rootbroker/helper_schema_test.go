@@ -73,6 +73,7 @@ func TestHelperSchemaRejectsOutOfContractArguments(t *testing.T) {
 		{"option-like ref", "gitctl", "clone", []string{"demo", "git@github.com:a/b.git", "--upload-pack=x", "/var/www/sites/demo/.stepanel-release-x", "github.com"}},
 		{"unpinned image", "runnerctl", "build", []string{"demo", "node:latest", "/var/www/sites/demo/public", "/var/lib/ste-panel/apps/runner-1.sh", "100", "1024", "256", "none", "1"}},
 		{"arbitrary script", "runnerctl", "build", []string{"demo", "n@sha256:" + strings.Repeat("a", 64), "/var/www/sites/demo/public", "/etc/shadow", "100", "1024", "256", "none", "1"}},
+		{"script outside application directory", "runnerctl", "build", []string{"demo", "n@sha256:" + strings.Repeat("a", 64), "/var/www/sites/demo/public", "/etc/runner-1.sh", "100", "1024", "256", "none", "1"}},
 		{"SQL in database name", "dbctl", "drop", []string{"x`; DROP DATABASE mysql; --"}},
 		{"uppercase user", "dbctl", "rotate", []string{"db", "Root"}},
 		{"newline", "dbctl", "list", []string{"demo\nx"}},

@@ -99,9 +99,20 @@ if ! grep -q '^STEPANEL_LAB_ROOT_BROKER_SOCKET=' /etc/ste-panel.env; then
   printf '%s\n' 'STEPANEL_LAB_ROOT_BROKER_SOCKET="/run/stepanel-root-broker.sock"' >> /etc/ste-panel.env
 fi
 systemctl daemon-reload
-systemctl restart stepanel-root-broker.service
+systemctl stop stepanel-root-broker.service 2>/dev/null || true
+rm -f /run/stepanel-root-broker.sock
+systemctl start stepanel-root-broker.service
 systemctl is-active --quiet stepanel-root-broker.service
-test -S /run/stepanel-root-broker.sock
+for _ in $(seq 1 60); do
+  [[ -S /run/stepanel-root-broker.sock ]] && break
+  sleep 0.5
+done
+if [[ ! -S /run/stepanel-root-broker.sock ]]; then
+  systemctl status stepanel-root-broker.service --no-pager || true
+  journalctl -u stepanel-root-broker.service --no-pager -n 100 || true
+  echo 'root broker did not create its socket after restart' >&2
+  exit 1
+fi
 systemctl restart stepanel.service stepanel-worker.service
 if ! systemctl is-active --quiet stepanel.service; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true

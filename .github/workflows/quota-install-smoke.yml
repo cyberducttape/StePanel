@@ -83,17 +83,20 @@ jobs:
           EOF
           cloud-localds "$vm_root/seed.iso" "$vm_root/user-data"
 
-          qemu-system-x86_64 \
-            -machine accel=tcg \
-            -cpu max -smp 2 -m 4096 \
-            -drive "file=$guest_image,if=virtio,format=qcow2" \
-            -drive "file=$vm_root/www.ext4,if=virtio,format=raw" \
-            -drive "file=$vm_root/enospc.ext4,if=virtio,format=raw" \
-            -drive "file=$vm_root/seed.iso,if=virtio,media=cdrom,readonly=on" \
-            -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
-            -device virtio-net-pci,netdev=net0 \
-            -display none -serial "file:$vm_root/console.log" -monitor none \
-            -daemonize -pidfile "$vm_root/qemu.pid"
+          start_guest() {
+            qemu-system-x86_64 \
+              -machine accel=tcg \
+              -cpu max -smp 2 -m 4096 \
+              -drive "file=$guest_image,if=virtio,format=qcow2" \
+              -drive "file=$vm_root/www.ext4,if=virtio,format=raw" \
+              -drive "file=$vm_root/enospc.ext4,if=virtio,format=raw" \
+              -drive "file=$vm_root/seed.iso,if=virtio,media=cdrom,readonly=on" \
+              -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
+              -device virtio-net-pci,netdev=net0 \
+              -display none -serial "file:$vm_root/console.log" -monitor none \
+              -daemonize -pidfile "$vm_root/qemu.pid"
+          }
+          start_guest
 
           cleanup() {
             status=$?
@@ -143,5 +146,41 @@ jobs:
             cat "$install_log" >&2 || true
             exit "$install_status"
           fi
+
+          # Simulate an abrupt guest loss after installation, then boot the
+          # same durable disks and verify that systemd and readiness recover.
+          # This is stronger than a service restart and remains isolated to
+          # the disposable VM; it is still reported as abrupt-guest evidence,
+          # not as proof of physical host power-loss recovery.
+          test -s "$vm_root/qemu.pid"
+          guest_pid=$(<"$vm_root/qemu.pid")
+          kill -KILL "$guest_pid" 2>/dev/null || true
+          for _ in $(seq 1 30); do
+            if ! kill -0 "$guest_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$guest_pid" 2>/dev/null; then
+            echo 'QEMU guest did not stop after simulated abrupt loss' >&2
+            exit 1
+          fi
+          rm -f "$vm_root/qemu.pid"
+          start_guest
+          recovered=0
+          for _ in $(seq 1 180); do
+            if timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+              'sudo systemctl is-active --quiet stepanel.service stepanel-worker.service && curl --fail --silent --show-error http://127.0.0.1:8080/readyz >/dev/null'; then
+              recovered=1
+              break
+            fi
+            sleep 2
+          done
+          test "$recovered" = 1 || {
+            echo 'quota-enabled guest did not recover systemd/readiness after abrupt loss' >&2
+            timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo journalctl -b --no-pager -n 200' >&2 || true
+            exit 1
+          }
+          echo 'quota-enabled guest recovered after abrupt QEMU loss'
           timeout --foreground 10m ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo test "$(findmnt -n -o FSTYPE --target /mnt/stepanel-enospc)" = ext4 && sudo test "$(findmnt -n -o SOURCE --target /mnt/stepanel-enospc)" = /dev/vdc && sudo env STEPANEL_ENOSPC_BACKUP_ROOT=/mnt/stepanel-enospc /work/stepanel-enospc.test -test.run "^TestBackupRecoversFromRealENOSPC$" -test.v'

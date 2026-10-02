@@ -147,7 +147,13 @@ func argRunnerRoot(sitePos int) helperArg {
 }
 
 func argRunnerScript(_ *Validator, value string, _ []string) error {
-	if !filepath.IsAbs(value) || filepath.Clean(value) != value || !schemaRunnerScript.MatchString(filepath.Base(value)) {
+	// Pipeline scripts are created by the unprivileged panel process in this
+	// fixed, root-readable application directory.  Restricting the complete
+	// path matters: checking only the basename would let a caller make the
+	// root helper copy an unrelated readable file (for example
+	// /etc/runner-1.sh) into a customer's build context.
+	const appRoot = "/var/lib/ste-panel/apps"
+	if !filepath.IsAbs(value) || filepath.Clean(value) != value || filepath.Dir(value) != appRoot || !schemaRunnerScript.MatchString(filepath.Base(value)) {
 		return fmt.Errorf("invalid build script path")
 	}
 	return nil
