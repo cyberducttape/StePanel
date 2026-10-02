@@ -89,7 +89,13 @@ Open <http://localhost:8080>. Local development uses `data/imports` and `data/ww
 
 ### Container
 
-The container packages the control plane only. It does not run Apache, PHP, or a database server inside the container. Database administrator packages are host integrations and are not installed in the container image.
+The container packages the control plane only. It does not run Apache, PHP, or
+a database server inside the container. Database administrator packages are
+host integrations and are not installed in the container image. Treat Docker
+and Kubernetes as control-plane packaging for evaluation or limited
+integration mode: they are not highly available and cannot provide the native
+host-management surface. Use the systemd installation for full single-host
+hosting.
 
 ```sh
 docker build -t stepanel:local .
@@ -108,7 +114,7 @@ docker run --rm -p 8080:8080 \
   stepanel:local
 ```
 
-The image runs in production mode and requires TOTP, an account key, an
+The image can run with production safety settings and requires TOTP, an account key, an
 environment key, a backup signing key (each at least 32 machine-generated
 characters), and a working offsite rclone target. The generated keys above are
 for a throwaway trial: for a real installation generate them once, store them in

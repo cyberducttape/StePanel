@@ -1,5 +1,10 @@
 # Kubernetes deployment
 
+> **Packaging boundary:** this is control-plane packaging for evaluation or
+> limited integration mode. It is not a highly available deployment and it is
+> not a replacement for the native systemd installation, which is required for
+> full single-host host management.
+
 Create the secret out-of-band, then apply the manifest:
 
 ```sh
@@ -31,7 +36,11 @@ your cluster secret-management system.
 The manifest creates two 50Gi persistent volume claims for control-plane data
 and site files. Adjust their size and storage class for the environment. It
 uses one replica with a `Recreate` rollout because restore jobs and persistent
-state are process-local. The pod runs as UID/GID 10001 with a read-only root
+state are process-local. This is intentionally a single-node deployment: it
+has no HA or automatic failover. There is deliberately no
+`PodDisruptionBudget`; `minAvailable: 1` cannot preserve availability for one
+replica and would make voluntary node drains fail without adding protection.
+The pod runs as UID/GID 10001 with a read-only root
 filesystem and no service-account token. It assumes an HTTPS ingress terminates
 TLS before forwarding to the Service; label that ingress namespace
 `stepanel.ingress=true`. The included NetworkPolicy denies other ingress

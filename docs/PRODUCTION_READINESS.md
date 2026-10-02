@@ -7,6 +7,21 @@
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
+## Certified operating envelope
+
+**Current status: not certified.** StePanel does not yet publish an
+evidence-backed capacity envelope. The proposed initial target is documented
+in [CERTIFIED_ENVELOPE.md](./CERTIFIED_ENVELOPE.md); those figures are targets,
+not promises, until a reproducible run records capacity, latency, recovery,
+and data-integrity evidence.
+
+The full host-management architecture is a single native systemd host with
+local SQLite state. Docker and Kubernetes are control-plane packaging for
+evaluation or limited integration mode: one `Recreate` replica, no HA or
+automatic failover, and no local Apache/PHP/database/systemd provisioning.
+Packaging a single control-plane process in Kubernetes does not change that
+operating model.
+
 ## Deployment Classification
 
 - **Development**: Local development only

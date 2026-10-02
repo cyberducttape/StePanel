@@ -193,17 +193,6 @@ spec:
         - name: tmp
           emptyDir: {sizeLimit: 64Mi}
 ---
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: stepanel
-  namespace: stepanel
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: stepanel
----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
