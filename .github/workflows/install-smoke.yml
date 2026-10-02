@@ -128,6 +128,13 @@ jobs:
               -p ActiveState -p SubState -p Result -p ExecMainStatus -p MainPID \
               -p NoNewPrivileges -p RestrictSUIDSGID -p ProtectSystem -p ProtectHome \
               -p PrivateTmp -p PrivateDevices -p RestrictNamespaces -p ReadWritePaths >"$diagnostics_dir/systemctl-properties.txt" 2>&1 || true
+            docker exec stepanel-install systemctl status stepanel-root-broker.service --no-pager >"$diagnostics_dir/root-broker-status.txt" 2>&1 || true
+            docker exec stepanel-install systemctl show stepanel-root-broker.service \
+              -p ActiveState -p SubState -p Result -p ExecMainStatus -p MainPID \
+              -p NoNewPrivileges -p PrivateDevices -p ProtectSystem -p RestrictNamespaces \
+              -p ReadWritePaths >"$diagnostics_dir/root-broker-properties.txt" 2>&1 || true
+            docker exec stepanel-install systemctl cat stepanel-root-broker.service >"$diagnostics_dir/root-broker-unit.txt" 2>&1 || true
+            docker exec stepanel-install journalctl -u stepanel-root-broker.service --no-pager -n 200 >"$diagnostics_dir/root-broker-journal.txt" 2>&1 || true
             docker logs stepanel-install >"$diagnostics_dir/container.log" 2>&1 || true
             cat "$diagnostics_dir"/*.txt "$diagnostics_dir"/*.log >&2 || true
             exit "$smoke_status"
