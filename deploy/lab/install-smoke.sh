@@ -119,7 +119,7 @@ root_broker_props=$(systemctl show stepanel-root-broker.service -p NoNewPrivileg
 root_broker_rw_paths=$(systemctl show stepanel-root-broker.service -p ReadWritePaths --value)
 grep -Fxq 'NoNewPrivileges=yes' <<<"$root_broker_props"
 grep -Fxq 'PrivateDevices=yes' <<<"$root_broker_props"
-grep -Fxq 'ProtectSystem=true' <<<"$root_broker_props"
+grep -Fxq 'ProtectSystem=yes' <<<"$root_broker_props"
 grep -Fxq 'RestrictNamespaces=yes' <<<"$root_broker_props"
 grep -Eq '(^| )/etc( |$)' <<<"$root_broker_rw_paths"
 grep -Eq '^ReadWritePaths=.* /etc/\.pwd\.lock' /etc/systemd/system/stepanel-root-broker.service
