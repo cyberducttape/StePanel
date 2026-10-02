@@ -530,10 +530,11 @@ func validateWPressTree(root string, maxEntries int) error {
 			return fmt.Errorf("extracted WPress backup contains a special file: %s", path)
 		}
 		if info.Mode().IsRegular() {
-			total += info.Size()
-			if info.Size() > 2<<30 || total > maxBackupBytes {
+			size := info.Size()
+			if size < 0 || size > 2<<30 || total > maxBackupBytes-size {
 				return errors.New("extracted WPress backup exceeds restore size limits")
 			}
+			total += size
 		}
 		return nil
 	})
