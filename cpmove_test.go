@@ -118,6 +118,17 @@ func TestRestoreMailStagesMailboxData(t *testing.T) {
 	}
 }
 
+func TestRestoreMailDoesNotTreatDiscoveryErrorAsMissingMail(t *testing.T) {
+	stage := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stage, "homedir"), []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	staged, mailboxes, failures := restoreMail(Config{MailRoot: t.TempDir()}, stage, "account")
+	if staged || len(mailboxes) != 0 || len(failures) != 1 || !strings.Contains(failures[0], "inspect staged mail") {
+		t.Fatalf("restoreMail() = staged %v, mailboxes %v, failures %v", staged, mailboxes, failures)
+	}
+}
+
 func TestInspectCPMoveHandlesTopLevelCPanelRoot(t *testing.T) {
 	archive := makeTarGz(t, map[string]string{
 		"cpmove-account/homedir/public_html/index.php":              "ok",

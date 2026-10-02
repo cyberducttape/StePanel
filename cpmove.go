@@ -434,7 +434,10 @@ func restoreMailContext(ctx context.Context, cfg Config, stage, user string) (bo
 	sourceMail := filepath.Join(stage, "homedir", "mail")
 	sourceEtc := filepath.Join(stage, "homedir", "etc")
 	if _, err := os.Stat(sourceMail); err != nil {
-		return false, nil, nil
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil, nil
+		}
+		return false, nil, []string{"inspect staged mail: " + err.Error()}
 	}
 	if cfg.MailRoot == "" {
 		return false, nil, []string{"mail root is not configured; set STEPANEL_MAIL_ROOT"}
@@ -453,6 +456,8 @@ func restoreMailContext(ctx context.Context, cfg Config, stage, user string) (bo
 		if err := copyTreeContext(ctx, sourceEtc, filepath.Join(root, "etc")); err != nil {
 			return false, nil, []string{"copy mail metadata: " + err.Error()}
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, nil, []string{"inspect mail metadata: " + err.Error()}
 	}
 	mailboxes := []string{}
 	mailRoot := filepath.Join(root, "mail")
