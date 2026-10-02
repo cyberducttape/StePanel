@@ -243,8 +243,11 @@
       history.replaceState({ site, tab: TABS[index].id }, '', workspaceHash(site, TABS[index].id));
       const token = ++requestToken;
       panel.replaceChildren(el('p', { className: 'import-note' }, 'Loading…'));
+      const renderPanel = document.createElement('div');
       try {
-        await TABS[index].render(site, panel, { isAdministrator, accountRole, can, webserver, getJSON, postJSON, putJSON, patchJSON, deleteJSON, field, button, badge, formatAge, formatBytes, el, confirmDangerous, statusOutput });
+        await TABS[index].render(site, renderPanel, { isAdministrator, accountRole, can, webserver, getJSON, postJSON, putJSON, patchJSON, deleteJSON, field, button, badge, formatAge, formatBytes, el, confirmDangerous, statusOutput });
+        if (token !== requestToken) return;
+        panel.replaceChildren(...renderPanel.childNodes);
       } catch (error) {
         if (token === requestToken) panel.replaceChildren(el('p', { className: 'import-note' }, error.message));
       }

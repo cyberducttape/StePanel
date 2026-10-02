@@ -429,16 +429,25 @@ func restoreMailContext(ctx context.Context, cfg Config, stage, user string) (bo
 	}
 	mailboxes := []string{}
 	mailRoot := filepath.Join(root, "mail")
-	_ = filepath.Walk(mailRoot, func(path string, info os.FileInfo, err error) error {
-		if err == nil && info.IsDir() && path != mailRoot {
+	walkErr := filepath.Walk(mailRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && path != mailRoot {
 			rel, relErr := filepath.Rel(mailRoot, path)
-			if relErr == nil && strings.Count(filepath.ToSlash(rel), "/") == 1 {
+			if relErr != nil {
+				return relErr
+			}
+			if strings.Count(filepath.ToSlash(rel), "/") == 1 {
 				mailboxes = append(mailboxes, filepath.ToSlash(rel))
 			}
 		}
 		return nil
 	})
 	sort.Strings(mailboxes)
+	if walkErr != nil {
+		return true, mailboxes, []string{"discover mailbox inventory: " + walkErr.Error()}
+	}
 	return true, mailboxes, nil
 }
 
