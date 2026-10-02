@@ -1083,7 +1083,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, fmt.Errorf("decode cpmove job payload: %w", err)
 	}
 	upload, uploadErr := readCPMoveUpload(a.Config.ImportRoot, request.UploadID)
-	if safeUser(request.User) == "" || request.Filename == "" || request.Size < 0 || uploadErr != nil || upload.Owner != request.Actor {
+	if safeUser(request.User) == "" || request.Filename == "" || request.Size < 0 || uploadErr != nil || upload.Owner != request.Actor || request.Filename != upload.Filename || request.Size != upload.Size {
 		return nil, errors.New("invalid durable cpmove job payload")
 	}
 	access, err := a.authorizeDurableSiteJob(request.User, request.Actor, false)
