@@ -445,6 +445,13 @@ func TestAuditStateCacheHintPreservesLegacySignatureCompatibility(t *testing.T) 
 	if err := logger.writeState(filepath.Join(root, "cached.state"), stateWithCache); err != nil {
 		t.Fatal(err)
 	}
+	loadedCached, err := logger.loadState(filepath.Join(root, "cached.state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedCached.LastValidatedSize != stateWithCache.LastValidatedSize || loadedCached.CacheSignature == "" {
+		t.Fatalf("valid cache hint was not loaded: %#v", loadedCached)
+	}
 
 	legacyEquivalent := stateWithCache
 	legacyEquivalent.LastValidatedSize = 0
@@ -484,6 +491,27 @@ func TestAuditStateCacheHintPreservesLegacySignatureCompatibility(t *testing.T) 
 	}
 	if loaded.LastValidatedSize != 0 || loaded.CacheSignature != "" {
 		t.Fatalf("tampered cache hint was trusted: %#v", loaded)
+	}
+
+	corruptLogger, _ := newTestLogger(t)
+	if err := corruptLogger.Log(context.Background(), "first", "site", "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(corruptLogger.path, []byte("not-json\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := corruptLogger.Log(context.Background(), "second", "site", "must fail"); err == nil {
+		t.Fatal("audit append ignored a corrupted log")
+	}
+
+	TestSetKeyPath(filepath.Join(root, "missing-cache-key"))
+	t.Setenv("STEPANEL_AUDIT_KEY", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "")
+	if _, err := signCacheState(stateWithCache); err == nil {
+		t.Fatal("cache signature succeeded without a signing key")
+	}
+	if _, err := signState(stateWithCache); err == nil {
+		t.Fatal("state signature succeeded without a signing key")
 	}
 }
 
