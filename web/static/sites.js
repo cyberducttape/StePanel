@@ -1013,6 +1013,10 @@
 
   async function renderSecurityTab(site, panel, ctx) {
     const access = await ctx.getJSON(`/api/sites/access/${encodeURIComponent(site)}`).catch((error) => ({ __error: error, sftp_enabled: false, shell_enabled: false, keys: [] }));
+    if (access.__error) {
+      panel.replaceChildren(errorState('SSH access status', access.__error));
+      return;
+    }
     const output = ctx.statusOutput();
 
     const sftpField = field({ label: 'SFTP access', tag: 'checkbox-field', name: 'sftp_enabled', checked: access.sftp_enabled });
@@ -1063,7 +1067,7 @@
       },
     }, [labelField, keyField, el('button', { type: 'submit', className: 'primary-action' }, 'Add SSH key'), keyOutput]);
 
-    panel.replaceChildren(access.__error ? errorState('SSH access status', access.__error) : null, accessForm, el('h4', {}, 'SSH keys'), keyList, keyForm);
+    panel.replaceChildren(accessForm, el('h4', {}, 'SSH keys'), keyList, keyForm);
 
     if (!ctx.can('ssh:write')) panel.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
 
