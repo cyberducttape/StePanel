@@ -119,6 +119,7 @@ grep -Fxq 'NoNewPrivileges=yes' <<<"$root_broker_props"
 grep -Fxq 'PrivateDevices=yes' <<<"$root_broker_props"
 grep -Fxq 'ProtectSystem=full' <<<"$root_broker_props"
 grep -Fxq 'RestrictNamespaces=yes' <<<"$root_broker_props"
+grep -Eq '^ReadWritePaths=.* /etc/\.pwd\.lock' /etc/systemd/system/stepanel-root-broker.service
 systemctl restart stepanel.service stepanel-worker.service
 if ! systemctl is-active --quiet stepanel.service; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true
