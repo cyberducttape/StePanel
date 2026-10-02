@@ -79,6 +79,13 @@ test('site overview makes backup failures explicit', async ({ page }) => {
       body: JSON.stringify({ sites: [{ site: 'e2e-site', routes: [], applications: [], database_count: 0 }] }),
     });
   });
+  await page.route('**/api/sites/overview/e2e-site', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ site: 'e2e-site', routes: [], applications: [], database_count: 0 }),
+    });
+  });
   await page.route('**/api/backups?site=*&limit=500', async (route) => {
     await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'backup service unavailable' }) });
   });
