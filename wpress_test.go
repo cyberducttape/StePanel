@@ -85,13 +85,16 @@ func TestFindWordPressRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nested, "wp-config.php"), []byte("<?php"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if found := findWordPressRoot(root); found != nested {
+	if found, err := findWordPressRoot(root); err != nil || found != nested {
 		t.Fatalf("findWordPressRoot = %q, want %q", found, nested)
 	}
 
 	empty := t.TempDir()
-	if found := findWordPressRoot(empty); found != "" {
+	if found, err := findWordPressRoot(empty); err != nil || found != "" {
 		t.Fatalf("findWordPressRoot on an archive with no WordPress payload = %q, want empty", found)
+	}
+	if found, err := findWordPressRoot(filepath.Join(t.TempDir(), "missing")); err == nil || found != "" {
+		t.Fatalf("findWordPressRoot on an unreadable tree = %q, err = %v; want an error", found, err)
 	}
 }
 

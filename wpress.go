@@ -265,7 +265,10 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if err := validateWPressTree(extracted, maxEntries); err != nil {
 		return WPressResult{}, err
 	}
-	source := findWordPressRoot(extracted)
+	source, err := findWordPressRoot(extracted)
+	if err != nil {
+		return WPressResult{}, fmt.Errorf("discover WordPress payload: %w", err)
+	}
 	if source == "" || !fileExists(filepath.Join(source, "database.sql")) {
 		return WPressResult{}, errors.New("archive must contain WordPress files and database.sql")
 	}
@@ -536,13 +539,19 @@ func validateWPressTree(root string, maxEntries int) error {
 	})
 }
 
-func findWordPressRoot(root string) string {
+func findWordPressRoot(root string) (string, error) {
 	if fileExists(filepath.Join(root, "database.sql")) {
-		return root
+		return root, nil
 	}
 	var found string
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || found != "" || !info.IsDir() {
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if found != "" {
+			return filepath.SkipDir
+		}
+		if !info.IsDir() {
 			return nil
 		}
 		if fileExists(filepath.Join(path, "database.sql")) && (fileExists(filepath.Join(path, "wp-config.php")) || fileExists(filepath.Join(path, "wp-config-sample.php"))) {
@@ -550,7 +559,7 @@ func findWordPressRoot(root string) string {
 		}
 		return nil
 	})
-	return found
+	return found, err
 }
 
 func copyWPressTree(src, dst string) error {

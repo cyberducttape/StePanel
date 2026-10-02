@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -297,33 +298,53 @@ func (idx *BackupIndex) ReindexFilesystem(backupRoot string) error {
 	// Walk filesystem and update index
 	return filepath.Walk(backupRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip inaccessible paths
+			return err
 		}
 
 		// Only index manifest files
 		if !info.IsDir() && filepath.Ext(path) == ".json" {
 			rel, err := filepath.Rel(backupRoot, path)
 			if err != nil {
-				return nil
+				return fmt.Errorf("resolve backup index path %q: %w", path, err)
 			}
 
 			// Parse site and backup from path: site/backup-TIMESTAMP/manifest.json
-			parts := filepath.SplitList(filepath.Dir(rel))
+			parts := splitBackupPath(filepath.Dir(rel))
 			if len(parts) >= 2 {
 				site := parts[0]
 				backup := parts[1]
 
 				// Could load manifest here and extract metadata
 				// For now, mark as indexed
-				_, _ = idx.db.Exec(
+				if _, err := idx.db.Exec(
 					"UPDATE backup_index SET last_indexed = CURRENT_TIMESTAMP WHERE site = ? AND backup_name = ?",
 					site, backup,
-				)
+				); err != nil {
+					return fmt.Errorf("update backup index for %s/%s: %w", site, backup, err)
+				}
 			}
 		}
 
 		return nil
 	})
+}
+
+// splitBackupPath returns path components using the platform's separator.
+// filepath.SplitList is for PATH-like lists, not directory paths; using it
+// here silently left normal Unix site/backup paths unindexed.
+func splitBackupPath(path string) []string {
+	clean := filepath.Clean(path)
+	if clean == "." || clean == string(filepath.Separator) {
+		return nil
+	}
+	parts := strings.Split(clean, string(filepath.Separator))
+	filtered := parts[:0]
+	for _, part := range parts {
+		if part != "" && part != "." {
+			filtered = append(filtered, part)
+		}
+	}
+	return filtered
 }
 
 // CleanupStaleEntries removes backups that no longer exist on filesystem

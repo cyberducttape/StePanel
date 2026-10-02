@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -51,5 +52,38 @@ func TestOffsiteBackupSummaryTracksReplicationAndRestore(t *testing.T) {
 	}
 	if other.TrackedBackups != 0 || other.LastSuccessfulBackup != nil {
 		t.Fatalf("target state leaked: %+v", other)
+	}
+}
+
+func TestReindexFilesystemIndexesSiteBackupPaths(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "metadata.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	index, err := NewBackupIndex(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	manifestDir := filepath.Join(root, "example.com", "backup-2026-10-02")
+	if err := os.MkdirAll(manifestDir, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manifestDir, "manifest.json"), []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := index.AddBackup(BackupEntry{Site: "example.com", Backup: "backup-2026-10-02", Path: manifestDir, CreatedAt: time.Now().UTC(), VerifiedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := index.ReindexFilesystem(root); err != nil {
+		t.Fatal(err)
+	}
+	var lastIndexed string
+	if err := db.QueryRow("SELECT last_indexed FROM backup_index WHERE site = ? AND backup_name = ?", "example.com", "backup-2026-10-02").Scan(&lastIndexed); err != nil {
+		t.Fatal(err)
+	}
+	if lastIndexed == "1970-01-01" {
+		t.Fatalf("backup was not reindexed: last_indexed = %q", lastIndexed)
 	}
 }
