@@ -1005,10 +1005,15 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := InspectCPMove(stored, &multipart.FileHeader{Filename: header.Filename, Size: written})
-	stored.Close()
+	storedCloseErr := stored.Close()
 	if err != nil {
 		_ = os.Remove(archivePath)
 		http.Error(w, err.Error(), 422)
+		return
+	}
+	if storedCloseErr != nil {
+		_ = os.Remove(archivePath)
+		http.Error(w, "could not finalize staged upload: "+storedCloseErr.Error(), http.StatusInternalServerError)
 		return
 	}
 	if err := restoreCPMoveCapacity(a.Config, written, info.ExpandedBytes); err != nil {
