@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-09-30
+**Last Updated:** 2026-10-02
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -45,12 +45,13 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - Scheduled-task termination and Git deploy-key generation, retrieval, and
   deletion use typed root-broker requests; corresponding generic helper actions
   are rejected. The wider helper-callsite migration remains incomplete.
-- The four reported CodeQL alerts are resolved; CodeQL reported zero open
-  alerts on `bf429a3`. CI and the installer matrix passed on that commit; the
-  security fuzz workflow passed on `d1d3032`. The offsite-probe cleanup fix at
-  `3cfbded` is locally tested but still awaits hosted validation. The
-  quota-enabled installation/ENOSPC VM gate remains unverified until its
-  current hosted run succeeds.
+- The reported CodeQL path and integer alerts are resolved; the hosted CodeQL
+  scan for `635ea5f` reported zero open alerts. The local full race suite and
+  serial suite pass through `eb39e63`. Validation for the current documentation
+  commit `44a765b` is queued; the quota-enabled installation/ENOSPC VM gate and
+  the standard disposable-host matrix remain unverified until their current
+  hosted runs complete. These checks are release evidence, not claims that the
+  remaining production gates are closed.
 
 ---
 
