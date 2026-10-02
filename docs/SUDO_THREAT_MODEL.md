@@ -1,4 +1,4 @@
-# Historical Sudo Privilege Boundary Threat Model
+# Legacy Sudo Privilege Boundary and Current Broker Threat Model
 
 Native installs no longer grant the `stepanel` service account a sudoers
 entry. The production path is a root-owned `stepanel-root-broker.service`
@@ -147,6 +147,13 @@ Root daemon for each customer
 
 ## Current Reality (Honest Assessment)
 
+Native installs now remove the panel-account sudoers policy. The panel and
+worker connect to the root-owned broker over its Unix socket; the broker
+validates typed requests and performs the approved host mutations. This is a
+stronger transport boundary than the legacy helper grants above, but it is
+not tenant isolation: a compromised control plane can still request
+operations for any site that the broker is designed to manage.
+
 **This is a single-node hosting control plane** with the standard threat model:
 
 1. **Assumed trust boundary**: Control plane ↔ Customers
@@ -191,7 +198,7 @@ Root daemon for each customer
 ## Recommendations
 
 ### Immediate (Documentation)
-1. ✅ Write honest threat model document
+1. ✅ Keep this honest threat model synchronized with the native broker design
 2. ✅ Stop claiming "privilege separation" between daemon and tenants
 3. ✅ Document actual isolation boundaries (root helpers, command syntax validation)
 
@@ -211,9 +218,9 @@ Root daemon for each customer
 ## Related Docs
 
 - `docs/SECURITY.md` - Overall security policy
-- `install.sh:687-692` - Current sudo configuration
-- `internal/helper/helpers.go` - Helper invocation code
-- **MISSING**: `docs/THREAT_MODEL.md` - Should be created
+- install.sh lines 721-722 - Compatibility sudo path and native broker socket environment
+- internal/helper/helpers.go - Helper invocation code
+- deploy/stepanel-root-broker.service - Native root broker service boundary
 
 ---
 
