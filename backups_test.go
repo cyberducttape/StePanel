@@ -494,6 +494,49 @@ func TestBackupRestoreFilesFailureBeforeActivationRollsBack(t *testing.T) {
 	}
 }
 
+func TestBackupRestoreFilesEveryTransitionRollsBack(t *testing.T) {
+	for _, boundary := range []string{"verify", "extract", "activate", "commit"} {
+		t.Run(boundary, func(t *testing.T) {
+			root := t.TempDir()
+			webRoot := filepath.Join(root, "www")
+			backupRoot := filepath.Join(root, "backups")
+			recoveryRoot := filepath.Join(root, "recovery")
+			writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "backup")
+			created, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "account"}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "live")
+			t.Setenv("STEPANEL_FAIL_AT", "restore:"+boundary)
+
+			_, err = backupRestoreFiles(context.Background(), Config{
+				WebRoot: webRoot, BackupRoot: backupRoot,
+				ImportRoot: filepath.Join(root, "imports"), RecoveryRoot: recoveryRoot,
+			}, filepath.Base(created.Path), AuthorizedSite{site: "account"})
+			if err == nil || !strings.Contains(err.Error(), "failure injection") {
+				t.Fatalf("restore error = %v, want injected %s failure", err, boundary)
+			}
+
+			data, readErr := os.ReadFile(filepath.Join(webRoot, "sites", "account", "public", "index.html"))
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if string(data) != "live" {
+				t.Fatalf("failed %s restore changed live site to %q", boundary, data)
+			}
+			entries, readErr := os.ReadDir(filepath.Join(webRoot, "sites"))
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".stepanel-backup-") {
+					t.Fatalf("failed %s restore left manager staging tree %s", boundary, entry.Name())
+				}
+			}
+		})
+	}
+}
+
 func readTestBackupManifest(t *testing.T, root string) BackupManifest {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, "manifest.json"))
