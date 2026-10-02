@@ -693,6 +693,9 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 			if err != nil && err != io.EOF {
 				return fmt.Errorf("failed to write %s: %w", header.Name, err)
 			}
+			if copied != header.Size {
+				return fmt.Errorf("failed to write %s: short entry (got %d bytes, want %d)", header.Name, copied, header.Size)
+			}
 			if closeErr != nil {
 				return fmt.Errorf("failed to finalize %s: %w", header.Name, closeErr)
 			}
@@ -747,10 +750,12 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 	defer os.Remove(tempFile.Name())
 
 	if _, err := io.Copy(tempFile, reader); err != nil {
-		tempFile.Close()
+		_ = tempFile.Close()
 		return fmt.Errorf("failed to download archive: %w", err)
 	}
-	tempFile.Close()
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("failed to finalize downloaded archive: %w", err)
+	}
 
 	zr, err := zip.OpenReader(tempFile.Name())
 	if err != nil {
@@ -815,6 +820,9 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 
 			if err != nil {
 				return fmt.Errorf("failed to write %s: %w", file.Name, err)
+			}
+			if copied != size {
+				return fmt.Errorf("failed to write %s: short entry (got %d bytes, want %d)", file.Name, copied, size)
 			}
 			if destCloseErr != nil {
 				return fmt.Errorf("failed to finalize %s: %w", file.Name, destCloseErr)
