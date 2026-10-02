@@ -269,8 +269,18 @@ func TestArchiveFetcherRejectsBadResponsesAndLimitsBody(t *testing.T) {
 	}
 	data, readErr := io.ReadAll(body)
 	_ = body.Close()
-	if readErr != nil || string(data) != "payl" {
+	if readErr == nil || string(data) != "payl" {
 		t.Fatalf("limited body = %q, err=%v", data, readErr)
+	}
+	exact := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("four")), Header: make(http.Header)}
+	body, err = newFetcher(exact, nil).FetchArchive(context.Background(), "https://example.com/archive.zip", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, readErr = io.ReadAll(body)
+	_ = body.Close()
+	if readErr != nil || string(data) != "four" {
+		t.Fatalf("exact-size body = %q, err=%v", data, readErr)
 	}
 	if _, err := newFetcher(nil, errors.New("transport failed")).FetchArchive(context.Background(), "https://example.com/archive.zip", 100); err == nil {
 		t.Fatal("FetchArchive hid transport error")

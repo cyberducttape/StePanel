@@ -147,8 +147,9 @@ func (af *ArchiveFetcher) FetchArchive(ctx context.Context, url string, maxBytes
 
 	// Wrap body with size limit to prevent streaming attacks
 	return &limitedReadCloser{
-		reader: io.LimitReader(resp.Body, maxBytes),
+		reader: resp.Body,
 		closer: resp.Body,
+		limit:  maxBytes,
 	}, nil
 }
 
@@ -156,10 +157,26 @@ func (af *ArchiveFetcher) FetchArchive(ctx context.Context, url string, maxBytes
 type limitedReadCloser struct {
 	reader io.Reader
 	closer io.Closer
+	limit  int64
+	read   int64
 }
 
 func (lrc *limitedReadCloser) Read(p []byte) (int, error) {
-	return lrc.reader.Read(p)
+	if lrc.read >= lrc.limit {
+		var probe [1]byte
+		n, err := lrc.reader.Read(probe[:])
+		if n > 0 {
+			return 0, fmt.Errorf("archive exceeds download limit (%d bytes)", lrc.limit)
+		}
+		return 0, err
+	}
+	remaining := lrc.limit - lrc.read
+	if int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+	n, err := lrc.reader.Read(p)
+	lrc.read += int64(n)
+	return n, err
 }
 
 func (lrc *limitedReadCloser) Close() error {
