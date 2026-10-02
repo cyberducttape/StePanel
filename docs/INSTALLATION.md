@@ -177,9 +177,11 @@ and test the rclone destination before running the installer; rclone must be
 installed and available on `PATH`. Provider-side
 retention lock/immutability remains an operator responsibility.
 
-Production also requires stable `STEPANEL_ENVIRONMENT_KEY` and
-`STEPANEL_BACKUP_SIGNING_KEY` values, each at least 32 characters. The installer
-generates them on a fresh installation and preserves them during upgrades.
+Production also requires stable `STEPANEL_ENVIRONMENT_KEY`,
+`STEPANEL_BACKUP_SIGNING_KEY`, and `STEPANEL_BACKUP_ENCRYPTION_KEY` values, each
+at least 32 characters. The installer generates them on a fresh installation
+and preserves them during upgrades; the signing key authenticates manifests and
+the encryption key protects archive contents from offsite storage providers.
 
 FTP is opt-in. Installation alone leaves a newly installed vsftpd service
 disabled. Activation requires `STEPANEL_ACTIVATE_FTP=1` and readable certificate
