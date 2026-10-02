@@ -88,29 +88,11 @@ func (v *Validator) ValidateFilePath(root, path string) error {
 		return fmt.Errorf("path escapes root directory")
 	}
 
-	// Reject symlinks in every component, not only the final pathname. A
-	// privileged caller must not validate a path and later follow a customer-
-	// controlled parent symlink during mutation.
-	rel, err := filepath.Rel(rootClean, fullClean)
-	if err != nil {
-		return fmt.Errorf("cannot compare path components: %w", err)
-	}
-	current := rootClean
-	for _, component := range strings.Split(rel, string(filepath.Separator)) {
-		if component == "." || component == "" {
-			continue
-		}
-		current = filepath.Join(current, component)
-		info, statErr := os.Lstat(current)
-		if errors.Is(statErr, os.ErrNotExist) {
-			break
-		}
-		if statErr != nil {
-			return fmt.Errorf("inspect path component: %w", statErr)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlinks not allowed")
-		}
+	// Reject symlinks in every component, including the configured root. A
+	// privileged caller must not validate a path and later follow a
+	// customer-controlled parent symlink during mutation.
+	if err := rejectSymlinkComponents(rootClean, fullClean); err != nil {
+		return err
 	}
 
 	return nil
@@ -516,6 +498,16 @@ func (v *Validator) validateDumpPath(path string) error {
 // sufficient for a root broker because every component is resolved by the
 // kernel before the final O_NOFOLLOW open.
 func rejectSymlinkComponents(root, target string) error {
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("inspect path root: %w", err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("path root is a symlink")
+	}
 	rel, err := filepath.Rel(root, target)
 	if err != nil {
 		return fmt.Errorf("compare dump path components: %w", err)
