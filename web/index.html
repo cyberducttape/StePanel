@@ -20,7 +20,7 @@
         {{ if .IsAdministrator }}<a href="#migrations"><span aria-hidden="true">⇄</span>Migrations</a><a href="#deploy"><span aria-hidden="true">↗</span>Deployments</a><a href="#accounts"><span aria-hidden="true">◎</span>Customers</a><a href="#database"><span aria-hidden="true">▤</span>Databases</a><a href="#operations"><span aria-hidden="true">◫</span>Infrastructure</a><a href="#security"><span aria-hidden="true">◇</span>Security</a>{{ end }}
         <a href="#jobs"><span aria-hidden="true">◷</span>Activity / Jobs</a>
       </nav>
-      <div class="sidebar-footer"><span class="pulse" aria-hidden="true"></span><span>Control plane connected</span><button type="button" class="appearance-trigger" id="appearanceTrigger" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>Appearance</span></button></div>
+      <div class="sidebar-footer" id="controlPlaneStatus" role="status" aria-live="polite"><span class="pulse" id="controlPlanePulse" aria-hidden="true"></span><span id="controlPlaneLabel">Checking control plane…</span><button type="button" class="appearance-trigger" id="controlPlaneDetailsToggle" aria-expanded="false" aria-controls="controlPlaneDetails">Details</button><button type="button" class="appearance-trigger" id="appearanceTrigger" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>Appearance</span></button><ul class="control-plane-details" id="controlPlaneDetails" hidden></ul></div>
     </aside>
     <header class="topbar">
       <button type="button" class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="workspaceSidebar" aria-label="Open navigation"><span aria-hidden="true">☰</span></button>
@@ -157,6 +157,7 @@
 <script src="/static/account.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/admin-accounts.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/nav.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/health.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/theme.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/cpmove.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/deploy.js?v={{ .AssetVersion }}" defer></script>
