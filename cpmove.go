@@ -560,6 +560,9 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 		failures = append(failures, "discover SQL dumps: "+discoveryErr.Error())
 		return restored, failures
 	}
+	if cfg.Production && cfg.DBCtl == "" && len(matches) > 0 {
+		return restored, []string{"restore SQL dumps: production database restores require STEPANEL_DBCTL and the root broker"}
+	}
 	for _, dump := range matches {
 		if err := parent.Err(); err != nil {
 			failures = append(failures, err.Error())

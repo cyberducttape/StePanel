@@ -351,6 +351,9 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 		return WPressResult{}, fmt.Errorf("activate restored site through manager: %w", err)
 	}
 	managerActivated = true
+	if cfg.Production && cfg.DBCtl == "" {
+		return WPressResult{}, errors.New("production WordPress restores require STEPANEL_DBCTL and the root broker")
+	}
 	if metadata.HTAccessPresent {
 		if err := writeAtomic(filepath.Join(home, ".htaccess"), metadata.HTAccess, 0644); err != nil {
 			return WPressResult{}, fmt.Errorf("restore .htaccess: %w", err)

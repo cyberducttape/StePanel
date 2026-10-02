@@ -65,6 +65,21 @@ func TestProductionDatabaseHelperFailsClosedWithoutBrokerRoute(t *testing.T) {
 	}
 }
 
+func TestProductionCPMoveRestoreFailsClosedWithoutDatabaseBroker(t *testing.T) {
+	root := t.TempDir()
+	dumpRoot := filepath.Join(root, "mysql")
+	if err := os.MkdirAll(dumpRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dumpRoot, "blog.sql"), []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	restored, failures := restoreSQL(Config{Production: true}, root, "account", nil)
+	if len(restored) != 0 || len(failures) != 1 || !strings.Contains(failures[0], "STEPANEL_DBCTL") {
+		t.Fatalf("restored = %#v, failures = %#v", restored, failures)
+	}
+}
+
 func TestCreateDatabaseSafetyBackupContextHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
