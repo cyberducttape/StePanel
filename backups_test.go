@@ -289,6 +289,15 @@ func TestCreateSiteBackupEncryptsArchivePayload(t *testing.T) {
 	if err != nil || string(restored) != "customer secret" {
 		t.Fatalf("encrypted restore data = %q, error = %v", restored, err)
 	}
+	entries, err := os.ReadDir(result.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".backup-decrypt-") {
+			t.Fatalf("decrypted temporary archive remains: %s", entry.Name())
+		}
+	}
 	archive, err := os.ReadFile(filepath.Join(result.Path, manifest.Archive))
 	if err != nil {
 		t.Fatal(err)

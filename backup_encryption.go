@@ -177,7 +177,7 @@ func decryptBackupArchive(src, dst, key string) error {
 	return nil
 }
 
-func withDecryptedBackupArchive(path, key string, fn func(string) error) error {
+func withDecryptedBackupArchive(path, key string, fn func(string) error) (returnErr error) {
 	if key == "" {
 		return fn(path)
 	}
@@ -201,9 +201,30 @@ func withDecryptedBackupArchive(path, key string, fn func(string) error) error {
 		return err
 	}
 	_ = os.Remove(tempPath)
-	defer os.Remove(tempPath)
+	// Keep a deferred fallback for panics, but do the normal removal
+	// explicitly so a filesystem failure cannot silently leave plaintext
+	// backup data behind.
+	removed := false
+	defer func() {
+		if removed {
+			return
+		}
+		_ = os.Remove(tempPath)
+	}()
 	if err := decryptBackupArchive(path, tempPath, key); err != nil {
 		return err
 	}
-	return fn(tempPath)
+	callbackErr := fn(tempPath)
+	removeErr := os.Remove(tempPath)
+	removed = removeErr == nil || os.IsNotExist(removeErr)
+	if callbackErr != nil && removeErr != nil {
+		return errors.Join(callbackErr, fmt.Errorf("remove decrypted backup archive: %w", removeErr))
+	}
+	if callbackErr != nil {
+		return callbackErr
+	}
+	if removeErr != nil {
+		return fmt.Errorf("remove decrypted backup archive: %w", removeErr)
+	}
+	return nil
 }
