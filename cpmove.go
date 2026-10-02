@@ -304,11 +304,14 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 		}
 		if err := txn.cleanupDatabases(cfg); err != nil {
 			log.Printf("defer cpmove database recovery for transaction %s: %v", txn.ID, err)
-			return
 		}
-		_ = txn.Rollback()
+		if err := txn.Rollback(); err != nil {
+			log.Printf("defer cpmove filesystem recovery for transaction %s: %v", txn.ID, err)
+		}
 		if txn.HadExisting {
-			_ = siteHelperContext(context.Background(), cfg, "seal", user)
+			if err := siteHelperContext(context.Background(), cfg, "seal", user); err != nil {
+				log.Printf("defer cpmove site sealing for transaction %s: %v", txn.ID, err)
+			}
 		}
 	}()
 	if err := siteHelperContext(ctx, cfg, "prepare", user); err != nil {

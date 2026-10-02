@@ -324,11 +324,14 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 		if !committed {
 			if err := txn.cleanupDatabases(cfg); err != nil {
 				log.Printf("defer WordPress database recovery for transaction %s: %v", txn.ID, err)
-				return
 			}
-			_ = txn.Rollback()
+			if err := txn.Rollback(); err != nil {
+				log.Printf("defer WordPress filesystem recovery for transaction %s: %v", txn.ID, err)
+			}
 			if txn.HadExisting {
-				_ = siteHelperContext(context.Background(), cfg, "seal", site)
+				if err := siteHelperContext(context.Background(), cfg, "seal", site); err != nil {
+					log.Printf("defer WordPress site sealing for transaction %s: %v", txn.ID, err)
+				}
 			}
 		}
 	}()
@@ -834,7 +837,10 @@ func createWPressDatabaseContext(ctx context.Context, cfg Config, dbName, dbUser
 	}
 	query := "CREATE USER " + sqlString(dbUser) + "@'localhost' IDENTIFIED BY " + sqlString(password) + "; GRANT ALL PRIVILEGES ON " + sqlIdent(dbName) + ".* TO " + sqlString(dbUser) + "@'localhost'; FLUSH PRIVILEGES;"
 	if _, err := runMySQLContext(ctx, cfg, query); err != nil {
-		_ = cleanupWPressDatabaseContext(context.Background(), cfg, dbName, dbUser)
+		cleanupErr := cleanupWPressDatabaseContext(context.Background(), cfg, dbName, dbUser)
+		if cleanupErr != nil {
+			return fmt.Errorf("provision WordPress database user: %w (cleanup failed: %v)", err, cleanupErr)
+		}
 		return fmt.Errorf("provision WordPress database user: %w", err)
 	}
 	return nil
