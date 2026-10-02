@@ -207,10 +207,28 @@ func TestFindDatabaseDumpRecursive(t *testing.T) {
 	}
 
 	executor := &Executor{}
-	found := executor.findDatabaseDump(tmpDir)
+	found, err := executor.findDatabaseDump(tmpDir)
+	if err != nil {
+		t.Fatalf("find database dump: %v", err)
+	}
 
 	if found != sqlFile {
 		t.Errorf("expected to find %s, got %s", sqlFile, found)
+	}
+}
+
+func TestFindDatabaseDumpPropagatesTraversalErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+	blocked := filepath.Join(tmpDir, "unreadable")
+	if err := os.Mkdir(blocked, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0700) })
+
+	executor := &Executor{}
+	_, err := executor.findDatabaseDump(tmpDir)
+	if err == nil {
+		t.Fatal("expected database discovery to report traversal error")
 	}
 }
 

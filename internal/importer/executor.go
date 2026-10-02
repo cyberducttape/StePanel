@@ -358,7 +358,10 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 
 	var dbRestorationIssue *ImportIssue
 	var cleanup DatabaseCleanup
-	sqlFile := e.findDatabaseDump(job.WebRoot)
+	sqlFile, dumpErr := e.findDatabaseDump(job.WebRoot)
+	if dumpErr != nil {
+		return nil, fmt.Errorf("discover database dumps: %w", dumpErr)
+	}
 	if sqlFile != "" {
 		// Get file size for reporting
 		dumpSize, err := databaseDumpSize(sqlFile)
@@ -878,12 +881,18 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 	return nil
 }
 
-// findDatabaseDump looks for SQL dump files in the extracted archive using proper recursion
-func (e *Executor) findDatabaseDump(webRoot string) string {
+// findDatabaseDump looks for SQL dump files in the extracted archive using
+// proper recursion. A traversal failure is distinct from finding no dump:
+// silently treating an unreadable subtree as absent can produce a seemingly
+// successful partial migration.
+func (e *Executor) findDatabaseDump(webRoot string) (string, error) {
 	var found string
 	err := filepath.WalkDir(webRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil || found != "" {
+		if err != nil {
 			return err
+		}
+		if found != "" {
+			return filepath.SkipDir
 		}
 		if !d.IsDir() {
 			name := d.Name()
@@ -892,7 +901,7 @@ func (e *Executor) findDatabaseDump(webRoot string) string {
 				// Prioritize specific names
 				if name == "backup.sql" || name == "database.sql" || name == "db.sql" {
 					found = path
-					return filepath.SkipDir
+					return nil
 				}
 				if found == "" {
 					found = path
@@ -901,10 +910,7 @@ func (e *Executor) findDatabaseDump(webRoot string) string {
 		}
 		return nil
 	})
-	if err != nil {
-		return ""
-	}
-	return found
+	return found, err
 }
 
 // restoreDatabase validates SQL dump or performs automated restoration if credentials provided
