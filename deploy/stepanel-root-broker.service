@@ -1,0 +1,36 @@
+[Unit]
+Description=StePanel root-owned host mutation broker
+After=local-fs.target network.target
+Before=stepanel.service stepanel-worker.service
+
+[Service]
+Type=simple
+User=root
+Group=stepanel
+ExecStart=/usr/local/sbin/stepanel-root -webroot /var/www -socket /run/stepanel-root-broker.sock -socket-group stepanel
+Restart=on-failure
+RestartSec=1s
+TimeoutStopSec=2h5min
+UMask=0007
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+SystemCallArchitectures=native
+# The broker writes only the host-management surfaces required by the
+# validated helpers. The helpers enforce narrower operation-specific paths.
+ProtectSystem=full
+ReadWritePaths=/etc/apache2 /etc/caddy /etc/httpd /etc/php /etc/php-fpm.d /etc/stepanel /etc/ssh/sshd_config.d /etc/systemd/system /etc/passwd /etc/group /etc/shadow /etc/gshadow /etc/subuid /etc/subgid /run /var/backups/stepanel /var/lib/stepanel /var/lib/stepanel-privileged /var/www /var/log/apache2 /var/log/httpd
+
+[Install]
+WantedBy=multi-user.target

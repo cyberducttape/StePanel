@@ -17,13 +17,20 @@ check_equal() {
   fi
 }
 
-broker_rule='NOPASSWD: /usr/local/sbin/stepanel-root -webroot /var/www'
-if ! grep -Fqx "printf '%s ALL=(root) $broker_rule\\n' \"\$APP_USER\" >> \"\$sudoers_tmp\"" install.sh; then
-  echo "install.sh does not pin the root broker sudo rule to /var/www" >&2
+if ! grep -Eq '^[[:space:]]+write_env STEPANEL_ROOT_BROKER_SOCKET /run/stepanel-root-broker\.sock$' install.sh; then
+  echo "install.sh does not configure the production root broker socket" >&2
   exit 1
 fi
-if grep -Eq 'NOPASSWD: /usr/local/sbin/stepanel-root[[:space:]]*\\n' install.sh; then
-  echo "install.sh contains an unrestricted root broker sudo rule" >&2
+if grep -Fq 'sudoers_tmp' install.sh; then
+  echo "install.sh still provisions a panel sudoers policy" >&2
+  exit 1
+fi
+if ! grep -Fqx 'install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service' install.sh; then
+  echo "install.sh does not install the root broker service" >&2
+  exit 1
+fi
+if grep -En 'helperCommandContext\([^)]*,[[:space:]]*[^)]*,[[:space:]]*[^)]*,[[:space:]]*"restore(-dump|-wordpress)?"' cpmove.go wpress.go importer.go backup_restore.go staging.go >/dev/null; then
+  echo "large database restore callsite bypasses the typed root broker" >&2
   exit 1
 fi
 if ! grep -Fqx 'install -d -m 0700 -o root -g root /var/lib/stepanel/recovery' install.sh; then

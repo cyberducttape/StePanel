@@ -108,7 +108,7 @@ paths; an upgrade therefore does not require the plaintext administrator
 password.
 
 Before replacing StePanel-owned files, the installer snapshots the binary, web
-assets, helpers, environment, sudoers policy, systemd unit, logrotate policy,
+assets, helpers, environment, root-broker and panel systemd units, logrotate policy,
 and selected panel webserver configuration into a private
 `/var/tmp/stepanel-install.*` transaction. It stops the old daemon, installs
 the candidate, validates the complete selected webserver configuration, starts

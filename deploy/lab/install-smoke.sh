@@ -72,8 +72,8 @@ if ! runuser -u stepanel -- test -r "$RCLONE_CONFIG"; then
   echo 'StePanel service account cannot read the configured rclone file' >&2
   exit 1
 fi
-if grep -Eq 'stepanel-dbctl[[:space:]]+\*([[:space:]]|$)|stepanel-certbot[[:space:]]+\*' /etc/sudoers.d/stepanel; then
-  echo 'installer emitted an unrestricted database/certificate helper sudo grant' >&2
+if [[ -e /etc/sudoers.d/stepanel ]]; then
+  echo 'installer left a panel sudoers policy after installing the root broker service' >&2
   exit 1
 fi
 if ! grep -Fxq 'RCLONE_CONFIG="/etc/stepanel/rclone.conf"' /etc/ste-panel.env; then
@@ -113,6 +113,12 @@ if [[ ! -S /run/stepanel-root-broker.sock ]]; then
   echo 'root broker did not create its socket after restart' >&2
   exit 1
 fi
+systemctl is-active --quiet stepanel-root-broker.service
+root_broker_props=$(systemctl show stepanel-root-broker.service -p NoNewPrivileges -p PrivateDevices -p ProtectSystem -p RestrictNamespaces)
+grep -Fxq 'NoNewPrivileges=yes' <<<"$root_broker_props"
+grep -Fxq 'PrivateDevices=yes' <<<"$root_broker_props"
+grep -Fxq 'ProtectSystem=full' <<<"$root_broker_props"
+grep -Fxq 'RestrictNamespaces=yes' <<<"$root_broker_props"
 systemctl restart stepanel.service stepanel-worker.service
 if ! systemctl is-active --quiet stepanel.service; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true

@@ -1,6 +1,7 @@
 # Root Broker Integration Guide
 
-**Status:** Phase 1 Foundation Complete  
+**Status:** Native production installs use the Unix-socket broker; stdin/sudo
+is retained only as a compatibility path for older installations and tests.
 **Last Updated:** 2026-09-26
 
 This document explains how to integrate the typed Go root broker (`stepanel-root`) into the main StePanel application to replace shell script helpers.
@@ -54,14 +55,20 @@ go build -o /tmp/stepanel-root ./cmd/stepanel-root
 sudo install -o root -g root -m 0755 /tmp/stepanel-root /usr/local/sbin/stepanel-root
 ```
 
-### 2. Configure sudo Access
+### 2. Configure the broker service
 
-Add to `/etc/sudoers.d/stepanel` (with `visudo`):
+Native installations use the root-owned service and peer-authorized socket;
+they do not add a sudoers rule for the panel account:
 
+```bash
+sudo install -m 0644 deploy/stepanel-root-broker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now stepanel-root-broker.service
 ```
-# Allow stepanel user to run root broker without password
-stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-root -webroot /var/www
-```
+
+Set `STEPANEL_ROOT_BROKER_SOCKET=/run/stepanel-root-broker.sock` in the panel
+environment. The stdin/sudo invocation in older versions is retained only for
+compatibility and tests.
 
 ## Integration Pattern
 
@@ -345,15 +352,15 @@ Go Broker (400 lines):
 
 ### "permission denied" Running Broker
 
-Check sudo configuration:
+Check the broker service and socket:
 ```bash
-sudo visudo -c /etc/sudoers.d/stepanel
+sudo systemctl status stepanel-root-broker.service
+sudo test -S /run/stepanel-root-broker.sock
 ```
 
-Test sudo access:
-```bash
-sudo -u stepanel /usr/local/sbin/stepanel-root -webroot /var/www
-```
+The panel account must be a member of the socket's `stepanel` group. Do not
+restore a sudoers grant as a workaround; fix the broker service or socket
+permissions instead.
 
 ### Broker Process Hangs
 

@@ -14,7 +14,8 @@ type Request struct {
 	// App operations: apply, start, stop, restart, rollback
 	App *AppRequest `json:"app,omitempty"`
 
-	// Database operations: provision, restore-dump, drop
+	// Database operations: inventory, provision, dump, restore, restore-dump,
+	// restore-wordpress, drop, drop-managed, cleanup-wordpress, rotate
 	DB *DBRequest `json:"db,omitempty"`
 
 	// Vhost operations: apply, delete
@@ -153,6 +154,7 @@ type DBRequest struct {
 	Site     string `json:"site"`                // Associated site
 	Encoding string `json:"encoding"`            // utf8mb4, UTF8, etc.
 	DumpData []byte `json:"dump_data,omitempty"` // For restore-dump action
+	DumpPath string `json:"dump_path,omitempty"` // Root broker reads and streams this validated staging file
 }
 
 type DBResponse struct {

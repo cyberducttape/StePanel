@@ -1,8 +1,15 @@
-# Sudo Privilege Boundary Threat Model (MEDIUM/HIGH)
+# Historical Sudo Privilege Boundary Threat Model
+
+Native installs no longer grant the `stepanel` service account a sudoers
+entry. The production path is a root-owned `stepanel-root-broker.service`
+exposed through `/run/stepanel-root-broker.sock`, with peer credentials and a
+typed request validator enforcing the boundary. This document describes the
+legacy sudo design retained for upgrade history and threat-model comparison;
+upgrading removes `/etc/sudoers.d/stepanel`.
 
 ## Issue: Sudo Grants Are Broad Privilege Bridges
 
-**Current sudo config** (install.sh:687-692):
+**Legacy sudo config** (pre-socket installs):
 ```sudoers
 stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-appctl *
 stepanel ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-proxyctl *

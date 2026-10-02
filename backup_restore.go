@@ -575,11 +575,8 @@ func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage st
 		return true, err
 	}
 	processKillInjection("restore", "database")
-	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", input.TargetDatabase, input.Site)
-	cmd.Stdin = file
-	output, err := runBoundedCommand(ctx, cmd)
-	if err != nil {
-		return true, fmt.Errorf("import staging database: %w: %s", err, strings.TrimSpace(string(output)))
+	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", input.Site, input.TargetDatabase, "restore", "", dump); err != nil {
+		return true, fmt.Errorf("import staging database: %w", err)
 	}
 	return true, nil
 }
@@ -823,11 +820,8 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 		}
 		return BackupRestoreResult{Site: site, Backup: filepath.Base(backup), Mode: "database-only", Database: database, DatabaseRestored: true, DatabasePreserved: false, Consistency: manifest.Consistency, SchemaRollback: "manual: restore the safety backup or apply a forward migration", CompletedAt: time.Now().UTC()}, nil
 	}
-	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", database, site)
-	cmd.Stdin = input
-	output, err := runBoundedCommand(ctx, cmd)
-	if err != nil {
-		return BackupRestoreResult{}, fmt.Errorf("restore database %s: %w: %s", database, err, strings.TrimSpace(string(output)))
+	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", site, database, "restore", "", dump); err != nil {
+		return BackupRestoreResult{}, fmt.Errorf("restore database %s: %w", database, err)
 	}
 	return BackupRestoreResult{Site: site, Backup: filepath.Base(backup), Mode: "database-only", Database: database, DatabaseRestored: true, DatabasePreserved: false, Consistency: manifest.Consistency, SchemaRollback: "manual: restore the safety backup or apply a forward migration", CompletedAt: time.Now().UTC()}, nil
 }

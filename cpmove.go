@@ -557,19 +557,10 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 					continue
 				}
 			}
-			input, openErr := os.Open(dump)
-			if openErr != nil {
-				failures = append(failures, name+": open failed: "+openErr.Error())
-				cancel()
-				continue
-			}
-			cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore", name, user)
-			cmd.Stdin = input
-			output, restoreErr := runBoundedCommand(ctx, cmd)
-			_ = input.Close()
+			restoreErr := runDatabaseRestoreFromPath(ctx, cfg, "restore", user, name, user, "", dump)
 			cancel()
 			if restoreErr != nil {
-				failures = append(failures, name+": restore failed: "+strings.TrimSpace(string(output)))
+				failures = append(failures, name+": restore failed: "+restoreErr.Error())
 				continue
 			}
 			restored = append(restored, name)

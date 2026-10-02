@@ -18,17 +18,25 @@ UMask=0027
 LimitNOFILE=65536
 TasksMax=512
 AmbientCapabilities=
+NoNewPrivileges=true
+RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 SystemCallArchitectures=native
-ProtectSystem=full
+ProtectSystem=strict
+ProtectHome=true
+PrivateDevices=true
 PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectControlGroups=true
 ProtectClock=true
+ProtectHostname=true
 RestrictRealtime=true
+ReadWritePaths=/var/lib/ste-panel /var/www/sites /var/backups/stepanel
 
 [Install]
 WantedBy=multi-user.target

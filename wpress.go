@@ -812,17 +812,10 @@ func restoreWPressDatabaseWithHelper(cfg Config, site, dbName, dbUser, password,
 }
 
 func restoreWPressDatabaseWithHelperContext(parent context.Context, cfg Config, site, dbName, dbUser, password, dump string) error {
-	input, err := os.Open(dump)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
 	ctx, cancel := context.WithTimeout(parent, 20*time.Minute)
 	defer cancel()
-	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-wordpress", dbName, dbUser, site)
-	cmd.Stdin = io.MultiReader(strings.NewReader(password+"\n"), input)
-	if output, err := runBoundedCommand(ctx, cmd); err != nil {
-		return fmt.Errorf("restore WordPress database: %w: %s", err, strings.TrimSpace(string(output)))
+	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-wordpress", site, dbName, dbUser, password, dump); err != nil {
+		return fmt.Errorf("restore WordPress database: %w", err)
 	}
 	return nil
 }

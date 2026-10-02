@@ -73,7 +73,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - Integration documentation and migration guide
 - `broker_bridge.go` — App integration convenience wrapper
 
-**Status:** Production app/proxy/site/vhost/runner/Git mutation wrappers use the root broker, and TLS certificate issuance now uses a dedicated typed broker request with no separate certbot sudo grant. Database streaming restore/dump still uses dedicated helper paths, so the broker is not yet a complete replacement for every shell helper. Database helper grants and remaining streaming callsites are still migration work.
+**Status:** Native production installs route app/proxy/site/vhost/runner/Git mutations, TLS, and large database restore streams through the root-owned Unix-socket broker. The panel and worker no longer receive a sudoers grant; the remaining stdin/compatibility path is for older installations and tests only.
 
 **Compatibility helper RPC (2026-10):** the generic `helper` request no longer
 accepts up to 32 caller-controlled arguments. Every forwarded action is declared
@@ -247,8 +247,11 @@ All workflows use **journaled staged activation** — operations are staged in a
 - 7 locations fixed to no longer silently ignore persistence errors
 - Panel and worker systemd units now use filesystem, private-temp, kernel, and
   control-group protections; audited exposure is 6.7 MEDIUM on Rocky 9.8
-- `NoNewPrivileges`/SUID restrictions remain off by design because allow-listed
-  root helper calls require sudo elevation
+- Native installs now route all privileged helper calls through the
+  root-owned, peer-authorized Unix-socket broker; the panel and worker units
+  enable `NoNewPrivileges`, SUID/SGID restrictions, private devices, and
+  strict writable-path limits. Older installations must be upgraded to remove
+  the transitional sudo policy.
 
 ✅ **Helper Layer foundation:**
 - Broker foundation (types, validator, operations, client, and bridge)

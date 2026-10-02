@@ -355,11 +355,8 @@ func cloneManagedDatabaseToStagingContext(ctx context.Context, cfg Config, sourc
 	defer file.Close()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
-	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "restore-dump", target, site.Site())
-	cmd.Stdin = file
-	output, err := runBoundedCommand(ctx, cmd)
-	if err != nil {
-		return true, fmt.Errorf("import staging database: %w: %s", err, strings.TrimSpace(string(output)))
+	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", site.Site(), target, "restore", "", dump); err != nil {
+		return true, fmt.Errorf("import staging database: %w", err)
 	}
 	return true, nil
 }

@@ -616,6 +616,10 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 		return b.dbProvision(ctx, req)
 	case "restore-dump":
 		return b.dbRestoreDump(ctx, req)
+	case "restore":
+		return b.dbRestoreFromPath(ctx, req, "restore")
+	case "restore-wordpress":
+		return b.dbRestoreFromPath(ctx, req, "restore-wordpress")
 	case "drop":
 		return b.dbDrop(ctx, req)
 	case "drop-managed", "cleanup-wordpress":
@@ -785,6 +789,9 @@ func (b *Broker) dbRestoreDump(ctx context.Context, req *DBRequest) (*Response, 
 	if err := b.validator.ValidateSiteName(req.Site); err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
+	if req.DumpPath != "" {
+		return b.dbRestoreFromPath(ctx, req, "restore-dump")
+	}
 	if len(req.DumpData) == 0 {
 		return &Response{OK: false, Error: "dump data is empty"}, nil
 	}
@@ -914,6 +921,40 @@ func (b *Broker) dbRestoreDump(ctx context.Context, req *DBRequest) (*Response, 
 	*/
 }
 
+func (b *Broker) dbRestoreFromPath(ctx context.Context, req *DBRequest, action string) (*Response, error) {
+	if req.DumpPath == "" {
+		return &Response{OK: false, Error: "dump path is required for streaming restore"}, nil
+	}
+	if err := b.validator.ValidateSiteName(req.Site); err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	if action == "restore-wordpress" {
+		if err := b.validator.ValidateUsername(req.Username); err != nil {
+			return &Response{OK: false, Error: err.Error()}, nil
+		}
+		if err := validateDBSecret(req.Password, 16); err != nil {
+			return &Response{OK: false, Error: err.Error()}, nil
+		}
+	}
+	file, err := os.Open(req.DumpPath)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("open database dump: %v", err)}, nil
+	}
+	defer file.Close()
+	var input io.Reader = file
+	args := []string{action, req.Database}
+	switch action {
+	case "restore", "restore-dump":
+		args = append(args, req.Site)
+	case "restore-wordpress":
+		args = append(args, req.Username, req.Site)
+		input = io.MultiReader(strings.NewReader(req.Password+"\n"), file)
+	default:
+		return &Response{OK: false, Error: "unsupported streaming database action"}, nil
+	}
+	return b.runDBHelperReader(ctx, args, input, DBResponse{Restored: true, Database: req.Database})
+}
+
 func (b *Broker) dbDrop(ctx context.Context, req *DBRequest) (*Response, error) {
 	return b.runDBHelper(ctx, []string{"drop", req.Database}, nil, DBResponse{Dropped: true, Database: req.Database})
 }
@@ -944,6 +985,16 @@ func (b *Broker) runDBHelper(ctx context.Context, args []string, input []byte, r
 	if input != nil {
 		cmd.Stdin = bytes.NewReader(input)
 	}
+	return b.runDBHelperCommand(ctx, cmd, result)
+}
+
+func (b *Broker) runDBHelperReader(ctx context.Context, args []string, input io.Reader, result DBResponse) (*Response, error) {
+	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, args...)
+	cmd.Stdin = input
+	return b.runDBHelperCommand(ctx, cmd, result)
+}
+
+func (b *Broker) runDBHelperCommand(ctx context.Context, cmd *exec.Cmd, result DBResponse) (*Response, error) {
 	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("database operation failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil

@@ -391,13 +391,14 @@ with those fixes on both distributions. The five-operation acceptance criteria
 remain open for multi-point failure injection, real disk-exhaustion, actual
 host power-loss, and broader workload and recovery-time evidence.
 
-The installed systemd units now enable `ProtectSystem=full`, private `/tmp`,
-and kernel/control-group protections. On Rocky Linux 9.8,
-`systemd-analyze security` improved from exposure 8.6 (`EXPOSED`) to 6.7
-(`MEDIUM`). `NoNewPrivileges` and SUID/SGID restrictions remain intentionally
-disabled because production root-helper calls cross the exact-command sudoers
-boundary; the hosted install smoke asserts the enabled protections and runs
-the recovery suite under them.
+The installed systemd units now enable a root-owned, peer-authorized Unix
+socket broker for host mutations. The panel and worker use
+`NoNewPrivileges=true`, `RestrictSUIDSGID=true`, `PrivateDevices=true`,
+`ProtectHome=true`, `ProtectProc=invisible`, and strict writable-path limits;
+the broker is the only root process and has an explicit host-management
+write-path allowlist. The hosted install smoke asserts the enabled protections
+and runs the recovery suite under them. Existing installations must be
+upgraded to remove the transitional sudo policy.
 
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit

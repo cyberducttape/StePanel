@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -142,6 +143,52 @@ func runTypedDatabaseMutation(ctx context.Context, cfg Config, input string, arg
 		return nil, errors.New(response.Error)
 	}
 	return response.Details, nil
+}
+
+// runDatabaseRestoreFromPath keeps large SQL streams inside the privileged
+// broker boundary. Native production installs send only the validated staging
+// path; the root broker opens it and streams it to the fixed database helper.
+// Development/lab callers retain the same helper ABI without requiring the
+// production socket.
+func runDatabaseRestoreFromPath(ctx context.Context, cfg Config, action, site, database, username, password, dumpPath string) error {
+	if cfg.DBCtl == "" {
+		return errors.New("local database lifecycle helper is unavailable")
+	}
+	if cfg.Production {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if err != nil {
+			return err
+		}
+		response, err := client.DBRestoreFromPath(ctx, action, site, database, username, password, dumpPath)
+		if err != nil {
+			return err
+		}
+		if !response.OK {
+			return errors.New(response.Error)
+		}
+		return nil
+	}
+	input, err := os.Open(dumpPath)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	var stream io.Reader = input
+	args := []string{action, database}
+	switch action {
+	case "restore", "restore-dump":
+		args = append(args, site)
+	case "restore-wordpress":
+		args = append(args, username, site)
+		stream = io.MultiReader(strings.NewReader(password+"\n"), input)
+	default:
+		return errors.New("unsupported database restore action")
+	}
+	output, err := runBoundedCommandInput(ctx, helperCommandContext(ctx, cfg, cfg.DBCtl, args...), stream)
+	if err != nil {
+		return fmt.Errorf("database restore failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func labDirectRootBrokerEnabled() bool {

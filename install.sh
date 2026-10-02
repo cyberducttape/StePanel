@@ -460,10 +460,14 @@ STEPANEL_WAS_ACTIVE=0
 STEPANEL_WAS_ENABLED=0
 STEPANEL_WORKER_WAS_ACTIVE=0
 STEPANEL_WORKER_WAS_ENABLED=0
+STEPANEL_BROKER_WAS_ACTIVE=0
+STEPANEL_BROKER_WAS_ENABLED=0
 systemctl is-active --quiet stepanel.service 2>/dev/null && STEPANEL_WAS_ACTIVE=1
 systemctl is-enabled --quiet stepanel.service 2>/dev/null && STEPANEL_WAS_ENABLED=1
 systemctl is-active --quiet stepanel-worker.service 2>/dev/null && STEPANEL_WORKER_WAS_ACTIVE=1
 systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null && STEPANEL_WORKER_WAS_ENABLED=1
+systemctl is-active --quiet stepanel-root-broker.service 2>/dev/null && STEPANEL_BROKER_WAS_ACTIVE=1
+systemctl is-enabled --quiet stepanel-root-broker.service 2>/dev/null && STEPANEL_BROKER_WAS_ENABLED=1
 
 backup_managed_target() {
   local target=$1 index backup existing=0
@@ -491,6 +495,8 @@ rollback_install() {
   if (( STEPANEL_WAS_ACTIVE )); then systemctl restart stepanel.service 2>/dev/null || true; else systemctl stop stepanel.service 2>/dev/null || true; fi
   if (( STEPANEL_WORKER_WAS_ENABLED )); then systemctl enable stepanel-worker.service 2>/dev/null || true; else systemctl disable stepanel-worker.service 2>/dev/null || true; fi
   if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl restart stepanel-worker.service 2>/dev/null || true; else systemctl stop stepanel-worker.service 2>/dev/null || true; fi
+  if (( STEPANEL_BROKER_WAS_ENABLED )); then systemctl enable stepanel-root-broker.service 2>/dev/null || true; else systemctl disable stepanel-root-broker.service 2>/dev/null || true; fi
+  if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl restart stepanel-root-broker.service 2>/dev/null || true; else systemctl stop stepanel-root-broker.service 2>/dev/null || true; fi
   if command -v apachectl >/dev/null 2>&1 && apachectl -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
   elif command -v httpd >/dev/null 2>&1 && httpd -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
   fi
@@ -517,6 +523,7 @@ managed_targets=(
   "$ENV_FILE"
   /etc/systemd/system/stepanel.service
   /etc/systemd/system/stepanel-worker.service
+  /etc/systemd/system/stepanel-root-broker.service
   /etc/logrotate.d/stepanel
   /etc/sudoers.d/stepanel
   /etc/stepanel-audit.key
@@ -539,6 +546,7 @@ if [[ "$INSTALL_SECURITY" == "1" ]]; then managed_targets+=(/usr/local/sbin/step
 for managed_target in "${managed_targets[@]}"; do backup_managed_target "$managed_target"; done
 if (( STEPANEL_WAS_ACTIVE )); then systemctl stop stepanel.service; fi
 if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl stop stepanel-worker.service; fi
+if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl stop stepanel-root-broker.service; fi
 
 install -d -m 0750 "$APP_DIR" "$DATA_DIR/imports" "$DATA_DIR/mail" "$DATA_DIR/apps" /var/www/sites
 install -d -m 0755 -o root -g root "$PROXY_ROOT" "$VHOST_ROOT"
@@ -707,6 +715,7 @@ TXN_TEMPS+=("$env_tmp")
   write_env STEPANEL_WPRESS_EXTRACT "$WPRESS_EXTRACT"
   write_env STEPANEL_WPCLI "$WPCLI"
   write_env STEPANEL_SUDO /usr/bin/sudo
+  write_env STEPANEL_ROOT_BROKER_SOCKET /run/stepanel-root-broker.sock
   write_env STEPANEL_STAGE_RETENTION_HOURS "$STAGE_RETENTION_HOURS"
   write_env STEPANEL_MIN_FREE_BYTES "$MIN_FREE_BYTES"
   write_env STEPANEL_MAX_UPLOAD_BYTES "$MAX_UPLOAD_BYTES"
@@ -722,23 +731,12 @@ mv -f "$env_tmp" "$ENV_FILE"
 unset AUDIT_KEY
 install -m 0644 "$ROOT_DIR/deploy/stepanel.service" /etc/systemd/system/stepanel.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-worker.service" /etc/systemd/system/stepanel-worker.service
+install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel.logrotate" /etc/logrotate.d/stepanel
-sudoers_tmp=$(mktemp)
-TXN_TEMPS+=("$sudoers_tmp")
-# The application reaches these helper operations through stepanel-root. Keep
-# their executables root-owned for the broker's transitional implementation,
-# but do not grant the service account an independent sudo capability.
-# Pin the broker's root boundary to the installer-owned webroot. The broker
-# accepts -webroot for tests, but production sudo must not allow the service
-# account to retarget privileged filesystem operations.
-printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-root -webroot /var/www\n' "$APP_USER" >> "$sudoers_tmp"
-if [[ "$DB_LOCAL_HELPER" == "1" ]]; then
-  # Keep the transitional sudo surface limited to database operations that
-  # still stream large SQL payloads or outputs outside the broker JSON ABI.
-  printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/stepanel-dbctl restore *, /usr/local/sbin/stepanel-dbctl restore-dump *, /usr/local/sbin/stepanel-dbctl restore-wordpress *, /usr/local/sbin/stepanel-dbctl dump *\n' "$APP_USER" >> "$sudoers_tmp"
-fi
-visudo -cf "$sudoers_tmp" >/dev/null
-install -m 0440 -o root -g root "$sudoers_tmp" /etc/sudoers.d/stepanel
+# Native installs use the root-owned broker service and its peer-authorized
+# Unix socket. Remove the pre-socket sudo policy during upgrades so the panel
+# service has no sudo capability at all.
+rm -f /etc/sudoers.d/stepanel
 if [[ "$INSTALL_SECURITY" == "1" ]]; then install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-malware-guard" /usr/local/sbin/stepanel-malware-guard; install -m 0644 "$ROOT_DIR/deploy/stepanel-malware-guard.service" /etc/systemd/system/stepanel-malware-guard.service; fi
 if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   if command -v restorecon >/dev/null 2>&1; then
@@ -760,6 +758,7 @@ elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then
 else
   systemctl reload "$APACHE_SERVICE"
 fi
+systemctl enable --now stepanel-root-broker.service
 systemctl enable --now stepanel.service stepanel-worker.service
 health_ready=0
 for _ in {1..120}; do

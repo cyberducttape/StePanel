@@ -448,16 +448,14 @@ func (a *App) restoreImportedDatabase(ctx context.Context, dumpPath, database, u
 		_, cleanupErr := runDatabaseHelperContext(ctx, a.Config, time.Minute, "", "drop-managed", database, user)
 		return cleanupErr
 	}
-	dump, err := os.Open(dumpPath)
-	if err != nil {
+	if _, err := os.Stat(dumpPath); err != nil {
 		if cleanupErr := cleanup(); cleanupErr != nil {
 			return nil, fmt.Errorf("open database dump: %w (cleanup also failed: %w)", err, cleanupErr)
 		}
 		return nil, fmt.Errorf("open database dump: %w", err)
 	}
 	restoreCtx, restoreCancel := context.WithTimeout(ctx, 15*time.Minute)
-	_, err = runBoundedCommandInput(restoreCtx, helperCommandContext(restoreCtx, a.Config, a.Config.DBCtl, "restore-dump", database, site), dump)
-	dump.Close()
+	err = runDatabaseRestoreFromPath(restoreCtx, a.Config, "restore-dump", site, database, "restore", "", dumpPath)
 	restoreCancel()
 	if err != nil {
 		if cleanupErr := cleanup(); cleanupErr != nil {

@@ -57,6 +57,11 @@ func (c *Client) ExecuteDirect(ctx context.Context, req *Request) (*Response, er
 func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Native installs use one long-lived root-owned broker service. This keeps
+	// every broker operation on the same peer-authorized privilege boundary.
+	if socketPath := strings.TrimSpace(os.Getenv("STEPANEL_ROOT_BROKER_SOCKET")); socketPath != "" {
+		return c.executeSocket(ctx, req, socketPath)
+	}
 	if direct {
 		if socketPath := strings.TrimSpace(os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET")); socketPath != "" {
 			return c.executeSocket(ctx, req, socketPath)
@@ -280,6 +285,12 @@ func (c *Client) DBDumpDirect(ctx context.Context, database string) (*Response, 
 // privileged helper invocation.
 func (c *Client) DBRestoreDumpDirect(ctx context.Context, site, database string, dump []byte) (*Response, error) {
 	return c.ExecuteDirect(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump", Database: database, Site: site, Username: "restore", DumpData: dump}})
+}
+
+// DBRestoreFromPath asks the root broker to open and stream a validated dump
+// from an approved staging root. The dump bytes never cross the JSON RPC.
+func (c *Client) DBRestoreFromPath(ctx context.Context, action, site, database, username, password, dumpPath string) (*Response, error) {
+	return c.Execute(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: action, Database: database, Site: site, Username: username, Password: password, DumpPath: dumpPath}})
 }
 
 func (c *Client) dbInventory(ctx context.Context, direct bool) (*Response, error) {

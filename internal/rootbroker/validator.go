@@ -469,6 +469,40 @@ func (v *Validator) validateDBRequest(req *DBRequest) error {
 	if err := v.ValidateUsername(req.Username); err != nil {
 		return err
 	}
+	if req.DumpPath != "" {
+		if err := v.validateDumpPath(req.DumpPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *Validator) validateDumpPath(path string) error {
+	if filepath.IsAbs(path) == false {
+		return errors.New("dump path must be absolute")
+	}
+	cleaned, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("cannot resolve dump path: %w", err)
+	}
+	allowed := false
+	for _, root := range []string{v.webRoot, "/var/lib/ste-panel", "/var/backups/stepanel"} {
+		rootAbs, rootErr := filepath.Abs(root)
+		if rootErr == nil && (cleaned == rootAbs || strings.HasPrefix(cleaned, rootAbs+string(filepath.Separator))) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return errors.New("dump path is outside an approved staging root")
+	}
+	info, err := os.Lstat(cleaned)
+	if err != nil {
+		return fmt.Errorf("inspect dump path: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return errors.New("dump path must be a regular non-symlink file")
+	}
 	return nil
 }
 

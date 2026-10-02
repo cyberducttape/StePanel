@@ -48,11 +48,14 @@ jobs:
         run: |
           set -eu
           go test -p 1 ./internal/rootbroker -coverprofile=rootbroker-coverage.out -covermode=atomic
-          COVERAGE_MINIMUM=40 bash scripts/check-coverage.sh rootbroker-coverage.out
+          # The root broker is the privilege boundary; keep its floor above
+          # the repository-wide gate while the remaining legacy handlers are
+          # retired or brought into the typed matrix.
+          COVERAGE_MINIMUM=65 bash scripts/check-coverage.sh rootbroker-coverage.out
           go test -p 1 ./internal/helper -coverprofile=helper-coverage.out -covermode=atomic
           COVERAGE_MINIMUM=80 bash scripts/check-coverage.sh helper-coverage.out
           go test -p 1 ./internal/importer -coverprofile=importer-coverage.out -covermode=atomic
-          COVERAGE_MINIMUM=30 bash scripts/check-coverage.sh importer-coverage.out
+          COVERAGE_MINIMUM=55 bash scripts/check-coverage.sh importer-coverage.out
           go test -p 1 ./internal/jobs -coverprofile=jobs-coverage.out -covermode=atomic
           COVERAGE_MINIMUM=80 bash scripts/check-coverage.sh jobs-coverage.out
       - name: Race tests
