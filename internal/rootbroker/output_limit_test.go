@@ -64,6 +64,14 @@ func TestBrokerNeverBuffersSubprocessOutputUnbounded(t *testing.T) {
 			t.Fatal(err)
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
+			if assign, ok := node.(*ast.AssignStmt); ok {
+				for _, expr := range assign.Lhs {
+					selector, ok := expr.(*ast.SelectorExpr)
+					if ok && (selector.Sel.Name == "Stdout" || selector.Sel.Name == "Stderr") {
+						t.Errorf("%s: direct cmd.%s assignment bypasses output limits; use stepanelhelper.RunCapped", fset.Position(expr.Pos()), selector.Sel.Name)
+					}
+				}
+			}
 			call, ok := node.(*ast.CallExpr)
 			if !ok {
 				return true

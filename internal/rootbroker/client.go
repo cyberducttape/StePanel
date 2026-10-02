@@ -224,7 +224,7 @@ func (c *Client) AppDelete(ctx context.Context, site string) (*Response, error) 
 }
 
 // DBProvision creates a new database.
-func (c *Client) DBProvision(ctx context.Context, site, database, username string) (*Response, error) {
+func (c *Client) DBProvision(ctx context.Context, site, database, username, encoding, password string) (*Response, error) {
 	req := &Request{
 		RequestType: "db",
 		DB: &DBRequest{
@@ -232,6 +232,8 @@ func (c *Client) DBProvision(ctx context.Context, site, database, username strin
 			Site:     site,
 			Database: database,
 			Username: username,
+			Encoding: encoding,
+			Password: password,
 		},
 	}
 	return c.Execute(ctx, req)

@@ -12,8 +12,18 @@ import (
 // It bridges the main StePanel app with the typed root broker, allowing gradual
 // migration from shell helpers to the Go-based broker.
 type BrokerBridge struct {
-	client *rootbroker.Client
+	client brokerBridgeClient
 	logger *log.Logger
+}
+
+type brokerBridgeClient interface {
+	SiteCreate(context.Context, string, string) (*rootbroker.Response, error)
+	SiteDelete(context.Context, string) (*rootbroker.Response, error)
+	AppApply(context.Context, string, string, int) (*rootbroker.Response, error)
+	DBProvision(context.Context, string, string, string, string, string) (*rootbroker.Response, error)
+	VhostApply(context.Context, string, string, string) (*rootbroker.Response, error)
+	GitClone(context.Context, string, string, string) (*rootbroker.Response, error)
+	Execute(context.Context, *rootbroker.Request) (*rootbroker.Response, error)
 }
 
 // NewBrokerBridge creates a new broker bridge for the app.
@@ -96,10 +106,10 @@ func (b *BrokerBridge) AppApply(ctx context.Context, site string, version string
 }
 
 // DBProvision creates a new database via the broker.
-func (b *BrokerBridge) DBProvision(ctx context.Context, site, database, username string) error {
+func (b *BrokerBridge) DBProvision(ctx context.Context, site, database, username, encoding, password string) error {
 	b.logger.Printf("provisioning database via broker: site=%s database=%s user=%s", site, database, username)
 
-	resp, err := b.client.DBProvision(ctx, site, database, username)
+	resp, err := b.client.DBProvision(ctx, site, database, username, encoding, password)
 	if err != nil {
 		return fmt.Errorf("RPC failed: %w", err)
 	}

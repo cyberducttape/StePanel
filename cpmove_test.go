@@ -205,7 +205,10 @@ func TestSQLDumpsFindsNestedCPanelDumps(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	matches := sqlDumps(filepath.Join(root, "mysql"))
+	matches, err := sqlDumps(filepath.Join(root, "mysql"))
+	if err != nil {
+		t.Fatalf("sqlDumps: %v", err)
+	}
 	if len(matches) != 2 {
 		t.Fatalf("sqlDumps found %d files, want 2: %v", len(matches), matches)
 	}
@@ -214,6 +217,12 @@ func TestSQLDumpsFindsNestedCPanelDumps(t *testing.T) {
 	}
 	if got := databaseName("my-account", "my-account_blog"); got != "my_account_blog" {
 		t.Fatalf("databaseName did not normalize a hyphenated account: %q", got)
+	}
+}
+
+func TestSQLDumpsPropagatesWalkErrors(t *testing.T) {
+	if _, err := sqlDumps(filepath.Join(t.TempDir(), "missing-mysql")); err == nil {
+		t.Fatal("sqlDumps swallowed a directory traversal error")
 	}
 }
 

@@ -500,9 +500,12 @@ func extractArchiveContext(ctx context.Context, archive, destination string) err
 			return err
 		}
 		written, copyErr := io.Copy(dst, io.LimitReader(tr, h.Size))
-		dst.Close()
+		closeErr := dst.Close()
 		if copyErr != nil {
 			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
 		}
 		if written != h.Size {
 			return errors.New("archive entry is truncated")
@@ -515,8 +518,12 @@ func restoreSQL(cfg Config, stage, user string, txn *SiteTransaction) ([]string,
 }
 
 func restoreSQLContext(parent context.Context, cfg Config, stage, user string, txn *SiteTransaction) ([]string, []string) {
-	matches := sqlDumps(filepath.Join(stage, "mysql"))
+	matches, discoveryErr := sqlDumps(filepath.Join(stage, "mysql"))
 	restored, failures := []string{}, []string{}
+	if discoveryErr != nil {
+		failures = append(failures, "discover SQL dumps: "+discoveryErr.Error())
+		return restored, failures
+	}
 	for _, dump := range matches {
 		if err := parent.Err(); err != nil {
 			failures = append(failures, err.Error())
@@ -650,16 +657,19 @@ func mysqlArgs(cfg Config) []string {
 	return args
 }
 
-func sqlDumps(root string) []string {
+func sqlDumps(root string) ([]string, error) {
 	matches := []string{}
-	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".sql") {
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".sql") {
 			matches = append(matches, path)
 		}
 		return nil
 	})
 	sort.Strings(matches)
-	return matches
+	return matches, err
 }
 
 func databaseName(user, db string) string {

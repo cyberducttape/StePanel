@@ -1445,13 +1445,11 @@ const siteHelperPath = "/usr/local/sbin/stepanel-sitectl"
 
 func (execHostOps) RunSiteHelper(ctx context.Context, args ...string) (string, error) {
 	cmd := stepanelhelper.NewCommand(ctx, siteHelperPath, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s %s: %w: %s", siteHelperPath, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	stdout, stderr, err := stepanelhelper.RunCappedSeparate(ctx, cmd, maxBrokerCommandOutput, maxBrokerCommandStderr)
+	if err != nil {
+		return "", fmt.Errorf("%s %s: %w: %s", siteHelperPath, strings.Join(args, " "), err, strings.TrimSpace(string(stderr)))
 	}
-	return stdout.String(), nil
+	return string(stdout), nil
 }
 
 func (execHostOps) WebGroup() (string, error) {
