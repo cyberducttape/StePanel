@@ -82,6 +82,10 @@ test('site overview makes backup failures explicit', async ({ page }) => {
   await page.route('**/api/backups?site=*&limit=500', async (route) => {
     await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'backup service unavailable' }) });
   });
+  // The common login fixture has already loaded the overview once. Reload so
+  // both routes above participate in the initial site-grid request rather
+  // than waiting for a later tab activation.
+  await page.reload();
   await page.getByRole('link', { name: 'Sites', exact: true }).click();
   await expect(page.locator('#siteOverviewStatus')).toContainText(/managed site|No managed sites/);
   const manage = page.getByRole('button', { name: /Manage site/ }).first();
