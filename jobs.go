@@ -1571,6 +1571,8 @@ func (j *Jobs) add(item *Job) error {
 func (j *Jobs) complete(item *Job) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	previousLeaseOwner := item.LeaseOwner
+	previousLeaseExpires := item.LeaseExpires
 	item.LeaseOwner = ""
 	item.LeaseExpires = nil
 	var err error
@@ -1581,7 +1583,22 @@ func (j *Jobs) complete(item *Job) {
 	}
 	if err != nil {
 		j.persistErr = err
+		// Do not expose a completed result that was not durably recorded. The
+		// durable row/file is still active (or its final state is uncertain),
+		// so keep the in-memory view active as well; restart/requeue remains
+		// honest and the readiness check exposes the persistence failure.
+		item.State = "running"
+		item.FinishedAt = nil
+		item.LeaseOwner = previousLeaseOwner
+		item.LeaseExpires = previousLeaseExpires
+		item.Output = nil
+		item.Result = nil
+		item.Backup = nil
+		item.Restore = nil
+		item.WPress = nil
+		item.Error = fmt.Sprintf("completion state could not be persisted: %v", err)
 		log.Printf("persist completed job %s: %v", item.ID, err)
+		j.publish(*item)
 	} else {
 		j.persistErr = nil
 		j.publish(*item)

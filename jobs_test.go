@@ -834,6 +834,40 @@ func TestJobsFailClosedWhenStateCannotBePersisted(t *testing.T) {
 	}
 }
 
+func TestJobsDoNotExposeUnpersistedCompletion(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "jobs.json")
+	jobs, err := OpenJobs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := &Job{ID: "completion-1", Kind: "restore", State: "running", User: "site", StartedAt: time.Now().UTC()}
+	if err := jobs.add(item); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	item.State = "completed"
+	item.Result = &ImportResult{FilesRestored: true}
+	now := time.Now().UTC()
+	item.FinishedAt = &now
+	jobs.complete(item)
+	got, ok := jobs.Get(item.ID)
+	if !ok {
+		t.Fatal("job disappeared after completion persistence failure")
+	}
+	if got.State != "running" || got.Result != nil || got.FinishedAt != nil {
+		t.Fatalf("job after persistence failure = %#v, want active without result", got)
+	}
+	if jobs.PersistenceError() == nil {
+		t.Fatal("completion persistence failure was not recorded")
+	}
+}
+
 // TestDurableListAlwaysIncludesActiveJobsOutsideTheRecentWindow keeps the
 // Job Center's active count authoritative: a long-running job must be listed
 // even when many newer jobs have finished since it started.
