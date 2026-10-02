@@ -31,8 +31,8 @@ SystemCallArchitectures=native
 # atomic sibling (for example /etc/passwd.<pid>) before renaming it. The
 # broker is the only root service that needs this host mutation surface; the
 # validated helpers still enforce narrower operation-specific paths.
-ProtectSystem=full
-ReadWritePaths=/etc /run /var/backups/stepanel /var/lib/stepanel /var/lib/stepanel-privileged /var/www /var/log/apache2 /var/log/httpd
+ProtectSystem=true
+ReadWritePaths=/etc /run /var/backups/stepanel /var/lib/stepanel /var/lib/stepanel-privileged /var/www -/var/log/apache2 -/var/log/httpd
 
 [Install]
 WantedBy=multi-user.target
