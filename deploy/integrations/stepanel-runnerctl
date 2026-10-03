@@ -1,19 +1,158 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+runner_owner_pid=$BASHPID
 [[ $EUID -eq 0 ]] || { echo 'must run as root' >&2; exit 1; }
 [[ $# -eq 10 && $1 == "build" ]] || { echo 'usage: stepanel-runnerctl build SITE IMAGE ROOT SCRIPT CPU_PERCENT MEMORY_MB TASKS_MAX NETWORK_MODE MAX_IMAGE_BYTES' >&2; exit 64; }
 site=$2 image=$3 root=$4 script=$5 cpu_percent=$6 memory_mb=$7 tasks_max=$8 network_mode=$9 max_image_bytes=${10}
 [[ $site =~ ^[a-z0-9_-]{1,32}$ && $image =~ ^[a-z0-9][a-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$ && $cpu_percent =~ ^[0-9]+$ && $memory_mb =~ ^[0-9]+$ && $tasks_max =~ ^[0-9]+$ && $max_image_bytes =~ ^[0-9]+$ && $cpu_percent -ge 25 && $cpu_percent -le 6400 && $memory_mb -ge 64 && $memory_mb -le 1048576 && $tasks_max -ge 16 && $tasks_max -le 100000 && $max_image_bytes -gt 0 && ( $network_mode == "none" || $network_mode == "egress" ) && ( $root == "/var/www/sites/$site/public" || $root =~ ^/var/www/sites/$site/\.stepanel-release-[A-Za-z0-9-]+$ ) ]] || { echo 'invalid build request' >&2; exit 1; }
 site_root="/var/www/sites/$site"
 [[ -d $root && ! -L $root && -f $script && ! -L $script && -d "$site_root" && ! -L "$site_root" ]] || { echo 'invalid build inputs' >&2; exit 1; }
-command -v podman >/dev/null || { echo 'rootless Podman is required' >&2; exit 1; }
+podman_bin=$(command -v podman) || { echo 'rootless Podman is required' >&2; exit 1; }
+command -v systemd-run >/dev/null || { echo 'systemd-run is required for isolated runner execution' >&2; exit 1; }
 hash=$(printf '%s' "$site" | sha256sum); hash=${hash%% *}; prefix=${site:0:18}; prefix=${prefix//_/-}; site_user="sp-${prefix}-${hash:0:8}"
 id "$site_user" >/dev/null 2>&1 || { echo 'site user is unavailable' >&2; exit 1; }
+site_uid=$(id -u "$site_user")
+site_gid=$(id -g "$site_user")
+for mapping_tool in newuidmap newgidmap; do
+  command -v "$mapping_tool" >/dev/null || { echo "$mapping_tool is required for rootless Podman; install the host uidmap tools" >&2; exit 1; }
+done
+
+# Site accounts are system users, so they commonly have no subordinate ID
+# mappings. Allocate them only when they first request a container build.
+# A single lock serializes StePanel's scan-and-allocate sequence across sites;
+# usermod still performs the authoritative shadow-utils file update.
+subid_lock=/run/stepanel-subid-allocation.lock
+umask 0077
+exec 9>"$subid_lock"
+umask 0007
+flock -x 9 || { echo 'could not lock subordinate ID allocation' >&2; exit 1; }
+subid_source=$(awk '$1 == "subid:" { print $2; exit }' /etc/nsswitch.conf 2>/dev/null || true)
+[[ -z $subid_source || $subid_source == files ]] || { echo 'rootless Podman requires file-backed subuid/subgid allocation' >&2; exit 1; }
+
+login_def() {
+  local key=$1 fallback=$2 value
+  value=$(awk -v key="$key" '$1 == key && $2 ~ /^[0-9]+$/ { value=$2 } END { if (value != "") print value }' /etc/login.defs 2>/dev/null || true)
+  printf '%s' "${value:-$fallback}"
+}
+
+ensure_subid_range() {
+  local kind=$1 file min_key max_key count_key add_option min max count candidate last start length end
+  case "$kind" in
+    uid) file=/etc/subuid; min_key=SUB_UID_MIN; max_key=SUB_UID_MAX; count_key=SUB_UID_COUNT; add_option=-v ;;
+    gid) file=/etc/subgid; min_key=SUB_GID_MIN; max_key=SUB_GID_MAX; count_key=SUB_GID_COUNT; add_option=-w ;;
+    *) return 64 ;;
+  esac
+  if [[ -L $file || ( -e $file && ! -f $file ) ]]; then
+    echo "$file is not a regular file" >&2
+    return 1
+  fi
+  if [[ ! -e $file ]]; then
+    (set -o noclobber; : > "$file") 2>/dev/null || true
+    [[ -f $file && ! -L $file ]] || { echo "could not safely create $file" >&2; return 1; }
+    chown root:root "$file"
+    chmod 0644 "$file"
+  fi
+  if ! awk -F: 'NF == 0 || $1 ~ /^[[:space:]]*#/ { next } NF != 3 || $1 == "" || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/ || $3 < 1 { exit 1 }' "$file"; then
+    echo "$file contains an invalid subordinate ID entry" >&2
+    return 1
+  fi
+  min=$(login_def "$min_key" 100000)
+  max=$(login_def "$max_key" 600100000)
+  count=$(login_def "$count_key" 65536)
+  [[ $min =~ ^[0-9]+$ && $max =~ ^[0-9]+$ && $count =~ ^[0-9]+$ && $count -gt 0 && $max -ge $min ]] || {
+    echo "invalid $kind subordinate ID range in /etc/login.defs" >&2
+    return 1
+  }
+  if awk -F: -v name="$site_user" -v uid="$site_uid" -v need="$count" \
+    '($1 == name || $1 == uid) && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $3 >= need { found=1 } END { exit !found }' "$file"; then
+    return 0
+  fi
+
+  candidate=$min
+  while read -r start length; do
+    [[ $start =~ ^[0-9]+$ && $length =~ ^[0-9]+$ && $length -gt 0 ]] || continue
+    end=$((start + length - 1))
+    (( end < candidate )) && continue
+    if (( start > candidate && start - candidate >= count )); then
+      break
+    fi
+    (( end >= candidate )) && candidate=$((end + 1))
+  done < <(awk -F: '$2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $3 > 0 { print $2, $3 }' "$file" | LC_ALL=C sort -n -k1,1)
+
+  last=$((candidate + count - 1))
+  if (( last > max )); then
+    echo "no free $kind subordinate ID range of $count IDs remains in $file" >&2
+    return 1
+  fi
+  if ! usermod "$add_option" "$candidate-$last" "$site_user"; then
+    echo "could not assign $kind subordinate IDs to $site_user" >&2
+    return 1
+  fi
+}
+
+ensure_subid_range uid || exit 1
+ensure_subid_range gid || exit 1
+flock -u 9
+exec 9>&-
 artifact="$site_root/.stepanel-artifact"
+scratch=
+
+# Podman must run outside the broker's NoNewPrivileges and namespace
+# restrictions: newuidmap/newgidmap need their narrowly scoped setuid
+# transition. systemd starts a separate site-owned unit with explicit limits
+# and a delegated cgroup subtree; the privileged broker itself remains fully
+# restricted. The transient unit is tied to the broker and has a hard runtime
+# limit so a killed broker cannot leave a build running indefinitely.
+runner_unit=
+runner_runtime=
+cleanup_runner() {
+  if [[ -n ${runner_unit:-} ]]; then
+    systemctl stop "$runner_unit" >/dev/null 2>&1 || true
+  fi
+  if [[ -n ${runner_runtime:-} ]]; then
+    runuser -u "$site_user" -- rm -rf -- "/run/$runner_runtime" 2>/dev/null || true
+  fi
+  if [[ -n ${scratch:-} ]]; then
+    runuser -u "$site_user" -- rm -rf -- "$scratch" 2>/dev/null || true
+  fi
+}
+trap cleanup_runner EXIT
+
+run_podman_as_site() {
+  runner_runtime="stepanel-runner-${site_user}-${BASHPID}-${RANDOM}"
+  runner_unit="stepanel-runner-${runner_owner_pid}.service"
+  local memory_overhead=128 tasks_overhead=32
+  if systemd-run --quiet --wait --pipe --collect --service-type=exec --unit="$runner_unit" \
+    --uid="$site_user" --gid="$site_user" --working-directory="$root" \
+    --setenv="HOME=$site_root" --setenv="XDG_RUNTIME_DIR=/run/$runner_runtime" \
+    --property=NoNewPrivileges=no --property=RestrictSUIDSGID=no \
+    --property=Delegate=yes --property=PartOf=stepanel-root-broker.service \
+    --property=PrivateTmp=yes --property=PrivateDevices=yes --property=ProtectHome=yes \
+    --property=ProtectSystem=strict --property="ReadWritePaths=$site_root" \
+    --property=ProtectProc=invisible --property=ProtectKernelTunables=yes \
+    --property=ProtectKernelModules=yes --property=ProtectKernelLogs=yes \
+    --property=ProtectClock=yes --property=RestrictRealtime=yes \
+    --property='RestrictNamespaces=cgroup ipc mnt net pid uts user' \
+    --property='RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK' \
+    --property=CPUQuota="${cpu_percent}%" \
+    --property=MemoryMax="$((memory_mb + memory_overhead))M" \
+    --property=TasksMax="$((tasks_max + tasks_overhead))" \
+    --property=RuntimeDirectory="$runner_runtime" --property=RuntimeDirectoryMode=0700 \
+    --property=RuntimeMaxSec=15min --property=TimeoutStopSec=5s \
+    -- "$podman_bin" --cgroup-manager=cgroupfs "${@:2}"; then
+    local status=0
+  else
+    local status=$?
+  fi
+  runner_unit=
+  runner_runtime=
+  return "$status"
+}
+
 # Pull the immutable digest before execution so the size gate cannot be
 # bypassed by a first-use pull during `podman run`.
-runuser -u "$site_user" -- podman pull "$image" >/dev/null
-image_size=$(runuser -u "$site_user" -- podman image inspect --format '{{.Size}}' "$image")
+run_podman_as_site "$podman_bin" pull "$image" >/dev/null
+image_size=$(run_podman_as_site "$podman_bin" image inspect --format '{{.Size}}' "$image")
 [[ $image_size =~ ^[0-9]+$ && $image_size -le $max_image_bytes ]] || { echo "container image exceeds configured size limit ($max_image_bytes bytes)" >&2; exit 1; }
 # Keep all customer-tree mutation under the site account. Root validates the
 # final directory but never recursively deletes a customer-controlled path.
@@ -21,8 +160,6 @@ runuser -u "$site_user" -- install -d -m 0750 "$artifact"
 [[ -d $artifact && ! -L $artifact ]] || { echo 'artifact path is not a directory' >&2; exit 1; }
 artifact_uid=$(stat -c '%u' -- "$artifact")
 artifact_gid=$(stat -c '%g' -- "$artifact")
-site_uid=$(id -u "$site_user")
-site_gid=$(id -g "$site_user")
 [[ $artifact_uid == "$site_uid" && $artifact_gid == "$site_gid" ]] || { echo 'artifact directory has unexpected ownership' >&2; exit 1; }
 # Do not follow build-created symlinks or cross into another filesystem. This
 # runs as the site account, so a path race cannot turn cleanup into root deletion.
@@ -38,7 +175,6 @@ runuser -u "$site_user" -- install -d -m 0700 "$scratch"
 # Any exit after this point (including mid-setup failures) must destroy the
 # site-owned scratch tree. Deletion runs as the site account, so no root
 # rm -rf ever touches a customer path.
-trap 'runuser -u "$site_user" -- rm -rf -- "$scratch" 2>/dev/null || true' EXIT
 scratch_uid=$(stat -c '%u' -- "$scratch")
 scratch_gid=$(stat -c '%g' -- "$scratch")
 [[ $scratch_uid == "$site_uid" && $scratch_gid == "$site_gid" ]] || { echo 'scratch directory has unexpected ownership' >&2; exit 1; }
@@ -53,4 +189,4 @@ cpus=$(awk "BEGIN { printf \"%.2f\", $cpu_percent / 100 }")
 # Convert network_mode to podman flag: "none" -> "--network none", "egress" -> "--network slirp4netns"
 network_flag="--network none"
 [[ $network_mode == "egress" ]] && network_flag="--network slirp4netns"
-runuser -u "$site_user" -- podman run --rm $network_flag --userns keep-id --cap-drop ALL --security-opt no-new-privileges --read-only --cpus "$cpus" --memory "${memory_mb}m" --pids-limit "$tasks_max" --tmpfs /tmp:rw,noexec,nosuid,size=512m -v "$root:/src:ro,Z" -v "$artifact:/artifact:rw,Z" -v "$build_script:/run/stepanel/build.sh:ro,Z" -w /src "$image" /bin/sh /run/stepanel/build.sh
+run_podman_as_site "$podman_bin" run --rm $network_flag --userns keep-id --cap-drop ALL --security-opt no-new-privileges --read-only --cpus "$cpus" --memory "${memory_mb}m" --pids-limit "$tasks_max" --tmpfs /tmp:rw,noexec,nosuid,size=512m -v "$root:/src:ro,Z" -v "$artifact:/artifact:rw,Z" -v "$build_script:/run/stepanel/build.sh:ro,Z" -w /src "$image" /bin/sh /run/stepanel/build.sh

@@ -782,19 +782,50 @@ func TestDatabaseCredentialIsolation(t *testing.T) {
 	t.Logf("credentials file mode: %v (should not be world-readable in production)", info.Mode())
 }
 
-// TestRootBrokerNamespacePolicy keeps production and lab units aligned while
-// allowing the namespaces required by the rootless Podman build runner.
+// TestRootBrokerNamespacePolicy keeps production and lab broker units aligned
+// and verifies that namespace access remains denied in the privileged broker.
 func TestRootBrokerNamespacePolicy(t *testing.T) {
 	for _, path := range []string{"deploy/stepanel-root-broker.service", "deploy/lab/stepanel-root-broker.service"} {
 		unit, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}
-		if !bytes.Contains(unit, []byte("RestrictNamespaces=mnt net pid user\n")) {
-			t.Errorf("%s must allow only the namespaces required by rootless Podman", path)
+		if !bytes.Contains(unit, []byte("NoNewPrivileges=true\n")) {
+			t.Errorf("%s must prevent privilege gain in the root broker", path)
 		}
-		if bytes.Contains(unit, []byte("RestrictNamespaces=true\n")) {
-			t.Errorf("%s blocks rootless Podman namespace creation", path)
+		if !bytes.Contains(unit, []byte("RestrictNamespaces=true\n")) {
+			t.Errorf("%s must prevent namespace creation in the root broker", path)
 		}
+	}
+}
+
+func TestRootlessRunnerUsesBoundedTransientService(t *testing.T) {
+	helper, err := os.ReadFile("deploy/integrations/stepanel-runnerctl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"systemd-run --quiet --wait --pipe --collect --service-type=exec",
+		"--property=NoNewPrivileges=no",
+		"--property=Delegate=yes",
+		"--property=ProtectSystem=strict",
+		"--property=ProtectProc=invisible",
+		"--property=ProtectKernelTunables=yes",
+		"--property=RuntimeMaxSec=15min",
+		"runner_owner_pid=$BASHPID",
+		"runner_unit=\"stepanel-runner-${runner_owner_pid}.service\"",
+		"--property=CPUQuota=",
+		"--property=MemoryMax=",
+		"--property=TasksMax=",
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
+		"ensure_subid_range uid",
+		"ensure_subid_range gid",
+	} {
+		if !bytes.Contains(helper, []byte(required)) {
+			t.Errorf("runner helper is missing required isolation setting %q", required)
+		}
+	}
+	if bytes.Contains(helper, []byte("runuser -u \"$site_user\" -- podman")) {
+		t.Fatal("Podman must run outside the broker's inherited NoNewPrivileges restriction")
 	}
 }

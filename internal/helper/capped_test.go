@@ -69,6 +69,23 @@ func TestRunCappedKillsProcessGroupOnTimeout(t *testing.T) {
 	requireProcessGone(t, pidFile)
 }
 
+func TestRunCappedWithCleanupRunsBeforeTimeoutKill(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	cleanupCalled := make(chan struct{})
+	_, err := RunCappedWithCleanup(ctx, exec.Command("sh", "-c", "sleep 60"), 1024, func() {
+		close(cleanupCalled)
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v; want deadline exceeded", err)
+	}
+	select {
+	case <-cleanupCalled:
+	default:
+		t.Fatal("cleanup callback was not called before terminating the process group")
+	}
+}
+
 func requireProcessGone(t *testing.T, pidFile string) {
 	t.Helper()
 	data, err := os.ReadFile(pidFile)

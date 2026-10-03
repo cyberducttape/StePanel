@@ -71,6 +71,14 @@ rm -f -- "$artifact/proof" 2>/dev/null || true
   "$RUNNER_TEST_SITE" "$RUNNER_TEST_IMAGE" "$site_root/public" "$script" \
   100 256 128 none 5368709120
 
+site_uid=$(id -u "$site_user")
+for subid_file in /etc/subuid /etc/subgid; do
+  [[ -f $subid_file && ! -L $subid_file ]] || { echo "$subid_file is unavailable" >&2; exit 1; }
+  awk -F: -v name="$site_user" -v uid="$site_uid" \
+    '($1 == name || $1 == uid) && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $3 >= 65536 { found=1 } END { exit !found }' \
+    "$subid_file" || { echo "$site_user has no usable subordinate ID range in $subid_file" >&2; exit 1; }
+done
+
 # Post-conditions: helper must have cleaned up the scratch dir (the trap
 # inside stepanel-runnerctl) and the build must actually have run inside the
 # container, evidenced by the file it wrote to /artifact.

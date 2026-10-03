@@ -121,12 +121,11 @@ fi
 systemctl is-active --quiet stepanel-root-broker.service
 root_broker_props=$(systemctl show stepanel-root-broker.service -p NoNewPrivileges -p PrivateDevices -p PrivateTmp -p ProtectSystem -p RestrictNamespaces)
 root_broker_rw_paths=$(systemctl show stepanel-root-broker.service -p ReadWritePaths --value)
-root_broker_namespaces=$(sed -n 's/^RestrictNamespaces=//p' <<<"$root_broker_props" | tr ' ' '\n' | sort | paste -sd ' ' -)
 grep -Fxq 'NoNewPrivileges=yes' <<<"$root_broker_props"
 grep -Fxq 'PrivateDevices=yes' <<<"$root_broker_props"
 grep -Fxq 'PrivateTmp=yes' <<<"$root_broker_props"
 grep -Fxq 'ProtectSystem=strict' <<<"$root_broker_props"
-[[ $root_broker_namespaces == 'mnt net pid user' ]]
+grep -Fxq 'RestrictNamespaces=yes' <<<"$root_broker_props"
 grep -Eq '(^| )/etc( |$)' <<<"$root_broker_rw_paths"
 grep -Eq '^ReadWritePaths=.* /etc/\.pwd\.lock' /etc/systemd/system/stepanel-root-broker.service
 systemctl restart stepanel.service stepanel-worker.service

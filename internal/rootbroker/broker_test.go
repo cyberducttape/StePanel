@@ -40,6 +40,24 @@ func TestBrokerHealthRequestDoesNotMutateHost(t *testing.T) {
 	}
 }
 
+func TestStopRunnerTransientUnitUsesOnlyHelperPID(t *testing.T) {
+	capture := filepath.Join(t.TempDir(), "systemctl-args")
+	fakeSystemctl := filepath.Join(t.TempDir(), "systemctl")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + capture + "\n"
+	if err := os.WriteFile(fakeSystemctl, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	stopRunnerTransientUnit(fakeSystemctl, 1234)
+	args, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(args), "--no-block\nstop\nstepanel-runner-1234.service\n"; got != want {
+		t.Fatalf("systemctl arguments = %q, want %q", got, want)
+	}
+	stopRunnerTransientUnit(fakeSystemctl, 0)
+}
+
 func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
 	broker, err := newTestBroker(t, t.TempDir(), log.New(os.Stderr, "[test] ", 0))
 	if err != nil {

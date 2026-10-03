@@ -51,10 +51,21 @@ func (b *cappedBuffer) bytes() []byte {
 // RunCapped runs cmd with stdout and stderr sharing one capped buffer and
 // returns the combined output. See RunCappedSeparate for the guarantees.
 func RunCapped(ctx context.Context, cmd *exec.Cmd, limit int) ([]byte, error) {
+	return runCappedWithCleanup(ctx, cmd, limit, nil)
+}
+
+// RunCappedWithCleanup is RunCapped with a bounded external-resource cleanup
+// callback invoked before the subprocess group is killed on timeout or output
+// overflow. It is for commands that create work outside their process tree.
+func RunCappedWithCleanup(ctx context.Context, cmd *exec.Cmd, limit int, cleanup func()) ([]byte, error) {
+	return runCappedWithCleanup(ctx, cmd, limit, cleanup)
+}
+
+func runCappedWithCleanup(ctx context.Context, cmd *exec.Cmd, limit int, cleanup func()) ([]byte, error) {
 	exceeded := make(chan struct{})
 	once := &sync.Once{}
 	output := &cappedBuffer{limit: limit, exceeded: exceeded, once: once}
-	err := runCapped(ctx, cmd, output, output, exceeded)
+	err := runCapped(ctx, cmd, output, output, exceeded, cleanup)
 	return output.bytes(), err
 }
 
@@ -68,7 +79,7 @@ func RunCappedSeparate(ctx context.Context, cmd *exec.Cmd, stdoutLimit, stderrLi
 	once := &sync.Once{}
 	out := &cappedBuffer{limit: stdoutLimit, exceeded: exceeded, once: once}
 	errOut := &cappedBuffer{limit: stderrLimit, exceeded: exceeded, once: once}
-	err = runCapped(ctx, cmd, out, errOut, exceeded)
+	err = runCapped(ctx, cmd, out, errOut, exceeded, nil)
 	return out.bytes(), errOut.bytes(), err
 }
 
@@ -78,11 +89,11 @@ func RunCappedSeparate(ctx context.Context, cmd *exec.Cmd, stdoutLimit, stderrLi
 func RunCappedToFile(ctx context.Context, cmd *exec.Cmd, file *os.File, stderrLimit int) (stderr []byte, err error) {
 	exceeded := make(chan struct{})
 	errOut := &cappedBuffer{limit: stderrLimit, exceeded: exceeded, once: &sync.Once{}}
-	err = runCapped(ctx, cmd, file, errOut, exceeded)
+	err = runCapped(ctx, cmd, file, errOut, exceeded, nil)
 	return errOut.bytes(), err
 }
 
-func runCapped(ctx context.Context, cmd *exec.Cmd, stdout io.Writer, stderr *cappedBuffer, exceeded <-chan struct{}) error {
+func runCapped(ctx context.Context, cmd *exec.Cmd, stdout io.Writer, stderr *cappedBuffer, exceeded <-chan struct{}, cleanup func()) error {
 	if cmd.Stdout != nil || cmd.Stderr != nil {
 		return errors.New("capped command must not have preassigned output")
 	}
@@ -95,6 +106,9 @@ func runCapped(ctx context.Context, cmd *exec.Cmd, stdout io.Writer, stderr *cap
 	waitErr := make(chan error, 1)
 	go func() { waitErr <- cmd.Wait() }()
 	killGroup := func() {
+		if cleanup != nil {
+			cleanup()
+		}
 		if cmd.Process != nil {
 			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
 		}

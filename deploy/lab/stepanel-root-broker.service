@@ -15,6 +15,5 @@ NoNewPrivileges=true
 PrivateDevices=true
 PrivateTmp=true
 ProtectSystem=strict
-# Match production: rootless Podman requires these namespaces for builds.
-RestrictNamespaces=mnt net pid user
+RestrictNamespaces=true
 ReadWritePaths=/etc /etc/.pwd.lock /etc/.grp.lock /etc/.shadow.lock /etc/.gshadow.lock /run /tmp /var/backups /var/lib /var/www /var/log

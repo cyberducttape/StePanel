@@ -192,6 +192,17 @@ area. Image tags are rejected; use an image reference ending in
 ownership and clears it without following symlinks or crossing a filesystem
 boundary. Activation remains a separate StePanel atomic-release operation.
 
+Each Podman command runs in a transient systemd service as the site identity;
+this keeps Podman’s namespace and subordinate-ID setup outside the root
+broker’s `NoNewPrivileges` boundary. The transient service has strict host
+filesystem protections, delegated cgroups, explicit CPU/memory/process limits,
+and a hard runtime limit. The first build for a site lazily allocates a unique
+subordinate UID/GID range using the host’s shadow-utils configuration. Runner
+hosts must provide Podman, `systemd-run`, `newuidmap`, `newgidmap`, file-backed
+`/etc/subuid` and `/etc/subgid`, and a systemd/kernel configuration that
+supports rootless user namespaces and delegated cgroups. Builds fail closed
+with an actionable error if these prerequisites are missing.
+
 ## Node developer tooling
 
 `POST /api/node/tooling` accepts `{site, action, package_manager}`. Actions are

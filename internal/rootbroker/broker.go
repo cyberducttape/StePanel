@@ -243,7 +243,18 @@ func (b *Broker) handleHelperRequest(ctx context.Context, req *HelperRequest) (*
 	if len(req.Input) > 0 {
 		cmd.Stdin = bytes.NewReader(req.Input)
 	}
-	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	var output []byte
+	var err error
+	if req.Name == "runnerctl" && req.Action == "build" {
+		output, err = stepanelhelper.RunCappedWithCleanup(ctx, cmd, maxBrokerCommandOutput, func() {
+			if cmd.Process == nil {
+				return
+			}
+			stopRunnerTransientUnit(b.systemctlPath, cmd.Process.Pid)
+		})
+	} else {
+		output, err = stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	}
 	if errors.Is(err, stepanelhelper.ErrOutputLimitExceeded) {
 		return &Response{OK: false, Error: "helper output exceeds broker limit"}, nil
 	}
@@ -255,6 +266,15 @@ func (b *Broker) handleHelperRequest(ctx context.Context, req *HelperRequest) (*
 		return nil, marshalErr
 	}
 	return &Response{OK: true, Details: details}, nil
+}
+
+func stopRunnerTransientUnit(systemctl string, helperPID int) {
+	if helperPID <= 0 {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = exec.CommandContext(cleanupCtx, systemctl, "--no-block", "stop", fmt.Sprintf("stepanel-runner-%d.service", helperPID)).Run()
 }
 
 // helperMutatesAccounts reports whether a helper action can run useradd,
