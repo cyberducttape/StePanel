@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/migration"
+	"github.com/cyberducttape/StePanel/internal/recovery"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,6 +226,10 @@ var controlPlaneMigrations = []*migration.Migration{
 	migration.NewMigration(9, "index job listing and claim order", func(tx *sql.Tx) error {
 		_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS jobs_started_idx ON jobs(started_at, id);
 CREATE INDEX IF NOT EXISTS jobs_owner_state_idx ON jobs(owner, state, started_at, id);`)
+		return err
+	}),
+	migration.NewMigration(10, "record restore rehearsal history", func(tx *sql.Tx) error {
+		_, err := tx.Exec(recovery.Schema)
 		return err
 	}),
 }

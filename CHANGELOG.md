@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Recovery
+
+- **Restore rehearsals are recorded and summarized per site**: every
+  rehearsal, passed or failed, is stored with its timing (migration 10), and
+  `GET /api/sites/recovery/{site}` plus a Recovery status panel on the Backups
+  tab report a confidence level (`verified`, `degraded`, `failing`,
+  `unverified`, `no_backup`) with its reasons, the last backup and offsite
+  copy, measured recovery time, recovery point, and whether the encryption key
+  is proven. The status states what a rehearsal proves: the archive is
+  verified, decrypted, and extracted; database import and application start
+  are not yet rehearsed.
+- **Automatic rehearsals follow scheduled backups**: a successful scheduled
+  backup queues a rehearsal of that backup when the site has not been
+  rehearsed within `STEPANEL_REHEARSAL_INTERVAL_HOURS` (default 24; `0`
+  disables). Rehearsals refuse to start without the free-space reserve.
+
 ### Durable Jobs and Control Plane
 
 - **Job cleanup no longer diverges from SQLite**: `Jobs.Cleanup` removed expired

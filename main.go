@@ -13,6 +13,7 @@ import (
 	httputil "github.com/cyberducttape/StePanel/internal/http"
 	"github.com/cyberducttape/StePanel/internal/metadata"
 	"github.com/cyberducttape/StePanel/internal/operations"
+	"github.com/cyberducttape/StePanel/internal/recovery"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"github.com/cyberducttape/StePanel/internal/safehttp"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
@@ -57,6 +58,7 @@ type App struct {
 	Resources                *ResourceStore
 	Webhooks                 *WebhookConfigStore
 	BackupIndex              *metadata.BackupIndex
+	Recovery                 *recovery.Store
 	ResourceBudget           *ResourceBudget
 	MetadataCache            *MetadataCache
 	databaseDiagnosticsMu    sync.Mutex
@@ -350,6 +352,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize backup index: %v", err)
 	}
+	recoveryStore, err := recovery.NewStore(controlPlaneDB)
+	if err != nil {
+		log.Fatalf("initialize recovery rehearsal store: %v", err)
+	}
 	auth.apiTokens = &apiTokenStore{db: controlPlaneDB}
 	accounts, err := OpenAccountStoreDB(controlPlaneDB, cfg.AccountState, cfg.AccountKey)
 	if err != nil {
@@ -475,7 +481,7 @@ func main() {
 		log.Fatalf("open backup schedules: %v", err)
 	}
 	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager}
+	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager}
 	app.startup.begin()
 	var startupAuditErr error
 	// Reconcile domains independently. A single shared deadline allowed a slow
@@ -705,6 +711,7 @@ func main() {
 	mux.Handle("/api/sites", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.siteList)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/overview", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteOverviewList)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/overview/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteOverviewResource)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/sites/recovery/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteRecovery)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/environment/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteEnvironment)), http.MethodGet, http.MethodPut, http.MethodDelete))
 	mux.Handle("/api/sites/redis/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteRedis)), http.MethodGet, http.MethodPut, http.MethodDelete))
 	mux.Handle("/api/sites/access/", allowMethods(app.Auth.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1213,6 +1220,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		if err := pruneSiteBackups(a.Config.BackupRoot, access, request.KeepLast); err != nil {
 			recordAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
 		}
+		a.maybeEnqueueScheduledRehearsal(ctx, request.Site, filepath.Base(result.Path))
 	}
 	output, err := json.Marshal(result)
 	if err != nil {

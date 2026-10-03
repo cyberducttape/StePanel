@@ -166,3 +166,48 @@ test('shared destructive confirmation requires the exact typed value', async ({ 
   await action.click();
   expect(await result).toBe(true);
 });
+
+test('site backups tab shows a failing restore rehearsal and what it proves', async ({ page }) => {
+  // Fixture: one site whose most recent rehearsal failed after an earlier
+  // pass. The UI must lead with the failure, not the older success.
+  const site = { site: 'e2e-site', routes: [], applications: [], database_count: 0 };
+  await page.route('**/api/sites/overview', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [site] }) }));
+  await page.route('**/api/sites/overview/e2e-site', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(site) }));
+  await page.route('**/api/backups?site=*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ backups: [] }) }));
+  const now = new Date().toISOString();
+  await page.route('**/api/sites/recovery/e2e-site', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      site: 'e2e-site',
+      confidence: 'failing',
+      summary: 'The most recent restore rehearsal failed; recovery from this site\'s backups is not proven.',
+      reasons: ['Rehearsal of nightly-backup failed: extract verified backup: unexpected EOF'],
+      last_backup: { name: 'nightly-backup', created_at: now, age_seconds: 60, integrity: 'verified', encrypted: true },
+      offsite: { state: 'pending' },
+      last_rehearsal: { at: now, backup: 'nightly-backup', outcome: 'failed', trigger: 'scheduled', level: 'archive', level_description: 'Backup signature verified, archive decrypted and extracted, files and database dumps recovered. Database import and application start are not yet rehearsed.', duration_ms: 1200, error: 'unexpected EOF' },
+      last_passed_rehearsal: { at: now, backup: 'older-backup', outcome: 'passed', trigger: 'manual', level: 'archive', level_description: 'Backup signature verified, archive decrypted and extracted, files and database dumps recovered. Database import and application start are not yet rehearsed.', duration_ms: 77000 },
+      measured_recovery_ms: 77000,
+      recovery_point_age_seconds: 60,
+      encryption_key: 'healthy',
+      history: [],
+      rehearsal_interval_hours: 24,
+      automatic_rehearsals_enabled: true,
+      scheduled_backups: true,
+    }),
+  }));
+  await page.reload();
+  await page.getByRole('link', { name: 'Sites', exact: true }).click();
+  await page.getByRole('button', { name: /Manage site/ }).first().click();
+  await expect(page.locator('.overview-stat').filter({ hasText: /^Recovery/ })).toContainText('Failing');
+  await page.getByRole('tab', { name: 'Backups' }).click();
+  const panel = page.getByRole('region', { name: 'Recovery status' });
+  await expect(panel).toContainText('Failing');
+  await expect(panel.getByRole('list', { name: 'Recovery findings' })).toContainText('unexpected EOF');
+  await expect(panel).toContainText('1m 17s');
+  await expect(panel).toContainText('Not yet uploaded');
+  await expect(panel).toContainText('Database import and application start are not yet rehearsed');
+  await expect(panel).toContainText('at most every 24h');
+  const result = await new AxeBuilder({ page }).include('section.recovery-status').analyze();
+  expect(result.violations.map((violation) => `${violation.id}: ${violation.help}`)).toEqual([]);
+});

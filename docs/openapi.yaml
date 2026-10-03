@@ -479,6 +479,19 @@ paths:
       responses:
         '200': {description: Site workspace details}
         '404': {description: Site not found}
+  /api/sites/recovery/:
+    get:
+      summary: Recovery status for one site, from backups, offsite copies, and restore rehearsals
+      description: >
+        Path is /api/sites/recovery/{site}. Requires backup:read. Confidence is
+        verified, degraded, failing, unverified, or no_backup, with the reasons
+        that lowered it. Each rehearsal states the level it proved; the archive
+        level does not include database import or application start.
+      responses:
+        '200': {description: Recovery status with the last ten rehearsals}
+        '403': {description: Site is not assigned to this account}
+        '422': {description: Invalid site}
+        '503': {description: Recovery history is unavailable}
   /api/sites/deploy:
     post:
       summary: Deploy a PHP site through its isolated PHP-FPM pool

@@ -286,12 +286,13 @@
 
   async function renderOverviewTab(site, panel, ctx) {
     const observe = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
-    const [overview, backups, deploymentList, usage, php] = await Promise.all([
+    const [overview, backups, deploymentList, usage, php, recoveryResult] = await Promise.all([
       ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
       observe(ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=500`)),
       observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
       observe(ctx.getJSON(`/api/sites/usage/${encodeURIComponent(site)}`)),
       observe(ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`)),
+      ctx.can('backup:read') ? observe(ctx.getJSON(`/api/sites/recovery/${encodeURIComponent(site)}`)) : Promise.resolve(null),
     ]);
 
     const routes = overview.routes || [];
@@ -335,6 +336,13 @@
       ['Domains', routes.length ? routes.map((r) => r.domain).join(', ') : 'No domain connected', `${routes.length} route(s)`],
       ['PHP runtime', phpValue, phpNote],
       ['Last verified backup', backupValue, backupNote],
+      ...(recoveryResult ? [[
+        'Recovery',
+        recoveryResult.ok ? recoveryBadge(recoveryResult.value, ctx) : unavailable('Unavailable'),
+        recoveryResult.ok
+          ? (recoveryResult.value.last_passed_rehearsal ? `Last proven ${ctx.formatAge(recoveryResult.value.last_passed_rehearsal.at)}` : 'Not yet proven by a rehearsal')
+          : 'Recovery status unavailable; retry to determine state.',
+      ]] : []),
       ['Last deployment', deploymentValue, deploymentNote],
       ['Disk usage', usageValue, usageNote],
     ];
@@ -721,11 +729,84 @@
   }
 
   // ---------------------------------------------------------------------
+  // Recovery status (shared by the Overview and Backups tabs)
+  // ---------------------------------------------------------------------
+
+  const confidenceBadges = {
+    verified: ['Verified', 'ok'],
+    degraded: ['Degraded', 'warn'],
+    unverified: ['Unverified', 'warn'],
+    failing: ['Failing', 'danger'],
+    no_backup: ['No backup', 'danger'],
+  };
+  const offsiteLabels = {
+    verified: 'Uploaded',
+    pending: 'Not yet uploaded',
+    untracked: 'Not tracked',
+    not_configured: 'Not configured',
+  };
+
+  const formatDuration = (ms) => {
+    if ((ms || 0) < 1000) return 'Under 1s';
+    const seconds = Math.round(ms / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  };
+
+  const recoveryBadge = (status, ctx) => {
+    const [label, tone] = confidenceBadges[status.confidence] || ['Unknown', 'off'];
+    return ctx.badge(label, tone);
+  };
+
+  const automaticRehearsalNote = (status) => {
+    if (!status.automatic_rehearsals_enabled) return 'Automatic rehearsals are turned off on this server.';
+    if (!status.scheduled_backups) return 'Automatic rehearsals start once scheduled backups are enabled for this site.';
+    return `Rehearsed automatically after scheduled backups, at most every ${status.rehearsal_interval_hours}h.`;
+  };
+
+  function renderRecoveryStatus(status, ctx) {
+    const last = status.last_backup;
+    const latest = status.last_rehearsal;
+    const passed = status.last_passed_rehearsal;
+    const facts = [
+      ['Last backup', last ? ctx.formatAge(last.created_at) : 'None',
+        last ? `${last.integrity === 'verified' ? 'Signed manifest' : 'Unsigned manifest'}${last.encrypted ? ' · encrypted' : ''}` : 'Take a backup to make this site recoverable'],
+      ['Offsite copy', offsiteLabels[status.offsite.state] || status.offsite.state,
+        status.offsite.uploaded_at ? `Uploaded ${ctx.formatAge(status.offsite.uploaded_at)}` : ''],
+      ['Last restore rehearsal', latest ? ctx.formatAge(latest.at) : 'Never',
+        latest ? `${latest.outcome === 'passed' ? 'Passed' : 'Failed'} · ${latest.trigger} · ${latest.backup}` : 'Use “Rehearse restore” on a backup below'],
+      ['Measured recovery time', passed ? formatDuration(status.measured_recovery_ms) : '—',
+        passed ? 'Verify, decrypt, and extract the backup' : 'No passing rehearsal yet'],
+      ['Recovery point', last ? ctx.formatAge(last.created_at) : '—',
+        'Changes made after the newest backup would be lost'],
+      ['Encryption key', status.encryption_key === 'healthy' ? 'Proven' : 'Not proven',
+        status.encryption_key === 'healthy' ? 'A rehearsal decrypted an encrypted backup' : 'No encrypted backup has been rehearsed'],
+    ];
+    const proof = (passed || latest || {}).level_description;
+    return el('section', { className: 'recovery-status', 'aria-label': 'Recovery status' }, [
+      el('div', { className: 'section-heading' }, [el('h3', {}, 'Recovery status'), recoveryBadge(status, ctx)]),
+      el('p', { className: 'panel-intro' }, status.summary),
+      el('dl', { className: 'recovery-facts' }, facts.map(([label, value, note]) => el('div', {}, [
+        el('dt', {}, label),
+        el('dd', {}, [el('strong', {}, value), note ? el('small', {}, note) : null]),
+      ]))),
+      status.reasons.length ? el('ul', { className: 'resource-list', 'aria-label': 'Recovery findings' }, status.reasons.map((reason) => el('li', { className: 'resource-list-item' }, [
+        el('div', { className: 'item-meta' }, [el('small', {}, reason)]),
+      ]))) : null,
+      proof ? el('p', { className: 'import-note' }, `What a passing rehearsal proves: ${proof}`) : null,
+      el('p', { className: 'import-note' }, automaticRehearsalNote(status)),
+    ]);
+  }
+
+  // ---------------------------------------------------------------------
   // Backups tab
   // ---------------------------------------------------------------------
 
   async function renderBackupsTab(site, panel, ctx) {
-    const data = await ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=100`).catch((error) => ({ __error: error, backups: [] }));
+    const [data, recoveryStatus] = await Promise.all([
+      ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=100`).catch((error) => ({ __error: error, backups: [] })),
+      ctx.can('backup:read') ? ctx.getJSON(`/api/sites/recovery/${encodeURIComponent(site)}`).catch((error) => ({ __error: error })) : Promise.resolve(null),
+    ]);
     const backups = (data.backups || []).sort((a, b) => new Date(b.created_at || b.verified_at) - new Date(a.created_at || a.verified_at));
     const output = ctx.statusOutput();
     const restoreToStaging = async (backup, includeDatabase) => {
@@ -768,6 +849,7 @@
     };
 
     panel.replaceChildren(
+      recoveryStatus && recoveryStatus.__error ? errorState('Recovery status', recoveryStatus.__error) : recoveryStatus ? renderRecoveryStatus(recoveryStatus, ctx) : null,
       el('p', { className: 'panel-intro' }, 'Backups are checksummed and, when a signing key is configured, cryptographically signed and verified before they are trusted for restore.'),
       el('div', { className: 'workspace-panel-actions' }, ctx.can('backup:create') ? [
         ctx.button('Create verified backup', async () => {

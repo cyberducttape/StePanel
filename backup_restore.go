@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/backup"
 	"github.com/cyberducttape/StePanel/internal/domainname"
+	"github.com/cyberducttape/StePanel/internal/recovery"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"io"
 	"log"
@@ -33,17 +34,22 @@ type durableBackupRehearsalRequest struct {
 	Site   string `json:"site"`
 	Backup string `json:"backup"`
 	Actor  string `json:"actor"`
+	// Scheduled rehearsals run as the scheduler after a scheduled backup;
+	// they are authorized like scheduled backups, not as a user.
+	Scheduled bool `json:"scheduled,omitempty"`
 }
 
 type backupRehearsalResult struct {
-	Site             string    `json:"site"`
-	Backup           string    `json:"backup"`
-	Consistency      string    `json:"consistency"`
-	EntriesVerified  int       `json:"entries_verified"`
-	FilesExtracted   int       `json:"files_extracted"`
-	BytesExtracted   int64     `json:"bytes_extracted"`
-	DatabasesChecked []string  `json:"databases_checked,omitempty"`
-	CompletedAt      time.Time `json:"completed_at"`
+	Site             string           `json:"site"`
+	Backup           string           `json:"backup"`
+	Consistency      string           `json:"consistency"`
+	EntriesVerified  int              `json:"entries_verified"`
+	FilesExtracted   int              `json:"files_extracted"`
+	BytesExtracted   int64            `json:"bytes_extracted"`
+	DatabasesChecked []string         `json:"databases_checked,omitempty"`
+	CompletedAt      time.Time        `json:"completed_at"`
+	DurationMS       int64            `json:"duration_ms"`
+	Phases           []recovery.Phase `json:"phases,omitempty"`
 }
 
 func (a *App) enqueueBackupRestoreJob(request durableBackupRestoreRequest) (Job, error) {
@@ -134,7 +140,10 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 
 // handleBackupRehearsalJob verifies and extracts a backup into a disposable
 // directory. It deliberately does not activate a site or run a database
-// engine, making it safe to schedule as a recurring recovery check.
+// engine, making it safe to schedule as a recurring recovery check. Every
+// attempt that reaches the backup is recorded in the recovery store with its
+// timing and recovery.LevelArchive, so the site's recovery status reflects
+// failures as well as passes.
 func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, error) {
 	var request durableBackupRehearsalRequest
 	if err := json.Unmarshal(item.Payload, &request); err != nil {
@@ -143,53 +152,118 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 	if safeUser(request.Site) == "" || !validBackupName(request.Backup) || strings.TrimSpace(request.Actor) == "" {
 		return nil, errors.New("invalid backup rehearsal payload")
 	}
-	if _, err := a.authorizeDurableSiteJob(request.Site, request.Actor, false); err != nil {
+	if _, err := a.authorizeDurableSiteJob(request.Site, request.Actor, request.Scheduled); err != nil {
 		return nil, err
 	}
 	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
 		return nil, context.Canceled
 	}
+	trigger := recovery.TriggerManual
+	if request.Scheduled {
+		trigger = recovery.TriggerScheduled
+	}
+	run := &rehearsalRun{record: recovery.Rehearsal{Site: request.Site, Backup: request.Backup, Trigger: trigger, Level: recovery.LevelArchive, StartedAt: time.Now().UTC()}}
+	result, err := a.rehearseBackupArchive(ctx, request, run)
+	if err != nil && ctx.Err() != nil {
+		// Shutdown or cancellation says nothing about the backup.
+		return nil, err
+	}
+	run.record.FinishedAt = time.Now().UTC()
+	run.record.DurationMS = run.record.FinishedAt.Sub(run.record.StartedAt).Milliseconds()
+	if err != nil {
+		run.record.Outcome = recovery.OutcomeFailed
+		run.record.Error = err.Error()
+	} else {
+		run.record.Outcome = recovery.OutcomePassed
+	}
+	if a.Recovery != nil {
+		if recordErr := a.Recovery.Record(context.WithoutCancel(ctx), run.record); recordErr != nil {
+			if err != nil {
+				return nil, fmt.Errorf("%w (recording the failed rehearsal also failed: %v)", err, recordErr)
+			}
+			// Do not report a pass that the recovery status cannot show.
+			return nil, fmt.Errorf("rehearsal passed but could not be recorded: %w", recordErr)
+		}
+	}
+	if err != nil {
+		recordAudit(a.Config.AuditLog, request.Actor, "backup.rehearsal.failed", request.Site, request.Backup)
+		return nil, err
+	}
+	result.DurationMS = run.record.DurationMS
+	result.Phases = run.record.Phases
+	recordAudit(a.Config.AuditLog, request.Actor, "backup.rehearsal.completed", request.Site, request.Backup)
+	return json.Marshal(result)
+}
+
+// rehearsalRun accumulates the timed phases of one rehearsal.
+type rehearsalRun struct {
+	record     recovery.Rehearsal
+	phaseStart time.Time
+}
+
+func (r *rehearsalRun) begin() { r.phaseStart = time.Now() }
+
+func (r *rehearsalRun) end(name string) {
+	r.record.Phases = append(r.record.Phases, recovery.Phase{Name: name, DurationMS: time.Since(r.phaseStart).Milliseconds()})
+}
+
+func (a *App) rehearseBackupArchive(operationCtx context.Context, request durableBackupRehearsalRequest, run *rehearsalRun) (backupRehearsalResult, error) {
 	// The backup directory is published atomically and is immutable after
 	// publication, so a rehearsal does not need to serialize with live-site
 	// mutations. Avoiding the mutation lock keeps this read-only check from
 	// delaying customer restores or deployments.
-	operationCtx := ctx
 	backupRoot, err := safePath(a.Config.BackupRoot, request.Backup)
 	if err != nil {
-		return nil, err
+		return backupRehearsalResult{}, err
 	}
+	run.begin()
 	manifest, err := VerifySiteBackupStrict(backupRoot, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
 	if err != nil {
-		return nil, fmt.Errorf("verify backup: %w", err)
+		return backupRehearsalResult{}, fmt.Errorf("verify backup: %w", err)
 	}
 	if manifest.Site != request.Site {
-		return nil, errors.New("backup does not belong to site")
+		return backupRehearsalResult{}, errors.New("backup does not belong to site")
 	}
+	run.end("verify")
+	run.record.BackupCreatedAt = manifest.CreatedAt
+	run.record.Encrypted = manifest.Encryption != ""
 	if err := os.MkdirAll(a.Config.ImportRoot, 0700); err != nil {
-		return nil, fmt.Errorf("create rehearsal root: %w", err)
+		return backupRehearsalResult{}, fmt.Errorf("create rehearsal root: %w", err)
+	}
+	// Extraction only writes under the import root; keep the operator's
+	// free-space reserve there so a rehearsal cannot fill the disk.
+	free, err := availableBytes(a.Config.ImportRoot)
+	if err != nil {
+		return backupRehearsalResult{}, fmt.Errorf("inspect rehearsal free space: %w", err)
+	}
+	if free < a.Config.MinFreeBytes {
+		return backupRehearsalResult{}, fmt.Errorf("insufficient space to rehearse: %d bytes free, %d reserved", free, a.Config.MinFreeBytes)
 	}
 	stage, err := os.MkdirTemp(a.Config.ImportRoot, "backup-rehearsal-")
 	if err != nil {
-		return nil, err
+		return backupRehearsalResult{}, err
 	}
 	defer os.RemoveAll(stage)
 	archivePath, err := safePath(backupRoot, manifest.Archive)
 	if err != nil {
-		return nil, err
+		return backupRehearsalResult{}, err
 	}
+	run.begin()
 	if err := extractBackupArchiveContext(operationCtx, archivePath, stage, a.Config.BackupEncryptionKey, manifest); err != nil {
-		return nil, fmt.Errorf("extract verified backup: %w", err)
+		return backupRehearsalResult{}, fmt.Errorf("extract verified backup: %w", err)
 	}
+	run.end("extract")
+	run.begin()
 	source, err := safePath(stage, "site", "public")
 	if err != nil {
-		return nil, fmt.Errorf("invalid backup layout: %w", err)
+		return backupRehearsalResult{}, fmt.Errorf("invalid backup layout: %w", err)
 	}
 	info, err := os.Stat(source)
 	if err != nil {
-		return nil, fmt.Errorf("inspect extracted backup site files: %w", err)
+		return backupRehearsalResult{}, fmt.Errorf("inspect extracted backup site files: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, errors.New("backup site files are not a directory")
+		return backupRehearsalResult{}, errors.New("backup site files are not a directory")
 	}
 	result := backupRehearsalResult{Site: request.Site, Backup: request.Backup, Consistency: manifest.Consistency, EntriesVerified: len(manifest.Entries), DatabasesChecked: append([]string(nil), manifest.Databases...), CompletedAt: time.Now().UTC()}
 	err = filepath.WalkDir(stage, func(path string, entry os.DirEntry, walkErr error) error {
@@ -217,23 +291,26 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("validate extracted backup: %w", err)
+		return backupRehearsalResult{}, fmt.Errorf("validate extracted backup: %w", err)
 	}
 	for _, database := range manifest.Databases {
 		path, err := safePath(stage, "databases", database+".sql")
 		if err != nil {
-			return nil, err
+			return backupRehearsalResult{}, err
 		}
 		info, err := os.Stat(path)
 		if err != nil {
-			return nil, fmt.Errorf("inspect database dump %q: %w", database, err)
+			return backupRehearsalResult{}, fmt.Errorf("inspect database dump %q: %w", database, err)
 		}
 		if !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("database dump %q is not a regular file", database)
+			return backupRehearsalResult{}, fmt.Errorf("database dump %q is not a regular file", database)
 		}
 	}
-	recordAudit(a.Config.AuditLog, request.Actor, "backup.rehearsal.completed", request.Site, request.Backup)
-	return json.Marshal(result)
+	run.end("validate")
+	run.record.FilesRestored = result.FilesExtracted
+	run.record.BytesRestored = result.BytesExtracted
+	run.record.Databases = result.DatabasesChecked
+	return result, nil
 }
 
 func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {

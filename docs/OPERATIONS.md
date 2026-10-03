@@ -66,6 +66,29 @@ bytes, and removes the temporary directory. It intentionally does not activate
 a site or run a database engine; use restore-to-staging for that stronger
 end-to-end rehearsal.
 
+Every rehearsal, passed or failed, is recorded with its timing, and each
+site's **Recovery status** (Backups tab, or `GET /api/sites/recovery/{site}`)
+summarizes the evidence:
+
+- **Confidence**: `verified` (a rehearsal passed recently), `degraded` (proof
+  is stale, the newest backup is old or unsigned, or its offsite copy is
+  missing), `failing` (the most recent rehearsal failed, even if an older one
+  passed), `unverified` (never rehearsed), or `no_backup`.
+- **Measured recovery time**: how long the last passing rehearsal took to
+  verify, decrypt, and extract the backup. This is a recovery time for the
+  archive only; database import and application start are not yet rehearsed,
+  and the status says so.
+- **Recovery point**: the age of the newest backup, which is how much recent
+  change a restore would lose.
+- **Encryption key**: `proven` once a rehearsal has decrypted an encrypted
+  backup with the current key.
+
+A successful scheduled backup triggers an automatic rehearsal of that backup
+when the site has not been rehearsed within `STEPANEL_REHEARSAL_INTERVAL_HOURS`
+(default 24; `0` turns automatic rehearsals off). Sites without a backup
+schedule are rehearsed only on demand. Rehearsals need the configured free-space
+reserve under the import root and refuse to start without it.
+
 ## Health check
 
 ```sh

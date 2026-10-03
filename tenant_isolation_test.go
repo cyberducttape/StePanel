@@ -77,6 +77,13 @@ func TestTenantIsolationMatrix(t *testing.T) {
 			handle: a.siteOverviewResource,
 		},
 		{
+			name: "GET recovery status for another tenant's site",
+			request: func() *http.Request {
+				return asAlice(httptest.NewRequest(http.MethodGet, "/api/sites/recovery/bob-site", nil))
+			},
+			handle: a.siteRecovery,
+		},
+		{
 			name: "GET deployment history for another tenant's site",
 			request: func() *http.Request {
 				return asAlice(httptest.NewRequest(http.MethodGet, "/api/deployments?site=bob-site", nil))
