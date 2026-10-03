@@ -6,6 +6,84 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Durable Jobs and Control Plane
+
+- **Job cleanup no longer diverges from SQLite**: `Jobs.Cleanup` removed expired
+  jobs from memory before deleting their rows, so a failed delete (busy
+  database, I/O error, commit failure) left rows that no later cleanup knew
+  about and that returned on restart. Rows are now deleted in one transaction
+  first and the jobs are restored to memory if anything fails, so the next
+  cleanup retries them. The file store had the same ordering bug and is fixed.
+- **Faster Job Center and worker claims**: `Jobs.List` loads jobs in one query
+  instead of one per job, and migration 9 indexes listing order and the
+  per-owner claim check. With a 20,000-job history, listing drops from 15 ms to
+  2.4 ms and a worker claim from about 72 ms to about 4 ms.
+- **Stated control-plane capacity target**: at 500 sites, session validation
+  p99 stays at or below 25 ms with 50 Job Center viewers and two workers
+  (measured 6–8.6 ms, previously about 146 ms). See
+  `docs/LOAD_BASELINE_2026-10-02.md`.
+
+### Root Broker
+
+- **Privileged operations run concurrently (SECURITY)**: the socket broker
+  served one connection at a time, so a long Composer install or certificate
+  issuance blocked every other privileged operation and made readiness report
+  the broker unhealthy. Connections are now served concurrently with read and
+  write deadlines, a request size cap, and a connection limit. A scheduler
+  serializes work per site, database, account, or certificate domain, runs at
+  most `-max-concurrent` operations (default 8), and lets health probes bypass
+  the queue. A peer that connects and stalls is disconnected.
+- **Host account changes are serialized**: `stepanel-sitectl` helper requests
+  now share the broker's account mutation lock with typed site operations, so
+  concurrent requests cannot race on `useradd`, `userdel`, or `usermod`.
+- **One domain validator everywhere (SECURITY)**: the typed broker accepted any
+  string containing a dot. HTTP handlers, the typed broker, and the helper
+  schema now share `internal/domainname`: label-by-label validation and an
+  explicit IDNA policy (ASCII only; internationalized names in punycode form).
+  **Behavior change:** Unicode names, all-numeric top-level labels such as
+  `1.2.3.4`, and reserved `ab--` labels are rejected.
+
+### Outbound Requests
+
+- **Task completion webhooks cannot reach internal addresses (SECURITY)**: a
+  site user could point a webhook at loopback, private, or cloud metadata
+  addresses, and curl sent it from the host network. Webhooks and archive
+  imports now share `internal/safehttp`, which allows only public addresses,
+  checks the address actually connected to (defeating DNS rebinding),
+  revalidates redirects, and ignores environment proxies. Task units deliver
+  webhooks with `stepanel task-webhook` instead of curl and deny the cloud
+  metadata ranges. **Behavior change:** webhooks to private receivers are
+  refused, and existing task units pick up the change when the task is saved
+  again.
+
+### Installer
+
+- **Explicit consent before taking over a host**: the installer stopped and
+  disabled any other web server without warning. It now prints a preflight of
+  detected services, listeners, and content plus the proposed changes, and
+  refuses to stop a web server that was already running unless
+  `--take-over-host` is given. `--dry-run` validates and prints the plan without
+  changing anything. A missing Caddy or OpenLiteSpeed repository is reported
+  clearly instead of failing inside the package manager.
+
+### Web Interface
+
+- **One request layer for the browser**: every script now uses
+  `StepanelAPI` (`get`, `post`, `put`, `patch`, `delete`, `request`) for CSRF,
+  JSON, timeouts, cancellation, and error classification, and server errors
+  show their request ID. `deploy.js`, `database.js`, and `htaccess.js` are no
+  longer committed as minified one-liners. Frontend unit tests run in CI.
+
+### Documentation
+
+- **Accurate lifecycle authority gate**: Gate 1 now describes how site
+  lifecycle actually works (lifecycle handlers orchestrate, `SiteManager` owns
+  canonical paths, the root broker executes privileged steps), and a test fails
+  if it routes an operation to an unimplemented `SiteManager` method.
+- **Tenant isolation stated precisely**: `SECURITY.md` separates control-plane
+  authorization and per-site process isolation (provided) from a
+  hostile-workload boundary and certified multi-tenant isolation (not provided).
+
 ### Production Safety
 
 - **Safety bypass flags can no longer persist silently (SECURITY)**: the
