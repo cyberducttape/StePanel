@@ -7,11 +7,19 @@ if [[ $EUID -ne 0 ]]; then echo "Run as root: sudo ./install.sh" >&2; exit 1; fi
 # persisted only with an explicit --unsafe-lab argument, never because they
 # happen to be in the ambient environment or a previous configuration.
 UNSAFE_LAB=0
+# --dry-run validates the configuration and prints the host plan without
+# changing anything. --take-over-host is required before the installer stops
+# or disables a web server that was already running or enabled on this host.
+DRY_RUN=0
+TAKE_OVER_HOST=0
+INSTALL_USAGE="usage: sudo ./install.sh [--dry-run] [--take-over-host] [--unsafe-lab]"
 for install_arg in "$@"; do
   case $install_arg in
     --unsafe-lab) UNSAFE_LAB=1 ;;
-    -h|--help) echo "usage: sudo ./install.sh [--unsafe-lab]"; exit 0 ;;
-    *) echo "unknown install argument: $install_arg (usage: sudo ./install.sh [--unsafe-lab])" >&2; exit 64 ;;
+    --dry-run) DRY_RUN=1 ;;
+    --take-over-host) TAKE_OVER_HOST=1 ;;
+    -h|--help) echo "$INSTALL_USAGE"; exit 0 ;;
+    *) echo "unknown install argument: $install_arg ($INSTALL_USAGE)" >&2; exit 64 ;;
   esac
 done
 SAFETY_BYPASS_VARS=(STEPANEL_SKIP_QUOTA_CHECK STEPANEL_SKIP_STARTUP_DB_RECONCILE STEPANEL_SKIP_STARTUP_HOST_RECONCILE STEPANEL_LAB_HTTP_COOKIES STEPANEL_LAB_DIRECT_ROOT_BROKER)
@@ -221,6 +229,84 @@ if [[ -n "$ADMIN_PASSWORD" ]]; then ADMIN_PASSWORD_HASH="$(printf '%s' "$ADMIN_P
 unset ADMIN_PASSWORD
 
 if [[ "$DB_ENGINE" == "mysql" ]]; then DB_PACKAGE="mysql-server"; DB_PHP_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf php-mysqlnd || printf php-mysql)"; DB_SERVICE="mysql"; elif [[ "$DB_ENGINE" == "mariadb" ]]; then DB_PACKAGE="mariadb-server"; DB_PHP_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf php-mysqlnd || printf php-mysql)"; DB_SERVICE="mariadb"; else DB_PACKAGE="postgresql-server"; DB_PHP_PACKAGE="php-pgsql"; DB_SERVICE="postgresql"; fi
+# --- Host preflight -------------------------------------------------------
+# Everything above only reads and validates. Before the first host change,
+# show what exists and what this run will change, and refuse to take over web
+# servers the operator already runs unless --take-over-host was given.
+case $WEB_SERVER in
+  apache) SELECTED_WEB_SERVICE=$([[ "$PKG" == "apt" ]] && printf apache2 || printf httpd); WEB_PACKAGE=$SELECTED_WEB_SERVICE ;;
+  openlitespeed) SELECTED_WEB_SERVICE=lsws; WEB_PACKAGE=openlitespeed ;;
+  *) SELECTED_WEB_SERVICE=caddy; WEB_PACKAGE=caddy ;;
+esac
+web_service_state() {
+  local active enabled
+  active=$(systemctl is-active "$1" 2>/dev/null || true)
+  enabled=$(systemctl is-enabled "$1" 2>/dev/null || true)
+  [[ $active == active || $enabled == enabled ]] || return 1
+  printf '%s (active: %s, enabled: %s)' "$1" "${active:-unknown}" "${enabled:-unknown}"
+}
+web_package_available() {
+  if [[ "$PKG" == "apt" ]]; then
+    dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed' && return 0
+    apt-cache policy "$1" 2>/dev/null | awk '$1 == "Candidate:" && $2 != "(none)" {found=1} END {exit(found ? 0 : 1)}'
+  else
+    rpm -q "$1" >/dev/null 2>&1 || dnf --quiet list --available "$1" >/dev/null 2>&1
+  fi
+}
+PREEXISTING_WEB_SERVICES=()
+preflight_blockers=()
+echo "StePanel host preflight"
+echo "DETECTED:"
+[[ -f "$ENV_FILE" ]] && echo "  existing StePanel installation ($ENV_FILE); this run is an upgrade"
+for web_service in apache2 httpd caddy lsws; do
+  if state=$(web_service_state "$web_service"); then
+    echo "  web server $state"
+    [[ "$web_service" == "$SELECTED_WEB_SERVICE" ]] || PREEXISTING_WEB_SERVICES+=("$web_service")
+  fi
+done
+if command -v ss >/dev/null 2>&1; then
+  while read -r listener; do
+    [[ -n $listener ]] && echo "  listener $listener"
+  done < <(ss -H -ltnp '( sport = :80 or sport = :443 )' 2>/dev/null | awk '{print $4, $6}')
+fi
+if [[ -d /var/www ]]; then
+  echo "  /var/www: $(find /var/www -mindepth 1 -maxdepth 1 2>/dev/null | wc -l) entries; /var/www/sites: $(find /var/www/sites -mindepth 1 -maxdepth 1 2>/dev/null | wc -l) sites"
+fi
+for vhost_dir in /etc/apache2/sites-enabled /etc/httpd/conf.d /etc/caddy /usr/local/lsws/conf/vhosts; do
+  [[ -d $vhost_dir ]] && echo "  $vhost_dir: $(find "$vhost_dir" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l) entries"
+done
+for db_service in mysql mariadb postgresql; do
+  if state=$(web_service_state "$db_service"); then echo "  database $state"; fi
+done
+echo "  unix login accounts (uid >= 1000): $(awk -F: '$3 >= 1000 && $3 < 65534' /etc/passwd | wc -l)"
+echo "PROPOSED CHANGES:"
+echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl tar gzip ca-certificates git sudo logrotate $WEB_PACKAGE $DB_PACKAGE"
+if web_package_available "$WEB_PACKAGE"; then
+  echo "  web server package $WEB_PACKAGE: available"
+elif [[ "$PKG" == "apt" ]]; then
+  echo "  web server package $WEB_PACKAGE: not in the current package index; rechecked after apt-get update"
+else
+  echo "  web server package $WEB_PACKAGE: NOT AVAILABLE"
+  preflight_blockers+=("configure a repository that provides $WEB_PACKAGE")
+fi
+for web_service in "${PREEXISTING_WEB_SERVICES[@]}"; do
+  echo "  STOP and DISABLE $web_service"
+done
+echo "  ENABLE and START $SELECTED_WEB_SERVICE, $DB_SERVICE, php-fpm, stepanel, stepanel-root-broker"
+echo "  CREATE or UPDATE $APP_DIR, $DATA_DIR, /var/www/sites, $ENV_FILE, /usr/local/sbin/stepanel-*, systemd units"
+if (( ${#PREEXISTING_WEB_SERVICES[@]} > 0 && TAKE_OVER_HOST == 0 )); then
+  preflight_blockers+=("rerun with --take-over-host to stop and disable: ${PREEXISTING_WEB_SERVICES[*]}")
+fi
+if (( ${#preflight_blockers[@]} > 0 )); then
+  echo "REFUSING TO CONTINUE:" >&2
+  for blocker in "${preflight_blockers[@]}"; do echo "  $blocker" >&2; done
+  exit 1
+fi
+if (( DRY_RUN == 1 )); then
+  echo "Dry run complete; no changes were made."
+  exit 0
+fi
+
 if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl git sudo logrotate
 else
   # Rocky/Alma cloud images may ship the full curl package while minimal
@@ -235,23 +321,32 @@ if [[ "$WEB_SERVER" == "apache" ]]; then
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then
   LSWSCTRL="$(command -v lswsctrl 2>/dev/null || printf /usr/local/lsws/bin/lswsctrl)"
   if [[ ! -x "$LSWSCTRL" ]]; then
-    if [[ "$PKG" == "apt" ]]; then apt-get install -y openlitespeed; else dnf install -y openlitespeed; fi
+    web_package_available openlitespeed || { echo 'OpenLiteSpeed was selected but no configured repository provides it; configure the OpenLiteSpeed repository first.' >&2; exit 1; }
+    if [[ "$PKG" == "apt" ]]; then openlitespeed_install=(apt-get install -y openlitespeed); else openlitespeed_install=(dnf install -y openlitespeed); fi
+    "${openlitespeed_install[@]}" || { echo 'Installing OpenLiteSpeed failed; check the OpenLiteSpeed repository configuration and the package manager output above.' >&2; exit 1; }
   fi
   [[ -x "$LSWSCTRL" ]] || { echo 'OpenLiteSpeed was selected but lswsctrl is unavailable; configure the OpenLiteSpeed repository first.' >&2; exit 1; }
   APACHE_SERVICE=lsws
 else
-  if [[ "$PKG" == "apt" ]]; then apt-get install -y caddy; else dnf install -y caddy; fi
+  web_package_available caddy || { echo 'Caddy was selected but no configured repository provides it; configure the Caddy repository first.' >&2; exit 1; }
+  if [[ "$PKG" == "apt" ]]; then caddy_install=(apt-get install -y caddy); else caddy_install=(dnf install -y caddy); fi
+  "${caddy_install[@]}" || { echo 'Installing Caddy failed; check the Caddy repository configuration and the package manager output above.' >&2; exit 1; }
   command -v caddy >/dev/null 2>&1 || { echo 'Caddy was selected but the caddy executable is unavailable; configure the Caddy repository first.' >&2; exit 1; }
   APACHE_SERVICE=caddy
 fi
 
-# Images and existing installs may already have a different web server bound
-# to the public ports. Selecting a web server is an explicit ownership choice:
-# stop and disable the other supported servers before validating or starting
-# the selected one, otherwise package installation can leave a stale listener
-# that makes the final service start fail with an unhelpful bind error.
+# Package installation can start another web server (for example a PHP
+# package pulling in Apache) that would hold the public ports and make the
+# selected server fail with a bind error. Servers this run brought up are
+# stopped and disabled here. Servers that were already active or enabled
+# before the run were reported by the preflight and are only touched because
+# the operator passed --take-over-host.
 for web_service in apache2 httpd caddy lsws; do
   [[ "$web_service" == "$APACHE_SERVICE" ]] && continue
+  if [[ " ${PREEXISTING_WEB_SERVICES[*]} " == *" $web_service "* ]]; then
+    (( TAKE_OVER_HOST == 1 )) || { echo "Refusing to stop pre-existing $web_service without --take-over-host." >&2; exit 1; }
+    echo "Taking over host: stopping and disabling $web_service"
+  fi
   systemctl disable --now "$web_service" >/dev/null 2>&1 || true
 done
 

@@ -65,6 +65,30 @@ sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
 
 **IMPORTANT:** Encryption keys must be machine-generated random values. See [**docs/ENCRYPTION_KEYS.md**](ENCRYPTION_KEYS.md) for detailed requirements, generation methods, and security best practices.
 
+### Preflight, dry run, and host takeover
+
+Before changing anything, the installer prints a host preflight:
+
+- **DETECTED**: existing web servers, listeners on ports 80/443, `/var/www`
+  content, vhost directories, database services, and login accounts.
+- **PROPOSED CHANGES**: the packages it will install, the services it will
+  start, and any web server it would stop and disable.
+
+Add `--dry-run` with the same environment to validate the configuration and
+print the preflight without making any change.
+
+If a different web server (Apache, httpd, Caddy, or OpenLiteSpeed) is already
+active or enabled, the installer refuses to continue. Rerun with
+`--take-over-host` only when this host is dedicated to StePanel and stopping
+and disabling that server is intended. Web servers pulled in by the
+installer's own package installation are stopped without the flag, because
+they were not serving anything before the run.
+
+The installer also checks that the selected web server package is available
+from a configured repository before installing it, and reports a missing
+Caddy or OpenLiteSpeed repository instead of failing inside the package
+manager.
+
 Building from source is for contributors and development hosts; release
 archives include the binary, installer, helpers, service files, and web assets.
 
