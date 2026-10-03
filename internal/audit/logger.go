@@ -202,7 +202,7 @@ func (l *defaultLogger) acquireLock() (string, func() error, error) {
 	for attempts := 0; attempts < auditLockTries; attempts++ {
 		file, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err == nil {
-			if _, writeErr := fmt.Fprintf(file, "%d %d", os.Getpid(), processStartTime(os.Getpid())); writeErr != nil {
+			if _, writeErr := fmt.Fprintf(file, "%d %d %s", os.Getpid(), processStartTime(os.Getpid()), kernelBootID()); writeErr != nil {
 				_ = file.Close()
 				_ = os.Remove(lockFile)
 				return "", nil, fmt.Errorf("write audit lock: %w", writeErr)
@@ -233,7 +233,7 @@ func reclaimStaleLock(lockFile string) bool {
 		return false
 	}
 	fields := strings.Fields(string(contents))
-	if len(fields) != 2 {
+	if len(fields) != 2 && len(fields) != 3 {
 		return false
 	}
 	pid, err := strconv.Atoi(fields[0])
@@ -244,10 +244,18 @@ func reclaimStaleLock(lockFile string) bool {
 	if err != nil || startTime == 0 {
 		return false
 	}
+	if len(fields) == 3 && fields[2] != kernelBootID() {
+		return os.Remove(lockFile) == nil
+	}
 	if processStartTime(pid) == startTime {
 		return false
 	}
 	return os.Remove(lockFile) == nil
+}
+
+func kernelBootID() string {
+	data, _ := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	return strings.TrimSpace(string(data))
 }
 
 func processStartTime(pid int) uint64 {

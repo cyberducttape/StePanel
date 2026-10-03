@@ -934,6 +934,22 @@ func TestAuditReclaimsLockOwnedByDeadProcess(t *testing.T) {
 	}
 }
 
+func TestAuditReclaimsLockFromPreviousBoot(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	lockPath := logger.path + ".lock"
+	start := processStartTime(os.Getpid())
+	if start == 0 {
+		t.Fatal("could not read current process start time")
+	}
+	contents := fmt.Sprintf("%d %d previous-boot-id", os.Getpid(), start)
+	if err := os.WriteFile(lockPath, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !reclaimStaleLock(lockPath) {
+		t.Fatal("lock from a previous boot was not reclaimed")
+	}
+}
+
 func TestAuditLockOwnerValidationRejectsMalformedAndLiveOwners(t *testing.T) {
 	if processStartTime(0) != 0 || processStartTime(-1) != 0 {
 		t.Fatal("nonpositive process IDs must not have a start time")
