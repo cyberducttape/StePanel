@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Terminating a site without its Unix user no longer fails (reliability)**:
+  `stepanel-sitectl delete` removed the site tree only when the site's system
+  user existed, so terminating an imported recovery site, or retrying after a
+  partial teardown, left root-owned state such as the PHP session directory that
+  the unprivileged panel could not remove. The helper now removes the validated
+  site tree regardless and deletes the user afterwards.
 - **Production backups of sites with databases (critical fix)**: on a native
   production install the database dump step of every backup, database
   deletion safety backup, and staging clone ran `sudo stepanel-dbctl dump`,

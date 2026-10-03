@@ -40,9 +40,16 @@ if [[ $action == delete ]]; then
     for unit in $(systemctl list-unit-files --type=service --no-legend 'php*-fpm.service' 'php-fpm.service' 2>/dev/null | awk '{print $1}'); do
       systemctl reload "$unit" 2>/dev/null || true
     done
-    if [[ -d $site_root && ! -L $site_root ]]; then
-      rm -rf --one-file-system -- "$site_root"
-    fi
+    userdel_needed=1
+  fi
+  # Remove the tree even when the site user is gone (an imported recovery
+  # site, or a retry after a partial teardown): it can hold root-owned state
+  # such as the PHP session directory that the unprivileged panel cannot
+  # remove. Remove it before the user so a failure leaves the user for a retry.
+  if [[ -d $site_root && ! -L $site_root ]]; then
+    rm -rf --one-file-system -- "$site_root"
+  fi
+  if [[ ${userdel_needed:-0} == 1 ]]; then
     userdel "$site_user" 2>/dev/null || true
   fi
   systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
