@@ -170,7 +170,7 @@ jobs:
           recovered=0
           for _ in $(seq 1 180); do
             if timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
-              'sudo systemctl is-active --quiet stepanel.service stepanel-worker.service && curl --fail --silent --show-error http://127.0.0.1:8080/readyz >/dev/null'; then
+              'sudo systemctl is-active --quiet stepanel.service stepanel-worker.service && curl --fail --silent --show-error http://127.0.0.1:8090/readyz >/dev/null'; then
               recovered=1
               break
             fi

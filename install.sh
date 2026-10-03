@@ -791,7 +791,7 @@ if [[ "$INSTALL_DB_ADMIN" == "1" && "$WEB_SERVER" == "apache" ]]; then
 fi
 if [[ "$WEB_SERVER" == "caddy" ]]; then
   install -d -m 0755 /etc/caddy/stepanel.d
-  printf '%s\n' "$PANEL_HOSTNAME {" $'\treverse_proxy 127.0.0.1:8080' '}' > /etc/caddy/stepanel.d/panel.caddy
+  printf '%s\n' "$PANEL_HOSTNAME {" $'\treverse_proxy 127.0.0.1:8090' '}' > /etc/caddy/stepanel.d/panel.caddy
   if [[ ! -f /etc/caddy/Caddyfile ]]; then
     printf 'import /etc/caddy/stepanel.d/*.caddy\n' > /etc/caddy/Caddyfile
   elif ! grep -Fqx 'import /etc/caddy/stepanel.d/*.caddy' /etc/caddy/Caddyfile; then

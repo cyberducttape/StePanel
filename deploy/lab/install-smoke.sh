@@ -80,6 +80,10 @@ if ! grep -Fxq 'RCLONE_CONFIG="/etc/stepanel/rclone.conf"' /etc/ste-panel.env; t
   echo 'installer did not preserve the explicit rclone config path for systemd' >&2
   exit 1
 fi
+if [[ $STEPANEL_WEBSERVER == caddy ]] && ! grep -Eq 'reverse_proxy[[:space:]]+127\.0\.0\.1:8090([[:space:]]|$)' /etc/caddy/stepanel.d/panel.caddy; then
+  echo 'Caddy panel proxy does not target the installed StePanel listen address' >&2
+  exit 1
+fi
 # The recovery smoke runs the separately supervised worker, so make the
 # explicitly lab-only direct-broker mode visible to both installed units even
 # when the installer is exercising an environment-file transition.
