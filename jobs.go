@@ -2105,49 +2105,60 @@ func (j *Jobs) Wait(ctx context.Context) error {
 	}
 }
 
+// Cleanup forgets finished jobs older than maxAge. The durable store is
+// authoritative: a job leaves memory only after its removal has been
+// committed. If the removal fails, the jobs stay in memory (and remain
+// durable), the readiness check exposes the persistence error, and the next
+// Cleanup retries them instead of leaving rows that would resurface on restart.
 func (j *Jobs) Cleanup(maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	changed := false
-	removed := make([]string, 0)
+	removed := make(map[string]*Job)
 	for id, item := range j.items {
 		if item.FinishedAt != nil && item.FinishedAt.Before(cutoff) {
-			delete(j.items, id)
-			removed = append(removed, id)
-			changed = true
+			removed[id] = item
 		}
 	}
-	if changed {
-		if err := j.persistLocked(); err != nil {
-			j.persistErr = err
-			log.Printf("persist job cleanup: %v", err)
-		} else if j.db != nil {
-			tx, err := j.db.Begin()
-			if err == nil {
-				for _, id := range removed {
-					if _, err = tx.Exec(`DELETE FROM jobs WHERE id = ?`, id); err != nil {
-						break
-					}
-				}
-			}
-			var commitErr error
-			if err == nil {
-				commitErr = tx.Commit()
-			}
-			if err != nil || commitErr != nil {
-				if tx != nil {
-					_ = tx.Rollback()
-				}
-				if err == nil {
-					err = commitErr
-				}
-				j.persistErr = fmt.Errorf("delete completed durable jobs: %w", err)
-			} else {
-				j.persistErr = nil
-			}
-		} else {
-			j.persistErr = nil
+	if len(removed) == 0 {
+		return
+	}
+	for id := range removed {
+		delete(j.items, id)
+	}
+	if err := j.persistCleanupLocked(removed); err != nil {
+		for id, item := range removed {
+			j.items[id] = item
+		}
+		j.persistErr = err
+		log.Printf("persist job cleanup: %v", err)
+		return
+	}
+	j.persistErr = nil
+}
+
+// persistCleanupLocked durably removes the given finished jobs. With SQLite all
+// deletions commit in one transaction; the file store rewrites the remaining
+// jobs atomically. Callers must hold j.mu and have already removed the jobs
+// from j.items.
+func (j *Jobs) persistCleanupLocked(removed map[string]*Job) error {
+	if j.db == nil {
+		return j.persistLocked()
+	}
+	tx, err := j.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin durable job cleanup: %w", err)
+	}
+	for id := range removed {
+		// Only finished rows are eligible; never delete a row another process
+		// has re-activated since this process loaded it.
+		if _, err := tx.Exec(`DELETE FROM jobs WHERE id = ? AND finished_at IS NOT NULL`, id); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("delete completed durable job %s: %w", id, err)
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit durable job cleanup: %w", err)
+	}
+	return nil
 }
