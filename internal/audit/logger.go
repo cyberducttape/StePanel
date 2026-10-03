@@ -244,7 +244,10 @@ func reclaimStaleLock(lockFile string) bool {
 	if err != nil || startTime == 0 {
 		return false
 	}
-	if len(fields) == 3 && fields[2] != kernelBootID() {
+	// A lock written during an earlier boot cannot have a live owner, even if
+	// the PID and start tick happen to match a process from this boot. Only
+	// trust that conclusion when the current boot ID is known.
+	if bootID := kernelBootID(); len(fields) == 3 && bootID != "" && fields[2] != bootID {
 		return os.Remove(lockFile) == nil
 	}
 	if processStartTime(pid) == startTime {
@@ -253,10 +256,16 @@ func reclaimStaleLock(lockFile string) bool {
 	return os.Remove(lockFile) == nil
 }
 
-func kernelBootID() string {
-	data, _ := os.ReadFile("/proc/sys/kernel/random/boot_id")
+// kernelBootID returns the current kernel boot ID, or "" when it is
+// unavailable (non-Linux or a restricted /proc). It is constant for the life
+// of the process, so it is read once.
+var kernelBootID = sync.OnceValue(func() string {
+	data, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return ""
+	}
 	return strings.TrimSpace(string(data))
-}
+})
 
 func processStartTime(pid int) uint64 {
 	if pid <= 0 {

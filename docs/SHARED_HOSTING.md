@@ -198,7 +198,9 @@ broker’s `NoNewPrivileges` boundary. The transient service has strict host
 filesystem protections, delegated cgroups, explicit CPU/memory/process limits,
 and a hard runtime limit. The first build for a site lazily allocates a unique
 subordinate UID/GID range using the host’s shadow-utils configuration. Runner
-hosts must provide Podman, `systemd-run`, `newuidmap`, `newgidmap`, file-backed
+hosts must provide Podman, `systemd-run`, `newuidmap`, `newgidmap`,
+`/usr/bin/fuse-overlayfs` (the pinned storage driver), `slirp4netns` when
+`STEPANEL_RUNNER_NETWORK_MODE=egress`, file-backed
 `/etc/subuid` and `/etc/subgid`, and a systemd/kernel configuration that
 supports rootless user namespaces and delegated cgroups. Builds fail closed
 with an actionable error if these prerequisites are missing.

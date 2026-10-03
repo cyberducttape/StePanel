@@ -514,9 +514,9 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "invalid destination", 422)
 		return
 	}
-	// lgtm[go/path-injection]: dest is produced by safePath, which rejects
-	// absolute/traversal components and symlinked path components beneath the
-	// configured web root; input.Site is also constrained by validSiteName.
+	// dest is produced by safePath, which rejects absolute/traversal components
+	// and symlinked path components beneath the configured web root; input.Site
+	// is also constrained by validSiteName above.
 	if _, e = os.Stat(dest); e == nil {
 		http.Error(w, "staging destination already exists", 409)
 		return

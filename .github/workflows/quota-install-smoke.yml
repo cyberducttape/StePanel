@@ -62,6 +62,7 @@ jobs:
           packages:
             - cloud-init
             - e2fsprogs
+            - fuse-overlayfs
             - openssh-server
             - podman
             - quota

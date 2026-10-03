@@ -88,17 +88,29 @@ jobs:
             exit 1
           fi
           systemd_ready=0
-          for _ in $(seq 1 30); do
+          system_state=unknown
+          for _ in $(seq 1 60); do
             # Bound each probe independently. A wedged PID 1 or blocked
             # systemctl call must not bypass the loop and consume the job's
             # entire timeout before diagnostics can be collected.
-            if timeout --foreground 5s docker exec stepanel-install systemctl is-system-running >/dev/null 2>&1; then
+            # `is-system-running` exits nonzero for "degraded" as well as
+            # "starting"; a container host commonly has an irrelevant failed
+            # unit, so boot completion is the readiness condition here.
+            system_state=$(timeout --foreground 5s docker exec stepanel-install systemctl is-system-running 2>/dev/null || true)
+            if [[ "$system_state" == running || "$system_state" == degraded ]]; then
               systemd_ready=1
               break
             fi
             sleep 2
           done
+          if [[ "$system_state" == degraded ]]; then
+            echo 'disposable systemd host booted degraded; failed units:' >&2
+            timeout --foreground 10s docker exec stepanel-install systemctl --failed --no-pager >&2 || true
+          fi
           if [[ "$systemd_ready" != 1 ]]; then
+            echo "disposable systemd host did not finish booting (state: ${system_state:-none})" >&2
+            timeout --foreground 10s docker exec stepanel-install systemctl list-jobs --no-pager >&2 || true
+            timeout --foreground 10s docker exec stepanel-install systemctl --failed --no-pager >&2 || true
             docker logs stepanel-install >&2 || true
             exit 1
           fi
