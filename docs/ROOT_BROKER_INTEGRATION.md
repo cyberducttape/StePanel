@@ -270,9 +270,12 @@ installation smoke tests and the disposable-VM recovery drills, not by
 
 ## How the broker relates to the helper scripts
 
-The broker does not replace the root helper scripts in
-`deploy/integrations/stepanel-*`; it puts one validated entry point in front
-of them:
+In production the broker is the privilege boundary:
+
+- Long-lived root daemon over a peer-authorized Unix socket
+
+It does not replace the root helper scripts in `deploy/integrations/stepanel-*`;
+it puts one validated entry point in front of them:
 
 ```
 Panel (unprivileged)
