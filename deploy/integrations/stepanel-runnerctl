@@ -127,7 +127,7 @@ run_podman_as_site() {
     --setenv="HOME=$site_root" --setenv="XDG_RUNTIME_DIR=/run/$runner_runtime" \
     --property=NoNewPrivileges=no --property=RestrictSUIDSGID=no \
     --property=Delegate=yes --property=PartOf=stepanel-root-broker.service \
-    --property=PrivateTmp=yes --property=PrivateDevices=yes --property=ProtectHome=yes \
+    --property=PrivateTmp=yes --property=DevicePolicy=closed --property='DeviceAllow=/dev/fuse rw' --property=ProtectHome=yes \
     --property=ProtectSystem=strict --property="ReadWritePaths=$site_root" \
     --property=ProtectProc=invisible --property=ProtectKernelTunables=yes \
     --property=ProtectKernelModules=yes --property=ProtectKernelLogs=yes \

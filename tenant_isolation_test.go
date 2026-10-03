@@ -808,6 +808,8 @@ func TestRootlessRunnerUsesBoundedTransientService(t *testing.T) {
 		"systemd-run --quiet --wait --pipe --collect --service-type=exec",
 		"--property=NoNewPrivileges=no",
 		"--property=Delegate=yes",
+		"--property=DevicePolicy=closed",
+		"--property='DeviceAllow=/dev/fuse rw'",
 		"--property=ProtectSystem=strict",
 		"--property=ProtectProc=invisible",
 		"--property=ProtectKernelTunables=yes",

@@ -421,6 +421,10 @@ write-path allowlist. The hosted install smoke asserts the enabled protections
 and runs the recovery suite under them. Existing installations must be
 upgraded to remove the transitional sudo policy.
 
+The transient rootless build service uses a closed device policy with access
+only to `/dev/fuse`, required by the unprivileged overlay storage driver. The
+privileged broker and panel/worker services retain `PrivateDevices=true`.
+
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit
 - [x] Boundary-level failure tests cover all 5 operations
