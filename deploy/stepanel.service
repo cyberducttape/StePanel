@@ -23,6 +23,15 @@ RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 SystemCallArchitectures=native
+# The service runs as an unprivileged user and reaches root only through the
+# broker socket, so it needs no capabilities, namespaces, SysV IPC, or
+# privileged system calls; this also binds every helper it spawns.
+CapabilityBoundingSet=
+RestrictNamespaces=true
+PrivateIPC=true
+RemoveIPC=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 # All host mutations cross the root-owned broker socket; this process has no
 # sudo capability and only needs to write panel/site state.
 ProtectSystem=strict
@@ -35,6 +44,7 @@ ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectControlGroups=true
 ProtectClock=true
+ProtectHostname=true
 RestrictRealtime=true
 ReadWritePaths=/var/lib/ste-panel /var/www/sites /var/backups/stepanel
 

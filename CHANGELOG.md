@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Tighter sandbox for the panel and worker services (security)**: both units
+  now drop all capabilities from the bounding set and restrict namespaces, SysV
+  IPC, the hostname, and system calls to systemd's `@system-service` set. They
+  reach root only through the broker socket and needed none of these.
+  `systemd-analyze security` exposure falls from 5.4 (MEDIUM) to 1.5 (OK), and
+  the installation smoke now fails if either unit exceeds 2.5. The backup,
+  restore, crash-drill, and interrupted-workflow tests pass under the same
+  syscall filter.
 - **HTTP load gate in CI, and two scaling fixes it found (performance)**: the
   mixed HTTP load test now seeds 200 sites, runs 8 concurrent readers across
   the dashboard APIs while 20 real backup jobs execute, and fails on any error,

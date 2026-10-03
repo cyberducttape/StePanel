@@ -23,6 +23,15 @@ RestrictSUIDSGID=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 SystemCallArchitectures=native
+# The service runs as an unprivileged user and reaches root only through the
+# broker socket, so it needs no capabilities, namespaces, SysV IPC, or
+# privileged system calls; this also binds every helper it spawns.
+CapabilityBoundingSet=
+RestrictNamespaces=true
+PrivateIPC=true
+RemoveIPC=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 ProtectSystem=strict
 ProtectHome=true
 PrivateDevices=true

@@ -172,6 +172,15 @@ systemctl is-active --quiet stepanel-worker.service
 test -s /var/lib/ste-panel/stepanel-control.db
 test -s /var/lib/ste-panel/audit.jsonl
 systemd-analyze security stepanel.service stepanel-worker.service
+# Keep the unprivileged services' sandbox from regressing (1.5 when hardened;
+# 5.4 before capabilities, namespaces, IPC, and syscalls were restricted).
+for unit in stepanel.service stepanel-worker.service; do
+  exposure=$(systemd-analyze security "$unit" 2>/dev/null | awk '/Overall exposure level/ { print $(NF-2) }')
+  if ! awk -v e="$exposure" 'BEGIN { exit !(e != "" && e + 0 <= 2.5) }'; then
+    echo "$unit systemd exposure is ${exposure:-unknown}; expected at most 2.5" >&2
+    exit 1
+  fi
+done
 for unit in stepanel.service stepanel-worker.service; do
   systemctl show "$unit" -p ProtectSystem --value | grep -Fxq strict
   systemctl show "$unit" -p PrivateTmp --value | grep -Fxq yes
