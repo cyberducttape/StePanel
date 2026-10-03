@@ -950,6 +950,38 @@ func TestAuditReclaimsLockFromPreviousBoot(t *testing.T) {
 	}
 }
 
+func TestAuditKeepsLiveLockWhenBootIDIsUnavailable(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	lockPath := logger.path + ".lock"
+	start := processStartTime(os.Getpid())
+	if start == 0 {
+		t.Fatal("could not read current process start time")
+	}
+	original := kernelBootID
+	kernelBootID = func() string { return "" }
+	t.Cleanup(func() { kernelBootID = original })
+	contents := fmt.Sprintf("%d %d some-boot-id", os.Getpid(), start)
+	if err := os.WriteFile(lockPath, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if reclaimStaleLock(lockPath) {
+		t.Fatal("a live owner's lock was reclaimed because the boot ID was unreadable")
+	}
+}
+
+func TestReadBootID(t *testing.T) {
+	if got := readBootID(filepath.Join(t.TempDir(), "missing")); got != "" {
+		t.Fatalf("missing boot ID file returned %q, want empty", got)
+	}
+	path := filepath.Join(t.TempDir(), "boot_id")
+	if err := os.WriteFile(path, []byte("abc-123\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := readBootID(path); got != "abc-123" {
+		t.Fatalf("readBootID = %q, want abc-123", got)
+	}
+}
+
 func TestAuditLockOwnerValidationRejectsMalformedAndLiveOwners(t *testing.T) {
 	if processStartTime(0) != 0 || processStartTime(-1) != 0 {
 		t.Fatal("nonpositive process IDs must not have a start time")

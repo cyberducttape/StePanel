@@ -260,12 +260,16 @@ func reclaimStaleLock(lockFile string) bool {
 // unavailable (non-Linux or a restricted /proc). It is constant for the life
 // of the process, so it is read once.
 var kernelBootID = sync.OnceValue(func() string {
-	data, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	return readBootID("/proc/sys/kernel/random/boot_id")
+})
+
+func readBootID(path string) string {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
-})
+}
 
 func processStartTime(pid int) uint64 {
 	if pid <= 0 {
