@@ -185,7 +185,8 @@ func TestRestoreCapacityChecksDestinationFilesystem(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: 1}
-	err := admitCapacity(cfg, "WPress restore", archiveUploadDemands(cfg, 1))
+	var ledger capacityLedger
+	err := ledger.check(cfg, "WPress restore", archiveUploadDemands(cfg, 1))
 	if err == nil {
 		t.Fatal("missing destination filesystem passed restore capacity check")
 	}
@@ -200,10 +201,12 @@ func TestRestoreCPMoveCapacityAccountsForExpandedCopies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := restoreCPMoveCapacity(Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: ^uint64(0)}, 12<<30, 34<<30); err == nil || !strings.Contains(err.Error(), "capacity estimate overflow") {
+	overflow := &App{Config: Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: ^uint64(0)}}
+	if err := overflow.checkCPMoveCapacity(34 << 30); err == nil || !strings.Contains(err.Error(), "capacity estimate overflow") {
 		t.Fatalf("overflow capacity check error = %v", err)
 	}
-	if err := restoreCPMoveCapacity(Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: 1 << 50}, 12<<30, 34<<30); err == nil || !strings.Contains(err.Error(), "required for this cpmove") {
+	short := &App{Config: Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: 1 << 50}}
+	if err := short.checkCPMoveCapacity(34 << 30); err == nil || !strings.Contains(err.Error(), "required for this cpmove") {
 		t.Fatalf("insufficient capacity check error = %v", err)
 	}
 }

@@ -160,26 +160,6 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "WordPress durable jobs require STEPANEL_ACCOUNT_KEY for encrypted credential storage", http.StatusServiceUnavailable)
 		return
 	}
-	if err := os.MkdirAll(a.Config.ImportRoot, 0700); err != nil {
-		http.Error(w, "could not prepare upload storage", http.StatusInternalServerError)
-		return
-	}
-	// Admit the declared archive size before reading the body, then stream
-	// the file part straight into the private staged object: no multipart
-	// spool file, one disk write.
-	declared, err := declaredUploadBytes(r, a.Config.MaxUpload)
-	if err == nil {
-		err = admitCapacity(a.Config, "WPress restore", archiveUploadDemands(a.Config, declared))
-	}
-	if err != nil {
-		writeUploadError(w, err)
-		return
-	}
-	reader, err := r.MultipartReader()
-	if err != nil {
-		writeUploadError(w, err)
-		return
-	}
 	var site, dbSuffix, dbUserSuffix, password, targetPrefix, siteURL string
 	var force bool
 	// Every form field must precede the archive part so the restore is
@@ -206,22 +186,20 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	}
-	staged, err := upload.Stream(reader, upload.Options{
-		FileField:    "backup",
-		MaxFileBytes: a.Config.MaxUpload,
-		BeforeFile:   validate,
+	// Stream the archive straight into the private staged object: no
+	// multipart spool file, one disk write. The reservation covers the
+	// stream; once the archive is on disk the job re-checks capacity for the
+	// extracted and staging trees before restoring.
+	staged, reservation, ok := a.stageArchiveUpload(w, r, "WPress restore", upload.Options{
+		BeforeFile: validate,
 		Create: func(string) (*os.File, error) {
 			return os.CreateTemp(a.Config.ImportRoot, "wpress-upload-*.wpress")
 		},
-		CheckSpace: uploadSpaceCheck(a.Config, declared),
 	})
-	if errors.Is(err, upload.ErrMissingFile) {
-		err = &uploadRejection{http.StatusBadRequest, "a .wpress archive is required"}
-	}
-	if err != nil {
-		writeUploadError(w, err)
+	if !ok {
 		return
 	}
+	reservation.release()
 	tempPath, written := staged.Path, staged.Size
 	payload, err := json.Marshal(durableWPressRequest{TempPath: tempPath, Size: written, SHA256: staged.SHA256, Site: site, DBSuffix: dbSuffix, DBUserSuffix: dbUserSuffix, Password: password, SiteURL: siteURL, TargetPrefix: targetPrefix, Force: force, Actor: a.Auth.UsernameForRequest(r)})
 	if err != nil {

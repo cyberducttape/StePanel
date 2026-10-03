@@ -30,6 +30,12 @@ recorded; they are not implied by a locally verified archive.
   operation audit trail before replaying it.
 - Warn when `stepanel_jobs_queued` remains above the worker capacity for 10
   minutes.
+- Warn when `increase(stepanel_upload_rejections_total{reason="capacity"}[1h]) > 0`;
+  migrations are being refused for lack of disk.
+- Warn when `increase(stepanel_upload_rejections_total{reason="internal"}[15m]) > 0`;
+  staging failed for a server-side reason (see the logged cause).
+- Warn when `stepanel_event_streams_rejected_total` increases; dashboards are
+  hitting the stream limits.
 - Page when backup age or schedule-failure metrics predict an RPO breach.
 
 Every alert should link to an incident ticket and one of the runbooks in

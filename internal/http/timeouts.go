@@ -146,7 +146,7 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			// Classify based on path
 			var timeout time.Duration
 			switch {
-			case isStreamPath(r.URL.Path):
+			case IsStreamPath(r.URL.Path):
 				// Streams manage their own write deadlines and lifetime.
 				next.ServeHTTP(w, r)
 				return
@@ -177,8 +177,8 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 	}
 }
 
-// isStreamPath reports whether path is a long-lived server-sent event stream.
-func isStreamPath(path string) bool {
+// IsStreamPath reports whether path is a long-lived server-sent event stream.
+func IsStreamPath(path string) bool {
 	return path == "/api/jobs/events"
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -526,8 +527,13 @@ func (a *App) resourceStatus(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{
 		"timestamp":       time.Now().UTC(),
 		"resource_budget": status,
+		// Free space promised to in-progress uploads but not yet written.
+		"upload_capacity_reserved_bytes": map[string]uint64{
+			"import_root": a.capacity.heldBytes(a.Config.ImportRoot),
+			"sites":       a.capacity.heldBytes(filepath.Join(a.Config.WebRoot, "sites")),
+		},
+		"event_streams": a.streams.status(),
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }

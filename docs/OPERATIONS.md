@@ -195,6 +195,10 @@ Readiness is intentionally failed while any durable job is in `dead-letter`
 state. Review the job output and audit trail, then resolve or replay it through
 the operator workflow before treating the host as healthy.
 Check `stepanel_restore_jobs_active` before package upgrades or planned reboots.
+Archive uploads export `stepanel_upload_rejections_total{reason}`; a rising
+`capacity` count means hosts are refusing migrations for lack of disk, and
+`stalled` points at client or network problems. `/api/admin/resources/status`
+shows the bytes currently reserved by in-progress uploads.
 Database monitoring also exports `stepanel_database_diagnostics_up`, connection,
 long-transaction, blocking, deadlock, and allocated-byte gauges. Scheduled
 backup RPO signals are available as `stepanel_backup_oldest_age_seconds`,

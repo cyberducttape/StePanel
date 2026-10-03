@@ -145,15 +145,36 @@ device are charged together:
 - site root: site-manager staging tree (about the archive size);
 - every filesystem: the `STEPANEL_MIN_FREE_BYTES` reserve.
 
+Admission is a reservation, not a point-in-time check: an in-process
+capacity ledger (`upload_admission.go`) holds the admitted bytes until the
+archive is fully staged, and every later admission is charged against free
+space minus outstanding holds. Two uploads that each fit alone therefore
+cannot both be admitted against the same free bytes. As the archive streams,
+written bytes are released from the hold (they now show as used on disk),
+and every 256 MiB the import root must still cover all outstanding holds plus
+the reserve, so a consumer outside the ledger cannot fill the disk underneath
+admitted uploads. Any failure removes the partial object and releases the
+hold. The ledger is per process; the durable worker's own admission gate
+(`STEPANEL_MAX_CONCURRENT_JOBS`) bounds restores across processes.
+
 A cPanel archive's expanded size is unknown before inspection, so the gzip
-size is a lower bound there; after inspection `restoreCPMoveCapacity`
-re-checks with the inspected expanded size and reports
-`required_free_bytes`. While streaming, the import root is re-checked every
-256 MiB for the bytes still expected plus the reserve, so a concurrent
-consumer cannot fill the disk underneath an admitted upload. Any failure
-removes the partial object. Database working space on the database server's
-data directory is not reserved because that directory is outside the panel's
-filesystems.
+size is a lower bound there; after inspection the handler re-checks with the
+inspected expanded size and reports `required_free_bytes`. Both durable
+restore jobs (cPanel and WPress) re-check the extracted and staging trees
+against free space and outstanding upload holds before extracting. Database
+working space on the database server's data directory is not reserved
+because that directory is outside the panel's filesystems.
+
+Stalled uploads are cut off: the handler refreshes the connection read
+deadline as body bytes arrive, so a client that sends nothing for 2 minutes
+receives `408` and releases its upload slot and reservation instead of
+holding them until the 60-minute ceiling. Client file names longer than 255
+bytes, not valid UTF-8, or containing control characters (including RFC 2231
+encoded ones) are rejected before anything is staged.
+
+`GET /api/admin/resources/status` reports the bytes currently reserved per
+filesystem (`upload_capacity_reserved_bytes`; the two entries are equal when
+the import and site roots share a filesystem) and open event streams.
 
 WPress requests must send every form field before the `backup` file part so
 the restore is validated (confirmation, site, database names, password, file
@@ -171,8 +192,27 @@ re-authentication, and snapshot churn). Instead the handler:
 - sets a 15-second write deadline before every event and 25-second
   heartbeat, which detects a dead peer and lifts the server-wide
   `WriteTimeout` for this connection;
-- closes the stream after 30 minutes so the client reconnects and is
-  re-authenticated.
+- re-checks the credential on every heartbeat without consuming the API-token
+  rate limit, so logout, session or token revocation, expiry, and tenant
+  suspension close the stream within 25 seconds;
+- closes the stream after 25–30 minutes (jittered so clients reconnecting
+  after a restart do not arrive in lockstep);
+- admits at most 8 streams per principal and 256 per host, answering `429`
+  with `Retry-After` beyond that.
+
+The dashboard reconnects with exponential backoff and jitter (3 s doubling to
+60 s, reset once a snapshot arrives), so rotation, `401`, and `429` do not
+produce a reconnect storm. Accepted streams are excluded from the HTTP
+latency histogram and tracked by their own metrics (below).
+
+### Metrics
+
+| Series | Meaning |
+| --- | --- |
+| `stepanel_uploads_staged_total`, `stepanel_upload_bytes_total` | Archives streamed into staged objects |
+| `stepanel_upload_rejections_total{reason}` | Uploads refused: `capacity`, `too_large`, `stalled`, `length_required`, `invalid`, `internal` |
+| `stepanel_event_streams_active` | Open job event streams |
+| `stepanel_event_streams_opened_total`, `stepanel_event_streams_rejected_total` | Streams accepted and refused by the concurrency limits |
 
 ---
 

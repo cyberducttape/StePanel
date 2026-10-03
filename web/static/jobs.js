@@ -5,6 +5,15 @@
   const waiters = new Map();
   let stream;
   let reconnectTimer;
+  // Reconnect delay grows on consecutive failures (rotation, 401, 429,
+  // restarts) and resets once a snapshot arrives; jitter keeps many open
+  // dashboards from reconnecting in lockstep.
+  let reconnectAttempts = 0;
+  const reconnectDelay = () => {
+    const base = Math.min(60000, 3000 * (2 ** Math.min(reconnectAttempts, 5)));
+    reconnectAttempts += 1;
+    return base / 2 + Math.random() * base / 2;
+  };
 
   const isActive = (job) => ['queued', 'running'].includes(job.state);
   const terminal = (job) => ['completed', 'failed', 'cancelled', 'dead-letter'].includes(job.state);
@@ -54,6 +63,7 @@
     if (stream) stream.close();
     stream = new EventSource('/api/jobs/events');
     stream.addEventListener('snapshot', (event) => {
+      reconnectAttempts = 0;
       const data = JSON.parse(event.data);
       replaceAll(data.jobs || []);
     });
@@ -61,7 +71,7 @@
     stream.onerror = () => {
       stream.close();
       clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, 3000);
+      reconnectTimer = setTimeout(connect, reconnectDelay());
     };
   };
   const cancel = async (id) => {

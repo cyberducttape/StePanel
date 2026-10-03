@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -35,6 +37,7 @@ const (
 	defaultMaxFields     = 32
 	defaultCheckInterval = 256 << 20
 	copyBufferBytes      = 1 << 20
+	maxFilenameBytes     = 255
 )
 
 // Options controls one streamed upload.
@@ -114,6 +117,10 @@ func Stream(reader *multipart.Reader, opts Options) (*Result, error) {
 				_ = part.Close()
 				return nil, fmt.Errorf("%w: %q must be a single file part", ErrUnexpectedPart, name)
 			}
+			if !validFilename(filename) {
+				_ = part.Close()
+				return nil, fmt.Errorf("%w: file name must be valid UTF-8 without control characters and at most %d bytes", ErrUnexpectedPart, maxFilenameBytes)
+			}
 			if opts.BeforeFile != nil {
 				if err := opts.BeforeFile(result.Fields, filename); err != nil {
 					_ = part.Close()
@@ -172,6 +179,20 @@ func Stream(reader *multipart.Reader, opts Options) (*Result, error) {
 	}
 	success = true
 	return result, nil
+}
+
+// validFilename accepts the client file name recorded in upload metadata and
+// shown to operators. mime/multipart already reduces it to a base name.
+func validFilename(name string) bool {
+	if len(name) > maxFilenameBytes || !utf8.ValidString(name) {
+		return false
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func copyPart(dst io.Writer, src io.Reader, opts Options) (int64, string, error) {

@@ -869,9 +869,10 @@ paths:
                 backup: {type: string, format: binary}
       responses:
         '200': {description: Archive inventory}
+        '408': {description: Upload stalled (no body bytes for 2 minutes)}
         '411': {description: No Content-Length and no configured upload ceiling to admit against}
         '413': {description: Archive exceeds STEPANEL_MAX_UPLOAD_BYTES}
-        '507': {description: Insufficient free space for the archive, extraction, staging, and reserve}
+        '507': {description: Insufficient free space for the archive, extraction, staging, and reserve after outstanding upload reservations}
   /api/cpmove/import:
     post:
       summary: Queue a cPanel restore
@@ -924,6 +925,7 @@ paths:
       responses:
         '202': {description: WordPress restore job queued}
         '400': {description: Missing confirmation, fields after the file part, or not a .wpress archive}
+        '408': {description: Upload stalled (no body bytes for 2 minutes)}
         '411': {description: No Content-Length and no configured upload ceiling to admit against}
         '413': {description: Archive exceeds STEPANEL_MAX_UPLOAD_BYTES}
         '507': {description: Insufficient free space for the archive, extraction, staging, and reserve}
@@ -935,10 +937,11 @@ paths:
   /api/jobs/events:
     get:
       summary: Stream persistent job changes
-      description: Authenticated server-sent events stream with an initial job snapshot and subsequent durable state changes. A comment heartbeat is sent every 25 seconds; the server closes the stream after 30 minutes or when a write stalls, and clients should reconnect.
+      description: Authenticated server-sent events stream with an initial job snapshot and subsequent durable state changes. A comment heartbeat is sent every 25 seconds and the credential is re-checked at each heartbeat; the server closes the stream after 25-30 minutes, when a write stalls, or when the credential is revoked, and clients should reconnect with backoff.
       responses:
         '200': {description: text/event-stream job snapshot and updates}
         '401': {description: Authentication required}
+        '429': {description: Too many open streams (8 per principal, 256 per host); honor Retry-After}
   /api/jobs/:
     get:
       summary: Read a background job

@@ -26,7 +26,26 @@ type Metrics struct {
 	httpDurationBuckets [12]atomic.Uint64
 	stateErrors         [5]atomic.Uint64
 	sqliteBusyErrors    atomic.Uint64
+	uploadsStaged       atomic.Uint64
+	uploadBytes         atomic.Uint64
+	uploadRejections    [len(uploadRejectReasons)]atomic.Uint64
+	streamsOpened       atomic.Uint64
+	streamsRejected     atomic.Uint64
+	activeStreams       atomic.Int64
 }
+
+// Upload rejection reasons are a bounded label set for
+// stepanel_upload_rejections_total.
+const (
+	uploadRejectCapacity = iota
+	uploadRejectTooLarge
+	uploadRejectStalled
+	uploadRejectLength
+	uploadRejectInvalid
+	uploadRejectInternal
+)
+
+var uploadRejectReasons = [...]string{"capacity", "too_large", "stalled", "length_required", "invalid", "internal"}
 
 var httpDurationBounds = [...]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 var stateMetricCategories = [...]string{"temporary", "persistence", "corruption", "cleanup", "unsupported"}
@@ -81,6 +100,50 @@ func (m *Metrics) ObserveHTTP(status int, duration time.Duration) {
 
 func NewMetrics() *Metrics { return &Metrics{} }
 
+// ObserveUploadStaged records an archive streamed into its staged object.
+func (m *Metrics) ObserveUploadStaged(bytes int64) {
+	if m == nil || bytes < 0 {
+		return
+	}
+	m.uploadsStaged.Add(1)
+	m.uploadBytes.Add(uint64(bytes))
+}
+
+// ObserveUploadRejected records an upload refused at admission or while
+// streaming, by bounded reason.
+func (m *Metrics) ObserveUploadRejected(reason int) {
+	if m == nil || reason < 0 || reason >= len(uploadRejectReasons) {
+		return
+	}
+	m.uploadRejections[reason].Add(1)
+}
+
+// StreamOpened and StreamClosed track long-lived event streams. Streams are
+// kept out of the HTTP duration histogram, where their 30-minute lifetimes
+// would swamp request latency.
+func (m *Metrics) StreamOpened() {
+	if m == nil {
+		return
+	}
+	m.streamsOpened.Add(1)
+	m.activeStreams.Add(1)
+}
+
+func (m *Metrics) StreamClosed() {
+	if m == nil {
+		return
+	}
+	m.activeStreams.Add(-1)
+}
+
+// StreamRejected records a stream refused by the concurrency limits.
+func (m *Metrics) StreamRejected() {
+	if m == nil {
+		return
+	}
+	m.streamsRejected.Add(1)
+}
+
 func (m *Metrics) RestoreStarted() {
 	if m == nil {
 		return
@@ -133,6 +196,16 @@ func (m *Metrics) Write(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_sqlite_busy_errors_total SQLite busy or locked errors observed by durable state paths")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_sqlite_busy_errors_total counter")
 	_, _ = fmt.Fprintf(w, "stepanel_sqlite_busy_errors_total %d\n", m.sqliteBusyErrors.Load())
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_uploads_staged_total Archive uploads streamed into a staged object\n# TYPE stepanel_uploads_staged_total counter\nstepanel_uploads_staged_total %d\n", m.uploadsStaged.Load())
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_upload_bytes_total Archive bytes streamed into staged objects\n# TYPE stepanel_upload_bytes_total counter\nstepanel_upload_bytes_total %d\n", m.uploadBytes.Load())
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_upload_rejections_total Archive uploads refused at admission or while streaming, by reason")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_upload_rejections_total counter")
+	for i, reason := range uploadRejectReasons {
+		_, _ = fmt.Fprintf(w, "stepanel_upload_rejections_total{reason=\"%s\"} %d\n", reason, m.uploadRejections[i].Load())
+	}
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_event_streams_opened_total Server-sent event streams accepted\n# TYPE stepanel_event_streams_opened_total counter\nstepanel_event_streams_opened_total %d\n", m.streamsOpened.Load())
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_event_streams_rejected_total Server-sent event streams refused by concurrency limits\n# TYPE stepanel_event_streams_rejected_total counter\nstepanel_event_streams_rejected_total %d\n", m.streamsRejected.Load())
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_event_streams_active Open server-sent event streams\n# TYPE stepanel_event_streams_active gauge\nstepanel_event_streams_active %d\n", m.activeStreams.Load())
 }
 
 func writeReadinessMetrics(w io.Writer, checks map[string]ReadinessCheck) {

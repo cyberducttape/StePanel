@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -145,7 +146,7 @@ func TestCPMoveImportRejectsArchiveSizedBodies(t *testing.T) {
 	}
 }
 
-func TestAdmitCapacitySumsDemandsOnSharedFilesystem(t *testing.T) {
+func TestCapacityCheckSumsDemandsOnSharedFilesystem(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0
 	free, err := availableBytes(cfg.ImportRoot)
@@ -154,33 +155,89 @@ func TestAdmitCapacitySumsDemandsOnSharedFilesystem(t *testing.T) {
 	}
 	share := free / 10 * 6
 	sites := filepath.Join(cfg.WebRoot, "sites")
-	if err := admitCapacity(cfg, "test", []capacityDemand{{Path: cfg.ImportRoot, Bytes: share}}); err != nil {
+	var ledger capacityLedger
+	if err := ledger.check(cfg, "test", []capacityDemand{{Path: cfg.ImportRoot, Bytes: share}}); err != nil {
 		t.Fatalf("single demand of 60%% free was rejected: %v", err)
 	}
-	err = admitCapacity(cfg, "test", []capacityDemand{{Path: cfg.ImportRoot, Bytes: share}, {Path: sites, Bytes: share}})
+	err = ledger.check(cfg, "test", []capacityDemand{{Path: cfg.ImportRoot, Bytes: share}, {Path: sites, Bytes: share}})
 	var capacity *capacityError
 	if !errors.As(err, &capacity) {
 		t.Fatalf("two 60%% demands on one filesystem were admitted: %v", err)
 	}
-	if err := admitCapacity(cfg, "test", []capacityDemand{{Path: cfg.ImportRoot, Bytes: ^uint64(0)}, {Path: sites, Bytes: 1}}); err == nil || !strings.Contains(err.Error(), "overflow") {
+	if err := ledger.check(cfg, "test", []capacityDemand{{Path: cfg.ImportRoot, Bytes: ^uint64(0)}, {Path: sites, Bytes: 1}}); err == nil || !strings.Contains(err.Error(), "overflow") {
 		t.Fatalf("overflowing demand error = %v", err)
 	}
 }
 
-func TestUploadSpaceCheckChargesOnlyRemainingBytes(t *testing.T) {
+// TestCapacityReservationsPreventDoubleAdmission is the concurrency guard:
+// two uploads that each fit alone must not both be admitted against the same
+// free space while the first is still in progress.
+func TestCapacityReservationsPreventDoubleAdmission(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0
 	free, err := availableBytes(cfg.ImportRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	declared := free + free/2
-	check := uploadSpaceCheck(cfg, declared)
-	if err := check(0); err == nil {
-		t.Fatal("space check admitted more remaining bytes than are free")
+	demand := []capacityDemand{{Path: cfg.ImportRoot, Bytes: free / 10 * 6}}
+	var ledger capacityLedger
+	first, err := ledger.reserve(cfg, "test", cfg.ImportRoot, demand)
+	if err != nil {
+		t.Fatalf("first reservation rejected: %v", err)
 	}
-	if err := check(int64(declared)); err != nil {
-		t.Fatalf("space check rejected a fully written upload: %v", err)
+	if ledger.heldBytes(cfg.ImportRoot) != demand[0].Bytes {
+		t.Fatalf("held = %d, want %d", ledger.heldBytes(cfg.ImportRoot), demand[0].Bytes)
+	}
+	_, err = ledger.reserve(cfg, "test", cfg.ImportRoot, demand)
+	var capacity *capacityError
+	if !errors.As(err, &capacity) || !strings.Contains(err.Error(), "reserved by in-progress uploads") {
+		t.Fatalf("second reservation error = %v, want capacity error naming the outstanding reservation", err)
+	}
+	if err := ledger.check(cfg, "test", demand); !errors.As(err, &capacity) {
+		t.Fatalf("job check ignored the outstanding reservation: %v", err)
+	}
+	first.release()
+	first.release() // idempotent
+	if ledger.heldBytes(cfg.ImportRoot) != 0 {
+		t.Fatalf("held after release = %d, want 0", ledger.heldBytes(cfg.ImportRoot))
+	}
+	second, err := ledger.reserve(cfg, "test", cfg.ImportRoot, demand)
+	if err != nil {
+		t.Fatalf("reservation after release rejected: %v", err)
+	}
+	second.release()
+}
+
+func TestCapacityReservationConsumeReleasesWrittenBytes(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	var ledger capacityLedger
+	reservation, err := ledger.reserve(cfg, "test", cfg.ImportRoot, []capacityDemand{{Path: cfg.ImportRoot, Bytes: 1000}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.release()
+	if err := reservation.consume(400); err != nil {
+		t.Fatal(err)
+	}
+	if held := ledger.heldBytes(cfg.ImportRoot); held != 600 {
+		t.Fatalf("held after 400 written = %d, want 600", held)
+	}
+	if err := reservation.consume(400); err != nil || ledger.heldBytes(cfg.ImportRoot) != 600 {
+		t.Fatalf("repeated consume changed the hold: %d %v", ledger.heldBytes(cfg.ImportRoot), err)
+	}
+	if err := reservation.consume(5000); err != nil || ledger.heldBytes(cfg.ImportRoot) != 0 {
+		t.Fatalf("overrun consume should floor the hold at zero: %d %v", ledger.heldBytes(cfg.ImportRoot), err)
+	}
+	cfg.MinFreeBytes = 1 << 62
+	short, err := (&capacityLedger{}).reserve(Config{ImportRoot: cfg.ImportRoot, WebRoot: cfg.WebRoot}, "test", cfg.ImportRoot, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	short.reserve = 1 << 62
+	var capacity *capacityError
+	if err := short.consume(1); !errors.As(err, &capacity) {
+		t.Fatalf("consume did not detect free space falling below the reserve: %v", err)
 	}
 }
 
@@ -253,13 +310,83 @@ func TestWriteUploadErrorMapsStatuses(t *testing.T) {
 		{&capacityError{"full"}, http.StatusInsufficientStorage},
 		{errUploadLengthRequired, http.StatusLengthRequired},
 		{http.ErrNotMultipart, http.StatusBadRequest},
+		{fmt.Errorf("read body: %w", os.ErrDeadlineExceeded), http.StatusRequestTimeout},
 		{errors.New("disk exploded"), http.StatusInternalServerError},
 	}
 	for _, test := range tests {
 		response := httptest.NewRecorder()
-		writeUploadError(response, test.err)
+		(&App{}).writeUploadError(response, httptest.NewRequest(http.MethodPost, "/api/cpmove/inspect", nil), test.err)
 		if response.Code != test.want {
 			t.Errorf("writeUploadError(%v) = %d, want %d", test.err, response.Code, test.want)
 		}
+	}
+}
+
+// TestInspectAbortsStalledUpload guards the upload slot and reservation: a
+// client that stops sending body bytes is cut off after uploadIdleTimeout
+// with 408, and its partial object and capacity hold are released.
+func TestInspectAbortsStalledUpload(t *testing.T) {
+	previous := uploadIdleTimeout
+	uploadIdleTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { uploadIdleTimeout = previous })
+	cfg := uploadTestConfig(t)
+	app := &App{Config: cfg, Auth: Auth{}, Metrics: NewMetrics()}
+	server := httptest.NewServer(http.HandlerFunc(app.inspect))
+	defer server.Close()
+
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/api/cpmove/inspect", reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const boundary = "stall"
+	request.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
+	request.ContentLength = 1 << 20
+	go func() {
+		// Send the part header and some archive bytes, then stall.
+		_, _ = io.WriteString(writer, "--"+boundary+"\r\nContent-Disposition: form-data; name=\"backup\"; filename=\"a.tar.gz\"\r\n\r\n")
+		_, _ = writer.Write(bytes.Repeat([]byte("x"), 64<<10))
+	}()
+	started := time.Now()
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusRequestTimeout {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("status = %d, want 408; body = %s", response.StatusCode, body)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("stall detected after %s", elapsed)
+	}
+	if list, err := os.ReadDir(cfg.ImportRoot); err != nil || len(list) != 0 {
+		t.Fatalf("stalled upload left staged files: %v %v", list, err)
+	}
+	if held := app.capacity.heldBytes(cfg.ImportRoot); held != 0 {
+		t.Fatalf("stalled upload kept %d reserved bytes", held)
+	}
+	var metrics bytes.Buffer
+	app.Metrics.Write(&metrics)
+	if !strings.Contains(metrics.String(), `stepanel_upload_rejections_total{reason="stalled"} 1`) {
+		t.Fatal("stalled upload was not counted")
+	}
+}
+
+func TestInspectReleasesReservationAfterSuccessfulUpload(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	archive, err := os.ReadFile(makeTarGz(t, map[string]string{"cpmove-account/homedir/public_html/index.php": "ok"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: cfg, Auth: Auth{}, Metrics: NewMetrics()}
+	response := httptest.NewRecorder()
+	app.inspect(response, archiveUploadRequest(t, "/api/cpmove/inspect", "backup", "cpmove-account.tar.gz", archive))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if held := app.capacity.heldBytes(cfg.ImportRoot); held != 0 {
+		t.Fatalf("completed upload kept %d reserved bytes", held)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math/rand/v2"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -73,6 +74,10 @@ type App struct {
 	appLifecycleMu           sync.Mutex
 	dbLocks                  *operations.DBLocks
 	siteManager              siteauthority.Manager
+	// capacity holds free space promised to in-progress archive uploads.
+	capacity capacityLedger
+	// streams bounds open server-sent event streams.
+	streams streamLimiter
 }
 
 // startupState separates process liveness from control-plane readiness. The
@@ -933,44 +938,25 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid CSRF token", 403)
 		return
 	}
-	if err := os.MkdirAll(a.Config.ImportRoot, 0700); err != nil {
-		http.Error(w, "could not prepare upload storage", 500)
-		return
-	}
-	// Admit the declared archive size before reading the body, then stream
-	// the file part straight into the immutable upload object: no multipart
-	// spool file, one disk write.
-	declared, err := declaredUploadBytes(r, a.Config.MaxUpload)
-	if err == nil {
-		err = admitCapacity(a.Config, "cPanel upload", archiveUploadDemands(a.Config, declared))
-	}
-	if err != nil {
-		writeUploadError(w, err)
-		return
-	}
-	reader, err := r.MultipartReader()
-	if err != nil {
-		writeUploadError(w, err)
-		return
-	}
 	uploadID, err := randomSecret()
 	if err != nil {
 		http.Error(w, "could not create upload ID", 500)
 		return
 	}
+	// Stream the archive straight into the immutable upload object: no
+	// multipart spool file, one disk write.
 	archivePath := cpmoveUploadPath(a.Config.ImportRoot, uploadID)
-	staged, err := upload.Stream(reader, upload.Options{
-		FileField:    "backup",
-		MaxFileBytes: a.Config.MaxUpload,
+	staged, reservation, ok := a.stageArchiveUpload(w, r, "cPanel upload", upload.Options{
 		Create: func(string) (*os.File, error) {
 			return os.OpenFile(archivePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		},
-		CheckSpace: uploadSpaceCheck(a.Config, declared),
 	})
-	if err != nil {
-		writeUploadError(w, err)
+	if !ok {
 		return
 	}
+	// The archive is fully on disk; the post-inspection check below charges
+	// the inspected expanded size instead of the upload-time estimate.
+	reservation.release()
 	written := staged.Size
 	stored, err := os.Open(archivePath)
 	if err != nil {
@@ -990,7 +976,7 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not finalize staged upload: "+storedCloseErr.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := restoreCPMoveCapacity(a.Config, written, info.ExpandedBytes); err != nil {
+	if err := a.checkCPMoveCapacity(info.ExpandedBytes); err != nil {
 		_ = os.Remove(archivePath)
 		http.Error(w, err.Error(), http.StatusInsufficientStorage)
 		return
@@ -1082,7 +1068,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 			_ = os.Remove(cpmoveUploadMetadataPath(a.Config.ImportRoot, request.UploadID))
 		}
 	}()
-	if err := restoreCPMoveCapacity(a.Config, upload.Size, upload.ExpandedBytes); err != nil {
+	if err := a.checkCPMoveCapacity(upload.ExpandedBytes); err != nil {
 		return nil, err
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.User)
@@ -1254,6 +1240,11 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
+	// The staged archive is already on disk; extraction and the site staging
+	// tree each need about its size again.
+	if err := a.capacity.check(a.Config, "WPress restore", stagedArchiveDemands(a.Config, uint64(request.Size))); err != nil {
+		return nil, err
+	}
 	a.Metrics.RestoreStarted()
 	result, restoreErr := RestoreWPressContext(operationCtx, a.Config, request.TempPath, access, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force)
 	a.Metrics.RestoreFinished(restoreErr)
@@ -1371,7 +1362,7 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upload is missing, expired, or belongs to another operator", http.StatusNotFound)
 		return
 	}
-	if err := restoreCPMoveCapacity(a.Config, upload.Size, upload.ExpandedBytes); err != nil {
+	if err := a.checkCPMoveCapacity(upload.ExpandedBytes); err != nil {
 		http.Error(w, err.Error(), http.StatusInsufficientStorage)
 		return
 	}
@@ -1453,7 +1444,7 @@ func (a *App) jobList(w http.ResponseWriter, r *http.Request) {
 }
 
 // jobEventsHeartbeat keeps intermediaries from idling out the job stream.
-const jobEventsHeartbeat = 25 * time.Second
+var jobEventsHeartbeat = 25 * time.Second
 
 func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -1461,6 +1452,16 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "event streaming is unavailable", http.StatusNotImplemented)
 		return
 	}
+	release, admitted := a.streams.acquire(a.Auth.UsernameForRequest(r), maxEventStreamsPerPrincipal, maxEventStreamsTotal)
+	if !admitted {
+		a.Metrics.StreamRejected()
+		w.Header().Set("Retry-After", "30")
+		http.Error(w, "too many open event streams; close other dashboard tabs", http.StatusTooManyRequests)
+		return
+	}
+	defer release()
+	a.Metrics.StreamOpened()
+	defer a.Metrics.StreamClosed()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-store")
 	w.Header().Set("Connection", "keep-alive")
@@ -1475,11 +1476,13 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 	// The timeout middleware leaves this stream without a context deadline.
 	// Each write gets its own deadline instead, which both detects a dead
 	// peer and lifts the server-wide WriteTimeout that would otherwise kill a
-	// healthy stream; the stream rotates after StreamLifetime so the client
-	// reconnects and re-authenticates.
+	// healthy stream. Every heartbeat re-checks the credential, and the
+	// stream rotates after a jittered lifetime so clients reconnect without
+	// arriving in lockstep after a restart.
 	timeouts := httputil.DefaultTimeouts()
+	lifetime := timeouts.StreamLifetime - rand.N(timeouts.StreamLifetime/6)
 	controller := http.NewResponseController(w)
-	if err := controller.SetReadDeadline(time.Now().Add(timeouts.StreamLifetime + timeouts.StreamWrite)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+	if err := controller.SetReadDeadline(time.Now().Add(lifetime + timeouts.StreamWrite)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		http.Error(w, "event streaming is unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -1512,13 +1515,13 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	heartbeat := time.NewTicker(jobEventsHeartbeat)
 	defer heartbeat.Stop()
-	lifetime := time.NewTimer(timeouts.StreamLifetime)
-	defer lifetime.Stop()
+	rotate := time.NewTimer(lifetime)
+	defer rotate.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case <-lifetime.C:
+		case <-rotate.C:
 			return
 		case event, open := <-updates:
 			if !open {
@@ -1528,7 +1531,7 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-heartbeat.C:
-			if !write(": keep-alive\n\n") {
+			if !a.Auth.StillAuthenticated(r) || !write(": keep-alive\n\n") {
 				return
 			}
 		}
@@ -1556,7 +1559,9 @@ func logging(next http.Handler, metrics *Metrics, production bool) http.Handler 
 		if wrapped.status == 0 {
 			wrapped.status = http.StatusOK
 		}
-		if metrics != nil {
+		// An accepted event stream lives for up to 30 minutes; it is tracked
+		// by the stream gauges instead of the request latency histogram.
+		if metrics != nil && !(httputil.IsStreamPath(r.URL.Path) && wrapped.status == http.StatusOK) {
 			metrics.ObserveHTTP(wrapped.status, time.Since(started))
 		}
 		logJSON(r, wrapped.status, time.Since(started))

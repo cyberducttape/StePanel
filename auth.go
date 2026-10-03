@@ -429,7 +429,12 @@ func (a Auth) validSession(r *http.Request) bool {
 			return false
 		}
 		expiry, err := strconv.ParseInt(parts[1], 10, 64)
-		return err == nil && time.Now().Unix() < expiry
+		if err != nil || time.Now().Unix() >= expiry {
+			return false
+		}
+		// Legacy signed sessions predate the durable session store, but they
+		// still must stop working when the associated tenant is suspended.
+		return a.Accounts == nil || !a.Accounts.TenantSuspended(parts[0])
 	}
 	passwordHash, knownAccount := a.passwordHashFor(parts[0])
 	if len(parts) != 5 || !knownAccount || !hmac.Equal([]byte(parts[3]), []byte(a.credentialFingerprintFor(parts[0], passwordHash))) || !hmac.Equal([]byte(a.sign(strings.Join(parts[:4], "|"))), []byte(parts[4])) {
@@ -445,6 +450,45 @@ func (a Auth) validSession(r *http.Request) bool {
 		}
 	}
 	return true
+}
+
+// StillAuthenticated re-checks the credential of a request that Require
+// already admitted. Long-lived streams call it periodically so logout,
+// session or token revocation, expiry, and tenant suspension end the stream.
+// Unlike Require it does not consume the API-token rate limit or record
+// legacy-token use.
+func (a Auth) StillAuthenticated(r *http.Request) bool {
+	if !a.Enabled {
+		return true
+	}
+	username, isToken := r.Context().Value(apiTokenUsernameKey{}).(string)
+	if !isToken {
+		return a.validSession(r)
+	}
+	value := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(value) < 8 || !strings.EqualFold(value[:7], "Bearer ") {
+		return false
+	}
+	tokenValue := strings.TrimSpace(value[7:])
+	tokenUser, _, isLegacyUnscoped, ok := a.apiTokens.authenticateWithScopesAndLegacy(tokenValue)
+	if !ok || subtle.ConstantTimeCompare([]byte(tokenUser), []byte(username)) != 1 {
+		return false
+	}
+	if isLegacyUnscoped && a.legacyTokenDeprecation != nil {
+		digest := sha256.Sum256([]byte(tokenValue))
+		expired, err := a.legacyTokenDeprecation.IsLegacyTokenExpired(hex.EncodeToString(digest[:]))
+		if err != nil || expired {
+			return false
+		}
+	}
+	if subtle.ConstantTimeCompare([]byte(username), []byte(a.Username)) == 1 {
+		return true
+	}
+	if a.Accounts == nil {
+		return false
+	}
+	_, exists := a.Accounts.Get(username)
+	return exists && !a.Accounts.TenantSuspended(username)
 }
 
 func (a Auth) sessionID(r *http.Request) string {

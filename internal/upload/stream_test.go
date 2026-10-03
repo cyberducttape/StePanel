@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -205,5 +206,67 @@ func TestStreamReportsRequestBodyLimitAsTooLarge(t *testing.T) {
 	}
 	if len(entries(t, filepath.Clean(dir))) != 0 {
 		t.Fatal("truncated upload left a staged object")
+	}
+}
+
+func TestStreamRejectsUnsafeFilenames(t *testing.T) {
+	// Raw control characters never reach Stream's check: the MIME header
+	// parser rejects them. RFC 2231 encoding can still smuggle them in.
+	dispositions := []string{
+		`form-data; name="backup"; filename*=UTF-8''bad%01name.tar.gz`,
+		`form-data; name="backup"; filename*=UTF-8''bad%7Fname.wpress`,
+		`form-data; name="backup"; filename="` + strings.Repeat("a", 256) + `.wpress"`,
+		`form-data; name="backup"; filename="bad` + "\xff" + `name.tar.gz"`,
+		"form-data; name=\"backup\"; filename=\"bad\x01name.tar.gz\"",
+	}
+	for _, disposition := range dispositions {
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", disposition)
+		target, err := writer.CreatePart(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.WriteString(target, "data")
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		created := 0
+		_, err = Stream(multipart.NewReader(body, writer.Boundary()), Options{FileField: "backup", Create: createIn(t, dir, &created)})
+		if err == nil || created != 0 {
+			t.Errorf("disposition %q: err = %v created = %d, want rejection before staging", disposition, err, created)
+		}
+		if !errors.Is(err, ErrUnexpectedPart) && !errors.Is(err, ErrMalformed) {
+			t.Errorf("disposition %q: err = %v, want a client error", disposition, err)
+		}
+		if strings.Contains(disposition, "%01") && !errors.Is(err, ErrUnexpectedPart) {
+			t.Errorf("encoded control character was not caught by the file name check: %v", err)
+		}
+	}
+}
+
+// TestStreamWriteFailureRemovesPartialObject injects a staging write failure
+// (a read-only descriptor stands in for ENOSPC or an I/O error).
+func TestStreamWriteFailureRemovesPartialObject(t *testing.T) {
+	dir := t.TempDir()
+	_, err := Stream(reader(t, part{name: "backup", filename: "a.tar.gz", body: "data"}), Options{
+		FileField: "backup",
+		Create: func(string) (*os.File, error) {
+			file, err := os.CreateTemp(dir, "upload-*")
+			if err != nil {
+				return nil, err
+			}
+			readOnly, err := os.Open(file.Name())
+			_ = file.Close()
+			return readOnly, err
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "write staged upload") {
+		t.Fatalf("err = %v, want a staged write failure", err)
+	}
+	if len(entries(t, dir)) != 0 {
+		t.Fatal("failed write left a partial object")
 	}
 }
