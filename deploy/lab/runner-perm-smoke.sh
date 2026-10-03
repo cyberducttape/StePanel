@@ -21,7 +21,7 @@
 #   - podman available
 #   - $RUNNER_TEST_SITE set (default: ci-smoke — the site install-smoke.sh
 #     prepares — so this test drops in after install-smoke unchanged)
-#   - $RUNNER_TEST_IMAGE set to a pinned image ref (`name@sha256:...`).
+#   - $RUNNER_TEST_IMAGE set to a pinned image ref (`name[:tag]@sha256:...`).
 #     The image only needs `/bin/sh`; a scratch base with busybox works.
 #
 # The test asserts:

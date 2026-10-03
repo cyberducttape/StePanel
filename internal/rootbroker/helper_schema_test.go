@@ -10,7 +10,7 @@ func TestHelperSchemaAcceptsWellFormedRequests(t *testing.T) {
 	public := "/var/www/sites/demo/public"
 	release := "/var/www/sites/demo/.stepanel-release-20260101-abc"
 	hash := "$2a$10$" + strings.Repeat("a", 53)
-	image := "docker.io/library/node@sha256:" + strings.Repeat("a", 64)
+	image := "docker.io/library/node:20.12@sha256:" + strings.Repeat("a", 64)
 	for _, tc := range []struct {
 		name, action string
 		args         []string

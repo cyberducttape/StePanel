@@ -44,7 +44,7 @@ var (
 	schemaPHPSizePattern    = regexp.MustCompile(`^[1-9][0-9]{0,4}M$`)
 	schemaPHPErrorPattern   = regexp.MustCompile(`^[A-Z0-9_~ &|]{1,80}$`)
 	schemaEntrypointPattern = regexp.MustCompile(`^[A-Za-z0-9_./:-]{1,160}$`)
-	schemaImagePattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$`)
+	schemaImagePattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]{0,180}(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$`)
 	schemaGitRepoPattern    = regexp.MustCompile(`^git@[A-Za-z0-9.-]+:[A-Za-z0-9._/-]+\.git$`)
 	schemaGitRefPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
 	schemaGitHostsPattern   = regexp.MustCompile(`^[A-Za-z0-9.,-]+$`)
