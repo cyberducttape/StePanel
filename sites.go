@@ -71,8 +71,17 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	siteRoots, rootProblems, rootsErr := existingManagedSiteRoots(a.Config.WebRoot)
+	if rootsErr != nil && !errors.Is(rootsErr, os.ErrNotExist) {
+		http.Error(w, "unable to inspect managed sites", http.StatusInternalServerError)
+		return
+	}
 	for _, siteName := range siteNames {
-		overview, err := newSiteOverview(a.Config, siteName)
+		siteRoot, resolveErr := siteRoots[siteName], rootProblems[siteName]
+		if siteRoot == "" && resolveErr == nil {
+			resolveErr = os.ErrNotExist
+		}
+		overview, err := siteOverviewAt(a.Config, siteName, siteRoot, resolveErr)
 		if err != nil {
 			http.Error(w, "unable to inspect managed site document roots", http.StatusInternalServerError)
 			return
@@ -117,7 +126,7 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.TrimSpace(a.Config.DBCtl) != "" {
-		databases, err := managedDatabaseInventory(a.Config)
+		databases, err := a.cachedManagedDatabaseInventory()
 		if err != nil {
 			http.Error(w, "unable to inspect managed database inventory", http.StatusInternalServerError)
 			return
@@ -252,7 +261,7 @@ func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if strings.TrimSpace(a.Config.DBCtl) != "" {
-		databases, err := managedDatabaseInventory(a.Config)
+		databases, err := a.cachedManagedDatabaseInventory()
 		if err != nil {
 			http.Error(w, "unable to inspect managed database inventory", http.StatusInternalServerError)
 			return
@@ -272,6 +281,13 @@ func (a *App) siteOverviewResource(w http.ResponseWriter, r *http.Request) {
 
 func newSiteOverview(cfg Config, site string) (*siteOverview, error) {
 	siteRoot, err := existingManagedSiteRoot(cfg.WebRoot, site)
+	return siteOverviewAt(cfg, site, siteRoot, err)
+}
+
+// siteOverviewAt builds an overview from an already resolved site root (or
+// the error resolving it), so the list handler can resolve every site from
+// one directory scan instead of rescanning the sites directory per site.
+func siteOverviewAt(cfg Config, site, siteRoot string, err error) (*siteOverview, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			missingRoot, pathErr := safePath(cfg.WebRoot, "sites", site, "public")

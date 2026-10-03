@@ -169,3 +169,32 @@ func TestExistingRegularEntryRejectsSymlink(t *testing.T) {
 		t.Fatal("symlinked proxy entry was accepted")
 	}
 }
+
+// The single-scan resolver used by the site overview list must accept and
+// reject exactly what the per-site resolver does.
+func TestExistingManagedSiteRootsMatchesPerSiteResolution(t *testing.T) {
+	webRoot := t.TempDir()
+	sites := filepath.Join(webRoot, "sites")
+	for _, dir := range []string{"alpha", "beta"} {
+		if err := os.MkdirAll(filepath.Join(sites, dir, "public"), 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(sites, "file-entry"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(sites, "alpha"), filepath.Join(sites, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	roots, problems, err := existingManagedSiteRoots(webRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, site := range []string{"alpha", "beta", "file-entry", "linked", "missing"} {
+		want, wantErr := existingManagedSiteRoot(webRoot, site)
+		got, gotErr := roots[site], problems[site]
+		if got != want || (wantErr == nil) != (gotErr == nil && got != "") {
+			t.Errorf("%s: single scan = %q, %v; per site = %q, %v", site, got, gotErr, want, wantErr)
+		}
+	}
+}

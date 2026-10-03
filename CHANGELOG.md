@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **HTTP load gate in CI, and two scaling fixes it found (performance)**: the
+  mixed HTTP load test now seeds 200 sites, runs 8 concurrent readers across
+  the dashboard APIs while 20 real backup jobs execute, and fails on any error,
+  unfinished job, or p95 latency over 500 ms; CI runs it on every push. It found
+  that `/api/sites/overview` rescanned the whole sites directory once per site
+  (quadratic in site count) and ran the database inventory helper (a root broker
+  call in production) on every request, and that an expired service-status cache
+  made every concurrent `/api/health` request spawn its own `systemctl`
+  processes. Overview now resolves sites in one scan and uses a 5-second
+  inventory cache that API database mutations invalidate; one request refreshes
+  service status while others wait. Under the same load, max latency fell from
+  884 ms to 131 ms and average from 65 ms to 11 ms
+  (`docs/HTTP_LOAD_BASELINE_2026-10-02.md`).
 - **Terminating a site without its Unix user no longer fails (reliability)**:
   `stepanel-sitectl delete` removed the site tree only when the site's system
   user existed, so terminating an imported recovery site, or retrying after a

@@ -25,16 +25,30 @@ var serviceStatusCache struct {
 	sync.RWMutex
 	at    time.Time
 	items map[string]string
+	// refresh lets one caller rebuild an expired cache while concurrent
+	// callers wait for its result, instead of every request spawning its
+	// own set of systemctl and apachectl processes.
+	refresh sync.Mutex
+}
+
+func cachedServiceStatus() (map[string]string, bool) {
+	serviceStatusCache.RLock()
+	defer serviceStatusCache.RUnlock()
+	if serviceStatusCache.items != nil && time.Since(serviceStatusCache.at) < 5*time.Second {
+		return cloneServiceStatus(serviceStatusCache.items), true
+	}
+	return nil, false
 }
 
 func ServiceStatus() map[string]string {
-	serviceStatusCache.RLock()
-	if time.Since(serviceStatusCache.at) < 5*time.Second {
-		result := cloneServiceStatus(serviceStatusCache.items)
-		serviceStatusCache.RUnlock()
+	if result, ok := cachedServiceStatus(); ok {
 		return result
 	}
-	serviceStatusCache.RUnlock()
+	serviceStatusCache.refresh.Lock()
+	defer serviceStatusCache.refresh.Unlock()
+	if result, ok := cachedServiceStatus(); ok {
+		return result
+	}
 	result := map[string]string{}
 	for _, service := range []string{"apache2", "httpd", "lsws", "caddy", "mysql", "mariadb", "redis-server", "valkey-server", "fail2ban", "fpm-lens", "exim4", "exim", "dovecot", "spamassassin", "spamd", "vsftpd"} {
 		if _, err := exec.LookPath(service); err == nil {

@@ -154,6 +154,14 @@ jobs:
           fi
       - name: Authenticated control-plane smoke test
         run: ./scripts/e2e-smoke-test.sh ./stepanel
+      - name: Mixed HTTP load (200 sites, 8 readers, 20 backup jobs, p95 limit)
+        env:
+          STEPANEL_LOAD_WORKERS: '8'
+          STEPANEL_LOAD_REQUESTS: '60'
+          STEPANEL_LOAD_SITES: '200'
+          STEPANEL_LOAD_WRITES: '20'
+          STEPANEL_LOAD_MAX_P95_MS: '500'
+        run: bash scripts/e2e-mixed-load-test.sh ./stepanel
       - run: bash -n install.sh
       - run: bash -n scripts/check-release.sh
       - run: bash -n deploy/integrations/install-fail2ban.sh
@@ -167,7 +175,7 @@ jobs:
       - name: Lint shell scripts
         run: shellcheck -S warning install.sh deploy/lab/run.sh deploy/lab/dbctl-lock-smoke.sh deploy/lab/task-safeguards-smoke.sh deploy/lab/app-lifecycle-smoke.sh deploy/lab/recovery-matrix-smoke.sh deploy/integrations/*
       - name: Lint release and smoke scripts
-        run: shellcheck -S warning scripts/check-docs-links.sh scripts/check-action-pins.sh scripts/e2e-smoke-test.sh scripts/e2e-ui-test.sh scripts/verify-release-artifacts.sh
+        run: shellcheck -S warning scripts/check-docs-links.sh scripts/check-action-pins.sh scripts/e2e-smoke-test.sh scripts/e2e-mixed-load-test.sh scripts/e2e-ui-test.sh scripts/verify-release-artifacts.sh
       - name: Verify immutable GitHub Action references
         run: bash scripts/check-action-pins.sh
       - name: Check documentation links

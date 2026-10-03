@@ -265,7 +265,39 @@ func (a *App) cachedDatabaseDiagnostics(maxAge time.Duration) DatabaseDiagnostic
 	return a.databaseDiagnosticsCache
 }
 
+// overviewInventoryMaxAge bounds how stale the database counts on the site
+// overview pages may be. Database mutations through the API invalidate the
+// cache immediately; other paths (restores, terminations) show up within it.
+const overviewInventoryMaxAge = 5 * time.Second
+
+// cachedManagedDatabaseInventory serves the read-only site overview pages.
+// Every uncached inventory is a helper call (a root broker round trip in
+// production), and the dashboard requests overviews constantly; one caller
+// refreshes an expired copy while concurrent callers wait. Failures are not
+// cached. Callers get their own copy and may filter it in place.
+func (a *App) cachedManagedDatabaseInventory() ([]DatabaseResource, error) {
+	a.databaseInventoryMu.Lock()
+	defer a.databaseInventoryMu.Unlock()
+	if a.databaseInventoryCache == nil || time.Since(a.databaseInventoryAt) >= overviewInventoryMaxAge {
+		items, err := managedDatabaseInventory(a.Config)
+		if err != nil {
+			return nil, err
+		}
+		a.databaseInventoryCache, a.databaseInventoryAt = items, time.Now()
+	}
+	return append([]DatabaseResource(nil), a.databaseInventoryCache...), nil
+}
+
+func (a *App) invalidateDatabaseInventory() {
+	a.databaseInventoryMu.Lock()
+	a.databaseInventoryCache = nil
+	a.databaseInventoryMu.Unlock()
+}
+
 func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		defer a.invalidateDatabaseInventory()
+	}
 	switch r.Method {
 	case http.MethodGet:
 		if !a.requireCustomerScope(w, r, "database:read") {
@@ -391,6 +423,9 @@ func validDatabasePassword(password string) bool {
 }
 
 func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		defer a.invalidateDatabaseInventory()
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/databases/")
 	credentialRotation := strings.HasSuffix(path, "/credentials")
 	name := strings.TrimSuffix(path, "/credentials")

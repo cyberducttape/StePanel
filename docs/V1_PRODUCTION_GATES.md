@@ -449,10 +449,15 @@ upgraded to remove the transitional sudo policy.
 Initial synthetic SQLite microbenchmarks now cover 10/100/500-site mutation
 maps, 10 concurrent mutators, panel/worker connection-pool contention, two
 actual concurrent test processes, 50-job backup/restore batches, and
-audit-heavy writes. The dated local baseline and exact environment are recorded
-in [LOAD_BASELINE_2026-09-29.md](./LOAD_BASELINE_2026-09-29.md). This evidence
-does not satisfy the production load gate: it is one developer-host run and
-does not measure HTTP latency or real backup/restore throughput.
+audit-heavy writes ([LOAD_BASELINE_2026-09-29.md](./LOAD_BASELINE_2026-09-29.md)).
+A mixed HTTP workload now runs in CI on every push: a real `stepanel` process
+with 200 sites, 8 concurrent readers across 12 endpoints, and 20 real backup
+jobs running at the same time, failing on any error, unfinished job, or p95
+above 500 ms ([HTTP_LOAD_BASELINE_2026-10-02.md](./HTTP_LOAD_BASELINE_2026-10-02.md)).
+It found and fixed a quadratic site-overview scan and an uncoordinated
+service-status refresh. This still does not satisfy the production load
+gate: it is not representative production hardware, real web servers and
+databases, or more than a few hundred sites.
 
 ### Documentation
 - [ ] v1.0.0 Production Gates (this doc)

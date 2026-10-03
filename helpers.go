@@ -87,6 +87,39 @@ func existingManagedSiteRoot(webRoot, site string) (string, error) {
 	return "", os.ErrNotExist
 }
 
+// existingManagedSiteRoots resolves every managed site root from a single
+// scan of the sites directory, applying the same checks as
+// existingManagedSiteRoot. The error for an entry that is not a usable site
+// directory is reported per site, so one bad entry does not hide the rest.
+func existingManagedSiteRoots(webRoot string) (map[string]string, map[string]error, error) {
+	sitesRoot, err := safePath(webRoot, "sites")
+	if err != nil {
+		return nil, nil, err
+	}
+	entries, err := os.ReadDir(sitesRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	roots := make(map[string]string, len(entries))
+	problems := map[string]error{}
+	for _, entry := range entries {
+		if safeUser(entry.Name()) == "" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			problems[entry.Name()] = err
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			problems[entry.Name()] = errors.New("managed site root is not a directory")
+			continue
+		}
+		roots[entry.Name()] = filepath.Join(sitesRoot, entry.Name())
+	}
+	return roots, problems, nil
+}
+
 func existingManagedSitePublicRoot(webRoot, site string) (string, error) {
 	siteRoot, err := existingManagedSiteRoot(webRoot, site)
 	if err != nil {

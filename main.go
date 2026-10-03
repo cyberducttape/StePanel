@@ -64,6 +64,9 @@ type App struct {
 	MetadataCache            *MetadataCache
 	databaseDiagnosticsMu    sync.Mutex
 	databaseDiagnosticsCache DatabaseDiagnostics
+	databaseInventoryMu      sync.Mutex
+	databaseInventoryCache   []DatabaseResource
+	databaseInventoryAt      time.Time
 	gitActivationMu          sync.Mutex
 	webhookReplayCache       *WebhookReplayCache
 	siteOperations           operations.Locks
