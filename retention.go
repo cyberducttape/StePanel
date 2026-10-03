@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-var restoreStagePattern = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[a-z0-9_-]{1,32}$`)
+// cPanel restore stages append the first 12 characters of randomSecret
+// (base64.RawURLEncoding) to the site name. Accept the mixed-case URL-safe
+// suffix while retaining the legacy timestamp-site form.
+var restoreStagePattern = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[a-z0-9_-]{1,32}(-[A-Za-z0-9_-]{12})?$`)
 
 // temporaryImportStagePrefixes are the os.MkdirTemp prefixes workflows use
 // for scratch trees under the import root. Unlike retained restore stages,

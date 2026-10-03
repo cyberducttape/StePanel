@@ -12,11 +12,12 @@ import (
 func TestCleanupImportStagesRemovesOnlyExpiredRestoreStages(t *testing.T) {
 	root := t.TempDir()
 	old := filepath.Join(root, "20200101-010101-account")
+	oldCPMove := filepath.Join(root, "20200101-010102-abcdefghijklmnopqrstuvwxyz012345-AbCdef012_-x")
 	keep := filepath.Join(root, "20990101-010101-account")
 	nonStage := filepath.Join(root, "notes")
 	orphanUpload := filepath.Join(root, "upload-old.tar.gz")
 	orphanWPress := filepath.Join(root, "wpress-upload-old.wpress")
-	for _, path := range []string{old, keep, nonStage} {
+	for _, path := range []string{old, oldCPMove, keep, nonStage} {
 		if err := os.MkdirAll(path, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -29,14 +30,18 @@ func TestCleanupImportStagesRemovesOnlyExpiredRestoreStages(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Chtimes(old, time.Unix(0, 0), time.Unix(0, 0)); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{old, oldCPMove} {
+		if err := os.Chtimes(path, time.Unix(0, 0), time.Unix(0, 0)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := CleanupImportStages(root, time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(old); !os.IsNotExist(err) {
-		t.Fatalf("old stage still exists: %v", err)
+	for _, path := range []string{old, oldCPMove} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("old stage still exists: %s: %v", path, err)
+		}
 	}
 	for _, path := range []string{orphanUpload, orphanWPress} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
