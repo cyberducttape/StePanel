@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Setup
+
+- **Guided installation**: `sudo ./install.sh --guided` asks seven questions,
+  validates each answer immediately, generates all six keys, shows the host
+  preflight, and installs only after confirmation. It confirms the
+  authenticator app by asking for a current code (no lockout from a mistyped
+  key) and proves the offsite backup location with a write, read-back, and
+  delete test. Passwords are hashed before saving and no secret is printed.
+- **Reusable settings files**: `stepanel setup` writes the answers to a
+  root-only settings file, and `install.sh --config FILE` installs from it
+  (with `--dry-run` to preview). Config files are parsed with the same strict
+  rules as `/etc/ste-panel.env` and must not be readable by other users.
+- **Safer first run**: the guide refuses to run where StePanel is already
+  installed, because new keys would make existing encrypted backups
+  unreadable. The old `stepanel setup` and `stepanel init` wizards, which
+  printed secrets and wrote files the installer could not read, are replaced;
+  `init` is now an alias for `setup`. The installer no longer prompts for a
+  password when a password hash is supplied.
+
 ### Recovery
 
 - **Restore rehearsals are recorded and summarized per site**: every

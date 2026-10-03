@@ -141,12 +141,8 @@ func main() {
 		}
 		return
 	}
-	if len(os.Args) == 2 && os.Args[1] == "init" {
-		runInit()
-		return
-	}
-	if len(os.Args) == 2 && os.Args[1] == "setup" {
-		runSetupWizard()
+	if len(os.Args) >= 2 && (os.Args[1] == "setup" || os.Args[1] == "init") {
+		runSetupCommand(os.Args[2:])
 		return
 	}
 	if len(os.Args) == 2 && os.Args[1] == "convert-htaccess" {

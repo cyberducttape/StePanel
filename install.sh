@@ -12,47 +12,97 @@ UNSAFE_LAB=0
 # or disables a web server that was already running or enabled on this host.
 DRY_RUN=0
 TAKE_OVER_HOST=0
-INSTALL_USAGE="usage: sudo ./install.sh [--dry-run] [--take-over-host] [--unsafe-lab]"
-for install_arg in "$@"; do
-  case $install_arg in
+# --guided runs `stepanel setup` to collect and verify every setting, then
+# installs after an explicit confirmation. --config FILE reads settings saved
+# by `stepanel setup` (or written by hand in the same KEY="value" format).
+GUIDED=0
+CONFIG_FILE=""
+INSTALL_USAGE="usage: sudo ./install.sh [--guided | --config FILE] [--dry-run] [--take-over-host] [--unsafe-lab]"
+while (( $# > 0 )); do
+  case $1 in
     --unsafe-lab) UNSAFE_LAB=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --take-over-host) TAKE_OVER_HOST=1 ;;
+    --guided) GUIDED=1 ;;
+    --config)
+      [[ $# -ge 2 && -n $2 ]] || { echo "--config requires a file ($INSTALL_USAGE)" >&2; exit 64; }
+      CONFIG_FILE=$2; shift ;;
+    --config=*) CONFIG_FILE=${1#--config=} ;;
     -h|--help) echo "$INSTALL_USAGE"; exit 0 ;;
-    *) echo "unknown install argument: $install_arg ($INSTALL_USAGE)" >&2; exit 64 ;;
+    *) echo "unknown install argument: $1 ($INSTALL_USAGE)" >&2; exit 64 ;;
   esac
+  shift
 done
 SAFETY_BYPASS_VARS=(STEPANEL_SKIP_QUOTA_CHECK STEPANEL_SKIP_STARTUP_DB_RECONCILE STEPANEL_SKIP_STARTUP_HOST_RECONCILE STEPANEL_LAB_HTTP_COOKIES STEPANEL_LAB_DIRECT_ROOT_BROKER)
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_USER="stepanel"; APP_DIR="/opt/stepanel"; DATA_DIR="/var/lib/ste-panel"; ENV_FILE="/etc/ste-panel.env"
 if [[ ! -f "$ROOT_DIR/stepanel" || ! -x "$ROOT_DIR/stepanel" ]]; then echo "Build an executable stepanel binary before installing." >&2; exit 1; fi
 
+# load_env_file reads KEY="value" settings (only \\ and \" escapes) from a
+# root-owned file that is not group/world-writable. Variables already set in
+# the environment win, so explicit overrides keep working. With "private",
+# the file must also not be group/world-readable, as it holds secrets.
+load_env_file() {
+  local file=$1 visibility=${2:-} owner mode key encoded value character
+  [[ -f $file && ! -L $file ]] || { echo "$file must be a regular file." >&2; exit 1; }
+  owner=$(stat -c %u "$file")
+  mode=$(stat -c %a "$file")
+  [[ $owner == 0 && $mode =~ ^[0-7]{3,4}$ && $(( 8#$mode & 022 )) == 0 ]] || { echo "$file must be root-owned and not group/world-writable." >&2; exit 1; }
+  if [[ $visibility == private ]] && (( 8#$mode & 077 )); then
+    echo "$file holds secrets and must not be readable by other users (chmod 600 $file)." >&2; exit 1
+  fi
+  while IFS='=' read -r key encoded; do
+    [[ -n $key && $key != \#* ]] || continue
+    [[ ( $key =~ ^STEPANEL_[A-Z0-9_]+$ || $key == RCLONE_CONFIG ) && $encoded == \"* ]] || { echo "$file contains an unsupported entry." >&2; exit 1; }
+    [[ -v $key ]] && continue
+    encoded=${encoded:1:${#encoded}-2}
+    value=
+    while [[ -n $encoded ]]; do
+      character=${encoded:0:1}
+      encoded=${encoded:1}
+      if [[ $character == '\' ]]; then
+        [[ -n $encoded ]] || { echo "$file contains an invalid escape." >&2; exit 1; }
+        character=${encoded:0:1}
+        [[ $character == '\' || $character == '"' ]] || { echo "$file contains an unsupported escape." >&2; exit 1; }
+        encoded=${encoded:1}
+      fi
+      value+=$character
+    done
+    printf -v "$key" '%s' "$value"
+    export "${key?}"
+  done < "$file"
+}
+
+if (( GUIDED == 1 )); then
+  [[ -z $CONFIG_FILE ]] || { echo "--guided and --config cannot be combined; --guided writes its own settings file." >&2; exit 64; }
+  [[ -t 0 && -t 1 ]] || { echo "--guided needs an interactive terminal; use --config FILE for unattended installs." >&2; exit 64; }
+  if [[ -f "$ENV_FILE" ]]; then
+    echo "StePanel is already installed on this server. Run 'sudo ./install.sh' to upgrade; your settings and keys are kept." >&2
+    exit 1
+  fi
+  CONFIG_FILE="$ROOT_DIR/stepanel-install.env"
+  reuse_answers=n
+  if [[ -f $CONFIG_FILE ]]; then
+    read -r -p "Found saved setup answers in $CONFIG_FILE. Use them? [Y/n]: " reuse_answers
+    [[ ${reuse_answers,,} == n* ]] && reuse_answers=n || reuse_answers=y
+  fi
+  if [[ $reuse_answers != y ]]; then
+    force_setup=()
+    [[ -f $CONFIG_FILE ]] && force_setup=(--force)
+    "$ROOT_DIR/stepanel" setup --output "$CONFIG_FILE" --from-installer "${force_setup[@]}" || exit $?
+    chown root:root "$CONFIG_FILE"
+    chmod 0600 "$CONFIG_FILE"
+  fi
+  echo
+fi
+if [[ -n $CONFIG_FILE ]]; then
+  load_env_file "$CONFIG_FILE" private
+fi
+
 # On upgrades, retain the generated runtime configuration unless the operator
 # explicitly supplied a replacement STEPANEL_* environment variable.
 if [[ -f "$ENV_FILE" ]]; then
-  env_owner=$(stat -c %u "$ENV_FILE")
-  env_mode=$(stat -c %a "$ENV_FILE")
-  [[ $env_owner == 0 && $env_mode =~ ^[0-7]{3,4}$ && $(( 8#$env_mode & 022 )) == 0 ]] || { echo "$ENV_FILE must be root-owned and not group/world-writable." >&2; exit 1; }
-  while IFS='=' read -r env_key env_encoded; do
-    [[ -n $env_key ]] || continue
-    [[ ( $env_key =~ ^STEPANEL_[A-Z0-9_]+$ || $env_key == RCLONE_CONFIG ) && $env_encoded == \"*\" ]] || { echo "$ENV_FILE contains an unsupported entry." >&2; exit 1; }
-    [[ -v $env_key ]] && continue
-    env_encoded=${env_encoded:1:${#env_encoded}-2}
-    env_value=
-    while [[ -n $env_encoded ]]; do
-      env_character=${env_encoded:0:1}
-      env_encoded=${env_encoded:1}
-      if [[ $env_character == '\' ]]; then
-        [[ -n $env_encoded ]] || { echo "$ENV_FILE contains an invalid escape." >&2; exit 1; }
-        env_character=${env_encoded:0:1}
-        [[ $env_character == '\' || $env_character == '"' ]] || { echo "$ENV_FILE contains an unsupported escape." >&2; exit 1; }
-        env_encoded=${env_encoded:1}
-      fi
-      env_value+=$env_character
-    done
-    printf -v "$env_key" '%s' "$env_value"
-    export "${env_key?}"
-  done < "$ENV_FILE"
+  load_env_file "$ENV_FILE"
 fi
 
 requested_bypasses=()
@@ -113,7 +163,7 @@ MAX_UPLOAD_BYTES="${STEPANEL_MAX_UPLOAD_BYTES:-21474836480}"
 MAX_ARCHIVE_ENTRIES="${STEPANEL_MAX_ARCHIVE_ENTRIES:-1000000}"
 MAX_CONCURRENT_JOBS="${STEPANEL_MAX_CONCURRENT_JOBS:-2}"
 unset STEPANEL_ADMIN_PASSWORD STEPANEL_SESSION_SECRET STEPANEL_DB_PASSWORD STEPANEL_DB_PASSWORD_FILE
-if [[ -z "$ADMIN_PASSWORD" && -t 0 ]]; then read -r -s -p "StePanel admin password: " ADMIN_PASSWORD; echo; fi
+if [[ -z "$ADMIN_PASSWORD" && -z "$EXISTING_ADMIN_PASSWORD_HASH" && -t 0 ]]; then read -r -s -p "StePanel admin password: " ADMIN_PASSWORD; echo; fi
 if [[ -z "$ADMIN_PASSWORD" && -z "$EXISTING_ADMIN_PASSWORD_HASH" ]]; then echo "Set STEPANEL_ADMIN_PASSWORD or run the installer interactively." >&2; exit 1; fi
 if [[ -z "$SESSION_SECRET" ]]; then SESSION_SECRET="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"; fi
 if [[ -e /etc/stepanel-audit.key || -L /etc/stepanel-audit.key ]]; then
@@ -294,6 +344,12 @@ for web_service in "${PREEXISTING_WEB_SERVICES[@]}"; do
 done
 echo "  ENABLE and START $SELECTED_WEB_SERVICE, $DB_SERVICE, php-fpm, stepanel, stepanel-root-broker"
 echo "  CREATE or UPDATE $APP_DIR, $DATA_DIR, /var/www/sites, $ENV_FILE, /usr/local/sbin/stepanel-*, systemd units"
+if (( ${#PREEXISTING_WEB_SERVICES[@]} > 0 && TAKE_OVER_HOST == 0 && GUIDED == 1 && DRY_RUN == 0 )); then
+  echo "This server already runs: ${PREEXISTING_WEB_SERVICES[*]}."
+  echo "StePanel needs ports 80 and 443, so the installer would stop and disable it."
+  read -r -p "Stop and disable ${PREEXISTING_WEB_SERVICES[*]}? Only do this on a server dedicated to StePanel. [y/N]: " take_over_answer
+  [[ ${take_over_answer,,} == y || ${take_over_answer,,} == yes ]] && TAKE_OVER_HOST=1
+fi
 if (( ${#PREEXISTING_WEB_SERVICES[@]} > 0 && TAKE_OVER_HOST == 0 )); then
   preflight_blockers+=("rerun with --take-over-host to stop and disable: ${PREEXISTING_WEB_SERVICES[*]}")
 fi
@@ -305,6 +361,14 @@ fi
 if (( DRY_RUN == 1 )); then
   echo "Dry run complete; no changes were made."
   exit 0
+fi
+if (( GUIDED == 1 )); then
+  read -r -p "Install StePanel with the changes above? [y/N]: " install_answer
+  if [[ ${install_answer,,} != y && ${install_answer,,} != yes ]]; then
+    echo "Nothing was changed. Your answers are saved in $CONFIG_FILE;"
+    echo "install later with: sudo ./install.sh --config $CONFIG_FILE"
+    exit 0
+  fi
 fi
 
 if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl git sudo logrotate

@@ -32,6 +32,50 @@ validate/reload the complete Caddyfile after each change. Caddy manages HTTPS
 certificates automatically. Apache `.htaccess` migrations are described in
 [`HTACCESS_MIGRATION.md`](HTACCESS_MIGRATION.md).
 
+## Guided install (recommended)
+
+On a fresh server, download and verify a release (below), install rclone and
+add a storage remote for offsite backups (`sudo rclone config`), then run:
+
+```sh
+sudo ./install.sh --guided
+```
+
+The guide asks seven questions and checks every answer before moving on:
+
+1. **Panel address**: a full hostname whose DNS points at the server.
+2. **Web server**: Caddy (automatic HTTPS), Apache, or OpenLiteSpeed.
+3. **Database**: MariaDB, MySQL, or PostgreSQL.
+4. **Administrator**: username and password (entered twice, never shown or
+   stored in plain text).
+5. **Authenticator app**: the guide shows a setup key and an `otpauth://`
+   link, then asks for the current code, so a mistyped key cannot lock you
+   out.
+6. **Offsite backups**: choose an rclone remote and path; the guide writes,
+   reads back, and deletes a small test file there.
+7. **Optional features**: Fail2ban (with your trusted addresses), Node.js,
+   malware scanning, and a database tool.
+
+It then generates the six keys StePanel needs, saves everything to
+`stepanel-install.env` next to the installer (mode 600), shows the host
+preflight, and asks for confirmation before changing anything. If another web
+server is already running, it asks before stopping it. Keep a copy of the
+settings file offline: it holds the backup encryption key, and encrypted
+backups cannot be restored without it.
+
+To prepare settings on one machine and install later, or to review them first:
+
+```sh
+./stepanel setup --output stepanel-install.env      # answer the questions
+sudo ./install.sh --config stepanel-install.env --dry-run
+sudo ./install.sh --config stepanel-install.env
+```
+
+The settings file must be root-owned and not readable by other users. The
+guide refuses to run on a server where StePanel is already installed, because
+new keys would make existing backups unreadable; upgrade with
+`sudo ./install.sh` instead.
+
 ## Build and install
 
 For production, use a verified tagged release archive:

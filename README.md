@@ -137,12 +137,16 @@ curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${relea
 curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/SHA256SUMS"
 grep "stepanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
 tar -xzf "stepanel_${release#v}_linux_${arch}.tar.gz"
-sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
-  STEPANEL_PANEL_HOSTNAME=panel.example.com \
-  STEPANEL_DB_ENGINE=mariadb \
-  STEPANEL_BACKUP_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-  STEPANEL_DB_VERSION=default ./install.sh
+sudo ./install.sh --guided
 ```
+
+The guided install asks seven questions (panel address, web server, database,
+administrator, authenticator app, offsite backup location, optional features),
+checks each answer as you go, generates every key, shows exactly what will
+change on the server, and installs only after you confirm. Before starting,
+install rclone and add a storage remote with `sudo rclone config`; the guide
+tests that remote before continuing. For unattended installs, see the
+[installation guide](docs/INSTALLATION.md).
 
 The installer records the selected database engine/version, creates a restricted `stepanel` service account, writes the requested panel hostname into the selected webserver, and binds the control plane to `127.0.0.1:8090`. Caddy provisions HTTPS automatically; Apache installations must complete TLS termination before signing in.
 
