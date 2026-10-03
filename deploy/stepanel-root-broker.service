@@ -31,8 +31,12 @@ SystemCallArchitectures=native
 # atomic sibling (for example /etc/passwd.<pid>) before renaming it. The
 # broker is the only root service that needs this host mutation surface; the
 # validated helpers still enforce narrower operation-specific paths.
-ProtectSystem=true
-ReadWritePaths=/etc /run /var/backups/stepanel /var/lib/stepanel /var/lib/stepanel-privileged /var/www -/var/log/apache2 -/var/log/httpd
+ProtectSystem=strict
+# The root broker needs the account database and systemd unit directories
+# under /etc, while all other host writes are confined to managed state,
+# site data, and the selected webserver/certbot logs. Certbot uses its own
+# state/cache/log directories under /var/lib, /var/cache, and /var/log.
+ReadWritePaths=/etc /run /var/backups/stepanel /var/lib/stepanel /var/lib/stepanel-privileged -/var/lib/letsencrypt -/var/cache/letsencrypt /var/www -/var/log/apache2 -/var/log/httpd -/var/log/letsencrypt
 
 [Install]
 WantedBy=multi-user.target
