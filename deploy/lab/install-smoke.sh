@@ -125,7 +125,7 @@ grep -Fxq 'NoNewPrivileges=yes' <<<"$root_broker_props"
 grep -Fxq 'PrivateDevices=yes' <<<"$root_broker_props"
 grep -Fxq 'PrivateTmp=yes' <<<"$root_broker_props"
 grep -Fxq 'ProtectSystem=strict' <<<"$root_broker_props"
-grep -Fxq 'RestrictNamespaces=yes' <<<"$root_broker_props"
+grep -Fxq 'RestrictNamespaces=mnt net pid user' <<<"$root_broker_props"
 grep -Eq '(^| )/etc( |$)' <<<"$root_broker_rw_paths"
 grep -Eq '^ReadWritePaths=.* /etc/\.pwd\.lock' /etc/systemd/system/stepanel-root-broker.service
 systemctl restart stepanel.service stepanel-worker.service

@@ -782,31 +782,19 @@ func TestDatabaseCredentialIsolation(t *testing.T) {
 	t.Logf("credentials file mode: %v (should not be world-readable in production)", info.Mode())
 }
 
-// TestSystemdHardeningMeasures verifies that systemd units include proper
-// isolation and hardening directives to prevent privilege escalation and
-// resource access between tenants.
-func TestSystemdHardeningMeasures(t *testing.T) {
-	// Required systemd hardening directives:
-	requiredHardening := []struct {
-		directive string
-		purpose   string
-	}{
-		{"NoNewPrivileges=true", "Prevent privilege escalation via setuid"},
-		{"PrivateDevices=true", "Hide device nodes from process"},
-		{"PrivateTmp=true", "Isolate /tmp and /var/tmp"},
-		{"ProtectControlGroups=true", "Prevent cgroup access"},
-		{"ProtectHome=true", "Hide home directory"},
-		{"ProtectKernelModules=true", "Prevent kernel module loading"},
-		{"ProtectKernelTunables=true", "Prevent kernel tunable modification"},
-		{"ProtectSystem=strict", "Read-only system files except /dev, /proc, /run"},
-		{"LockPersonality=true", "Prevent personality(2) calls (setarch)"},
-		{"RestrictNamespaces=true", "Prevent namespace creation"},
-		{"CapabilityBoundingSet=", "Empty capability set (no special capabilities)"},
+// TestRootBrokerNamespacePolicy keeps production and lab units aligned while
+// allowing the namespaces required by the rootless Podman build runner.
+func TestRootBrokerNamespacePolicy(t *testing.T) {
+	for _, path := range []string{"deploy/stepanel-root-broker.service", "deploy/lab/stepanel-root-broker.service"} {
+		unit, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if !bytes.Contains(unit, []byte("RestrictNamespaces=mnt net pid user\n")) {
+			t.Errorf("%s must allow only the namespaces required by rootless Podman", path)
+		}
+		if bytes.Contains(unit, []byte("RestrictNamespaces=true\n")) {
+			t.Errorf("%s blocks rootless Podman namespace creation", path)
+		}
 	}
-
-	for _, h := range requiredHardening {
-		t.Logf("required hardening: %s (%s)", h.directive, h.purpose)
-	}
-
-	t.Log("verify all systemd units include required hardening directives")
 }

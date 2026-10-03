@@ -23,7 +23,9 @@ ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
 RestrictRealtime=true
-RestrictNamespaces=true
+# Rootless Podman builds need user, mount, PID, and network namespaces. Keep
+# cgroup, IPC, UTS, and time namespace creation unavailable to broker helpers.
+RestrictNamespaces=mnt net pid user
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
 SystemCallArchitectures=native
