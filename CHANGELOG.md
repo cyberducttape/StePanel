@@ -17,7 +17,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   broker to stream the dump into a file the panel created; the broker writes
   only into an empty, single-link, non-root-owned regular file under an
   approved staging root, so dumps of any size work and never pass through the
-  JSON response. The lab smoke now exercises the same path.
+  JSON response. The lab-only shortcuts for database listing, dumps, and
+  restores are removed, so the installation smokes now exercise the production
+  database paths.
 - **Removed dead placeholder code from the root broker**: about 900 lines of
   commented-out database, restore, and vhost "implementations" that only
   pretended to succeed (including a hard-coded placeholder password), and the

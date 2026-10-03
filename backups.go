@@ -482,20 +482,6 @@ func managedDatabasesForSiteContext(parent context.Context, cfg Config, site str
 	if err := parent.Err(); err != nil {
 		return nil, err
 	}
-	if labDirectRootBrokerEnabled() {
-		items, err := managedDatabaseInventory(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("list managed databases: %w", err)
-		}
-		databases := make([]string, 0, len(items))
-		for _, item := range items {
-			if item.Site == site {
-				databases = append(databases, item.Name)
-			}
-		}
-		sort.Strings(databases)
-		return databases, nil
-	}
 	ctx, cancel := context.WithTimeout(parent, helperConfigMutationTimeout)
 	defer cancel()
 	output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "list", site)
@@ -595,36 +581,6 @@ func dumpManagedDatabaseContext(parent context.Context, cfg Config, database, de
 			return fmt.Errorf("dump managed database %s: %s", database, response.Error)
 		}
 		return nil
-	}
-	if labDirectRootBrokerEnabled() {
-		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
-		if err != nil {
-			_ = out.Close()
-			return err
-		}
-		response, err := client.DBDumpDirect(ctx, database)
-		if err != nil {
-			_ = out.Close()
-			return err
-		}
-		if !response.OK {
-			_ = out.Close()
-			return errors.New(response.Error)
-		}
-		var details rootbroker.DBResponse
-		if err := json.Unmarshal(response.Details, &details); err != nil {
-			_ = out.Close()
-			return fmt.Errorf("decode root broker database dump: %w", err)
-		}
-		if _, err := out.Write(details.DumpData); err != nil {
-			_ = out.Close()
-			return err
-		}
-		if err := out.Sync(); err != nil {
-			_ = out.Close()
-			return err
-		}
-		return out.Close()
 	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "dump", database)
 	var stderr strings.Builder

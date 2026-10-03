@@ -19,7 +19,7 @@ func TestClientConvenienceMethodsUseTheSocketBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	const calls = 19
+	const calls = 17
 	serverErr := make(chan error, 1)
 	go func() {
 		for i := 0; i < calls; i++ {
@@ -62,9 +62,7 @@ func TestClientConvenienceMethodsUseTheSocketBoundary(t *testing.T) {
 			return e
 		},
 		func() error { _, e := client.DBInventory(ctx); return e },
-		func() error { _, e := client.DBInventoryDirect(ctx); return e },
-		func() error { _, e := client.DBDumpDirect(ctx, "db"); return e },
-		func() error { _, e := client.DBRestoreDumpDirect(ctx, "site", "db", []byte("SELECT 1;")); return e },
+		func() error { _, e := client.DBDumpToPath(ctx, "db", "/var/backups/stepanel/db.sql"); return e },
 		func() error { _, e := client.VhostApply(ctx, "site", "example.test", "caddy"); return e },
 		func() error { _, e := client.IssueCertificate(ctx, "example.test", "admin@example.test"); return e },
 		func() error { _, e := client.TaskKill(ctx, "site", "cron"); return e },

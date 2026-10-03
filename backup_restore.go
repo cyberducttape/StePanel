@@ -10,7 +10,6 @@ import (
 	"github.com/cyberducttape/StePanel/internal/backup"
 	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/recovery"
-	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"io"
 	"log"
 	"net/http"
@@ -27,8 +26,6 @@ type DurableBackupRestoreRequest = backup.DurableBackupRestoreRequest
 
 // Lowercase alias for backward compatibility with existing code
 type durableBackupRestoreRequest = backup.DurableBackupRestoreRequest
-
-const maxDirectBrokerDatabaseDumpBytes = 64 << 20
 
 type durableBackupRehearsalRequest struct {
 	Site   string `json:"site"`
@@ -998,27 +995,6 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	defer input.Close()
 	ctx, cancel := context.WithTimeout(ctx, helperBackupRestoreTimeout)
 	defer cancel()
-	if labDirectRootBrokerEnabled() {
-		if info.Size() > maxDirectBrokerDatabaseDumpBytes {
-			return BackupRestoreResult{}, errors.New("database dump exceeds the isolated broker limit")
-		}
-		dumpData, readErr := io.ReadAll(input)
-		if readErr != nil {
-			return BackupRestoreResult{}, readErr
-		}
-		client, clientErr := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
-		if clientErr != nil {
-			return BackupRestoreResult{}, clientErr
-		}
-		response, brokerErr := client.DBRestoreDumpDirect(ctx, site, database, dumpData)
-		if brokerErr != nil {
-			return BackupRestoreResult{}, brokerErr
-		}
-		if !response.OK {
-			return BackupRestoreResult{}, errors.New(response.Error)
-		}
-		return BackupRestoreResult{Site: site, Backup: filepath.Base(backup), Mode: "database-only", Database: database, DatabaseRestored: true, DatabasePreserved: false, Consistency: manifest.Consistency, SchemaRollback: "manual: restore the safety backup or apply a forward migration", CompletedAt: time.Now().UTC()}, nil
-	}
 	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", site, database, "restore", "", dump); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("restore database %s: %w", database, err)
 	}

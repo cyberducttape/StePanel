@@ -278,27 +278,9 @@ func (c *Client) DBMutation(ctx context.Context, action, site, database, usernam
 
 // DBInventory returns the helper's read-only managed-database inventory.
 func (c *Client) DBInventory(ctx context.Context) (*Response, error) {
-	return c.dbInventory(ctx, false)
-}
-
-// DBInventoryDirect invokes the read-only inventory operation without sudo.
-// It is used only by the disposable install smoke's direct broker path.
-func (c *Client) DBInventoryDirect(ctx context.Context) (*Response, error) {
-	return c.dbInventory(ctx, true)
-}
-
-// DBDumpDirect invokes the database dump through the lab's direct broker
-// transport. This is used by isolated hosts where no-new-privileges prevents
-// the compatibility sudo path from running.
-func (c *Client) DBDumpDirect(ctx context.Context, database string) (*Response, error) {
-	return c.ExecuteDirect(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: "dump", Database: database, Username: "dump", Site: "dump"}})
-}
-
-// DBRestoreDumpDirect invokes a bounded database restore through the lab's
-// direct broker transport. The broker validates the target and performs the
-// privileged helper invocation.
-func (c *Client) DBRestoreDumpDirect(ctx context.Context, site, database string, dump []byte) (*Response, error) {
-	return c.ExecuteDirect(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump", Database: database, Site: site, Username: "restore", DumpData: dump}})
+	return c.Execute(ctx, &Request{RequestType: "db", DB: &DBRequest{
+		Action: "inventory", Site: "inventory", Database: "inventory", Username: "inventory",
+	}})
 }
 
 // DBDumpToPath asks the root broker to stream a database dump into dumpPath,
@@ -312,22 +294,6 @@ func (c *Client) DBDumpToPath(ctx context.Context, database, dumpPath string) (*
 // from an approved staging root. The dump bytes never cross the JSON RPC.
 func (c *Client) DBRestoreFromPath(ctx context.Context, action, site, database, username, password, dumpPath string) (*Response, error) {
 	return c.Execute(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: action, Database: database, Site: site, Username: username, Password: password, DumpPath: dumpPath}})
-}
-
-func (c *Client) dbInventory(ctx context.Context, direct bool) (*Response, error) {
-	req := &Request{
-		RequestType: "db",
-		DB: &DBRequest{
-			Action:   "inventory",
-			Site:     "inventory",
-			Database: "inventory",
-			Username: "inventory",
-		},
-	}
-	if direct {
-		return c.ExecuteDirect(ctx, req)
-	}
-	return c.Execute(ctx, req)
 }
 
 // VhostApply applies virtual host configuration.

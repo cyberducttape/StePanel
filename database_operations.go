@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -76,24 +75,6 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 			return output, err
 		}
 		return nil, errors.New("production database helper is not routed through the root broker")
-	}
-	if labDirectRootBrokerEnabled() && input == "" && len(args) == 1 && args[0] == "inventory" {
-		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
-		if err != nil {
-			return nil, err
-		}
-		response, err := client.DBInventoryDirect(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if !response.OK {
-			return nil, errors.New(response.Error)
-		}
-		var details rootbroker.DBResponse
-		if err := json.Unmarshal(response.Details, &details); err != nil {
-			return nil, fmt.Errorf("decode root broker database inventory: %w", err)
-		}
-		return []byte(details.Output), nil
 	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, args...)
 	if input == "" {
