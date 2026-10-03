@@ -9,18 +9,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 )
 
 // Client communicates with the root broker via the production subprocess
 // protocol or the isolated lab Unix-socket transport.
-// This runs in the unprivileged app process.
+// This runs in the unprivileged app process. A Client is safe for concurrent
+// use: every call uses its own connection or subprocess, and the broker
+// serializes operations on the same resource.
 type Client struct {
 	brokerPath string
 	webRoot    string
-	mu         sync.Mutex
 }
 
 // NewClient creates a new root broker client.
@@ -68,8 +68,6 @@ func (c *Client) Ping(ctx context.Context) error {
 }
 
 func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Response, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	// Native installs use one long-lived root-owned broker service. This keeps
 	// every broker operation on the same peer-authorized privilege boundary.
 	if socketPath := strings.TrimSpace(os.Getenv("STEPANEL_ROOT_BROKER_SOCKET")); socketPath != "" {

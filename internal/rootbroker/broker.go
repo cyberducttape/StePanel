@@ -231,6 +231,10 @@ func (b *Broker) handleHelperRequest(ctx context.Context, req *HelperRequest) (*
 		"dbctl": "/usr/local/sbin/stepanel-dbctl",
 	}
 	path := paths[req.Name]
+	if helperMutatesAccounts(req) {
+		b.accountMutationMu.Lock()
+		defer b.accountMutationMu.Unlock()
+	}
 	args := append([]string{req.Action}, req.Args...)
 	cmd := stepanelhelper.NewCommand(ctx, path, args...)
 	if len(req.Input) > 64<<20 {
@@ -251,6 +255,15 @@ func (b *Broker) handleHelperRequest(ctx context.Context, req *HelperRequest) (*
 		return nil, marshalErr
 	}
 	return &Response{OK: true, Details: details}, nil
+}
+
+// helperMutatesAccounts reports whether a helper action can run useradd,
+// userdel, or usermod. stepanel-sitectl ensures the site user exists before
+// every action, so all of its actions qualify. The scheduler lets unrelated
+// sites run concurrently, so these must share accountMutationMu with the typed
+// site lifecycle operations.
+func helperMutatesAccounts(req *HelperRequest) bool {
+	return req.Name == "sitectl"
 }
 
 // --- Site Operations ---

@@ -72,6 +72,27 @@ environment. The stdin/subprocess invocation in older versions is retained
 only for non-production compatibility callers and tests; it is rejected when
 `STEPANEL_ENV=production`.
 
+### 3. Concurrency and admission
+
+The socket broker serves each connection on its own goroutine and admits
+operations through a resource-scoped scheduler (`internal/rootbroker/scheduler.go`):
+
+- Operations on the same site, database, account, or certificate domain run
+  one at a time; operations on unrelated resources run concurrently.
+- At most `-max-concurrent` operations (default 8) execute at once. Time spent
+  queued never shortens an operation's own timeout budget, but a request that
+  cannot be admitted within that budget fails with `root broker is busy`.
+- A request whose resource cannot be derived runs exclusively: it waits for
+  running operations to drain, and new operations queue behind it.
+- `health` probes bypass admission, so a broker busy with a long Composer
+  install or certificate issuance still reports healthy.
+- Host-wide state (web server configuration, systemd units, database engine
+  catalogs) stays serialized by the helpers' own `flock` locks; host account
+  changes (`useradd`, `userdel`, `usermod`) are serialized inside the broker.
+- Each connection must send its request within 30 seconds and read its
+  response within 30 seconds, requests are capped at 96 MiB, and at most 64
+  connections are served at once.
+
 ## Integration Pattern
 
 ### Step 1: Create Client Instance

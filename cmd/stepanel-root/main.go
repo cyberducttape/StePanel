@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"os/user"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
@@ -20,6 +22,7 @@ func main() {
 	webRootFlag := flag.String("webroot", "/var/www", "Web root directory")
 	socketFlag := flag.String("socket", "", "serve the broker on a Unix socket instead of stdin/stdout")
 	socketGroupFlag := flag.String("socket-group", "", "group allowed to access the Unix socket")
+	maxConcurrentFlag := flag.Int("max-concurrent", rootbroker.DefaultMaxConcurrent, "maximum privileged operations executed at once on the Unix socket")
 	flag.Parse()
 
 	if *webRootFlag == "" {
@@ -34,7 +37,11 @@ func main() {
 	}
 
 	if *socketFlag != "" {
-		if err := serveSocket(broker, *socketFlag, *socketGroupFlag, logger); err != nil {
+		scheduler, err := rootbroker.NewScheduler(broker, *maxConcurrentFlag)
+		if err != nil {
+			logger.Fatalf("failed to create broker scheduler: %v", err)
+		}
+		if err := serveSocket(scheduler, *socketFlag, *socketGroupFlag, logger); err != nil {
 			logger.Fatal(err)
 		}
 		return
@@ -43,7 +50,31 @@ func main() {
 	serveRequests(broker, os.Stdin, os.Stdout, logger)
 }
 
-func serveRequests(broker *rootbroker.Broker, reader io.Reader, writer io.Writer, logger *log.Logger) {
+// executor runs one decoded broker request. The subprocess transport uses the
+// broker directly; the socket transport goes through the scheduler.
+type executor interface {
+	Execute(ctx context.Context, req *rootbroker.Request) (*rootbroker.Response, error)
+}
+
+// connLimits bounds socket I/O. An authorized peer that connects and stalls,
+// or never reads its response, must not hold broker resources indefinitely.
+type connLimits struct {
+	read  time.Duration
+	write time.Duration
+}
+
+var defaultConnLimits = connLimits{read: 30 * time.Second, write: 30 * time.Second}
+
+const (
+	// maxSocketConnections bounds concurrently served connections. Execution
+	// itself is bounded separately by the scheduler.
+	maxSocketConnections = 64
+	// maxSocketRequestBytes covers the 64 MiB helper input limit after JSON
+	// base64 encoding, plus the surrounding request.
+	maxSocketRequestBytes = 96 << 20
+)
+
+func serveRequests(broker executor, reader io.Reader, writer io.Writer, logger *log.Logger) {
 	// Read requests from stdin, write responses to stdout. Each request and
 	// response is a single JSON line.
 	decoder := json.NewDecoder(reader)
@@ -63,28 +94,79 @@ func serveRequests(broker *rootbroker.Broker, reader io.Reader, writer io.Writer
 			_ = encoder.Encode(resp)
 			continue
 		}
-
-		// Bound each operation. Long-running typed operations have explicit
-		// budgets; the client context remains an independent, often shorter cap.
-		ctx, cancel := context.WithTimeout(context.Background(), rootbroker.RequestTimeout(&req))
-		resp, err := broker.Execute(ctx, &req)
-		cancel()
-
-		if err != nil {
-			logger.Printf("execute error: %v", err)
-			resp = &rootbroker.Response{
-				OK:    false,
-				Error: fmt.Sprintf("execute error: %v", err),
-			}
-		}
-
-		if err := encoder.Encode(resp); err != nil {
+		if err := encoder.Encode(executeRequest(broker, &req, logger)); err != nil {
 			logger.Printf("encode error: %v", err)
 		}
 	}
 }
 
-func serveSocket(broker *rootbroker.Broker, socketPath, socketGroup string, logger *log.Logger) error {
+// executeRequest bounds each operation. Long-running typed operations have
+// explicit budgets; the client context remains an independent, often shorter
+// cap.
+func executeRequest(broker executor, req *rootbroker.Request, logger *log.Logger) *rootbroker.Response {
+	ctx, cancel := context.WithTimeout(context.Background(), rootbroker.RequestTimeout(req))
+	defer cancel()
+	resp, err := broker.Execute(ctx, req)
+	if err != nil {
+		logger.Printf("execute error: %v", err)
+		return &rootbroker.Response{
+			OK:    false,
+			Error: fmt.Sprintf("execute error: %v", err),
+		}
+	}
+	return resp
+}
+
+// serveConn serves one socket connection with bounded reads and writes. Unlike
+// the subprocess transport, a malformed request closes the connection: there
+// is no reliable resynchronization point in a byte stream from a misbehaving
+// peer.
+func serveConn(broker executor, conn net.Conn, limits connLimits, logger *log.Logger) {
+	defer conn.Close()
+	decoder := json.NewDecoder(io.LimitReader(conn, maxSocketRequestBytes))
+	encoder := json.NewEncoder(conn)
+	for {
+		if err := conn.SetReadDeadline(time.Now().Add(limits.read)); err != nil {
+			logger.Printf("set broker socket read deadline: %v", err)
+			return
+		}
+		var req rootbroker.Request
+		if err := decoder.Decode(&req); err != nil {
+			var netErr net.Error
+			switch {
+			case errors.Is(err, io.EOF):
+			case errors.As(err, &netErr) && netErr.Timeout():
+				logger.Printf("closing idle broker socket connection")
+			default:
+				logger.Printf("decode error: %v", err)
+				writeSocketResponse(conn, encoder, &rootbroker.Response{OK: false, Error: fmt.Sprintf("decode error: %v", err)}, limits, logger)
+			}
+			return
+		}
+		// The operation may legitimately outlast the read deadline.
+		if err := conn.SetReadDeadline(time.Time{}); err != nil {
+			logger.Printf("clear broker socket read deadline: %v", err)
+			return
+		}
+		if !writeSocketResponse(conn, encoder, executeRequest(broker, &req, logger), limits, logger) {
+			return
+		}
+	}
+}
+
+func writeSocketResponse(conn net.Conn, encoder *json.Encoder, resp *rootbroker.Response, limits connLimits, logger *log.Logger) bool {
+	if err := conn.SetWriteDeadline(time.Now().Add(limits.write)); err != nil {
+		logger.Printf("set broker socket write deadline: %v", err)
+		return false
+	}
+	if err := encoder.Encode(resp); err != nil {
+		logger.Printf("encode error: %v", err)
+		return false
+	}
+	return true
+}
+
+func serveSocket(broker executor, socketPath, socketGroup string, logger *log.Logger) error {
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove existing broker socket: %w", err)
 	}
@@ -121,23 +203,42 @@ func serveSocket(broker *rootbroker.Broker, socketPath, socketGroup string, logg
 		return fmt.Errorf("parse broker socket group %q: %w", socketGroup, err)
 	}
 
+	return acceptConnections(listener, broker, func(conn net.Conn) error {
+		unixConn, ok := conn.(*net.UnixConn)
+		if !ok {
+			return fmt.Errorf("not a Unix socket connection")
+		}
+		return authorizeSocketPeer(unixConn, allowedGID)
+	}, logger)
+}
+
+// acceptConnections serves each authorized connection on its own goroutine so
+// a long privileged operation never blocks unrelated callers or health
+// probes. The scheduler bounds actual execution.
+func acceptConnections(listener net.Listener, broker executor, authorize func(net.Conn) error, logger *log.Logger) error {
+	slots := make(chan struct{}, maxSocketConnections)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			return fmt.Errorf("accept broker socket connection: %w", err)
 		}
-		unixConn, ok := conn.(*net.UnixConn)
-		if !ok {
-			_ = conn.Close()
-			continue
-		}
-		if err := authorizeSocketPeer(unixConn, allowedGID); err != nil {
+		if err := authorize(conn); err != nil {
 			logger.Printf("rejecting broker socket peer: %v", err)
 			_ = conn.Close()
 			continue
 		}
-		serveRequests(broker, unixConn, unixConn, logger)
-		_ = conn.Close()
+		select {
+		case slots <- struct{}{}:
+		default:
+			logger.Printf("rejecting broker socket peer: connection limit reached")
+			writeSocketResponse(conn, json.NewEncoder(conn), &rootbroker.Response{OK: false, Error: "root broker connection limit reached"}, defaultConnLimits, logger)
+			_ = conn.Close()
+			continue
+		}
+		go func() {
+			defer func() { <-slots }()
+			serveConn(broker, conn, defaultConnLimits, logger)
+		}()
 	}
 }
 
