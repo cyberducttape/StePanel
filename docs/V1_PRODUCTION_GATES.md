@@ -441,7 +441,7 @@ upgraded to remove the transitional sudo policy.
 - [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; real ENOSPC and power-loss VM evidence remain)
 
 ### Testing
-- [ ] Adversarial concurrency tests (5 scenarios)
+- [x] Adversarial concurrency tests (5 scenarios) — the five conflicting lock pairs across two SQLite connections (`TestAdversarialMutationLockScenariosSerializeAcrossConnections`) and across OS processes (`TestDBLocksAcrossOSProcesses`); the real restore, termination, resource-update, and suspension entry points are proven to wait for a lock held by another process without mutating (`cross_process_workflow_test.go`); deploy and route updates are covered at the lock-key level
 - [ ] Failure injection tests (all critical paths)
 - [ ] Disposable host integration tests (real OS, full workflow)
 - [ ] Production load simulation (concurrent operations)

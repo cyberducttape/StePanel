@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Workflows proven to wait for locks held by another process**: new tests
+  run the real restore job, site termination job, resource update, and account
+  suspension handlers while a second lock owner on a separate database
+  connection (as the worker is) holds the conflicting lock. Each workflow gives
+  up without mutating anything when its deadline passes and succeeds once the
+  lock is released.
 - **Versioned backup encryption with key rotation (security)**: new
   encrypted backups use the `AES-256-GCM-HKDF-STREAM-v2` envelope. Each backup
   derives its own subkey with HKDF-SHA256 from the configured key and a random
