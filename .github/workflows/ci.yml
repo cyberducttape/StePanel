@@ -38,6 +38,11 @@ jobs:
       - run: make release-check
       - run: go vet ./...
       - run: go test -p 1 -timeout 10m ./... -coverprofile=coverage.out -covermode=atomic
+      - name: Disk exhaustion drills (real ENOSPC on an 8 MiB tmpfs)
+        run: |
+          sudo mkdir -p /mnt/stepanel-enospc
+          sudo mount -t tmpfs -o size=8m,mode=1777 tmpfs /mnt/stepanel-enospc
+          STEPANEL_ENOSPC_ROOT=/mnt/stepanel-enospc go test -p 1 -count=1 -run '^TestDiskExhaustion' -v .
       - name: Smoke-test control-plane load benchmarks
         run: go test -p 1 -run '^$' -bench '^BenchmarkControlPlane' -benchtime=1x -count=1 .
       - name: Enforce coverage floor
