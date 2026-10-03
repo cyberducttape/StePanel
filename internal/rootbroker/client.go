@@ -301,6 +301,13 @@ func (c *Client) DBRestoreDumpDirect(ctx context.Context, site, database string,
 	return c.ExecuteDirect(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump", Database: database, Site: site, Username: "restore", DumpData: dump}})
 }
 
+// DBDumpToPath asks the root broker to stream a database dump into dumpPath,
+// an empty file the caller created under an approved staging root. The dump
+// bytes never cross the JSON RPC, so its size is not limited by it.
+func (c *Client) DBDumpToPath(ctx context.Context, database, dumpPath string) (*Response, error) {
+	return c.Execute(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: "dump", Database: database, Username: "dump", Site: "dump", DumpPath: dumpPath}})
+}
+
 // DBRestoreFromPath asks the root broker to open and stream a validated dump
 // from an approved staging root. The dump bytes never cross the JSON RPC.
 func (c *Client) DBRestoreFromPath(ctx context.Context, action, site, database, username, password, dumpPath string) (*Response, error) {

@@ -188,3 +188,75 @@ func TestBrokerStreamsValidatedDumpPathWithoutEmbeddingDumpBytes(t *testing.T) {
 		t.Fatal("dump validator accepted a path outside approved staging roots")
 	}
 }
+
+// Production backups dump through the broker into a file the caller
+// created; the broker writes only into an empty, single-link regular file
+// under an approved root, so a dump of any size bypasses the JSON response.
+func TestBrokerDumpsIntoCallerCreatedFile(t *testing.T) {
+	webRoot := t.TempDir()
+	helper := filepath.Join(t.TempDir(), "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n[ \"$1\" = dump ] || exit 64\nprintf 'DUMP OF %s\\n' \"$2\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newBroker(webRoot, t.TempDir(), log.New(io.Discard, "", 0), &fakeHost{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.dbctlPath = helper
+	dump := func(path string) *Response {
+		t.Helper()
+		response, err := broker.Execute(context.Background(), &Request{RequestType: "db", DB: &DBRequest{
+			Action: "dump", Database: "site_db", Username: "dump", Site: "dump", DumpPath: path,
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	create := func(name, content string) string {
+		path := filepath.Join(webRoot, name)
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	target := create("dump.sql", "")
+	if response := dump(target); !response.OK {
+		t.Fatalf("dump into caller-created file failed: %s", response.Error)
+	}
+	if data, _ := os.ReadFile(target); string(data) != "DUMP OF site_db\n" {
+		t.Fatalf("dump file = %q", data)
+	}
+
+	if response := dump(create("existing.sql", "keep")); response.OK {
+		t.Fatal("broker overwrote a non-empty file")
+	}
+	linked := create("linked.sql", "")
+	if err := os.Link(linked, filepath.Join(webRoot, "second-link.sql")); err != nil {
+		t.Fatal(err)
+	}
+	if response := dump(linked); response.OK {
+		t.Fatal("broker wrote into a file with more than one link")
+	}
+	symlink := filepath.Join(webRoot, "symlink.sql")
+	if err := os.Symlink(create("victim.sql", ""), symlink); err != nil {
+		t.Fatal(err)
+	}
+	if response := dump(symlink); response.OK {
+		t.Fatal("broker followed a symlinked dump destination")
+	}
+	if response := dump(filepath.Join(webRoot, "missing.sql")); response.OK {
+		t.Fatal("broker created a dump destination itself")
+	}
+	if _, err := os.Stat(filepath.Join(webRoot, "missing.sql")); !os.IsNotExist(err) {
+		t.Fatal("broker created a file the caller did not")
+	}
+	outside := filepath.Join(t.TempDir(), "outside.sql")
+	if err := os.WriteFile(outside, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if response := dump(outside); response.OK {
+		t.Fatal("broker wrote outside the approved staging roots")
+	}
+}

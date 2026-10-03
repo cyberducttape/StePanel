@@ -52,11 +52,11 @@ but their contract lives in the argument schema rather than a Go type:
 | `appctl` | Python and worker lifecycle, Composer and Node tooling, environment and resource application, resource status |
 | `sitectl` | SSH access, PHP workers, quotas, PHP runtime |
 | `vhostctl`, `proxyctl` | Route and proxy apply/delete, `.htaccess` import |
-| `dbctl` | Dumps, restores, inventory, diagnostics, sessions, settings, termination |
+| `dbctl` | Per-site listing, reconcile, drop, diagnostics, sessions, settings, termination (dumps and restores use the typed `db` request and stream through files) |
 | `gitctl`, `runnerctl` | Repository clone, container build |
 
-Migration order before 1.0: database dumps and restores (largest data
-volume), then site access and runtime, then routes and proxies, then
+Migration order before 1.0: the remaining database actions, then site
+access and runtime, then routes and proxies, then
 application lifecycle. When the last generic action has a typed request, the
 `helper` request type and `helper_schema.go` are removed.
 

@@ -93,3 +93,23 @@ func requireProcessGone(t *testing.T, pidFile string) {
 	}
 	t.Fatalf("descendant process %d survived process-group termination", pid)
 }
+
+// TestRunCappedToFileStreamsStdoutAndBoundsStderr covers the database dump
+// path: stdout of any size goes to disk, stderr stays capped.
+func TestRunCappedToFileStreamsStdoutAndBoundsStderr(t *testing.T) {
+	file, err := os.Create(filepath.Join(t.TempDir(), "dump.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	stderr, err := RunCappedToFile(context.Background(), exec.Command("sh", "-c", "head -c 3000000 /dev/zero; echo note >&2"), file, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := file.Stat(); info.Size() != 3000000 || strings.TrimSpace(string(stderr)) != "note" {
+		t.Fatalf("file size = %d, stderr = %q", info.Size(), stderr)
+	}
+	if _, err := RunCappedToFile(context.Background(), exec.Command("sh", "-c", "exec yes >&2"), file, 1024); !errors.Is(err, ErrOutputLimitExceeded) {
+		t.Fatalf("stderr flood err = %v; want ErrOutputLimitExceeded", err)
+	}
+}

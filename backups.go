@@ -573,6 +573,29 @@ func dumpManagedDatabaseContext(parent context.Context, cfg Config, database, de
 	}
 	ctx, cancel := context.WithTimeout(parent, helperBackupRestoreTimeout)
 	defer cancel()
+	if cfg.Production {
+		// Production has no sudo: the root broker streams the dump into the
+		// empty file created above, which it verifies before writing.
+		if err := out.Close(); err != nil {
+			return err
+		}
+		destination, err := filepath.Abs(destination)
+		if err != nil {
+			return err
+		}
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if err != nil {
+			return err
+		}
+		response, err := client.DBDumpToPath(ctx, database, destination)
+		if err != nil {
+			return fmt.Errorf("dump managed database %s: %w", database, err)
+		}
+		if !response.OK {
+			return fmt.Errorf("dump managed database %s: %s", database, response.Error)
+		}
+		return nil
+	}
 	if labDirectRootBrokerEnabled() {
 		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 		if err != nil {

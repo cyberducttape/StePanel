@@ -41,6 +41,8 @@ const (
 	BackupRestoreTimeout = 120 * time.Minute
 )
 
+// BoundedBuffer keeps the first limit bytes written to it and discards the
+// rest, so a chatty command cannot exhaust memory through its stderr.
 type BoundedBuffer struct {
 	data  []byte
 	limit int

@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Production backups of sites with databases (critical fix)**: on a native
+  production install the database dump step of every backup, database
+  deletion safety backup, and staging clone ran `sudo stepanel-dbctl dump`,
+  but production installs have no sudo policy, so these operations failed for
+  any site with a managed database. The installation smokes did not catch it
+  because they run a lab-only broker path. Production now asks the root
+  broker to stream the dump into a file the panel created; the broker writes
+  only into an empty, single-link, non-root-owned regular file under an
+  approved staging root, so dumps of any size work and never pass through the
+  JSON response. The lab smoke now exercises the same path.
 - **Removed dead placeholder code from the root broker**: about 900 lines of
   commented-out database, restore, and vhost "implementations" that only
   pretended to succeed (including a hard-coded placeholder password), and the

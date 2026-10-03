@@ -641,6 +641,9 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 	case "inventory":
 		return b.dbInventory(ctx, req)
 	case "dump":
+		if req.DumpPath != "" {
+			return b.dbDumpToPath(ctx, req)
+		}
 		return b.dbDump(ctx, req)
 	case "provision":
 		return b.dbProvision(ctx, req)
@@ -675,6 +678,63 @@ func (b *Broker) dbDump(ctx context.Context, req *DBRequest) (*Response, error) 
 		return nil, marshalErr
 	}
 	return &Response{OK: true, Details: details}, nil
+}
+
+// dbDumpToPath streams a database dump into a file the caller created, so
+// dumps of any size never pass through the JSON response. The broker never
+// creates or chooses the file: it writes only into an existing, empty,
+// single-link regular file owned by a non-root user under an approved
+// staging root (validateDumpPath). The checks run on the opened descriptor,
+// so swapping a path component after validation can at worst redirect the
+// write to another empty file the unprivileged caller already owns.
+func (b *Broker) dbDumpToPath(ctx context.Context, req *DBRequest) (*Response, error) {
+	file, err := openDumpTarget(req.DumpPath)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	defer file.Close()
+	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, "dump", req.Database)
+	if stderr, err := stepanelhelper.RunCappedToFile(ctx, cmd, file, maxBrokerCommandStderr); err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("database dump failed: %v: %s", err, strings.TrimSpace(string(stderr)))}, nil
+	}
+	if err := file.Sync(); err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("sync database dump: %v", err)}, nil
+	}
+	details, err := json.Marshal(DBResponse{Database: req.Database})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
+}
+
+// openDumpTarget opens the caller-created dump destination for writing and
+// verifies, on the descriptor, that it is safe for root to write into.
+func openDumpTarget(path string) (*os.File, error) {
+	file, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open dump destination: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("inspect dump destination: %w", err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	switch {
+	case !ok || !info.Mode().IsRegular():
+		err = errors.New("dump destination must be a regular file")
+	case stat.Nlink != 1:
+		err = errors.New("dump destination must have exactly one link")
+	case stat.Uid == 0:
+		err = errors.New("dump destination must be created by the unprivileged caller")
+	case info.Size() != 0:
+		err = errors.New("dump destination must be empty")
+	}
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
 }
 
 // dbInventory is intentionally narrow: the application uses the packaged

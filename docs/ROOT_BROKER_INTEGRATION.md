@@ -205,6 +205,14 @@ Typed requests the broker executes today (verified against
 | `helper` | the allow-listed actions in `helper_schema.go` | anything not declared there |
 | `health` | always (bypasses the scheduler) | none |
 
+Database dumps and restores stream through files instead of the JSON
+response: for `restore*` the broker reads `dump_path`; for `dump` with
+`dump_path` it writes into an empty, single-link, non-root-owned regular file
+the panel created under an approved staging root (`/var/www`,
+`/var/lib/ste-panel`, `/var/backups/stepanel`), checked on the opened
+descriptor. Production backups always use this path, so a dump's size is not
+limited by the 64 MiB in-response cap.
+
 Example:
 
 ```go

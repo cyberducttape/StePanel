@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"sync"
 
@@ -70,7 +72,17 @@ func RunCappedSeparate(ctx context.Context, cmd *exec.Cmd, stdoutLimit, stderrLi
 	return out.bytes(), errOut.bytes(), err
 }
 
-func runCapped(ctx context.Context, cmd *exec.Cmd, stdout, stderr *cappedBuffer, exceeded <-chan struct{}) error {
+// RunCappedToFile runs cmd with stdout written straight to file and stderr
+// capped, for output that belongs on disk rather than in memory (database
+// dumps). The same cancellation and process-group guarantees apply.
+func RunCappedToFile(ctx context.Context, cmd *exec.Cmd, file *os.File, stderrLimit int) (stderr []byte, err error) {
+	exceeded := make(chan struct{})
+	errOut := &cappedBuffer{limit: stderrLimit, exceeded: exceeded, once: &sync.Once{}}
+	err = runCapped(ctx, cmd, file, errOut, exceeded)
+	return errOut.bytes(), err
+}
+
+func runCapped(ctx context.Context, cmd *exec.Cmd, stdout io.Writer, stderr *cappedBuffer, exceeded <-chan struct{}) error {
 	if cmd.Stdout != nil || cmd.Stderr != nil {
 		return errors.New("capped command must not have preassigned output")
 	}
