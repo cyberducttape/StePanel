@@ -308,3 +308,60 @@ func TestCustomerAPIScopeGatesDeployAction(t *testing.T) {
 		t.Fatalf("pre-scoping legacy token was rejected for scope: %d %s", legacyUnscoped.Code, legacyUnscoped.Body.String())
 	}
 }
+
+// Expired tokens must stop working at the store and at the middleware, with
+// no grace period: a token expiring "now" is already rejected.
+func TestExpiredAPITokenIsRejected(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &apiTokenStore{db: db}
+	expires := time.Now().Add(time.Hour).Unix()
+	item, secret, err := store.createScoped("admin", "deploy", &expires, []string{"admin:read"}, adminAPIScopes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.authenticate(secret); !ok {
+		t.Fatal("unexpired token rejected")
+	}
+
+	t.Setenv("STEPANEL_ADMIN_USERNAME", "admin")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.apiTokens = store
+	call := func() int {
+		request := httptest.NewRequest(http.MethodGet, "/api/backups", nil)
+		request.Header.Set("Authorization", "Bearer "+secret)
+		response := httptest.NewRecorder()
+		reached := false
+		auth.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reached = true
+			w.WriteHeader(http.StatusNoContent)
+		})).ServeHTTP(response, request)
+		if reached && response.Code != http.StatusNoContent {
+			t.Fatalf("handler reached but status = %d", response.Code)
+		}
+		return response.Code
+	}
+	if code := call(); code != http.StatusNoContent {
+		t.Fatalf("unexpired token through middleware = %d, want 204", code)
+	}
+
+	for name, at := range map[string]int64{"expired an hour ago": time.Now().Add(-time.Hour).Unix(), "expiring now": time.Now().Unix()} {
+		if _, err := db.Exec(`UPDATE api_tokens SET expires_at = ? WHERE id = ?`, at, item.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := store.authenticate(secret); ok {
+			t.Errorf("token %s still authenticates", name)
+		}
+		if code := call(); code != http.StatusUnauthorized {
+			t.Errorf("token %s through middleware = %d, want 401", name, code)
+		}
+	}
+}
