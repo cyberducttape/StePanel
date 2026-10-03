@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/domainname"
 )
 
 var siteVHostNamePattern = regexp.MustCompile(`^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.(conf|caddy)$`)
@@ -407,7 +409,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	if safeUser(input.Site) == "" || len(input.Domain)+len(input.Site) > 220 || !domainPattern.MatchString(input.Domain) {
+	if safeUser(input.Site) == "" || len(input.Domain)+len(input.Site) > 220 || !domainname.Valid(input.Domain) {
 		http.Error(w, "invalid site or domain", http.StatusUnprocessableEntity)
 		return
 	}

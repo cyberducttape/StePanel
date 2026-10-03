@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/domainname"
 )
 
 var gitRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
@@ -923,7 +925,7 @@ func validateGitAllowedHosts(value string) error {
 	}
 	for _, host := range strings.Split(value, ",") {
 		host = strings.TrimSpace(strings.ToLower(host))
-		if host == "" || strings.ContainsAny(host, "\x00\r\n:/") || net.ParseIP(host) != nil || !domainPattern.MatchString(host) {
+		if host == "" || strings.ContainsAny(host, "\x00\r\n:/") || net.ParseIP(host) != nil || !domainname.Valid(host) {
 			return fmt.Errorf("STEPANEL_GIT_ALLOWED_HOSTS contains invalid hostname %q", host)
 		}
 	}

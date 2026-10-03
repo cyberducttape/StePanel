@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/mail"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/domainname"
 )
 
 type CertificateResult struct {
@@ -28,7 +30,7 @@ func (a *App) issueCertificate(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
 	input.Email = strings.TrimSpace(input.Email)
-	if !domainPattern.MatchString(input.Domain) {
+	if !domainname.Valid(input.Domain) {
 		http.Error(w, "invalid domain", 422)
 		return
 	}

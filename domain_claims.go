@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/domainname"
 )
 
 type DomainClaim struct {
@@ -48,7 +50,7 @@ func OpenDomainClaimStore(path string) (*DomainClaimStore, error) {
 		return nil, err
 	}
 	for key, claim := range s.values {
-		if key != claim.Domain || !domainPattern.MatchString(claim.Domain) || safeUser(claim.Site) == "" || claim.State != "pending" && claim.State != "verified" {
+		if key != claim.Domain || !domainname.Valid(claim.Domain) || safeUser(claim.Site) == "" || claim.State != "pending" && claim.State != "verified" {
 			return nil, errors.New("invalid durable domain claim state")
 		}
 	}
@@ -213,7 +215,7 @@ func (a *App) domainClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Site = safeUser(input.Site)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	if input.Site == "" || !domainPattern.MatchString(input.Domain) {
+	if input.Site == "" || !domainname.Valid(input.Domain) {
 		http.Error(w, "invalid or inaccessible site", http.StatusForbidden)
 		return
 	}
@@ -261,7 +263,7 @@ func (a *App) domainVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Site = safeUser(input.Site)
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
-	if input.Site == "" || !domainPattern.MatchString(input.Domain) {
+	if input.Site == "" || !domainname.Valid(input.Domain) {
 		http.Error(w, "invalid or inaccessible site", http.StatusForbidden)
 		return
 	}

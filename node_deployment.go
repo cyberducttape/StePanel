@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/domainname"
 )
 
 type nodeDeploymentRequest struct {
@@ -52,7 +54,7 @@ func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 	input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
 	input.Version = strings.TrimSpace(input.Version)
 	input.Backend = strings.TrimSpace(input.Backend)
-	if input.Site == "" || len(input.Domain)+len(input.Site) > 220 || !domainPattern.MatchString(input.Domain) || !nodeVersionPattern.MatchString(input.Version) || input.Port < 1024 || input.Port > 65535 {
+	if input.Site == "" || len(input.Domain)+len(input.Site) > 220 || !domainname.Valid(input.Domain) || !nodeVersionPattern.MatchString(input.Version) || input.Port < 1024 || input.Port > 65535 {
 		http.Error(w, "invalid deployment", http.StatusUnprocessableEntity)
 		return
 	}

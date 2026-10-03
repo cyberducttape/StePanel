@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/audit"
 	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
+	"github.com/cyberducttape/StePanel/internal/domainname"
 	httputil "github.com/cyberducttape/StePanel/internal/http"
 	"github.com/cyberducttape/StePanel/internal/metadata"
 	"github.com/cyberducttape/StePanel/internal/operations"
@@ -1225,7 +1226,7 @@ func (a *App) handleCertificateJob(ctx context.Context, item Job) ([]byte, error
 	if err := json.Unmarshal(item.Payload, &request); err != nil {
 		return nil, fmt.Errorf("decode certificate job payload: %w", err)
 	}
-	if !domainPattern.MatchString(request.Domain) || request.Email == "" || request.Actor == "" {
+	if !domainname.Valid(request.Domain) || request.Email == "" || request.Actor == "" {
 		return nil, errors.New("invalid durable certificate job payload")
 	}
 	certificateCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)

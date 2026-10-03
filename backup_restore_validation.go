@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/backup"
+	"github.com/cyberducttape/StePanel/internal/domainname"
 	"strings"
 )
 
@@ -101,7 +102,7 @@ func ValidateRestoreStagingInput(input RestoreToStagingRequest) []string {
 
 	if input.Domain == "" {
 		errs = append(errs, "domain name is required")
-	} else if !domainPattern.MatchString(input.Domain) {
+	} else if !domainname.Valid(input.Domain) {
 		errs = append(errs, "domain name is invalid")
 	}
 

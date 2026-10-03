@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cyberducttape/StePanel/internal/backup"
+	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"io"
 	"log"
@@ -387,7 +388,7 @@ func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request, input RestoreToStagingRequest, backup string) {
-	if input.Site == "" || input.Backup == "." || input.Backup == "" || !domainPattern.MatchString(input.Domain) {
+	if input.Site == "" || input.Backup == "." || input.Backup == "" || !domainname.Valid(input.Domain) {
 		http.Error(w, "invalid restore destination", 422)
 		return
 	}

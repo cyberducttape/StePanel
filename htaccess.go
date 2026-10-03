@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/domainname"
 )
 
 const maxHTAccessBytes = 256 << 10
@@ -190,7 +192,7 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, ".htaccess migration can only be applied when Caddy is selected", http.StatusConflict)
 		return
 	}
-	if input.Site == "" || !domainPattern.MatchString(input.Domain) {
+	if input.Site == "" || !domainname.Valid(input.Domain) {
 		http.Error(w, "a valid site and domain are required", http.StatusUnprocessableEntity)
 		return
 	}

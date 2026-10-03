@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
@@ -45,7 +46,7 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app.Domain = strings.ToLower(strings.TrimSpace(app.Domain))
-	if safeUser(app.Site) == "" || len(app.Domain)+len(app.Site) > 220 || !domainPattern.MatchString(app.Domain) || !nodeVersionPattern.MatchString(app.Version) || app.Port < 1024 || app.Port > 65535 {
+	if safeUser(app.Site) == "" || len(app.Domain)+len(app.Site) > 220 || !domainname.Valid(app.Domain) || !nodeVersionPattern.MatchString(app.Version) || app.Port < 1024 || app.Port > 65535 {
 		http.Error(w, "invalid site, Node version, or port", 422)
 		return
 	}
@@ -256,7 +257,7 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func validAppManifest(cfg Config, app AppManifest, site string) bool {
-	if app.Site != site || safeUser(app.Site) == "" || !domainPattern.MatchString(strings.ToLower(app.Domain)) || !nodeVersionPattern.MatchString(app.Version) || app.Port < 1024 || app.Port > 65535 {
+	if app.Site != site || safeUser(app.Site) == "" || !domainname.Valid(strings.ToLower(app.Domain)) || !nodeVersionPattern.MatchString(app.Version) || app.Port < 1024 || app.Port > 65535 {
 		return false
 	}
 	expected, err := safePath(cfg.WebRoot, "sites", site, "public")

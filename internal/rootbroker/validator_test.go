@@ -495,3 +495,17 @@ func TestValidateTypedAppRequest(t *testing.T) {
 		}
 	}
 }
+
+// The previous typed validator only required a dot and no leading or trailing
+// hyphen; each of these passed it.
+func TestValidateDomainRejectsMalformedNames(t *testing.T) {
+	v := NewValidator("/var/www")
+	for _, domain := range []string{"a..b.com", "exa_mple.com", "evil.com\nServerAlias x", "x.com;id", "a b.com", "-.com.", "example.com/../etc", "1.2.3.4", "bücher.example"} {
+		if err := v.ValidateDomain(domain); err == nil {
+			t.Errorf("ValidateDomain(%q) accepted a malformed name", domain)
+		}
+	}
+	if err := v.ValidateDomain("www.example.com"); err != nil {
+		t.Fatalf("valid domain rejected: %v", err)
+	}
+}

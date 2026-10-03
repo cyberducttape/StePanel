@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/domainname"
 )
 
 type RouteDesired struct {
@@ -42,7 +44,7 @@ func OpenRouteStore(path string) (*RouteStore, error) {
 		return nil, err
 	}
 	for name, route := range s.values {
-		if name != route.Name || safeUser(route.Site) == "" || !domainPattern.MatchString(route.Domain) || !siteVHostNamePattern.MatchString(route.Name) {
+		if name != route.Name || safeUser(route.Site) == "" || !domainname.Valid(route.Domain) || !siteVHostNamePattern.MatchString(route.Name) {
 			return nil, errors.New("invalid durable route state")
 		}
 		if route.State != "pending" && route.State != "applied" && route.State != "delete-pending" {

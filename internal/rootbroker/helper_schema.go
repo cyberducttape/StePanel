@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/domainname"
 )
 
 // Compatibility helper requests are validated against an explicit schema per
@@ -32,7 +34,6 @@ var (
 	schemaDBUserPattern     = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 	schemaEncodingPattern   = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 	schemaSessionPattern    = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
-	schemaDomainPattern     = regexp.MustCompile(`^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 	schemaProxyNamePattern  = regexp.MustCompile(`^[a-z0-9_-]{1,32}-[a-z0-9_-]+\.conf$`)
 	schemaRouteNamePattern  = regexp.MustCompile(`^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.conf$`)
 	schemaAuthUserPattern   = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
@@ -104,7 +105,7 @@ var (
 	argCount  = intRange("limit", 0, 1<<40)
 	argPort   = intRange("port", 1, 65535)
 	argDomain = func(_ *Validator, value string, _ []string) error {
-		if len(value) > 253 || !schemaDomainPattern.MatchString(value) {
+		if !domainname.Valid(value) {
 			return fmt.Errorf("invalid domain")
 		}
 		return nil

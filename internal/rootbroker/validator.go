@@ -10,10 +10,10 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/safehttp"
 )
 
-var certificateDomainPattern = regexp.MustCompile(`(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
 var taskNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 
 // Validator performs input validation at the root boundary.
@@ -42,22 +42,10 @@ func (v *Validator) ValidateSiteName(site string) error {
 	return nil
 }
 
-// ValidateDomain validates a domain name.
+// ValidateDomain validates a domain name with the shared policy in
+// internal/domainname (label-by-label LDH rules, ASCII/punycode only).
 func (v *Validator) ValidateDomain(domain string) error {
-	if domain == "" {
-		return fmt.Errorf("domain is required")
-	}
-	if len(domain) > 253 {
-		return fmt.Errorf("domain too long")
-	}
-	// Basic domain validation: must be a valid FQDN or IP-like
-	if !strings.Contains(domain, ".") {
-		return fmt.Errorf("domain must contain a dot")
-	}
-	if strings.HasPrefix(domain, "-") || strings.HasSuffix(domain, "-") {
-		return fmt.Errorf("domain labels cannot start or end with dash")
-	}
-	return nil
+	return domainname.Validate(domain)
 }
 
 // ValidateFilePath validates that a file path is within the intended root.
@@ -382,7 +370,7 @@ func (v *Validator) validateCertificateRequest(req *CertificateRequest) error {
 	if req == nil || req.Action != "issue" {
 		return errors.New("certificate request must specify the issue action")
 	}
-	if len(req.Domain) > 253 || !certificateDomainPattern.MatchString(req.Domain) {
+	if !domainname.Valid(req.Domain) {
 		return errors.New("invalid certificate domain")
 	}
 	if len(req.Email) > 254 || strings.ContainsAny(req.Email, "\x00\r\n") {
