@@ -32,8 +32,22 @@ The trust boundary is the authenticated panel operator. Site content,
 uploaded archives, SQL dumps, Git repositories, remote cloud APIs, and remote
 SSH hosts are not trusted. A successful login is therefore necessary but not
 sufficient for safe operation: use HTTPS, MFA, host-level access controls,
-backups, and restore drills. The panel does not provide tenant isolation or
-make an untrusted site safe to administer from the same host.
+backups, and restore drills.
+
+### What "tenant isolation" does and does not mean
+
+"Tenant isolation" covers several different guarantees. StePanel provides
+some of them and not others:
+
+| Boundary | Status | What it means |
+|----------|--------|---------------|
+| Control-plane tenant authorization | ✅ Provided | Customer A cannot view or operate Customer B's sites, jobs, databases, or backups through StePanel's UI or API. Every site-scoped request is authorized against site ownership, and durable jobs re-check ownership when they run (`TestTenantIsolationMatrix`). |
+| Linux process isolation | ✅ Provided | Each site runs as its own Unix user in its own systemd slice with cgroup CPU, memory, and task limits, and its own PHP-FPM pool. Sites cannot read each other's files through normal permissions. |
+| Hostile-workload security boundary | ❌ Not provided | All sites share one kernel and one host network. A site that exploits a kernel or local privilege-escalation bug can affect every site, and site code can reach loopback and private network services. This is not equivalent to VM or container isolation; do not host mutually hostile customers on one host. |
+| Multi-tenant SaaS control-plane isolation | ❌ Not certified | Provider-wide audit segregation, HA datastore, and cross-host job routing are open requirements (see [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md)). The control plane and root broker are trusted by every site on the host. |
+
+Being an authorized panel user also does not make an untrusted site safe to
+administer from the same host.
 
 ## Privilege isolation
 
