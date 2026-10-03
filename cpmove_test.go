@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestVerifyCPMoveUploadRejectsSameSizeMutation(t *testing.T) {
@@ -40,6 +42,33 @@ func TestVerifyCPMoveUploadRejectsSameSizeMutation(t *testing.T) {
 func TestReadCPMoveUploadRejectsPathTraversalID(t *testing.T) {
 	if _, err := readCPMoveUpload(t.TempDir(), "../outside"); err == nil {
 		t.Fatal("path traversal upload ID was accepted")
+	}
+}
+
+func TestReadCPMoveUploadAcceptsURLSafeBase64LeadingCharacters(t *testing.T) {
+	root := t.TempDir()
+	for _, id := range []string{"-abc_def", "_abc-def"} {
+		t.Run(id, func(t *testing.T) {
+			upload := cpmoveUpload{
+				ID:        id,
+				Path:      cpmoveUploadPath(root, id),
+				Filename:  "cpmove-account.tar.gz",
+				Size:      0,
+				SHA256:    strings.Repeat("0", 64),
+				Owner:     "admin",
+				ExpiresAt: time.Now().Add(time.Hour),
+			}
+			metadata, err := json.Marshal(upload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(cpmoveUploadMetadataPath(root, id), metadata, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := readCPMoveUpload(root, id); err != nil {
+				t.Fatalf("readCPMoveUpload rejected URL-safe upload ID %q: %v", id, err)
+			}
+		})
 	}
 }
 

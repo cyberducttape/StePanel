@@ -41,7 +41,9 @@ type CPMoveInfo struct {
 
 const maxCPMoveExpandedBytes int64 = 80 << 30
 
-var cpmoveUploadIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+// randomSecret uses base64.RawURLEncoding, whose first character may be '-'
+// or '_' as well as an alphanumeric. Keep the full URL-safe alphabet valid.
+var cpmoveUploadIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 type cpmoveUpload struct {
 	ID            string    `json:"id"`
