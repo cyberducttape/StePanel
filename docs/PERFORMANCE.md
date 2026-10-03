@@ -15,6 +15,11 @@ The control-plane measurements in [`LOAD_BASELINE_2026-09-29.md`](LOAD_BASELINE_
 are measured SQLite/control-plane microbenchmarks only. They are not HTTP
 latency, full restore throughput, or 100-site production evidence.
 
+The control-plane capacity target (500 sites: session validation p99 ≤ 25 ms
+with 50 Job Center viewers and two active workers) and its measured results
+are in [`LOAD_BASELINE_2026-10-02.md`](LOAD_BASELINE_2026-10-02.md). Those
+results are also synthetic single-process measurements.
+
 ### Targets (not measured or production-validated)
 
 | Metric | Target | Notes |

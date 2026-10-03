@@ -1674,23 +1674,34 @@ func (j *Jobs) loadDurableJob(id string) (Job, bool, error) {
 	var leaseOwner sql.NullString
 	var leaseExpires, nextAttempt sql.NullInt64
 	var cancelRequested int
-	err := j.db.QueryRow(`SELECT state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested FROM jobs WHERE id = ?`, id).Scan(&state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested)
+	err := j.db.QueryRow(`SELECT `+durableJobColumns+` FROM jobs WHERE id = ?`, id).Scan(&state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, false, nil
 	}
 	if err != nil {
 		return Job{}, false, err
 	}
+	item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+	if err != nil {
+		return Job{}, false, err
+	}
+	return item, true, nil
+}
+
+// durableJobColumns are the columns decodeDurableJob consumes, in order.
+const durableJobColumns = `state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested`
+
+func (j *Jobs) decodeDurableJob(state string, data []byte, leaseOwner sql.NullString, leaseExpires, nextAttempt sql.NullInt64, cancelRequested int) (Job, error) {
 	var persisted persistedJob
 	if err := json.Unmarshal(data, &persisted); err != nil {
-		return Job{}, false, err
+		return Job{}, err
 	}
 	item := persisted.Job
 	item.State = state
 	item.Payload = decodePersistedJobPayload(persisted.Payload)
 	opened, err := openJobPayload(j.payloadKey, item.Payload)
 	if err != nil {
-		return Job{}, false, err
+		return Job{}, err
 	}
 	item.Payload = opened
 	if leaseOwner.Valid {
@@ -1705,7 +1716,7 @@ func (j *Jobs) loadDurableJob(id string) (Job, bool, error) {
 		item.NextAttempt = &next
 	}
 	item.Cancel = cancelRequested != 0 || item.Cancel
-	return item, true, nil
+	return item, nil
 }
 
 // ActivePayloads returns the decrypted payloads of every queued or running
@@ -1820,43 +1831,56 @@ func materializeJobOutput(item *Job) {
 // List returns the limit most recent jobs plus every queued or running job,
 // newest first. Active jobs are always included so clients can report active
 // work authoritatively even when it started before the recent window.
+// listDurable returns the newest limit jobs plus every active job in a single
+// query; it replaces an ID query followed by one lookup per job.
+func (j *Jobs) listDurable(limit int) ([]Job, error) {
+	rows, err := j.db.Query(`SELECT id, `+durableJobColumns+` FROM jobs WHERE id IN (
+			SELECT id FROM (SELECT id FROM jobs ORDER BY started_at DESC, id DESC LIMIT ?)
+			UNION
+			SELECT id FROM jobs WHERE state IN ('queued', 'running')
+		) ORDER BY started_at DESC, id DESC`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list durable jobs: %w", err)
+	}
+	defer rows.Close()
+	items := make([]Job, 0, limit)
+	for rows.Next() {
+		var id, state string
+		var data []byte
+		var leaseOwner sql.NullString
+		var leaseExpires, nextAttempt sql.NullInt64
+		var cancelRequested int
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+			return nil, fmt.Errorf("list durable jobs: %w", err)
+		}
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+		if err != nil {
+			// As before, a single undecodable row is omitted rather than
+			// hiding every other job from the Job Center.
+			continue
+		}
+		materializeJobOutput(&item)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list durable jobs: %w", err)
+	}
+	j.mu.Lock()
+	for i := range items {
+		stored := items[i]
+		j.items[stored.ID] = &stored
+	}
+	j.mu.Unlock()
+	return items, nil
+}
+
 func (j *Jobs) List(limit int) []Job {
 	if limit < 1 {
 		limit = 50
 	}
 	if j.db != nil {
-		rows, err := j.db.Query(`SELECT id FROM (
-			SELECT id, started_at FROM (SELECT id, started_at FROM jobs ORDER BY started_at DESC, id DESC LIMIT ?)
-			UNION
-			SELECT id, started_at FROM jobs WHERE state IN ('queued', 'running')
-		) ORDER BY started_at DESC, id DESC`, limit)
-		if err == nil {
-			ids := make([]string, 0, limit)
-			for rows.Next() {
-				var id string
-				if rows.Scan(&id) == nil {
-					ids = append(ids, id)
-				}
-			}
-			rowsErr := rows.Err()
-			closeErr := rows.Close()
-			if rowsErr != nil {
-				rowsErr = fmt.Errorf("list durable jobs: %w", rowsErr)
-			}
-			if rowsErr == nil && closeErr == nil {
-				items := make([]Job, 0, limit)
-				for _, id := range ids {
-					if item, ok, loadErr := j.loadDurableJob(id); loadErr == nil && ok {
-						materializeJobOutput(&item)
-						stored := item
-						j.mu.Lock()
-						j.items[id] = &stored
-						j.mu.Unlock()
-						items = append(items, item)
-					}
-				}
-				return items
-			}
+		if items, err := j.listDurable(limit); err == nil {
+			return items
 		}
 	}
 	j.mu.RLock()

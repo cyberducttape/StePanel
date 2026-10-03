@@ -218,6 +218,15 @@ var controlPlaneMigrations = []*migration.Migration{
 		_, err := tx.Exec(`CREATE UNIQUE INDEX jobs_active_empty_operation_unique_idx ON jobs(kind, owner) WHERE operation_key = '' AND state IN ('queued', 'running')`)
 		return err
 	}),
+	// The Job Center lists the newest jobs, and ClaimNext checks per owner
+	// whether an older queued or a running job blocks a candidate. Without
+	// these, listing scans and sorts the whole history and each claim rescans
+	// the queue for every candidate (BenchmarkJobsClaimNextAtScale).
+	migration.NewMigration(9, "index job listing and claim order", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS jobs_started_idx ON jobs(started_at, id);
+CREATE INDEX IF NOT EXISTS jobs_owner_state_idx ON jobs(owner, state, started_at, id);`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {
