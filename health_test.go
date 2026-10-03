@@ -184,7 +184,8 @@ func TestRestoreCapacityChecksDestinationFilesystem(t *testing.T) {
 	if err := os.MkdirAll(imports, 0750); err != nil {
 		t.Fatal(err)
 	}
-	err := restoreCapacity(Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: 1})
+	cfg := Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: 1}
+	err := admitCapacity(cfg, "WPress restore", archiveUploadDemands(cfg, 1))
 	if err == nil {
 		t.Fatal("missing destination filesystem passed restore capacity check")
 	}

@@ -21,7 +21,13 @@
     button.disabled = true;
     status.textContent = 'Queueing WordPress restore…';
     try {
-      const data = await StepanelAPI.request('/api/wpress/import', { method: 'POST', body: new FormData(form) });
+      // The server validates every field before accepting archive bytes,
+      // so the archive must be the last multipart part.
+      const body = new FormData(form);
+      const archive = body.get('backup');
+      body.delete('backup');
+      if (archive) body.append('backup', archive);
+      const data = await StepanelAPI.request('/api/wpress/import', { method: 'POST', body });
       status.textContent = 'Restore queued; follow it in Operations.';
       const job = await StepanelJobs.wait(data.job_id);
       if (job.state === 'completed') status.textContent = 'WordPress restore completed; verify the site before switching traffic.';

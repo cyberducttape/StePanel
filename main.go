@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 	"github.com/cyberducttape/StePanel/internal/safehttp"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"github.com/cyberducttape/StePanel/internal/state"
+	"github.com/cyberducttape/StePanel/internal/upload"
 	"html/template"
 	"io"
 	"io/fs"
@@ -85,6 +85,10 @@ type startupState struct {
 }
 
 const uploadMultipartOverhead int64 = 32 << 20
+
+// cpmoveImportRequestBytes bounds /api/cpmove/import, which references an
+// inspected upload by ID and never carries the archive itself.
+const cpmoveImportRequestBytes int64 = 1 << 20
 
 func maxUploadRequestBytes(maxArchive int64) int64 {
 	if maxArchive <= 0 {
@@ -929,49 +933,52 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid CSRF token", 403)
 		return
 	}
-	file, header, err := r.FormFile("backup")
-	defer cleanupMultipartForm(r)
-	if err != nil {
-		http.Error(w, "backup file is required or exceeds the upload limit", 400)
+	if err := os.MkdirAll(a.Config.ImportRoot, 0700); err != nil {
+		http.Error(w, "could not prepare upload storage", 500)
 		return
 	}
-	defer file.Close()
+	// Admit the declared archive size before reading the body, then stream
+	// the file part straight into the immutable upload object: no multipart
+	// spool file, one disk write.
+	declared, err := declaredUploadBytes(r, a.Config.MaxUpload)
+	if err == nil {
+		err = admitCapacity(a.Config, "cPanel upload", archiveUploadDemands(a.Config, declared))
+	}
+	if err != nil {
+		writeUploadError(w, err)
+		return
+	}
+	reader, err := r.MultipartReader()
+	if err != nil {
+		writeUploadError(w, err)
+		return
+	}
 	uploadID, err := randomSecret()
 	if err != nil {
 		http.Error(w, "could not create upload ID", 500)
 		return
 	}
-	if err := os.MkdirAll(a.Config.ImportRoot, 0700); err != nil {
-		http.Error(w, "could not prepare upload storage", 500)
-		return
-	}
 	archivePath := cpmoveUploadPath(a.Config.ImportRoot, uploadID)
-	temp, err := os.OpenFile(archivePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	staged, err := upload.Stream(reader, upload.Options{
+		FileField:    "backup",
+		MaxFileBytes: a.Config.MaxUpload,
+		Create: func(string) (*os.File, error) {
+			return os.OpenFile(archivePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		},
+		CheckSpace: uploadSpaceCheck(a.Config, declared),
+	})
 	if err != nil {
-		http.Error(w, "could not stage upload", 500)
+		writeUploadError(w, err)
 		return
 	}
-	hasher := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(temp, hasher), file)
-	syncErr := temp.Sync()
-	closeErr := temp.Close()
-	if copyErr != nil || syncErr != nil || closeErr != nil {
-		_ = os.Remove(archivePath)
-		http.Error(w, "could not stage upload", 500)
-		return
-	}
-	if a.Config.MaxUpload > 0 && written > a.Config.MaxUpload {
-		_ = os.Remove(archivePath)
-		http.Error(w, "upload exceeds the configured size limit", http.StatusRequestEntityTooLarge)
-		return
-	}
+	written := staged.Size
 	stored, err := os.Open(archivePath)
 	if err != nil {
 		_ = os.Remove(archivePath)
 		http.Error(w, "could not inspect staged upload", 500)
 		return
 	}
-	info, err := InspectCPMove(stored, &multipart.FileHeader{Filename: header.Filename, Size: written})
+	info, err := InspectCPMove(stored, &multipart.FileHeader{Filename: staged.Filename, Size: written})
 	storedCloseErr := stored.Close()
 	if err != nil {
 		_ = os.Remove(archivePath)
@@ -993,7 +1000,7 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 	}
 	info.UploadID = uploadID
 	owner := a.Auth.UsernameForRequest(r)
-	metadata := cpmoveUpload{ID: uploadID, Path: archivePath, Filename: header.Filename, Size: written, ExpandedBytes: info.ExpandedBytes, SHA256: fmt.Sprintf("%x", hasher.Sum(nil)), Owner: owner, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour)}
+	metadata := cpmoveUpload{ID: uploadID, Path: archivePath, Filename: staged.Filename, Size: written, ExpandedBytes: info.ExpandedBytes, SHA256: staged.SHA256, Owner: owner, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour)}
 	metadataBytes, marshalErr := json.Marshal(metadata)
 	metadataErr := marshalErr
 	if metadataErr == nil && owner != "" {
@@ -1330,16 +1337,19 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	if a.Config.MaxUpload > 0 && r.ContentLength > maxUploadRequestBytes(a.Config.MaxUpload) {
-		http.Error(w, "upload exceeds the configured size limit", http.StatusRequestEntityTooLarge)
+	// The archive was already staged by inspection; this request carries only
+	// form fields, so a small body cap keeps multipart parsing in memory and
+	// prevents a file part from being spooled to disk.
+	if r.ContentLength > cpmoveImportRequestBytes {
+		http.Error(w, "import request is too large; upload the archive through inspection", http.StatusRequestEntityTooLarge)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadRequestBytes(a.Config.MaxUpload))
+	r.Body = http.MaxBytesReader(w, r.Body, cpmoveImportRequestBytes)
 	if !a.Auth.CSRF(r) {
 		http.Error(w, "invalid CSRF token", 403)
 		return
 	}
-	err := r.ParseMultipartForm(32 << 20)
+	err := r.ParseMultipartForm(cpmoveImportRequestBytes)
 	defer cleanupMultipartForm(r)
 	if err != nil {
 		http.Error(w, "invalid upload: "+err.Error(), 400)
@@ -1442,6 +1452,9 @@ func (a *App) jobList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs, "time": time.Now().UTC()})
 }
 
+// jobEventsHeartbeat keeps intermediaries from idling out the job stream.
+const jobEventsHeartbeat = 25 * time.Second
+
 func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -1459,16 +1472,33 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		return a.Accounts != nil && a.Accounts.OwnsSite(a.Auth.UsernameForRequest(r), job.User)
 	}
+	// The timeout middleware leaves this stream without a context deadline.
+	// Each write gets its own deadline instead, which both detects a dead
+	// peer and lifts the server-wide WriteTimeout that would otherwise kill a
+	// healthy stream; the stream rotates after StreamLifetime so the client
+	// reconnects and re-authenticates.
+	timeouts := httputil.DefaultTimeouts()
+	controller := http.NewResponseController(w)
+	if err := controller.SetReadDeadline(time.Now().Add(timeouts.StreamLifetime + timeouts.StreamWrite)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		http.Error(w, "event streaming is unavailable", http.StatusInternalServerError)
+		return
+	}
+	write := func(payload string) bool {
+		if err := controller.SetWriteDeadline(time.Now().Add(timeouts.StreamWrite)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return false
+		}
+		if _, err := io.WriteString(w, payload); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
 	send := func(event string, value any) bool {
 		data, err := json.Marshal(value)
 		if err != nil {
 			return false
 		}
-		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
-			return false
-		}
-		flusher.Flush()
-		return true
+		return write(fmt.Sprintf("event: %s\ndata: %s\n\n", event, data))
 	}
 
 	updates, unsubscribe := a.Jobs.Subscribe()
@@ -1480,11 +1510,15 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 	if !send("snapshot", map[string]any{"jobs": jobs, "time": time.Now().UTC()}) {
 		return
 	}
-	ticker := time.NewTicker(25 * time.Second)
-	defer ticker.Stop()
+	heartbeat := time.NewTicker(jobEventsHeartbeat)
+	defer heartbeat.Stop()
+	lifetime := time.NewTimer(timeouts.StreamLifetime)
+	defer lifetime.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-lifetime.C:
 			return
 		case event, open := <-updates:
 			if !open {
@@ -1493,14 +1527,14 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 			if visible(event.Job) && !send("job", event.Job) {
 				return
 			}
-		case <-ticker.C:
-			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+		case <-heartbeat.C:
+			if !write(": keep-alive\n\n") {
 				return
 			}
-			flusher.Flush()
 		}
 	}
 }
+
 func logging(next http.Handler, metrics *Metrics, production bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()

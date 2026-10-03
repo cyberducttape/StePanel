@@ -55,7 +55,7 @@ orchestration:
 | `doctor` | Server inventory types and analysis for the migration doctor |
 | `domainname` | The single host-name validator and IDNA policy |
 | `helper` | Bounded subprocess execution (`RunCapped`), safe paths, atomic writes, process locks |
-| `http` | Route-class HTTP timeout configuration |
+| `http` | Route-class HTTP timeout configuration, including the event-stream class |
 | `importer` | Archive analysis and extraction for generic archive imports |
 | `jobs` | Concurrency primitives for asynchronous work |
 | `metadata` | SQLite indexes for backups (including offsite state) and tasks |
@@ -71,6 +71,7 @@ orchestration:
 | `startup` | Startup phase timeline |
 | `state` | Durability primitives for control-plane state stores |
 | `testing` | Failure-injection helpers for recovery tests |
+| `upload` | Single-pass multipart archive staging (hash, size limit, in-flight free-space checks) |
 | `usage` | Bounded site filesystem usage measurement |
 
 ### Privileged helpers

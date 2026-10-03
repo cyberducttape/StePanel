@@ -128,10 +128,51 @@ server := &http.Server{
 
 ### Upload Admission
 
-The cPanel upload handler streams once into an immutable upload object and
-records its owner, expiry, SHA-256, compressed size, and inspected expanded
-size. Inspection reports `required_free_bytes`; admission reserves room for
-the archive, extracted tree, site-manager staging tree, and safety reserve.
+The cPanel inspection (`/api/cpmove/inspect`) and WPress
+(`/api/wpress/import`) handlers read the body with `Request.MultipartReader`
+and stream the archive part straight into its private staged object through
+`internal/upload`, hashing and counting bytes as they go. They never call
+`FormFile` or `ParseMultipartForm`, so no multipart spool file exists: a
+20 GiB archive is written to disk once.
+
+Admission happens before the first body byte is read. The declared size is
+the request `Content-Length` (or `STEPANEL_MAX_UPLOAD_BYTES` for a body
+without one; with no ceiling configured the request is refused with 411).
+Demands are summed per filesystem, so an import root and site root on one
+device are charged together:
+
+- import root: staged archive + extracted tree (each about the archive size);
+- site root: site-manager staging tree (about the archive size);
+- every filesystem: the `STEPANEL_MIN_FREE_BYTES` reserve.
+
+A cPanel archive's expanded size is unknown before inspection, so the gzip
+size is a lower bound there; after inspection `restoreCPMoveCapacity`
+re-checks with the inspected expanded size and reports
+`required_free_bytes`. While streaming, the import root is re-checked every
+256 MiB for the bytes still expected plus the reserve, so a concurrent
+consumer cannot fill the disk underneath an admitted upload. Any failure
+removes the partial object. Database working space on the database server's
+data directory is not reserved because that directory is outside the panel's
+filesystems.
+
+WPress requests must send every form field before the `backup` file part so
+the restore is validated (confirmation, site, database names, password, file
+extension) before any archive byte is accepted; the dashboard orders the
+parts this way. `/api/cpmove/import` carries only an upload ID and is capped
+at 1 MiB, so it cannot be used to spool an archive either.
+
+### Event Streams
+
+`/api/jobs/events` is a server-sent event stream and has its own timeout
+class. The middleware applies no context deadline to it (the 45-second
+long-poll deadline would cancel healthy streams and force reconnect,
+re-authentication, and snapshot churn). Instead the handler:
+
+- sets a 15-second write deadline before every event and 25-second
+  heartbeat, which detects a dead peer and lifts the server-wide
+  `WriteTimeout` for this connection;
+- closes the stream after 30 minutes so the client reconnects and is
+  re-authenticated.
 
 ---
 
@@ -142,8 +183,9 @@ the archive, extracted tree, site-manager staging tree, and safety reserve.
 **Predefined Classes:**
 1. **APIRead/APIWrite** - Fast request/response cycles
 2. **LongPoll** - Client waiting for updates (45s)
-3. **UploadRead** - File transfer with variance (60m with limits)
-4. **DownloadWrite** - Large file delivery (5m with limits)
+3. **StreamWrite/StreamLifetime** - Server-sent events: no context deadline, 15s per-write deadline, 30m rotation
+4. **UploadRead** - File transfer with variance (60m with limits)
+5. **DownloadWrite** - Large file delivery (5m with limits)
 
 **Usage Pattern:**
 ```go
@@ -174,8 +216,11 @@ uploadHandler := middleware(uploadHandler)
 - Prevents slow responses from holding connections
 
 ✅ **Total Request Bounded**
-- Combination prevents any single request from holding connection >2m
-- Previous: 30 minutes allowed
+- Ordinary API requests are bounded by a 30s context deadline
+- Archive uploads are bounded at 60m; downloads at 5m
+- Event streams rotate after 30m and are closed as soon as a write stalls
+  for 15s
+- Previous: 30 minutes allowed for every request
 
 ### Upload Protection
 
@@ -187,10 +232,15 @@ uploadHandler := middleware(uploadHandler)
 
 ✅ **Disk space reservation**
 - Admission reserves room for the archive, the extracted tree, the
-  site-manager staging tree, and the `STEPANEL_MIN_FREE_BYTES` reserve.
+  site-manager staging tree, and the `STEPANEL_MIN_FREE_BYTES` reserve
+  before the body is read, and re-checks the import root while streaming.
 
 ✅ **File size limit**
 - `STEPANEL_MAX_UPLOAD_BYTES` (at most 20 GiB) is enforced while streaming.
+
+✅ **Single-pass staging**
+- Archive parts stream directly into the staged object; there is no
+  multipart temporary file on any filesystem.
 
 ❌ **Per-user upload quotas**
 - Not implemented. An earlier upload-policy prototype with daily per-user

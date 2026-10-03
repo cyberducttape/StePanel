@@ -228,25 +228,6 @@ func rootBrokerHealthCheck() ReadinessCheck {
 	return ReadinessCheck{Ready: true, Detail: "root broker accepted a non-mutating health probe"}
 }
 
-func restoreCapacity(cfg Config) error {
-	paths := []string{cfg.ImportRoot, filepath.Join(cfg.WebRoot, "sites")}
-	checked := map[string]bool{}
-	for _, path := range paths {
-		if checked[path] {
-			continue
-		}
-		checked[path] = true
-		free, err := availableBytes(path)
-		if err != nil {
-			return fmt.Errorf("inspect restore capacity at %s: %w", path, err)
-		}
-		if free < cfg.MinFreeBytes {
-			return fmt.Errorf("insufficient free space at %s: %d bytes available, %d required", path, free, cfg.MinFreeBytes)
-		}
-	}
-	return nil
-}
-
 // restoreCPMoveCapacity conservatively budgets for the durable archive, the
 // extracted inspection tree, and the site-manager staging tree. The archive
 // has already been uploaded when this runs, so the current free-space check

@@ -44,3 +44,17 @@ func TestTimeoutMiddlewareUsesRouteClass(t *testing.T) {
 		})
 	}
 }
+
+func TestTimeoutMiddlewareLeavesEventStreamWithoutDeadline(t *testing.T) {
+	handler := DefaultTimeouts().Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if deadline, ok := r.Context().Deadline(); ok {
+			t.Fatalf("event stream context has deadline %s from now; it must manage its own write deadlines", time.Until(deadline))
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/jobs/events", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNoContent)
+	}
+}

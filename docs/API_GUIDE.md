@@ -259,6 +259,12 @@ curl -fsS -X POST -b cookies.txt -H "X-CSRF-Token: $csrf" \
   -F 'backup=@account.tar.gz' "$PANEL/api/cpmove/inspect" | jq
 ```
 
+The archive streams directly into its staged object (no multipart spool
+copy). Free space for the archive, its extracted tree, the site staging tree,
+and `STEPANEL_MIN_FREE_BYTES` is checked from `Content-Length` before the body
+is read; a short host answers `507` without accepting the upload, and a body
+without `Content-Length` is admitted at `STEPANEL_MAX_UPLOAD_BYTES`.
+
 Queue a cPanel restore using the `upload_id` returned by inspection. The
 archive is uploaded once and retained as an immutable server-side object. The
 idempotency key makes client retries safe:
@@ -285,6 +291,10 @@ Other delivery endpoints:
 | `POST` | `/api/certificates/issue` | Queue a Let’s Encrypt request |
 | `GET` | `/api/wpress/preflight` | Check WordPress restore dependencies |
 | `POST` | `/api/wpress/import` | Queue an All-in-One WP Migration restore |
+
+`/api/wpress/import` validates every form field before it accepts archive
+bytes, so the `backup` file part must be the last part of the request (with
+curl, put `-F 'backup=@site.wpress'` after the other `-F` options).
 
 See the dedicated [Git deployment](GIT_DEPLOYMENTS.md), [developer
 workflows](DEVELOPER_WORKFLOWS.md), [cPanel import](CPMOVE_IMPORTS.md), and

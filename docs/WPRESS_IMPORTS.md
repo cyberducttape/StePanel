@@ -44,6 +44,11 @@ updated through WP-CLI, and the base64-encoded `Server[".htaccess"]` payload is
 decoded into the site's document root. Invalid metadata is rejected and the
 site transaction is rolled back.
 
+Uploads stream once into a private staged object; free space for the
+archive, its extracted tree, the site staging tree, and
+`STEPANEL_MIN_FREE_BYTES` is admitted before the body is read. API clients
+must send the `backup` file part after every other form field.
+
 Archives are extracted into a private staging directory. Symlinks are rejected,
 the database dump is not copied into the public site, and a failed overwrite
 attempt restores the previous site directory. WordPress code and plugins are

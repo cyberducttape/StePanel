@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -17,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/upload"
 )
 
 var wpressNamePattern = regexp.MustCompile(`^[a-z0-9_]{1,40}$`)
@@ -159,71 +160,70 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "WordPress durable jobs require STEPANEL_ACCOUNT_KEY for encrypted credential storage", http.StatusServiceUnavailable)
 		return
 	}
-	if err := restoreCapacity(a.Config); err != nil {
-		http.Error(w, err.Error(), http.StatusInsufficientStorage)
+	if err := os.MkdirAll(a.Config.ImportRoot, 0700); err != nil {
+		http.Error(w, "could not prepare upload storage", http.StatusInternalServerError)
 		return
 	}
-	err := r.ParseMultipartForm(32 << 20)
-	defer cleanupMultipartForm(r)
+	// Admit the declared archive size before reading the body, then stream
+	// the file part straight into the private staged object: no multipart
+	// spool file, one disk write.
+	declared, err := declaredUploadBytes(r, a.Config.MaxUpload)
+	if err == nil {
+		err = admitCapacity(a.Config, "WPress restore", archiveUploadDemands(a.Config, declared))
+	}
 	if err != nil {
-		http.Error(w, "invalid upload: "+err.Error(), http.StatusBadRequest)
+		writeUploadError(w, err)
 		return
 	}
-	if r.FormValue("confirm") != "WPRESTORE" {
-		http.Error(w, "type WPRESTORE to authorize the restore", http.StatusBadRequest)
-		return
-	}
-	site := safeUser(r.FormValue("site"))
-	dbSuffix := strings.TrimSpace(r.FormValue("db_name"))
-	dbUserSuffix := strings.TrimSpace(r.FormValue("db_user"))
-	password := r.FormValue("db_password")
-	targetPrefix := strings.TrimSpace(r.FormValue("table_prefix"))
-	if targetPrefix == "" {
-		targetPrefix = "wp_"
-	}
-	siteURL := strings.TrimRight(strings.TrimSpace(r.FormValue("site_url")), "/")
-	if err := validateWPressInput(site, dbSuffix, dbUserSuffix, password, targetPrefix, siteURL); err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-		return
-	}
-	file, header, err := r.FormFile("backup")
+	reader, err := r.MultipartReader()
 	if err != nil {
-		http.Error(w, "a .wpress archive is required", http.StatusBadRequest)
+		writeUploadError(w, err)
 		return
 	}
-	if !strings.EqualFold(filepath.Ext(header.Filename), ".wpress") {
-		_ = file.Close()
-		http.Error(w, "a .wpress archive is required", http.StatusBadRequest)
-		return
+	var site, dbSuffix, dbUserSuffix, password, targetPrefix, siteURL string
+	var force bool
+	// Every form field must precede the archive part so the restore is
+	// validated before any archive byte is accepted.
+	validate := func(fields url.Values, filename string) error {
+		if fields.Get("confirm") != "WPRESTORE" {
+			return &uploadRejection{http.StatusBadRequest, "type WPRESTORE to authorize the restore (form fields must precede the backup file)"}
+		}
+		site = safeUser(fields.Get("site"))
+		dbSuffix = strings.TrimSpace(fields.Get("db_name"))
+		dbUserSuffix = strings.TrimSpace(fields.Get("db_user"))
+		password = fields.Get("db_password")
+		targetPrefix = strings.TrimSpace(fields.Get("table_prefix"))
+		if targetPrefix == "" {
+			targetPrefix = "wp_"
+		}
+		siteURL = strings.TrimRight(strings.TrimSpace(fields.Get("site_url")), "/")
+		force = fields.Get("overwrite") == "on"
+		if err := validateWPressInput(site, dbSuffix, dbUserSuffix, password, targetPrefix, siteURL); err != nil {
+			return &uploadRejection{http.StatusUnprocessableEntity, err.Error()}
+		}
+		if !strings.EqualFold(filepath.Ext(filename), ".wpress") {
+			return &uploadRejection{http.StatusBadRequest, "a .wpress archive is required"}
+		}
+		return nil
 	}
-	defer file.Close()
-	temp, err := os.CreateTemp(a.Config.ImportRoot, "wpress-upload-*.wpress")
+	staged, err := upload.Stream(reader, upload.Options{
+		FileField:    "backup",
+		MaxFileBytes: a.Config.MaxUpload,
+		BeforeFile:   validate,
+		Create: func(string) (*os.File, error) {
+			return os.CreateTemp(a.Config.ImportRoot, "wpress-upload-*.wpress")
+		},
+		CheckSpace: uploadSpaceCheck(a.Config, declared),
+	})
+	if errors.Is(err, upload.ErrMissingFile) {
+		err = &uploadRejection{http.StatusBadRequest, "a .wpress archive is required"}
+	}
 	if err != nil {
-		http.Error(w, "could not stage upload", http.StatusInternalServerError)
+		writeUploadError(w, err)
 		return
 	}
-	tempPath := temp.Name()
-	hasher := sha256.New()
-	written, err := io.Copy(temp, io.TeeReader(file, hasher))
-	if err != nil {
-		_ = temp.Close()
-		_ = os.Remove(tempPath)
-		http.Error(w, "could not stage upload", http.StatusInternalServerError)
-		return
-	}
-	if err = temp.Sync(); err != nil {
-		_ = temp.Close()
-		_ = os.Remove(tempPath)
-		http.Error(w, "could not durably stage upload", http.StatusInternalServerError)
-		return
-	}
-	if err = temp.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		http.Error(w, "could not stage upload", http.StatusInternalServerError)
-		return
-	}
-	force := r.FormValue("overwrite") == "on"
-	payload, err := json.Marshal(durableWPressRequest{TempPath: tempPath, Size: written, SHA256: fmt.Sprintf("%x", hasher.Sum(nil)), Site: site, DBSuffix: dbSuffix, DBUserSuffix: dbUserSuffix, Password: password, SiteURL: siteURL, TargetPrefix: targetPrefix, Force: force, Actor: a.Auth.UsernameForRequest(r)})
+	tempPath, written := staged.Path, staged.Size
+	payload, err := json.Marshal(durableWPressRequest{TempPath: tempPath, Size: written, SHA256: staged.SHA256, Site: site, DBSuffix: dbSuffix, DBUserSuffix: dbUserSuffix, Password: password, SiteURL: siteURL, TargetPrefix: targetPrefix, Force: force, Actor: a.Auth.UsernameForRequest(r)})
 	if err != nil {
 		_ = os.Remove(tempPath)
 		http.Error(w, "could not encode restore job", http.StatusInternalServerError)

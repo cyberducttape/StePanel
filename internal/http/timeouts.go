@@ -12,8 +12,15 @@ type TimeoutConfiguration struct {
 	APIRead  time.Duration
 	APIWrite time.Duration
 
-	// Long-polling and streaming
+	// Long-polling: a bounded request that waits for an update
 	LongPoll time.Duration
+
+	// Server-sent event streams carry no absolute context deadline. The
+	// handler instead bounds each write with StreamWrite (detecting dead
+	// peers) and rotates the connection after StreamLifetime so clients
+	// reconnect and re-authenticate.
+	StreamWrite    time.Duration
+	StreamLifetime time.Duration
 
 	// File uploads (backup, migration archives)
 	UploadRead time.Duration
@@ -33,6 +40,11 @@ func DefaultTimeouts() TimeoutConfiguration {
 		// Long-polling: client waiting for updates
 		// Includes: activity feed polling, status updates
 		LongPoll: 45 * time.Second,
+
+		// Streams: /api/jobs/events sends a heartbeat every 25 seconds; a
+		// write that cannot drain within StreamWrite means the peer is gone.
+		StreamWrite:    15 * time.Second,
+		StreamLifetime: 30 * time.Minute,
 
 		// Uploads: large archive transfer with network variance. A 20 GiB
 		// archive takes roughly 27 minutes at 100 Mbps, before overhead.
@@ -94,6 +106,13 @@ func (tc TimeoutConfiguration) LongPollHandler(handler http.HandlerFunc) http.Ha
 //   - Error responses in milliseconds
 //   - 10s allows for network jitter + slow storage without being wasteful
 //
+// STREAMS (no context deadline):
+//   - Server-sent events stay open while a dashboard is visible
+//   - A context deadline would cancel healthy streams and force reconnect,
+//     re-authentication, and snapshot churn
+//   - Per-write deadlines detect dead peers; the handler extends the
+//     server-wide WriteTimeout per write and closes after StreamLifetime
+//
 // LONG-POLL (45s):
 //   - Client holds connection waiting for updates
 //   - Common pattern for dashboards, activity feeds
@@ -127,6 +146,10 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			// Classify based on path
 			var timeout time.Duration
 			switch {
+			case isStreamPath(r.URL.Path):
+				// Streams manage their own write deadlines and lifetime.
+				next.ServeHTTP(w, r)
+				return
 			case startsWith(r.URL.Path, "/api/cpmove/") ||
 				startsWith(r.URL.Path, "/api/wpress/") ||
 				startsWith(r.URL.Path, "/api/backup/import"):
@@ -152,6 +175,11 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// isStreamPath reports whether path is a long-lived server-sent event stream.
+func isStreamPath(path string) bool {
+	return path == "/api/jobs/events"
 }
 
 // Helper function
