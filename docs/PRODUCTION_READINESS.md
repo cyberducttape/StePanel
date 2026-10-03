@@ -1,6 +1,6 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-10-02
+**Last Updated:** 2026-10-03
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 **👉 For overall project status, see [CURRENT_STATUS.md](./CURRENT_STATUS.md) — the single authoritative source for version, progress, and release gates.**
@@ -29,9 +29,8 @@ operating model.
 
 - **Development**: Local development only
 - **Operator Beta**: Limited single-host deployment; operator expertise required
-- **Single-Host Production Candidate**: Target after the open production gates are evidenced
-- **Multi-Tenant Production**: Not supported; the single-host panel now has tenant isolation and delegated roles, but requires a separate multi-host architecture for production SaaS
-- **GA (General Availability)**: Future target after release approval and operational certification
+- **Single-Host Production (1.0)**: Target after the open production gates are evidenced; see [Path to 1.0](#path-to-10)
+- **Multi-Tenant Production (2.0)**: Not supported; the single-host panel now has tenant isolation and delegated roles, but requires the multi-host platform described in [After 1.0](#after-10-shared-hosting-platform-20)
 
 ## Current Status: Operator Beta
 
@@ -184,9 +183,10 @@ Returns JSON with overall_status (healthy/degraded/critical) and per-check detai
 
 Use this endpoint in deployment automation to validate prerequisites before routing traffic to StePanel.
 
-## Blocking Issues for Multi-Tenant Production
+## Blocking Issues for Multi-Tenant Production (2.0)
 
-The following must be resolved before multi-tenant deployment:
+The following must be resolved before multi-tenant deployment. They do not
+gate the single-host 1.0 release:
 
 1. ✅ SSRF protection with DNS resolution (RESOLVED in v0.7.0)
 2. ✅ Shell injection prevention (RESOLVED in v0.7.0)
@@ -199,23 +199,46 @@ The following must be resolved before multi-tenant deployment:
 9. ⚠️ Resource quota enforcement (HOST CPU/memory/process/PHP-worker/disk/inode envelopes shipped; provider-specific bandwidth/database/mail/Redis quotas remain)
 10. ❌ Multi-region replication (NOT STARTED)
 
-## Path to GA (v1.0.0)
+## Path to 1.0
 
-### v0.8.0 (Planned)
+StePanel 1.0 is the **production contract for operator-managed, single-host
+hosting** defined in [ROADMAP.md](./ROADMAP.md). It is complete when:
+
+- every gate in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) has
+  recorded evidence (Gate 5 real-host ENOSPC and power-loss evidence is the
+  main open item);
+- the roadmap 1.0 items ship: stable API and migration policy, signed
+  multi-platform releases, upgrade and rollback tooling, a full accessibility
+  review, and a security review with a documented support policy; and
+- the staging soak in [CURRENT_STATUS.md](./CURRENT_STATUS.md) completes.
+
+Nothing else is a 1.0 requirement. In particular, 1.0 does **not** include
+high availability, multi-host operation, multi-region replication, SLA
+monitoring or escalation, automated incident response, or enterprise support
+tiers. The single-host limitations listed above remain documented limitations
+of 1.0, not blockers.
+
+## After 1.0: shared-hosting platform (2.0)
+
+These items belong to the 2.0 shared-hosting platform milestone in
+[ROADMAP.md](./ROADMAP.md). They are tracked here so the 1.0 scope stays fixed;
+none of them gates a 1.0 release.
+
+Multi-host foundation:
 
 - [ ] High-availability datastore (etcd or PostgreSQL)
 - [~] Stateless API servers with load balancing (session validation supports shared control-plane instances; HA datastore is still required)
 - [ ] Cross-host durable job routing
 - [ ] Canary deployment support
 
-### v0.9.0 (Planned)
+Multi-tenant controls:
 
 - [~] Multi-tenant RBAC (owner, manager, developer, and viewer roles are implemented; support/reseller roles remain)
 - [ ] Per-customer audit log isolation
 - [~] Resource quota enforcement (host envelopes implemented; provider-specific quotas remain)
 - [ ] Automated compliance reporting
 
-### v1.0.0 (GA Target)
+Platform operations:
 
 - [ ] Multi-region replication
 - [ ] SLA monitoring and escalation
@@ -224,7 +247,7 @@ The following must be resolved before multi-tenant deployment:
 
 ## Support Matrix
 
-| Issue Type | Single-Host | Multi-Tenant | SaaS GA |
+| Issue Type | Single-Host (1.0) | Multi-Tenant (2.0) | Hosted platform (2.0+) |
 |-----------|-------------|--------------|---------|
 | Security patches | 72 hours | 24 hours | 4 hours |
 | Bug fixes | 2 weeks | 1 week | 2 days |

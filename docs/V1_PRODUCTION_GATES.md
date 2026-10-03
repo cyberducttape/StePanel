@@ -509,6 +509,12 @@ After v1.0.0 is released, the following should be true:
 - ❌ Not adding 50 new features
 - ❌ Not replacing the UI
 - ❌ Not implementing multi-tenant SaaS
+- ❌ Not high availability, multi-host, or multi-region operation
+- ❌ Not SLA monitoring/escalation, automated incident response, or enterprise support tiers
+
+Those belong to the 2.0 shared-hosting platform in [ROADMAP.md](./ROADMAP.md).
+Adding them to the 1.0 scope requires changing this document and the roadmap
+together.
 - ❌ Not competing with cPanel on breadth
 
 ## What v1.0.0 IS

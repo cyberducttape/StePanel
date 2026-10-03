@@ -59,6 +59,11 @@ and installation evidence before the version is tagged.
 - Full accessibility review
 - Security review and documented support policy
 
+Release criteria are the evidence gates in
+[V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). 1.0 is a single-host
+product: high availability, multi-host and multi-region operation, SLA and
+escalation tooling, and automated incident response are 2.0 work.
+
 ## 2.0 — Shared-hosting platform
 
 - Tenant/account model with quotas, service plans, scoped RBAC, customer API
