@@ -110,7 +110,7 @@ cleanup_runner() {
     systemctl stop "$runner_unit" >/dev/null 2>&1 || true
   fi
   if [[ -n ${runner_runtime:-} ]]; then
-    runuser -u "$site_user" -- rm -rf -- "/run/$runner_runtime" 2>/dev/null || true
+    rm -rf -- "/run/$runner_runtime" 2>/dev/null || true
   fi
   if [[ -n ${scratch:-} ]]; then
     runuser -u "$site_user" -- rm -rf -- "$scratch" 2>/dev/null || true
@@ -122,9 +122,17 @@ run_podman_as_site() {
   runner_runtime="stepanel-runner-${site_user}-${BASHPID}-${RANDOM}"
   runner_unit="stepanel-runner-${runner_owner_pid}.service"
   local memory_overhead=128 tasks_overhead=32
+  # Rootless Podman may fail its native-overlay capability probe inside the
+  # service sandbox before it can discover the FUSE fallback. Give each
+  # invocation a controlled config outside the customer-writable site tree.
+  install -d -o root -g root -m 0755 "/run/$runner_runtime/config/containers"
+  install -o root -g root -m 0644 /dev/null "/run/$runner_runtime/config/containers/storage.conf"
+  printf '[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
+    > "/run/$runner_runtime/config/containers/storage.conf"
   if systemd-run --quiet --wait --pipe --collect --service-type=exec --unit="$runner_unit" \
     --uid="$site_user" --gid="$site_user" --working-directory="$root" \
     --setenv="HOME=$site_root" --setenv="XDG_RUNTIME_DIR=/run/$runner_runtime" \
+    --setenv="XDG_CONFIG_HOME=/run/$runner_runtime/config" \
     --property=NoNewPrivileges=no --property=RestrictSUIDSGID=no \
     --property=Delegate=yes --property=PartOf=stepanel-root-broker.service \
     --property=PrivateTmp=yes --property=DevicePolicy=closed --property='DeviceAllow=/dev/fuse rw' --property=ProtectHome=yes \

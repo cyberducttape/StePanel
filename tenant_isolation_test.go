@@ -810,6 +810,8 @@ func TestRootlessRunnerUsesBoundedTransientService(t *testing.T) {
 		"--property=Delegate=yes",
 		"--property=DevicePolicy=closed",
 		"--property='DeviceAllow=/dev/fuse rw'",
+		"XDG_CONFIG_HOME=/run/$runner_runtime/config",
+		"mount_program = \"/usr/bin/fuse-overlayfs\"",
 		"--property=ProtectSystem=strict",
 		"--property=ProtectProc=invisible",
 		"--property=ProtectKernelTunables=yes",
