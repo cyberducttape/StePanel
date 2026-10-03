@@ -614,6 +614,17 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	actor := a.Auth.UsernameForRequest(r)
+	if isWebhook {
+		// Webhook deploys are not routed through Auth.Require, which audits
+		// every other mutation before it runs. Record the accepted deploy the
+		// same way, failing closed, before any host state changes.
+		actor = "webhook"
+		if err := AuditAs(a.Config.AuditLog, actor, "webhook.deploy.accepted", input.Site, input.Repository+"@"+input.Ref); err != nil {
+			http.Error(w, "audit persistence is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "site is busy", http.StatusConflict)
@@ -711,7 +722,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		// The release is live; say so rather than reporting a failed deploy.
 		result.HistoryError = "release activated but deployment history was not persisted: " + err.Error()
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.git-deployed", input.Site, input.Repository+"@"+commit)
+	recordAudit(a.Config.AuditLog, actor, "site.git-deployed", input.Site, input.Repository+"@"+commit)
 	writeJSON(w, http.StatusAccepted, result)
 }
 

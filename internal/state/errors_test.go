@@ -39,3 +39,14 @@ func TestStateErrorHandleCoversOperationalCategories(t *testing.T) {
 		})
 	}
 }
+
+func TestClassifySeparatesRetryableLockContention(t *testing.T) {
+	for _, message := range []string{"database is locked (5) (SQLITE_BUSY)", "SQLITE_BUSY", "database table is locked"} {
+		if got := Classify("op", errors.New(message), "").Category; got != Temporary {
+			t.Errorf("%q classified %s, want temporary", message, got)
+		}
+	}
+	if got := Classify("op", errors.New("disk I/O error"), "").Category; got != Persistence {
+		t.Errorf("I/O error classified %s, want persistence", got)
+	}
+}

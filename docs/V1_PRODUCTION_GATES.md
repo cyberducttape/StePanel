@@ -461,9 +461,9 @@ does not measure HTTP latency or real backup/restore throughput.
 - [ ] Recovery procedures documented
 
 ### Quality
-- [ ] No TODO comments in critical paths
-- [ ] Error categorization deployed (Persistence/Corruption/Temporary/Cleanup)
-- [ ] Audit trail verified at every mutation
+- [x] No TODO comments in critical paths (`TestNoDeferredWorkMarkersInCriticalPaths` guards production Go code, helpers, and the installer)
+- [x] Error categorization deployed (Persistence/Corruption/Temporary/Cleanup): durable job persistence failures (temporary when SQLite is busy), quarantined recovery journals, and periodic cleanup failures feed `stepanel_state_errors_total`
+- [x] Audit trail verified at every mutation (`TestEveryMutatingRouteIsAudited`: every mutating route is behind the fail-closed `Auth.Require` audit or is a reviewed self-auditing route; webhook deploys now audit before mutating)
 - [ ] Operational visibility complete
 
 ---

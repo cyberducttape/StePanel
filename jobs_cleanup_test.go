@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/state"
 )
 
 // openCleanupTestJobs returns durable jobs holding one expired and one fresh
@@ -228,5 +230,45 @@ func TestJobsCleanupFileStoreFailureKeepsJobs(t *testing.T) {
 	}
 	if ids := memoryJobIDs(jobs); strings.Join(ids, ",") != "expired" {
 		t.Fatalf("in-memory jobs = %v, want [expired]", ids)
+	}
+}
+
+func TestJobsCleanupReportsCategorizedPersistenceFailures(t *testing.T) {
+	jobs, db, path := openCleanupTestJobs(t)
+	var seen []state.StateError
+	jobs.SetStateErrorObserver(func(err state.StateError) { seen = append(seen, err) })
+	if _, err := db.Exec(`CREATE TRIGGER inject_job_delete_failure BEFORE DELETE ON jobs BEGIN SELECT RAISE(ABORT, 'injected delete failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	jobs.Cleanup(24 * time.Hour)
+	if len(seen) != 1 || seen[0].Category != state.Persistence || seen[0].Operation != "persist_job_cleanup" {
+		t.Fatalf("observed %+v, want one persistence error", seen)
+	}
+	if _, err := db.Exec(`DROP TRIGGER inject_job_delete_failure`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Lock contention is retryable and must not page as a persistence failure.
+	if _, err := db.Exec(`PRAGMA busy_timeout = 0`); err != nil {
+		t.Fatal(err)
+	}
+	other, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	holder, err := other.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	if _, err := holder.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	seen = nil
+	jobs.Cleanup(24 * time.Hour)
+	_, _ = holder.ExecContext(context.Background(), `ROLLBACK`)
+	if len(seen) != 1 || seen[0].Category != state.Temporary {
+		t.Fatalf("observed %+v, want one temporary error", seen)
 	}
 }

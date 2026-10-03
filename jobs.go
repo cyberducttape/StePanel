@@ -21,6 +21,7 @@ import (
 	"time"
 
 	jobadmission "github.com/cyberducttape/StePanel/internal/jobs"
+	"github.com/cyberducttape/StePanel/internal/state"
 )
 
 var ErrJobBusy = errors.New("too many long-running jobs or target is already active")
@@ -1117,6 +1118,24 @@ type Jobs struct {
 	workerLimit   int
 	subscriberMu  sync.RWMutex
 	subscribers   map[chan JobEvent]struct{}
+	// stateErrors receives categorized persistence failures for metrics and
+	// operator visibility; nil in tests that do not observe them.
+	stateErrors func(state.StateError)
+}
+
+// SetStateErrorObserver reports durable persistence failures to fn.
+func (j *Jobs) SetStateErrorObserver(fn func(state.StateError)) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.stateErrors = fn
+}
+
+// observePersistFailureLocked records a failed durable write. Callers hold j.mu.
+func (j *Jobs) observePersistFailureLocked(operation string, err error) {
+	j.persistErr = err
+	if j.stateErrors != nil {
+		j.stateErrors(state.Classify(operation, err, "durable job state"))
+	}
 }
 
 func NewJobs() *Jobs { return newJobs("") }
@@ -1573,7 +1592,7 @@ func (j *Jobs) add(item *Job) error {
 		err = j.persistLocked()
 	}
 	if err != nil {
-		j.persistErr = err
+		j.observePersistFailureLocked("persist_job_admission", err)
 		delete(j.items, item.ID)
 		return err
 	}
@@ -1596,7 +1615,7 @@ func (j *Jobs) complete(item *Job) {
 		err = j.persistLocked()
 	}
 	if err != nil {
-		j.persistErr = err
+		j.observePersistFailureLocked("persist_job_completion", err)
 		// Do not expose a completed result that was not durably recorded. The
 		// durable row/file is still active (or its final state is uncertain),
 		// so keep the in-memory view active as well; restart/requeue remains
@@ -2154,7 +2173,7 @@ func (j *Jobs) Cleanup(maxAge time.Duration) {
 		for id, item := range removed {
 			j.items[id] = item
 		}
-		j.persistErr = err
+		j.observePersistFailureLocked("persist_job_cleanup", err)
 		log.Printf("persist job cleanup: %v", err)
 		return
 	}

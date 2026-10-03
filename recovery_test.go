@@ -246,6 +246,28 @@ func TestRecoverSiteTransactionsRollsBackInterruptedSite(t *testing.T) {
 	assertTestFile(t, filepath.Join(home, "index.html"), "old")
 }
 
+func TestQuarantinedRecoveryJournalIsReportedAsCorruption(t *testing.T) {
+	root := t.TempDir()
+	broken := filepath.Join(root, "broken")
+	if err := os.MkdirAll(broken, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(broken, "transaction.json"), []byte("{broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var reported []string
+	previous := recoveryCorruptionObserver
+	recoveryCorruptionObserver = func(dir string, cause error) { reported = append(reported, filepath.Base(dir)) }
+	t.Cleanup(func() { recoveryCorruptionObserver = previous })
+	// Recovery reports the malformed entry as an error after quarantining it.
+	if _, err := RecoverSiteTransactions(root, t.TempDir(), t.TempDir()); err == nil {
+		t.Fatal("malformed journal was not reported")
+	}
+	if len(reported) != 1 || reported[0] != "broken" {
+		t.Fatalf("reported %v, want the quarantined journal", reported)
+	}
+}
+
 func TestRecoverSiteTransactionsQuarantinesMalformedEntryAndContinues(t *testing.T) {
 	root := t.TempDir()
 	recovery := filepath.Join(root, ".stepanel-recovery")

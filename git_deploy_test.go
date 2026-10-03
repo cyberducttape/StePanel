@@ -377,3 +377,34 @@ func TestMatchRefPatternExactAndEmpty(t *testing.T) {
 		t.Error("empty pattern must never match")
 	}
 }
+
+// Webhook deploys bypass Auth.Require, so they must audit the accepted deploy
+// themselves before changing anything, and refuse when that is impossible.
+func TestGitDeployWebhookAuditsBeforeMutating(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	auditLog := filepath.Join(t.TempDir(), "audit.jsonl")
+	app := &App{Config: Config{AuditLog: auditLog, GitAllowedHosts: "github.com"}}
+	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"repository":"","ref":"main"}`))
+	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, "site-a"))
+	app.gitDeploy(httptest.NewRecorder(), r)
+	data, err := os.ReadFile(auditLog)
+	if err != nil || !strings.Contains(string(data), "webhook.deploy.accepted") || !strings.Contains(string(data), `"actor":"webhook"`) {
+		t.Fatalf("accepted webhook deploy was not audited: %v %s", err, data)
+	}
+}
+
+func TestGitDeployWebhookRefusesWhenAuditUnavailable(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{AuditLog: filepath.Join(blocker, "audit.jsonl"), GitAllowedHosts: "github.com"}}
+	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"repository":"https://github.com/x/x.git","ref":"main"}`))
+	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, "site-a"))
+	w := httptest.NewRecorder()
+	app.gitDeploy(w, r)
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "audit") {
+		t.Fatalf("webhook deploy without audit = %d %s, want 503", w.Code, w.Body.String())
+	}
+}

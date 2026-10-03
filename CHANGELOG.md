@@ -6,6 +6,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Production Readiness
+
+- **Webhook deploys are audited before they change anything (SECURITY)**:
+  signed Git webhooks are the one deploy path not routed through the
+  authenticated middleware, which audits every other mutation before it runs.
+  They now record `webhook.deploy.accepted` first and refuse with 503 if the
+  audit cannot be written, and the completion event names the `webhook` actor.
+- **Every mutating route is checked for an audit trail**: a test fails if a
+  new mutating route is registered outside the fail-closed audit middleware
+  without being a reviewed self-auditing route.
+- **State errors are categorized where they happen**: durable job persistence
+  failures (temporary when SQLite is only busy), quarantined recovery
+  journals, and periodic cleanup failures now feed
+  `stepanel_state_errors_total` by category.
+- **No deferred-work markers in critical paths**: a test keeps TODO, FIXME,
+  and HACK out of production Go code, the root helpers, and the installer.
+
 ### Documentation
 
 - **Documentation audit against the code**: every current document was

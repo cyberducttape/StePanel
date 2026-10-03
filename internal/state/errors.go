@@ -3,6 +3,7 @@ package state
 import (
 	"fmt"
 	"log"
+	"strings"
 )
 
 // ErrorCategory classifies operational state errors for consistent handling
@@ -111,4 +112,14 @@ func NewCleanupError(operation string, err error, message string) StateError {
 		Message:       message,
 		RequiresAudit: false,
 	}
+}
+
+// Classify reports a failed durable write: lock contention that a retry can
+// clear (SQLite busy or locked) is Temporary; anything else is Persistence.
+func Classify(operation string, err error, message string) StateError {
+	text := strings.ToLower(fmt.Sprint(err))
+	if strings.Contains(text, "sqlite_busy") || strings.Contains(text, "database is locked") || strings.Contains(text, "database table is locked") {
+		return NewTemporaryError(operation, err, message)
+	}
+	return NewPersistenceError(operation, err, message)
 }

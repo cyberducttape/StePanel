@@ -410,9 +410,16 @@ func RecoverTransactionDatabases(cfg Config, root string) ([]string, error) {
 	return recovered, errors.Join(failures...)
 }
 
+// recoveryCorruptionObserver is told about every quarantined recovery
+// journal; the application reports it as a corruption-category state error.
+var recoveryCorruptionObserver func(dir string, cause error)
+
 // quarantineRecoveryTransaction removes malformed journal entries from the
 // active recovery scan while preserving them for operator inspection.
 func quarantineRecoveryTransaction(root, dir string, cause error) error {
+	if recoveryCorruptionObserver != nil {
+		recoveryCorruptionObserver(dir, cause)
+	}
 	quarantine := filepath.Join(root, "quarantine")
 	if err := os.MkdirAll(quarantine, 0700); err != nil {
 		return err

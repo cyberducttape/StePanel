@@ -17,6 +17,7 @@ import (
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"github.com/cyberducttape/StePanel/internal/safehttp"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
+	"github.com/cyberducttape/StePanel/internal/state"
 	"html/template"
 	"io"
 	"io/fs"
@@ -479,6 +480,11 @@ func main() {
 	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
 	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager}
 	app.startup.begin()
+	// Categorized state errors feed stepanel_state_errors_total and the logs.
+	jobs.SetStateErrorObserver(app.observeStateError)
+	recoveryCorruptionObserver = func(dir string, cause error) {
+		app.observeStateError(state.NewCorruptionError("recovery_journal", cause, "quarantined "+filepath.Base(dir)))
+	}
 	var startupAuditErr error
 	// Reconcile domains independently. A single shared deadline allowed a slow
 	// host/helper operation in an early domain to starve every later domain.
@@ -580,13 +586,13 @@ func main() {
 			log.Printf("marked %d pending DNS change(s) without a durable job as failed", orphaned)
 		}
 		if err := CleanupImportStages(cfg.ImportRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
-			log.Printf("import stage cleanup during startup: %v", err)
+			app.observeStateError(state.NewCleanupError("import_stage_cleanup", err, "import stage cleanup during startup"))
 		}
 		if err := CleanupBackupStages(cfg.BackupRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
-			log.Printf("backup stage cleanup during startup: %v", err)
+			app.observeStateError(state.NewCleanupError("backup_stage_cleanup", err, "backup stage cleanup during startup"))
 		}
 		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour, cfg.WebRoot, cfg.MailRoot); err != nil {
-			log.Printf("site recovery cleanup during startup: %v", err)
+			app.observeStateError(state.NewCleanupError("site_recovery_cleanup", err, "site recovery cleanup during startup"))
 		}
 		if os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") != "1" {
 			reconcile("routes", app.reconcileRoutes)
@@ -599,7 +605,7 @@ func main() {
 			reconcile("environment", app.reconcileEnvironments)
 		}
 		if err := pruneAllGitReleases(cfg); err != nil {
-			log.Printf("Git release retention during startup: %v", err)
+			app.observeStateError(state.NewCleanupError("git_release_retention", err, "Git release retention during startup"))
 		}
 		startupError := errors.Join(failures...)
 		app.startup.finish(startupError)
@@ -651,14 +657,14 @@ func main() {
 				auditOutbox.closePending(context.Background(), app.Config.AuditLog)
 				app.Jobs.Cleanup(24 * time.Hour)
 				if err := CleanupImportStages(app.Config.ImportRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour); err != nil {
-					log.Printf("import stage cleanup: %v", err)
+					app.observeStateError(state.NewCleanupError("import_stage_cleanup", err, "import stage cleanup"))
 				}
 				if err := CleanupSiteTransactions(app.Config.RecoveryRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour, app.Config.WebRoot, app.Config.MailRoot); err != nil {
-					log.Printf("site recovery cleanup: %v", err)
+					app.observeStateError(state.NewCleanupError("site_recovery_cleanup", err, "site recovery cleanup"))
 				}
 				app.gitActivationMu.Lock()
 				if err := pruneAllGitReleases(app.Config); err != nil {
-					log.Printf("Git release retention: %v", err)
+					app.observeStateError(state.NewCleanupError("git_release_retention", err, "Git release retention"))
 				}
 				app.gitActivationMu.Unlock()
 			}
