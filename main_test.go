@@ -85,9 +85,17 @@ func TestNodeDeploymentBrowserPayloadMatchesStrictAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := string(data)
-	if !strings.Contains(script, "data.node_version=data.version") || !strings.Contains(script, "api('/api/deployments',data)") || strings.Contains(script, "api('/api/node/select'") || strings.Contains(script, "api('/api/apps/deploy'") || strings.Contains(script, "api('/api/proxy/deploy'") {
+	// Compare without whitespace so the check follows the flow, not the
+	// formatting of the source.
+	script := strings.Join(strings.Fields(string(data)), "")
+	mutations := strings.Count(script, "api.post(") + strings.Count(script, "api.put(") + strings.Count(script, "api.patch(") + strings.Count(script, "api.delete(") + strings.Count(script, "api.request(")
+	if !strings.Contains(script, "data.node_version=data.version") || !strings.Contains(script, "api.post('/api/deployments',data)") || mutations != 1 {
 		t.Fatal("Node deployment browser flow is not a single durable deployment request")
+	}
+	for _, legacy := range []string{"/api/node/select", "/api/apps/deploy", "/api/proxy/deploy"} {
+		if strings.Contains(script, legacy) {
+			t.Fatalf("Node deployment browser flow still calls %s", legacy)
+		}
 	}
 }
 
