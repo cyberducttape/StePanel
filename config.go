@@ -39,11 +39,14 @@ type Config struct {
 	AccountKey                       string
 	BackupSigningKey                 string
 	BackupEncryptionKey              string
-	RedisState                       string
-	OffsiteTarget                    string
-	CloudProvider                    string
-	RequireOffsiteBackup             bool
-	TLSAlreadyTerminated             bool
+	// BackupPreviousEncryptionKeys are retired keys that still decrypt
+	// older backups; new backups always use BackupEncryptionKey.
+	BackupPreviousEncryptionKeys []string
+	RedisState                   string
+	OffsiteTarget                string
+	CloudProvider                string
+	RequireOffsiteBackup         bool
+	TLSAlreadyTerminated         bool
 	// TrustedProxyCIDRs is a comma-separated list of CIDRs (for example
 	// "127.0.0.1/32,::1/128,10.0.20.0/24") from which forwarded-identity
 	// headers are trusted. Any other peer is treated as a direct client
@@ -128,6 +131,7 @@ func LoadConfig() Config {
 	c.AccountKey = os.Getenv("STEPANEL_ACCOUNT_KEY")
 	c.BackupSigningKey = os.Getenv("STEPANEL_BACKUP_SIGNING_KEY")
 	c.BackupEncryptionKey = os.Getenv("STEPANEL_BACKUP_ENCRYPTION_KEY")
+	c.BackupPreviousEncryptionKeys = splitKeyList(os.Getenv("STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS"))
 	// Read STEPANEL_JOB_STATE early, before deriving dependent paths
 	if v := os.Getenv("STEPANEL_JOB_STATE"); v != "" {
 		c.JobState = v
@@ -441,6 +445,13 @@ func ValidateConfig(c Config) error {
 		} else if err := validateEncryptionKey(c.BackupEncryptionKey, "STEPANEL_BACKUP_ENCRYPTION_KEY"); err != nil {
 			problems = append(problems, err)
 		}
+		for i, key := range c.BackupPreviousEncryptionKeys {
+			if len(key) < 32 {
+				problems = append(problems, fmt.Errorf("STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS entry %d is shorter than 32 characters", i+1))
+			} else if key == c.BackupEncryptionKey {
+				problems = append(problems, fmt.Errorf("STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS entry %d repeats the current STEPANEL_BACKUP_ENCRYPTION_KEY", i+1))
+			}
+		}
 		if len(strings.TrimSpace(c.AccountKey)) > 0 {
 			if len(strings.TrimSpace(c.AccountKey)) < 32 || strings.ContainsAny(c.AccountKey, "\r\n") {
 				problems = append(problems, errors.New("production requires STEPANEL_ACCOUNT_KEY of at least 32 characters without newlines or left empty"))
@@ -731,4 +742,31 @@ func activeSafetyBypasses() []string {
 		}
 	}
 	return active
+}
+
+// backupDecryptionKeys returns every configured backup encryption key,
+// current first, for decrypting backups written under any of them.
+func (c Config) backupDecryptionKeys() []string {
+	keys := make([]string, 0, 1+len(c.BackupPreviousEncryptionKeys))
+	if c.BackupEncryptionKey != "" {
+		keys = append(keys, c.BackupEncryptionKey)
+	}
+	return append(keys, c.BackupPreviousEncryptionKeys...)
+}
+
+// splitKeyList parses a comma-separated key list, ignoring blank entries.
+func splitKeyList(value string) []string {
+	var keys []string
+	for _, key := range strings.Split(value, ",") {
+		if key = strings.TrimSpace(key); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// backupVerificationKeys returns the backup signing key followed by every
+// decryption key, the argument order the backup listing helpers expect.
+func (c Config) backupVerificationKeys() []string {
+	return append([]string{c.BackupSigningKey}, c.backupDecryptionKeys()...)
 }

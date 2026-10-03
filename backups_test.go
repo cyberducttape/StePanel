@@ -269,7 +269,7 @@ func TestCreateSiteBackupEncryptsArchivePayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := readTestBackupManifest(t, result.Path)
-	if manifest.Archive != "backup.tar.gz.enc" || manifest.Encryption != backupEncryptionName {
+	if manifest.Archive != "backup.tar.gz.enc" || manifest.Encryption != backupEncryptionName || manifest.EncryptionKeyID != backupKeyID(key) {
 		t.Fatalf("encrypted manifest = %#v", manifest)
 	}
 	if _, err := os.Stat(filepath.Join(result.Path, "backup.tar.gz")); !os.IsNotExist(err) {
@@ -281,9 +281,15 @@ func TestCreateSiteBackupEncryptsArchivePayload(t *testing.T) {
 	if _, err := VerifySiteBackupStrict(result.Path, "", key); err != nil {
 		t.Fatalf("encrypted backup verification failed: %v", err)
 	}
+	// After rotation the backup is still restorable with the old key listed
+	// as a previous key.
+	rotated := "rotated-backup-encryption-key-that-is-long-enough"
+	if _, err := VerifySiteBackupStrict(result.Path, "", rotated); err == nil {
+		t.Fatal("encrypted backup verified after rotation without the previous key")
+	}
 	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "secret.txt"), "changed live data")
 	if _, err := backupRestoreFiles(context.Background(), Config{
-		WebRoot: webRoot, BackupRoot: backupRoot, BackupEncryptionKey: key,
+		WebRoot: webRoot, BackupRoot: backupRoot, BackupEncryptionKey: rotated, BackupPreviousEncryptionKeys: []string{key},
 		ImportRoot: filepath.Join(root, "imports"), RecoveryRoot: filepath.Join(root, "recovery"),
 	}, filepath.Base(result.Path), AuthorizedSite{site: "account"}); err != nil {
 		t.Fatalf("encrypted backup restore failed: %v", err)

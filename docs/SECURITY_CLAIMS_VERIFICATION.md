@@ -29,12 +29,23 @@ Last verified: 2026-10-02 against `main`.
 
 ### Backup archives are encrypted (Verified)
 - **Configuration:** `STEPANEL_BACKUP_ENCRYPTION_KEY`.
-- **Implementation:** `backup_encryption.go`: streaming AES-256-GCM chunks; the
-  key is never stored in the manifest.
-- **Test:** `backups_test.go`: `TestCreateSiteBackupEncryptsArchivePayload`.
-- **Boundary:** the nonce is a random 64-bit prefix plus a 32-bit chunk
-  counter. A versioned envelope with per-backup key derivation and key
-  identifiers is planned before the format is frozen.
+- **Implementation:** `backup_encryption.go`: versioned envelope
+  (`AES-256-GCM-HKDF-STREAM-v2`). Each backup derives its own subkey with
+  HKDF-SHA256 from the configured key and a random 32-byte salt; chunk nonces
+  are the chunk index plus a final-chunk flag, unique under that subkey; the
+  header (format, key id, salt, chunk size) is authenticated as associated
+  data. Truncation, reordering, appended data, and header edits are rejected.
+  The manifest records the key id, never the key, and retired keys in
+  `STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS` still decrypt older backups.
+- **Tests:** `backup_encryption_test.go`: `TestBackupEncryptionRejectsTampering`,
+  `TestBackupEncryptionKeyRotation`, `TestBackupEncryptionReadsVersionOneArchives`;
+  `backups_test.go`: `TestCreateSiteBackupEncryptsArchivePayload`.
+- **Boundary:** backups written before this release use the v1 format
+  (random base nonce, no final-chunk marker), which is still read but cannot
+  detect truncation at a chunk boundary; the archive SHA-256 in the signed
+  manifest still detects it when a signing key is configured. A key
+  compromise exposes every backup encrypted under that key; rotation protects
+  only backups made afterwards.
 
 ### Backups are proven restorable, not only written (Partial)
 - **Implementation:** `backup_restore.go`: `handleBackupRehearsalJob()` verifies,

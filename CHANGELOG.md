@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Versioned backup encryption with key rotation (security)**: new
+  encrypted backups use the `AES-256-GCM-HKDF-STREAM-v2` envelope. Each backup
+  derives its own subkey with HKDF-SHA256 from the configured key and a random
+  salt, chunk nonces can no longer repeat across backups, the header (key id,
+  salt, chunk size) is authenticated, and a final-chunk marker makes truncation,
+  reordering, and appended data detectable. The manifest records the key id
+  (`encryption_key_id`), and retired keys listed in
+  `STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS` keep older backups restorable after
+  rotation; the installer preserves that setting on upgrade. A restore whose key
+  is missing names the key id it needs. Backups written in the v1 format are
+  still read, and the archive header must match the scheme named in the signed
+  manifest.
 - **Long privileged operations are no longer killed after 30 seconds
   (reliability)**: the root broker gave every database dump and restore,
   repository clone, container build, and recursive site ownership change the

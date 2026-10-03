@@ -865,6 +865,9 @@ TXN_TEMPS+=("$env_tmp")
   write_env STEPANEL_AUDIT_KEY "$AUDIT_KEY"
   write_env STEPANEL_BACKUP_SIGNING_KEY "$BACKUP_SIGNING_KEY"
   write_env STEPANEL_BACKUP_ENCRYPTION_KEY "$BACKUP_ENCRYPTION_KEY"
+  # Retired backup keys still decrypt older backups; dropping them on upgrade
+  # would make those backups unrestorable.
+  if [[ -n "${STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS:-}" ]]; then write_env STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS "$STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS"; fi
   write_env STEPANEL_BACKUP_ROOT /var/backups/stepanel
   if [[ -n "${STEPANEL_OFFSITE_TARGET:-}" ]]; then write_env STEPANEL_OFFSITE_TARGET "$STEPANEL_OFFSITE_TARGET"; fi
   write_env STEPANEL_REQUIRE_OFFSITE_BACKUP "$REQUIRE_OFFSITE_BACKUP"

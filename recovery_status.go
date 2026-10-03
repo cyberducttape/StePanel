@@ -98,7 +98,7 @@ func (a *App) siteRecovery(w http.ResponseWriter, r *http.Request) {
 func (a *App) buildSiteRecovery(ctx context.Context, access SiteCapability) (siteRecoveryResponse, error) {
 	site := access.Site()
 	in := recovery.Inputs{Site: site, Now: time.Now().UTC(), Policy: a.rehearsalPolicy(site)}
-	backups, err := listBackupsPage(a.Config.BackupRoot, access, 1, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
+	backups, err := listBackupsPage(a.Config.BackupRoot, access, 1, a.Config.backupVerificationKeys()...)
 	if err != nil {
 		return siteRecoveryResponse{}, fmt.Errorf("list backups: %w", err)
 	}

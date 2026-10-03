@@ -300,7 +300,7 @@ func (a *App) terminationBackup(ctx context.Context, site SiteCapability, starte
 	if err := ctx.Err(); err != nil {
 		return BackupResult{}, err
 	}
-	items, err := listBackupsPage(a.Config.BackupRoot, site, 500, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
+	items, err := listBackupsPage(a.Config.BackupRoot, site, 500, a.Config.backupVerificationKeys()...)
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("inspect retained site backups: %w", err)
 	}

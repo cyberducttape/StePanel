@@ -137,7 +137,8 @@ Starting in production, StePanel validates encryption keys at startup and reject
 - **Purpose:** Encrypt backup archive payloads so offsite storage does not receive plaintext-capable objects
 - **Required:** In production
 - **Generation:** `openssl rand -hex 32`
-- **Format:** Streaming AES-256-GCM chunks; the key is never written into the backup manifest
+- **Format:** Versioned envelope (`AES-256-GCM-HKDF-STREAM-v2`): a per-backup subkey derived with HKDF-SHA256 from the key and a random salt, 1 MiB AES-256-GCM chunks with an authenticated header and final-chunk marker. The manifest records only the key id, never the key. Backups written in the earlier `AES-256-GCM-CHUNKED-v1` format remain readable.
+- **Rotation:** see [Rotating the backup encryption key](#rotating-the-backup-encryption-key)
 - **Example:** `d4e7a0c3f6b9e2d5f8a1b4c7d0e3f6a9c2e5f8b1d4e7a0c3f6b9e2d5f8a1b4c7`
 
 ### STEPANEL_AUDIT_KEY
@@ -202,6 +203,25 @@ validation error: STEPANEL_ACCOUNT_KEY appears to be a human-typed password
 - TOTP secrets cannot be accessed
 - Environment variables are inaccessible
 - Backup signatures cannot be verified
+
+### Rotating the backup encryption key
+
+Each encrypted backup records the id of the key that encrypted it (a
+non-reversible HMAC of the key, shown as `encryption_key_id` in the
+manifest). To rotate:
+
+1. Generate a new key: `openssl rand -hex 32`.
+2. Set it as `STEPANEL_BACKUP_ENCRYPTION_KEY` and move the old key into
+   `STEPANEL_BACKUP_ENCRYPTION_PREVIOUS_KEYS` (comma-separated, newest
+   first). Escrow the new key before restarting.
+3. Restart the panel and worker. New backups use the new key; backups made
+   under any listed previous key still verify, rehearse, and restore.
+4. Keep a retired key listed until every backup encrypted with it has aged
+   out of local and off-site retention. Restoring a backup whose key is not
+   configured fails with an error naming the key id it needs.
+
+Production startup rejects previous keys shorter than 32 characters or equal
+to the current key.
 
 ---
 

@@ -166,7 +166,7 @@ func main() {
 	}
 	if len(os.Args) == 3 && os.Args[1] == "verify-backup" {
 		cfg := LoadConfig()
-		manifest, err := VerifySiteBackupStrict(os.Args[2], cfg.BackupSigningKey, cfg.BackupEncryptionKey)
+		manifest, err := VerifySiteBackupStrict(os.Args[2], cfg.BackupSigningKey, cfg.backupDecryptionKeys()...)
 		if err != nil {
 			log.Fatal(err)
 		}

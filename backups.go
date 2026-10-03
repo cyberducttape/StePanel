@@ -88,7 +88,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 					}
 					for _, assignedSite := range assignedSites {
 						access, _ := a.authorizeSite(r, assignedSite)
-						items, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
+						items, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.backupVerificationKeys()...)
 						if err != nil {
 							http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
 							return
@@ -106,7 +106,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			manifests, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
+			manifests, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.backupVerificationKeys()...)
 			if err != nil {
 				http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
 				return
@@ -114,7 +114,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"backups": manifests})
 			return
 		}
-		manifests, err := listBackupsPageUnscoped(a.Config.BackupRoot, site, limit, a.Config.BackupSigningKey, a.Config.BackupEncryptionKey)
+		manifests, err := listBackupsPageUnscoped(a.Config.BackupRoot, site, limit, a.Config.backupVerificationKeys()...)
 		if err != nil {
 			http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
 			return
@@ -321,7 +321,8 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	}
 	if cfg.BackupEncryptionKey != "" {
 		encryptedPath := filepath.Join(tempDir, "backup.tar.gz.enc")
-		if err := encryptBackupArchive(archivePath, encryptedPath, cfg.BackupEncryptionKey); err != nil {
+		keyID, err := encryptBackupArchive(archivePath, encryptedPath, cfg.BackupEncryptionKey)
+		if err != nil {
 			return result, fmt.Errorf("encrypt backup archive: %w", err)
 		}
 		if err := os.Remove(archivePath); err != nil {
@@ -330,6 +331,7 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		archivePath = encryptedPath
 		manifest.Archive = "backup.tar.gz.enc"
 		manifest.Encryption = backupEncryptionName
+		manifest.EncryptionKeyID = keyID
 		archiveInfo, err = os.Stat(archivePath)
 		if err != nil {
 			return result, err
@@ -339,7 +341,7 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		if err != nil {
 			return result, err
 		}
-		if err := VerifyBackupArchiveWithKey(archivePath, manifest, cfg.BackupEncryptionKey); err != nil {
+		if err := VerifyBackupArchiveWithKey(archivePath, manifest, cfg.backupDecryptionKeys()); err != nil {
 			return result, fmt.Errorf("verify encrypted backup: %w", err)
 		}
 	}
@@ -681,18 +683,21 @@ func setBackupVerificationCache(path, consistency, checksum string) {
 }
 
 func VerifyBackupArchive(path string, manifest BackupManifest) error {
-	return VerifyBackupArchiveWithKey(path, manifest, "")
+	return VerifyBackupArchiveWithKey(path, manifest, nil)
 }
 
-func VerifyBackupArchiveWithKey(path string, manifest BackupManifest, encryptionKey string) error {
+// VerifyBackupArchiveWithKey verifies an archive against its manifest. keys
+// holds every configured backup encryption key, current first; encrypted
+// archives are decrypted with whichever one the archive names.
+func VerifyBackupArchiveWithKey(path string, manifest BackupManifest, keys []string) error {
 	if manifest.Version != 1 || safeUser(manifest.Site) == "" || (manifest.Archive != "backup.tar.gz" && manifest.Archive != "backup.tar.gz.enc") || len(manifest.ArchiveSHA256) != sha256.Size*2 {
 		return errors.New("invalid backup manifest metadata")
 	}
 	if manifest.Archive == "backup.tar.gz.enc" {
-		if manifest.Encryption != backupEncryptionName || encryptionKey == "" {
+		if !isBackupEncryptionName(manifest.Encryption) || !hasBackupKey(keys) {
 			return errors.New("encrypted backup requires its encryption key")
 		}
-	} else if manifest.Encryption != "" {
+	} else if manifest.Encryption != "" || manifest.EncryptionKeyID != "" {
 		return errors.New("plaintext backup has unexpected encryption metadata")
 	}
 	file, info, err := openRegularNoFollow(path, nil)
@@ -715,7 +720,7 @@ func VerifyBackupArchiveWithKey(path string, manifest BackupManifest, encryption
 		return fmt.Errorf("rewind backup archive: %w", err)
 	}
 	if manifest.Archive == "backup.tar.gz.enc" {
-		return withDecryptedBackupArchiveReader(file, encryptionKey, func(archivePath string) error {
+		return withDecryptedBackupArchiveReader(file, keys, manifest.Encryption, func(archivePath string) error {
 			plaintext, _, err := openRegularNoFollow(archivePath, nil)
 			if err != nil {
 				return err
@@ -1021,18 +1026,18 @@ func verifyBackupManifestSignature(root string, data []byte, manifest BackupMani
 // large archives on every list request. Call VerifySiteBackupStrict before any
 // restore, rehearsal, migration, staging, or other operation that consumes the
 // archive contents.
-func VerifySiteBackupForListing(root string, signingKey string, encryptionKey ...string) (BackupManifest, error) {
-	return verifySiteBackup(root, true, signingKey, encryptionKey...)
+func VerifySiteBackupForListing(root string, signingKey string, encryptionKeys ...string) (BackupManifest, error) {
+	return verifySiteBackup(root, true, signingKey, encryptionKeys...)
 }
 
 // VerifySiteBackupStrict always re-hashes and fully validates the archive. It
 // deliberately bypasses the listing cache because a path-only cache cannot
 // establish that the bytes being consumed are the bytes that were verified.
-func VerifySiteBackupStrict(root string, signingKey string, encryptionKey ...string) (BackupManifest, error) {
-	return verifySiteBackup(root, false, signingKey, encryptionKey...)
+func VerifySiteBackupStrict(root string, signingKey string, encryptionKeys ...string) (BackupManifest, error) {
+	return verifySiteBackup(root, false, signingKey, encryptionKeys...)
 }
 
-func verifySiteBackup(root string, allowCache bool, signingKey string, encryptionKey ...string) (BackupManifest, error) {
+func verifySiteBackup(root string, allowCache bool, signingKey string, encryptionKeys ...string) (BackupManifest, error) {
 	manifest, err := readBackupManifest(root)
 	if err != nil {
 		return BackupManifest{}, err
@@ -1049,12 +1054,12 @@ func verifySiteBackup(root string, allowCache bool, signingKey string, encryptio
 			manifest.Consistency = cached.Consistency
 			manifest.ArchiveSHA256 = cached.Checksum
 		} else {
-			if err := VerifyBackupArchiveWithKey(archivePath, manifest, firstOptional(encryptionKey)); err != nil {
+			if err := VerifyBackupArchiveWithKey(archivePath, manifest, encryptionKeys); err != nil {
 				return BackupManifest{}, err
 			}
 			setBackupVerificationCache(archivePath, manifest.Consistency, manifest.ArchiveSHA256)
 		}
-	} else if err := VerifyBackupArchiveWithKey(archivePath, manifest, firstOptional(encryptionKey)); err != nil {
+	} else if err := VerifyBackupArchiveWithKey(archivePath, manifest, encryptionKeys); err != nil {
 		return BackupManifest{}, err
 	}
 	manifestPath, err := safePath(root, "manifest.json")
@@ -1087,11 +1092,13 @@ func firstOptional(values []string) string {
 	return values[0]
 }
 
-func secondOptional(values []string) string {
+// backupKeysFromOptional returns the encryption keys that follow the signing
+// key in the listing helpers' optional key arguments.
+func backupKeysFromOptional(values []string) []string {
 	if len(values) < 2 {
-		return ""
+		return nil
 	}
-	return values[1]
+	return values[1:]
 }
 
 func listBackups(root string, signingKey ...string) ([]BackupResult, error) {
@@ -1120,7 +1127,7 @@ func listBackupsPageUnscoped(root, site string, limit int, signingKey ...string)
 			log.Printf("skip backup entry outside backup root %s", entry.Name())
 			continue
 		}
-		manifest, err := VerifySiteBackupForListing(path, firstOptional(signingKey), secondOptional(signingKey))
+		manifest, err := VerifySiteBackupForListing(path, firstOptional(signingKey), backupKeysFromOptional(signingKey)...)
 		if err != nil {
 			// A damaged artifact must not hide every healthy backup from the
 			// operator. Keep it visible in logs for quarantine/repair workflows.
@@ -1161,7 +1168,7 @@ func listBackupsPage(root string, site SiteCapability, limit int, signingKey ...
 			log.Printf("skip backup entry outside backup root %s", entry.Name())
 			continue
 		}
-		manifest, err := VerifySiteBackupForListing(path, firstOptional(signingKey), secondOptional(signingKey))
+		manifest, err := VerifySiteBackupForListing(path, firstOptional(signingKey), backupKeysFromOptional(signingKey)...)
 		if err != nil {
 			log.Printf("skip invalid backup manifest %s: %v", entry.Name(), err)
 			continue

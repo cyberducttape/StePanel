@@ -104,7 +104,7 @@ summarizes the evidence:
 - **Recovery point**: the age of the newest backup, which is how much recent
   change a restore would lose.
 - **Encryption key**: `proven` once a rehearsal has decrypted an encrypted
-  backup with the current key.
+  backup with a configured key.
 
 A successful scheduled backup triggers an automatic rehearsal of that backup
 when the site has not been rehearsed within `STEPANEL_REHEARSAL_INTERVAL_HOURS`
@@ -287,11 +287,11 @@ database deletion remain under `.database-deletions` for explicit DBA review.
 
 Backups are classified explicitly as `crash-consistent / logical backup`:
 the archive and any logical database dump are verified, but the application is
-not quiesced and no filesystem snapshot is taken. If
-`STEPANEL_BACKUP_ENCRYPTION_KEY` encrypts each new archive payload with
-streaming AES-256-GCM before publication; the key is never placed in the
-manifest or offsite object. `STEPANEL_BACKUP_SIGNING_KEY` is configured,
-publication also creates
+not quiesced and no filesystem snapshot is taken.
+`STEPANEL_BACKUP_ENCRYPTION_KEY` encrypts each new archive payload before
+publication (see [Rotating the backup encryption key](ENCRYPTION_KEYS.md#rotating-the-backup-encryption-key));
+the key is never placed in the manifest or offsite object, only its key id.
+If `STEPANEL_BACKUP_SIGNING_KEY` is configured, publication also creates
 `manifest.sig`, an HMAC-SHA256 signature kept beside the manifest but verified
 with a key held outside the backup root. Keep that key in the host's secret
 store and escrow it separately from backup copies. A signature proves the

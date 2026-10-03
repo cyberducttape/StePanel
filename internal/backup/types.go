@@ -17,6 +17,7 @@ type BackupManifest struct {
 	VerifiedAt           time.Time     `json:"verified_at"`
 	Archive              string        `json:"archive"`
 	Encryption           string        `json:"encryption,omitempty"`
+	EncryptionKeyID      string        `json:"encryption_key_id,omitempty"`
 	ArchiveSHA256        string        `json:"archive_sha256"`
 	Bytes                int64         `json:"bytes"`
 	Databases            []string      `json:"databases"`
