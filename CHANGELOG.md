@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Long privileged operations are no longer killed after 30 seconds
+  (reliability)**: the root broker gave every database dump and restore,
+  repository clone, container build, and recursive site ownership change the
+  30-second default deadline, and expiry SIGKILLs the helper. In production a
+  database restore, backup dump, Git clone, build, or seal of a large site that
+  took longer was killed mid-operation, leaving half-applied host state. Every
+  broker action now has an explicit timeout class at least as long as the
+  panel allows it (up to 120 minutes for size-proportional work), and a test
+  fails if a new action is added without one.
+- **One page on how StePanel requests root**: `docs/PRIVILEGE_MODEL.md`
+  describes the transport, caller authentication, validation, resource locks,
+  deadlines, audit, and recovery for every privileged request, and lists the
+  generic helper actions still to be replaced by typed requests.
 - **A failed restore-to-staging no longer leaves a half-provisioned site**:
   the staging site's account and PHP-FPM pool (created before publishing) and
   its directory are now torn down when the restore does not complete, so an
