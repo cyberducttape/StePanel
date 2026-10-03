@@ -454,6 +454,9 @@ func TestValidateTypedTaskApplyRequest(t *testing.T) {
 		func(r *TaskRequest) { r.TimeoutSec = 0 },
 		func(r *TaskRequest) { r.MinIntervalSeconds = 1 },
 		func(r *TaskRequest) { r.NotifyWebhook = "http://example.com/hook" },
+		func(r *TaskRequest) { r.NotifyWebhook = "https://127.0.0.1/hook" },
+		func(r *TaskRequest) { r.NotifyWebhook = "https://169.254.169.254/latest/meta-data/" },
+		func(r *TaskRequest) { r.NotifyWebhook = "https://[fd00::1]/hook" },
 	} {
 		candidate := *valid.Task
 		mutate(&candidate)

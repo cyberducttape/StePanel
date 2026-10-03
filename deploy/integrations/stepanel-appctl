@@ -476,6 +476,10 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=$root
+# Tenant task code must not reach cloud instance metadata (IPv4 link-local
+# and the AWS IPv6 endpoint), which can hand out host credentials. Loopback
+# and private ranges stay reachable for local databases and caches.
+IPAddressDeny=169.254.0.0/16 fd00:ec2::254/128
 RuntimeDirectory=stepanel-task-$site-$name
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
@@ -486,8 +490,12 @@ EnvironmentFile=-$notify_env
 UMask=0027
 EOF
     if [[ -n $webhook ]]; then
+      # Delivered by the panel binary rather than curl so the shared outbound
+      # policy (public destinations only, checked on the connected address,
+      # no redirects) applies at send time, not only when the URL was saved.
+      # env -i keeps the site's environment (proxies, resolver settings) out.
       cat >> "/etc/systemd/system/$unit" <<EOF
-ExecStopPost=-/usr/bin/curl --silent --fail --max-time=5 --max-redirs=0 --proto =https --header "Content-Type: application/json" --data-binary "{\"site\":\"$site\",\"task\":\"$name\",\"result\":\"\${SERVICE_RESULT}\",\"exit_code\":\"\${EXIT_CODE}\",\"exit_status\":\"\${EXIT_STATUS}\"}" "\${STEPANEL_TASK_WEBHOOK_URL}"
+ExecStopPost=-/usr/bin/env -i /opt/stepanel/stepanel task-webhook "\${STEPANEL_TASK_WEBHOOK_URL}" $site $name "\${SERVICE_RESULT}" "\${EXIT_CODE}" "\${EXIT_STATUS}"
 EOF
     fi
     cat > "/etc/systemd/system/$timer" <<EOF

@@ -178,7 +178,11 @@ root-owned `stepanel-gitctl` uses it only for a non-interactive clone.
 systemd service and timer. Use a systemd `OnCalendar` expression (for example,
 `*-*-* *:*:00` for each minute), select PHP/Node/Python/shell, provide a
 timeout, minimum interval, missed-run policy, CPU/memory/process limits, and an
-optional HTTPS completion webhook. Each task has a single-run concurrency
+optional HTTPS completion webhook. Webhooks follow the shared outbound policy
+(`internal/safehttp`): only public internet addresses are reachable, the check
+runs on the address actually connected to at delivery time (so DNS changes
+after saving cannot redirect it to loopback, private, or metadata ranges), and
+redirects are not followed. Each task has a single-run concurrency
 limit; systemd terminates it at its configured timeout. The UI exposes the
 current run, a manual stop action, consecutive failures, and the last 20
 execution results. Ten consecutive failures automatically disable the timer.

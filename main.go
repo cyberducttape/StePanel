@@ -13,6 +13,7 @@ import (
 	"github.com/cyberducttape/StePanel/internal/metadata"
 	"github.com/cyberducttape/StePanel/internal/operations"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/safehttp"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"html/template"
 	"io"
@@ -129,6 +130,12 @@ func main() {
 	workerMode := len(os.Args) == 2 && os.Args[1] == "worker"
 	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
 		_, _ = fmt.Fprintf(os.Stdout, "StePanel %s\ncommit: %s\nbuilt: %s\n", Version, Commit, BuildDate)
+		return
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "task-webhook" {
+		if err := runTaskWebhook(context.Background(), safehttp.Policy{}, os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
 		return
 	}
 	if len(os.Args) == 2 && os.Args[1] == "init" {

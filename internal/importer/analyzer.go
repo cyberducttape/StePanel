@@ -10,137 +10,42 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/safehttp"
 )
 
-// isReservedIP checks if an IP address is in a reserved/private range
+// archiveFetchPolicy is the shared StePanel outbound policy: public internet
+// destinations only, enforced on the connected address.
+var archiveFetchPolicy safehttp.Policy
+
+// isReservedIP reports whether ip is outside the public internet.
 func isReservedIP(ip net.IP) bool {
-	// Handle IPv4-mapped IPv6 addresses by unwrapping them
-	if ip4 := ip.To4(); ip4 != nil {
-		ip = ip4
-	}
-
-	// Reject loopback, private, and link-local addresses
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-		return true
-	}
-	// Reject non-global unicast IPs (multicast, unspecified, etc.)
-	if !ip.IsGlobalUnicast() {
-		return true
-	}
-	return false
+	addr, ok := netip.AddrFromSlice(ip)
+	return !ok || !archiveFetchPolicy.Allows(addr)
 }
 
-// isAllowedURL validates that a URL is safe to fetch (prevents SSRF)
+// isAllowedURL validates that a URL is safe to fetch (prevents SSRF).
+// Hostnames are checked again on the resolved address at connect time.
 func isAllowedURL(urlStr string) bool {
-	parsed, err := url.Parse(urlStr)
-	if err != nil {
-		return false
-	}
-
-	// Only allow https
-	if parsed.Scheme != "https" {
-		return false
-	}
-
-	// Extract hostname
-	host := parsed.Hostname()
-	if host == "" {
-		return false
-	}
-
-	// Reject reserved hostnames
-	lowerHost := strings.ToLower(host)
-	reservedHosts := map[string]bool{
-		"localhost":       true,
-		"127.0.0.1":       true,
-		"::1":             true,
-		"0.0.0.0":         true,
-		"169.254.169.254": true, // AWS metadata
-	}
-	if reservedHosts[lowerHost] {
-		return false
-	}
-
-	// If it's an IP address, validate it directly
-	ip := net.ParseIP(host)
-	if ip != nil {
-		return !isReservedIP(ip)
-	}
-
-	// For hostnames, we'll validate resolved IPs in the DialContext layer.
-	// This allows us to handle DNS failures gracefully and validates all
-	// addresses including those returned by redirects.
-	return true
+	return archiveFetchPolicy.ValidateURL(urlStr) == nil
 }
 
-// NewSafeArchiveTransport creates an HTTP transport that validates all IP addresses
-// to prevent SSRF attacks. It validates both direct IPs and DNS-resolved addresses.
-// Used by both archive inspection (Analyzer) and import (Executor) to ensure
-// consistent security policies.
+// NewSafeArchiveTransport creates an HTTP transport that only connects to
+// public addresses. Used by both archive inspection (Analyzer) and import
+// (Executor) so they share the safehttp policy. Granular timeouts instead of a
+// global timeout support large file transfers.
 func NewSafeArchiveTransport() *http.Transport {
-	return &http.Transport{
-		// Custom DialContext that validates all IP addresses before connecting
-		// - Direct IPs: checked against reserved ranges
-		// - Hostnames: resolved and each IP checked
-		// Granular timeouts instead of global timeout to support large file transfers
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Parse the host and port
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid address: %w", err)
-			}
-
-			// Try to parse as IP directly
-			ip := net.ParseIP(host)
-			if ip != nil {
-				// It's already an IP, validate it
-				if isReservedIP(ip) {
-					return nil, fmt.Errorf("connection to reserved IP %s not allowed", host)
-				}
-			} else {
-				// It's a hostname, resolve and validate each resolved IP
-				// This prevents DNS-rebinding attacks and SSRF via DNS
-				resolver := &net.Resolver{}
-				// DNS resolution with 5-second timeout
-				dnsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				ips, err := resolver.LookupIP(dnsCtx, "ip", host)
-				cancel()
-				if err != nil {
-					return nil, fmt.Errorf("DNS resolution failed: %w", err)
-				}
-				if len(ips) == 0 {
-					return nil, fmt.Errorf("no IP addresses resolved for %s", host)
-				}
-
-				// Check if any resolved IP is reserved (prevents SSRF via DNS)
-				for _, resolvedIP := range ips {
-					if isReservedIP(resolvedIP) {
-						return nil, fmt.Errorf("hostname %s resolves to reserved IP %s", host, resolvedIP)
-					}
-				}
-
-				// Use the first public IP
-				ip = ips[0]
-			}
-
-			// Connect with 15-second TCP/TLS timeout
-			dialer := net.Dialer{
-				Timeout:   15 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
-		},
-		IdleConnTimeout:       30 * time.Second,
+	return archiveFetchPolicy.Transport(safehttp.TransportOptions{
+		DialTimeout:           15 * time.Second,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
+	})
 }
 
 // Analyzer inspects and analyzes archive contents

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/safehttp"
 )
 
 var certificateDomainPattern = regexp.MustCompile(`(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
@@ -368,6 +370,9 @@ func (v *Validator) validateTaskRequest(req *TaskRequest) error {
 		u, err := url.ParseRequestURI(req.NotifyWebhook)
 		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" || len(req.NotifyWebhook) > 2048 || strings.ContainsAny(req.NotifyWebhook, "\\\"' \t\r\n\x00") {
 			return errors.New("invalid task notification webhook")
+		}
+		if err := (safehttp.Policy{}).ValidateURL(req.NotifyWebhook); err != nil {
+			return fmt.Errorf("invalid task notification webhook: %w", err)
 		}
 	}
 	return nil

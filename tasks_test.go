@@ -117,6 +117,13 @@ func TestNormalizeScheduledTaskSafeguards(t *testing.T) {
 		{MinIntervalSeconds: 30},
 		{MissedRunPolicy: "replay-all"},
 		{NotifyWebhook: "http://localhost/hook"},
+		{NotifyWebhook: "https://localhost/hook"},
+		{NotifyWebhook: "https://127.0.0.1/hook"},
+		{NotifyWebhook: "https://10.0.0.10/hook"},
+		{NotifyWebhook: "https://172.16.0.1/hook"},
+		{NotifyWebhook: "https://192.168.1.1/hook"},
+		{NotifyWebhook: "https://[::1]/hook"},
+		{NotifyWebhook: "https://169.254.169.254/latest/meta-data/"},
 		{CPUPercent: 10},
 	} {
 		if err := normalizeScheduledTask(&invalid); err == nil {

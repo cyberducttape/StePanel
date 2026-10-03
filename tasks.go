@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"reflect"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/safehttp"
 )
 
 // ScheduledTask is intentionally a systemd-timer definition, rather than a
@@ -220,17 +220,23 @@ func normalizeScheduledTask(task *ScheduledTask) error {
 		return errors.New("task CPU, memory, or process limits are out of range")
 	}
 	if task.NotifyWebhook != "" && !validTaskWebhook(task.NotifyWebhook) {
-		return errors.New("notification webhook must be an HTTPS URL without credentials or control characters")
+		return errors.New("notification webhook must be a public HTTPS URL without credentials or control characters")
 	}
 	return nil
 }
 
+// validTaskWebhook applies the shared outbound policy at save time. The
+// character restrictions keep the URL a single safe word in the generated
+// systemd unit; the sender re-enforces the policy on the connected address.
 func validTaskWebhook(raw string) bool {
-	if len(raw) > 2048 || strings.ContainsAny(raw, "\x00\r\n\t '\"\\") {
+	return validTaskWebhookFor(safehttp.Policy{}, raw)
+}
+
+func validTaskWebhookFor(policy safehttp.Policy, raw string) bool {
+	if strings.ContainsAny(raw, "\x00\r\n\t '\"\\") {
 		return false
 	}
-	u, err := url.Parse(raw)
-	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.Fragment == ""
+	return policy.ValidateURL(raw) == nil
 }
 
 func validateTaskCalendarInterval(ctx context.Context, calendar string, minimumSeconds int) error {
