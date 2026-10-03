@@ -203,12 +203,17 @@ Extract new domains with clear interface contracts. This enables testing, mockin
 
 ## Architectural Rule: Site Lifecycle Authority
 
-**Canonical sites** (permanent workspaces at `{webRoot}/sites/{siteName}/*`) may ONLY be created, activated, or deleted by `internal/sites.Manager`. No exceptions.
+Three layers own site lifecycle (see Gate 1 in [V1_PRODUCTION_GATES.md](docs/V1_PRODUCTION_GATES.md)):
+- **Lifecycle orchestration**: root-package lifecycle handlers and durable jobs decide to create, publish, or remove a site and own locks, ordering, audit, and recovery.
+- **Filesystem primitive**: `internal/sites.Manager` is the only unprivileged code that publishes, replaces, or removes **canonical sites** (`{webRoot}/sites/{siteName}/*`).
+- **Privilege executor**: the root broker and helpers own accounts, PHP-FPM, SSH, quotas, and services. `stepanel-sitectl delete` is the single documented privileged path that removes a canonical tree; `SiteManager.Delete()` finalizes it.
 
 **Staging areas** (temporary workspaces granted by SiteManager) may be mutated by domain components, but:
-- Must be obtained via `SiteManager.GrantStaging()`
-- Must be activated/discarded only via `SiteManager.ActivateStaged()` or `SiteManager.DiscardStaging()`
+- Must be obtained via `SiteManager.CreateStaging()` (or `CreateReleaseStaging()` for releases)
+- Must be activated/discarded only via `SiteManager.ActivateStaged*()` or `SiteManager.DiscardStaging()`
 - Must never persist paths or assume existence across operation boundaries
+
+Do not route new code through `SiteManager` methods that return `ErrNotImplemented`, and keep Gate 1 in sync with the code (`TestGateOneDocumentMatchesManager` enforces this).
 
 This rule prevents inconsistent lifecycle setup (missing PHP-FPM, recovery journals, account ownership, resource envelopes, audit trails) across different site creation paths.
 

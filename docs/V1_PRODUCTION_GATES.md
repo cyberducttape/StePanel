@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-09-29
+**Last Updated:** 2026-10-02
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -22,61 +22,83 @@ The design is sound. The implementation is 85% there. The remaining work is:
 
 ## Gate 1: One Lifecycle Authority
 
-**Requirement:** ALL site mutations must flow through `SiteManager` (internal/sites/Manager)
+**Requirement:** Every site lifecycle operation has exactly one owner per
+layer, and every write that publishes or removes a canonical site tree goes
+through `SiteManager`'s path-safe primitives.
 
-**Architectural Rule (September 2026 Clarification):**
+**Roles (October 2026 revision).** An earlier version of this gate said all
+site mutations flow through `SiteManager`. The code does not work that way,
+and this gate now describes the implementation as it is:
 
-Two distinct domains exist:
-1. **Staging areas** — Opaque, temporary workspaces allocated and owned by SiteManager
-   - Domain components (importer, restore, git, backup, etc.) may mutate staging areas granted to them
-   - SiteManager grants staging and guarantees cleanup if activation fails
-   - Direct filesystem operations within staging are acceptable
-   - Staging paths must never be persisted or assumed to exist across operation boundaries
+| Layer | Owner | Responsibility |
+|-------|-------|----------------|
+| Lifecycle orchestration | Root-package lifecycle handlers and durable jobs (`site_lifecycle.go` `handleSiteTermination`, import/restore/clone/release jobs) | Locks, ordering, audit, recovery, and the decision to create, publish, or remove a site |
+| Filesystem primitive | `SiteManager` (`internal/sites/manager.go`) | Staging allocation, atomic activation/replacement/rollback, clone, path-safe final deletion. Every path is derived from the manager's own web root |
+| Privilege executor | Root broker and helpers (`internal/rootbroker`, `stepanel-sitectl`, `stepanel-appctl`) | Site Unix account, ownership, PHP-FPM pool, SSH access, quotas, services, and the privileged part of site teardown |
 
-2. **Canonical sites** — Permanent, named site trees at `{webRoot}/sites/{siteName}`
-   - ONLY SiteManager.Create/Activate/Delete touch canonical paths
-   - No exceptions, no direct filesystem calls
-   - All operations verify site exists before mutation
-   - All operations acquire mutation locks before touching site state
-   - All operations record audit events and recovery metadata
+**Two domains:**
+1. **Staging areas**: temporary workspaces allocated by `SiteManager`.
+   - Domain components (importer, restore, git, backup) may mutate staging
+     granted to them.
+   - Staging is published only by `SiteManager.ActivateStaged*` and discarded
+     only by `SiteManager.DiscardStaging()`.
+   - Staging paths are never persisted across operation boundaries.
+2. **Canonical sites**: `{webRoot}/sites/{siteName}`.
+   - Unprivileged code publishes, replaces, and removes canonical trees only
+     through `SiteManager`.
+   - The privileged teardown helper (`stepanel-sitectl delete`) also removes
+     the site tree, because it must first remove root-owned state inside it.
+     `SiteManager.Delete()` then finalizes the removal idempotently. This is
+     the one place outside `SiteManager` that deletes a canonical tree.
 
-**What this means:**
+**How each operation actually flows:**
 ```
-create → SiteManager.Create()
-import → SiteManager.GrantStaging() + domain extract + SiteManager.Activate()
-clone  → SiteManager.Clone()
-restore → SiteManager.GrantStaging() + domain restore + SiteManager.Activate()
-update → SiteManager.UpdateConfiguration()
-delete → SiteManager.Delete()
+create  → no blank-site path; new sites are published from staging (archive,
+          cPanel, WordPress, backup restore) after broker/stepanel-sitectl
+          prepare-root creates the account and PHP-FPM pool
+import  → SiteManager.CreateStaging() + domain extract + SiteManager.ActivateStaged()
+clone   → SiteManager.CreateStaging() + copy (staging.go) + SiteManager.ActivateStaged()
+restore → SiteManager.CreateStaging() + domain restore + SiteManager.ActivateStaged()
+release → SiteManager.CreateReleaseStaging() + build + SiteManager.ActivateStagedReplacing()
+          (rollback: SiteManager.RollbackStagedActivation())
+update  → domain handlers + root broker (PHP runtime, resources, quota); SiteManager is not involved
+delete  → lifecycle job: backups, services, tasks, routes, databases
+          → broker/stepanel-sitectl delete (account, PHP-FPM, SSH, site tree)
+          → SiteManager.Delete() (path-safe, idempotent finalization)
 
 # Never acceptable:
-❌ Direct filepath.Join(webRoot, "sites", ...) outside internal/sites
-❌ os.Mkdir/Create/Rename on /sites/* paths outside manager
-❌ Reads of canonical site state without acquiring locks
+❌ os.Mkdir/Create/Rename on {webRoot}/sites/* outside SiteManager
+❌ Publishing a staged tree without SiteManager.ActivateStaged*
+❌ A new privileged path that deletes canonical trees without being listed above
 ```
 
-**Current Status: COMPLETE ✅**
-- ✅ Manager interface defined (`internal/sites/manager.go`)
-- ✅ Manager clone is staged, path-safe, and atomically activated
-- ✅ Generic archive activation publishes through the manager
-- ✅ Git activation and rollback publish through the manager
-- ✅ cPanel, WordPress, and file-backup restores publish through the manager
-- ✅ Staging clone publishes through the manager
-- ✅ Backup restore-to-staging publishes through the manager
-- ✅ Release pipeline uses manager for release staging
-- ✅ cPanel, archive, WordPress, backup-restore, release, and staging workflows
-      allocate publication trees through manager-owned staging
+**Not implemented in `SiteManager`** (each returns `ErrNotImplemented`; no
+operation above routes through them): `ImportArchive`, `Restore`,
+`UpdateConfiguration`, `Suspend`, `Resume`. `TestGateOneDocumentMatchesManager`
+fails if this list drifts or the flow above routes an operation to one of them.
+
+**Implemented but unused:** `SiteManager.Create()` and `SiteManager.Clone()`
+have no production callers; the flows above use staging instead.
+
+**Current Status: MET for publication and removal; configuration updates are broker-executed**
+- ✅ Generic archive, Git (activation and rollback), cPanel, WordPress,
+      file-backup restore, staging clone, backup restore-to-staging, and the
+      release pipeline all publish through manager-owned staging
 - ✅ Failed staging workflows discard trees through `SiteManager.DiscardStaging()`
-- ✅ Site termination uses the manager for final deletion
-- ✅ All canonical site modifications protected by distributed locks
-- ✅ All staging operations use SiteManager allocation/activation
+- ✅ Site termination finalizes deletion through `SiteManager.Delete()` after
+      the privileged helper removes root-owned state
+- ✅ Canonical site modifications are protected by distributed locks
+- ⚠️ Configuration updates, suspend, and resume have no `SiteManager` entry
+      point; updates run through domain handlers and the root broker, and
+      suspend/resume are not offered
 
 **Acceptance Criteria:**
-- [x] All site creation operations validated to use SiteManager (Phase 1 audit: importer.go, cpmove.go, staging.go all use manager staging)
-- [x] All site modification operations validated to use SiteManager (Phase 2 audit: node_tooling.go, apps.go use lock-protected operations; release_pipeline.go uses manager for release staging)
-- [x] Implemented site deletion operations use SiteManager (site_lifecycle.go verified using manager.Delete)
+- [x] All site creation operations publish through SiteManager staging (Phase 1 audit: importer.go, cpmove.go, staging.go use manager staging)
+- [x] Site modification operations are lock-protected (Phase 2 audit: node_tooling.go, apps.go; release_pipeline.go uses manager release staging)
+- [x] Site deletion finalizes through `SiteManager.Delete()`; the privileged helper's tree removal is the documented exception
 - [x] Grep audit: no `os.Mkdir.*sites` outside manager (only in test files)
 - [x] Grep audit: no direct file operations on site paths outside manager (all non-test operations are read-only or lock-protected)
+- [x] This section matches `SiteManager`'s implemented methods (`TestGateOneDocumentMatchesManager`)
 
 ---
 
