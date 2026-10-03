@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Removed dead placeholder code from the root broker**: about 900 lines of
+  commented-out database, restore, and vhost "implementations" that only
+  pretended to succeed (including a hard-coded placeholder password), and the
+  three journal types only they used, are gone from `internal/rootbroker`.
+  None of it was reachable, but it read like live privileged code. The
+  deferred-work check now also rejects "in a real implementation" and "for now,
+  just …" stub phrasing in production code.
 - **Workflows proven to wait for locks held by another process**: new tests
   run the real restore job, site termination job, resource update, and account
   suspension handlers while a second lock owner on a separate database

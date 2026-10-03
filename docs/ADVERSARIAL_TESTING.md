@@ -70,7 +70,7 @@ This table names the tests that actually exist on `main` (verified
 | CSRF | Covered | `csrf_protection_test.go`: `TestCSRFProtectionEnforcement`, `TestCSRFTokenBoundary`; `auth_test.go`: `TestAuthSessionAndCSRF` |
 | Cross-site restore | Covered | `adversarial_test.go`: `TestCrossSiteRestoreBlocked` |
 | Database name validation | Covered | `adversarial_test.go`: `TestDatabaseNameValidation`, `TestDatabaseNameAllowlist`; `internal/rootbroker`: `TestValidateDatabaseName` |
-| Recovery journals | Covered | `recovery_test.go`: `TestDatabaseRecoveryJournalSurvivesProcessKill`; `internal/rootbroker`: `TestDatabaseJournalPersistsAndRejectsMismatches` |
+| Recovery journals | Covered | `recovery_test.go`: `TestDatabaseRecoveryJournalSurvivesProcessKill`; `internal/rootbroker`: `TestCreationJournalPersistsReloadsAndCleansUp`; `crash_drill_test.go` (SIGKILL at every boundary) |
 | Container image allowlist | Covered | `adversarial_test.go`: `TestContainerImageAllowlist` |
 | Server-originated requests (SSRF) | Covered | `internal/safehttp`: `TestClientRefusesLoopbackAtConnectTime`, `TestClientRevalidatesRedirects`; `task_webhook_test.go`: `TestTaskWebhookEnforcesPolicyAtConnectTime` |
 | Secrets kept out of support bundles | Covered | `support_bundle_test.go`: `TestSupportBundleIsRedactedAndContainsOperationalEvidence` |

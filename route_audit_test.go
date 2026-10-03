@@ -49,7 +49,9 @@ func TestEveryMutatingRouteIsAudited(t *testing.T) {
 // The v1 release checklist requires no deferred-work markers in critical
 // paths: production Go code, the root broker, and the root helper scripts.
 func TestNoDeferredWorkMarkersInCriticalPaths(t *testing.T) {
-	marker := regexp.MustCompile(`\b(TODO|FIXME|HACK)\b`)
+	// Stub phrasing catches placeholder logic that pretends to succeed,
+	// which is worse than a TODO because it reads like finished code.
+	marker := regexp.MustCompile(`\b(TODO|FIXME|HACK)\b|(?i)\bin (a )?real implementation\b|\bfor now,? just (mark|verify|return)\b`)
 	var paths []string
 	for _, pattern := range []string{"*.go", "internal/*/*.go", "cmd/*/*.go", "deploy/integrations/*", "install.sh"} {
 		matches, err := filepath.Glob(pattern)
