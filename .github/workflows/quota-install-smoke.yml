@@ -63,7 +63,10 @@ jobs:
             - cloud-init
             - e2fsprogs
             - openssh-server
+            - podman
             - quota
+            - slirp4netns
+            - uidmap
           runcmd:
             - |
               set -eux
@@ -146,6 +149,13 @@ jobs:
             cat "$install_log" >&2 || true
             exit "$install_status"
           fi
+
+          # Exercise the actual rootless runner on the installed systemd VM.
+          # This validates subordinate-ID allocation, transient-unit limits,
+          # delegated cgroups, and the site-owned build-script handoff using
+          # an immutable, minimal image.
+          timeout --foreground 10m ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+            'sudo env RUNNER_TEST_IMAGE=ghcr.io/containerd/busybox:1.36@sha256:907ca53d7e2947e849b839b1cd258c98fd3916c60f2e6e70c30edbf741ab6754 bash /work/deploy/lab/runner-perm-smoke.sh'
 
           # Simulate an abrupt guest loss after installation, then boot the
           # same durable disks and verify that systemd and readiness recover.
