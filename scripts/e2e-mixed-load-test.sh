@@ -17,6 +17,7 @@ SITES="${STEPANEL_LOAD_SITES:-200}"
 WRITES="${STEPANEL_LOAD_WRITES:-20}"
 MAX_P95_MS="${STEPANEL_LOAD_MAX_P95_MS:-500}"
 JOB_TIMEOUT="${STEPANEL_LOAD_JOB_TIMEOUT:-120}"
+MIN_FREE_BYTES="${STEPANEL_LOAD_MIN_FREE_BYTES:-67108864}"
 ADMIN_USER="loadadmin"
 ADMIN_PASS="E2E-Load-Password-123!"
 COOKIE_JAR="$TEST_ROOT/cookies.txt"
@@ -43,6 +44,7 @@ trap cleanup EXIT
 for setting in SITES WRITES MAX_P95_MS JOB_TIMEOUT; do
   [[ ${!setting} =~ ^[0-9]+$ ]] || { echo "STEPANEL_LOAD_$setting must be a non-negative integer" >&2; exit 2; }
 done
+[[ $MIN_FREE_BYTES =~ ^[1-9][0-9]*$ ]] || { echo 'STEPANEL_LOAD_MIN_FREE_BYTES must be a positive integer' >&2; exit 2; }
 (( WRITES <= SITES )) || { echo "STEPANEL_LOAD_WRITES must not exceed STEPANEL_LOAD_SITES (one backup per site)" >&2; exit 2; }
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 
@@ -84,6 +86,7 @@ STEPANEL_SESSION_STATE="$TEST_ROOT/sessions.json" \
 STEPANEL_CONTROL_PLANE_DB="$TEST_ROOT/control-plane.db" \
 STEPANEL_RECOVERY_ROOT="$TEST_ROOT/recovery" \
 STEPANEL_DBCTL="$TEST_ROOT/fake-dbctl" \
+STEPANEL_MIN_FREE_BYTES="$MIN_FREE_BYTES" \
 "$STEPANEL_BIN" >"$TEST_ROOT/service.log" 2>&1 &
 STEPANEL_PID=$!
 

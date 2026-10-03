@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Restore-to-staging path validation is enforced at the filesystem boundary
+  (security)**: the shared restore helper now revalidates the destination site
+  name immediately before path construction, covering both local and offsite
+  restore entry points. A traversal regression test guards the CodeQL-reported
+  path flow.
+- **Mixed-load CI is independent of the host's production free-space reserve
+  (reliability)**: the disposable load harness uses an explicit, bounded test
+  reserve so constrained runners do not reject its backup jobs with a false
+  HTTP 507 while production retains its 5 GiB reserve.
 - **Tighter sandbox for the panel and worker services (security)**: both units
   now drop all capabilities from the bounding set and restrict namespaces, SysV
   IPC, the hostname, and system calls to systemd's `@system-service` set. They

@@ -42,6 +42,20 @@ func postStagingRestore(t *testing.T, app *App, body string) *httptest.ResponseR
 	return response
 }
 
+func TestRestoreToStagingPathRejectsUnsafeSiteBeforeFilesystemLookup(t *testing.T) {
+	app := &App{}
+	request := httptest.NewRequest(http.MethodPost, "/api/backups/restore-to-staging", nil)
+	response := httptest.NewRecorder()
+	app.backupRestoreToStagingPath(response, request, RestoreToStagingRequest{
+		Site:   "../outside",
+		Backup: "backup",
+		Domain: "staging.example.org",
+	}, filepath.Join(t.TempDir(), "backup"))
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unsafe staging site returned HTTP %d, want %d", response.Code, http.StatusUnprocessableEntity)
+	}
+}
+
 // Restore-to-staging publishes the backup as a separate, non-indexed site with
 // its own route, and never touches the production site.
 func TestRestoreToStagingPublishesIsolatedCopy(t *testing.T) {

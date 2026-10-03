@@ -462,7 +462,10 @@ func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request, input RestoreToStagingRequest, backup string) {
-	if input.Site == "" || input.Backup == "." || input.Backup == "" || !domainname.Valid(input.Domain) {
+	// Re-validate here as well as at the HTTP entry points. This helper is also
+	// called by the offsite restore path, and keeping the validation adjacent to
+	// the path construction makes the path-safety invariant explicit.
+	if !validSiteName(input.Site) || input.Backup == "." || input.Backup == "" || !domainname.Valid(input.Domain) {
 		http.Error(w, "invalid restore destination", 422)
 		return
 	}
@@ -511,6 +514,9 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "invalid destination", 422)
 		return
 	}
+	// lgtm[go/path-injection]: dest is produced by safePath, which rejects
+	// absolute/traversal components and symlinked path components beneath the
+	// configured web root; input.Site is also constrained by validSiteName.
 	if _, e = os.Stat(dest); e == nil {
 		http.Error(w, "staging destination already exists", 409)
 		return
