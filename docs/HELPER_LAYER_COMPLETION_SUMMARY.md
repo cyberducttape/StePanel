@@ -1,5 +1,10 @@
 # Historical Helper Layer Refactoring: Foundation Summary
 
+> Historical summary of the helper-layer foundation. File and line counts
+> describe that milestone; for the current broker see
+> [ROOT_BROKER_INTEGRATION.md](ROOT_BROKER_INTEGRATION.md) and
+> [CODE_ORGANIZATION.md](CODE_ORGANIZATION.md).
+
 > This is a historical migration snapshot from 2026-09-26. Native production
 > installs now use the root-owned Unix-socket broker; the sudo/stdin diagrams
 > below describe the compatibility path and must not be used as the current
@@ -114,11 +119,11 @@ Total:                 94 tests ✅ ALL PASSING
 ### 5. Documentation
 
 **Created:**
-1. `docs/HELPER_LAYER_ROADMAP.md` - Strategic roadmap (500+ lines)
-2. `docs/ROOT_BROKER_INTEGRATION.md` - Integration guide (400+ lines)
-3. `docs/PHASE3_INTEGRATION_TESTING.md` - Phase 3 completion (300+ lines)
-4. `docs/PHASE4_MIGRATION_GUIDE.md` - Phase 4 strategy (400+ lines)
-5. `docs/HELPER_LAYER_STATUS.md` - Project dashboard (300+ lines)
+1. `docs/archive/HELPER_LAYER_ROADMAP.md` - Strategic roadmap (archived)
+2. `docs/ROOT_BROKER_INTEGRATION.md` - Integration guide (current)
+3. `docs/archive/PHASE3_INTEGRATION_TESTING.md` - Phase 3 completion (archived)
+4. `docs/archive/PHASE4_MIGRATION_GUIDE.md` - Phase 4 strategy (archived)
+5. `docs/archive/HELPER_LAYER_STATUS.md` - Project dashboard (archived)
 
 **Total Documentation:** 2000+ lines covering strategy, architecture, integration, testing, and migration
 
@@ -308,7 +313,7 @@ No memory leaks detected
 - `internal/rootbroker/types.go` (166 lines)
 - `internal/rootbroker/validator.go` (386 lines)
 - `internal/rootbroker/broker.go` (405 lines)
-- `internal/rootbroker/operations.go` (624 lines)
+- `internal/rootbroker/operations.go` (624 lines; later merged into `broker.go`)
 - `internal/rootbroker/client.go` (132 lines)
 - `cmd/stepanel-root/main.go` (49 lines)
 - `state_persistence.go` (77 lines)
@@ -317,7 +322,7 @@ No memory leaks detected
 - `integration_test.go` (411 lines)
 - `validator_test.go` (386 lines)
 - `broker_test.go` (133 lines)
-- `operations_test.go` (230 lines)
+- `operations_test.go` (230 lines; later merged into `broker_test.go`)
 - `client_test.go` (158 lines)
 
 ### Documentation (2000+ lines)

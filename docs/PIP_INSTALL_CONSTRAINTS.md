@@ -1,14 +1,31 @@
 # Pip Install Constraints: Safe Dependency Management
 
-## Problem
+> **Status: proposal, not implemented.** The wheel cache, `--no-index`
+> enforcement, and `internal/helper/pip.go` described below do not exist.
+> This page records the design for broader Python dependency installs.
 
-Current implementation (v0.7.0):
-```bash
-# UNSAFE: Runs as root, network access, no signature verification
-pip install flask
-```
+## Current behavior (verified 2026-10-02)
 
-**Risk**: Compromised PyPI package = root compromise of StePanel host
+StePanel installs exactly one Python package itself: Gunicorn, into each
+site's virtual environment, when a Python application is applied
+(`stepanel-appctl python-apply`). The helper:
+
+- creates the virtual environment and hands it to the site user before any
+  package operation;
+- runs `pip install` **as the site user** (`runuser`), not as root;
+- pins `gunicorn==23.0.0` with `--require-hashes`.
+
+StePanel does not install an application's own `requirements.txt`. Those
+dependencies are the site owner's responsibility, installed as the site user
+(for example from a deployment build step), so a compromised package runs
+with site privileges, not root.
+
+## Remaining risk this proposal addresses
+
+Pip still fetches Gunicorn from the package index over the network. A
+pre-staged wheel cache with `--no-index` would remove that network
+dependency and let operators install application dependencies through the
+same constrained path.
 
 ## Solution: Constraint Framework
 

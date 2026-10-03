@@ -3,6 +3,29 @@
 Documentation version: `main / unreleased`; use the matching release tag when
 operating a version older than the current branch.
 
+## Command reference
+
+The `stepanel` binary (`/opt/stepanel/stepanel` on installed hosts) runs the
+panel when started without arguments. Its subcommands:
+
+| Command | Purpose |
+|---------|---------|
+| `stepanel setup [--output FILE] [--force]` | Guided first-time setup; writes installer settings (see [INSTALLATION.md](INSTALLATION.md#guided-install-recommended)). `init` is an alias |
+| `stepanel worker` | Run the durable job worker as a separate process (`STEPANEL_WORKER_MODE=external`, the `stepanel-worker` service) |
+| `stepanel version` | Print version, commit, and build date |
+| `stepanel hash-password` | Read a password on stdin and print its stored hash |
+| `stepanel verify-backup DIR` | Verify a backup's manifest, signature, and archive offline |
+| `stepanel verify-audit LOG` | Verify an audit log's HMAC chain offline |
+| `stepanel dr-check` | Print a secret-safe control-plane disaster-recovery inventory |
+| `stepanel backup-control-plane DEST` | Write a verified backup of the SQLite control plane |
+| `stepanel restore-control-plane SOURCE --dry-run` / `--replace` | Validate, then restore, a control-plane backup |
+| `stepanel convert-htaccess` | Translate `.htaccess` rules on stdin to Caddy directives |
+| `stepanel task-webhook ...` | Internal: delivers scheduled-task completion webhooks from task units under the outbound policy; not for manual use |
+
+The commands that read configuration (`dr-check`, `verify-backup`,
+`backup-control-plane`, `restore-control-plane`) need the installed
+environment; run them as shown in the sections below.
+
 ## Control-plane disaster recovery
 
 See [`STATE.md`](STATE.md) for the authoritative state inventory and recovery
@@ -107,9 +130,11 @@ Dead-letter jobs intentionally keep readiness failed until reviewed. After
 remediating the underlying fault, an administrator can requeue one with
 `POST /api/jobs/<job-id>/retry`; the action resets its attempt counter, is
 durably compare-and-set against the dead-letter state, and is audit logged.
-`/api/doctor` separately reports pending resource enforcement as a high-severity
-failure; do not unsuspend affected accounts until helper state is applied and
-verified.
+Pending resource enforcement shows in each site's resource profile
+(`GET /api/sites/resources/{site}`, any `state` other than `applied`);
+`POST /api/reconcile/resources` re-applies pending profiles and reports the
+sites that still fail. Do not unsuspend affected accounts until helper state is
+applied and verified.
 
 ## Logs
 

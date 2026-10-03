@@ -188,88 +188,37 @@ json.Unmarshal(resp.Details, &opResp)
 
 ## Request Types
 
-### Site Operations
+Typed requests the broker executes today (verified against
+`internal/rootbroker/broker.go`, 2026-10-02). Actions not listed return a
+`not implemented by the root broker` error rather than doing anything.
+
+| Request type | Supported actions | Not implemented (use the helper path) |
+|--------------|-------------------|---------------------------------------|
+| `site` | `create`, `delete`, `seal`, `prepare` | `access`, `resources`, `quota`, `quota-clear`, `runtime` (via `sitectl` helper requests) |
+| `app` | `apply`, `delete`, `start`, `stop`, `restart` | `rollback` (orchestrated by the panel as a re-apply) |
+| `db` | `inventory`, `dump`, `provision`, `restore-dump`, `restore`, `restore-wordpress`, `drop`, `drop-managed`, `cleanup-wordpress`, `rotate` | none |
+| `task` | `apply`, `delete`, `kill`, `history` | none |
+| `certificate` | `issue` | none |
+| `git` | `generate`, `public`, `delete` (deploy keys) | `clone`, `verify-key` (`clone` via the `gitctl` helper) |
+| `vhost` | none | `apply`, `apply-auth`, `delete` (via `vhostctl` helper requests) |
+| `proxy` | none | `apply`, `reload` (via `proxyctl` helper requests) |
+| `helper` | the allow-listed actions in `helper_schema.go` | anything not declared there |
+| `health` | always (bypasses the scheduler) | none |
+
+Example:
 
 ```go
-req := &rootbroker.Request{
-    RequestType: "site",
-    Site: &rootbroker.SiteRequest{
-        Action:        "create",        // create, delete, seal, prepare, access, resources, quota, quota-clear, runtime
-        Site:          "mysite",        // [a-z0-9_-]{1,32}
-        SSHKeys:       "ssh-ed25519 AAAA...",
-        SFTPEnabled:   &enabled,
-        ShellEnabled:  &enabled,
-        PHPWorkers:    8,
-        DiskMB:        10240,
-        Inodes:        100000,
-        PHPVersion:    "8.2",
-        MemoryMB:      512,
-    },
-}
-```
-
-### App Operations
-
-```go
-req := &rootbroker.Request{
-    RequestType: "app",
-    App: &rootbroker.AppRequest{
-        Action:  "apply",      // apply, start, stop, restart, rollback
-        Site:    "mysite",
-        Version: "18.0.0",
-        Port:    3000,
-    },
-}
-```
-
-### Database Operations
-
-```go
-req := &rootbroker.Request{
+resp, err := client.Execute(ctx, &rootbroker.Request{
     RequestType: "db",
     DB: &rootbroker.DBRequest{
-        Action:   "provision",   // provision, restore-dump, drop
+        Action:   "provision",
         Site:     "mysite",
-        Database: "mydb",
-        Username: "dbuser",
-        Password: "secure...",   // Not logged
+        Database: "mysite_app",
+        Username: "mysite_app",
+        Password: secret, // 20+ characters; sent to the helper on stdin, never logged
         Encoding: "utf8mb4",
     },
-}
-```
-
-### Vhost Operations
-
-```go
-req := &rootbroker.Request{
-    RequestType: "vhost",
-    Vhost: &rootbroker.VhostRequest{
-        Action:         "apply",      // apply, delete, apply-auth
-        Site:           "mysite",
-        Domain:         "example.com", // Validated FQDN
-        WebServer:      "caddy",       // caddy, nginx, apache, ols
-        SSLCertPath:    "/path/to/cert.pem",
-        SSLKeyPath:     "/path/to/key.pem",
-        BasicAuthUser:  "admin",
-        BasicAuthHash:  "$2b$12$...", // bcrypt hash
-    },
-}
-```
-
-### Git Operations
-
-```go
-req := &rootbroker.Request{
-    RequestType: "git",
-    Git: &rootbroker.GitRequest{
-        Action:       "clone",      // clone, verify-key
-        Repository:   "https://github.com/user/repo.git",
-        Ref:          "main",
-        Destination:  "destination",
-        PrivateKey:   "-----BEGIN OPENSSH PRIVATE KEY-----",
-        KnownHosts:   "github.com ssh-rsa AAAAB3...",
-    },
-}
+})
 ```
 
 ## Validation
@@ -298,55 +247,44 @@ if !resp.OK && strings.Contains(resp.Error, "validation") {
 
 ## Testing
 
-### Unit Tests (No System Requirements)
-
 ```bash
-go test ./internal/rootbroker -v
+go test ./internal/rootbroker ./cmd/stepanel-root
 ```
 
-Tests cover:
-- Validator rules for all input types
-- Request marshaling/unmarshaling
-- Broker routing and response handling
-- Error cases and edge conditions
+These run without root. Host account and ownership changes go through an
+injected `hostOps` fake, so the suite covers:
 
-### Integration Tests (Requires Root)
+- Request validation for every request type and the helper argument schema
+  (`validator_test.go`, `helper_schema_test.go`)
+- RPC round trips and broker routing (`integration_test.go`, `broker_test.go`)
+- Recovery journals for site creation, database restore, and vhost changes
+  (`journal_test.go`)
+- Scheduler admission: per-resource serialization, the concurrency bound,
+  exclusive requests, and health bypass (`scheduler_test.go`)
+- The socket server: concurrent connections, stalled peers, and malformed
+  requests (`cmd/stepanel-root/main_test.go`)
 
-```bash
-sudo go test ./internal/rootbroker/integration_test.go -v
-```
+Real host operations (`useradd`, PHP-FPM pools, quotas) are exercised by the
+installation smoke tests and the disposable-VM recovery drills, not by
+`go test`.
 
-Integration tests cover:
-- Actual system operations (useradd, mkdir, chown)
-- RPC communication over the root broker's Unix socket
-- Operation atomicity and rollback
-- Permission preservation
+## How the broker relates to the helper scripts
 
-## Comparison: Before vs. After
-
-### Before (Shell Helpers)
-
-```
-Shell Script (1200 lines):
-  ├─ Parser bugs (regex, quoting, variable expansion)
-  ├─ Path construction bugs (symlinks, traversal)
-  ├─ Error handling bugs (silent failures, wrong exit codes)
-  ├─ Distributed validation (14 different scripts)
-  ├─ Difficult to test
-  └─ High consequence: any parsing mistake = root escalation
-```
-
-### After (Typed Go Broker)
+The broker does not replace the root helper scripts in
+`deploy/integrations/stepanel-*`; it puts one validated entry point in front
+of them:
 
 ```
-Go Broker (400 lines):
-  ├─ Type-safe validation (compiler-checked)
-  ├─ Single entry point (easy to audit)
-  ├─ Clear error types (structured, not exit codes)
-  ├─ Unit testable (test functions, not shell)
-  ├─ Smaller attack surface (14 → 1 codebase)
-  └─ Long-lived root daemon over a peer-authorized Unix socket
+Panel (unprivileged)
+  └─ typed request over a peer-authorized Unix socket
+       └─ stepanel-root: validate request → acquire resource locks
+            └─ run helper script with an argument vector (no shell string)
 ```
+
+Typed requests carry their own Go validation. The remaining generic `helper`
+requests are checked against a per-action argument schema
+(`helper_schema.go`). Replacing those with dedicated typed requests, and
+retiring the generic path, is the remaining migration work.
 
 ## Gradual Migration Strategy
 
@@ -418,21 +356,15 @@ The broker follows these principles:
 2. **Input Validation**: All inputs checked before operations
 3. **Explicit Types**: No ambiguous string parsing
 4. **Audit Trail**: All operations logged with context
-5. **Failure Safety**: Operations are atomic (all or nothing)
+5. **Failure Safety**: Site creation, database restore, and vhost changes keep recovery journals so an interrupted operation can be rolled back or resumed; other operations rely on the helper's own rollback and are not atomic across resources
 6. **No Secrets in Logs**: Passwords/keys not logged (but URLs safe to log)
 
 ## Performance
 
-Benchmark results (on typical hardware):
-
-```
-BenchmarkSiteCreate    1000 operations     5ms/op   (includes RPC + system calls)
-BenchmarkSiteDelete    1000 operations     3ms/op
-BenchmarkAppApply      2000 operations     2ms/op
-BenchmarkDBProvision   500 operations      8ms/op
-```
-
-RPC overhead is ~1ms. Bulk of time is system operations (useradd, chown, etc).
+There are no broker benchmarks yet. Concurrency is described in
+[Concurrency and admission](#3-concurrency-and-admission): unrelated
+resources run in parallel up to `-max-concurrent` (default 8), and health
+probes are never queued behind long operations.
 
 ## Related Documents
 

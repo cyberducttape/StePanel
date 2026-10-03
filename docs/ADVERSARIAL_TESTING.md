@@ -51,6 +51,35 @@ Threat: System file deletion
 Defense: O_NOFOLLOW, refuse symlink parents, per-file validation
 ```
 
+## Coverage map
+
+The code blocks under "Test Categories" are illustrative sketches of the
+attack each category covers; their function names are not repository tests.
+This table names the tests that actually exist on `main` (verified
+2026-10-02):
+
+| Area | Status | Repository tests |
+|------|--------|------------------|
+| Path traversal and absolute paths | Covered | `adversarial_test.go`: `TestArchivePathTraversal`, `TestPathTraversalAbsolute`; `cpmove_test.go`: `TestExtractArchiveRejectsTraversalAndLinkEntries` |
+| Symlinks | Covered | `adversarial_test.go`: `TestArchiveSymlink`; `internal/sites`: `TestDeleteRefusesSymlinkedSite`, `TestCloneRejectsSymlinkWithoutPublishingDestination` |
+| Decompression and directory bombs | Covered | `adversarial_test.go`: `TestArchiveDecompressionBomb`; `internal/importer`: `TestDirectoryBombProtection`, `TestMemoryBombProtectionInInspection` |
+| Cross-tenant access | Covered | `tenant_isolation_test.go`: `TestTenantIsolationMatrix`, `TestCrossTenantDenialIsAudited`, `TestFilesystemIsolationParentTraversal`, `TestDatabaseCredentialIsolation` |
+| Error messages do not reveal other tenants' resources | Covered | `tenant_isolation_test.go`: `TestErrorMessageLeakageDoesNotRevealResourceExistence`, `TestAuditLogDoesNotLeakCrossTenantTargets` |
+| API token scopes | Covered | `api_token_scopes_test.go`: `TestAPITokenScopeEnforcement`; `api_tokens_test.go`: `TestCustomerAPIScopeGatesDeployAction` |
+| Privilege escalation to administrator | Covered | `privilege_escalation_test.go`: `TestPrivilegeEscalationPrevention`, `TestNoImplicitAdminEscalation` |
+| CSRF | Covered | `csrf_protection_test.go`: `TestCSRFProtectionEnforcement`, `TestCSRFTokenBoundary`; `auth_test.go`: `TestAuthSessionAndCSRF` |
+| Cross-site restore | Covered | `adversarial_test.go`: `TestCrossSiteRestoreBlocked` |
+| Database name validation | Covered | `adversarial_test.go`: `TestDatabaseNameValidation`, `TestDatabaseNameAllowlist`; `internal/rootbroker`: `TestValidateDatabaseName` |
+| Recovery journals | Covered | `recovery_test.go`: `TestDatabaseRecoveryJournalSurvivesProcessKill`; `internal/rootbroker`: `TestDatabaseJournalPersistsAndRejectsMismatches` |
+| Container image allowlist | Covered | `adversarial_test.go`: `TestContainerImageAllowlist` |
+| Server-originated requests (SSRF) | Covered | `internal/safehttp`: `TestClientRefusesLoopbackAtConnectTime`, `TestClientRevalidatesRedirects`; `task_webhook_test.go`: `TestTaskWebhookEnforcesPolicyAtConnectTime` |
+| Secrets kept out of support bundles | Covered | `support_bundle_test.go`: `TestSupportBundleIsRedactedAndContainsOperationalEvidence` |
+| Fuzzing | Covered | `fuzz_test.go`: `FuzzSafeUser`, `FuzzValidBackupName`, `FuzzManagedDatabaseIdentifier`; `cpmove_test.go`: `FuzzSafeArchivePath`; `environment_test.go`: `FuzzEnvironmentPersistenceBoundary` |
+| Expired API tokens | Implemented, not tested | Expiry is checked on every token lookup (`api_tokens.go`); no test presents an expired token yet |
+| Build runner network | Partial | `release_pipeline_test.go`: `TestPipelineBuildArgsPassesNetworkMode` checks the runner's network mode argument only |
+| Tenant workload network isolation | Not provided | Site code (PHP, tasks, workers) shares the host network and can reach loopback and private addresses; task units deny only cloud metadata ranges |
+| Site user privilege escalation on the host | Not covered | Relies on Unix users, systemd sandboxing, and kernel hardening; no repository test |
+
 ## Test Categories
 
 ### 1. Input Validation Tests
@@ -124,7 +153,7 @@ for _, path := range testCases {
 
 ### 2. Authorization Boundary Tests
 
-**Cross-Tenant Access Denial (✅ Implemented)**:
+**Cross-Tenant Access Denial** (sketch; see the coverage map):
 ```go
 // Verify: customer alice cannot read bob's resources
 func TestCrossTenantAccessDenied(t *testing.T) {
@@ -141,7 +170,7 @@ func TestCrossTenantAccessDenied(t *testing.T) {
 }
 ```
 
-**API Token Scope Enforcement (✅ Implemented)**:
+**API Token Scope Enforcement** (sketch; see the coverage map):
 ```go
 // Verify: site:read token cannot deploy
 func TestAPITokenScopeEnforcement(t *testing.T) {
@@ -157,7 +186,7 @@ func TestAPITokenScopeEnforcement(t *testing.T) {
 }
 ```
 
-**Privilege Escalation Prevention (✅ Implemented)**:
+**Privilege Escalation Prevention** (sketch; see the coverage map):
 ```go
 // Verify: customer cannot claim to be admin
 func TestPrivilegeEscalationPrevention(t *testing.T) {
@@ -173,7 +202,7 @@ func TestPrivilegeEscalationPrevention(t *testing.T) {
 }
 ```
 
-**CSRF Token Protection (✅ Implemented)**:
+**CSRF Token Protection** (sketch; see the coverage map):
 ```go
 // Verify: POST without CSRF token is rejected from browser
 func TestCSRFTokenRequired(t *testing.T) {
@@ -191,7 +220,7 @@ func TestCSRFTokenRequired(t *testing.T) {
 }
 ```
 
-**Error Message Privacy (✅ Implemented)**:
+**Error Message Privacy** (sketch; see the coverage map):
 ```go
 // Verify: error messages don't reveal resource existence
 func TestErrorMessagePrivacy(t *testing.T) {
@@ -472,16 +501,17 @@ CI Pipeline:
 
 ## Success Criteria
 
-✅ All malicious inputs rejected  
-✅ No arbitrary code execution  
-✅ No privilege escalation  
-✅ No data leakage between tenants  
-✅ Backups can always be recovered  
-✅ Recovery journals always valid  
-✅ Network isolation enforced  
-✅ Symlinks and traversal rejected  
-✅ Tokens expire as documented  
-✅ All failures are safe (not "probably")  
+These are the goals adversarial testing works toward. Current status is in
+the coverage map above:
+
+- Malicious archive, path, and identifier inputs are rejected (covered).
+- Tenants cannot read or change each other's resources through StePanel (covered).
+- Server-originated requests cannot reach internal addresses (covered).
+- Recovery journals stay valid across interruption (covered for the tested operations).
+- Backups are proven restorable (archive level rehearsed; database import and
+  application start not yet).
+- Tenant workloads are network-isolated (not provided today).
+- Expired tokens are rejected (implemented; test still needed).
 
 ---
 

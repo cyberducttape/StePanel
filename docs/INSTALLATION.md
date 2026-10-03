@@ -34,6 +34,11 @@ certificates automatically. Apache `.htaccess` migrations are described in
 
 ## Guided install (recommended)
 
+> **Availability:** guided setup (`--guided`, `--config`, `stepanel setup`)
+> is on `main` and ships in the first release after v0.7.0. With the v0.7.0
+> release archive, use the environment-variable install under
+> [Build and install](#build-and-install).
+
 On a fresh server, download and verify a release (below), install rclone and
 add a storage remote for offsite backups (`sudo rclone config`), then run:
 
@@ -285,7 +290,7 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_GIT_RELEASE_MAX_BYTES` | Positive bytes | Maximum retained previous-release storage per site; defaults to `5368709120` (5 GiB) |
 | `STEPANEL_RUNNERCTL` | Absolute helper path | Rootless Podman build-runner helper; defaults to `/usr/local/sbin/stepanel-runnerctl` |
 | `STEPANEL_INSTALL_SECURITY` | `0` or `1` | Install ClamAV and the PHP malware guard |
-| `STEPANEL_OFFSITE_TARGET` | rclone destination | Optional offsite copy target, for example `s3:bucket/stepanel` |
+| `STEPANEL_OFFSITE_TARGET` | rclone destination | Offsite copy target, required for production installs, for example `s3:bucket/stepanel` |
 | `STEPANEL_REQUIRE_OFFSITE_BACKUP` | `0` or `1` | Reject production startup unless an offsite target is configured |
 | `STEPANEL_CLOUD_PROVIDER` | `linode`, `aws`, or `openstack` | Optional provider for cloud inventory and lifecycle actions |
 | `STEPANEL_SSH_SERVERS` | comma-separated SSH aliases | Optional strict-host-key inventory and allowlisted actions |
@@ -305,6 +310,16 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_BACKUP_ENCRYPTION_KEY` | Secret string, at least 32 characters in production | Encrypts backup archive payloads with streaming AES-256-GCM; keep outside the backup root and escrow separately for disaster recovery |
 | `STEPANEL_ENVIRONMENT_STATE` | Filesystem path | Site environment state file; defaults beside the job state |
 | `STEPANEL_REDIS_STATE` | Filesystem path | Redis/Valkey site allocation state; defaults beside the job state |
+| `STEPANEL_ADMIN_USERNAME` | `[A-Za-z0-9._-]{1,64}` | Administrator account name; defaults to `admin` |
+| `STEPANEL_TLS_CERT_FILE` / `STEPANEL_TLS_KEY_FILE` | Absolute paths | Serve HTTPS directly from StePanel; both are required together. Leave unset when a reverse proxy terminates TLS |
+| `STEPANEL_TRUSTED_PROXY_CIDRS` | Comma-separated CIDRs | Proxies whose `X-Forwarded-For` and `X-Real-IP` headers are trusted; with `STEPANEL_TLS_TERMINATED=1` and no value, only loopback is trusted |
+| `STEPANEL_RUNNER_ALLOWED_REGISTRIES` | Comma-separated registries | Registries build-runner images may come from; defaults to `docker.io,ghcr.io,quay.io` |
+| `STEPANEL_RUNNER_ALLOWED_IMAGES` | Comma-separated image patterns | Optional, narrower allowlist of build-runner images within the allowed registries |
+| `STEPANEL_RUNNER_NETWORK_MODE` | `none` or `egress` | Network access for build-runner containers; defaults to `none` |
+| `STEPANEL_DB_ADMIN_URL` | Local URL path | Where phpMyAdmin or phpPgAdmin is served; defaults to `/phpmyadmin` or `/phppgadmin` |
+| `STEPANEL_LINODE_TOKEN` | Secret token | Linode API token used when `STEPANEL_CLOUD_PROVIDER=linode` |
+| `STEPANEL_IMPORT_ROOT`, `STEPANEL_APP_ROOT`, `STEPANEL_MAIL_ROOT`, `STEPANEL_NVM_DIR`, `STEPANEL_PROXY_ROOT`, `STEPANEL_VHOST_ROOT`, `STEPANEL_MALWARE_ROOT`, `STEPANEL_SESSION_STATE` | Paths | Working directories and legacy state files. The installer sets them; change them only on development hosts |
+| `STEPANEL_APPCTL`, `STEPANEL_PROXYCTL`, `STEPANEL_SITECTL`, `STEPANEL_VHOSTCTL`, `STEPANEL_TASKCTL`, `STEPANEL_CERTBOT` | Absolute helper paths | Root helper locations written by the installer; do not change on production hosts |
 
 For Apache installations, it enables proxy, proxy_http, proxy_fcgi, setenvif,
 rewrite, and headers modules on Debian-family systems. For Caddy installations,

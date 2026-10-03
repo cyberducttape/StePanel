@@ -133,11 +133,6 @@ records its owner, expiry, SHA-256, compressed size, and inspected expanded
 size. Inspection reports `required_free_bytes`; admission reserves room for
 the archive, extracted tree, site-manager staging tree, and safety reserve.
 
-The cPanel upload handler streams once into an immutable upload object and
-records its owner, expiry, SHA-256, compressed size, and inspected expanded
-size. Inspection reports `required_free_bytes`; admission reserves room for
-the archive, extracted tree, site-manager staging tree, and safety reserve.
-
 ---
 
 ## Timeout Configuration Framework
@@ -184,22 +179,22 @@ uploadHandler := middleware(uploadHandler)
 
 ### Upload Protection
 
-✅ **Concurrency Limit**
-- maxConcurrent: number of simultaneous uploads
-- Others queued or rejected (429 Too Many Requests)
+✅ **Host-wide concurrency budget**
+- Uploads, imports, and other heavy workloads take a slot from one host-wide
+  `ResourceBudget` (`resource.go`), sized by `STEPANEL_MAX_CONCURRENT_JOBS`,
+  in addition to their own class limit, so independent workloads cannot
+  multiply into an unbounded I/O storm.
 
-✅ **Per-User Quotas**
-- Daily byte limit per user
-- Daily upload count limit per user
-- Prevents single user from exhausting resources
+✅ **Disk space reservation**
+- Admission reserves room for the archive, the extracted tree, the
+  site-manager staging tree, and the `STEPANEL_MIN_FREE_BYTES` reserve.
 
-✅ **Disk Space Reservation**
-- Validates minFreeSpace before accepting upload
-- Prevents filling disk below operational threshold
+✅ **File size limit**
+- `STEPANEL_MAX_UPLOAD_BYTES` (at most 20 GiB) is enforced while streaming.
 
-✅ **File Size Limit**
-- maxUploadBytes enforced before transfer
-- Prevents acceptance of oversized files
+❌ **Per-user upload quotas**
+- Not implemented. An earlier upload-policy prototype with daily per-user
+  limits was replaced by the host-wide budget on 2026-09-30.
 
 ---
 
@@ -207,25 +202,18 @@ uploadHandler := middleware(uploadHandler)
 
 ### Configuration Defaults
 
-**Typical Production Setup:**
 ```
-Max concurrent uploads: 4
-Max file size: 20 GB
-Min free space: 100 GB
-Per-user quota: 500 GB/day
-Per-user uploads: 10/day
+STEPANEL_MAX_CONCURRENT_JOBS=2          # host-wide heavy-workload slots (1-32)
+STEPANEL_MAX_UPLOAD_BYTES=21474836480   # 20 GiB maximum
+STEPANEL_MIN_FREE_BYTES=5368709120      # free-space reserve kept on every admission
 API timeout: 30s
 Upload timeout: 60m (context-based)
 ```
 
-### Monitoring Metrics
+### Monitoring
 
-**Available via `policy.GetMetrics()`:**
-- `bytes_uploaded` - Total bytes uploaded
-- `upload_count` - Number of uploads
-- `concurrent_uploads` - Currently active uploads
-- `max_concurrent` - Configured limit
-- `quota_violations` - Number of quota rejections (future)
+`GET /api/admin/resources/status` (administrators) reports active and
+maximum slots and utilization for the host budget and each workload class.
 
 ### Migration Notes
 
@@ -273,10 +261,10 @@ Upload timeout: 60m (context-based)
 
 - [x] Timeout configuration framework created
 - [x] Server timeouts reduced from 30m to 30s/2m
-- [x] Upload resource policy implemented
-- [x] Per-user quota tracking
+- [x] Host-wide resource admission (replaced the upload policy prototype)
 - [x] Disk space validation
 - [x] Concurrency limit enforcement
+- [ ] Per-user upload quotas (not implemented)
 - [ ] Per-route timeout overrides (middleware)
 - [ ] Rate limiting on upload bodies (future)
 - [ ] Slow upload detection and timeout (future)

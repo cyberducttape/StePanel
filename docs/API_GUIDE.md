@@ -325,7 +325,8 @@ administrator token scope:
 `/api/ssh/action`, `/api/capabilities`, `/api/apps`, `/api/proxy`,
 `/api/ftp`, `/api/reconcile/resources`, `/api/reconcile/tasks`,
 `/api/security/scan`, `/api/security/center`, `/api/security/audit`,
-`/api/audit/events`, `/api/doctor`, `/api/cpmove/*`, and the administrator
+`/api/audit/events`, `/api/admin/migration-doctor`, the `/api/cpmove/inspect`
+and `/api/cpmove/import` endpoints, and the administrator
 restore, termination, rollback, and migration endpoints.
 
 Customer accounts are managed with `GET`/`POST /api/accounts`,

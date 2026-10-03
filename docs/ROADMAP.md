@@ -10,7 +10,7 @@
 
 ## 0.2 — Hosting operations
 
-- First-run setup wizard
+- First-run setup wizard (guided installation on `main`, unreleased)
 - Site deletion and domain lifecycle completion
 - Per-site PHP version selection
 - General-purpose database and database-user lifecycle (shipped in 0.6 for local single-host engines)

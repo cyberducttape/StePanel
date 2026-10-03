@@ -51,3 +51,16 @@ The same smoke run exercises worker-kill/restart recovery for cpmove import,
 backup, file restore, and termination, plus panel-kill/restart recovery for
 durable account suspension. The account drill uses the disposable
 `ci-suspension-recovery` account by default.
+
+## Lab and test settings
+
+These variables exist for disposable labs and recovery tests. Never set them
+on a production host; the installer refuses the safety bypasses unless it is
+run with `--unsafe-lab`.
+
+| Variable | Purpose |
+|----------|---------|
+| `STEPANEL_LAB_DIRECT_ROOT_BROKER`, `STEPANEL_LAB_ROOT_BROKER_SOCKET`, `STEPANEL_LAB_ROOT_BROKER_HELPERS` | Run the root broker directly or over a lab socket where the container runtime blocks setuid transitions (installation smoke tests) |
+| `STEPANEL_SKIP_STARTUP_HOST_RECONCILE`, `STEPANEL_SKIP_STARTUP_DB_RECONCILE`, `STEPANEL_SKIP_QUOTA_CHECK`, `STEPANEL_LAB_HTTP_COOKIES` | Safety bypasses for hosts without quotas, a database, or HTTPS |
+| `STEPANEL_KILL_AT=operation:point` | Recovery drills: the process kills itself with SIGKILL at the named boundary to prove startup recovery |
+| `STEPANEL_SUDO` | Non-production compatibility only: prefix helper commands with this `sudo` binary. Production uses the root broker socket |

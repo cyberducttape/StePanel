@@ -167,6 +167,8 @@ jobs:
         run: bash scripts/check-action-pins.sh
       - name: Check documentation links
         run: bash scripts/check-docs-links.sh docs
+      - name: Check documentation references
+        run: python3 scripts/check-docs-references.py
       - name: Vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: Build container

@@ -36,8 +36,12 @@ internal/jobs/          # Job queue, durable operations
 internal/importer/      # (Already split) Archive analysis + extraction
 ```
 
-### sites.js (1,100 lines) — NEEDS REFACTORING
-Single monolithic frontend controller handles all UI state, API calls, DOM, and dialogs.
+### sites.js (about 1,350 lines) — NEEDS REFACTORING
+A large frontend controller for the site workspace. Network access is already
+separated: every script uses the shared `web/static/api.js` layer (CSRF,
+timeouts, cancellation, error classification), covered by
+`tests/unit/api.test.js`. UI state, DOM building, and dialogs are still
+mixed in `sites.js`.
 
 **Solution**: Split into modules:
 ```
@@ -100,7 +104,7 @@ These are the project's identity and must become more visible:
 
 ### Phase 2: Testing (v0.8)
 - Add per-package coverage thresholds (90% for security)
-- Write tests for internal/importer/ (currently 0%)
+- Raise internal/importer/ coverage toward the 90% target (tests exist)
 - Add integration tests for privilege boundaries
 - Add adversarial tests for input validation
 

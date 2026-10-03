@@ -78,8 +78,15 @@ and trusted peer-address extraction, `internal/deployment` for deployment histor
 `internal/session` for durable, revocable session entries,
 `internal/operations` for site mutation locks, `internal/usage` for bounded
 filesystem accounting, `internal/state` for atomic state writes, and
-`internal/jobs` for bounded asynchronous admission. These packages retain
-atomic persistence or pure concurrency behavior with package-level tests.
+`internal/jobs` for bounded asynchronous admission, `internal/sites` for the
+site filesystem primitive, `internal/siteidentity` for site Unix identities,
+`internal/rootbroker` for the root broker and its scheduler,
+`internal/recovery` for restore rehearsal history and recovery assessment,
+`internal/safehttp` for the outbound request policy, `internal/domainname`
+for host-name validation, and `internal/setup` for guided setup. These
+packages retain atomic persistence or pure concurrency behavior with
+package-level tests. The full list is in
+[CODE_ORGANIZATION.md](CODE_ORGANIZATION.md).
 
 The HTTP layer should remain an assembly point that supplies interfaces for
 these packages. Each extraction should preserve the existing tests and add a
@@ -129,6 +136,11 @@ Caddy host integration provides automatic HTTPS; alternate deployments must
 provide an equivalent TLS boundary. Webserver snippets and
 systemd application units cross narrowly validated, root-owned helper
 boundaries; the service account cannot edit active configuration directly.
+In production every privileged request goes to the root broker
+(`stepanel-root`) over a peer-authorized Unix socket. The broker validates the
+request, serializes work per site, database, account, or certificate domain,
+runs unrelated work concurrently up to a bound, and answers health probes
+without queueing them behind long operations.
 Request-facing helper invocations are context-bound with bounded lifetimes and
 output, preventing a wedged service command from exhausting worker capacity.
 The shared-hosting beta adds separately persisted customer credentials,
@@ -185,15 +197,21 @@ are retained for the same period as restore staging data.
 
 Backups are built outside the live site and recovery trees. Site files and
 optional locally managed database dumps are written into a private gzip/tar
-archive. The publisher records a SHA-256 digest for every regular entry and for
+archive, encrypted with AES-256-GCM when `STEPANEL_BACKUP_ENCRYPTION_KEY` is
+set (required in production). The publisher records a SHA-256 digest for every regular entry and for
 the complete archive, then reopens and reads the entire archive before an atomic
 directory rename makes it visible. Database dumps use single-transaction mode;
 the root helper only dumps databases whose ownership ledger matches the site.
 
 This verifies artifact integrity, not application-level consistency for files
 or nontransactional database tables that change during the backup. Put
-`STEPANEL_BACKUP_ROOT` on a dedicated backup filesystem, replicate completed
-directories off-host or to immutable storage, and run periodic restore drills.
+`STEPANEL_BACKUP_ROOT` on a dedicated backup filesystem and replicate completed
+directories off-host or to immutable storage; production installs require an
+rclone offsite target. Restore rehearsals decrypt and extract backups into a
+disposable directory, run automatically after scheduled backups, and feed
+each site's recovery status. They prove the archive level only; full
+restore drills that import databases and start the site remain an operator
+task.
 
 ## Admission and health
 

@@ -255,6 +255,11 @@ func (b *Broker) handleSiteCreate(req *Request) (*Response, error) {
 
 ## Testing the Integration
 
+The code below sketches what an integration test should cover. The
+repository's real journal tests are `internal/rootbroker/journal_test.go`
+(`TestCreationJournalPersistsReloadsAndCleansUp` and its siblings) and the
+failure-injection helpers in `internal/testing/failure_injection.go`.
+
 ### Unit Test: Journal Persistence
 
 ```go
@@ -418,9 +423,9 @@ Before calling a step implementation durable:
 ## Related Files
 
 - `site_creation_journal.go` - Journal implementation
-- `internal/rootbroker/operations.go` - Where integration happens
+- `internal/rootbroker/broker.go` - Where integration happens
 - `site_lifecycle.go` - Reference implementation (termination)
-- `internal/testing/workflow_tests.go` - Failure injection tests
+- `internal/testing/failure_injection.go` - Failure injection helpers
 
 ---
 

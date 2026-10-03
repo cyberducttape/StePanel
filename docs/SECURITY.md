@@ -31,9 +31,9 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 - ✅ Path injection prevention in image references
 
 ### Archive Import
-- ✅ SSRF protection (https only, no private IPs/localhost)
+- ✅ SSRF protection: HTTPS only, and only public internet addresses, checked on the address actually connected to (defeats DNS rebinding); redirects are revalidated
+- ✅ Limits: 250,000 entries and 50 GB decompressed for generic archives (cPanel imports use `STEPANEL_MAX_ARCHIVE_ENTRIES`)
 - ✅ Size-bounded downloads (prevents streaming attacks)
-- ✅ Entry count limits (250k total, prevents directory bombs)
 - ✅ Symlink rejection during extraction
 - ✅ Path traversal validation (.. rejection, absolute path rejection)
 - ✅ Decompression bomb protection (50GB limit)
@@ -44,6 +44,11 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 - ✅ Process tree termination (SIGKILL process groups)
 - ✅ Recursive directory traversal safety (filepath.WalkDir)
 - ✅ Atomic file writes (temporary file + rename pattern)
+
+### Outbound requests
+- ✅ One policy (`internal/safehttp`) for archive downloads and scheduled-task completion webhooks: no loopback, private, link-local, cloud metadata, CGNAT, or translation-prefix destinations; environment proxies ignored
+- ✅ Task webhooks are validated when saved and again when delivered
+- ⚠️ Tenant code (PHP, tasks, workers) shares the host network; task units deny only cloud metadata ranges
 
 ### Webhooks
 - ✅ Per-site webhook isolation

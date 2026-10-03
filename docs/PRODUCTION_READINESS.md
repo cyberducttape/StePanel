@@ -1,6 +1,6 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-09-26
+**Last Updated:** 2026-10-02
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 **👉 For overall project status, see [CURRENT_STATUS.md](./CURRENT_STATUS.md) — the single authoritative source for version, progress, and release gates.**
@@ -13,7 +13,10 @@ This document describes deployment capabilities and limitations. It is not a rel
 evidence-backed capacity envelope. The proposed initial target is documented
 in [CERTIFIED_ENVELOPE.md](./CERTIFIED_ENVELOPE.md); those figures are targets,
 not promises, until a reproducible run records capacity, latency, recovery,
-and data-integrity evidence.
+and data-integrity evidence. The first measured control-plane target (session
+validation at 500 sites) is in
+[LOAD_BASELINE_2026-10-02.md](./LOAD_BASELINE_2026-10-02.md); it is a
+synthetic single-process measurement, not a certified envelope.
 
 The full host-management architecture is a single native systemd host with
 local SQLite state. Docker and Kubernetes are control-plane packaging for
@@ -44,7 +47,7 @@ StePanel v0.7.0 is suitable for controlled evaluation and operator-led staging. 
 ### ⚠️ Single-Host Limitations
 
 - **No active-active HA**: Durable jobs tied to local database; no cross-host failover
-- **No backup HA**: Manual backup exports; no automatic failover to standby
+- **No backup HA**: Scheduled backups with a required offsite copy, but no automatic failover to a standby host
 - **Downtime on deploy**: Updates require restart; no canary/rolling deployment
 - **Single point of failure**: All control-plane data on single host
 
@@ -52,7 +55,7 @@ StePanel v0.7.0 is suitable for controlled evaluation and operator-led staging. 
 
 - **Multi-tenant SaaS**: Requires cross-host session/job state, provider-specific quota enforcement, and reseller/support policy boundaries
 - **High-availability**: No stateless API, no shared session store, no cross-region replication
-- **Automated recovery**: Recovery drills are manual; no auto-remediation
+- **Automated recovery**: Restore rehearsals run automatically at the archive level; restoring a site remains an operator action with no auto-remediation
 - **Enterprise support**: SLA tracking, escalation routing not implemented
 
 ## Migration Capabilities by Workflow

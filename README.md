@@ -140,6 +140,10 @@ tar -xzf "stepanel_${release#v}_linux_${arch}.tar.gz"
 sudo ./install.sh --guided
 ```
 
+> **Availability:** `--guided` is on `main` and ships in the first release
+> after v0.7.0. The v0.7.0 installer takes its settings from environment
+> variables instead; see the [installation guide](docs/INSTALLATION.md#build-and-install).
+
 The guided install asks seven questions (panel address, web server, database,
 administrator, authenticator app, offsite backup location, optional features),
 checks each answer as you go, generates every key, shows exactly what will

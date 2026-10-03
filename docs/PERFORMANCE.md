@@ -273,19 +273,21 @@ curl http://localhost:8090/api/health | jq '.request_rate'
 
 ### Scheduling
 
-**Recommended pattern:**
+Use StePanel's built-in backup schedules rather than cron: they run as
+durable jobs, respect the host-wide resource budget, keep the newest
+`keep_last` backups, upload the offsite copy, and trigger automatic restore
+rehearsals. Set one per site from the site's Backups tab or with the
+administrator API (interval 5–10080 minutes, `keep_last` 1–365):
+
 ```bash
-# Spread backups to avoid thundering herd
-# Stagger by time of day based on site count
-
-# 10 sites: Run every 6 hours
-0 0,6,12,18 * * * /usr/local/bin/stepanel backup-site example.com
-
-# 100 sites: Run every 24 hours, spread across day
-# 0 1 * * * # Site 1
-# 5 1 * * * # Site 2
-# 10 1 * * * # Site 3
+curl -X PUT https://panel.example.com/api/backup-schedules \
+  -H "Authorization: Bearer $STEPANEL_TOKEN" -H "Content-Type: application/json" \
+  -d '{"site":"example","interval_minutes":1440,"keep_last":14,"include_databases":true,"enabled":true}'
 ```
+
+Backups run when each schedule comes due, and at most
+`STEPANEL_MAX_CONCURRENT_JOBS` heavy jobs run at once, so many daily
+schedules queue rather than overload the host.
 
 **Configuration:**
 ```bash
@@ -297,14 +299,17 @@ export STEPANEL_GIT_RELEASE_MAX_AGE_HOURS=168  # For 7 days
 ### Verification
 
 ```bash
-# Automatic verification during backup
-/opt/stepanel/stepanel verify-backup /var/lib/ste-panel/backups/example.com/2026-09-17-120000
+# Verify a backup offline (backups live under /var/backups/stepanel)
+/opt/stepanel/stepanel verify-backup /var/backups/stepanel/<backup-name>
 
-# Test restore to staging
-curl -X POST http://localhost:8090/api/backups/2026-09-17-120000/restore \
-  -H "Content-Type: application/json" \
-  -d '{"target":"staging"}'
+# Restore into an isolated staging site without touching production
+curl -X POST https://panel.example.com/api/backups/restore-to-staging \
+  -H "Authorization: Bearer $STEPANEL_TOKEN" -H "Content-Type: application/json" \
+  -d '{"site":"example","backup":"<backup-name>","domain":"staging.example.com"}'
 ```
+
+Each site's Recovery status (Backups tab, or `GET /api/sites/recovery/{site}`)
+shows when a backup was last proven restorable by a rehearsal.
 
 ---
 

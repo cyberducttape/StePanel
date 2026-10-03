@@ -1,217 +1,194 @@
 # Security Claims Verification
 
-This document maps StePanel's documented security claims to the code that implements them. It serves as an audit checklist to ensure marketing claims are backed by actual implementation.
+This document maps StePanel's security claims to the code that implements them
+and the tests that prove them. Every function and test named here exists on
+`main`; a claim without a dedicated test says so instead of pointing at one.
 
-## Claim: "Safety-First" Design
+Status vocabulary: **Verified**: implemented and covered by named tests.
+**Partial**: implemented, but the claim is narrower than it sounds or test
+coverage is incomplete. Read the boundary note before repeating the claim.
 
-**What we claim:** StePanel prioritizes data safety over convenience in all architecture decisions.
+Last verified: 2026-10-02 against `main`.
 
-**Implementation verification:**
+## Backups
 
-### Backup Verification
-- **Claim:** All backups are verified before being marked as "successful"
-- **Implementation:** `backups.go:VerifyBackupArchive()` - cryptographic hash verification
-- **Test:** `backups_test.go:TestBackupVerification`
-- **Evidence:** Before a backup is returned to the API, the archive integrity is verified against its manifest hash
+### Backups are verified before they are trusted (Verified)
+- **Implementation:** `backups.go`: `CreateSiteBackup()` publishes a manifest
+  with per-entry and archive SHA-256 values; `VerifyBackupArchive()` and
+  `VerifySiteBackupStrict()` re-check them before restore, rehearsal, and
+  offsite restore.
+- **Tests:** `backups_test.go`: `TestCreateSiteBackupPublishesVerifiedManifest`,
+  `TestStrictBackupVerificationBypassesListingCache`.
 
-### Database Transaction Atomicity
-- **Claim:** Database state changes are atomic (ACID)
-- **Implementation:** SQLite transactions with rollback on failure
-- **Files:** `controlplane.go:applyControlPlaneMigration()` - each migration in its own transaction
-- **Test:** `controlplane_test.go:TestControlPlaneAtomicity`
+### Backup manifests can be signed (Verified)
+- **Configuration:** `STEPANEL_BACKUP_SIGNING_KEY`.
+- **Implementation:** `backups.go`: `writeBackupManifest()` (HMAC signature),
+  `verifyBackupManifestSignature()`.
+- **Tests:** `backups_test.go`: `TestSignedBackupManifestRequiresValidExternalKey`,
+  `TestBackupManifestSignatureDoesNotFollowSymlink`.
 
-### Destructive Operations Require Recovery Point
-- **Claim:** All destructive operations create a recovery point first
-- **Implementation:** `site_lifecycle.go:handleSiteTermination()` - offsite backup required
-- **Gate:** `STEPANEL_REQUIRE_OFFSITE_BACKUP=1` enforces this
-- **Test:** `site_lifecycle_test.go:TestTerminationRequiresOffsite`
+### Backup archives are encrypted (Verified)
+- **Configuration:** `STEPANEL_BACKUP_ENCRYPTION_KEY`.
+- **Implementation:** `backup_encryption.go`: streaming AES-256-GCM chunks; the
+  key is never stored in the manifest.
+- **Test:** `backups_test.go`: `TestCreateSiteBackupEncryptsArchivePayload`.
+- **Boundary:** the nonce is a random 64-bit prefix plus a 32-bit chunk
+  counter. A versioned envelope with per-backup key derivation and key
+  identifiers is planned before the format is frozen.
 
----
+### Backups are proven restorable, not only written (Partial)
+- **Implementation:** `backup_restore.go`: `handleBackupRehearsalJob()` verifies,
+  decrypts, and extracts a backup into a disposable directory and checks every
+  database dump; `internal/recovery` records each result, and
+  `GET /api/sites/recovery/{site}` reports per-site recovery confidence.
+- **Tests:** `recovery_status_test.go`: `TestPassingRehearsalIsRecordedAndVerifiesRecovery`,
+  `TestFailingRehearsalIsRecordedAndReported`,
+  `TestFailedRehearsalOverridesEarlierPass`; `internal/recovery`:
+  `TestAssessRules`.
+- **Boundary:** a rehearsal proves the archive level only. It does not import
+  databases or start the application; the status says so explicitly.
 
-## Claim: "Tenant Isolation" at Data-Access Layer
+### Restore-to-staging leaves production untouched (Partial)
+- **Implementation:** `backup_restore.go`: `backupRestoreToStaging()` restores
+  into manager-owned staging and activates it on a separate staging site.
+- **Tests:** cancellation of the database step is covered by
+  `backup_restore_validation_test.go`:
+  `TestRestoreDatabaseIntoStagingContextHonorsCancellation`. There is no
+  dedicated end-to-end restore-to-staging test yet.
 
-**What we claim:** Tenant boundaries are enforced by types, not checks; compile-time isolation.
+### Termination keeps a recovery point (Verified)
+- **Implementation:** `site_lifecycle.go`: `handleSiteTermination()` takes a
+  verified backup first; `ensureTerminationOffsiteBackup()` blocks termination
+  when `STEPANEL_REQUIRE_OFFSITE_BACKUP=1` and the offsite upload fails.
+- **Tests:** `site_lifecycle_test.go`:
+  `TestEnsureTerminationOffsiteBackupBlocksOnUploadFailure`,
+  `TestSiteTerminationFailureInjectionStopsBeforeDestructiveWork`.
 
-**Implementation verification:**
+## Tenant boundaries
 
-### SiteCapability Interface
-- **Claim:** All site-scoped mutations require `SiteCapability`, not plain strings
-- **Implementation:** `tenancy.go` - `SiteCapability` interface enforces ownership
-- **Scope:** All data mutations through this interface
-- **Test:** `tenant_isolation_test.go:TestTenantIsolationMatrix`
-- **Coverage:** 30+ endpoint tests verify cross-tenant denials
+### Customers cannot operate other customers' sites (Verified)
+- **Implementation:** `tenancy.go`: `requireSiteAccess()` returns a
+  `SiteCapability` used by site-scoped handlers; denials record a
+  `tenant.access_denied` audit event.
+- **Tests:** `tenant_isolation_test.go`: `TestTenantIsolationMatrix` (18
+  cross-tenant attempts covering site overview, recovery status, deployments,
+  Git deploy, environment, SSH access, deploy keys, backups, databases, domain
+  claims, workers, tasks, logs, disk usage, resource profiles, Composer, PHP
+  runtime, and Redis) and `TestCrossTenantDenialIsAudited`.
+- **Boundary:** this is control-plane authorization. It is not a
+  hostile-workload boundary: sites share one kernel and network (see
+  [`SECURITY.md`](../SECURITY.md#what-tenant-isolation-does-and-does-not-mean)).
+  Handlers added later are covered only if they are added to the matrix.
 
-### Authorization Check Consolidation
-- **Claim:** `requireSiteAccess` is the single authorization gateway
-- **Implementation:** `tenancy.go:requireSiteAccess()`
-- **Test:** Every site-scoped endpoint uses this function
-- **Audit event:** `tenant.access_denied` logged on failure
+### Background jobs re-check ownership when they run (Verified)
+- **Implementation:** `jobs.go`: `authorizeDurableSiteJob()`, called by backup,
+  restore, rehearsal, cpmove, and termination job handlers.
+- **Test:** `durable_job_auth_test.go`:
+  `TestAuthorizeDurableSiteJobRechecksSuspensionAndOwnership`.
 
-### Durable Job Ownership Verification
-- **Claim:** Background jobs re-verify ownership at execution time
-- **Implementation:** `handleBackupJob()`, `handleBackupRestoreJob()`, `handleCPMoveJob()` call `authorizeDurableSiteJob()`
-- **Test:** `durable_job_auth_test.go:TestJobOwnershipRecheck`
-- **Defense-in-depth:** Prevents authorization bypass if job queue is corrupted
+## Privileged execution
 
----
+### Privileged work crosses a typed, validated boundary (Partial)
+- **Implementation:** the panel runs unprivileged; production installs send
+  privileged requests to the root broker (`cmd/stepanel-root`,
+  `internal/rootbroker`) over a peer-authorized Unix socket. The broker
+  validates every request (`validator.go`) and runs root-owned helper scripts
+  in `deploy/integrations/stepanel-*` with argument vectors, never a shell
+  command string. Generic helper requests are checked against a per-action
+  schema (`helper_schema.go`).
+- **Tests:** `internal/rootbroker`: `TestValidateHelperRequestAllowlist`,
+  `TestHelperSchemaRejectsOutOfContractArguments`,
+  `TestHelperSchemaAcceptsWellFormedRequests`.
+- **Boundary:** the helpers are Bash scripts, not compiled code, and some
+  operations still use the schema-validated generic helper request rather than
+  a dedicated typed request. In Go code, the only `sh -c` runs a fixed,
+  input-free inventory command on remote hosts over SSH (`ssh_inventory.go`);
+  where helper scripts use `sh -c` (`stepanel-appctl` running Node and
+  Composer tools as the site user), values are passed as positional
+  arguments, never interpolated into the command string.
 
-## Claim: "Root Helpers" with Privilege Separation
+## Durable jobs
 
-**What we claim:** Root operations are isolated to compiled helpers, not shell escapes.
+### Jobs survive restarts (Verified)
+- **Implementation:** `jobs.go`: SQLite-backed job rows; `ClaimNext()` leases
+  work and `RunWorkerPool()` processes it; jobs interrupted by a crash are
+  reconciled when the store is opened.
+- **Tests:** `jobs_test.go`: `TestDurableJobsPersistAndReconcileRunningWork`,
+  `TestOpenJobsReconcilesInterruptedWork`,
+  `TestDurableClaimTransitionRestoresMemoryOnPersistenceFailure`.
+- **Boundary:** delivery is at-least-once for interrupted jobs, so job
+  handlers must be idempotent; restore-class jobs are failed rather than
+  re-run after an unclean shutdown.
 
-**Implementation verification:**
+### Failed jobs retry and then dead-letter (Verified)
+- **Implementation:** `jobs.go`: per-job `maxAttempts` with `next_attempt_at`
+  backoff, then a dead-letter state surfaced by operational health.
+- **Tests:** `jobs_test.go`: `TestDurableQueueClaimRetryAndDeadLetter`;
+  `health_test.go`: `TestOperationalHealthReportsDurableDeadLetters`.
 
-### Privilege Boundary
-- **Claim:** Only root-owned helpers can execute privileged operations
-- **Files:** Helpers installed in `/opt/stepanel/helpers/` with restricted permissions
-- **Initialization:** `init.go:installHelpers()` - verifies ownership and permissions
-- **Test:** `init_test.go:TestHelperPermissions`
+### Job cleanup never diverges from the database (Verified)
+- **Implementation:** `jobs.go`: `Cleanup()` deletes durable rows first and
+  restores memory if the delete fails.
+- **Tests:** `jobs_cleanup_test.go` (BEGIN, DELETE, COMMIT, `SQLITE_BUSY`, and
+  file-store failures).
 
-### No Shell Escape in Helper Calls
-- **Claim:** Helper invocation uses `exec` package, not shell interpolation
-- **Implementation:** `helpers.go:siteHelper()` - no `sh -c` or `bash -c`
-- **Test:** Verify no shell metacharacters in constructed arguments
-- **Evidence:** `helpers.go` line 85-110 - direct exec with array arguments
+### Schema migrations are transactional (Verified)
+- **Implementation:** `controlplane.go`: `runControlPlaneMigrations()` applies
+  each migration in its own transaction and refuses newer schema versions.
+- **Tests:** `controlplane_test.go`: `TestControlPlaneMigrationsRejectNewerSchemaVersion`,
+  `TestControlPlaneMigrationsSerializeConcurrentOpen`.
 
-### Restricted Helper Surface
-- **Claim:** Only necessary helpers are installed
-- **List:**
-  - `stepanel-site-prepare` - create isolated user/dirs
-  - `stepanel-fpm-pool-create` - PHP-FPM config
-  - `stepanel-db-ctl` - database operations
-  - `stepanel-archive-validator` - archive safety checks
-- **No:** shell commands, package managers, network tools as helpers
+## Audit trail
 
----
+### Audit events are chained and tamper-evident (Verified)
+- **Implementation:** `internal/audit/logger.go`: HMAC-chained JSONL events;
+  `stepanel verify-audit <log>` verifies a chain offline.
+- **Tests:** `audit_test.go`: `TestAuditChainRecordsActorAndVerifies`,
+  `TestVerifyAuditLogRejectsTampering`, `TestAuditChainContinuesAcrossRotation`;
+  `internal/audit`: `TestLoggerRejectsTamperedLogAndMissingIdentity`.
+- **Boundary:** tamper evidence, not immutability: a root user can still
+  delete the file, which the chain detects but cannot prevent. Remote audit
+  anchoring is planned.
 
-## Claim: "Durable Jobs" with Guaranteed Execution
+## Outbound requests
 
-**What we claim:** Jobs can survive control-plane restarts and are guaranteed to execute at least once.
+### Server-originated requests reach public addresses only (Verified)
+- **Implementation:** `internal/safehttp`: the address check runs in the
+  dialer on the connected IP (defeating DNS rebinding), redirects are
+  revalidated, and environment proxies are ignored. Used by archive imports
+  and task completion webhooks.
+- **Tests:** `internal/safehttp`: `TestClientRefusesLoopbackAtConnectTime`,
+  `TestClientRevalidatesRedirects`; `task_webhook_test.go`:
+  `TestTaskWebhookEnforcesPolicyAtConnectTime`.
+- **Boundary:** tenant code itself (tasks, PHP, workers) can still reach
+  loopback and private networks; task units only deny cloud metadata ranges.
 
-**Implementation verification:**
+## Portability
 
-### Job State Machine
-- **Claim:** Jobs have defined states: pending → running → done/failed
-- **Implementation:** `jobs.go` - Job struct with State field
-- **Persistence:** SQLite database, not memory
-- **Test:** `jobs_test.go:TestJobPersistence`
+### Site data exports in standard formats (Partial)
+- **Implementation:** `backups.go`: `CreateSiteBackup()` writes a tar archive;
+  `dumpManagedDatabaseContext()` produces text SQL with the engine's own dump
+  tool.
+- **Tests:** `backups_test.go`: `TestCreateSiteBackupIncludesManagedDatabaseDump`.
+- **Boundary:** encrypted archives need StePanel (or the documented format and
+  key) to decrypt before standard `tar` can read them.
 
-### Retry Logic with Backoff
-- **Claim:** Failed jobs retry with exponential backoff
-- **Implementation:** `jobs.go:RunWorker()` - retry loop with `next_attempt_at`
-- **Configuration:** `maxAttempts` parameter per job type
-- **Test:** `jobs_test.go:TestRetryBackoff`
+## Release checklist
 
-### Crash Recovery
-- **Claim:** Unfinished jobs resume after restart
-- **Implementation:** `jobs.go:startWorker()` - query for pending jobs on startup
-- **Test:** Simulate crash, verify jobs pick up where they left off
-- **Evidence:** No in-memory job queue, all state in database
+For each release, confirm:
 
----
+- [ ] Every function and test named above still exists (the documentation
+      audit script checks names automatically).
+- [ ] `go test ./...` passes, including the tests named above.
+- [ ] `stepanel verify-audit` and `stepanel verify-backup` succeed on the
+      release candidate.
+- [ ] Release artifacts verify with `scripts/verify-release-artifacts.sh`.
 
-## Claim: "Verified Backups" with Continuous Proof
-
-**What we claim:** Backup integrity is continuously verified, not just at creation.
-
-**Implementation verification:**
-
-### Manifest Signing
-- **Claim:** Backups can be cryptographically signed
-- **Configuration:** `STEPANEL_BACKUP_SIGNING_KEY` environment variable
-- **Implementation:** `backups.go:writeBackupManifest()` - HMAC signature
-- **Test:** `backups_test.go:TestManifestSigning`
-
-### Archive Integrity Checking
-- **Claim:** Archive is verified against manifest hash
-- **Implementation:** `backups.go:VerifyBackupArchive()` - SHA256 comparison
-- **When:** Before restore, before offsite upload
-- **Test:** `backups_test.go:TestArchiveVerification`
-
-### Archive Confidentiality
-- **Claim:** New production backups encrypt archive payloads before publication or offsite copy
-- **Configuration:** `STEPANEL_BACKUP_ENCRYPTION_KEY` environment variable
-- **Implementation:** `backup_encryption.go` streaming AES-256-GCM chunks; the key is never stored in the manifest
-- **Test:** `backups_test.go:TestCreateSiteBackupEncryptsArchivePayload`
-- **Boundary:** Manifest metadata remains authenticated separately; encryption does not replace HMAC or immutable offsite retention
-
-### Restore-to-Staging Verification
-- **Claim:** Restores to staging to verify before production
-- **Implementation:** `backup_restore.go:backupRestoreToStaging()`
-- **Isolation:** Staging sites are isolated and non-indexed
-- **Test:** `backup_restore_test.go:TestStagingRestore`
-
----
-
-## Claim: "Audit Trail" with Tamper Evidence
-
-**What we claim:** Audit log is immutable and cryptographically chained.
-
-**Implementation verification:**
-
-### Append-Only Log
-- **Claim:** Audit events can only be added, never deleted or modified
-- **Implementation:** `audit.go` - append-only JSONL file
-- **Permission:** Root-owned, immutable append permission for service user
-- **Test:** `audit_test.go:TestAppendOnlyProperty`
-
-### HMAC Chaining
-- **Claim:** Each audit event is chained with HMAC to prevent tampering
-- **Implementation:** `audit.go:AuditAs()` - each event includes HMAC of previous
-- **Verification:** `verify-audit` command in CLI
-- **Test:** `audit_test.go:TestHMACChaining`
-
-### Denial Audit Events
-- **Claim:** Authorization failures are logged
-- **Implementation:** `tenancy.go:requireSiteAccess()` logs `tenant.access_denied` event
-- **Test:** `tenant_isolation_test.go:TestCrossTenantDenialIsAudited`
-
----
-
-## Claim: "No Lock-In" / Portable Exports
-
-**What we claim:** Site data can be exported in portable format.
-
-**Implementation verification:**
-
-### Standard SQL Dumps
-- **Claim:** Databases export as standard SQL, not binary format
-- **Implementation:** `database_operations.go:dumpManagedDatabase()`
-- **Format:** Text SQL (mysqldump, pg_dump)
-- **Test:** Restore SQL dump to different database system
-
-### Filesystem Tar Archives
-- **Claim:** Site files export as standard tar.gz
-- **Implementation:** `backups.go:CreateSiteBackup()` - uses Go tar package
-- **Extraction:** Extractable on any POSIX system
-- **Test:** Verify archive with standard `tar` command
-
----
-
-## Verification Checklist
-
-For each release, verify:
-
-- [ ] All security claims above are present in code
-- [ ] Tests for each claim pass (run `make release-check`)
-- [ ] No emergency security patches pending
-- [ ] Audit log verification works (`./stepanel verify-audit`)
-- [ ] Backup verification works (`./stepanel verify-backup <path>`)
-- [ ] Tenant isolation matrix test passes
-- [ ] Release artifacts verified for integrity (see `scripts/verify-release-artifacts.sh`)
-
-## Audit Notes
-
-**Date:** 2026-09-19  
-**Status:** All claims verified against implementation  
-**Outstanding:** External security review (scheduled)  
-**Next steps:** Multi-node model testing for scaling claims  
-
----
+An external security review has not yet been performed.
 
 ## Related Documents
 
-- [`docs/SECURITY.md`](SECURITY.md) - Security policy and vulnerability reporting
-- [`docs/PRODUCTION_GAP_ANALYSIS.md`](archive/PRODUCTION_GAP_ANALYSIS.md) - Explicit limitations and launch gates
-- [`docs/STATE.md`](STATE.md) - Disaster recovery inventory
-- [`tenant_isolation_test.go`](../tenant_isolation_test.go) - Authorization test matrix
+- [`SECURITY.md`](../SECURITY.md): security policy and what tenant isolation covers
+- [`docs/SECURITY.md`](SECURITY.md): security features
+- [`docs/STATE.md`](STATE.md): disaster recovery inventory
+- [`tenant_isolation_test.go`](../tenant_isolation_test.go): authorization test matrix

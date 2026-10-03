@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Documentation
+
+- **Documentation audit against the code**: every current document was
+  checked for references to files, tests, functions, commands, API routes,
+  and settings that do not exist. `SECURITY_CLAIMS_VERIFICATION.md` was
+  rebuilt (it cited 12 nonexistent tests and helpers, and declared every claim
+  verified); `ADVERSARIAL_TESTING.md` now maps each area to its real tests and
+  states what is not covered; `CODE_ORGANIZATION.md` was regenerated from the
+  tree; the root broker guide lists only the operations the broker executes
+  and drops invented benchmark figures; the upload-hardening and pip documents
+  describe current behavior. Status documents (`CURRENT_STATUS`,
+  `PRODUCTION_READINESS`, `FEATURES`, `ROADMAP`, architecture) reflect the
+  current release state, and the README and installation guide say that guided
+  setup ships after v0.7.0.
+- **Reference documentation completed**: a command reference covering every
+  `stepanel` subcommand, operator settings that were undocumented (TLS files,
+  trusted proxies, build-runner policy, database tool URL, Linode token), and
+  the lab-only settings.
+- **Documentation references are checked in CI**: `scripts/check-docs-references.py`
+  fails the build when a document names a file, test, function, command, route,
+  or setting that does not exist, with an explicit allowlist for planned items.
+
 ### Setup
 
 - **Guided installation**: `sudo ./install.sh --guided` asks seven questions,

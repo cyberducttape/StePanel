@@ -20,7 +20,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 | Gate | Requirement | Status | Blocker |
 |------|-------------|--------|---------|
-| **Gate 1** | One Lifecycle Authority | ✅ COMPLETE | None |
+| **Gate 1** | One Lifecycle Authority | ✅ MET (revised 2026-10-02) | None for publication and removal; configuration updates are broker-executed |
 | **Gate 2** | Cross-Process Lock Enforcement | 🔄 PARTIAL (lock layer complete) | Full workflow interruption acceptance |
 | **Gate 3** | Capability Reporting | ✅ COMPLETE | None |
 | **Gate 4** | Automated Archive Database Restoration | ✅ COMPLETE | None |
@@ -29,7 +29,33 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
-### Verified hardening since the previous status update
+### Changes on 2026-10-02 (on `main`, unreleased)
+
+- **Root broker concurrency:** the socket broker serves connections
+  concurrently and admits work through a resource-scoped scheduler (per site,
+  database, account, or certificate domain; `-max-concurrent`, default 8).
+  Health probes bypass the queue, and stalled peers are disconnected.
+- **Durable job cleanup** no longer leaves memory and SQLite out of sync when
+  a delete fails; fault-injection tests cover BEGIN, DELETE, COMMIT, and
+  `SQLITE_BUSY`.
+- **Outbound requests** (imports, task webhooks) share `internal/safehttp`:
+  public addresses only, checked on the connected address. Task units deny
+  cloud metadata ranges.
+- **Domain names** are validated by one shared policy in every Go layer.
+- **Installer** prints a host preflight, supports `--dry-run`, and requires
+  `--take-over-host` (or, in guided mode, explicit consent) before stopping
+  an existing web server. `--guided` and `--config` add a verified guided
+  setup.
+- **Recovery status:** restore rehearsals are recorded, run automatically
+  after scheduled backups, and summarized per site
+  (`GET /api/sites/recovery/{site}`), at the archive level.
+- **Capacity:** a stated control-plane target (500 sites, session check p99
+  ≤ 25 ms) is measured at 6–8.6 ms; see
+  [LOAD_BASELINE_2026-10-02.md](LOAD_BASELINE_2026-10-02.md).
+- **Gate 1** was redefined to match the implementation; see
+  [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md#gate-1-one-lifecycle-authority).
+
+### Verified hardening before 2026-10-02
 
 - Legacy shared-state blobs remain temporary compatibility storage, but writes
   now use revision CAS with bounded reload/merge retries for independent map
@@ -64,7 +90,7 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - ✅ Phase 1: Design & Foundation (100%)
 - ✅ Phase 2: Broker foundation and validation (100%)
 - ✅ Phase 3: Integration Testing (100%)
-- 🔄 Phase 4: Callsite Replacement (Foundation ready, implementation pending)
+- 🔄 Phase 4: Callsite Replacement (production calls go through the broker; schema-validated generic helper requests remain to be replaced with typed requests)
 
 **What it is:** Replace 14 shell scripts (1200 lines, high security consequence) with a typed Go root broker. The broker centralizes input validation and fails closed for mutation paths that are not implemented yet; it is not a claim that every helper operation is available.
 
@@ -205,7 +231,7 @@ not establish real host power-loss or disk-exhaustion safety.
 | **Development** | ✅ Now | Local development, full feature set |
 | **Operator Beta** | ✅ Now (v0.7.0) | Single-host deployment; operator expertise required |
 | **Single-Host Production** | After Phase 7 | Requires proof of failure recovery (Gate 5 Phase 7) |
-| **Multi-Tenant Production** | v2.0+ | Requires RBAC, quotas, audit isolation (not in scope) |
+| **Multi-Tenant Production** | v2.0+ | Tenant roles and host resource envelopes exist; requires audit segregation, an HA datastore, and cross-host job routing |
 
 See [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md) for deployment capabilities and limitations.
 
@@ -215,14 +241,14 @@ See [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md) for deployment capabili
 
 ### ⚠️ Single-Host Constraints
 - **No active-active HA:** Durable jobs tied to local database; no cross-host failover
-- **No backup HA:** Manual backup exports; no automatic failover to standby
+- **No backup HA:** Scheduled backups with a required offsite copy, but no automatic failover to a standby host
 - **Downtime on deploy:** Updates require restart; no canary/rolling deployment
 - **Single point of failure:** All control-plane data on single host
 
 ### ⛔️ Not Ready For
-- **Multi-tenant SaaS:** Requires RBAC per customer, audit segregation, resource quotas
+- **Multi-tenant SaaS:** Requires audit segregation, an HA datastore, cross-host job routing, and a hostile-workload isolation boundary
 - **High-availability:** No stateless API, no shared session store, no cross-region replication
-- **Automated recovery:** Recovery drills are manual; no auto-remediation without human intervention
+- **Automated recovery:** Restore rehearsals run automatically at the archive level, but restoring a site is an operator action; there is no auto-remediation
 - **Enterprise SLAs:** SLA tracking and escalation routing not implemented
 
 ---
@@ -255,7 +281,7 @@ All workflows use **journaled staged activation** — operations are staged in a
   the transitional sudo policy.
 
 ✅ **Helper Layer foundation:**
-- Broker foundation (types, validator, operations, client, and bridge)
+- Broker foundation (types, validator, operations, and client; the transitional bridge was later removed)
 - Fail-closed tests for unsupported mutation paths
 - Supported operation paths and remaining gaps documented explicitly
 
@@ -279,22 +305,18 @@ All workflows use **journaled staged activation** — operations are staged in a
 2. Add multi-point failure coverage and repeatability/recovery-time measurements
 3. Complete actual host power-loss validation before approving Gate 5 Phase 7
 
-### Short-term (Week 3-4)
-4. Begin Phase 4 callsite replacement for helper layer
-5. Deploy broker alongside shell scripts (no app changes)
-6. Monitor for issues in controlled staging
-
-### Medium-term (Month 2-3)
-7. Replace first batch of callsites (20% of usage)
-8. Validate consistency and performance
-9. Prepare v1.0.0 release candidate
+### Short-term
+4. Write the one-page privileged-request model and inventory every
+   remaining generic helper action
+5. Replace generic helper requests with typed requests, starting with
+   database restore/dump streaming, then retire the generic path
+6. Extend restore rehearsals to import databases and start the site on a
+   staging hostname, so the measured recovery time is a true RTO
 
 ### Release (Before v1.0.0)
-10. Replace remaining callsites (80% of usage)
-11. Run continuous failure injection in staging
-12. Monitor 30 days in staging
-13. Deploy to production
-14. Publish v1.0.0 Production Release
+7. Run continuous failure injection in staging
+8. Monitor 30 days in staging
+9. Publish v1.0.0 Production Release
 
 ---
 

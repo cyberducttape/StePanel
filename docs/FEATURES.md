@@ -11,10 +11,31 @@ to administrators but not exposed as a tenant entitlement; **Experimental**
 means the interface may change; **Planned** means not implemented. Release-tag
 documentation must be read from the matching release tag, not from `main`.
 
-Documentation version: `main` (reviewed 2026-09-24)
+Documentation version: `main` (reviewed 2026-10-02)
 Release approval: use `V1_PRODUCTION_GATES.md`; this catalog is not a release gate.
 
 ## Available now
+
+New on `main` since v0.7.0 (unreleased):
+
+- **Guided installation** (Beta): `sudo ./install.sh --guided` asks seven
+  questions, verifies the authenticator app and the offsite backup location,
+  generates all keys, previews the host changes, and installs after
+  confirmation. `stepanel setup` and `install.sh --config FILE` save and
+  reuse the answers.
+- **Installer preflight**: a host inventory and change plan before any
+  change, `--dry-run`, and explicit consent (`--take-over-host`) before
+  stopping an existing web server.
+- **Recovery status** (Beta): per-site recovery confidence from backups,
+  offsite copies, and recorded restore rehearsals, with automatic rehearsals
+  after scheduled backups. Rehearsals cover the archive level; database
+  import and application start are not yet rehearsed.
+- **Concurrent root broker**: unrelated sites' privileged operations run in
+  parallel, health checks are never queued behind long operations.
+- **Outbound request policy**: imports and task webhooks can reach only
+  public internet addresses.
+
+Shipped in v0.7.0 and earlier:
 
 - Go HTTP control plane with signed administrator sessions.
 - CSRF protection, login rate limiting, production-required TOTP MFA, and
