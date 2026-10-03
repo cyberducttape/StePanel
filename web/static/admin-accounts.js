@@ -3,18 +3,7 @@
   const inventory = document.querySelector('#accountInventory');
   if (!inventory) return;
   const status = document.querySelector('#adminAccountStatus');
-  const csrf = () => {
-    const match = document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);
-    return match ? decodeURIComponent(match[1]) : '';
-  };
-  const request = async (url, options = {}) => {
-    const response = await fetch(url, options);
-    const text = await response.text();
-    let data = {};
-    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { error: text }; }
-    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
-    return data;
-  };
+  const { request } = window.StepanelAPI;
   const render = (accounts) => {
     inventory.replaceChildren();
     if (!accounts.length) { inventory.textContent = 'No customer accounts provisioned.'; return; }
@@ -34,7 +23,7 @@
         try {
           const endpoint = account.suspended ? '/api/admin/unsuspend' : '/api/admin/suspend';
           const body = account.suspended ? { username: account.username } : { username: account.username, reason: 'Operator action from tenant inventory', permanent: false };
-          await request(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify(body) });
+          await request(endpoint, { method: 'POST', json: body });
           await load();
         } catch (error) { if (status) status.textContent = error.message; }
         finally { button.disabled = false; }
@@ -52,7 +41,7 @@
         editForm.addEventListener('submit', async (event) => {
           event.preventDefault(); save.disabled = true; output.textContent = 'Saving…';
           try {
-            await request(`/api/accounts/${encodeURIComponent(account.username)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify({ plan: plan.value, sites: sites.value.split(',').map((site) => site.trim()).filter(Boolean) }) });
+            await request(`/api/accounts/${encodeURIComponent(account.username)}`, { method: 'PATCH', json: { plan: plan.value, sites: sites.value.split(',').map((site) => site.trim()).filter(Boolean) } });
             output.textContent = 'Assignment saved.'; await load();
           } catch (error) { output.textContent = error.message; }
           finally { save.disabled = false; }
@@ -82,7 +71,7 @@
     try {
       const values = Object.fromEntries(new FormData(form));
       values.sites = values.sites.split(',').map((site) => site.trim()).filter(Boolean);
-      await request('/api/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify(values) });
+      await request('/api/accounts', { method: 'POST', json: values });
       form.reset(); if (output) output.textContent = 'Customer account created.'; await load();
     } catch (error) { if (output) output.textContent = error.message; }
     finally { button.disabled = false; }

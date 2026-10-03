@@ -1,11 +1,108 @@
-(()=>{'use strict';
-const form=document.querySelector('#databaseForm'),inventory=document.querySelector('#databaseInventory'),status=document.querySelector('#databaseStatus');
-if(!form||!inventory||!status||form.querySelector('button').disabled)return;
-const csrf=()=>{const match=document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);return match?decodeURIComponent(match[1]):''};
-const read=async response=>{const text=await response.text();let data={};try{data=JSON.parse(text)}catch(error){}if(!response.ok)throw new Error(data.error||text||`Request failed (${response.status})`);return data};
-const formatBytes=value=>{const units=['B','KiB','MiB','GiB','TiB'];let size=Number(value)||0,index=0;while(size>=1024&&index<units.length-1){size/=1024;index++}return `${size.toFixed(index?1:0)} ${units[index]}`};
-const field=(type,name,placeholder)=>{const input=document.createElement('input');input.type=type;input.name=name;input.placeholder=placeholder;input.required=true;if(type==='password')input.minLength=20;return input};
-const load=async()=>{const data=await read(await fetch('/api/databases'));inventory.replaceChildren();for(const db of data.databases){const row=document.createElement('article');row.className='database-record';const summary=document.createElement('div');const title=document.createElement('strong');title.textContent=db.name;const detail=document.createElement('small');detail.textContent=`${db.site} · ${db.user||'import-managed'} · ${formatBytes(db.bytes)} · ${db.encoding}`;summary.append(title,detail);row.append(summary);if(db.user){const rotate=document.createElement('form');rotate.className='database-inline';rotate.append(field('password','password','New password (20+ characters)'));const rotateButton=document.createElement('button');rotateButton.type='submit';rotateButton.className='quiet-action';rotateButton.textContent='Rotate';rotate.append(rotateButton);rotate.addEventListener('submit',async event=>{event.preventDefault();rotateButton.disabled=true;try{await read(await fetch(`/api/databases/${encodeURIComponent(db.name)}/credentials`,{method:'PATCH',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf()},body:JSON.stringify({user:db.user,password:new FormData(rotate).get('password')})}));rotate.reset();status.textContent=`Credentials rotated for ${db.name}. Update the application secret now.`}catch(error){status.textContent=error.message}finally{rotateButton.disabled=false}});const drop=document.createElement('form');drop.className='database-inline';drop.append(field('text','confirm',`DROP ${db.name}`));const dropButton=document.createElement('button');dropButton.type='submit';dropButton.className='quiet-action danger';dropButton.textContent='Delete';drop.append(dropButton);drop.addEventListener('submit',async event=>{event.preventDefault();dropButton.disabled=true;try{await read(await fetch(`/api/databases/${encodeURIComponent(db.name)}`,{method:'DELETE',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf()},body:JSON.stringify({user:db.user,confirm:new FormData(drop).get('confirm')})}));status.textContent=`Deleted ${db.name} and its managed user.`;await load()}catch(error){status.textContent=error.message}finally{dropButton.disabled=false}});row.append(rotate,drop)}inventory.append(row)}status.textContent=data.databases.length?`${data.databases.length} managed database(s).`:'No managed databases yet.'};
-form.addEventListener('submit',async event=>{event.preventDefault();const button=form.querySelector('button');button.disabled=true;status.textContent='Creating database and least-privilege user…';try{await read(await fetch('/api/databases',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf()},body:JSON.stringify(Object.fromEntries(new FormData(form)))}));form.reset();status.textContent='Database created. Store the credential in the application secret manager.';await load()}catch(error){status.textContent=error.message}finally{button.disabled=false}});
-load().catch(error=>{status.textContent=error.message});
+(() => {
+  'use strict';
+  const form = document.querySelector('#databaseForm');
+  const inventory = document.querySelector('#databaseInventory');
+  const status = document.querySelector('#databaseStatus');
+  if (!form || !inventory || !status || form.querySelector('button').disabled) return;
+  const api = window.StepanelAPI;
+
+  const formatBytes = (value) => {
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    let size = Number(value) || 0;
+    let index = 0;
+    while (size >= 1024 && index < units.length - 1) {
+      size /= 1024;
+      index++;
+    }
+    return `${size.toFixed(index ? 1 : 0)} ${units[index]}`;
+  };
+
+  const field = (type, name, placeholder) => {
+    const input = document.createElement('input');
+    input.type = type;
+    input.name = name;
+    input.placeholder = placeholder;
+    input.required = true;
+    if (type === 'password') input.minLength = 20;
+    return input;
+  };
+
+  // An inline form with one input and a submit button that stays disabled
+  // while its request runs.
+  const inlineForm = (input, label, className, onSubmit) => {
+    const inline = document.createElement('form');
+    inline.className = 'database-inline';
+    const button = document.createElement('button');
+    button.type = 'submit';
+    button.className = className;
+    button.textContent = label;
+    inline.append(input, button);
+    inline.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      try {
+        await onSubmit(new FormData(inline));
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+    return inline;
+  };
+
+  const load = async () => {
+    const data = await api.get('/api/databases');
+    inventory.replaceChildren();
+    for (const db of data.databases) {
+      const row = document.createElement('article');
+      row.className = 'database-record';
+      const summary = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = db.name;
+      const detail = document.createElement('small');
+      detail.textContent = `${db.site} · ${db.user || 'import-managed'} · ${formatBytes(db.bytes)} · ${db.encoding}`;
+      summary.append(title, detail);
+      row.append(summary);
+      if (db.user) {
+        const rotate = inlineForm(field('password', 'password', 'New password (20+ characters)'), 'Rotate', 'quiet-action', async (values) => {
+          await api.patch(`/api/databases/${encodeURIComponent(db.name)}/credentials`, { user: db.user, password: values.get('password') });
+          rotate.reset();
+          status.textContent = `Credentials rotated for ${db.name}. Update the application secret now.`;
+        });
+        const drop = inlineForm(field('text', 'confirm', `DROP ${db.name}`), 'Delete', 'quiet-action danger', async (values) => {
+          await api.request(`/api/databases/${encodeURIComponent(db.name)}`, {
+            method: 'DELETE',
+            json: { user: db.user, confirm: values.get('confirm') },
+          });
+          status.textContent = `Deleted ${db.name} and its managed user.`;
+          await load();
+        });
+        row.append(rotate, drop);
+      }
+      inventory.append(row);
+    }
+    status.textContent = data.databases.length ? `${data.databases.length} managed database(s).` : 'No managed databases yet.';
+  };
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button');
+    button.disabled = true;
+    status.textContent = 'Creating database and least-privilege user…';
+    try {
+      await api.post('/api/databases', Object.fromEntries(new FormData(form)));
+      form.reset();
+      status.textContent = 'Database created. Store the credential in the application secret manager.';
+      await load();
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  load().catch((error) => {
+    status.textContent = error.message;
+  });
 })();

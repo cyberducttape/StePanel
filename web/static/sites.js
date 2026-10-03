@@ -19,33 +19,14 @@
   // Shared request helpers
   // ---------------------------------------------------------------------
 
-  const csrfToken = () => {
-    const match = document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);
-    return match ? decodeURIComponent(match[1]) : '';
-  };
-
-  const readResponse = async (response) => {
-    const body = await response.text();
-    let data = {};
-    try { data = body ? JSON.parse(body) : {}; } catch (error) { /* not JSON */ }
-    if (!response.ok) throw new Error(data.error || body || `Request failed (${response.status})`);
-    return data;
-  };
-
-  const getJSON = (path) => fetch(path).then(readResponse);
-
-  const mutate = (method, path, body) => fetch(path, {
-    method,
-    headers: body !== undefined
-      ? { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() }
-      : { 'X-CSRF-Token': csrfToken() },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  }).then(readResponse);
-
-  const postJSON = (path, body) => mutate('POST', path, body ?? {});
-  const putJSON = (path, body) => mutate('PUT', path, body ?? {});
-  const patchJSON = (path, body) => mutate('PATCH', path, body ?? {});
-  const deleteJSON = (path) => mutate('DELETE', path);
+  const api = window.StepanelAPI;
+  const getJSON = (path) => api.get(path);
+  // Mutations without a payload send an empty JSON object, as the handlers
+  // expect a body.
+  const postJSON = (path, body) => api.post(path, body ?? {});
+  const putJSON = (path, body) => api.put(path, body ?? {});
+  const patchJSON = (path, body) => api.patch(path, body ?? {});
+  const deleteJSON = (path) => api.delete(path);
 
   // ---------------------------------------------------------------------
   // Small DOM helpers
@@ -700,7 +681,7 @@
           if (!confirmed) return;
           output.textContent = 'Deleting…';
           try {
-            await mutate('DELETE', `/api/databases/${encodeURIComponent(db.name)}`, { user: db.user, confirm: `DROP ${db.name}` });
+            await api.request(`/api/databases/${encodeURIComponent(db.name)}`, { method: 'DELETE', json: { user: db.user, confirm: `DROP ${db.name}` } });
             output.textContent = 'Database deleted.';
             renderDatabasesTab(site, panel, ctx);
           } catch (error) { output.textContent = error.message; }

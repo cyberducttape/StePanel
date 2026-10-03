@@ -270,6 +270,8 @@ jobs:
           cache: true
       - run: go build -o stepanel .
       - run: npm ci --no-audit --no-fund
+      - name: Frontend unit tests
+        run: npm run test:unit
       - run: npx playwright install --with-deps chromium
       - name: Browser end-to-end and accessibility tests
         env:

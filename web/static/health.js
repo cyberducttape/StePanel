@@ -7,14 +7,7 @@
   if (!label || !pulse || !toggle || !details) return;
 
   const isAdmin = document.body.dataset.isAdministrator === 'true';
-  const read = async (url) => {
-    const response = await fetch(url, { headers: { Accept: 'application/json' } });
-    const text = await response.text();
-    let data = {};
-    try { data = JSON.parse(text); } catch (_) { /* handled below */ }
-    if (!response.ok) throw new Error(data.error || text || `Request failed (${response.status})`);
-    return data;
-  };
+  const read = (url) => window.StepanelAPI.get(url, { headers: { Accept: 'application/json' } });
   const serviceState = (services, names) => {
     for (const name of names) if (services && services[name]) return services[name];
     return null;

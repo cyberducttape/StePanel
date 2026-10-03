@@ -2,7 +2,8 @@
   "name": "stepanel-ui-tests",
   "private": true,
   "scripts": {
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:unit": "node --test 'tests/unit/*.test.js'"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.10.2",

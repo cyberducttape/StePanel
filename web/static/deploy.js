@@ -1,1 +1,42 @@
-(()=>{'use strict';const form=document.querySelector('#deployForm'),version=document.querySelector('#nodeVersion'),status=document.querySelector('#deployStatus');if(!form)return;const button=form.querySelector('button[type="submit"]');const csrf=()=>{const match=document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);return match?decodeURIComponent(match[1]):''};const read=async response=>{const text=await response.text();let data={};try{data=JSON.parse(text)}catch(error){}if(!response.ok)throw new Error(data.error||text||`Request failed (${response.status})`);return data};const api=async(path,body)=>read(await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf()},body:JSON.stringify(body)}));const option=(value,label)=>{const item=document.createElement('option');item.value=value;item.textContent=label;return item};fetch('/api/node/versions').then(read).then(data=>{version.replaceChildren();for(const value of data.versions||[])version.append(option(value,value));if(!version.children.length)version.append(option('','No NVM versions installed'))}).catch(()=>version.replaceChildren(option('','Unable to load versions')));form.addEventListener('submit',async event=>{event.preventDefault();button.disabled=true;status.textContent='Deploying…';const data=Object.fromEntries(new FormData(form));data.node_version=data.version;delete data.version;data.port=Number(data.port);try{await api('/api/deployments',data);status.textContent='Deployment queued; monitor its durable job for completion.'}catch(error){status.textContent=error.message}finally{button.disabled=false}})})();
+(() => {
+  'use strict';
+  const form = document.querySelector('#deployForm');
+  const version = document.querySelector('#nodeVersion');
+  const status = document.querySelector('#deployStatus');
+  if (!form) return;
+  const api = window.StepanelAPI;
+  const button = form.querySelector('button[type="submit"]');
+
+  const option = (value, label) => {
+    const item = document.createElement('option');
+    item.value = value;
+    item.textContent = label;
+    return item;
+  };
+
+  api.get('/api/node/versions')
+    .then((data) => {
+      version.replaceChildren();
+      for (const value of data.versions || []) version.append(option(value, value));
+      if (!version.children.length) version.append(option('', 'No NVM versions installed'));
+    })
+    .catch(() => version.replaceChildren(option('', 'Unable to load versions')));
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    status.textContent = 'Deploying…';
+    const data = Object.fromEntries(new FormData(form));
+    data.node_version = data.version;
+    delete data.version;
+    data.port = Number(data.port);
+    try {
+      await api.post('/api/deployments', data);
+      status.textContent = 'Deployment queued; monitor its durable job for completion.';
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();
