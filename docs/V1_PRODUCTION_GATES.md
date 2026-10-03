@@ -127,10 +127,9 @@ have no production callers; the flows above use staging instead.
 - ✅ Two independent SQLite connections now exercise all five conflicting
       mutation lock scenarios; an OS-process regression test also proves
       hold/block/reacquire behavior across panel/worker-style processes.
-- ⏳ Full adversarial concurrent-operation acceptance remains open for the five
-      workflows: current tests prove lock-key serialization and helper-boundary
-      exclusion, but do not yet prove each complete workflow remains consistent
-      when its conflicting operation is interrupted.
+- ✅ Full interrupted-workflow acceptance (2026-10-02): `workflow_interruption_test.go`
+      interrupts each of the five real workflows at every instrumented
+      boundary, runs the conflicting workflow, and verifies the final state.
 
 **DBLocks fixes (September 2026):**
 
@@ -263,7 +262,7 @@ acceptance item remains open.
 - [x] Lock held until operation completes or rolls back
 - [x] Lock-key serialization tests pass for the 5 scenarios above — site_lock_workflows_test.go
 - [x] No race condition bugs after concurrent operations — verified through workflow tests
-- [ ] Full conflicting workflows remain in a known good state after interruption
+- [x] Full conflicting workflows remain in a known good state after interruption — `workflow_interruption_test.go` drives the real workflows: backup interrupted at init/archive/verify/commit then file restore; file restore interrupted at verify/extract/activate/commit then site deletion; release activation interrupted then restore; resource update interrupted mid-enforcement then account suspension then reconciliation; and a pending route update with termination interrupted at each of its nine journaled steps then resumed. Each scenario asserts exact site contents, no leftover staging, terminal recovery journals, no partial backups, and continued usability
 
 ---
 
@@ -435,7 +434,7 @@ upgraded to remove the transitional sudo policy.
 
 ### Architecture
 - [x] Gate 1: One Lifecycle Authority - ALL mutations through SiteManager (VERIFIED: 8/8 CRITICAL + 3/3 HIGH files compliant)
-- [ ] Gate 2: Cross-Process Locks - Lock layer enforced; full interrupted-workflow acceptance remains open
+- [x] Gate 2: Cross-Process Locks - Lock layer enforced; interrupted-workflow acceptance covered by `workflow_interruption_test.go`
 - [x] Gate 3: Accurate Capabilities - No "available: true" for unimplemented
 - [x] Gate 4: Automated DB Restoration - Transactional end-to-end
 - [ ] Gate 5: Failure Injection - Survives failure at every step

@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Interrupted workflows are proven to end in a known good state (Gate 2)**:
+  new acceptance tests drive the real backup, restore, release activation,
+  resource update, and termination workflows, interrupt each at every
+  instrumented boundary, run the conflicting workflow, and check exact site
+  contents, staging, recovery journals, published backups, and route state.
+  Termination interrupted at any of its nine steps resumes to completion, and
+  a pending route never outlives the site's files.
 - **Webhook deploys are audited before they change anything (SECURITY)**:
   signed Git webhooks are the one deploy path not routed through the
   authenticated middleware, which audits every other mutation before it runs.
