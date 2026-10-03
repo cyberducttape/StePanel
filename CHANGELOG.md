@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **A failed restore-to-staging no longer leaves a half-provisioned site**:
+  the staging site's account and PHP-FPM pool (created before publishing) and
+  its directory are now torn down when the restore does not complete, so an
+  orphan pool can no longer break PHP-FPM reloads. The handler also creates the
+  import root if it is missing, like the other restore paths.
+- **Disk exhaustion drills run in CI**: a backup, a restore, and durable job
+  admission are run against a real full filesystem (an 8 MiB tmpfs), and must
+  fail cleanly and recover once space is freed.
+- **New tests for previously untested guarantees**: end-to-end restore-to-staging,
+  and rejection of expired API tokens at the store and middleware.
 - **Crash recovery proven at every boundary (Gate 5)**: new drills kill a
   real child process with SIGKILL at each of 19 instrumented points across
   backup, file restore, termination, and account suspension, then run the

@@ -48,13 +48,16 @@ Last verified: 2026-10-02 against `main`.
 - **Boundary:** a rehearsal proves the archive level only. It does not import
   databases or start the application; the status says so explicitly.
 
-### Restore-to-staging leaves production untouched (Partial)
+### Restore-to-staging leaves production untouched (Verified)
 - **Implementation:** `backup_restore.go`: `backupRestoreToStaging()` restores
-  into manager-owned staging and activates it on a separate staging site.
-- **Tests:** cancellation of the database step is covered by
+  into manager-owned staging and activates it on a separate, non-indexed
+  staging site with its own route; a failed restore tears the staging site's
+  identity and directory back down.
+- **Tests:** `restore_to_staging_test.go`:
+  `TestRestoreToStagingPublishesIsolatedCopy`,
+  `TestRestoreToStagingRouteFailureLeavesNoHalfSite`;
   `backup_restore_validation_test.go`:
-  `TestRestoreDatabaseIntoStagingContextHonorsCancellation`. There is no
-  dedicated end-to-end restore-to-staging test yet.
+  `TestRestoreDatabaseIntoStagingContextHonorsCancellation`.
 
 ### Termination keeps a recovery point (Verified)
 - **Implementation:** `site_lifecycle.go`: `handleSiteTermination()` takes a

@@ -518,6 +518,10 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "staging destination already exists", 409)
 		return
 	}
+	if e = os.MkdirAll(a.Config.ImportRoot, 0700); e != nil {
+		http.Error(w, "could not prepare restore staging", 500)
+		return
+	}
 	stage, e := os.MkdirTemp(a.Config.ImportRoot, "backup-restore-")
 	if e != nil {
 		http.Error(w, "could not prepare restore staging", 500)
@@ -582,6 +586,17 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		if !committed {
 			if rollbackErr := txn.Rollback(); rollbackErr != nil {
 				log.Printf("backup staging rollback failed for transaction %s: %v", txn.ID, rollbackErr)
+			}
+			// The staging site did not exist before this restore: remove the
+			// identity and PHP-FPM pool "prepare" created and the site
+			// directory with its noindex marker, so a failure leaves nothing
+			// half-provisioned behind.
+			cleanupCtx := context.Background()
+			if teardownErr := siteHelperContext(cleanupCtx, a.Config, "delete", input.Site); teardownErr != nil {
+				log.Printf("staging site teardown failed for %s: %v", input.Site, teardownErr)
+			}
+			if deleteErr := a.deleteSiteTree(cleanupCtx, input.Site); deleteErr != nil {
+				log.Printf("staging site cleanup failed for %s: %v", input.Site, deleteErr)
 			}
 			if createdDatabase {
 				if _, cleanupErr := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, "", "drop-managed", input.TargetDatabase, input.TargetUser); cleanupErr != nil {

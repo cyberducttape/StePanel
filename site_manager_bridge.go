@@ -109,3 +109,16 @@ func (a *App) rollbackReplacingSite(ctx context.Context, name, previous string) 
 	}
 	return manager.RollbackStagedActivation(ctx, name, previous)
 }
+
+// deleteSiteTree removes a canonical site directory through the site manager.
+func (a *App) deleteSiteTree(ctx context.Context, name string) error {
+	manager := a.siteManager
+	if manager == nil {
+		var err error
+		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
+		if err != nil {
+			return fmt.Errorf("initialize site manager: %w", err)
+		}
+	}
+	return manager.Delete(ctx, name)
+}

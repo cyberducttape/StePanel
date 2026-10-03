@@ -75,7 +75,7 @@ This table names the tests that actually exist on `main` (verified
 | Server-originated requests (SSRF) | Covered | `internal/safehttp`: `TestClientRefusesLoopbackAtConnectTime`, `TestClientRevalidatesRedirects`; `task_webhook_test.go`: `TestTaskWebhookEnforcesPolicyAtConnectTime` |
 | Secrets kept out of support bundles | Covered | `support_bundle_test.go`: `TestSupportBundleIsRedactedAndContainsOperationalEvidence` |
 | Fuzzing | Covered | `fuzz_test.go`: `FuzzSafeUser`, `FuzzValidBackupName`, `FuzzManagedDatabaseIdentifier`; `cpmove_test.go`: `FuzzSafeArchivePath`; `environment_test.go`: `FuzzEnvironmentPersistenceBoundary` |
-| Expired API tokens | Implemented, not tested | Expiry is checked on every token lookup (`api_tokens.go`); no test presents an expired token yet |
+| Expired API tokens | Covered | `api_tokens_test.go`: `TestExpiredAPITokenIsRejected` (store and middleware, including a token expiring at the current second) |
 | Build runner network | Partial | `release_pipeline_test.go`: `TestPipelineBuildArgsPassesNetworkMode` checks the runner's network mode argument only |
 | Tenant workload network isolation | Not provided | Site code (PHP, tasks, workers) shares the host network and can reach loopback and private addresses; task units deny only cloud metadata ranges |
 | Site user privilege escalation on the host | Not covered | Relies on Unix users, systemd sandboxing, and kernel hardening; no repository test |
@@ -511,7 +511,7 @@ the coverage map above:
 - Backups are proven restorable (archive level rehearsed; database import and
   application start not yet).
 - Tenant workloads are network-isolated (not provided today).
-- Expired tokens are rejected (implemented; test still needed).
+- Expired tokens are rejected (covered).
 
 ---
 
