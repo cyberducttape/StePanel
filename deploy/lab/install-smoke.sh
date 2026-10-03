@@ -115,10 +115,11 @@ if [[ ! -S /run/stepanel-root-broker.sock ]]; then
   exit 1
 fi
 systemctl is-active --quiet stepanel-root-broker.service
-root_broker_props=$(systemctl show stepanel-root-broker.service -p NoNewPrivileges -p PrivateDevices -p ProtectSystem -p RestrictNamespaces)
+root_broker_props=$(systemctl show stepanel-root-broker.service -p NoNewPrivileges -p PrivateDevices -p PrivateTmp -p ProtectSystem -p RestrictNamespaces)
 root_broker_rw_paths=$(systemctl show stepanel-root-broker.service -p ReadWritePaths --value)
 grep -Fxq 'NoNewPrivileges=yes' <<<"$root_broker_props"
 grep -Fxq 'PrivateDevices=yes' <<<"$root_broker_props"
+grep -Fxq 'PrivateTmp=yes' <<<"$root_broker_props"
 grep -Fxq 'ProtectSystem=strict' <<<"$root_broker_props"
 grep -Fxq 'RestrictNamespaces=yes' <<<"$root_broker_props"
 grep -Eq '(^| )/etc( |$)' <<<"$root_broker_rw_paths"
