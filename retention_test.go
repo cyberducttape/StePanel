@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -45,5 +47,62 @@ func TestCleanupImportStagesRemovesOnlyExpiredRestoreStages(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("unexpected removal of %s: %v", path, err)
 		}
+	}
+}
+
+// Every scratch tree created under the import root must be one that
+// CleanupImportStages recognises, or a crash leaks it forever.
+func TestEveryImportRootTempDirIsCleaned(t *testing.T) {
+	pattern := regexp.MustCompile(`MkdirTemp\([a-zA-Z.]*ImportRoot, "([^"]+)"\)`)
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range pattern.FindAllStringSubmatch(string(data), -1) {
+			found++
+			if !isTemporaryImportStage(match[1] + "123") {
+				t.Errorf("%s creates import-root scratch tree %q that cleanup does not recognise", file, match[1])
+			}
+		}
+	}
+	if found == 0 {
+		t.Fatal("no import-root scratch trees found; the pattern no longer matches the code")
+	}
+}
+
+func TestCleanupImportStagesRemovesAbandonedScratchTreesOnly(t *testing.T) {
+	root := t.TempDir()
+	old := time.Now().Add(-orphanedStagingMinAge - time.Hour)
+	for _, name := range []string{"backup-files-restore-123", "backup-rehearsal-9", "keep-me-123"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(filepath.Join(root, name), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "backup-files-restore-456"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanupImportStages(root, 168*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{"backup-files-restore-123": false, "backup-rehearsal-9": false, "keep-me-123": true, "backup-files-restore-456": true} {
+		_, err := os.Stat(filepath.Join(root, name))
+		if exists := err == nil; exists != want {
+			t.Errorf("%s exists=%v, want %v", name, exists, want)
+		}
+	}
+	if err := CleanupImportStages(filepath.Join(root, "missing"), time.Hour); err != nil {
+		t.Fatalf("missing root: %v", err)
 	}
 }

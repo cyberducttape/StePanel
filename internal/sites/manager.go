@@ -84,7 +84,7 @@ type Manager interface {
 	DiscardStaging(ctx context.Context, stagedRoot string) error
 	CreateReleaseStaging(ctx context.Context, name, prefix string) (string, error)
 	DiscardReleaseStaging(ctx context.Context, name, stagedRoot string) error
-	CleanupOrphanedReleaseStaging(ctx context.Context) (int, error)
+	CleanupOrphanedStaging(ctx context.Context, olderThan time.Duration) (int, error)
 	ActivateStagedReplacing(ctx context.Context, name, stagedRoot string) (string, error)
 	RollbackStagedActivation(ctx context.Context, name, previous string) error
 	ImportArchive(ctx context.Context, req *ImportRequest) (*Site, error)
@@ -292,11 +292,14 @@ func (m *DefaultManager) DiscardReleaseStaging(ctx context.Context, name, staged
 	return nil
 }
 
-// CleanupOrphanedReleaseStaging removes release trees left behind when a
-// process dies before it can create an activation journal. Journal-backed
-// activations must be recovered before this method is called; callers should
-// treat an error as a reason to leave all remaining staging trees untouched.
-func (m *DefaultManager) CleanupOrphanedReleaseStaging(ctx context.Context) (int, error) {
+// CleanupOrphanedStaging removes staging trees that a crashed or killed
+// operation left behind: per-site release checkouts (.stepanel-release-*)
+// and lifecycle staging trees under .stepanel-manager-staging. Only trees
+// untouched for longer than olderThan are removed, so a caller passing more
+// than the longest operation timeout never deletes a tree a live operation,
+// including one in another process, is still using. Previous releases kept
+// for rollback are not staging and are left alone.
+func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan time.Duration) (int, error) {
 	sitesRoot, err := h.SafePath(m.webRoot, "sites")
 	if err != nil {
 		return 0, fmt.Errorf("sites.Manager: resolve sites root: %w", err)
@@ -307,6 +310,11 @@ func (m *DefaultManager) CleanupOrphanedReleaseStaging(ctx context.Context) (int
 			return 0, nil
 		}
 		return 0, fmt.Errorf("sites.Manager: read sites root: %w", err)
+	}
+	cutoff := time.Now().Add(-olderThan)
+	abandoned := func(entry os.DirEntry) bool {
+		info, err := entry.Info()
+		return err == nil && entry.IsDir() && !info.ModTime().After(cutoff)
 	}
 	removed := 0
 	for _, siteEntry := range entries {
@@ -328,15 +336,34 @@ func (m *DefaultManager) CleanupOrphanedReleaseStaging(ctx context.Context) (int
 			if err := ctx.Err(); err != nil {
 				return removed, err
 			}
-			if !release.IsDir() || !strings.HasPrefix(release.Name(), ".stepanel-release-") {
+			if !strings.HasPrefix(release.Name(), ".stepanel-release-") || !abandoned(release) {
 				continue
 			}
-			path := filepath.Join(siteRoot, release.Name())
-			if err := m.DiscardReleaseStaging(ctx, siteEntry.Name(), path); err != nil {
+			if err := m.DiscardReleaseStaging(ctx, siteEntry.Name(), filepath.Join(siteRoot, release.Name())); err != nil {
 				return removed, err
 			}
 			removed++
 		}
+	}
+	stageParent, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
+	if err != nil {
+		return removed, fmt.Errorf("sites.Manager: resolve staging root: %w", err)
+	}
+	staged, err := os.ReadDir(stageParent)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return removed, fmt.Errorf("sites.Manager: read staging root: %w", err)
+	}
+	for _, entry := range staged {
+		if err := ctx.Err(); err != nil {
+			return removed, err
+		}
+		if !abandoned(entry) {
+			continue
+		}
+		if err := m.DiscardStaging(ctx, filepath.Join(stageParent, entry.Name())); err != nil {
+			return removed, err
+		}
+		removed++
 	}
 	return removed, nil
 }

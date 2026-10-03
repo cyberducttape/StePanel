@@ -515,66 +515,7 @@ func main() {
 				failures = append(failures, fmt.Errorf("reconcile interrupted database operations: %w: %s", err, strings.TrimSpace(string(output))))
 			}
 		}
-		databaseRecoveries, err := RecoverTransactionDatabases(cfg, cfg.RecoveryRoot)
-		if err != nil {
-			failures = append(failures, err)
-			log.Printf("recover interrupted database transactions (continuing with isolated failures): %v", err)
-		}
-		for _, id := range databaseRecoveries {
-			log.Printf("recovered databases for interrupted site transaction %s", id)
-			if err := Audit(cfg.AuditLog, "restore.database-recovered", id, "managed databases removed after unclean shutdown"); err != nil {
-				failures = append(failures, fmt.Errorf("audit database recovery %s: %w", id, err))
-			}
-		}
-		recovered, err := RecoverSiteTransactions(cfg.RecoveryRoot, cfg.WebRoot, cfg.MailRoot)
-		if err != nil {
-			failures = append(failures, err)
-			log.Printf("recover interrupted site transactions (continuing with isolated failures): %v", err)
-		}
-		for _, id := range recovered {
-			txn, loadErr := loadSiteTransaction(filepath.Join(cfg.RecoveryRoot, id))
-			if loadErr != nil {
-				failures = append(failures, fmt.Errorf("load recovered site transaction %s: %w", id, loadErr))
-				log.Printf("load recovered site transaction %s: %v", id, loadErr)
-				continue
-			}
-			if txn.HadExisting {
-				if sealErr := siteHelper(cfg, "seal", txn.Site); sealErr != nil {
-					failures = append(failures, fmt.Errorf("seal recovered site transaction %s: %w", id, sealErr))
-					log.Printf("seal recovered site transaction %s: %v", id, sealErr)
-					continue
-				}
-			}
-			log.Printf("recovered interrupted site transaction %s", id)
-			recoveryMessage := "previous site restored after unclean shutdown"
-			if !txn.HadExisting {
-				recoveryMessage = "new site removed after unclean shutdown"
-			}
-			if err := Audit(cfg.AuditLog, "restore.recovered", id, recoveryMessage); err != nil {
-				failures = append(failures, fmt.Errorf("audit site recovery %s: %w", id, err))
-			}
-		}
-		releaseRecoveries, err := recoverReleaseActivationJournals(cfg)
-		if err != nil {
-			failures = append(failures, err)
-			log.Printf("recover interrupted release activations (continuing with isolated failures): %v", err)
-		}
-		for _, id := range releaseRecoveries {
-			log.Printf("recovered interrupted release activation %s", id)
-			if err := Audit(cfg.AuditLog, "release.activation-recovered", id, "release activation reconciled after unclean shutdown"); err != nil {
-				failures = append(failures, fmt.Errorf("audit release recovery %s: %w", id, err))
-			}
-		}
-		// Pipeline checkout/build staging has no activation journal yet. If the
-		// process dies in that window, discard only manager-owned release trees
-		// after journal recovery has had first opportunity to use them.
-		if err == nil {
-			if orphaned, cleanupErr := siteManager.CleanupOrphanedReleaseStaging(context.Background()); cleanupErr != nil {
-				failures = append(failures, fmt.Errorf("cleanup orphaned release staging: %w", cleanupErr))
-			} else if orphaned > 0 {
-				log.Printf("cleaned %d orphaned release staging tree(s)", orphaned)
-			}
-		}
+		failures = append(failures, recoverUncleanShutdown(cfg, siteManager)...)
 		if replayed, err := app.replaySpooledDeployments(); err != nil {
 			failures = append(failures, fmt.Errorf("replay spooled deployment history: %w", err))
 		} else if replayed > 0 {
@@ -588,7 +529,7 @@ func main() {
 		if err := CleanupImportStages(cfg.ImportRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
 			app.observeStateError(state.NewCleanupError("import_stage_cleanup", err, "import stage cleanup during startup"))
 		}
-		if err := CleanupBackupStages(cfg.BackupRoot, time.Duration(cfg.StageRetentionHours)*time.Hour); err != nil {
+		if err := CleanupBackupStages(cfg.BackupRoot, orphanedStagingMinAge); err != nil {
 			app.observeStateError(state.NewCleanupError("backup_stage_cleanup", err, "backup stage cleanup during startup"))
 		}
 		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour, cfg.WebRoot, cfg.MailRoot); err != nil {
@@ -658,6 +599,12 @@ func main() {
 				app.Jobs.Cleanup(24 * time.Hour)
 				if err := CleanupImportStages(app.Config.ImportRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour); err != nil {
 					app.observeStateError(state.NewCleanupError("import_stage_cleanup", err, "import stage cleanup"))
+				}
+				if err := CleanupBackupStages(app.Config.BackupRoot, orphanedStagingMinAge); err != nil {
+					app.observeStateError(state.NewCleanupError("backup_stage_cleanup", err, "backup stage cleanup"))
+				}
+				if _, err := siteManager.CleanupOrphanedStaging(runCtx, orphanedStagingMinAge); err != nil {
+					app.observeStateError(state.NewCleanupError("orphaned_staging_cleanup", err, "orphaned staging cleanup"))
 				}
 				if err := CleanupSiteTransactions(app.Config.RecoveryRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour, app.Config.WebRoot, app.Config.MailRoot); err != nil {
 					app.observeStateError(state.NewCleanupError("site_recovery_cleanup", err, "site recovery cleanup"))

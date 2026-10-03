@@ -424,9 +424,10 @@ upgraded to remove the transitional sudo policy.
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit
 - [x] Boundary-level failure tests cover all 5 operations
-- [ ] Multi-point process-kill/restart drills cover all 5 operations (the hosted matrix now covers alternate boundaries for the listed workflows, but the full required point-by-point matrix remains open)
-- [ ] No mysterious half-states discovered
-- [ ] Recovery is deterministic
+- [x] Multi-point process-kill/restart drills cover all 5 operations at repository level — `crash_drill_test.go` kills a child process with SIGKILL at every instrumented boundary of backup (4), file restore (4), termination (9), and account suspension (2), then runs the production startup recovery (`recoverUncleanShutdown`) or resumes the durable job and verifies the final state; deploy activation is covered by `TestReleaseActivationRecoversAfterProcessKill`. Hosted installed-host runs remain the evidence for real services
+- [x] No mysterious half-states discovered — the drills found two real leaks, both fixed: restore scratch trees under the import root and manager staging trees were never cleaned after a crash
+- [x] Recovery is deterministic at repository level — 114 consecutive SIGKILL drills (6 repetitions of all 19 kill points) recovered to the same verified state
+- [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM
 
 ---
 
@@ -437,7 +438,7 @@ upgraded to remove the transitional sudo policy.
 - [x] Gate 2: Cross-Process Locks - Lock layer enforced; interrupted-workflow acceptance covered by `workflow_interruption_test.go`
 - [x] Gate 3: Accurate Capabilities - No "available: true" for unimplemented
 - [x] Gate 4: Automated DB Restoration - Transactional end-to-end
-- [ ] Gate 5: Failure Injection - Survives failure at every step
+- [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; real ENOSPC and power-loss VM evidence remain)
 
 ### Testing
 - [ ] Adversarial concurrency tests (5 scenarios)

@@ -8,6 +8,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Crash recovery proven at every boundary (Gate 5)**: new drills kill a
+  real child process with SIGKILL at each of 19 instrumented points across
+  backup, file restore, termination, and account suspension, then run the
+  same startup recovery the panel runs (now `recoverUncleanShutdown`) or
+  resume the durable job. 114 consecutive drills recovered to the same
+  verified state.
+- **Crash leftovers are cleaned up (reliability)**: the drills showed that a
+  crash during a restore left its extracted copy under the import root and its
+  copied tree in manager staging forever, potentially gigabytes each.
+  Import-root scratch trees and manager staging are now removed once
+  abandoned, at startup and every 15 minutes, and a test fails if a new
+  scratch prefix is added without cleanup. Import-stage cleanup also no
+  longer errors when the import root does not exist yet.
+- **Startup no longer deletes a running worker's release checkout**: panel
+  startup discarded every release staging tree, including one an external
+  worker process was still building. Staging cleanup now removes only trees
+  untouched for longer than the longest operation timeout.
 - **Interrupted workflows are proven to end in a known good state (Gate 2)**:
   new acceptance tests drive the real backup, restore, release activation,
   resource update, and termination workflows, interrupt each at every

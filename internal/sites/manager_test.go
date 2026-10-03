@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newManager(t *testing.T) (*DefaultManager, string) {
@@ -144,9 +145,9 @@ func TestCleanupOrphanedReleaseStaging(t *testing.T) {
 	if err := os.MkdirAll(previous, 0750); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := m.CleanupOrphanedReleaseStaging(context.Background())
+	removed, err := m.CleanupOrphanedStaging(context.Background(), 0)
 	if err != nil {
-		t.Fatalf("CleanupOrphanedReleaseStaging: %v", err)
+		t.Fatalf("CleanupOrphanedStaging: %v", err)
 	}
 	if removed != 2 {
 		t.Fatalf("removed = %d, want 2", removed)
@@ -640,5 +641,44 @@ func TestSyncTreeSyncsFilesAndSkipsSymlinks(t *testing.T) {
 	}
 	if err := syncTree(context.Background(), root); err != nil {
 		t.Fatalf("syncTree: %v", err)
+	}
+}
+
+func TestCleanupOrphanedStagingSparesTreesStillInUse(t *testing.T) {
+	m, root := newManager(t)
+	if err := os.MkdirAll(filepath.Join(root, "sites", "demo", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	abandonedRelease, err := m.CreateReleaseStaging(context.Background(), "demo", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveRelease, err := m.CreateReleaseStaging(context.Background(), "demo", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	abandonedStage, err := m.CreateStaging(context.Background(), ".stepanel-backup-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveStage, err := m.CreateStaging(context.Background(), ".stepanel-backup-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-4 * time.Hour)
+	for _, path := range []string{abandonedRelease, abandonedStage} {
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := m.CleanupOrphanedStaging(context.Background(), 3*time.Hour)
+	if err != nil || removed != 2 {
+		t.Fatalf("removed=%d err=%v, want the two abandoned trees", removed, err)
+	}
+	for path, want := range map[string]bool{abandonedRelease: false, abandonedStage: false, liveRelease: true, liveStage: true} {
+		_, err := os.Stat(path)
+		if exists := err == nil; exists != want {
+			t.Errorf("%s exists=%v, want %v", filepath.Base(path), exists, want)
+		}
 	}
 }

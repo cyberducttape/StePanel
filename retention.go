@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,21 +12,59 @@ import (
 
 var restoreStagePattern = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[a-z0-9_-]{1,32}$`)
 
+// temporaryImportStagePrefixes are the os.MkdirTemp prefixes workflows use
+// for scratch trees under the import root. Unlike retained restore stages,
+// they hold no audit value and are removed once a crash has abandoned them.
+// TestEveryImportRootTempDirIsCleaned keeps this list complete.
+var temporaryImportStagePrefixes = []string{
+	"backup-database-restore-",
+	"backup-files-restore-",
+	"backup-rehearsal-",
+	"backup-restore-",
+	"offsite-restore-",
+	"staging-db-",
+	"wpress-restore-",
+}
+
+func isTemporaryImportStage(name string) bool {
+	for _, prefix := range temporaryImportStagePrefixes {
+		if rest, ok := strings.CutPrefix(name, prefix); ok && rest != "" && strings.Trim(rest, "0123456789") == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// CleanupImportStages removes retained restore stages and orphaned uploads
+// older than maxAge, and temporary scratch trees abandoned for longer than
+// orphanedStagingMinAge. A missing root has nothing to clean.
 func CleanupImportStages(root string, maxAge time.Duration) error {
 	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	cutoff := time.Now().Add(-maxAge)
+	scratchCutoff := time.Now().Add(-orphanedStagingMinAge)
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
+		path := filepath.Join(root, entry.Name())
+		if entry.IsDir() && isTemporaryImportStage(entry.Name()) {
+			if info.ModTime().Before(scratchCutoff) {
+				if err := os.RemoveAll(path); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if info.ModTime().After(cutoff) {
 			continue
 		}
-		path := filepath.Join(root, entry.Name())
 		if entry.IsDir() && restoreStagePattern.MatchString(entry.Name()) {
 			if err := os.RemoveAll(path); err != nil {
 				return err
