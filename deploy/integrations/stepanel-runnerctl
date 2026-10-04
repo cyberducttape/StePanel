@@ -152,6 +152,11 @@ run_podman_as_site() {
   # only /dev/fuse under the closed device policy.
   local device_args=(--property='DeviceAllow=/dev/fuse rw')
   [[ $network_mode == egress ]] && device_args+=(--property='DeviceAllow=/dev/net/tun rw')
+  # Rootless Podman must create user, mount, network, PID, and UTS
+  # namespaces. The transient unit is already constrained by its closed
+  # device policy, protected host filesystems, and explicit resource limits;
+  # denying namespace creation here makes every rootless pull fail before
+  # the container can start.
   if systemd-run --quiet --wait --pipe --collect --service-type=exec --unit="$runner_unit" \
     --uid="$site_user" --gid="$site_user" --working-directory="$root" \
     --setenv="HOME=$site_root" --setenv="XDG_RUNTIME_DIR=/run/$runner_runtime" \
@@ -163,7 +168,6 @@ run_podman_as_site() {
     --property=ProtectProc=invisible --property=ProtectKernelTunables=yes \
     --property=ProtectKernelModules=yes --property=ProtectKernelLogs=yes \
     --property=ProtectClock=yes --property=RestrictRealtime=yes \
-    --property='RestrictNamespaces=cgroup ipc mnt net pid uts user' \
     --property='RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK' \
     --property=CPUQuota="${cpu_percent}%" \
     --property=MemoryMax="$((memory_mb + memory_overhead))M" \
