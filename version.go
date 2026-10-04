@@ -1,4 +1,4 @@
-package main
+package stepanel
 
 const Version = "0.7.0"
 

@@ -57,7 +57,7 @@ Assets cannot be overridden at runtime; this is intentional.
 
 3. Rebuild and test:
    ```bash
-   go build -o stepanel .
+   go build -o stepanel ./cmd/stepanel
    ./stepanel
    ```
 

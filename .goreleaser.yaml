@@ -6,7 +6,7 @@ before:
 
 builds:
   - id: stepanel
-    main: .
+    main: ./cmd/stepanel
     binary: stepanel
     env:
       - CGO_ENABLED=0
@@ -18,7 +18,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X main.Commit={{ .FullCommit }} -X main.BuildDate={{ .Date }}
+      - -s -w -X github.com/cyberducttape/StePanel.Commit={{ .FullCommit }} -X github.com/cyberducttape/StePanel.BuildDate={{ .Date }}
   - id: stepanel-root
     main: ./cmd/stepanel-root
     binary: stepanel-root

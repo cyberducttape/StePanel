@@ -95,7 +95,7 @@ jobs:
         with:
           name: go-coverage
           path: coverage.out
-      - run: go build -trimpath -o stepanel .
+      - run: go build -trimpath -o stepanel ./cmd/stepanel
       - name: Isolated startup smoke test
         run: |
           set -eu
@@ -283,7 +283,7 @@ jobs:
         with:
           go-version: '1.26.x'
           cache: true
-      - run: go build -o stepanel .
+      - run: go build -o stepanel ./cmd/stepanel
       - run: npm ci --no-audit --no-fund
       - name: Frontend unit tests
         run: npm run test:unit

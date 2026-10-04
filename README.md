@@ -82,7 +82,7 @@ Requirements: Go 1.26+.
 git clone https://github.com/cyberducttape/StePanel.git
 cd StePanel
 make check
-go run .
+go run ./cmd/stepanel
 ```
 
 Open <http://localhost:8080>. Local development uses `data/imports` and `data/www`, so root access is not required.

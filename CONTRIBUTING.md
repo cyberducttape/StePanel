@@ -12,7 +12,7 @@ Go 1.26 is required for `range over int` and other standard library improvements
 git clone git@github.com:cyberducttape/StePanel.git
 cd StePanel
 make check
-go run .
+go run ./cmd/stepanel
 ```
 
 The Make targets intentionally bound Go package and runtime concurrency because

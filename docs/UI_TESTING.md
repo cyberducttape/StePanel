@@ -8,7 +8,7 @@ job in `.github/workflows/ci.yml`), so it is a merge gate.
 root with generated test-only secrets, waits for `/livez`, and runs the suite:
 
 ```sh
-go build -o stepanel .
+go build -o stepanel ./cmd/stepanel
 npm ci
 npx playwright install chromium
 ./scripts/e2e-ui-test.sh ./stepanel

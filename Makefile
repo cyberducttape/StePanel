@@ -1,6 +1,6 @@
 APP := stepanel
 GO ?= go
-LDFLAGS := -s -w -X main.Commit=$${GIT_COMMIT:-dev} -X main.BuildDate=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -s -w -X github.com/cyberducttape/StePanel.Commit=$${GIT_COMMIT:-dev} -X github.com/cyberducttape/StePanel.BuildDate=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 .PHONY: all build test test-race fmt fmt-check vet coverage coverage-check fuzz-smoke check recovery-drill mixed-load production-gate audit release-check clean
 
@@ -16,7 +16,7 @@ TEST_TIMEOUT ?= 10m
 all: check build
 
 build:
-	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(APP) .
+	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(APP) ./cmd/stepanel
 
 test:
 	GOMAXPROCS=$(TEST_PROCS) $(GO) test -p $(TEST_PARALLELISM) -timeout $(TEST_TIMEOUT) ./...

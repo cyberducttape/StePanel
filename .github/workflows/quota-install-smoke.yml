@@ -31,7 +31,7 @@ jobs:
           cache: true
       - name: Build release-shaped installer tree
         run: |
-          go build -trimpath -ldflags='-s -w' -o stepanel .
+          go build -trimpath -ldflags='-s -w' -o stepanel ./cmd/stepanel
           go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root
           go test -c -trimpath -o stepanel-enospc.test .
       - name: Boot quota-enabled disposable Ubuntu guest and install

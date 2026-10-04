@@ -3,7 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Commit=docker -X main.BuildDate=container" -o /out/stepanel .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cyberducttape/StePanel.Commit=docker -X github.com/cyberducttape/StePanel.BuildDate=container" -o /out/stepanel ./cmd/stepanel
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 

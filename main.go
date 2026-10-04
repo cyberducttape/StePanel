@@ -1,4 +1,4 @@
-package main
+package stepanel
 
 import (
 	"bytes"
@@ -142,7 +142,10 @@ func (s *startupState) status() (bool, error) {
 	return s.inProgress, s.err
 }
 
-func main() {
+// Main runs the stepanel executable: it dispatches the command-line
+// subcommands and otherwise starts the panel. cmd/stepanel is the binary
+// entry point; the application itself lives in this importable package.
+func Main() {
 	workerMode := len(os.Args) == 2 && os.Args[1] == "worker"
 	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
 		_, _ = fmt.Fprintf(os.Stdout, "StePanel %s\ncommit: %s\nbuilt: %s\n", Version, Commit, BuildDate)
