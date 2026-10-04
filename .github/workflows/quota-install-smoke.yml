@@ -18,7 +18,11 @@ jobs:
     # Run the installer in a genuine guest because the hosted runner's outer
     # mount namespace cannot create loop mounts. TCG avoids requiring nested KVM.
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # The install smoke alone may use 45 minutes on a TCG guest. The
+    # rootless-runner check, abrupt-loss recovery loop, and final ENOSPC drill
+    # have their own 10m/10m/10m bounds, so a 60-minute job timeout can expire
+    # while a bounded step is still making progress.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -179,7 +183,11 @@ jobs:
           rm -f "$vm_root/qemu.pid"
           start_guest
           recovered=0
+          recovery_deadline=$((SECONDS + 600))
           for _ in $(seq 1 180); do
+            if (( SECONDS >= recovery_deadline )); then
+              break
+            fi
             if timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
               'sudo systemctl is-active --quiet stepanel.service stepanel-worker.service && curl --fail --silent --show-error http://127.0.0.1:8090/readyz >/dev/null'; then
               recovered=1

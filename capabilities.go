@@ -482,10 +482,10 @@ func (a *App) checkFilesystemQuotasCapability() Capability {
 	if best == "" {
 		return newCapability(CapabilityUnsupported, "could not identify a mountpoint hosting the sites tree")
 	}
-	if !strings.Contains(bestOptions, "usrquota") && !strings.Contains(bestOptions, "grpquota") && !strings.Contains(bestOptions, "prjquota") {
-		return newCapability(CapabilityUnsupported, fmt.Sprintf("mount %s hosting the sites tree does not have quota options enabled", best))
+	if !hasUserQuotaMountOption(bestOptions) {
+		return newCapability(CapabilityUnsupported, fmt.Sprintf("mount %s hosting the sites tree does not have user quota options enabled", best))
 	}
-	return newCapability(CapabilityLocal, "the sites filesystem advertises quota mount options; effective quota enforcement is not verified by this probe")
+	return newCapability(CapabilityLocal, "the sites filesystem advertises user-quota mount options; effective quota enforcement is not verified by this probe")
 }
 
 func (a *App) checkOffsiteBackupCapability() Capability {

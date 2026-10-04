@@ -151,27 +151,31 @@ func (a *App) checkFilesystemQuotaReadiness() ProductionReadinessCheck {
 		}
 	}
 
-	// Check if WebRoot has quota support
-	hasQuotas := false
+	// Select the same longest containing mount used by startup validation; a
+	// shorter parent mount must not make a separately mounted sites tree look
+	// quota-enabled.
+	bestMount := ""
+	bestOptions := ""
 	if mounts, err := os.ReadFile("/proc/mounts"); err == nil {
 		for _, line := range strings.Split(string(mounts), "\n") {
 			fields := strings.Fields(line)
-			if len(fields) >= 4 && strings.HasPrefix(a.Config.WebRoot, fields[1]) {
-				opts := fields[3]
-				if strings.Contains(opts, "usrquota") || strings.Contains(opts, "grpquota") || strings.Contains(opts, "prjquota") {
-					hasQuotas = true
-					break
-				}
+			if len(fields) < 4 {
+				continue
+			}
+			mountpoint := fields[1]
+			containsWebRoot := mountpoint == "/" || mountpoint == a.Config.WebRoot || strings.HasPrefix(a.Config.WebRoot, mountpoint+"/")
+			if containsWebRoot && len(mountpoint) >= len(bestMount) {
+				bestMount, bestOptions = mountpoint, fields[3]
 			}
 		}
 	}
 
-	if hasQuotas {
+	if hasUserQuotaMountOption(bestOptions) {
 		return ProductionReadinessCheck{
 			Name:     "Filesystem Quotas",
 			Status:   "pass",
 			Severity: "info",
-			Message:  "Filesystem quota enforcement enabled on STEPANEL_WEB_ROOT",
+			Message:  "User filesystem quota options enabled on STEPANEL_WEB_ROOT (" + bestMount + ")",
 		}
 	}
 
@@ -179,8 +183,8 @@ func (a *App) checkFilesystemQuotaReadiness() ProductionReadinessCheck {
 		Name:        "Filesystem Quotas",
 		Status:      "fail",
 		Severity:    "critical",
-		Message:     "STEPANEL_WEB_ROOT does not have quota support enabled (usrquota/grpquota/prjquota)",
-		Remediation: "Enable quotas on mount: mount -o remount,usrquota /var/www or update /etc/fstab",
+		Message:     "STEPANEL_WEB_ROOT does not have user quota support enabled (usrquota/uquota/usrjquota)",
+		Remediation: "Enable user quotas on mount: mount -o remount,usrquota /var/www or update /etc/fstab",
 	}
 }
 

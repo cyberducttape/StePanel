@@ -330,7 +330,7 @@ for db_service in mysql mariadb postgresql; do
 done
 echo "  unix login accounts (uid >= 1000): $(awk -F: '$3 >= 1000 && $3 < 65534' /etc/passwd | wc -l)"
 echo "PROPOSED CHANGES:"
-echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl tar gzip ca-certificates git sudo logrotate $WEB_PACKAGE $DB_PACKAGE"
+echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl quota tar gzip ca-certificates git sudo logrotate $WEB_PACKAGE $DB_PACKAGE"
 if web_package_available "$WEB_PACKAGE"; then
   echo "  web server package $WEB_PACKAGE: available"
 elif [[ "$PKG" == "apt" ]]; then
@@ -371,14 +371,26 @@ if (( GUIDED == 1 )); then
   fi
 fi
 
-if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates curl git sudo logrotate
+if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota tar gzip ca-certificates curl git sudo logrotate
 else
   # Rocky/Alma cloud images may ship the full curl package while minimal
   # images ship curl-minimal. They provide conflicting binaries, so do not
   # ask DNF to install curl-minimal when either provider is already present.
   RHEL_CURL_PACKAGES=(curl-minimal)
   if rpm -q curl >/dev/null 2>&1 || rpm -q curl-minimal >/dev/null 2>&1; then RHEL_CURL_PACKAGES=(); fi
-  dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl tar gzip ca-certificates "${RHEL_CURL_PACKAGES[@]}" git sudo logrotate
+  dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota tar gzip ca-certificates "${RHEL_CURL_PACKAGES[@]}" git sudo logrotate
+fi
+if (( UNSAFE_LAB == 0 )); then
+  quota_status=$(quotaon -p -u /var/www 2>&1) || {
+    echo 'production requires active user quotas on /var/www; quotaon failed:' >&2
+    echo "$quota_status" >&2
+    exit 1
+  }
+  if ! grep -Fq 'user quota on /var/www' <<<"$quota_status"; then
+    echo 'production requires active user quotas on /var/www; quotaon did not report user quotas enabled.' >&2
+    echo "$quota_status" >&2
+    exit 1
+  fi
 fi
 if [[ "$WEB_SERVER" == "apache" ]]; then
   if [[ "$PKG" == "apt" ]]; then apt-get install -y apache2; APACHE_SERVICE=apache2; else dnf install -y httpd; APACHE_SERVICE=httpd; fi

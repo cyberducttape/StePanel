@@ -1,8 +1,8 @@
 # Debian Bookworm runtime package inventory for the Docker image.
 #
-# This is not a complete lock file: only entries with an explicit =VERSION
-# are pinned. The other packages resolve from the live Debian repositories at
-# build time, so the image is not byte-for-byte reproducible from this file.
+# This is not a complete lock file: packages resolve from the live Debian
+# repositories at build time, so the image is not byte-for-byte reproducible
+# from this file.
 # Use a dated Debian snapshot or record a complete package lock before making
 # reproducibility claims.
 # Generated: 2026-09-21
@@ -11,8 +11,8 @@
 # To review or update these packages:
 # 1. Run: docker run -it debian:bookworm-slim apt-cache policy PACKAGE_NAME
 # 2. For a deliberate pin, find the version you want in the "Candidate:" field
-# 3. Update the version below and in Dockerfile, or leave it unpinned with the
-#    reproducibility limitation above
+# 3. Update the inventory in this file when the Dockerfile changes, or leave
+#    packages unpinned with the reproducibility limitation above
 # 4. Test the build: docker build .
 # 5. Commit the changes with justification for the update
 #
@@ -21,6 +21,6 @@
 
 ca-certificates
 curl
-libpcre2-8-0=10.42-1+deb12u1
+libpcre2-8-0
 mariadb-client
 rclone

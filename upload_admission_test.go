@@ -322,6 +322,16 @@ func TestWriteUploadErrorMapsStatuses(t *testing.T) {
 	}
 }
 
+func TestWriteUploadErrorDoesNotReflectMultipartParserDetails(t *testing.T) {
+	response := httptest.NewRecorder()
+	err := fmt.Errorf("request-controlled <script>alert(1)</script>: %w", http.ErrNotMultipart)
+	(&App{}).writeUploadError(response, httptest.NewRequest(http.MethodPost, "/api/cpmove/inspect", nil), err)
+
+	if got := response.Body.String(); strings.Contains(got, "request-controlled") || strings.Contains(got, "<script>") || !strings.Contains(got, "invalid multipart upload") {
+		t.Fatalf("multipart parser detail was reflected: %q", got)
+	}
+}
+
 // TestInspectAbortsStalledUpload guards the upload slot and reservation: a
 // client that stops sending body bytes is cut off after uploadIdleTimeout
 // with 408, and its partial object and capacity hold are released.

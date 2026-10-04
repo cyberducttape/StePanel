@@ -281,6 +281,19 @@ func TestValidateProductionExecutablePathRejectsWritableHelper(t *testing.T) {
 	}
 }
 
+func TestHasUserQuotaMountOptionMatchesHelperSupport(t *testing.T) {
+	for _, options := range []string{"rw,usrquota", "rw,uquota", "rw,usrjquota", "rw,usrjquota=aquota.user"} {
+		if !hasUserQuotaMountOption(options) {
+			t.Errorf("hasUserQuotaMountOption(%q) = false, want true", options)
+		}
+	}
+	for _, options := range []string{"rw,grpquota", "rw,prjquota", "rw,user_xattr", "rw,notusrquota"} {
+		if hasUserQuotaMountOption(options) {
+			t.Errorf("hasUserQuotaMountOption(%q) = true, want false", options)
+		}
+	}
+}
+
 func TestValidateConfigProductionRequiresFilesystemQuotaSupport(t *testing.T) {
 	// This test documents the requirement: production deployments must have
 	// filesystem quota support on the mount hosting STEPANEL_WEB_ROOT.

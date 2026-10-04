@@ -623,16 +623,28 @@ func validateWebRootFilesystemQuotas(webRoot string) error {
 	if best == "" {
 		return errors.New("could not identify a mountpoint hosting the sites tree; cannot validate quota support")
 	}
-	// Check if the mount has any quota options enabled
-	hasQuotaSupport := strings.Contains(bestOptions, "usrquota") ||
-		strings.Contains(bestOptions, "grpquota") ||
-		strings.Contains(bestOptions, "prjquota")
-	if !hasQuotaSupport {
-		return fmt.Errorf("mount %s hosting the sites tree does not have quota options enabled (usrquota, grpquota, or prjquota); "+
-			"plans cannot advertise disk quotas without filesystem enforcement. "+
-			"Configure quotas on the mount and enable with mount -o remount,usrquota /var/www or update fstab", best)
+	// Customer limits are applied with setquota -u by stepanel-sitectl, so
+	// group-only and project-only quota options are not sufficient. Accept the
+	// filesystem-specific user-quota spellings supported by that helper.
+	if !hasUserQuotaMountOption(bestOptions) {
+		return fmt.Errorf("mount %s hosting the sites tree does not have user quota options enabled (usrquota, uquota, or usrjquota); "+
+			"plans cannot advertise per-customer disk quotas without filesystem enforcement. "+
+			"Configure user quotas on the mount and enable with mount -o remount,usrquota /var/www or update fstab", best)
 	}
 	return nil
+}
+
+// hasUserQuotaMountOption reports the quota options that the site helper can
+// actually enforce with setquota -u. Keep this stricter than a generic quota
+// capability check: grpquota and prjquota alone do not provide per-user
+// enforcement for customer sites.
+func hasUserQuotaMountOption(options string) bool {
+	for _, option := range strings.Split(options, ",") {
+		if option == "usrquota" || option == "uquota" || option == "usrjquota" || strings.HasPrefix(option, "usrjquota=") {
+			return true
+		}
+	}
+	return false
 }
 
 // validateProductionExecutablePath protects the root-helper trust boundary.

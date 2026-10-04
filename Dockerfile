@@ -13,15 +13,15 @@ FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe6
 # Use a dated Debian snapshot or a complete external package lock when
 # reproducible image contents are required.
 #
-# docker/apt-pins.txt records the inventory and the one package currently
-# version-pinned; it is not a complete package lock.
+# docker/apt-pins.txt records the runtime package inventory; it is not a
+# complete package lock.
 # Never use apt-get upgrade, which pulls untested/unreviewed versions.
 # Track version updates in git with CVE or improvement justification.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        libpcre2-8-0=10.42-1+deb12u1 \
+        libpcre2-8-0 \
         mariadb-client \
         rclone \
     && rm -rf /var/lib/apt/lists/* \

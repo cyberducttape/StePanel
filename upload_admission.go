@@ -341,13 +341,13 @@ func writeUploadErrorResponse(w http.ResponseWriter, r *http.Request, err error)
 	reason := uploadRejectInvalid
 	switch {
 	case errors.As(err, &rejection):
-		http.Error(w, rejection.message, rejection.status)
+		http.Error(w, "invalid upload request", rejection.status)
 	case errors.As(err, &capacity):
 		reason = uploadRejectCapacity
 		http.Error(w, capacity.Error(), http.StatusInsufficientStorage)
 	case errors.Is(err, errUploadLengthRequired):
 		reason = uploadRejectLength
-		http.Error(w, err.Error(), http.StatusLengthRequired)
+		http.Error(w, "archive uploads require a Content-Length header", http.StatusLengthRequired)
 	case errors.Is(err, upload.ErrFileTooLarge):
 		reason = uploadRejectTooLarge
 		http.Error(w, "upload exceeds the configured size limit", http.StatusRequestEntityTooLarge)
@@ -357,7 +357,10 @@ func writeUploadErrorResponse(w http.ResponseWriter, r *http.Request, err error)
 	case errors.Is(err, upload.ErrMissingFile):
 		http.Error(w, "backup file is required", http.StatusBadRequest)
 	case errors.Is(err, upload.ErrMalformed), errors.Is(err, upload.ErrUnexpectedPart), errors.Is(err, upload.ErrFieldTooLarge), errors.Is(err, http.ErrNotMultipart), errors.Is(err, http.ErrMissingBoundary):
-		http.Error(w, "invalid upload: "+err.Error(), http.StatusBadRequest)
+		// Multipart parser errors can include request-controlled headers, field
+		// names, or filenames. Keep those details out of the response; the
+		// parser's text is not safe to reflect into an HTTP response.
+		http.Error(w, "invalid multipart upload", http.StatusBadRequest)
 	default:
 		reason = uploadRejectInternal
 		if r != nil {
