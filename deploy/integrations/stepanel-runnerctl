@@ -136,8 +136,12 @@ run_podman_as_site() {
   # Rootless Podman may fail its native-overlay capability probe inside the
   # service sandbox before it can discover the FUSE fallback. Give each
   # invocation a controlled config outside the customer-writable site tree.
-  install -d -o root -g root -m 0755 "/run/$runner_runtime/config/containers"
-  install -o root -g root -m 0644 /dev/null "/run/$runner_runtime/config/containers/storage.conf"
+  # RuntimeDirectory= is created by systemd before the command starts, but
+  # systemd-run keeps it root-owned by default. Podman needs its runroot and
+  # events directory writable by the site account, so create the directory
+  # with the same ownership before starting the transient unit.
+  install -d -o "$site_user" -g "$site_user" -m 0700 "/run/$runner_runtime/config/containers"
+  install -o "$site_user" -g "$site_user" -m 0600 /dev/null "/run/$runner_runtime/config/containers/storage.conf"
   printf '[storage.options.overlay]\nmount_program = "%s"\n' "$fuse_overlayfs" \
     > "/run/$runner_runtime/config/containers/storage.conf"
   # slirp4netns needs the TUN device for egress builds; offline builds get
