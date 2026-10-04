@@ -223,7 +223,7 @@ func TestGitDeployWebhookRejectsCrossSiteBody(t *testing.T) {
 	// Simulate what gitWebhook does after signature verification: injects the
 	// authenticated site into context. site-a is the URL/HMAC-authenticated
 	// target; the body claims site-b.
-	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, "site-a"))
+	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, authenticatedWebhook{Site: "site-a"}))
 	w := httptest.NewRecorder()
 	app.gitDeploy(w, r)
 	if w.Code != http.StatusForbidden {
@@ -263,7 +263,7 @@ func TestGitDeployWebhookAcceptsMatchingSite(t *testing.T) {
 	} {
 		app := &App{Config: Config{AuditLog: filepath.Join(t.TempDir(), "audit.jsonl"), GitAllowedHosts: "github.com"}}
 		r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(bodyPayload))
-		r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, "site-a"))
+		r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, authenticatedWebhook{Site: "site-a"}))
 		w := httptest.NewRecorder()
 		app.gitDeploy(w, r)
 		// The site-binding check has passed — we should get further, and fail
@@ -287,7 +287,7 @@ func TestGitDeployWebhookSanitizedBodyFallsThroughToAuthSite(t *testing.T) {
 	// on any site other than site-a, which is what the signature authorized.
 	body := strings.NewReader(`{"site":"SITE-B","repository":"","ref":"main"}`)
 	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", body)
-	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, "site-a"))
+	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, authenticatedWebhook{Site: "site-a"}))
 	w := httptest.NewRecorder()
 	app.gitDeploy(w, r)
 	if w.Code == http.StatusForbidden && strings.Contains(w.Body.String(), "different site") {
@@ -385,7 +385,7 @@ func TestGitDeployWebhookAuditsBeforeMutating(t *testing.T) {
 	auditLog := filepath.Join(t.TempDir(), "audit.jsonl")
 	app := &App{Config: Config{AuditLog: auditLog, GitAllowedHosts: "github.com"}}
 	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"repository":"","ref":"main"}`))
-	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, "site-a"))
+	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, authenticatedWebhook{Site: "site-a"}))
 	app.gitDeploy(httptest.NewRecorder(), r)
 	data, err := os.ReadFile(auditLog)
 	if err != nil || !strings.Contains(string(data), "webhook.deploy.accepted") || !strings.Contains(string(data), `"actor":"webhook"`) {
@@ -401,10 +401,49 @@ func TestGitDeployWebhookRefusesWhenAuditUnavailable(t *testing.T) {
 	}
 	app := &App{Config: Config{AuditLog: filepath.Join(blocker, "audit.jsonl"), GitAllowedHosts: "github.com"}}
 	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"repository":"https://github.com/x/x.git","ref":"main"}`))
-	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, "site-a"))
+	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, authenticatedWebhook{Site: "site-a"}))
 	w := httptest.NewRecorder()
 	app.gitDeploy(w, r)
 	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "audit") {
 		t.Fatalf("webhook deploy without audit = %d %s, want 503", w.Code, w.Body.String())
+	}
+}
+
+// gitDeploy must enforce the allowlists that authenticated the webhook
+// without consulting the configuration store again. Previously a failed
+// second lookup (here: no store at all) silently skipped both checks.
+func TestGitDeployWebhookEnforcesAuthenticatedPolicyWithoutStore(t *testing.T) {
+	auth := authenticatedWebhook{
+		Site:         "site-a",
+		Repositories: []string{"https://github.com/allowed/repo.git"},
+		AllowedRefs:  []string{"main"},
+	}
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		"repository": {`{"repository":"https://github.com/other/repo.git","ref":"main"}`, "repository is not authorized"},
+		"ref":        {`{"repository":"https://github.com/allowed/repo.git","ref":"evil"}`, "ref is not authorized"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			app := &App{Config: Config{AuditLog: filepath.Join(t.TempDir(), "audit.jsonl"), GitAllowedHosts: "github.com"}}
+			r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(tc.body))
+			r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, auth))
+			w := httptest.NewRecorder()
+			app.gitDeploy(w, r)
+			if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), tc.want) {
+				t.Fatalf("unauthorized webhook deploy = %d %s, want 403 %q", w.Code, w.Body.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestAuthenticatedWebhookCopiesPolicy(t *testing.T) {
+	config := &GitWebhookConfig{Site: "site-a", Repositories: []string{"a"}, AllowedRefs: []string{"main"}}
+	auth := newAuthenticatedWebhook(config)
+	config.Repositories[0] = "changed"
+	config.AllowedRefs[0] = "changed"
+	if auth.Repositories[0] != "a" || auth.AllowedRefs[0] != "main" {
+		t.Fatalf("authorization aliases mutable config: %+v", auth)
 	}
 }

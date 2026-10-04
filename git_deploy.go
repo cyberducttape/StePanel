@@ -162,7 +162,7 @@ type gitRollbackRequest struct {
 	Confirm string `json:"confirm"`
 }
 
-// gitWebhookSiteKey carries the authenticated site name for a request that
+// gitWebhookSiteKey carries the authenticatedWebhook for a request that
 // passed webhook signature verification. The site is derived from the URL
 // path (/api/sites/git-webhook/:site) and validated against that site's
 // per-site HMAC secret, so an authenticated webhook proves authority over
@@ -171,12 +171,31 @@ type gitRollbackRequest struct {
 // request came in via the webhook path.
 type gitWebhookSiteKey struct{}
 
-// webhookAuthenticatedSite returns the authenticated site name if the
+// authenticatedWebhook is the immutable authorization that gitWebhook
+// verified: the site whose secret validated the signature and the
+// repository/ref allowlists loaded in that same configuration read.
+// gitDeploy enforces exactly this policy and never re-reads it, so a failed
+// or changed second lookup can neither skip nor alter the restrictions.
+type authenticatedWebhook struct {
+	Site         string
+	Repositories []string
+	AllowedRefs  []string
+}
+
+func newAuthenticatedWebhook(config *GitWebhookConfig) authenticatedWebhook {
+	return authenticatedWebhook{
+		Site:         config.Site,
+		Repositories: append([]string(nil), config.Repositories...),
+		AllowedRefs:  append([]string(nil), config.AllowedRefs...),
+	}
+}
+
+// webhookAuthorization returns the verified webhook authorization if the
 // request came in through the webhook path and passed signature
-// verification, or "" otherwise.
-func webhookAuthenticatedSite(r *http.Request) string {
-	site, _ := r.Context().Value(gitWebhookSiteKey{}).(string)
-	return site
+// verification.
+func webhookAuthorization(r *http.Request) (authenticatedWebhook, bool) {
+	auth, ok := r.Context().Value(gitWebhookSiteKey{}).(authenticatedWebhook)
+	return auth, ok && auth.Site != ""
 }
 
 // GitWebhookConfig stores per-site webhook configuration.
@@ -502,11 +521,13 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Carry the site the signature actually authorized into gitDeploy's context.
+	// Carry the site the signature actually authorized, and the policy loaded
+	// with it, into gitDeploy's context.
 	// gitDeploy treats that value — not input.Site from the body — as the
 	// trusted deploy target, so a valid signature for siteA can never trigger a
 	// deploy on siteB regardless of what the body claims.
-	request := r.Clone(context.WithValue(r.Context(), gitWebhookSiteKey{}, site))
+	config.Site = site
+	request := r.Clone(context.WithValue(r.Context(), gitWebhookSiteKey{}, newAuthenticatedWebhook(config)))
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	a.gitDeploy(w, request)
 }
@@ -555,8 +576,8 @@ func sanitizeGitError(output string) string {
 // webhook-authenticated site is present in the context we treat it as the
 // only trusted deploy target and refuse any body claim that disagrees.
 func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
-	webhookSite := webhookAuthenticatedSite(r)
-	isWebhook := webhookSite != ""
+	webhookAuth, isWebhook := webhookAuthorization(r)
+	webhookSite := webhookAuth.Site
 	if r.Method != http.MethodPost || (!a.Auth.CSRF(r) && !isWebhook) {
 		http.Error(w, "invalid request", http.StatusForbidden)
 		return
@@ -598,20 +619,20 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isWebhook && a.Webhooks != nil {
-		config, err := a.Webhooks.GetWebhookConfig(input.Site)
-		if err == nil && config != nil {
-			repoLower := strings.ToLower(strings.TrimSpace(input.Repository))
-			if len(config.Repositories) > 0 && !containsString(config.Repositories, repoLower) {
-				http.Error(w, "repository is not authorized for this webhook", http.StatusForbidden)
-				recordAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("repository not in whitelist: %s", input.Repository))
-				return
-			}
-			if len(config.AllowedRefs) > 0 && !matchRefPattern(input.Ref, config.AllowedRefs) {
-				http.Error(w, "ref is not authorized for this webhook", http.StatusForbidden)
-				recordAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("ref not in whitelist: %s", input.Ref))
-				return
-			}
+	if isWebhook {
+		// Enforce the allowlists gitWebhook loaded alongside the secret that
+		// authenticated this request. Re-reading them here would fail open on
+		// a transient store error and race configuration changes.
+		repoLower := strings.ToLower(strings.TrimSpace(input.Repository))
+		if len(webhookAuth.Repositories) > 0 && !containsString(webhookAuth.Repositories, repoLower) {
+			http.Error(w, "repository is not authorized for this webhook", http.StatusForbidden)
+			recordAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("repository not in whitelist: %s", input.Repository))
+			return
+		}
+		if len(webhookAuth.AllowedRefs) > 0 && !matchRefPattern(input.Ref, webhookAuth.AllowedRefs) {
+			http.Error(w, "ref is not authorized for this webhook", http.StatusForbidden)
+			recordAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("ref not in whitelist: %s", input.Ref))
+			return
 		}
 	}
 	actor := a.Auth.UsernameForRequest(r)
