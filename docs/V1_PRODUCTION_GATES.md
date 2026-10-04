@@ -18,6 +18,41 @@ The design is sound. The implementation is 85% there. The remaining work is:
 - Testing failure paths rigorously
 - Making recovery guarantees explicit
 
+## Finite release contract
+
+The following items are release gates, not general roadmap suggestions. A
+release may not be described as **StePanel 1.0 — production-ready for
+operator-managed single-host deployments** until every P0 item has executable
+evidence recorded in this document or a linked result artifact.
+
+### P0 — required before 1.0
+
+| Requirement | Current status | Evidence / remaining work |
+|-------------|----------------|---------------------------|
+| Encrypted durable payloads for archive DB credentials | ✅ Implemented | Archive restore rejects missing `STEPANEL_ACCOUNT_KEY`; encrypted-payload tests cover acceptance and rejection. |
+| Fail-closed archive handling | ✅ Implemented | Unsafe paths, links, and unsupported objects abort staged import; importer safety tests pass. |
+| Preserve restrictive imported file modes | ✅ Implemented | TAR/ZIP extraction preserves ordinary permission bits and strips special bits; mode tests pass. |
+| Realistic disk admission and reservations | ⚠️ Partial | Known `Content-Length` is admitted using the actual archive size; unknown-length streams still need a fully progressive reservation/recheck model. |
+| VM crash testing: power loss, ENOSPC, DB outage, broker interruption, worker death | ⚠️ Partial | Repository and disposable-VM interruption tests exist; real ENOSPC and host power-loss evidence remain open. |
+| Repeated recovery scenarios | ⚠️ Partial | 114 repository-level SIGKILL repetitions are recorded; the VM failure matrix must repeat each scenario and publish results. |
+| Typed privileged-operation protocol | ⚠️ Partial | Native typed broker operations exist, but schema-validated compatibility helper RPCs remain. They must be eliminated or explicitly accepted as a documented 1.0 exception. |
+| Release documentation reconciled with executable evidence | ⚠️ Open | Every checked claim must link to a current test result, hosted run, or reproducible artifact; stale claims must be downgraded or removed. |
+
+### P1 — strongly recommended for 1.0
+
+These items do not silently become release claims. They are tracked separately:
+
+- SMTP and generic webhook notifications for failed or degraded operations.
+- Reversible site suspend/resume with reason, audit event, and capability
+  reporting.
+- First-class blank PHP, WordPress, Git, and Node site creation workflows.
+- Recovery Proof that rehearses filesystem restore, database restore,
+  configuration regeneration, application startup, and an HTTP health probe.
+
+Until Recovery Proof exists, recovery rehearsal status must say exactly what it
+proves: current archive-level verification does not prove database import or
+application startup.
+
 ---
 
 ## Gate 1: One Lifecycle Authority
