@@ -79,6 +79,7 @@
         <div class="security-grid">{{ range .Security }}<article class="security-item"><span class="status {{ if eq .Status "pass" }}status-ok{{ else }}status-warn{{ end }}"><i></i>{{ .Status }}</span><strong>{{ .Name }}</strong><small>{{ .Detail }}</small></article>{{ end }}</div>
       </section>
       <div class="section-heading operator-section" id="operations"><div><p class="eyebrow">Administrator view</p><h2>Platform operations</h2></div><a class="quiet-action" href="/api/services">View JSON →</a></div>
+      <section class="import-panel capability-center" id="capabilityCenter" aria-labelledby="capabilityCenterHeading" hidden></section>
       <section class="resource-table" aria-label="Infrastructure resources">
         <div class="table-head"><span>Resource</span><span>Location</span><span>State</span><span>Load</span><span>Uptime</span><span></span></div>
         {{ range .Servers }}<div class="table-row"><span class="resource-name"><span class="server-icon" aria-hidden="true">⌁</span><span><strong>{{ .Name }}</strong><small>Local service</small></span></span><span class="muted">{{ .Region }}</span><span><span class="status {{ if or (eq .Status "active") (eq .Status "installed") (eq .Status "enabled") }}status-ok{{ else }}status-warn{{ end }}"><i aria-hidden="true"></i>{{ .Status }}</span></span><span class="mono">{{ .Load }}</span><span class="mono muted">{{ .Uptime }}</span><span></span></div>{{ end }}
@@ -158,6 +159,7 @@
 <script src="/static/admin-accounts.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/nav.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/health.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/capabilities.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/theme.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/cpmove.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/deploy.js?v={{ .AssetVersion }}" defer></script>
