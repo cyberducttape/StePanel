@@ -47,8 +47,96 @@ func (a *Analyzer) Analyze(source, destination ServerInventory) *MigrationAnalys
 
 	// Generate recommended actions
 	analysis.RecommendedActions = a.generateRecommendations(analysis)
+	a.buildReadinessSummary(analysis)
 
 	return analysis
+}
+
+func (a *Analyzer) buildReadinessSummary(analysis *MigrationAnalysis) {
+	checks := []ReadinessCheck{}
+	add := func(status, category, title, detail string, evidence ...string) {
+		checks = append(checks, ReadinessCheck{Status: status, Category: category, Title: title, Detail: detail, Evidence: evidence})
+	}
+
+	phpStatus := "pass"
+	phpDetail := fmt.Sprintf("source PHP %s; destination PHP %s", analysis.SourceInventory.PHP.Version, analysis.DestinationInventory.PHP.Version)
+	if analysis.SourceInventory.PHP.Version == "" || analysis.DestinationInventory.PHP.Version == "" {
+		phpStatus, phpDetail = "unknown", "PHP version was not detected on both endpoints"
+	} else if strings.Split(analysis.SourceInventory.PHP.Version, ".")[0] != strings.Split(analysis.DestinationInventory.PHP.Version, ".")[0] {
+		phpStatus = "warning"
+	}
+	add(phpStatus, "php", "PHP runtime", phpDetail)
+
+	dbStatus := "pass"
+	dbDetail := fmt.Sprintf("source %s %s; destination %s %s", analysis.SourceInventory.Database.Type, analysis.SourceInventory.Database.Version, analysis.DestinationInventory.Database.Type, analysis.DestinationInventory.Database.Version)
+	if analysis.SourceInventory.Database.Type == "" || analysis.DestinationInventory.Database.Type == "" {
+		dbStatus, dbDetail = "unknown", "database type was not detected on both endpoints"
+	} else if hasIssue(analysis.Blockers, "database_type") {
+		dbStatus = "blocker"
+	}
+	add(dbStatus, "database", "Database compatibility", dbDetail)
+
+	diskStatus := "pass"
+	diskDetail := fmt.Sprintf("%d GB required; %d GB available", analysis.RequiredDestinationGB, analysis.DestinationInventory.SystemResources.AvailableDiskGB)
+	if hasIssue(analysis.Blockers, "disk_space") {
+		diskStatus = "blocker"
+	} else if hasIssue(analysis.Warnings, "disk_space") {
+		diskStatus = "warning"
+	}
+	add(diskStatus, "disk", "Disk capacity", diskDetail)
+
+	extStatus := "pass"
+	extDetail := fmt.Sprintf("%d source PHP extensions detected", len(analysis.SourceInventory.PHP.Extensions))
+	if hasIssue(analysis.Blockers, "php_extension") {
+		extStatus = "blocker"
+	} else if hasIssue(analysis.Warnings, "php_extension") {
+		extStatus = "warning"
+	}
+	add(extStatus, "php_extension", "PHP extensions", extDetail)
+
+	appStatus := "unknown"
+	appDetail := "no application detection evidence was collected"
+	if len(analysis.SourceInventory.Applications) > 0 || len(analysis.SourceInventory.Sites) > 0 {
+		appStatus = "pass"
+		appDetail = fmt.Sprintf("%d application/site record(s) detected", len(analysis.SourceInventory.Applications)+len(analysis.SourceInventory.Sites))
+	}
+	add(appStatus, "application", "Application detected", appDetail)
+
+	// DNS and mailbox migration are not currently part of ServerInventory.
+	// Surface that limitation explicitly instead of manufacturing a green check.
+	add("unknown", "dns_mail", "DNS and mail inventory", "source scan does not yet provide DNS records, mailboxes, or forwarders")
+
+	analysis.ReadinessChecks = checks
+	score := 0
+	for _, check := range checks {
+		switch check.Status {
+		case "pass":
+			score += 100
+		case "warning":
+			score += 60
+		case "unknown":
+			score += 40
+		}
+	}
+	if len(checks) > 0 {
+		analysis.ReadinessScore = score / len(checks)
+	}
+	if len(analysis.Blockers) > 0 {
+		analysis.RecommendedAction = "Resolve all blocking findings before migration"
+	} else if len(analysis.Warnings) > 0 {
+		analysis.RecommendedAction = "Review migration warnings and rehearse the cutover on staging"
+	} else {
+		analysis.RecommendedAction = "Create a verified destination backup and proceed with a staged migration"
+	}
+}
+
+func hasIssue(issues []Issue, category string) bool {
+	for _, issue := range issues {
+		if issue.Category == category {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Analyzer) checkPHPCompatibility(analysis *MigrationAnalysis) {

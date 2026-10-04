@@ -817,8 +817,10 @@ paths:
               properties:
                 site: {type: string, pattern: '^[a-z0-9_-]{1,32}$'}
                 confirmation: {type: string, example: 'DELETE example'}
+                dry_run: {type: boolean, description: Return the validated change plan without queueing termination}
       responses:
         '202': {description: Durable termination job queued}
+        '200': {description: Deterministic termination plan returned when dry_run is true}
         '404': {description: Site document root not found}
         '503': {description: Termination cannot proceed because a required helper or backup is unavailable}
   /api/backups:

@@ -101,20 +101,34 @@ type ExternalService struct {
 
 // MigrationAnalysis compares two inventories and identifies issues
 type MigrationAnalysis struct {
-	Mode                  string          `json:"mode,omitempty"`        // "real" for the read-only source scan
-	DataSource            string          `json:"data_source,omitempty"` // "actual-server-scan" for the SSH inventory
-	SourceInventory       ServerInventory `json:"source_inventory"`
-	DestinationInventory  ServerInventory `json:"destination_inventory"`
-	AnalysisTime          time.Time       `json:"analysis_time"`
-	Blockers              []Issue         `json:"blockers"`      // Migration cannot proceed
-	Warnings              []Issue         `json:"warnings"`      // Migration possible but risky
-	InfoMessages          []string        `json:"info_messages"` // Informational
-	ReadyForMigration     bool            `json:"ready_for_migration"`
-	EstimatedDataGB       int64           `json:"estimated_data_gb"`
-	RequiredDestinationGB int64           `json:"required_destination_gb"`
-	EstimatedTransferMin  int             `json:"estimated_transfer_minutes_min"`
-	EstimatedTransferMax  int             `json:"estimated_transfer_minutes_max"`
-	RecommendedActions    []string        `json:"recommended_actions"`
+	Mode                  string           `json:"mode,omitempty"`        // "real" for the read-only source scan
+	DataSource            string           `json:"data_source,omitempty"` // "actual-server-scan" for the SSH inventory
+	SourceInventory       ServerInventory  `json:"source_inventory"`
+	DestinationInventory  ServerInventory  `json:"destination_inventory"`
+	AnalysisTime          time.Time        `json:"analysis_time"`
+	Blockers              []Issue          `json:"blockers"`      // Migration cannot proceed
+	Warnings              []Issue          `json:"warnings"`      // Migration possible but risky
+	InfoMessages          []string         `json:"info_messages"` // Informational
+	ReadyForMigration     bool             `json:"ready_for_migration"`
+	EstimatedDataGB       int64            `json:"estimated_data_gb"`
+	RequiredDestinationGB int64            `json:"required_destination_gb"`
+	EstimatedTransferMin  int              `json:"estimated_transfer_minutes_min"`
+	EstimatedTransferMax  int              `json:"estimated_transfer_minutes_max"`
+	RecommendedActions    []string         `json:"recommended_actions"`
+	ReadinessScore        int              `json:"readiness_score"`
+	ReadinessChecks       []ReadinessCheck `json:"readiness_checks"`
+	RecommendedAction     string           `json:"recommended_action,omitempty"`
+}
+
+// ReadinessCheck is a concise operator-facing conclusion backed by the
+// detailed blockers and warnings above. Unknown means the source scan did
+// not collect enough evidence; it must never be rendered as a pass.
+type ReadinessCheck struct {
+	Status   string   `json:"status"` // pass, warning, blocker, unknown
+	Category string   `json:"category"`
+	Title    string   `json:"title"`
+	Detail   string   `json:"detail,omitempty"`
+	Evidence []string `json:"evidence,omitempty"`
 }
 
 // Issue represents a blocker or warning

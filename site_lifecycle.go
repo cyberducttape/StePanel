@@ -20,6 +20,60 @@ type durableSiteTerminationRequest struct {
 	Actor string `json:"actor"`
 }
 
+type terminationPlanCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // pass, warning, blocker
+	Detail string `json:"detail"`
+}
+
+type terminationPlan struct {
+	Operation     string                 `json:"operation"`
+	Site          string                 `json:"site"`
+	Ready         bool                   `json:"ready"`
+	Preconditions []terminationPlanCheck `json:"preconditions"`
+	Changes       []string               `json:"changes"`
+	Rollback      string                 `json:"rollback"`
+}
+
+func (a *App) buildTerminationPlan(site string) terminationPlan {
+	plan := terminationPlan{
+		Operation: "terminate",
+		Site:      site,
+		Changes: []string{
+			"Acquire the site mutation lease",
+			"Create or retain a verified termination backup",
+			"Disable routes and remove managed services",
+			"Remove managed databases and site state",
+			"Preserve the recovery journal until every step commits",
+			"Remove the canonical site tree",
+		},
+		Rollback: "Available through the retained verified backup; termination itself is not automatically reversible.",
+	}
+	checks := []terminationPlanCheck{{Name: "Site document root", Status: "pass", Detail: "site document root exists"}}
+	if a.Config.DBCtl == "" {
+		checks = append(checks, terminationPlanCheck{Name: "Managed database helper", Status: "blocker", Detail: "no database helper is configured"})
+	} else {
+		checks = append(checks, terminationPlanCheck{Name: "Managed database helper", Status: "pass", Detail: "configured helper will perform idempotent database cleanup"})
+	}
+	checks = append(checks, terminationPlanCheck{Name: "Verified backup", Status: "pass", Detail: "a final verified backup will be retained before destructive steps"})
+	if a.Jobs != nil {
+		for _, job := range a.Jobs.List(500) {
+			if job.OperationKey == site && job.State != "completed" && job.State != "failed" && job.State != "dead-letter" && job.Kind != "site.terminate" {
+				checks = append(checks, terminationPlanCheck{Name: "Conflicting jobs", Status: "blocker", Detail: fmt.Sprintf("job %s (%s) is %s", job.ID, job.Kind, job.State)})
+			}
+		}
+	}
+	plan.Preconditions = checks
+	plan.Ready = true
+	for _, check := range checks {
+		if check.Status == "blocker" {
+			plan.Ready = false
+			break
+		}
+	}
+	return plan
+}
+
 // enqueueSiteTermination records a destructive lifecycle operation before any
 // host state is changed. The site is the serialization key, so a retry or a
 // duplicate request cannot run two teardown workflows concurrently.
@@ -40,6 +94,7 @@ func (a *App) siteTermination(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Site         string `json:"site"`
 		Confirmation string `json:"confirmation"`
+		DryRun       bool   `json:"dry_run,omitempty"`
 	}
 	if err := decodeJSON(w, r, 4096, &input); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -59,12 +114,20 @@ func (a *App) siteTermination(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site document root does not exist", http.StatusNotFound)
 		return
 	}
+	if input.DryRun {
+		writeJSON(w, http.StatusOK, buildTerminationPlanResponse(a.buildTerminationPlan(input.Site)))
+		return
+	}
 	job, err := a.enqueueSiteTermination(input.Site, a.Auth.UsernameForRequest(r))
 	if err != nil {
 		http.Error(w, "could not persist site termination job", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID})
+}
+
+func buildTerminationPlanResponse(plan terminationPlan) map[string]any {
+	return map[string]any{"plan": plan}
 }
 
 // handleSiteTermination executes the destructive site-termination step
@@ -132,7 +195,7 @@ type lifecycleAuditor struct {
 }
 
 func (l lifecycleAuditor) Audit(action, detail string) error {
-	return AuditAs(l.log, l.actor, action, l.site, detail)
+	return SecurityAuditRequired(l.log, l.actor, action, l.site, detail)
 }
 
 // lifecycleFaults routes sitelifecycle stages to the failure-drill hooks.
