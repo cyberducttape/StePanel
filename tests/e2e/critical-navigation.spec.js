@@ -136,6 +136,28 @@ test('navigation: managed database controls render', async ({ page }) => {
   await expect(page.locator('#databaseForm')).toBeVisible();
 });
 
+test('major administrator workspaces remain accessible after navigation', async ({ page }) => {
+  // Keep accessibility coverage on the states operators actually reach, not
+  // only the initial overview. These are intentionally navigation-level
+  // checks; destructive workflow journeys must additionally assert API/job
+  // outcomes against a disposable seeded host.
+  const workspaces = [
+    ['Sites', '#sites'],
+    ['Migrations', '#migrations'],
+    ['Deployments', '#deploy'],
+    ['Customers', '#accounts'],
+    ['Databases', '#database'],
+    ['Infrastructure', '#operations'],
+    ['Security', '#security'],
+    ['Activity / Jobs', '#jobs'],
+  ];
+  for (const [label, selector] of workspaces) {
+    await page.getByRole('link', { name: label, exact: true }).click();
+    await expect(page.locator(selector)).toBeInViewport();
+    await checkA11y(page);
+  }
+});
+
 test('customer session hides administrator navigation', async ({ page }) => {
   test.skip(!process.env.STEPANEL_E2E_CUSTOMER_PASSWORD, 'Provide customer credentials for the second-context isolation check');
   const customer = await page.context().browser().newContext({ baseURL: process.env.STEPANEL_E2E_BASE_URL });
