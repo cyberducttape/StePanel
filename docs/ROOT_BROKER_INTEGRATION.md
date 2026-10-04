@@ -309,16 +309,23 @@ retiring the generic path, is the remaining migration work.
    - Authorize the panel and worker through the socket group
    - Remove the native panel sudoers grant
 
-3. **Phase 3: Mutation migration** ✅ (Complete for native installs)
-   - Route site, application, vhost, TLS, Git, and large database restore
-     mutations through the typed broker
-   - Keep stdin/helper execution only for lab, development, and legacy upgrade
-     compatibility
+3. **Phase 3: Mutation migration** ⚠️ (Partial)
+   - Site lifecycle, database lifecycle, Git keys, and large database restore
+     have dedicated typed broker requests.
+   - The production panel still routes several mutations through the
+     schema-validated compatibility request: application runtime/package and
+     worker operations, resource/quota changes, Python/Node operations,
+     vhost/proxy changes, runner builds, task lifecycle, SSH access, and some
+     database/archive cleanup paths.
+   - These are safe against arbitrary executable selection because the broker
+     owns the helper paths and validates each helper/action schema, but they
+     are not the finite typed protocol required for the 1.0 claim.
 
 4. **Phase 4: Hardening and coverage** (Ongoing)
    - Expand adversarial transition coverage and broker action matrices
-   - Remove remaining compatibility paths when older installations no longer
-     require them
+   - Replace the enumerated compatibility actions with concrete request
+     structs and broker handlers, then remove `Request.Helper` and
+     `HelperRequest` entirely
 
 ## Troubleshooting
 
