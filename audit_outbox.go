@@ -45,6 +45,27 @@ func newAuditOutboxStore(db *sql.DB) (*auditOutboxStore, error) {
 }
 
 func (o *auditOutboxStore) enqueue(ctx context.Context, auditLog, actor, action, target, detail string) error {
+	if err := o.persist(ctx, actor, action, target, detail); err != nil {
+		return err
+	}
+	return o.flush(ctx, auditLog)
+}
+
+// recordDurably persists an event in the outbox and then attempts
+// publication. Success means the event is durable: a publication failure is
+// logged and retried later, and must not cause the caller to treat the event
+// as unrecorded (it will still be published).
+func (o *auditOutboxStore) recordDurably(ctx context.Context, auditLog, actor, action, target, detail string) error {
+	if err := o.persist(ctx, actor, action, target, detail); err != nil {
+		return err
+	}
+	if err := o.flush(ctx, auditLog); err != nil {
+		log.Printf("[ERROR] audit outbox publication deferred for %s/%s: %v", action, target, err)
+	}
+	return nil
+}
+
+func (o *auditOutboxStore) persist(ctx context.Context, actor, action, target, detail string) error {
 	if actor == "" || action == "" {
 		return fmt.Errorf("audit actor and action are required")
 	}
@@ -54,7 +75,7 @@ func (o *auditOutboxStore) enqueue(ctx context.Context, auditLog, actor, action,
 	`, actor, action, target, detail, time.Now().UTC().UnixNano()); err != nil {
 		return fmt.Errorf("persist audit outbox event: %w", err)
 	}
-	return o.flush(ctx, auditLog)
+	return nil
 }
 
 func (o *auditOutboxStore) flush(ctx context.Context, auditLog string) error {
@@ -90,7 +111,7 @@ func (o *auditOutboxStore) flush(ctx context.Context, auditLog string) error {
 		return err
 	}
 	for _, item := range events {
-		if err := ShouldAudit(auditLog, item.actor, item.action, item.target, item.detail); err != nil {
+		if err := publishAuditEvent(auditLog, item.actor, item.action, item.target, item.detail); err != nil {
 			if _, updateErr := o.db.ExecContext(ctx, `
 				UPDATE audit_outbox
 				SET attempts = attempts + 1, last_error = ?
