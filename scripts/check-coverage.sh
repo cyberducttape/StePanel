@@ -2,7 +2,9 @@
 set -Eeuo pipefail
 
 profile=${1:-coverage.out}
-minimum=${COVERAGE_MINIMUM:-40}
+# Ratchet the repository baseline without pretending aggregate coverage is a
+# substitute for the higher floors on security-sensitive packages.
+minimum=${COVERAGE_MINIMUM:-45}
 
 [[ -f "$profile" ]] || { echo "coverage profile not found: $profile" >&2; exit 1; }
 total=$(go tool cover -func="$profile" | awk '/^total:/ {gsub("%", "", $3); print $3}')

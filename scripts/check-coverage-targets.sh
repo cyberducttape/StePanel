@@ -10,6 +10,9 @@ set -Eeuo pipefail
 # the checker fails on any listed package with no coverage data.
 
 declare -A COVERAGE_TARGETS=(
+  # Most legacy HTTP/workflow handlers still live in the root package. Keep a
+  # dedicated floor so aggregate coverage cannot hide regressions there.
+  ["github.com/cyberducttape/StePanel"]="45"
   ["github.com/cyberducttape/StePanel/internal/auth"]="90"
   ["github.com/cyberducttape/StePanel/internal/helper"]="90"
   ["github.com/cyberducttape/StePanel/internal/state"]="85"
@@ -18,6 +21,8 @@ declare -A COVERAGE_TARGETS=(
   ["github.com/cyberducttape/StePanel/internal/session"]="90"
   ["github.com/cyberducttape/StePanel/internal/jobs"]="85"
   ["github.com/cyberducttape/StePanel/internal/audit"]="95"
+  ["github.com/cyberducttape/StePanel/internal/rootbroker"]="65"
+  ["github.com/cyberducttape/StePanel/internal/importer"]="55"
 )
 
 profile=${1:-coverage.out}
@@ -49,13 +54,21 @@ BEGIN {
   file = $1
   statements = $2 + 0
   count = $3 + 0
+  # The root package is a prefix of every internal package. Select the
+  # longest matching prefix so root-package coverage cannot swallow the more
+  # specific package floors.
+  matched = ""
+  matched_length = 0
   for (package in targets) {
     prefix = package "/"
-    if (index(file, prefix) == 1) {
-      total[package] += statements
-      if (count > 0) covered[package] += statements
-      break
+    if (index(file, prefix) == 1 && length(prefix) > matched_length) {
+      matched = package
+      matched_length = length(prefix)
     }
+  }
+  if (matched != "") {
+    total[matched] += statements
+    if (count > 0) covered[matched] += statements
   }
 }
 

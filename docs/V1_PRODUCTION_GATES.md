@@ -53,6 +53,16 @@ Until Recovery Proof exists, recovery rehearsal status must say exactly what it
 proves: current archive-level verification does not prove database import or
 application startup.
 
+### Test coverage ratchet
+
+CI enforces a repository-wide statement-coverage floor of **45%** and
+package-specific floors for the security boundary, durable jobs, archive
+importer, and legacy root workflow handlers. The 45% value is an executable
+ratchet from the current 47.5% baseline, not a production-quality claim by
+itself. It must increase as root-package handlers are extracted and tested;
+the release process must not lower it to accommodate a regression. Coverage is
+supplemental evidence and does not replace the failure-recovery matrix below.
+
 ---
 
 ## Gate 1: One Lifecycle Authority
