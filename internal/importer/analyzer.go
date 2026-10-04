@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -57,6 +59,7 @@ const (
 	maxArchiveRedirects      = 10
 	maxArchiveInspectionTime = 15 * time.Minute
 	maxConfigInspectionBytes = 1024 * 1024
+	maxUniqueFileExtensions  = 1024
 )
 
 var errArchiveLimitExceeded = errors.New("archive inspection limit exceeded")
@@ -83,6 +86,24 @@ func NewAnalyzer() *Analyzer {
 	}
 }
 
+// normalizeArchivePath gives archive entries and caller-selected paths one
+// canonical namespace. Archive names always use '/', even on Windows.
+func normalizeArchivePath(name string) (string, error) {
+	name = strings.ReplaceAll(name, "\\", "/")
+	if name == "" || strings.HasPrefix(name, "/") {
+		return "", errors.New("archive path must be relative")
+	}
+	cleaned := path.Clean(strings.TrimPrefix(name, "./"))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", errors.New("archive path contains traversal")
+	}
+	return cleaned, nil
+}
+
+func normalizeConfigArchivePath(configPath string) (string, error) {
+	return normalizeArchivePath(configPath)
+}
+
 // InspectArchive analyzes an archive at a given URL
 func (a *Analyzer) InspectArchive(ctx context.Context, url, configPath string) (*ArchiveInspection, error) {
 	if url == "" {
@@ -90,6 +111,10 @@ func (a *Analyzer) InspectArchive(ctx context.Context, url, configPath string) (
 	}
 	if configPath == "" {
 		return nil, errors.New("config path is required")
+	}
+	configPath, err := normalizeConfigArchivePath(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid config path: %w", err)
 	}
 
 	// Prevent SSRF: only allow https URLs from known domains
@@ -183,6 +208,44 @@ func (a *Analyzer) InspectArchive(ctx context.Context, url, configPath string) (
 	return inspection, nil
 }
 
+type largestArchiveFile struct {
+	name string
+	size int64
+}
+
+type largestArchiveFiles []largestArchiveFile
+
+func (h largestArchiveFiles) Len() int            { return len(h) }
+func (h largestArchiveFiles) Less(i, j int) bool  { return h[i].size < h[j].size }
+func (h largestArchiveFiles) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *largestArchiveFiles) Push(x interface{}) { *h = append(*h, x.(largestArchiveFile)) }
+func (h *largestArchiveFiles) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
+}
+
+func trackLargestFile(files *largestArchiveFiles, file largestArchiveFile) {
+	if files.Len() < 100 {
+		heap.Push(files, file)
+		return
+	}
+	if file.size > (*files)[0].size {
+		heap.Pop(files)
+		heap.Push(files, file)
+	}
+}
+
+func finalizeLargestFiles(files largestArchiveFiles, inspection *ArchiveInspection) {
+	sort.Slice(files, func(i, j int) bool { return files[i].size > files[j].size })
+	inspection.Structure.LargestFiles = inspection.Structure.LargestFiles[:0]
+	for _, file := range files {
+		inspection.Structure.LargestFiles = append(inspection.Structure.LargestFiles, file.name)
+	}
+}
+
 // inspectTarGz analyzes a tar.gz archive
 func (a *Analyzer) inspectTarGz(ctx context.Context, reader io.Reader, configPath string, inspection *ArchiveInspection) error {
 	gz, err := gzip.NewReader(reader)
@@ -198,12 +261,8 @@ func (a *Analyzer) inspectTarGz(ctx context.Context, reader io.Reader, configPat
 		LargestFiles:   []string{},
 	}
 
-	seen := make(map[string]bool)
-	largestFiles := make([]struct {
-		name string
-		size int64
-	}, 0, 100) // Limit to top 100 files
-	const maxLargestFiles = 100
+	seen := make(map[string]struct{}, maxUniqueFileExtensions)
+	largestFiles := make(largestArchiveFiles, 0, 100)
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -234,29 +293,18 @@ func (a *Analyzer) inspectTarGz(ctx context.Context, reader io.Reader, configPat
 
 		// Track file extensions
 		ext := filepath.Ext(header.Name)
-		if ext != "" && !seen[ext] {
-			inspection.Structure.FileExtensions = append(inspection.Structure.FileExtensions, ext)
-			seen[ext] = true
-		}
-
-		// Track largest files (limit memory by only tracking top N files)
-		if len(largestFiles) < maxLargestFiles || header.Size > largestFiles[len(largestFiles)-1].size {
-			largestFiles = append(largestFiles, struct {
-				name string
-				size int64
-			}{header.Name, header.Size})
-			// Keep sorted by size (descending)
-			sort.Slice(largestFiles, func(i, j int) bool {
-				return largestFiles[i].size > largestFiles[j].size
-			})
-			// Trim to max size
-			if len(largestFiles) > maxLargestFiles {
-				largestFiles = largestFiles[:maxLargestFiles]
+		if ext != "" {
+			if _, ok := seen[ext]; !ok && len(seen) < maxUniqueFileExtensions {
+				inspection.Structure.FileExtensions = append(inspection.Structure.FileExtensions, ext)
+				seen[ext] = struct{}{}
 			}
 		}
 
+		// Track largest files (limit memory by only tracking top N files)
+		trackLargestFile(&largestFiles, largestArchiveFile{header.Name, header.Size})
+
 		// Check for config file
-		if strings.TrimPrefix(header.Name, "./") == configPath || filepath.Base(header.Name) == filepath.Base(configPath) {
+		if normalized, normalizeErr := normalizeArchivePath(header.Name); normalizeErr == nil && normalized == configPath {
 			configContent := make([]byte, min(header.Size, 1024*1024)) // limit to 1MB
 			n, _ := io.ReadFull(tr, configContent)
 			a.parseConfig(string(configContent[:n]), inspection)
@@ -278,7 +326,7 @@ func (a *Analyzer) inspectTarGz(ctx context.Context, reader io.Reader, configPat
 	}
 
 	// Sort largest files
-	a.extractLargestFiles(largestFiles, inspection)
+	finalizeLargestFiles(largestFiles, inspection)
 	a.validateInspection(inspection)
 
 	return nil
@@ -300,12 +348,8 @@ func (a *Analyzer) inspectZip(ctx context.Context, path, configPath string, insp
 		LargestFiles:   []string{},
 	}
 
-	seen := make(map[string]bool)
-	largestFiles := make([]struct {
-		name string
-		size int64
-	}, 0, 100) // Limit to top 100 files
-	const maxLargestFiles = 100
+	seen := make(map[string]struct{}, maxUniqueFileExtensions)
+	largestFiles := make(largestArchiveFiles, 0, 100)
 
 	var totalDecompressed uint64
 	for _, file := range reader.File {
@@ -330,30 +374,19 @@ func (a *Analyzer) inspectZip(ctx context.Context, path, configPath string, insp
 
 		// Track file extensions
 		ext := filepath.Ext(file.Name)
-		if ext != "" && !seen[ext] {
-			inspection.Structure.FileExtensions = append(inspection.Structure.FileExtensions, ext)
-			seen[ext] = true
+		if ext != "" {
+			if _, ok := seen[ext]; !ok && len(seen) < maxUniqueFileExtensions {
+				inspection.Structure.FileExtensions = append(inspection.Structure.FileExtensions, ext)
+				seen[ext] = struct{}{}
+			}
 		}
 
 		// Track largest files (limit memory by only tracking top N files)
 		fileSize := file.FileInfo().Size()
-		if len(largestFiles) < maxLargestFiles || fileSize > largestFiles[len(largestFiles)-1].size {
-			largestFiles = append(largestFiles, struct {
-				name string
-				size int64
-			}{file.Name, fileSize})
-			// Keep sorted by size (descending)
-			sort.Slice(largestFiles, func(i, j int) bool {
-				return largestFiles[i].size > largestFiles[j].size
-			})
-			// Trim to max size
-			if len(largestFiles) > maxLargestFiles {
-				largestFiles = largestFiles[:maxLargestFiles]
-			}
-		}
+		trackLargestFile(&largestFiles, largestArchiveFile{file.Name, fileSize})
 
 		// Check for config file
-		if strings.TrimPrefix(file.Name, "./") == configPath || filepath.Base(file.Name) == filepath.Base(configPath) {
+		if normalized, normalizeErr := normalizeArchivePath(file.Name); normalizeErr == nil && normalized == configPath {
 			f, _ := file.Open()
 			if f != nil {
 				configContent := make([]byte, min(file.FileInfo().Size(), maxConfigInspectionBytes))
@@ -376,7 +409,7 @@ func (a *Analyzer) inspectZip(ctx context.Context, path, configPath string, insp
 		}
 	}
 
-	a.extractLargestFiles(largestFiles, inspection)
+	finalizeLargestFiles(largestFiles, inspection)
 	a.validateInspection(inspection)
 
 	return nil

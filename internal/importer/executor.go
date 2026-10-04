@@ -21,11 +21,12 @@ import (
 
 const (
 	// Archive size limits (more conservative than original)
-	maxArchiveSize          = 5 * 1024 * 1024 * 1024  // 5GB compressed (configurable)
-	maxDecompressedSize     = 50 * 1024 * 1024 * 1024 // 50GB decompressed (configurable)
-	maxArchiveEntries       = 250000                  // 250k files/dirs (was 1M, still generous)
-	maxIndividualFileSize   = 10 * 1024 * 1024 * 1024 // 10GB per file
-	maxDirectoriesInArchive = 25000                   // Separate limit for directories
+	maxArchiveSize           = 5 * 1024 * 1024 * 1024  // 5GB compressed (configurable)
+	maxDecompressedSize      = 50 * 1024 * 1024 * 1024 // 50GB decompressed (configurable)
+	maxArchiveEntries        = 250000                  // 250k files/dirs (was 1M, still generous)
+	maxIndividualFileSize    = 10 * 1024 * 1024 * 1024 // 10GB per file
+	maxDirectoriesInArchive  = 25000                   // Separate limit for directories
+	baselineExpandedEstimate = 256 * 1024 * 1024
 
 	// Require 20% free space buffer after import to prevent filesystem exhaustion
 	minFreeSpaceBuffer = 0.20
@@ -147,18 +148,20 @@ func (af *ArchiveFetcher) FetchArchive(ctx context.Context, url string, maxBytes
 
 	// Wrap body with size limit to prevent streaming attacks
 	return &limitedReadCloser{
-		reader: resp.Body,
-		closer: resp.Body,
-		limit:  maxBytes,
+		reader:        resp.Body,
+		closer:        resp.Body,
+		limit:         maxBytes,
+		contentLength: resp.ContentLength,
 	}, nil
 }
 
 // limitedReadCloser combines a limited reader with a close method
 type limitedReadCloser struct {
-	reader io.Reader
-	closer io.Closer
-	limit  int64
-	read   int64
+	reader        io.Reader
+	closer        io.Closer
+	limit         int64
+	read          int64
+	contentLength int64
 }
 
 func (lrc *limitedReadCloser) Read(p []byte) (int, error) {
@@ -200,6 +203,9 @@ func NewExecutor() *Executor {
 				// with inspection path and prevent DNS-rebinding attacks
 				Transport: NewSafeArchiveTransport(),
 				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					if len(via) >= maxArchiveRedirects {
+						return fmt.Errorf("archive redirect limit exceeded (%d)", maxArchiveRedirects)
+					}
 					// Validate redirect destination is safe (prevents SSRF via redirect chain)
 					if !isAllowedURL(req.URL.String()) {
 						return fmt.Errorf("redirect to disallowed URL: %s", req.URL.String())
@@ -289,11 +295,10 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		}
 	}
 
-	// Step 1.5: Check disk space availability
-	// Use conservative estimate: assume 10:1 compression ratio if archive is max size
-	// This ensures we have enough space even in worst case
-	estimatedExpanded := maxArchiveSize * 10 // 50 GB for max 5 GB compressed
-	spaceCheck := CheckDiskSpace(filepath.Dir(job.WebRoot), maxArchiveSize, int64(estimatedExpanded))
+	// Step 1.5: Perform a small baseline admission check. The actual archive
+	// size is checked after response headers are available, rather than charging
+	// every import for the maximum 5GB/50GB limits.
+	spaceCheck := CheckDiskSpace(filepath.Dir(job.WebRoot), 0, baselineExpandedEstimate)
 	if !spaceCheck.HasSufficientSpace {
 		job.Status = "failed"
 		job.Error = spaceCheck.Reason
@@ -556,6 +561,25 @@ func (e *Executor) extractArchive(ctx context.Context, url string, job *ImportJo
 	}
 	defer body.Close()
 
+	compressedSize := int64(0)
+	if limitedBody, ok := body.(*limitedReadCloser); ok {
+		compressedSize = limitedBody.contentLength
+	}
+	if compressedSize <= 0 {
+		compressedSize = baselineExpandedEstimate
+	}
+	estimatedExpanded := compressedSize * 10
+	if estimatedExpanded < baselineExpandedEstimate {
+		estimatedExpanded = baselineExpandedEstimate
+	}
+	if estimatedExpanded > maxDecompressedSize {
+		estimatedExpanded = maxDecompressedSize
+	}
+	spaceCheck := CheckDiskSpace(filepath.Dir(job.WebRoot), compressedSize, estimatedExpanded)
+	if !spaceCheck.HasSufficientSpace {
+		return fmt.Errorf("insufficient disk space for archive: %s", spaceCheck.Reason)
+	}
+
 	// Detect archive type
 	archiveType := "tar.gz"
 	if strings.HasSuffix(strings.ToLower(url), ".zip") {
@@ -566,6 +590,20 @@ func (e *Executor) extractArchive(ctx context.Context, url string, job *ImportJo
 		return e.extractTarGz(body, job, onProgress)
 	}
 	return e.extractZip(body, job, onProgress)
+}
+
+// safeArchiveMode preserves the source's ordinary permission bits while
+// stripping setuid, setgid, sticky, and file-type bits. A zero mode is common
+// in hand-built archives; use a private usable default in that case.
+func safeArchiveMode(mode os.FileMode, directory bool) os.FileMode {
+	perm := mode.Perm()
+	if perm == 0 {
+		if directory {
+			return 0700
+		}
+		return 0600
+	}
+	return perm
 }
 
 // safeTarExtractPath validates and sanitizes a tar entry path to prevent traversal
@@ -674,9 +712,7 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 		// Safely validate path
 		targetPath, err := safeTarExtractPath(job.WebRoot, header.Name)
 		if err != nil {
-			// Log suspicious path but continue (skip this file)
-			job.Message = fmt.Sprintf("Skipped suspicious path: %s (%v)", header.Name, err)
-			continue
+			return fmt.Errorf("unsafe archive entry %q: %w", header.Name, err)
 		}
 
 		// Explicitly handle only supported tar entry types
@@ -689,6 +725,9 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 			}
 			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode&0755)); err != nil {
 				return fmt.Errorf("failed to create directory %s: %w", header.Name, err)
+			}
+			if err := os.Chmod(targetPath, safeArchiveMode(os.FileMode(header.Mode), true)); err != nil {
+				return fmt.Errorf("failed to set directory permissions for %s: %w", header.Name, err)
 			}
 
 		case tar.TypeReg, tar.TypeRegA:
@@ -722,11 +761,8 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 
 			// Restore file permissions from archive
 			// Preserve executable bits but mask out dangerous bits (setuid/setgid/sticky)
-			archiveMode := os.FileMode(header.Mode)
-			safeMode := 0644 | (archiveMode & 0111) // Preserve executable bits, allow read for others
-			if err := os.Chmod(targetPath, os.FileMode(safeMode)); err != nil {
-				// Log but don't fail on permission restore
-				job.Message = fmt.Sprintf("Warning: could not restore permissions for %s", header.Name)
+			if err := os.Chmod(targetPath, safeArchiveMode(os.FileMode(header.Mode), false)); err != nil {
+				return fmt.Errorf("failed to set file permissions for %s: %w", header.Name, err)
 			}
 
 			job.FilesExtracted++
@@ -747,9 +783,7 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 			}
 
 		case tar.TypeSymlink, tar.TypeLink:
-			// Reject symlinks and hardlinks to prevent escape
-			job.Message = fmt.Sprintf("Rejected symlink/hardlink: %s", header.Name)
-			continue
+			return fmt.Errorf("unsafe archive entry %q: symlinks and hard links are not supported", header.Name)
 
 		default:
 			// Reject all other entry types (devices, FIFOs, sockets, sparse, etc.)
@@ -807,13 +841,19 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 		// Safely validate path
 		targetPath, err := safeTarExtractPath(job.WebRoot, file.Name)
 		if err != nil {
-			job.Message = fmt.Sprintf("Skipped suspicious path: %s (%v)", file.Name, err)
-			continue
+			return fmt.Errorf("unsafe archive entry %q: %w", file.Name, err)
+		}
+		mode := file.FileInfo().Mode()
+		if mode&os.ModeSymlink != 0 || mode&os.ModeType != 0 && !file.FileInfo().IsDir() {
+			return fmt.Errorf("unsafe archive entry %q: unsupported link or special file", file.Name)
 		}
 
 		if file.FileInfo().IsDir() {
 			if err := os.MkdirAll(targetPath, 0755); err != nil {
 				return fmt.Errorf("failed to create directory %s: %w", file.Name, err)
+			}
+			if err := os.Chmod(targetPath, safeArchiveMode(mode, true)); err != nil {
+				return fmt.Errorf("failed to set directory permissions for %s: %w", file.Name, err)
 			}
 		} else {
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
@@ -853,11 +893,8 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 
 			// Restore file permissions from zip entry
 			// Preserve executable bits but mask out dangerous bits
-			archiveMode := file.FileInfo().Mode()
-			safeMode := 0644 | (archiveMode & 0111) // Preserve executable bits
-			if err := os.Chmod(targetPath, safeMode); err != nil {
-				// Log but don't fail on permission restore
-				job.Message = fmt.Sprintf("Warning: could not restore permissions for %s", file.Name)
+			if err := os.Chmod(targetPath, safeArchiveMode(mode, false)); err != nil {
+				return fmt.Errorf("failed to set file permissions for %s: %w", file.Name, err)
 			}
 
 			job.FilesExtracted++

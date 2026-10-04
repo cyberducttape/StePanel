@@ -334,7 +334,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 	defer func() {
 		if !activated {
 			if discardErr := manager.DiscardStaging(context.Background(), stagingDir); discardErr != nil {
-				recordAudit(a.Config.AuditLog, actor, "archive.import.staging-cleanup-failed", req.SiteName, discardErr.Error())
+				TelemetryAudit(a.Config.AuditLog, actor, "archive.import.staging-cleanup-failed", req.SiteName, discardErr.Error())
 			}
 		}
 	}()
@@ -343,8 +343,6 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 	if req.AutoRestoreDB {
 		executor.WithDatabaseRestorer(a.restoreImportedDatabase)
 	}
-	progressUpdates := make([]map[string]interface{}, 0)
-
 	result, err := executor.ExecuteImport(operationCtx, &importer.ArchiveImportRequest{
 		URL:              req.ArchiveURL,
 		ConfigPath:       req.ConfigPath,
@@ -352,18 +350,14 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 		DatabasePassword: req.DatabasePassword,
 		AutoRestoreDB:    req.AutoRestoreDB,
 	}, stagingDir, func(importJob *importer.ImportJob) {
-		progressUpdates = append(progressUpdates, map[string]interface{}{
-			"status":          importJob.Status,
-			"progress":        importJob.Progress,
-			"files_extracted": importJob.FilesExtracted,
-			"bytes_extracted": importJob.BytesExtracted,
-			"current_file":    importJob.CurrentFile,
-			"message":         importJob.Message,
-			"updated_at":      importJob.UpdatedAt,
-		})
+		// Persist progress on the durable job instead of accumulating an
+		// unbounded in-memory history that is never read by the UI.
+		if err := a.Jobs.UpdateClaim(job.ID, job.LeaseOwner, importJob.Progress); err != nil {
+			TelemetryAudit(a.Config.AuditLog, actor, "archive.import.progress-persist-failed", req.SiteName, err.Error())
+		}
 	})
 	if err != nil {
-		recordAudit(a.Config.AuditLog, actor, "archive.import.failed", req.SiteName, err.Error())
+		TelemetryAudit(a.Config.AuditLog, actor, "archive.import.failed", req.SiteName, err.Error())
 		return nil, fmt.Errorf("archive extraction failed: %w", err)
 	}
 	var databaseCleanup importer.DatabaseCleanup
@@ -371,7 +365,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 	defer func() {
 		if !databaseCommitted && databaseCleanup != nil {
 			if cleanupErr := databaseCleanup(); cleanupErr != nil {
-				recordAudit(a.Config.AuditLog, actor, "archive.import.database-rollback-failed", req.SiteName, cleanupErr.Error())
+				TelemetryAudit(a.Config.AuditLog, actor, "archive.import.database-rollback-failed", req.SiteName, cleanupErr.Error())
 			}
 		}
 	}()
@@ -388,7 +382,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 		if !committed {
 			if rbErr := txn.Rollback(); rbErr != nil {
 				// The recovery journal has enough state to finish the rollback on next boot.
-				recordAudit(a.Config.AuditLog, actor, "archive.import.rollback-failed", req.SiteName, rbErr.Error())
+				TelemetryAudit(a.Config.AuditLog, actor, "archive.import.rollback-failed", req.SiteName, rbErr.Error())
 			}
 		}
 	}()
@@ -421,7 +415,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 		result.CreatedAt = time.Now().UTC()
 	}
 
-	recordAudit(a.Config.AuditLog, actor, "archive.import.completed", req.SiteName, req.ArchiveURL)
+	TelemetryAudit(a.Config.AuditLog, actor, "archive.import.completed", req.SiteName, req.ArchiveURL)
 
 	resultJSON, err := json.Marshal(result)
 	if err != nil {

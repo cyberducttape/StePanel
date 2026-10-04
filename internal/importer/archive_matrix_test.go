@@ -165,6 +165,15 @@ func TestExecutorExtractsArchivesAndRejectsSpecialEntries(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(root, "wp-config.php")); err != nil {
 				t.Fatal("config file was not extracted: ", err)
 			}
+			if !tc.zip {
+				info, err := os.Stat(filepath.Join(root, "wp-config.php"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := info.Mode().Perm(); got != 0600 {
+					t.Fatalf("restrictive config mode was widened: got %04o, want 0600", got)
+				}
+			}
 		})
 	}
 
@@ -181,8 +190,8 @@ func TestExecutorExtractsArchivesAndRejectsSpecialEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := &ImportJob{WebRoot: t.TempDir()}
-	if err := (&Executor{}).extractTarGz(bytes.NewReader(archive.Bytes()), job, func(*ImportJob) {}); err != nil {
-		t.Fatal("symlink entry should be skipped: ", err)
+	if err := (&Executor{}).extractTarGz(bytes.NewReader(archive.Bytes()), job, func(*ImportJob) {}); err == nil {
+		t.Fatal("symlink entry should fail the import")
 	}
 	if _, err := os.Lstat(filepath.Join(job.WebRoot, "escape")); !os.IsNotExist(err) {
 		t.Fatal("symlink entry escaped or was materialized")
