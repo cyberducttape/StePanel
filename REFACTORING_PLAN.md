@@ -84,14 +84,28 @@ If full refactoring is too risky, do **targeted cleanup**:
 
 ## Current Status
 
-✅ Build is clean (all files in root)  
-✅ Auth package (internal/auth/) is organized  
-✅ Backup package (internal/backup/) has foundation  
+✅ **Phase 1 complete (2026-10-04):** the root package is `stepanel`
+(importable) and `cmd/stepanel/main.go` is the binary entry point. All build,
+CI, packaging and doc references use `./cmd/stepanel`.
 
-❌ Large refactoring deferred to future phase  
-❌ Root package still contains 131 files  
+✅ **First domain seam: site termination.** `internal/sitelifecycle` owns the
+termination sequence (step order, BACKUP_VERIFIED gate, audit-before-teardown,
+journaled roll-forward). The root package supplies authority (authorization,
+site lock, journal persistence) and a `terminationHost` adapter implementing
+`sitelifecycle.TerminationHost`. Use this as the pattern for further
+extractions:
 
-**Next step:** Document code organization and prepare for Phase 1 in future work.
+```
+HTTP handler / durable job   → authorization, locking, persistence (root)
+  ↓
+internal/<domain>            → sequencing, recovery gates, audit rules
+  ↓
+<Domain>Host interface       → privileged/host operations (root adapter → helpers, rootbroker)
+```
+
+Suggested next seams, one per change with its own tests: site suspension and
+resume (`sites.Manager.Suspend/Resume` still return `ErrNotImplemented`),
+backup and restore, Git deployment, database operations, tasks, WordPress.
 
 ---
 

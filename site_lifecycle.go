@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/sitelifecycle"
 )
 
 type durableSiteTerminationRequest struct {
@@ -105,195 +106,129 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 		return nil, fmt.Errorf("prepare termination journal: %w", err)
 	}
 
-	// Announce the operation before any destructive work, so an audit
-	// entry exists even if the job then crashes before COMPLETED. This
-	// is the "operation initiated" record irreversible operations should
-	// leave behind — a persistence failure here fails the job because
-	// the whole point is the durable record.
-	if !journal.isComplete(stepBackupVerified) {
-		if err := AuditAs(a.Config.AuditLog, request.Actor, "site.termination.initiated", request.Site, "job="+item.ID); err != nil {
-			return nil, fmt.Errorf("record termination initiation: %w", err)
-		}
-	}
-	if err := failureInjection("terminate", "init"); err != nil {
+	// The step sequence, its recovery gate and its audit rules live in the
+	// sitelifecycle domain package; this handler only supplies authority
+	// (the authorized site capability under the site lock) and host access.
+	backupPath, err := sitelifecycle.Termination{
+		JobID:   item.ID,
+		Journal: lifecycleJournal{journal},
+		Host:    &terminationHost{app: a, access: access, site: request.Site, startedAt: item.StartedAt},
+		Audit:   lifecycleAuditor{log: a.Config.AuditLog, actor: request.Actor, site: request.Site},
+		Faults:  lifecycleFaults{operation: "terminate"},
+	}.Run(operationCtx)
+	if err != nil {
 		return nil, err
-	}
-	processKillInjection("terminate", "init")
-
-	// Step 1: BACKUP_VERIFIED. The verified backup is the sole
-	// recovery gate; every later step is roll-forward.
-	var backupPath string
-	if journal.isComplete(stepBackupVerified) {
-		backupPath = journal.BackupPath
-	} else {
-		if err := failureInjection("terminate", "backup"); err != nil {
-			return nil, err
-		}
-		backup, err := a.terminationBackup(operationCtx, access, item.StartedAt)
-		if err != nil {
-			return nil, err
-		}
-		backupPath = backup.Path
-		journal.setBackupPath(backupPath)
-		if err := journal.markComplete(stepBackupVerified); err != nil {
-			return nil, fmt.Errorf("journal BACKUP_VERIFIED: %w", err)
-		}
-		processKillInjection("terminate", "backup")
-	}
-
-	if a.Config.DBCtl == "" {
-		return nil, errors.New("site termination requires the managed database helper")
-	}
-
-	// Step 2: DATABASES_REMOVED. runDatabaseTermination invokes the
-	// managed-database helper's "drop-managed" verb, which is
-	// idempotent on the DB side; a retry after a crash mid-step is safe.
-	if !journal.isComplete(stepDatabasesRemoved) {
-		if err := failureInjection("terminate", "database"); err != nil {
-			return nil, err
-		}
-		databases, err := managedDatabaseInventory(a.Config)
-		if err != nil {
-			return nil, fmt.Errorf("inspect managed databases before termination: %w", err)
-		}
-		for _, database := range databases {
-			if database.Site != request.Site {
-				continue
-			}
-			if err := runDatabaseTermination(operationCtx, a.Config, database); err != nil {
-				return nil, err
-			}
-		}
-		if err := journal.markComplete(stepDatabasesRemoved); err != nil {
-			return nil, fmt.Errorf("journal DATABASES_REMOVED: %w", err)
-		}
-		processKillInjection("terminate", "database")
-	}
-
-	// Step 3: ROUTES_REMOVED. Desired-state removal MUST precede live
-	// route deletion so a crash between them cannot leave the startup
-	// reconciler able to recreate a route for a site whose filesystem
-	// is already gone.
-	if !journal.isComplete(stepRoutesRemoved) {
-		if err := failureInjection("terminate", "routes"); err != nil {
-			return nil, err
-		}
-		if a.Routes != nil {
-			if err := a.Routes.removeSite(access); err != nil {
-				return nil, fmt.Errorf("remove route desired state before termination: %w", err)
-			}
-		}
-		routes, err := siteRoutesForWithError(a.Config.VHostRoot, request.Site)
-		if err != nil {
-			return nil, fmt.Errorf("inspect managed routes before termination: %w", err)
-		}
-		for _, route := range routes {
-			if err := a.deleteManagedRoute(operationCtx, a.Config.VHostCtl, routeConfigName(a.Config, route)); err != nil {
-				return nil, err
-			}
-		}
-		if err := journal.markComplete(stepRoutesRemoved); err != nil {
-			return nil, fmt.Errorf("journal ROUTES_REMOVED: %w", err)
-		}
-		processKillInjection("terminate", "routes")
-	}
-
-	// Step 4: PROXIES_REMOVED.
-	if !journal.isComplete(stepProxiesRemoved) {
-		if err := failureInjection("terminate", "proxies"); err != nil {
-			return nil, err
-		}
-		proxies, err := siteProxiesForWithError(a.Config.ProxyRoot, request.Site)
-		if err != nil {
-			return nil, fmt.Errorf("inspect managed proxies before termination: %w", err)
-		}
-		for _, proxy := range proxies {
-			if err := a.deleteManagedRoute(operationCtx, a.Config.ProxyCtl, filepath.Base(proxy.Config)); err != nil {
-				return nil, err
-			}
-		}
-		if err := journal.markComplete(stepProxiesRemoved); err != nil {
-			return nil, fmt.Errorf("journal PROXIES_REMOVED: %w", err)
-		}
-		processKillInjection("terminate", "proxies")
-	}
-
-	// Step 5: TASKS_REMOVED.
-	if !journal.isComplete(stepTasksRemoved) {
-		if err := failureInjection("terminate", "tasks"); err != nil {
-			return nil, err
-		}
-		if err := a.removeSiteTasks(operationCtx, access); err != nil {
-			return nil, err
-		}
-		if err := journal.markComplete(stepTasksRemoved); err != nil {
-			return nil, fmt.Errorf("journal TASKS_REMOVED: %w", err)
-		}
-		processKillInjection("terminate", "tasks")
-	}
-
-	// Step 6: SERVICES_REMOVED.
-	if !journal.isComplete(stepServicesRemoved) {
-		if err := failureInjection("terminate", "services"); err != nil {
-			return nil, err
-		}
-		if err := a.removeSiteServices(operationCtx, access); err != nil {
-			return nil, err
-		}
-		if err := journal.markComplete(stepServicesRemoved); err != nil {
-			return nil, fmt.Errorf("journal SERVICES_REMOVED: %w", err)
-		}
-		processKillInjection("terminate", "services")
-	}
-
-	// Step 7: SITE_STATE_REMOVED.
-	if !journal.isComplete(stepSiteStateRemoved) {
-		if err := failureInjection("terminate", "site-state"); err != nil {
-			return nil, err
-		}
-		if err := a.removeSiteState(operationCtx, access); err != nil {
-			return nil, err
-		}
-		if err := journal.markComplete(stepSiteStateRemoved); err != nil {
-			return nil, fmt.Errorf("journal SITE_STATE_REMOVED: %w", err)
-		}
-		processKillInjection("terminate", "site-state")
-	}
-
-	// Step 8: OWNERSHIP_REMOVED.
-	if !journal.isComplete(stepOwnershipRemoved) {
-		if err := failureInjection("terminate", "ownership"); err != nil {
-			return nil, err
-		}
-		if err := a.detachSiteOwnership(operationCtx, access); err != nil {
-			return nil, err
-		}
-		if err := journal.markComplete(stepOwnershipRemoved); err != nil {
-			return nil, fmt.Errorf("journal OWNERSHIP_REMOVED: %w", err)
-		}
-		processKillInjection("terminate", "ownership")
-	}
-
-	// COMPLETED. Emit the terminal audit event durably before removing
-	// the journal — if audit persistence fails here, we prefer to keep
-	// the journal on disk (retries then re-emit the audit event) rather
-	// than lose the record. Upgraded from the previous `_ = ShouldAudit`
-	// to a checked AuditAs call so a persistence failure fails the job.
-	if err := AuditAs(a.Config.AuditLog, request.Actor, "site.terminated", request.Site, "verified backup="+backupPath); err != nil {
-		return nil, fmt.Errorf("record termination completion: %w", err)
-	}
-	if err := journal.cleanup(); err != nil {
-		// The termination is complete and audited; a leftover journal
-		// file is a housekeeping issue, not a correctness one. Report
-		// it as a job error so the operator notices, but the returned
-		// error does not undo the termination.
-		return nil, fmt.Errorf("cleanup termination journal: %w", err)
 	}
 	return json.Marshal(map[string]any{
 		"site":         request.Site,
 		"backup":       map[string]string{"path": backupPath},
 		"completed_at": time.Now().UTC(),
 	})
+}
+
+// lifecycleAuditor persists sitelifecycle audit events, failing closed.
+type lifecycleAuditor struct {
+	log, actor, site string
+}
+
+func (l lifecycleAuditor) Audit(action, detail string) error {
+	return AuditAs(l.log, l.actor, action, l.site, detail)
+}
+
+// lifecycleFaults routes sitelifecycle stages to the failure-drill hooks.
+type lifecycleFaults struct{ operation string }
+
+func (l lifecycleFaults) Fail(stage string) error { return failureInjection(l.operation, stage) }
+func (l lifecycleFaults) Kill(stage string)       { processKillInjection(l.operation, stage) }
+
+// terminationHost implements sitelifecycle.TerminationHost for one
+// authorized site. It is the privilege seam of termination: every method
+// reaches host state only through the configured helpers and stores.
+type terminationHost struct {
+	app       *App
+	access    SiteCapability
+	site      string
+	startedAt time.Time
+}
+
+func (h *terminationHost) VerifiedBackup(ctx context.Context) (string, error) {
+	backup, err := h.app.terminationBackup(ctx, h.access, h.startedAt)
+	if err != nil {
+		return "", err
+	}
+	return backup.Path, nil
+}
+
+func (h *terminationHost) CheckTeardownPrerequisites() error {
+	if h.app.Config.DBCtl == "" {
+		return errors.New("site termination requires the managed database helper")
+	}
+	return nil
+}
+
+// RemoveDatabases invokes the managed-database helper's idempotent
+// "drop-managed" verb for each of the site's databases.
+func (h *terminationHost) RemoveDatabases(ctx context.Context) error {
+	databases, err := managedDatabaseInventory(h.app.Config)
+	if err != nil {
+		return fmt.Errorf("inspect managed databases before termination: %w", err)
+	}
+	for _, database := range databases {
+		if database.Site != h.site {
+			continue
+		}
+		if err := runDatabaseTermination(ctx, h.app.Config, database); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *terminationHost) RemoveRoutes(ctx context.Context) error {
+	if h.app.Routes != nil {
+		if err := h.app.Routes.removeSite(h.access); err != nil {
+			return fmt.Errorf("remove route desired state before termination: %w", err)
+		}
+	}
+	routes, err := siteRoutesForWithError(h.app.Config.VHostRoot, h.site)
+	if err != nil {
+		return fmt.Errorf("inspect managed routes before termination: %w", err)
+	}
+	for _, route := range routes {
+		if err := h.app.deleteManagedRoute(ctx, h.app.Config.VHostCtl, routeConfigName(h.app.Config, route)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *terminationHost) RemoveProxies(ctx context.Context) error {
+	proxies, err := siteProxiesForWithError(h.app.Config.ProxyRoot, h.site)
+	if err != nil {
+		return fmt.Errorf("inspect managed proxies before termination: %w", err)
+	}
+	for _, proxy := range proxies {
+		if err := h.app.deleteManagedRoute(ctx, h.app.Config.ProxyCtl, filepath.Base(proxy.Config)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *terminationHost) RemoveTasks(ctx context.Context) error {
+	return h.app.removeSiteTasks(ctx, h.access)
+}
+
+func (h *terminationHost) RemoveServices(ctx context.Context) error {
+	return h.app.removeSiteServices(ctx, h.access)
+}
+
+func (h *terminationHost) RemoveSiteState(ctx context.Context) error {
+	return h.app.removeSiteState(ctx, h.access)
+}
+
+func (h *terminationHost) DetachOwnership(ctx context.Context) error {
+	return h.app.detachSiteOwnership(ctx, h.access)
 }
 
 func (a *App) terminationBackup(ctx context.Context, site SiteCapability, started time.Time) (BackupResult, error) {

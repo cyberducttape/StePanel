@@ -8,6 +8,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Webhook deploys enforce the policy that authenticated them (security)**:
+  `gitDeploy` previously re-read the site's webhook configuration and skipped
+  the repository/ref allowlists when that second read failed. The verified
+  site and allowlists now travel with the request as one immutable
+  authorization, so a store error can no longer disable them and the policy
+  cannot change between authentication and deployment.
+- **Importable application package (maintainability)**: the root package is
+  now `stepanel` and the binary entry point is `cmd/stepanel`. Build with
+  `go build ./cmd/stepanel`; version ldflags target
+  `github.com/cyberducttape/StePanel.Commit` and `.BuildDate`.
+- **Site termination orchestration moved to `internal/sitelifecycle`
+  (maintainability)**: the journaled, roll-forward step sequence, its backup
+  gate and its audit rules are domain logic behind a `TerminationHost`
+  privilege interface, with unit tests that need no host state. Journal step
+  names and on-disk format are unchanged.
 - **Restore-to-staging path validation is enforced at the filesystem boundary
   (security)**: the shared restore helper now revalidates the destination site
   name immediately before path construction, covering both local and offsite

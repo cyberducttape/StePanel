@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cyberducttape/StePanel/internal/sitelifecycle"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,32 +34,23 @@ import (
 // Once every step is complete, the journal file is removed; the audit
 // trail becomes the durable record of the termination.
 
-const (
-	terminationJournalVersion = 1
+const terminationJournalVersion = 1
 
-	stepBackupVerified   = "BACKUP_VERIFIED"
-	stepDatabasesRemoved = "DATABASES_REMOVED"
-	stepRoutesRemoved    = "ROUTES_REMOVED"
-	stepProxiesRemoved   = "PROXIES_REMOVED"
-	stepTasksRemoved     = "TASKS_REMOVED"
-	stepServicesRemoved  = "SERVICES_REMOVED"
-	stepSiteStateRemoved = "SITE_STATE_REMOVED"
-	stepOwnershipRemoved = "OWNERSHIP_REMOVED"
+// Step names are owned by the sitelifecycle domain package, which defines
+// the termination sequence; the journal only persists them.
+const (
+	stepBackupVerified   = sitelifecycle.StepBackupVerified
+	stepDatabasesRemoved = sitelifecycle.StepDatabasesRemoved
+	stepRoutesRemoved    = sitelifecycle.StepRoutesRemoved
+	stepProxiesRemoved   = sitelifecycle.StepProxiesRemoved
+	stepTasksRemoved     = sitelifecycle.StepTasksRemoved
+	stepServicesRemoved  = sitelifecycle.StepServicesRemoved
+	stepSiteStateRemoved = sitelifecycle.StepSiteStateRemoved
+	stepOwnershipRemoved = sitelifecycle.StepOwnershipRemoved
 )
 
-// terminationStepOrder is the canonical execution order. Kept as a slice
-// so tests can assert every step is reachable and so a rename here fails
-// loudly at build time if a caller uses a stale constant elsewhere.
-var terminationStepOrder = []string{
-	stepBackupVerified,
-	stepDatabasesRemoved,
-	stepRoutesRemoved,
-	stepProxiesRemoved,
-	stepTasksRemoved,
-	stepServicesRemoved,
-	stepSiteStateRemoved,
-	stepOwnershipRemoved,
-}
+// terminationStepOrder is the canonical execution order.
+var terminationStepOrder = sitelifecycle.TerminationStepOrder
 
 type terminationJournal struct {
 	Version    int             `json:"version"`
@@ -200,4 +192,18 @@ func (j *terminationJournal) cleanup() error {
 		return fmt.Errorf("remove termination journal: %w", err)
 	}
 	return nil
+}
+
+// lifecycleJournal adapts a terminationJournal to sitelifecycle.Journal.
+type lifecycleJournal struct{ j *terminationJournal }
+
+func (l lifecycleJournal) IsComplete(step string) bool    { return l.j.isComplete(step) }
+func (l lifecycleJournal) MarkComplete(step string) error { return l.j.markComplete(step) }
+func (l lifecycleJournal) SetBackupPath(path string)      { l.j.setBackupPath(path) }
+func (l lifecycleJournal) Cleanup() error                 { return l.j.cleanup() }
+func (l lifecycleJournal) BackupPath() string {
+	if l.j == nil {
+		return ""
+	}
+	return l.j.BackupPath
 }
