@@ -4,12 +4,23 @@
 
 The installer supports systems with `apt-get` (Debian/Ubuntu) or `dnf` (Fedora, Rocky, Alma, and compatible RHEL-family systems). It installs Caddy, Apache, or OpenLiteSpeed, MySQL/MariaDB/PostgreSQL, PHP-FPM, ACL and archive utilities, and StePanel.
 
-Support tiers are intentionally explicit: Caddy is the Tier 1 default and is
-tested on AlmaLinux 9, Rocky Linux 9, and Ubuntu 24.04; Apache is Tier 1 and
-has disposable install coverage on Debian 12; the current database/webserver
-matrix is published in `.github/workflows/install-smoke.yml`. OpenLiteSpeed is
-Tier 2 operator-integrated support until its repository, listener/template,
-PHP routing, and upgrade paths receive equivalent disposable-host coverage.
+Support tiers are intentionally explicit. The current release evidence is:
+
+| Platform | Tier | Evidence / policy |
+| --- | --- | --- |
+| AlmaLinux 9 + Caddy/MariaDB | Tier 1 | Disposable install smoke |
+| Rocky Linux 9 + Caddy/MariaDB | Tier 1 | Disposable install and recovery smoke |
+| Ubuntu 24.04 | Tier 1 | Quota-enabled disposable install path |
+| Debian 12 | Experimental | Installer coverage exists; not a Tier 1 release target |
+| Debian 13 | Unsupported until certified | No current install evidence |
+| AlmaLinux 8, Ubuntu 22.04 | Unsupported | No current release certification |
+
+Caddy is the Tier 1 default. Apache has disposable coverage on Debian 12 but
+is not automatically Tier 1 on every distribution. OpenLiteSpeed is Tier 2
+operator-integrated support until its repository, listener/template, PHP
+routing, and upgrade paths receive equivalent disposable-host coverage. The
+executable matrix is published in `.github/workflows/install-smoke.yml` and
+`.github/workflows/quota-install-smoke.yml`.
 
 The default is `STEPANEL_WEBSERVER=caddy`. Set `STEPANEL_WEBSERVER=apache` or
 `STEPANEL_WEBSERVER=openlitespeed` to opt into another webserver. OpenLiteSpeed
