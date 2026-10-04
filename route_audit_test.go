@@ -1,9 +1,14 @@
 package stepanel
 
 import (
+	"go/ast"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -18,29 +23,52 @@ var publicMutatingRoutes = map[string]string{
 }
 
 func TestEveryMutatingRouteIsAudited(t *testing.T) {
-	source, err := os.ReadFile("main.go")
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, "main.go", nil, parser.ParseComments)
 	if err != nil {
 		t.Fatal(err)
 	}
-	route := regexp.MustCompile(`mux\.Handle\("([^"]+)", (.*)\)\s*$`)
 	checked := 0
-	for _, line := range strings.Split(string(source), "\n") {
-		match := route.FindStringSubmatch(strings.TrimSpace(line))
-		if match == nil {
-			continue
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) < 2 {
+			return true
 		}
-		path, chain := match[1], match[2]
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "Handle" {
+			return true
+		}
+		receiver, ok := selector.X.(*ast.Ident)
+		if !ok || receiver.Name != "mux" {
+			return true
+		}
+		literal, ok := call.Args[0].(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			return true
+		}
+		path, err := strconv.Unquote(literal.Value)
+		if err != nil {
+			t.Errorf("invalid route literal %s: %v", literal.Value, err)
+			return true
+		}
+		var rendered strings.Builder
+		if err := format.Node(&rendered, fileSet, call.Args[1]); err != nil {
+			t.Errorf("render route %s: %v", path, err)
+			return true
+		}
+		chain := rendered.String()
 		if !strings.Contains(chain, "MethodPost") && !strings.Contains(chain, "MethodPut") && !strings.Contains(chain, "MethodPatch") && !strings.Contains(chain, "MethodDelete") {
-			continue
+			return true
 		}
 		checked++
 		if strings.Contains(chain, "Auth.Require(") || strings.Contains(chain, "Auth.RequireAdministrator(") {
-			continue
+			return true
 		}
 		if _, reviewed := publicMutatingRoutes[path]; !reviewed {
 			t.Errorf("mutating route %s is not behind Auth.Require and is not a reviewed self-auditing route", path)
 		}
-	}
+		return true
+	})
 	if checked < 50 {
 		t.Fatalf("only %d mutating routes found; the route pattern no longer matches main.go", checked)
 	}
