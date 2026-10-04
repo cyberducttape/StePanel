@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +25,57 @@ func TestArchiveImportJobDoesNotPersistWebRootAuthority(t *testing.T) {
 	}
 	if bytes.Contains(payload, []byte(`"web_root"`)) {
 		t.Fatalf("archive job payload persisted deployment authority: %s", payload)
+	}
+}
+
+func TestArchiveImportRejectsDurableDatabaseRestoreWithoutPayloadEncryption(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs, err := openDurableJobsDBWithKey(db, "", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Auth: Auth{}, Jobs: jobs}
+	request := httptest.NewRequest(http.MethodPost, "/api/import/archive", strings.NewReader(`{"url":"https://example.test/site.tar.gz","config_path":"wp-config.php","site_name":"example","database_password":"archive-db-password-123456","auto_restore_db":true}`))
+	response := httptest.NewRecorder()
+	app.archiveImportStart(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "archive-db-password") || !strings.Contains(response.Body.String(), "STEPANEL_ACCOUNT_KEY") {
+		t.Fatalf("response exposed an unsafe or unhelpful error: %s", response.Body.String())
+	}
+	if len(jobs.List(10)) != 0 {
+		t.Fatal("archive import was enqueued without encrypted payload storage")
+	}
+}
+
+func TestArchiveImportEncryptsDurableDatabaseRestorePayload(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs, err := openDurableJobsDBWithKey(db, "", "test-account-key", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Auth: Auth{}, Jobs: jobs}
+	request := httptest.NewRequest(http.MethodPost, "/api/import/archive", strings.NewReader(`{"url":"https://example.test/site.tar.gz","config_path":"wp-config.php","site_name":"example","database_password":"archive-db-password-123456","auto_restore_db":true}`))
+	response := httptest.NewRecorder()
+	app.archiveImportStart(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var stored []byte
+	if err := db.QueryRow(`SELECT payload FROM jobs LIMIT 1`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(stored), "archive-db-password") {
+		t.Fatal("encrypted archive import payload contains plaintext database password")
 	}
 }
 

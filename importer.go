@@ -181,6 +181,14 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid site name", http.StatusBadRequest)
 		return
 	}
+	if a.Jobs == nil {
+		http.Error(w, "archive imports require the durable job store", http.StatusServiceUnavailable)
+		return
+	}
+	if req.AutoRestoreDB && !a.Jobs.PayloadEncryptionEnabled() {
+		http.Error(w, "archive database restore requires STEPANEL_ACCOUNT_KEY for encrypted durable job payloads", http.StatusServiceUnavailable)
+		return
+	}
 
 	// Enqueue import job immediately without blocking on inspection.
 	// The worker process will handle inspection, verification, provisioning,
