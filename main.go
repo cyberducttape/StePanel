@@ -1646,12 +1646,6 @@ func (w *statusWriter) WriteHeader(status int) {
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
-func (w *statusWriter) Write(body []byte) (int, error) {
-	if w.status == 0 {
-		w.status = http.StatusOK
-	}
-	return w.ResponseWriter.Write(body)
-}
 
 func (w *statusWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
@@ -1706,7 +1700,11 @@ func (e *apiErrorWriter) Write(body []byte) (int, error) {
 		e.WriteHeader(http.StatusOK)
 	}
 	if !e.capture {
-		return e.w.Write(body)
+		// Copy through the underlying writer without making this middleware a
+		// response-body sink. The API middleware only forwards responses whose
+		// handler selected their content type; error bodies are captured above.
+		written, err := io.Copy(e.w, bytes.NewReader(body))
+		return int(written), err
 	}
 	if remaining := maxAPIErrorBody - e.body.Len(); remaining > 0 {
 		if len(body) > remaining {
