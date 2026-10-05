@@ -12,7 +12,9 @@ site archives or support bundles.
 ## Environment encryption
 
 Set `STEPANEL_ENVIRONMENT_KEY` to a stable, high-entropy secret. StePanel
-derives a 32-byte AES-256 key from that value with SHA-256;
+derives a purpose-specific AES-256 key from that value with HKDF-SHA256 and
+seals each secret with AES-GCM, authenticating its site and variable name as
+associated data (see "Context-bound encryption" below);
 `STEPANEL_ENVIRONMENT_STATE` contains encrypted per-site values. Back up both
 the state file and the key together. A missing or changed key makes existing
 secret values unrecoverable; it does not silently fall back to plaintext.
@@ -22,6 +24,32 @@ reviewed operator process, stop managed application updates, write the new key
 to protected configuration, and rewrite each environment record. Verify a
 decrypt/read test and service restart before retiring the old key. Do not
 delete the old backup until recovery has been tested.
+
+## Context-bound encryption
+
+Environment secrets, customer TOTP seeds and durable job payloads are sealed
+with `internal/secretbox`: a per-purpose key derived with HKDF-SHA256 from the
+configured key, and AES-GCM associated data that binds each value to where it
+belongs.
+
+| Value | Key | Bound to |
+|---|---|---|
+| Environment secret | `STEPANEL_ENVIRONMENT_KEY` | site, variable name |
+| Customer TOTP seed | `STEPANEL_ACCOUNT_KEY` | username |
+| Durable job payload | `STEPANEL_ACCOUNT_KEY` | job ID, kind, owner |
+
+Someone who can rewrite the control-plane database cannot move a ciphertext
+to another record: a TOTP seed copied onto another account, a secret moved
+to another site, or a restore request moved into another job fails to open
+instead of decrypting.
+
+**Upgrade is one-way.** Values written by earlier releases (AES-GCM under
+SHA-256 of the key, without associated data) are re-sealed on the first
+start, and the `encryption_formats` table records that each store is done.
+From then on the legacy format is refused, so an old ciphertext copied back
+from a backup cannot be planted. A binary from before this change cannot
+read the re-sealed values: to roll back, restore the control-plane database
+snapshot taken before the upgrade together with the old binary.
 
 ## Audit, session, and account state
 

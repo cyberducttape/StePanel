@@ -2,15 +2,12 @@ package stepanel
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -19,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/secretbox"
 )
 
 func (a *App) applyEnvironment(ctx context.Context, access SiteCapability, vars map[string]environmentValue) error {
@@ -167,17 +165,33 @@ func mergeEnvironmentUpdate(current map[string]environmentValue, updates map[str
 }
 
 type EnvironmentStore struct {
-	mu     sync.RWMutex
-	path   string
+	mu   sync.RWMutex
+	path string
+	// key is the pre-v2 key (SHA-256 of the secret); box seals secrets bound
+	// to their site and variable name.
 	key    []byte
+	box    *secretbox.Box
 	values map[string]map[string]environmentValue
+	// legacyAllowed permits reading secrets sealed without context binding
+	// until the store has been migrated; legacySeen records that one was read.
+	legacyAllowed bool
+	legacySeen    bool
 }
 
+// environmentSecretPrefix marks secrets sealed by secretbox. It cannot occur
+// in the legacy format, which is plain base64.
+const environmentSecretPrefix = "v2:"
+
 func OpenEnvironmentStore(path, secret string) (*EnvironmentStore, error) {
-	store := &EnvironmentStore{path: path, values: map[string]map[string]environmentValue{}}
+	store := &EnvironmentStore{path: path, values: map[string]map[string]environmentValue{}, legacyAllowed: true}
 	if strings.TrimSpace(secret) != "" {
 		h := sha256.Sum256([]byte(secret))
 		store.key = h[:]
+		box, err := secretbox.New([]byte(secret), "environment")
+		if err != nil {
+			return nil, err
+		}
+		store.box = box
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -212,7 +226,7 @@ func (s *EnvironmentStore) decodePersisted(data []byte) (map[string]map[string]e
 			if len(s.key) == 0 {
 				return nil, errors.New("environment encryption key is required to read secret values")
 			}
-			plain, err := s.decrypt(value.Value)
+			plain, err := s.decrypt(site, name, value.Value)
 			if err != nil {
 				return nil, fmt.Errorf("decrypt %s/%s: %w", site, name, err)
 			}
@@ -231,7 +245,7 @@ func (s *EnvironmentStore) encodePersisted() ([]byte, error) {
 		out[site] = map[string]environmentValue{}
 		for name, value := range vars {
 			if value.Secret {
-				encrypted, err := s.encrypt(value.Value)
+				encrypted, err := s.encrypt(site, name, value.Value)
 				if err != nil {
 					return nil, err
 				}
@@ -254,43 +268,73 @@ func (s *EnvironmentStore) restoreControlPlaneState(payload []byte) error {
 	return nil
 }
 
-func (s *EnvironmentStore) encrypt(value string) (string, error) {
-	if len(s.key) == 0 {
+func (s *EnvironmentStore) encrypt(site, name, value string) (string, error) {
+	if s.box == nil {
 		return "", errors.New("environment encryption key is not configured")
 	}
-	block, err := aes.NewCipher(s.key)
+	sealed, err := s.box.Seal([]byte(value), site, name)
 	if err != nil {
-		return "", fmt.Errorf("initialize environment encryption: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("initialize environment encryption mode: %w", err)
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", err
 	}
-	sealed := gcm.Seal(nonce, nonce, []byte(value), nil)
-	return base64.RawStdEncoding.EncodeToString(sealed), nil
+	return environmentSecretPrefix + base64.RawStdEncoding.EncodeToString(sealed), nil
 }
-func (s *EnvironmentStore) decrypt(value string) (string, error) {
-	if len(s.key) == 0 {
+
+func (s *EnvironmentStore) decrypt(site, name, value string) (string, error) {
+	if s.box == nil {
 		return "", errors.New("environment encryption key is not configured")
 	}
-	block, err := aes.NewCipher(s.key)
-	if err != nil {
-		return "", fmt.Errorf("initialize environment encryption: %w", err)
+	if encoded, ok := strings.CutPrefix(value, environmentSecretPrefix); ok {
+		raw, err := base64.RawStdEncoding.DecodeString(encoded)
+		if err != nil {
+			return "", errors.New("invalid encrypted value")
+		}
+		plain, err := s.box.Open(raw, site, name)
+		return string(plain), err
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("initialize environment encryption mode: %w", err)
+	if !s.legacyAllowed {
+		return "", errors.New("secret is not bound to its site and variable; legacy ciphertexts are no longer accepted")
 	}
 	raw, err := base64.RawStdEncoding.DecodeString(value)
-	if err != nil || len(raw) < gcm.NonceSize() {
+	if err != nil {
 		return "", errors.New("invalid encrypted value")
 	}
-	plain, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
-	return string(plain), err
+	plain, err := secretbox.OpenLegacyWithKey(s.key, raw)
+	if err != nil {
+		return "", err
+	}
+	s.legacySeen = true
+	return string(plain), nil
+}
+
+// setLegacyCiphertextAllowed applies the store's migration state before the
+// durable state is loaded.
+func (s *EnvironmentStore) setLegacyCiphertextAllowed(allowed bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.legacyAllowed = allowed
+}
+
+// completeEncryptionMigration re-seals any legacy secret in the
+// context-bound format, records the migration, and from then on refuses
+// legacy ciphertexts.
+func (s *EnvironmentStore) completeEncryptionMigration(db *sql.DB) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.legacyAllowed {
+		return nil
+	}
+	if s.legacySeen {
+		if err := s.persistLocked(); err != nil {
+			return fmt.Errorf("re-seal environment secrets: %w", err)
+		}
+	}
+	if err := markContextBoundEncryption(db, encryptionStoreEnvironment); err != nil {
+		return err
+	}
+	if db != nil {
+		s.legacyAllowed, s.legacySeen = false, false
+	}
+	return nil
 }
 
 func (s *EnvironmentStore) persistLocked() error {

@@ -1,8 +1,6 @@
 package stepanel
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -17,8 +15,10 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/secretbox"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -110,16 +110,81 @@ type AccountStore struct {
 	mu                    sync.RWMutex
 	path                  string
 	db                    *sql.DB
-	key                   []byte
+	key                   []byte // pre-v2 key: SHA-256 of the account key
+	box                   *secretbox.Box
 	accounts              map[string]HostingAccount
 	administratorUsername string
+	// legacyTOTP permits reading TOTP seeds sealed without binding to their
+	// username until the store has been migrated; legacyTOTPSeen records
+	// that one was read.
+	legacyTOTP     atomic.Bool
+	legacyTOTPSeen atomic.Bool
+}
+
+// accountTOTPPrefix marks TOTP seeds sealed by secretbox. It cannot occur in
+// the legacy format, which is plain base32.
+const accountTOTPPrefix = "v2:"
+
+// configureAccountKey derives both the legacy key and the context-bound box.
+func (s *AccountStore) configureAccountKey(accountKey []string) error {
+	s.legacyTOTP.Store(true)
+	if len(accountKey) == 0 || strings.TrimSpace(accountKey[0]) == "" {
+		return nil
+	}
+	h := sha256.Sum256([]byte(accountKey[0]))
+	s.key = h[:]
+	box, err := secretbox.New([]byte(accountKey[0]), "account-totp")
+	if err != nil {
+		return err
+	}
+	s.box = box
+	return nil
+}
+
+// sealTOTP seals a TOTP seed bound to its username, so it cannot be moved
+// onto another account to bypass MFA.
+func (s *AccountStore) sealTOTP(username, secret string) (string, error) {
+	if s.box == nil {
+		return "", errors.New("account TOTP encryption key is not configured")
+	}
+	sealed, err := s.box.Seal([]byte(secret), username)
+	if err != nil {
+		return "", err
+	}
+	return accountTOTPPrefix + base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sealed), nil
+}
+
+func (s *AccountStore) openTOTP(username, value string) (string, error) {
+	if s.box == nil {
+		return "", errors.New("encrypted account TOTP requires STEPANEL_ACCOUNT_KEY")
+	}
+	if encoded, ok := strings.CutPrefix(value, accountTOTPPrefix); ok {
+		raw, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(encoded)
+		if err != nil {
+			return "", errors.New("invalid encrypted TOTP")
+		}
+		plain, err := s.box.Open(raw, username)
+		return string(plain), err
+	}
+	if !s.legacyTOTP.Load() {
+		return "", errors.New("TOTP seed is not bound to its account; legacy ciphertexts are no longer accepted")
+	}
+	raw, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(value)
+	if err != nil {
+		return "", errors.New("invalid encrypted TOTP")
+	}
+	plain, err := secretbox.OpenLegacyWithKey(s.key, raw)
+	if err != nil {
+		return "", err
+	}
+	s.legacyTOTPSeen.Store(true)
+	return string(plain), nil
 }
 
 func OpenAccountStore(path string, accountKey ...string) (*AccountStore, error) {
 	store := &AccountStore{path: path, accounts: make(map[string]HostingAccount), administratorUsername: "admin"}
-	if len(accountKey) > 0 && strings.TrimSpace(accountKey[0]) != "" {
-		h := sha256.Sum256([]byte(accountKey[0]))
-		store.key = h[:]
+	if err := store.configureAccountKey(accountKey); err != nil {
+		return nil, err
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -146,10 +211,14 @@ func OpenAccountStore(path string, accountKey ...string) (*AccountStore, error) 
 // database has no account rows.
 func OpenAccountStoreDB(db *sql.DB, legacyPath string, accountKey ...string) (*AccountStore, error) {
 	store := &AccountStore{db: db, accounts: make(map[string]HostingAccount), administratorUsername: "admin"}
-	if len(accountKey) > 0 && strings.TrimSpace(accountKey[0]) != "" {
-		h := sha256.Sum256([]byte(accountKey[0]))
-		store.key = h[:]
+	if err := store.configureAccountKey(accountKey); err != nil {
+		return nil, err
 	}
+	legacyAllowed, err := legacyCiphertextAllowed(db, encryptionStoreAccountTOTP)
+	if err != nil {
+		return nil, err
+	}
+	store.legacyTOTP.Store(legacyAllowed)
 	rows, err := db.Query(`SELECT payload FROM accounts ORDER BY username`)
 	if err != nil {
 		return nil, fmt.Errorf("read durable account state: %w", err)
@@ -197,7 +266,7 @@ func OpenAccountStoreDB(db *sql.DB, legacyPath string, accountKey ...string) (*A
 				if len(store.key) == 0 {
 					return nil, errors.New("encrypted account TOTP requires STEPANEL_ACCOUNT_KEY")
 				}
-				plain, err := decryptAccountTOTP(store.key, account.TOTPSecret)
+				plain, err := store.openTOTP(account.Username, account.TOTPSecret)
 				if err != nil {
 					return nil, fmt.Errorf("decrypt account TOTP: %w", err)
 				}
@@ -218,6 +287,20 @@ func OpenAccountStoreDB(db *sql.DB, legacyPath string, accountKey ...string) (*A
 				return nil, fmt.Errorf("migrate durable site ownership: %w", err)
 			}
 		}
+	}
+	if store.legacyTOTP.Load() {
+		// Re-seal legacy TOTP seeds bound to their usernames, then refuse the
+		// legacy format from now on.
+		if store.legacyTOTPSeen.Load() {
+			if err := store.persistLocked(); err != nil {
+				return nil, fmt.Errorf("re-seal account TOTP seeds: %w", err)
+			}
+		}
+		if err := markContextBoundEncryption(db, encryptionStoreAccountTOTP); err != nil {
+			return nil, err
+		}
+		store.legacyTOTP.Store(false)
+		store.legacyTOTPSeen.Store(false)
 	}
 	return store, nil
 }
@@ -254,7 +337,7 @@ func (s *AccountStore) loadAccounts(accounts []HostingAccount) error {
 			if len(s.key) == 0 {
 				return errors.New("encrypted account TOTP requires STEPANEL_ACCOUNT_KEY")
 			}
-			plain, err := decryptAccountTOTP(s.key, account.TOTPSecret)
+			plain, err := s.openTOTP(account.Username, account.TOTPSecret)
 			if err != nil {
 				return fmt.Errorf("decrypt account TOTP: %w", err)
 			}
@@ -304,7 +387,7 @@ func (s *AccountStore) refreshFromDBLocked() error {
 			if len(s.key) == 0 {
 				return errors.New("encrypted account TOTP requires STEPANEL_ACCOUNT_KEY")
 			}
-			plain, err := decryptAccountTOTP(s.key, account.TOTPSecret)
+			plain, err := s.openTOTP(account.Username, account.TOTPSecret)
 			if err != nil {
 				return fmt.Errorf("decrypt account TOTP: %w", err)
 			}
@@ -390,7 +473,7 @@ func (s *AccountStore) Get(username string) (HostingAccount, bool) {
 			return HostingAccount{}, false
 		}
 		var account HostingAccount
-		if err := json.Unmarshal(payload, &account); err != nil {
+		if err := json.Unmarshal(payload, &account); err != nil || account.Username != username {
 			return HostingAccount{}, false
 		}
 		if account.TenantID == "" {
@@ -403,7 +486,7 @@ func (s *AccountStore) Get(username string) (HostingAccount, bool) {
 			if len(s.key) == 0 {
 				return HostingAccount{}, false
 			}
-			plain, err := decryptAccountTOTP(s.key, account.TOTPSecret)
+			plain, err := s.openTOTP(account.Username, account.TOTPSecret)
 			if err != nil {
 				return HostingAccount{}, false
 			}
@@ -1070,46 +1153,12 @@ func (s *AccountStore) SetTOTP(username, secret string) (HostingAccount, error) 
 	return account, nil
 }
 
-func encryptAccountTOTP(key []byte, value string) (string, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", err
-	}
-	sealed := gcm.Seal(nonce, nonce, []byte(value), nil)
-	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sealed), nil
-}
-
-func decryptAccountTOTP(key []byte, value string) (string, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	raw, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(value)
-	if err != nil || len(raw) < gcm.NonceSize() {
-		return "", errors.New("invalid encrypted TOTP")
-	}
-	plain, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
-	return string(plain), err
-}
-
 func (s *AccountStore) persistLocked() error {
 	accounts := make([]HostingAccount, 0, len(s.accounts))
 	for _, account := range s.accounts {
 		persisted := account
 		if len(s.key) > 0 && account.TOTPSecret != "" {
-			encrypted, err := encryptAccountTOTP(s.key, account.TOTPSecret)
+			encrypted, err := s.sealTOTP(account.Username, account.TOTPSecret)
 			if err != nil {
 				return err
 			}

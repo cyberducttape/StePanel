@@ -3,9 +3,6 @@ package stepanel
 import (
 	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -19,9 +16,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	jobadmission "github.com/cyberducttape/StePanel/internal/jobs"
+	"github.com/cyberducttape/StePanel/internal/secretbox"
 	"github.com/cyberducttape/StePanel/internal/state"
 )
 
@@ -289,7 +288,7 @@ func (j *Jobs) encodeDurableItem(item *Job) ([]byte, any, any, any, error) {
 	if item == nil || item.ID == "" {
 		return nil, nil, nil, nil, errors.New("cannot persist invalid job")
 	}
-	sealedPayload, err := sealJobPayload(j.payloadKey, item.Payload)
+	sealedPayload, err := j.sealPayload(item)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("seal durable job %s: %w", item.ID, err)
 	}
@@ -547,7 +546,7 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	}
 	item := persisted.Job
 	item.Payload = decodePersistedJobPayload(persisted.Payload)
-	openedPayload, err := openJobPayload(j.payloadKey, item.Payload)
+	openedPayload, err := j.openPayload(&item, item.Payload)
 	if err != nil {
 		return Job{}, false, fmt.Errorf("open claimed job payload: %w", err)
 	}
@@ -693,7 +692,7 @@ func (j *Jobs) RequeueDeadLetter(id string) error {
 		return fmt.Errorf("decode dead-letter job: %w", err)
 	}
 	persisted.Job.Payload = decodePersistedJobPayload(persisted.Payload)
-	opened, err := openJobPayload(j.payloadKey, persisted.Job.Payload)
+	opened, err := j.openPayload(&persisted.Job, persisted.Job.Payload)
 	if err != nil {
 		return fmt.Errorf("open dead-letter job payload: %w", err)
 	}
@@ -1129,11 +1128,17 @@ type Jobs struct {
 	db            *sql.DB
 	ownedDB       *sql.DB
 	persistErr    error
-	payloadKey    []byte
-	leaseTTL      time.Duration
-	workerLimit   int
-	subscriberMu  sync.RWMutex
-	subscribers   map[chan JobEvent]struct{}
+	payloadKey    []byte // pre-v2 key: SHA-256 of the account key
+	payloadBox    *secretbox.Box
+	// legacyPayloads permits reading payloads sealed without binding to
+	// their job (or stored unsealed) until the store has been migrated;
+	// legacyPayloadsSeen records that one was read.
+	legacyPayloads     atomic.Bool
+	legacyPayloadsSeen atomic.Bool
+	leaseTTL           time.Duration
+	workerLimit        int
+	subscriberMu       sync.RWMutex
+	subscribers        map[chan JobEvent]struct{}
 	// stateErrors receives categorized persistence failures for metrics and
 	// operator visibility; nil in tests that do not observe them.
 	stateErrors func(state.StateError)
@@ -1193,7 +1198,17 @@ func openDurableJobsDBWithKey(db *sql.DB, legacyPath, payloadKey string, limits 
 	j := newJobsWithDB(db, limits...)
 	if strings.TrimSpace(payloadKey) != "" {
 		j.payloadKey = jobPayloadKey(payloadKey)
+		box, err := secretbox.New([]byte(payloadKey), "job-payload")
+		if err != nil {
+			return nil, err
+		}
+		j.payloadBox = box
 	}
+	legacyAllowed, err := legacyCiphertextAllowed(db, encryptionStoreJobPayloads)
+	if err != nil {
+		return nil, err
+	}
+	j.legacyPayloads.Store(legacyAllowed)
 	if err := j.load(); err != nil {
 		return nil, err
 	}
@@ -1211,6 +1226,20 @@ func openDurableJobsDBWithKey(db *sql.DB, legacyPath, payloadKey string, limits 
 			}
 		}
 	}
+	if j.payloadBox != nil && j.legacyPayloads.Load() {
+		// Re-seal every payload bound to its job, then refuse the legacy
+		// formats from now on.
+		if j.legacyPayloadsSeen.Load() {
+			if err := j.resealLegacyPayloads(); err != nil {
+				return nil, fmt.Errorf("re-seal job payloads: %w", err)
+			}
+		}
+		if err := markContextBoundEncryption(db, encryptionStoreJobPayloads); err != nil {
+			return nil, err
+		}
+		j.legacyPayloads.Store(false)
+		j.legacyPayloadsSeen.Store(false)
+	}
 	return j, nil
 }
 
@@ -1219,51 +1248,118 @@ func jobPayloadKey(value string) []byte {
 	return digest[:]
 }
 
-func sealJobPayload(key, payload []byte) ([]byte, error) {
-	if len(key) == 0 || len(payload) == 0 {
-		return append([]byte(nil), payload...), nil
+// resealLegacyPayloads rewrites every legacy payload in the context-bound
+// format. Each row is updated only if it is unchanged since it was read, so
+// a concurrent claim or state change by another process is never reverted;
+// a row that changed is read again on the next pass.
+func (j *Jobs) resealLegacyPayloads() error {
+	for pass := 0; pass < 5; pass++ {
+		rows, err := j.db.Query(`SELECT id, payload FROM jobs`)
+		if err != nil {
+			return err
+		}
+		type pending struct {
+			id  string
+			raw []byte
+		}
+		var legacy []pending
+		for rows.Next() {
+			var item pending
+			if err := rows.Scan(&item.id, &item.raw); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			var persisted persistedJob
+			if err := json.Unmarshal(item.raw, &persisted); err != nil {
+				_ = rows.Close()
+				return fmt.Errorf("decode job %s: %w", item.id, err)
+			}
+			payload := decodePersistedJobPayload(persisted.Payload)
+			if len(payload) > 0 && !secretbox.IsSealed(payload) {
+				legacy = append(legacy, item)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if len(legacy) == 0 {
+			return nil
+		}
+		for _, item := range legacy {
+			var persisted persistedJob
+			if err := json.Unmarshal(item.raw, &persisted); err != nil {
+				return fmt.Errorf("decode job %s: %w", item.id, err)
+			}
+			if persisted.Job.ID != item.id {
+				return fmt.Errorf("job row %s holds the record of job %s", item.id, persisted.Job.ID)
+			}
+			opened, err := j.openPayload(&persisted.Job, decodePersistedJobPayload(persisted.Payload))
+			if err != nil {
+				return fmt.Errorf("open legacy payload of job %s: %w", item.id, err)
+			}
+			persisted.Job.Payload = opened
+			sealed, err := j.sealPayload(&persisted.Job)
+			if err != nil {
+				return err
+			}
+			encoded, err := json.Marshal(sealed)
+			if err != nil {
+				return err
+			}
+			data, err := json.Marshal(&persistedJob{Job: persisted.Job, Payload: encoded})
+			if err != nil {
+				return err
+			}
+			if _, err := j.db.Exec(`UPDATE jobs SET payload = ? WHERE id = ? AND payload = ?`, data, item.id, item.raw); err != nil {
+				return fmt.Errorf("re-seal job %s: %w", item.id, err)
+			}
+		}
 	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-	sealed := gcm.Seal(nil, nonce, payload, nil)
-	result := make([]byte, 0, len(encryptedJobPayloadPrefix)+len(nonce)+len(sealed))
-	result = append(result, encryptedJobPayloadPrefix...)
-	result = append(result, nonce...)
-	result = append(result, sealed...)
-	return result, nil
+	return errors.New("job payloads kept changing during re-sealing")
 }
 
-func openJobPayload(key, payload []byte) ([]byte, error) {
-	if !bytes.HasPrefix(payload, encryptedJobPayloadPrefix) {
+// sealPayload seals a job payload bound to the job's ID, kind and owner, so
+// a payload cannot be moved to another job (for example to replay a restore
+// request against a different site).
+func (j *Jobs) sealPayload(item *Job) ([]byte, error) {
+	if j.payloadBox == nil || len(item.Payload) == 0 {
+		return append([]byte(nil), item.Payload...), nil
+	}
+	return j.payloadBox.Seal(item.Payload, item.ID, item.Kind, item.User)
+}
+
+// openPayload opens a persisted payload for item. Payloads sealed without
+// context binding (SPJ1) or stored unsealed while a key is configured are
+// accepted only until the store has been migrated.
+func (j *Jobs) openPayload(item *Job, payload []byte) ([]byte, error) {
+	switch {
+	case secretbox.IsSealed(payload):
+		if j.payloadBox == nil {
+			return nil, errors.New("encrypted job payload requires STEPANEL_ACCOUNT_KEY")
+		}
+		return j.payloadBox.Open(payload, item.ID, item.Kind, item.User)
+	case bytes.HasPrefix(payload, encryptedJobPayloadPrefix):
+		if len(j.payloadKey) == 0 {
+			return nil, errors.New("encrypted job payload requires STEPANEL_ACCOUNT_KEY")
+		}
+		if !j.legacyPayloads.Load() {
+			return nil, errors.New("job payload is not bound to its job; legacy ciphertexts are no longer accepted")
+		}
+		opened, err := secretbox.OpenLegacyWithKey(j.payloadKey, payload[len(encryptedJobPayloadPrefix):])
+		if err != nil {
+			return nil, err
+		}
+		j.legacyPayloadsSeen.Store(true)
+		return opened, nil
+	case j.payloadBox == nil || len(payload) == 0:
 		return payload, nil
+	case j.legacyPayloads.Load():
+		// Written before payload encryption was enabled.
+		j.legacyPayloadsSeen.Store(true)
+		return payload, nil
+	default:
+		return nil, errors.New("unsealed job payload refused while payload encryption is enabled")
 	}
-	if len(key) == 0 {
-		return nil, errors.New("encrypted job payload requires STEPANEL_ACCOUNT_KEY")
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	if len(payload) < len(encryptedJobPayloadPrefix)+gcm.NonceSize() {
-		return nil, errors.New("encrypted job payload is truncated")
-	}
-	nonceStart := len(encryptedJobPayloadPrefix)
-	nonce := payload[nonceStart : nonceStart+gcm.NonceSize()]
-	return gcm.Open(nil, nonce, payload[nonceStart+gcm.NonceSize():], nil)
 }
 
 func (j *Jobs) Close() error {
@@ -1379,7 +1475,7 @@ func (j *Jobs) load() error {
 			}
 			item.State = state
 			item.Payload = decodePersistedJobPayload(persisted.Payload)
-			openedPayload, err := openJobPayload(j.payloadKey, item.Payload)
+			openedPayload, err := j.openPayload(&item, item.Payload)
 			if err != nil {
 				return fmt.Errorf("open durable job payload: %w", err)
 			}
@@ -1481,7 +1577,7 @@ func (j *Jobs) persistLocked() error {
 			if item == nil || item.ID == "" {
 				return rollback(errors.New("cannot persist invalid job"))
 			}
-			sealedPayload, err := sealJobPayload(j.payloadKey, item.Payload)
+			sealedPayload, err := j.sealPayload(item)
 			if err != nil {
 				return rollback(fmt.Errorf("seal durable job %s: %w", item.ID, err))
 			}
@@ -1734,7 +1830,7 @@ func (j *Jobs) decodeDurableJob(state string, data []byte, leaseOwner sql.NullSt
 	item := persisted.Job
 	item.State = state
 	item.Payload = decodePersistedJobPayload(persisted.Payload)
-	opened, err := openJobPayload(j.payloadKey, item.Payload)
+	opened, err := j.openPayload(&item, item.Payload)
 	if err != nil {
 		return Job{}, err
 	}

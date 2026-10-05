@@ -441,7 +441,15 @@ func Main() {
 	}
 	// The store is its own codec: durable payloads hold encrypted secrets and
 	// must be decrypted by the store, never unmarshalled into live state.
+	environmentLegacy, err := legacyCiphertextAllowed(controlPlaneDB, encryptionStoreEnvironment)
+	if err != nil {
+		log.Fatalf("read environment encryption format: %v", err)
+	}
+	environments.setLegacyCiphertextAllowed(environmentLegacy)
 	bindState(environments, "environment", environments, environments.persistLocked)
+	if err := environments.completeEncryptionMigration(controlPlaneDB); err != nil {
+		log.Fatalf("migrate environment secrets to context-bound encryption: %v", err)
+	}
 	bindState(redisAllocations, "redis", &redisAllocations.values, redisAllocations.persistLocked)
 	bindState(access, "site-access", &access.values, access.persistLocked)
 	bindState(workers, "workers", &workers.values, workers.persistLocked)

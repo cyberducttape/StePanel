@@ -53,7 +53,7 @@ func TestEnvironmentStoreRequiresKeyForSecretState(t *testing.T) {
 
 func TestEnvironmentStoreEncryptWithoutKeyReturnsError(t *testing.T) {
 	store := &EnvironmentStore{}
-	if _, err := store.encrypt("secret"); err == nil {
+	if _, err := store.encrypt("demo", "APP_KEY", "secret"); err == nil {
 		t.Fatal("encrypt without a key unexpectedly succeeded")
 	}
 }

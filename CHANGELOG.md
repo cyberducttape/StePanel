@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Context-bound encryption (security)**: environment secrets, customer
+  TOTP seeds and durable job payloads are now sealed with a per-purpose
+  HKDF-derived key and AES-GCM associated data binding each value to its
+  site and variable, username, or job ID/kind/owner. Previously no associated
+  data was used, so anyone able to rewrite the state database could move a
+  ciphertext to another record (for example, copy a known TOTP seed onto
+  another account to bypass MFA). Existing values are re-sealed on the first
+  start and the legacy format is refused afterwards (`encryption_formats`).
+  This migration is one-way: rolling back the binary requires the
+  pre-upgrade control-plane database snapshot. Account lookups now also
+  reject a stored record whose username does not match its row.
 - **Legacy API token hard cutoff (security)**: unscoped legacy tokens now
   stop working at one host-wide deadline, the later of 2026-11-15 and 30
   days after the policy is first activated on the host. Previously the

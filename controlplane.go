@@ -232,6 +232,17 @@ CREATE INDEX IF NOT EXISTS jobs_owner_state_idx ON jobs(owner, state, started_at
 		_, err := tx.Exec(recovery.Schema)
 		return err
 	}),
+	// Records, per store, that every secret has been re-sealed in the
+	// context-bound format. Until then the store may still read the legacy
+	// unbound format; afterwards it refuses it (see encryption_format.go).
+	migration.NewMigration(11, "track context-bound encryption migration", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS encryption_formats (
+            store TEXT PRIMARY KEY,
+            version INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

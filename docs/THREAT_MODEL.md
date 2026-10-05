@@ -25,7 +25,9 @@
 - TOTP adds replay-resistant second-factor validation; accepted counters are
   persisted in the control-plane database when the production database is
   configured. Customer TOTP material is
-  AES-GCM encrypted at rest when `STEPANEL_ACCOUNT_KEY` is configured.
+  AES-GCM encrypted at rest when `STEPANEL_ACCOUNT_KEY` is configured, bound
+  to its username so a seed cannot be moved to another account (see
+  SECRETS.md, "Context-bound encryption").
 - Login attempts are rate-limited.
 - Uploads are size-limited and staged privately.
 - Archive paths are checked for absolute paths and traversal.
