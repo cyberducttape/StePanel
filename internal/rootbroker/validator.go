@@ -19,6 +19,16 @@ import (
 var taskNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 var workerNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 
+// Private clones run as root through stepanel-gitctl; keep the exact shapes
+// the helper accepts so no value can be read as a git option.
+var (
+	gitCloneRepoPattern = regexp.MustCompile(`^git@[A-Za-z0-9.-]+:[A-Za-z0-9._/-]+\.git$`)
+	gitCloneRefPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
+	phpVersionPattern   = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
+	phpSizePattern      = regexp.MustCompile(`^[1-9][0-9]{0,4}M$`)
+	phpErrorPattern     = regexp.MustCompile(`^[A-Z0-9_~& |]{1,80}$`)
+)
+
 // Validator performs input validation at the root boundary.
 // All user-supplied data is validated before any system operations.
 type Validator struct {
@@ -508,14 +518,10 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 	case "quota-clear":
 		// No additional fields are accepted.
 	case "runtime":
-		if !regexp.MustCompile(`^[0-9]+\.[0-9]+$`).MatchString(req.PHPVersion) ||
-			!regexp.MustCompile(`^[1-9][0-9]{0,4}M$`).MatchString(req.MemoryLimit) {
-			return fmt.Errorf("invalid PHP runtime profile")
-		}
-		if !regexp.MustCompile(`^[1-9][0-9]{0,4}M$`).MatchString(req.UploadMaxFilesize) ||
-			!regexp.MustCompile(`^[1-9][0-9]{0,4}M$`).MatchString(req.PostMaxSize) ||
+		if !phpVersionPattern.MatchString(req.PHPVersion) || !phpSizePattern.MatchString(req.MemoryLimit) ||
+			!phpSizePattern.MatchString(req.UploadMaxFilesize) || !phpSizePattern.MatchString(req.PostMaxSize) ||
 			req.ExecTimeout < 1 || req.ExecTimeout > 3600 || req.MaxInputVars < 1 || req.MaxInputVars > 1000000 ||
-			!regexp.MustCompile(`^[A-Z0-9_~& |]{1,80}$`).MatchString(req.ErrorReporting) {
+			!phpErrorPattern.MatchString(req.ErrorReporting) {
 			return fmt.Errorf("invalid PHP runtime profile")
 		}
 	}
@@ -789,6 +795,15 @@ func (v *Validator) validateGitRequest(req *GitRequest) error {
 	if req.Action == "clone" {
 		if err := v.ValidateSiteName(req.Site); err != nil {
 			return fmt.Errorf("clone site: %w", err)
+		}
+		// The clone runs as root: bind the destination to a release staging
+		// directory of the requesting site, not merely anywhere under the
+		// web root (another site's tree, or the shared sites directory).
+		if err := argReleasePath(0)(v, req.Destination, []string{req.Site}); err != nil {
+			return fmt.Errorf("clone destination: %w", err)
+		}
+		if !gitCloneRepoPattern.MatchString(req.Repository) || !gitCloneRefPattern.MatchString(req.Ref) {
+			return fmt.Errorf("private Git clone requires an SSH repository and a plain ref")
 		}
 		if len(req.AllowedHosts) == 0 {
 			return fmt.Errorf("Git host allowlist is required")

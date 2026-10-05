@@ -852,9 +852,7 @@ func cleanupWPressDatabase(cfg Config, dbName, dbUser string) error {
 
 func cleanupWPressDatabaseContext(parent context.Context, cfg Config, dbName, dbUser string) error {
 	if cfg.DBCtl != "" {
-		ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
-		defer cancel()
-		output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "cleanup-wordpress", dbName, dbUser)
+		output, err := runDatabaseHelperContext(parent, cfg, 2*time.Minute, "", "cleanup-wordpress", dbName, dbUser)
 		if err != nil {
 			return fmt.Errorf("cleanup WordPress database: %w: %s", err, strings.TrimSpace(string(output)))
 		}

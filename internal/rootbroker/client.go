@@ -331,15 +331,18 @@ func (c *Client) TaskOperation(ctx context.Context, task TaskRequest) (*Response
 	return c.Execute(ctx, &Request{RequestType: "task", Task: &task})
 }
 
-// GitClone clones a git repository.
-func (c *Client) GitClone(ctx context.Context, repo, ref, destination string) (*Response, error) {
+// GitClone clones a private repository into one of the site's release
+// staging directories, restricted to the allow-listed Git hosts.
+func (c *Client) GitClone(ctx context.Context, site, repo, ref, destination string, allowedHosts []string) (*Response, error) {
 	req := &Request{
 		RequestType: "git",
 		Git: &GitRequest{
-			Action:      "clone",
-			Repository:  repo,
-			Ref:         ref,
-			Destination: destination,
+			Action:       "clone",
+			Site:         site,
+			Repository:   repo,
+			Ref:          ref,
+			Destination:  destination,
+			AllowedHosts: allowedHosts,
 		},
 	}
 	return c.Execute(ctx, req)

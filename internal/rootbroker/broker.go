@@ -634,6 +634,10 @@ func ensureLabManagerSiteRoot(siteRoot string) error {
 }
 
 func (b *Broker) siteAccess(ctx context.Context, req *SiteRequest) (*Response, error) {
+	// stepanel-sitectl ensures the site account exists (useradd/usermod)
+	// before every action, so it shares the account mutation lock.
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
 	if req.SFTPEnabled == nil || req.ShellEnabled == nil {
 		return &Response{OK: false, Error: "SSH access flags are required"}, nil
 	}
@@ -642,21 +646,29 @@ func (b *Broker) siteAccess(ctx context.Context, req *SiteRequest) (*Response, e
 }
 
 func (b *Broker) siteResources(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
 	output, err := b.host.RunSiteHelper(ctx, "resources", req.Site, strconv.Itoa(req.PHPWorkers))
 	return siteHelperResponse("site resources", output, err)
 }
 
 func (b *Broker) siteQuota(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
 	output, err := b.host.RunSiteHelper(ctx, "quota", req.Site, strconv.Itoa(req.DiskMB), strconv.Itoa(req.Inodes))
 	return siteHelperResponse("site quota", output, err)
 }
 
 func (b *Broker) siteQuotaClear(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
 	output, err := b.host.RunSiteHelper(ctx, "quota-clear", req.Site)
 	return siteHelperResponse("site quota clear", output, err)
 }
 
 func (b *Broker) siteRuntime(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
 	output, err := b.host.RunSiteHelper(ctx, "runtime", req.Site, req.PHPVersion,
 		req.MemoryLimit, strconv.Itoa(req.ExecTimeout), req.UploadMaxFilesize,
 		req.PostMaxSize, strconv.Itoa(req.MaxInputVars), boolArg(req.OPcache),

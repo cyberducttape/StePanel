@@ -162,6 +162,8 @@ run_podman_as_site() {
     "/run/$runner_runtime/config/containers"
   [[ $(stat -c '%u:%g' "/run/$runner_runtime") == "$(id -u "$site_user"):$(id -g "$site_user")" ]] || {
     echo "runtime directory is not owned by $site_user" >&2
+    rm -rf -- "/run/$runner_runtime"
+    runner_runtime=
     return 1
   }
   install -o "$site_user" -g "$site_user" -m 0600 /dev/null "/run/$runner_runtime/config/containers/storage.conf"

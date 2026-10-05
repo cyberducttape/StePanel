@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Typed broker follow-up fixes (security, reliability)**: removing the
+  generic helper bridge left gaps that are now closed. Private Git clones in
+  the release pipeline and WordPress database cleanup use typed broker
+  operations; both previously failed in production. The broker binds a
+  private clone's destination to a release staging directory of the
+  requesting site and accepts only `git@host:path.git` repositories and plain
+  refs. The `stepanel-sitectl` access, resources, quota and runtime actions
+  share the account-mutation lock, because each can run `useradd`/`usermod`.
+  Runner builds and worker operations are scoped to their site instead of
+  running exclusively, so a long build no longer stalls the whole broker.
+  Proxy apply/delete and vhost delete take scoped locks.
 - **One audit contract (security)**: audit calls now use two explicit APIs.
   Class A security-ledger operations (access grants, credential changes,
   deletions, deployments, restores) durably record an intent before mutating

@@ -691,22 +691,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var cloneOutput []byte
 	if repository.Private {
-		if a.Config.Production || labDirectRootBrokerEnabled() {
-			client, clientErr := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
-			if clientErr != nil {
-				http.Error(w, "root broker is unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			allowedHosts := strings.FieldsFunc(a.Config.GitAllowedHosts, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
-			response, executeErr := client.Execute(ctx, &rootbroker.Request{RequestType: "git", Git: &rootbroker.GitRequest{Action: "clone", Site: input.Site, Repository: repository.URL, Ref: input.Ref, Destination: release, AllowedHosts: allowedHosts}})
-			if executeErr != nil {
-				err = executeErr
-			} else if !response.OK {
-				err = errors.New(response.Error)
-			}
-		} else {
-			cloneOutput, err, _ = runAllowlistedHelperOutput(ctx, a.Config, nil, a.Config.GitCtl, "clone", input.Site, repository.URL, input.Ref, release, a.Config.GitAllowedHosts)
-		}
+		cloneOutput, err = clonePrivateRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release)
 	} else {
 		clone := exec.CommandContext(ctx, gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", input.Ref, "--single-branch", "--no-tags", repository.URL, release)
 		clone.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")
@@ -982,6 +967,30 @@ func latestPreviousRelease(siteRoot string) (string, error) {
 		return "", errors.New("no previous release")
 	}
 	return latest.path, nil
+}
+
+// clonePrivateRepository clones a repository that needs the site's deploy
+// key. Production (and the direct lab broker) use the typed root-broker clone,
+// which binds the destination to the site's release staging directory;
+// development runs the helper directly.
+func clonePrivateRepository(ctx context.Context, cfg Config, site, repositoryURL, ref, release string) ([]byte, error) {
+	if !cfg.Production && !labDirectRootBrokerEnabled() {
+		output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.GitCtl, "clone", site, repositoryURL, ref, release, cfg.GitAllowedHosts)
+		return output, err
+	}
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return nil, fmt.Errorf("root broker is unavailable: %w", err)
+	}
+	allowedHosts := strings.FieldsFunc(cfg.GitAllowedHosts, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
+	response, err := client.GitClone(ctx, site, repositoryURL, ref, release, allowedHosts)
+	if err != nil {
+		return nil, err
+	}
+	if !response.OK {
+		return nil, errors.New(response.Error)
+	}
+	return nil, nil
 }
 
 func validateGitAllowedHosts(value string) error {

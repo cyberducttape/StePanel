@@ -202,3 +202,50 @@ func TestSiteAccountMutationsAreSerializedAcrossBrokerRequests(t *testing.T) {
 	<-firstDone
 	<-secondDone
 }
+
+// Every stepanel-sitectl action runs ensure_site_user (useradd/usermod), so
+// the configuration actions must share the account mutation lock with
+// prepare even though they target different sites.
+func TestSiteHelperConfigActionsShareAccountMutationLock(t *testing.T) {
+	enabled := true
+	actions := map[string]*SiteRequest{
+		"access":      {Action: "access", SFTPEnabled: &enabled, ShellEnabled: &enabled},
+		"resources":   {Action: "resources", PHPWorkers: 4},
+		"quota":       {Action: "quota", DiskMB: 1024, Inodes: 100000},
+		"quota-clear": {Action: "quota-clear"},
+		"runtime": {Action: "runtime", PHPVersion: "8.3", MemoryLimit: "256M", ExecTimeout: 30,
+			UploadMaxFilesize: "64M", PostMaxSize: "64M", MaxInputVars: 1000, ErrorReporting: "E_ALL"},
+	}
+	for name, second := range actions {
+		t.Run(name, func(t *testing.T) {
+			release := make(chan struct{})
+			host := &fakeHost{helperStarted: make(chan struct{}), helperEntered: make(chan string, 2), helperRelease: release}
+			broker, err := newBroker(t.TempDir(), t.TempDir(), log.New(io.Discard, "", 0), host)
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstDone := make(chan struct{})
+			go func() {
+				_, _ = broker.Execute(context.Background(), &Request{RequestType: "site", Site: &SiteRequest{Action: "prepare", Site: "first"}})
+				close(firstDone)
+			}()
+			<-host.helperStarted
+			<-host.helperEntered
+
+			second.Site = "second"
+			secondDone := make(chan struct{})
+			go func() {
+				_, _ = broker.Execute(context.Background(), &Request{RequestType: "site", Site: second})
+				close(secondDone)
+			}()
+			select {
+			case site := <-host.helperEntered:
+				t.Fatalf("%s for %q entered the host helper while an account mutation was running", name, site)
+			case <-time.After(50 * time.Millisecond):
+			}
+			close(release)
+			<-firstDone
+			<-secondDone
+		})
+	}
+}

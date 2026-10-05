@@ -1099,7 +1099,7 @@ func TestBrokerGitCloneUsesConcreteHelperContract(t *testing.T) {
 		Git: &GitRequest{
 			Action:       "clone",
 			Site:         "site",
-			Repository:   "https://github.com/user/repo.git",
+			Repository:   "git@github.com:user/repo.git",
 			Ref:          "main",
 			Destination:  destination,
 			AllowedHosts: []string{"github.com"},
@@ -1112,6 +1112,45 @@ func TestBrokerGitCloneUsesConcreteHelperContract(t *testing.T) {
 	}
 	if !resp.OK {
 		t.Fatalf("git clone response = %#v, want concrete helper execution", resp)
+	}
+}
+
+func TestValidatorGitCloneBindsDestinationAndShape(t *testing.T) {
+	webRoot := t.TempDir()
+	v := NewValidator(webRoot)
+	valid := func() *GitRequest {
+		return &GitRequest{
+			Action:       "clone",
+			Site:         "alpha",
+			Repository:   "git@github.com:user/repo.git",
+			Ref:          "main",
+			Destination:  filepath.Join(webRoot, "sites", "alpha", ".stepanel-release-123"),
+			AllowedHosts: []string{"github.com"},
+		}
+	}
+	if err := v.ValidateRequest(&Request{RequestType: "git", Git: valid()}); err != nil {
+		t.Fatalf("valid clone rejected: %v", err)
+	}
+	cases := map[string]func(*GitRequest){
+		"other site's release": func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "beta", ".stepanel-release-123") },
+		"site root":            func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "alpha") },
+		"public tree":          func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "alpha", "public") },
+		"shared sites dir":     func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites") },
+		"unclean path": func(r *GitRequest) {
+			r.Destination = filepath.Join(webRoot, "sites", "alpha") + "/x/../.stepanel-release-1"
+		},
+		"option-like ref":        func(r *GitRequest) { r.Ref = "-upload-pack=x" },
+		"https repository":       func(r *GitRequest) { r.Repository = "https://github.com/user/repo.git" },
+		"missing host allowlist": func(r *GitRequest) { r.AllowedHosts = nil },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			req := valid()
+			mutate(req)
+			if err := v.ValidateRequest(&Request{RequestType: "git", Git: req}); err == nil {
+				t.Fatal("invalid clone accepted")
+			}
+		})
 	}
 }
 

@@ -71,7 +71,7 @@ func TestClientConvenienceMethodsUseTheSocketBoundary(t *testing.T) {
 			return e
 		},
 		func() error {
-			_, e := client.GitClone(ctx, "https://github.com/example/repo.git", "main", "/var/www/sites/site/.stepanel-release-1")
+			_, e := client.GitClone(ctx, "site", "https://github.com/example/repo.git", "main", "/var/www/sites/site/.stepanel-release-1", []string{"github.com"})
 			return e
 		},
 		func() error { _, e := client.GitDelete(ctx, "site"); return e },

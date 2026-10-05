@@ -201,7 +201,7 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	}
 	var output []byte
 	if repository.Private {
-		output, err, _ = runAllowlistedHelperOutput(ctx, a.Config, nil, a.Config.GitCtl, "clone", site.Site(), repository.URL, ref, release, a.Config.GitAllowedHosts)
+		output, err = clonePrivateRepository(ctx, a.Config, site.Site(), repository.URL, ref, release)
 	} else {
 		cmd := exec.CommandContext(ctx, gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", ref, "--single-branch", "--no-tags", repository.URL, release)
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")

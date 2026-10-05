@@ -98,6 +98,10 @@ func requestLockKeys(req *Request) []string {
 		add("site", req.Site.Site)
 	case "app":
 		add("site", req.App.Site)
+	case "worker":
+		add("site", req.Worker.Site)
+	case "runner":
+		add("site", req.Runner.Site)
 	case "task":
 		add("site", req.Task.Site)
 	case "environment":
@@ -109,7 +113,21 @@ func requestLockKeys(req *Request) []string {
 			add("site", req.Resource.Site)
 		}
 	case "vhost":
-		add("site", req.Vhost.Site)
+		if req.Vhost.Action == "delete" {
+			// Route names, not sites; vhostctl flocks the shared web server
+			// configuration it rewrites.
+			add("vhostctl", "host")
+		} else {
+			add("site", req.Vhost.Site)
+		}
+	case "proxy":
+		// A bare reload touches every route and stays exclusive.
+		switch req.Proxy.Action {
+		case "apply":
+			add("site", req.Proxy.Site)
+		case "delete":
+			add("proxyctl", "host")
+		}
 	case "db":
 		add("site", req.DB.Site)
 		add("database", req.DB.Database)
