@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Durable pre-migration snapshots with retention (reliability)**: the
+  control-plane snapshot taken before schema migrations was written by
+  `VACUUM INTO` straight to its final name with the process umask, never
+  fsynced or verified, and never pruned. A crash could leave a truncated file
+  that looked like a valid recovery point, the copy was briefly readable by
+  other users, and snapshots accumulated with every upgrade. Snapshots are
+  now written in a private `<db>.snapshots/` directory under a temporary
+  name, fsynced, verified with `PRAGMA quick_check` and their schema version,
+  atomically renamed with the directory fsynced, and the newest three are
+  kept (including legacy `.pre-migration-*.bak` files). See STATE.md.
 - **One archive safety policy (security)**: archive imports, cPanel restores
   and backup restores now share `internal/archivesafe`. Archives that name a
   path twice (also via aliases like `a//b` or `a\b`), or create a file and a

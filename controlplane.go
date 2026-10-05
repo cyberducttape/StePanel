@@ -6,15 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cyberducttape/StePanel/internal/migration"
-	"github.com/cyberducttape/StePanel/internal/recovery"
+	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/migration"
+	"github.com/cyberducttape/StePanel/internal/recovery"
 	_ "modernc.org/sqlite"
 )
 
@@ -329,8 +332,14 @@ func runControlPlaneMigrations(db *sql.DB, path string) error {
 	}
 
 	if maxApplied > 0 {
-		if err := snapshotControlPlaneBeforeMigration(db, path); err != nil {
+		snapshot, err := snapshotControlPlaneBeforeMigration(db, path, maxApplied)
+		if err != nil {
 			return fmt.Errorf("snapshot control-plane database before migrating: %w", err)
+		}
+		log.Printf("control-plane schema v%d snapshot written to %s before applying %d migration(s)", maxApplied, snapshot, len(pending))
+		if err := pruneControlPlaneSnapshots(path, controlPlaneSnapshotRetention); err != nil {
+			// Retention never blocks a migration; the new snapshot is durable.
+			log.Printf("[ERROR] prune control-plane migration snapshots: %v", err)
 		}
 	}
 
@@ -367,16 +376,172 @@ func applyControlPlaneMigration(db *sql.DB, m *migration.Migration) error {
 	return tx.Commit()
 }
 
-// snapshotControlPlaneBeforeMigration writes a point-in-time copy of the
-// database next to it before any migration runs against existing data. It
-// uses the already-open handle rather than reopening the file, since the
+// controlPlaneSnapshotRetention is how many pre-migration snapshots are kept.
+const controlPlaneSnapshotRetention = 3
+
+// controlPlaneSnapshotDir holds pre-migration snapshots. It is private
+// (0700), so a snapshot is never readable by others, even while SQLite is
+// still writing it.
+func controlPlaneSnapshotDir(path string) string {
+	return path + ".snapshots"
+}
+
+var controlPlaneSnapshotPattern = regexp.MustCompile(`^pre-migration-v[0-9]+-[0-9]+\.db$`)
+
+// snapshotControlPlaneBeforeMigration writes a verified, durable copy of the
+// database at schema version before any migration runs against existing
+// data, and returns its path. The copy is written under a temporary name,
+// fsynced, checked with PRAGMA quick_check and its schema version, and only
+// then renamed into place and the directory fsynced, so a crash can never
+// leave a truncated file that looks like a recovery point. It uses the
+// already-open handle rather than reopening the database, since the
 // control-plane connection pool is limited to a single connection.
-func snapshotControlPlaneBeforeMigration(db *sql.DB, path string) error {
-	destination := fmt.Sprintf("%s.pre-migration-%d.bak", path, time.Now().UTC().UnixNano())
-	if _, err := db.Exec(`VACUUM INTO ?`, destination); err != nil {
+func snapshotControlPlaneBeforeMigration(db *sql.DB, path string, version int) (string, error) {
+	dir := controlPlaneSnapshotDir(path)
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return "", fmt.Errorf("create snapshot directory: %w", err)
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return "", fmt.Errorf("inspect snapshot directory: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("snapshot directory %s is not a directory", dir)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", fmt.Errorf("secure snapshot directory: %w", err)
+	}
+	name := fmt.Sprintf("pre-migration-v%d-%d.db", version, time.Now().UTC().UnixNano())
+	final := filepath.Join(dir, name)
+	partial := filepath.Join(dir, "."+name+".partial")
+	removePartial := true
+	defer func() {
+		if removePartial {
+			_ = os.Remove(partial)
+		}
+	}()
+	if _, err := db.Exec(`VACUUM INTO ?`, partial); err != nil {
+		return "", err
+	}
+	if err := syncFile(partial, 0o600); err != nil {
+		return "", err
+	}
+	if err := verifyControlPlaneSnapshot(partial, version); err != nil {
+		return "", fmt.Errorf("verify snapshot: %w", err)
+	}
+	if err := os.Rename(partial, final); err != nil {
+		return "", fmt.Errorf("publish snapshot: %w", err)
+	}
+	removePartial = false
+	if err := syncDir(dir); err != nil {
+		return "", fmt.Errorf("sync snapshot directory: %w", err)
+	}
+	return final, nil
+}
+
+// syncFile sets mode on path and flushes it to stable storage.
+func syncFile(path string, mode os.FileMode) error {
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("open snapshot: %w", err)
+	}
+	if err := file.Chmod(mode); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("secure snapshot: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync snapshot: %w", err)
+	}
+	return file.Close()
+}
+
+func syncDir(dir string) error {
+	handle, err := os.Open(dir)
+	if err != nil {
 		return err
 	}
-	return os.Chmod(destination, 0600)
+	syncErr := handle.Sync()
+	closeErr := handle.Close()
+	return errors.Join(syncErr, closeErr)
+}
+
+// verifyControlPlaneSnapshot opens a snapshot read-only and checks that it is
+// a sound SQLite database at the expected schema version.
+func verifyControlPlaneSnapshot(path string, version int) error {
+	snapshot, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		return err
+	}
+	defer snapshot.Close()
+	var check string
+	if err := snapshot.QueryRow(`PRAGMA quick_check`).Scan(&check); err != nil {
+		return err
+	}
+	if check != "ok" {
+		return fmt.Errorf("quick_check: %s", check)
+	}
+	var recorded int
+	if err := snapshot.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM control_plane_migrations`).Scan(&recorded); err != nil {
+		return err
+	}
+	if recorded != version {
+		return fmt.Errorf("snapshot records schema version %d, want %d", recorded, version)
+	}
+	return nil
+}
+
+// pruneControlPlaneSnapshots keeps the newest keep snapshots: those in the
+// snapshot directory and those earlier releases wrote beside the database
+// (<db>.pre-migration-<ns>.bak). Leftover partial files are removed.
+func pruneControlPlaneSnapshots(path string, keep int) error {
+	type snapshot struct {
+		path    string
+		modTime time.Time
+	}
+	var snapshots []snapshot
+	dir := controlPlaneSnapshotDir(path)
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	var errs []error
+	for _, entry := range entries {
+		full := filepath.Join(dir, entry.Name())
+		if entry.Type().IsRegular() && strings.HasPrefix(entry.Name(), ".pre-migration-") && strings.HasSuffix(entry.Name(), ".partial") {
+			errs = append(errs, os.Remove(full))
+			continue
+		}
+		if !entry.Type().IsRegular() || !controlPlaneSnapshotPattern.MatchString(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		snapshots = append(snapshots, snapshot{full, info.ModTime()})
+	}
+	legacy, err := filepath.Glob(path + ".pre-migration-*.bak")
+	if err != nil {
+		return err
+	}
+	for _, candidate := range legacy {
+		info, err := os.Lstat(candidate)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		snapshots = append(snapshots, snapshot{candidate, info.ModTime()})
+	}
+	sort.Slice(snapshots, func(i, j int) bool { return snapshots[i].modTime.After(snapshots[j].modTime) })
+	for i := keep; i < len(snapshots); i++ {
+		errs = append(errs, os.Remove(snapshots[i].path))
+	}
+	errs = append(errs, syncDir(filepath.Dir(path)))
+	if len(entries) > 0 {
+		errs = append(errs, syncDir(dir))
+	}
+	return errors.Join(errs...)
 }
 
 func readControlPlaneBlob(db *sql.DB, name string) ([]byte, bool, error) {

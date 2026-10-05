@@ -18,10 +18,30 @@ only and must not be treated as an independent live source after migration.
 | Git trust and deploy keys | `/etc/stepanel/git-known-hosts`, `/etc/stepanel/git-keys` | Review/regenerate | Yes | Review or regenerate per site |
 | rclone/provider configuration | `RCLONE_CONFIG` and provider secret store | External requirement | Yes | Re-provision and validate destination |
 | Legacy JSON stores | Paths beside `STEPANEL_JOB_STATE` | Migration-only | Some are sensitive | Preserve during upgrade until migration verified |
+| Pre-migration snapshots | `<control-plane DB>.snapshots/` | Optional (rollback point) | Same as the control-plane DB | Restore with `restore-control-plane` to roll back an upgrade |
 
 The current legacy paths (`jobs.json`, `sessions.json`, `accounts.json`, and
 feature-specific JSON files) remain configurable for one-time import and
 backward-compatible tooling. New production mutations use the SQLite database.
+
+## Pre-migration snapshots
+
+Before applying schema migrations to an existing control-plane database,
+StePanel writes a snapshot to `<control-plane DB>.snapshots/` (mode 0700),
+named `pre-migration-v<schema>-<unix-ns>.db`, and refuses to migrate if it
+cannot. Each snapshot is written under a temporary name, fsynced, checked
+with `PRAGMA quick_check` and its recorded schema version, then renamed into
+place with the directory fsynced, so a crash never leaves a truncated file
+that looks like a recovery point. The newest three snapshots are kept;
+older ones, including `<db>.pre-migration-<ns>.bak` files written beside the
+database by earlier releases, are removed at the next migration.
+
+To roll back an upgrade, stop the panel and worker, reinstall the previous
+binary, and restore the snapshot for that release's schema version:
+`stepanel restore-control-plane <snapshot> --dry-run`, then without
+`--dry-run`. Some migrations are one-way for older binaries (for example the
+context-bound encryption in SECRETS.md), so the snapshot is the supported
+rollback path.
 
 ## Required backup procedure
 

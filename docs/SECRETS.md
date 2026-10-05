@@ -48,8 +48,9 @@ SHA-256 of the key, without associated data) are re-sealed on the first
 start, and the `encryption_formats` table records that each store is done.
 From then on the legacy format is refused, so an old ciphertext copied back
 from a backup cannot be planted. A binary from before this change cannot
-read the re-sealed values: to roll back, restore the control-plane database
-snapshot taken before the upgrade together with the old binary.
+read the re-sealed values: to roll back, restore the pre-migration snapshot
+StePanel takes automatically before upgrading the schema (see STATE.md,
+"Pre-migration snapshots") together with the old binary.
 
 ## Audit, session, and account state
 
