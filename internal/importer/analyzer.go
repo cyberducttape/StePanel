@@ -12,13 +12,12 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/archivesafe"
 	"github.com/cyberducttape/StePanel/internal/safehttp"
 )
 
@@ -53,6 +52,15 @@ func NewSafeArchiveTransport() *http.Transport {
 // Analyzer inspects and analyzes archive contents
 type Analyzer struct {
 	httpClient *http.Client
+	spool      ArchiveSpool
+}
+
+// WithSpool sets where ZIP archives are spooled for inspection. ZIP
+// inspection is refused without one rather than falling back to the system
+// temporary directory.
+func (a *Analyzer) WithSpool(spool ArchiveSpool) *Analyzer {
+	a.spool = spool
+	return a
 }
 
 const (
@@ -87,15 +95,14 @@ func NewAnalyzer() *Analyzer {
 }
 
 // normalizeArchivePath gives archive entries and caller-selected paths one
-// canonical namespace. Archive names always use '/', even on Windows.
+// canonical namespace, the same one extraction uses.
 func normalizeArchivePath(name string) (string, error) {
-	name = strings.ReplaceAll(name, "\\", "/")
-	if name == "" || strings.HasPrefix(name, "/") {
-		return "", errors.New("archive path must be relative")
+	cleaned, err := archivesafe.NormalizeName(name)
+	if err != nil {
+		return "", err
 	}
-	cleaned := path.Clean(strings.TrimPrefix(name, "./"))
-	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", errors.New("archive path contains traversal")
+	if cleaned == "." {
+		return "", errors.New("archive path names the archive root")
 	}
 	return cleaned, nil
 }
@@ -145,16 +152,18 @@ func (a *Analyzer) InspectArchive(ctx context.Context, url, configPath string) (
 		return nil, fmt.Errorf("archive URL returned %d", resp.StatusCode)
 	}
 
-	archiveType := a.detectArchiveType(url, resp.Header.Get("Content-Type"))
-	if archiveType == "" {
-		return nil, errors.New("could not determine archive type (expected .tar.gz or .zip)")
-	}
-
 	size := resp.ContentLength
 	if size > maxArchiveSize {
 		return nil, errors.New("archive exceeds 5GB limit")
 	}
 	limitedBody := &archiveByteLimiter{reader: resp.Body, remaining: maxArchiveSize + 1}
+
+	// The format comes from the archive's bytes, exactly as in the executor.
+	format, archive, err := archivesafe.DetectReader(inspectionContextReader{ctx: ctx, reader: limitedBody})
+	if err != nil {
+		return nil, fmt.Errorf("could not determine archive type: %w", err)
+	}
+	archiveType := string(format)
 
 	inspection := &ArchiveInspection{
 		URL:         url,
@@ -165,29 +174,24 @@ func (a *Analyzer) InspectArchive(ctx context.Context, url, configPath string) (
 		Issues:      []ImportIssue{},
 	}
 
-	// Parse archive based on type
-	if archiveType == "tar.gz" {
-		err = a.inspectTarGz(ctx, limitedBody, configPath, inspection)
-	} else if archiveType == "zip" {
-		// For zip files, we need to seek, so download to temp file
-		tempFile, err := os.CreateTemp("", "archive-*.zip")
-		if err != nil {
-			return nil, fmt.Errorf("failed to create temp file: %w", err)
+	if format == archivesafe.TarGzip {
+		err = a.inspectTarGz(ctx, archive, configPath, inspection)
+	} else {
+		if a.spool == nil {
+			return nil, errors.New("ZIP inspection requires a configured spool directory")
 		}
-		defer os.Remove(tempFile.Name())
-
-		if _, err := io.Copy(tempFile, inspectionContextReader{ctx: ctx, reader: limitedBody}); err != nil {
-			return nil, fmt.Errorf("failed to download archive: %w", err)
+		spooled, spoolErr := a.spool.Store(archive, maxArchiveSize)
+		if spoolErr != nil {
+			return nil, fmt.Errorf("failed to download archive: %w", spoolErr)
 		}
-		if err := tempFile.Close(); err != nil {
-			return nil, fmt.Errorf("failed to close archive: %w", err)
+		defer spooled.Close()
+		inspection.Size = spooled.Size
+		zr, zipErr := zip.NewReader(spooled, spooled.Size)
+		if zipErr != nil {
+			err = fmt.Errorf("not a valid zip file: %w", zipErr)
+		} else {
+			err = a.inspectZip(ctx, zr, configPath, inspection)
 		}
-
-		if limitedBody.n > maxArchiveSize {
-			return nil, fmt.Errorf("archive exceeds compressed size limit: %d bytes", maxArchiveSize)
-		}
-		inspection.Size = limitedBody.n
-		err = a.inspectZip(ctx, tempFile.Name(), configPath, inspection)
 	}
 	if limitedBody.n > maxArchiveSize {
 		err = fmt.Errorf("archive exceeds compressed size limit: %d bytes", maxArchiveSize)
@@ -263,6 +267,7 @@ func (a *Analyzer) inspectTarGz(ctx context.Context, reader io.Reader, configPat
 
 	seen := make(map[string]struct{}, maxUniqueFileExtensions)
 	largestFiles := make(largestArchiveFiles, 0, 100)
+	paths := archivesafe.NewPathSet()
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -278,11 +283,20 @@ func (a *Analyzer) inspectTarGz(ctx context.Context, reader io.Reader, configPat
 		if inspection.Structure.TotalFiles+inspection.Structure.TotalDirs >= maxArchiveEntries {
 			return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
 		}
-		if header.Size > maxIndividualFileSize {
+		if header.Size < 0 || header.Size > maxIndividualFileSize {
 			return fmt.Errorf("file %s exceeds size limit (%d bytes)", header.Name, maxIndividualFileSize)
 		}
+		// Apply the extractor's entry rules so an archive that inspection
+		// accepts is one extraction accepts.
+		kind, err := archivesafe.TarKind(header)
+		if err != nil {
+			return err
+		}
+		if _, err := paths.Claim(header.Name, kind); err != nil {
+			return err
+		}
 
-		if header.Typeflag == tar.TypeDir {
+		if kind == archivesafe.Directory {
 			inspection.Structure.TotalDirs++
 			if inspection.Structure.TotalDirs > maxDirectoriesInArchive {
 				return fmt.Errorf("archive exceeds directory limit (%d dirs)", maxDirectoriesInArchive)
@@ -333,12 +347,7 @@ func (a *Analyzer) inspectTarGz(ctx context.Context, reader io.Reader, configPat
 }
 
 // inspectZip analyzes a zip archive
-func (a *Analyzer) inspectZip(ctx context.Context, path, configPath string, inspection *ArchiveInspection) error {
-	reader, err := zip.OpenReader(path)
-	if err != nil {
-		return fmt.Errorf("not a valid zip file: %w", err)
-	}
-	defer reader.Close()
+func (a *Analyzer) inspectZip(ctx context.Context, reader *zip.Reader, configPath string, inspection *ArchiveInspection) error {
 	if len(reader.File) > maxArchiveEntries {
 		return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
 	}
@@ -352,8 +361,16 @@ func (a *Analyzer) inspectZip(ctx context.Context, path, configPath string, insp
 	largestFiles := make(largestArchiveFiles, 0, 100)
 
 	var totalDecompressed uint64
+	paths := archivesafe.NewPathSet()
 	for _, file := range reader.File {
 		if err := ctx.Err(); err != nil {
+			return err
+		}
+		kind, err := archivesafe.ZipKind(file)
+		if err != nil {
+			return err
+		}
+		if _, err := paths.Claim(file.Name, kind); err != nil {
 			return err
 		}
 		if file.UncompressedSize64 > uint64(maxIndividualFileSize) {
@@ -363,7 +380,7 @@ func (a *Analyzer) inspectZip(ctx context.Context, path, configPath string, insp
 			return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
 		}
 		totalDecompressed += file.UncompressedSize64
-		if file.FileInfo().IsDir() {
+		if kind == archivesafe.Directory {
 			inspection.Structure.TotalDirs++
 			if inspection.Structure.TotalDirs > maxDirectoriesInArchive {
 				return fmt.Errorf("archive exceeds directory limit (%d dirs)", maxDirectoriesInArchive)
@@ -636,24 +653,6 @@ func (a *Analyzer) validateInspection(inspection *ArchiveInspection) {
 			Message:  "No database backup found in archive. Database will need to be restored separately.",
 		})
 	}
-}
-
-// detectArchiveType determines if archive is tar.gz or zip
-func (a *Analyzer) detectArchiveType(url, contentType string) string {
-	urlLower := strings.ToLower(url)
-	if strings.HasSuffix(urlLower, ".tar.gz") || strings.HasSuffix(urlLower, ".tgz") {
-		return "tar.gz"
-	}
-	if strings.HasSuffix(urlLower, ".zip") {
-		return "zip"
-	}
-	if strings.Contains(contentType, "gzip") || strings.Contains(contentType, "x-tar") {
-		return "tar.gz"
-	}
-	if strings.Contains(contentType, "zip") {
-		return "zip"
-	}
-	return ""
 }
 
 type inspectionContextReader struct {

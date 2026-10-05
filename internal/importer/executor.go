@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/archivesafe"
 	h "github.com/cyberducttape/StePanel/internal/helper"
 )
 
@@ -190,6 +191,29 @@ func (lrc *limitedReadCloser) Close() error {
 type Executor struct {
 	fetcher          *ArchiveFetcher
 	databaseRestorer DatabaseRestorer
+	spool            ArchiveSpool
+}
+
+// ArchiveSpool stores a streamed archive on disk. ZIP archives need random
+// access to their central directory, so they are spooled before reading.
+type ArchiveSpool interface {
+	Store(src io.Reader, limit int64) (*archivesafe.Spooled, error)
+}
+
+// WithSpool sets where ZIP archives are spooled. The control plane passes a
+// spool in its capacity-managed import root. Without one, the executor
+// spools beside the extraction root, on the filesystem its disk-space check
+// covers, never in the system temporary directory.
+func (e *Executor) WithSpool(spool ArchiveSpool) *Executor {
+	e.spool = spool
+	return e
+}
+
+func (e *Executor) spoolFor(job *ImportJob) ArchiveSpool {
+	if e.spool != nil {
+		return e.spool
+	}
+	return archivesafe.DirSpool{Dir: filepath.Dir(job.WebRoot)}
 }
 
 // NewExecutor creates a new import executor with secure redirect handling
@@ -580,16 +604,16 @@ func (e *Executor) extractArchive(ctx context.Context, url string, job *ImportJo
 		return fmt.Errorf("insufficient disk space for archive: %s", spaceCheck.Reason)
 	}
 
-	// Detect archive type
-	archiveType := "tar.gz"
-	if strings.HasSuffix(strings.ToLower(url), ".zip") {
-		archiveType = "zip"
+	// The format comes from the archive's bytes, exactly as in the analyzer,
+	// never from the URL.
+	format, archive, err := archivesafe.DetectReader(body)
+	if err != nil {
+		return err
 	}
-
-	if archiveType == "tar.gz" {
-		return e.extractTarGz(body, job, onProgress)
+	if format == archivesafe.Zip {
+		return e.extractZip(archive, job, onProgress)
 	}
-	return e.extractZip(body, job, onProgress)
+	return e.extractTarGz(archive, job, onProgress)
 }
 
 // safeArchiveMode preserves the source's ordinary permission bits while
@@ -604,42 +628,6 @@ func safeArchiveMode(mode os.FileMode, directory bool) os.FileMode {
 		return 0600
 	}
 	return perm
-}
-
-// safeTarExtractPath validates and sanitizes a tar entry path to prevent traversal
-func safeTarExtractPath(webRoot, filename string) (string, error) {
-	// Reject absolute paths and suspicious patterns
-	if filepath.IsAbs(filename) {
-		return "", errors.New("archive contains absolute path")
-	}
-	if strings.Contains(filename, "..") {
-		return "", errors.New("archive contains .. path traversal")
-	}
-	if strings.HasPrefix(filename, "/") {
-		return "", errors.New("archive path cannot start with /")
-	}
-
-	// Clean the path to remove any remaining issues
-	cleaned := filepath.Clean(filename)
-	targetPath := filepath.Join(webRoot, cleaned)
-
-	// Verify the resolved path is still within webRoot
-	realTarget, err := filepath.Abs(targetPath)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve path: %w", err)
-	}
-
-	realRoot, err := filepath.Abs(webRoot)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve root: %w", err)
-	}
-
-	// Use helper package's path validation for symlink safety
-	if err := h.EnsureInside(realRoot, realTarget); err != nil {
-		return "", fmt.Errorf("path validation failed: %w", err)
-	}
-
-	return targetPath, nil
 }
 
 // validateConfigPath validates that a config path is safe (no traversal, not absolute, stays within webRoot)
@@ -676,6 +664,36 @@ func safeConfigPath(webRoot, configPath string) (string, error) {
 	return targetPath, nil
 }
 
+// recordExtractedFile updates progress after a regular file is written.
+func recordExtractedFile(job *ImportJob, name string, written int64, onProgress func(*ImportJob)) {
+	job.FilesExtracted++
+	job.BytesExtracted += written
+	job.CurrentFile = name
+	// Progress from 20-60% for the extraction phase. The denominator is
+	// capped so progress never moves backwards and stays below 60% until
+	// extraction completes.
+	fileProgress := job.FilesExtracted
+	if fileProgress > 1000 {
+		fileProgress = 1000
+	}
+	job.Progress = 20 + int(40*fileProgress/1000)
+	job.UpdatedAt = time.Now()
+	if job.FilesExtracted%100 == 0 {
+		onProgress(job)
+	}
+}
+
+// openArchiveExtractor confines extraction to the job root (see
+// internal/archivesafe): entries cannot escape it, collide, or overwrite.
+func openArchiveExtractor(job *ImportJob) (*archivesafe.Extractor, error) {
+	extractor, err := archivesafe.OpenExtractor(job.WebRoot)
+	if err != nil {
+		return nil, err
+	}
+	extractor.ParentMode = 0o755
+	return extractor, nil
+}
+
 // extractTarGz extracts a tar.gz archive with security checks
 func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress func(*ImportJob)) error {
 	gz, err := gzip.NewReader(reader)
@@ -683,14 +701,18 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 		return fmt.Errorf("not a valid gzip file: %w", err)
 	}
 	defer gz.Close()
+	extractor, err := openArchiveExtractor(job)
+	if err != nil {
+		return err
+	}
+	defer extractor.Close()
 
 	tr := tar.NewReader(gz)
 	var totalDecompressed int64
-
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
-			break
+			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("tar read error: %w", err)
@@ -709,212 +731,98 @@ func (e *Executor) extractTarGz(reader io.Reader, job *ImportJob, onProgress fun
 			return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
 		}
 
-		// Safely validate path
-		targetPath, err := safeTarExtractPath(job.WebRoot, header.Name)
+		kind, err := archivesafe.TarKind(header)
 		if err != nil {
-			return fmt.Errorf("unsafe archive entry %q: %w", header.Name, err)
+			return fmt.Errorf("unsafe archive entry: %w", err)
 		}
-
-		// Explicitly handle only supported tar entry types
-		switch header.Typeflag {
-		case tar.TypeDir:
-			// Directory bomb protection: limit directory count
+		if kind == archivesafe.Directory {
 			job.DirectoriesCreated++
 			if job.DirectoriesCreated > maxDirectoriesInArchive {
 				return fmt.Errorf("archive exceeds directory limit (%d dirs)", maxDirectoriesInArchive)
 			}
-			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode&0755)); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", header.Name, err)
+			if _, err := extractor.Dir(header.Name, safeArchiveMode(os.FileMode(header.Mode), true)); err != nil {
+				return fmt.Errorf("unsafe archive entry: %w", err)
 			}
-			if err := os.Chmod(targetPath, safeArchiveMode(os.FileMode(header.Mode), true)); err != nil {
-				return fmt.Errorf("failed to set directory permissions for %s: %w", header.Name, err)
-			}
-
-		case tar.TypeReg, tar.TypeRegA:
-			// Regular file extraction
-			// Create parent directory
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-				return fmt.Errorf("failed to create parent directory for %s: %w", header.Name, err)
-			}
-
-			// Extract file with limited size
-			file, err := os.Create(targetPath)
-			if err != nil {
-				return fmt.Errorf("failed to create %s: %w", header.Name, err)
-			}
-
-			// Use LimitReader for defense in depth even after validating the
-			// archive's declared size.
-			limitedReader := io.LimitReader(tr, maxIndividualFileSize)
-			copied, err := io.Copy(file, limitedReader)
-			closeErr := file.Close()
-
-			if err != nil && err != io.EOF {
-				return fmt.Errorf("failed to write %s: %w", header.Name, err)
-			}
-			if copied != header.Size {
-				return fmt.Errorf("failed to write %s: short entry (got %d bytes, want %d)", header.Name, copied, header.Size)
-			}
-			if closeErr != nil {
-				return fmt.Errorf("failed to finalize %s: %w", header.Name, closeErr)
-			}
-
-			// Restore file permissions from archive
-			// Preserve executable bits but mask out dangerous bits (setuid/setgid/sticky)
-			if err := os.Chmod(targetPath, safeArchiveMode(os.FileMode(header.Mode), false)); err != nil {
-				return fmt.Errorf("failed to set file permissions for %s: %w", header.Name, err)
-			}
-
-			job.FilesExtracted++
-			job.BytesExtracted += copied
-			job.CurrentFile = header.Name
-			// Progress from 20-60% for extraction phase (linear with logarithmic cap)
-			// Avoids going backwards and caps at 60% until completion
-			fileProgress := job.FilesExtracted
-			if fileProgress > 1000 {
-				fileProgress = 1000 // Cap denominator to avoid slow growth at high file counts
-			}
-			job.Progress = 20 + int(40*fileProgress/1000)
-			job.UpdatedAt = time.Now()
-
-			// Report progress periodically
-			if job.FilesExtracted%100 == 0 {
-				onProgress(job)
-			}
-
-		case tar.TypeSymlink, tar.TypeLink:
-			return fmt.Errorf("unsafe archive entry %q: symlinks and hard links are not supported", header.Name)
-
-		default:
-			// Reject all other entry types (devices, FIFOs, sockets, sparse, etc.)
-			return fmt.Errorf("unsupported tar entry type %v for %s", header.Typeflag, header.Name)
+			continue
 		}
+		// Preserve executable bits but mask out setuid/setgid/sticky.
+		name, written, err := extractor.File(header.Name, safeArchiveMode(os.FileMode(header.Mode), false), tr, header.Size)
+		if err != nil {
+			return fmt.Errorf("unsafe archive entry: %w", err)
+		}
+		recordExtractedFile(job, name, written, onProgress)
 	}
-
-	return nil
 }
 
-// extractZip extracts a zip archive with security checks
+// extractZip extracts a zip archive with security checks. A ZIP needs
+// random access, so it is spooled to capacity-managed storage first.
 func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(*ImportJob)) error {
-	// For zip files, we need random access, so save to temp file first
-	tempFile, err := os.CreateTemp("", "import-*.zip")
+	spooled, err := e.spoolFor(job).Store(reader, maxArchiveSize)
 	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer os.Remove(tempFile.Name())
-
-	if _, err := io.Copy(tempFile, reader); err != nil {
-		_ = tempFile.Close()
 		return fmt.Errorf("failed to download archive: %w", err)
 	}
-	if err := tempFile.Close(); err != nil {
-		return fmt.Errorf("failed to finalize downloaded archive: %w", err)
-	}
+	defer spooled.Close()
 
-	zr, err := zip.OpenReader(tempFile.Name())
+	zr, err := zip.NewReader(spooled, spooled.Size)
 	if err != nil {
 		return fmt.Errorf("not a valid zip file: %w", err)
 	}
-	defer zr.Close()
-
+	if len(zr.File) > maxArchiveEntries {
+		return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
+	}
+	// The central directory states every entry's size, so validate all
+	// limits and the real space requirement before writing anything.
 	var totalDecompressed int64
-
 	for _, file := range zr.File {
-		// Archive bomb protection
-		size := file.FileInfo().Size()
-		if size < 0 || size > maxIndividualFileSize || totalDecompressed > maxDecompressedSize-size {
+		if file.UncompressedSize64 > uint64(maxIndividualFileSize) {
+			return fmt.Errorf("file %s exceeds size limit (%d bytes)", file.Name, maxIndividualFileSize)
+		}
+		size := int64(file.UncompressedSize64)
+		if totalDecompressed > maxDecompressedSize-size {
 			return fmt.Errorf("archive exceeds decompressed size limit (%d bytes)", maxDecompressedSize)
 		}
 		totalDecompressed += size
-
-		// Check total entry count (including directories)
-		job.EntriesProcessed++
-		if job.EntriesProcessed > maxArchiveEntries {
-			return fmt.Errorf("archive exceeds entry limit (%d total entries)", maxArchiveEntries)
-		}
-
-		// Check individual file size
-		if file.FileInfo().Size() > maxIndividualFileSize {
-			return fmt.Errorf("file %s exceeds size limit (%d bytes)", file.Name, maxIndividualFileSize)
-		}
-
-		// Safely validate path
-		targetPath, err := safeTarExtractPath(job.WebRoot, file.Name)
-		if err != nil {
-			return fmt.Errorf("unsafe archive entry %q: %w", file.Name, err)
-		}
-		mode := file.FileInfo().Mode()
-		if mode&os.ModeSymlink != 0 || mode&os.ModeType != 0 && !file.FileInfo().IsDir() {
-			return fmt.Errorf("unsafe archive entry %q: unsupported link or special file", file.Name)
-		}
-
-		if file.FileInfo().IsDir() {
-			if err := os.MkdirAll(targetPath, 0755); err != nil {
-				return fmt.Errorf("failed to create directory %s: %w", file.Name, err)
-			}
-			if err := os.Chmod(targetPath, safeArchiveMode(mode, true)); err != nil {
-				return fmt.Errorf("failed to set directory permissions for %s: %w", file.Name, err)
-			}
-		} else {
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-				return fmt.Errorf("failed to create parent directory for %s: %w", file.Name, err)
-			}
-
-			srcFile, err := file.Open()
-			if err != nil {
-				return fmt.Errorf("failed to open %s in zip: %w", file.Name, err)
-			}
-
-			destFile, err := os.Create(targetPath)
-			if err != nil {
-				srcFile.Close()
-				return fmt.Errorf("failed to create %s: %w", file.Name, err)
-			}
-
-			// Use LimitReader for defense in depth even after validating the
-			// archive's declared size.
-			limitedReader := io.LimitReader(srcFile, maxIndividualFileSize)
-			copied, err := io.Copy(destFile, limitedReader)
-			destCloseErr := destFile.Close()
-			srcCloseErr := srcFile.Close()
-
-			if err != nil {
-				return fmt.Errorf("failed to write %s: %w", file.Name, err)
-			}
-			if copied != size {
-				return fmt.Errorf("failed to write %s: short entry (got %d bytes, want %d)", file.Name, copied, size)
-			}
-			if destCloseErr != nil {
-				return fmt.Errorf("failed to finalize %s: %w", file.Name, destCloseErr)
-			}
-			if srcCloseErr != nil {
-				return fmt.Errorf("failed to close %s in zip: %w", file.Name, srcCloseErr)
-			}
-
-			// Restore file permissions from zip entry
-			// Preserve executable bits but mask out dangerous bits
-			if err := os.Chmod(targetPath, safeArchiveMode(mode, false)); err != nil {
-				return fmt.Errorf("failed to set file permissions for %s: %w", file.Name, err)
-			}
-
-			job.FilesExtracted++
-			job.BytesExtracted += copied
-			job.CurrentFile = file.Name
-			// Progress from 20-60% for extraction phase (linear with logarithmic cap)
-			// Avoids going backwards and caps at 60% until completion
-			fileProgress := job.FilesExtracted
-			if fileProgress > 1000 {
-				fileProgress = 1000 // Cap denominator to avoid slow growth at high file counts
-			}
-			job.Progress = 20 + int(40*fileProgress/1000)
-			job.UpdatedAt = time.Now()
-
-			if job.FilesExtracted%100 == 0 {
-				onProgress(job)
-			}
-		}
+	}
+	if check := CheckDiskSpace(filepath.Dir(job.WebRoot), 0, totalDecompressed); !check.HasSufficientSpace {
+		return fmt.Errorf("insufficient disk space for archive: %s", check.Reason)
 	}
 
+	extractor, err := openArchiveExtractor(job)
+	if err != nil {
+		return err
+	}
+	defer extractor.Close()
+	for _, file := range zr.File {
+		job.EntriesProcessed++
+		kind, err := archivesafe.ZipKind(file)
+		if err != nil {
+			return fmt.Errorf("unsafe archive entry: %w", err)
+		}
+		mode := file.Mode()
+		if kind == archivesafe.Directory {
+			job.DirectoriesCreated++
+			if job.DirectoriesCreated > maxDirectoriesInArchive {
+				return fmt.Errorf("archive exceeds directory limit (%d dirs)", maxDirectoriesInArchive)
+			}
+			if _, err := extractor.Dir(file.Name, safeArchiveMode(mode, true)); err != nil {
+				return fmt.Errorf("unsafe archive entry: %w", err)
+			}
+			continue
+		}
+		src, err := file.Open()
+		if err != nil {
+			return fmt.Errorf("failed to open %s in zip: %w", file.Name, err)
+		}
+		name, written, err := extractor.File(file.Name, safeArchiveMode(mode, false), src, int64(file.UncompressedSize64))
+		closeErr := src.Close()
+		if err != nil {
+			return fmt.Errorf("unsafe archive entry: %w", err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("failed to close %s in zip: %w", file.Name, closeErr)
+		}
+		recordExtractedFile(job, name, written, onProgress)
+	}
 	return nil
 }
 

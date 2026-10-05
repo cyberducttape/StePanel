@@ -89,11 +89,11 @@ func TestAnalyzerInspectsTarGzAndZipEntries(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			inspection := &ArchiveInspection{Issues: []ImportIssue{}}
 			if tc.zip {
-				path := t.TempDir() + "/archive.zip"
-				if err := os.WriteFile(path, tc.data, 0600); err != nil {
+				reader, err := zip.NewReader(bytes.NewReader(tc.data), int64(len(tc.data)))
+				if err != nil {
 					t.Fatal(err)
 				}
-				if err := analyzer.inspectZip(context.Background(), path, "wp-config.php", inspection); err != nil {
+				if err := analyzer.inspectZip(context.Background(), reader, "wp-config.php", inspection); err != nil {
 					t.Fatal(err)
 				}
 			} else if err := analyzer.inspectTarGz(context.Background(), bytes.NewReader(tc.data), "wp-config.php", inspection); err != nil {
@@ -110,13 +110,13 @@ func TestAnalyzerInspectsTarGzAndZipEntries(t *testing.T) {
 }
 
 func TestArchiveSafetyHelpersAndLimits(t *testing.T) {
-	for _, path := range []string{"../escape", "/absolute", "a/../../escape"} {
-		if _, err := safeTarExtractPath(t.TempDir(), path); err == nil {
-			t.Errorf("safeTarExtractPath accepted %q", path)
+	for _, path := range []string{"../escape", "/absolute", "a/../../escape", "./"} {
+		if _, err := normalizeArchivePath(path); err == nil {
+			t.Errorf("normalizeArchivePath accepted %q", path)
 		}
 	}
-	if _, err := safeTarExtractPath(t.TempDir(), "public/index.php"); err != nil {
-		t.Fatal(err)
+	if got, err := normalizeArchivePath("./public//index.php"); err != nil || got != "public/index.php" {
+		t.Fatalf("normalizeArchivePath = %q, %v", got, err)
 	}
 	for _, path := range []string{"", "/etc/passwd", "../config.php"} {
 		if _, err := safeConfigPath(t.TempDir(), path); err == nil {

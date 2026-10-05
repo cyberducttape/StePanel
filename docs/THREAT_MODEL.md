@@ -30,7 +30,10 @@
   SECRETS.md, "Context-bound encryption").
 - Login attempts are rate-limited.
 - Uploads are size-limited and staged privately.
-- Archive paths are checked for absolute paths and traversal.
+- Archive paths are checked for absolute paths, traversal, duplicates and
+  file/directory collisions, and extraction is confined with `os.Root` and
+  exclusive creates (see SECURITY_CLAIMS_VERIFICATION.md, "Untrusted archives
+  are extracted under one policy").
 - Restore destinations are account-scoped and SQL restoration is opt-in.
 - Audit events distinguish actor from target, are sequence/HMAC linked, and
   fail closed before authenticated mutating handlers when persistence is down.

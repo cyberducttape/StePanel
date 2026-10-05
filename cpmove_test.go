@@ -522,3 +522,37 @@ func (f multipartFile) Seek(offset int64, whence int) (int64, error) {
 }
 
 var _ io.ReaderAt = multipartFile{}
+
+// A tar that names a file twice could have one copy inspected and the other
+// restored. Inspection and extraction both reject it.
+func TestCPMoveRejectsDuplicateAndCollidingEntries(t *testing.T) {
+	for name, headers := range map[string][]tar.Header{
+		"duplicate file":     {{Name: "cpmove-account/homedir/public_html/index.php", Mode: 0o600, Size: 1}, {Name: "cpmove-account/homedir/public_html/index.php", Mode: 0o600, Size: 1}},
+		"aliased duplicate":  {{Name: "cpmove-account/mysql/db.sql", Mode: 0o600, Size: 1}, {Name: "cpmove-account/mysql//./db.sql", Mode: 0o600, Size: 1}},
+		"entry under a file": {{Name: "cpmove-account/homedir", Mode: 0o600, Size: 1}, {Name: "cpmove-account/homedir/x", Mode: 0o600, Size: 1}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			archive := filepath.Join(root, "cpmove-account.tar.gz")
+			bodies := map[string][]byte{}
+			for _, header := range headers {
+				bodies[header.Name] = []byte("x")
+			}
+			if err := writeTarHeaders(archive, headers, bodies); err != nil {
+				t.Fatal(err)
+			}
+			file, header := openMultipartArchive(t, archive, "cpmove-account.tar.gz")
+			defer file.Close()
+			if _, err := InspectCPMove(file, header); err == nil {
+				t.Error("inspection accepted the archive")
+			}
+			stage := filepath.Join(root, "stage")
+			if err := os.Mkdir(stage, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := extractArchive(archive, stage); err == nil {
+				t.Error("extraction accepted the archive")
+			}
+		})
+	}
+}

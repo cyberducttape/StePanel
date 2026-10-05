@@ -62,6 +62,8 @@ This table names the tests that actually exist on `main` (verified
 |------|--------|------------------|
 | Path traversal and absolute paths | Covered | `adversarial_test.go`: `TestArchivePathTraversal`, `TestPathTraversalAbsolute`; `cpmove_test.go`: `TestExtractArchiveRejectsTraversalAndLinkEntries` |
 | Symlinks | Covered | `adversarial_test.go`: `TestArchiveSymlink`; `internal/sites`: `TestDeleteRefusesSymlinkedSite`, `TestCloneRejectsSymlinkWithoutPublishingDestination` |
+| Duplicate and colliding archive paths | Covered | `internal/archivesafe`: `TestPathSetRejectsDuplicatesAndCollisions`; `internal/importer`: `TestAnalyzerAndExecutorRejectDuplicateAndCollidingPaths`; `cpmove_test.go`: `TestCPMoveRejectsDuplicateAndCollidingEntries` |
+| Symlinks planted in the extraction destination | Covered | `internal/archivesafe`: `TestExtractorDoesNotFollowPlantedSymlinks` |
 | Decompression and directory bombs | Covered | `adversarial_test.go`: `TestArchiveDecompressionBomb`; `internal/importer`: `TestDirectoryBombProtection`, `TestMemoryBombProtectionInInspection` |
 | Cross-tenant access | Covered | `tenant_isolation_test.go`: `TestTenantIsolationMatrix`, `TestCrossTenantDenialIsAudited`, `TestFilesystemIsolationParentTraversal`, `TestDatabaseCredentialIsolation` |
 | Error messages do not reveal other tenants' resources | Covered | `tenant_isolation_test.go`: `TestErrorMessageLeakageDoesNotRevealResourceExistence`, `TestAuditLogDoesNotLeakCrossTenantTargets` |

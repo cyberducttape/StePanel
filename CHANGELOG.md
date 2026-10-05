@@ -8,6 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **One archive safety policy (security)**: archive imports, cPanel restores
+  and backup restores now share `internal/archivesafe`. Archives that name a
+  path twice (also via aliases like `a//b` or `a\b`), or create a file and a
+  directory at the same path, are rejected; before, a later entry silently
+  replaced an earlier one, so the copy that was inspected need not be the one
+  installed. The import executor detected ZIP only from a `.zip` URL suffix
+  while the analyzer also used Content-Type; both now detect the format from
+  the archive's bytes and apply the same entry rules, so inspection no longer
+  approves archives that extraction rejects. Extraction resolves every path
+  through `os.Root` and creates files exclusively, so a symlink planted in
+  the destination cannot redirect a write. ZIP archives are spooled into the
+  capacity-managed import root with free space checked against the capacity
+  ledger, instead of the system temporary directory; the import also checks
+  disk space against the ZIP's declared uncompressed size before writing.
 - **Context-bound encryption (security)**: environment secrets, customer
   TOTP seeds and durable job payloads are now sealed with a per-purpose
   HKDF-derived key and AES-GCM associated data binding each value to its

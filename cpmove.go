@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/archivesafe"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
@@ -151,6 +152,7 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	info := CPMoveInfo{Archive: header.Filename, ArchiveBytes: header.Size, User: userFromArchiveName(header.Filename)}
 	seen := map[string]bool{}
 	seenMail := map[string]bool{}
+	paths := archivesafe.NewPathSet()
 	var total int64
 	for {
 		h, err := tr.Next()
@@ -166,6 +168,15 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 		total += h.Size
 		if !safeArchivePath(h.Name) {
 			return info, fmt.Errorf("unsafe archive path: %s", h.Name)
+		}
+		// Apply the extractor's rules here so inspection rejects what
+		// restore would: unsupported entry types and colliding paths.
+		kind, kindErr := archivesafe.TarKind(h)
+		if kindErr != nil {
+			return info, fmt.Errorf("unsupported archive entry type: %w", kindErr)
+		}
+		if _, claimErr := paths.Claim(h.Name, kind); claimErr != nil {
+			return info, fmt.Errorf("unsafe archive path: %w", claimErr)
 		}
 		info.Entries++
 		if maxEntries > 0 && info.Entries > maxEntries {
@@ -507,12 +518,30 @@ func extractArchiveContext(ctx context.Context, archive, destination string) err
 	return extractArchiveReaderContext(ctx, f, destination, archive)
 }
 
+// extractArchiveReaderContext extracts a cPanel or StePanel tar.gz into
+// destination through internal/archivesafe: entries cannot escape it,
+// collide with one another, or overwrite anything already there.
 func extractArchiveReaderContext(ctx context.Context, input io.Reader, destination, archivePath string) error {
 	gz, err := gzip.NewReader(input)
 	if err != nil {
 		return err
 	}
 	defer gz.Close()
+	extractor, err := archivesafe.OpenExtractor(destination)
+	if err != nil {
+		return err
+	}
+	defer extractor.Close()
+	// The staged upload may live in the destination; no entry may name it.
+	stagedUpload := ""
+	if archivePath != "" {
+		if rel, relErr := filepath.Rel(destination, archivePath); relErr == nil && filepath.IsLocal(rel) {
+			stagedUpload = filepath.ToSlash(rel)
+			if err := extractor.Reserve(stagedUpload); err != nil {
+				return err
+			}
+		}
+	}
 	tr := tar.NewReader(gz)
 	var total int64
 	for {
@@ -529,46 +558,32 @@ func extractArchiveReaderContext(ctx context.Context, input io.Reader, destinati
 		if !safeArchivePath(h.Name) {
 			return errors.New("unsafe archive path")
 		}
-		target := filepath.Join(destination, filepath.Clean(h.Name))
-		if !strings.HasPrefix(target, filepath.Clean(destination)+string(os.PathSeparator)) {
-			return errors.New("archive escapes staging directory")
+		if stagedUpload != "" {
+			if clean, cleanErr := archivesafe.NormalizeName(h.Name); cleanErr == nil && clean == stagedUpload {
+				return errors.New("archive entry conflicts with staged upload")
+			}
 		}
-		if archivePath != "" && samePath(target, archivePath) {
-			return errors.New("archive entry conflicts with staged upload")
+		kind, err := archivesafe.TarKind(h)
+		if err != nil {
+			return fmt.Errorf("unsupported archive entry type: %w", err)
 		}
-		if h.FileInfo().IsDir() {
-			if err = os.MkdirAll(target, 0700); err != nil {
-				return err
+		if kind == archivesafe.Directory {
+			if _, err := extractor.Dir(h.Name, 0o700); err != nil {
+				return fmt.Errorf("unsafe archive path: %w", err)
 			}
 			continue
-		}
-		if h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeRegA {
-			return fmt.Errorf("unsupported archive entry type: %s", h.Name)
 		}
 		if h.Size < 0 || h.Size > 2<<30 || total+h.Size > 20<<30 {
 			return errors.New("archive contents exceed the 20 GiB extraction limit")
 		}
-		if err = os.MkdirAll(filepath.Dir(target), 0700); err != nil {
-			return err
-		}
-		dst, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		_, written, err := extractor.File(h.Name, 0o600, tr, h.Size)
 		if err != nil {
-			return err
-		}
-		written, copyErr := io.Copy(dst, io.LimitReader(tr, h.Size))
-		closeErr := dst.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-		if written != h.Size {
-			return errors.New("archive entry is truncated")
+			return fmt.Errorf("unsafe archive path: %w", err)
 		}
 		total += written
 	}
 }
+
 func restoreSQL(cfg Config, stage, user string, txn *SiteTransaction) ([]string, []string) {
 	return restoreSQLContext(context.Background(), cfg, stage, user, txn)
 }
@@ -852,10 +867,4 @@ func cpmoveRoot(stage string) (string, error) {
 		}
 	}
 	return "", errors.New("backup does not contain a cPanel homedir or mysql directory")
-}
-
-func samePath(a, b string) bool {
-	aa, errA := filepath.Abs(a)
-	bb, errB := filepath.Abs(b)
-	return errA == nil && errB == nil && aa == bb
 }

@@ -166,6 +166,33 @@ Last verified: 2026-10-02 against `main`.
 
 ## Outbound requests
 
+### Untrusted archives are extracted under one policy (Verified)
+- **Implementation:** `internal/archivesafe` is the single policy for
+  archive imports (`internal/importer`), cPanel restores and backup restores
+  (`cpmove.go`: `inspectCPMove()`, `extractArchiveReaderContext()`). The
+  format is detected from content (`DetectReader`), never the URL or
+  Content-Type, and the import analyzer applies the same entry rules
+  (`TarKind`, `ZipKind`) and path claims (`PathSet`) as extraction, so an
+  archive that passes inspection is one extraction accepts. Duplicate paths
+  (including aliases such as `a//b`, `./a/b` and `a\b`), file/directory
+  collisions and entries beneath a file are rejected. Extraction goes through
+  `os.Root` (openat with RESOLVE_BENEATH semantics) with `O_EXCL` creates, so
+  a symlink planted in the destination cannot redirect a write and no entry
+  overwrites anything. ZIP archives are spooled into the capacity-managed
+  import root (`App.archiveSpool`), checking free space against the
+  capacity ledger while writing, never into the system temporary directory.
+- **Tests:** `internal/archivesafe`: `TestPathSetRejectsDuplicatesAndCollisions`,
+  `TestExtractorDoesNotFollowPlantedSymlinks`, `TestExtractorWritesConfinedExclusiveFiles`,
+  `TestSniffDecidesFromContent`, `TestDirSpoolBoundsAndChecksCapacity`;
+  `internal/importer`: `TestAnalyzerAndExecutorRejectDuplicateAndCollidingPaths`,
+  `TestExecutorDetectsFormatFromContentNotURL`, `TestZipSpoolAvoidsSystemTempDirectory`;
+  `cpmove_test.go`: `TestCPMoveRejectsDuplicateAndCollidingEntries`.
+- **Boundary:** names are compared byte-for-byte after normalization; paths
+  that differ only by case or Unicode normalization are distinct, as they are
+  on the case-sensitive Linux filesystems StePanel supports. Links, devices,
+  FIFOs and sparse entries are rejected, so cPanel archives that contain
+  symlinks are refused rather than partially restored.
+
 ### Server-originated requests reach public addresses only (Verified)
 - **Implementation:** `internal/safehttp`: the address check runs in the
   dialer on the connected IP (defeating DNS rebinding), redirects are

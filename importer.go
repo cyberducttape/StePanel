@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/archivesafe"
 	"github.com/cyberducttape/StePanel/internal/importer"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
@@ -57,7 +58,26 @@ type archiveInspector interface {
 	InspectArchive(ctx context.Context, url, configPath string) (*importer.ArchiveInspection, error)
 }
 
-var newArchiveAnalyzer = func() archiveInspector { return importer.NewAnalyzer() }
+var newArchiveAnalyzer = func(spool importer.ArchiveSpool) archiveInspector {
+	return importer.NewAnalyzer().WithSpool(spool)
+}
+
+// archiveSpoolPrefix names ZIP spool files in the import root; startup
+// cleanup removes ones a crash left behind.
+const archiveSpoolPrefix = ".stepanel-spool-"
+
+// archiveSpool spools streamed ZIP archives into the capacity-managed import
+// root. While it writes, free space must keep covering every admitted upload
+// reservation plus STEPANEL_MIN_FREE_BYTES, so a spool cannot consume space
+// promised to other workflows or the host reserve.
+func (a *App) archiveSpool(workflow string) importer.ArchiveSpool {
+	return archivesafe.DirSpool{
+		Dir: a.Config.ImportRoot,
+		Check: func(int64) error {
+			return a.capacity.check(a.Config, workflow, []capacityDemand{{Path: a.Config.ImportRoot}})
+		},
+	}
+}
 
 func (a *App) inspectArchive(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || !a.Auth.IsAdministrator(r) || !a.Auth.CSRF(r) {
@@ -339,7 +359,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 		}
 	}()
 
-	executor := importer.NewExecutor()
+	executor := importer.NewExecutor().WithSpool(a.archiveSpool("archive import"))
 	if req.AutoRestoreDB {
 		executor.WithDatabaseRestorer(a.restoreImportedDatabase)
 	}
@@ -496,7 +516,7 @@ func (a *App) handleArchiveInspectionJob(ctx context.Context, job *Job) ([]byte,
 	}
 
 	// Create analyzer and perform inspection
-	analyzer := newArchiveAnalyzer()
+	analyzer := newArchiveAnalyzer(a.archiveSpool("archive inspection"))
 	inspection, inspectionErr := analyzer.InspectArchive(ctx, req.ArchiveURL, req.ConfigPath)
 
 	// Always encode result (even if there was an error)

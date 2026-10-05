@@ -57,6 +57,15 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 			return err
 		}
 		path := filepath.Join(root, entry.Name())
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), archiveSpoolPrefix) {
+			// A ZIP spool left by a crashed inspection or import.
+			if info.ModTime().Before(scratchCutoff) {
+				if err := os.Remove(path); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if entry.IsDir() && isTemporaryImportStage(entry.Name()) {
 			if info.ModTime().Before(scratchCutoff) {
 				if err := os.RemoveAll(path); err != nil {

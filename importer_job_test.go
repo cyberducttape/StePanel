@@ -90,7 +90,7 @@ func (t testArchiveInspector) InspectArchive(context.Context, string, string) (*
 
 func TestArchiveInspectionDurableHandlerReturnsResultOutput(t *testing.T) {
 	previous := newArchiveAnalyzer
-	newArchiveAnalyzer = func() archiveInspector {
+	newArchiveAnalyzer = func(importer.ArchiveSpool) archiveInspector {
 		return testArchiveInspector{inspection: &importer.ArchiveInspection{URL: "https://example.test/archive.zip", ConfigPath: "wp-config.php"}}
 	}
 	t.Cleanup(func() { newArchiveAnalyzer = previous })
@@ -114,7 +114,7 @@ func TestArchiveInspectionDurableHandlerReturnsResultOutput(t *testing.T) {
 
 func TestArchiveInspectionFailureIsAJobFailureWithResultContext(t *testing.T) {
 	previous := newArchiveAnalyzer
-	newArchiveAnalyzer = func() archiveInspector {
+	newArchiveAnalyzer = func(importer.ArchiveSpool) archiveInspector {
 		return testArchiveInspector{err: errors.New("archive is corrupt")}
 	}
 	t.Cleanup(func() { newArchiveAnalyzer = previous })
