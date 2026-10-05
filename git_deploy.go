@@ -694,7 +694,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		cloneOutput, err = clonePrivateRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release)
 	} else {
 		clone := exec.CommandContext(ctx, gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", input.Ref, "--single-branch", "--no-tags", repository.URL, release)
-		clone.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")
+		clone.Env = gitCommandEnv()
 		cloneOutput, err = runBoundedCommand(ctx, clone)
 	}
 	if err != nil {
@@ -991,6 +991,28 @@ func clonePrivateRepository(ctx context.Context, cfg Config, site, repositoryURL
 		return nil, errors.New(response.Error)
 	}
 	return nil, nil
+}
+
+// gitCommandEnv deliberately does not inherit the panel process environment.
+// Git gives a large set of GIT_*, proxy, credential, and askpass variables
+// process-wide meaning; inheriting them would let deployment behavior change
+// with an operator's environment or a service-manager environment file. The
+// public clone path needs only a stable executable search path and locale,
+// while Git configuration is supplied explicitly on the command line.
+func gitCommandEnv() []string {
+	pathValue := os.Getenv("PATH")
+	if pathValue == "" {
+		pathValue = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	}
+	return []string{
+		"PATH=" + pathValue,
+		"LANG=C",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=/bin/false",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+	}
 }
 
 func validateGitAllowedHosts(value string) error {

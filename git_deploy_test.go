@@ -151,6 +151,34 @@ func TestGitAllowedHostsRejectsUnsafeValues(t *testing.T) {
 	}
 }
 
+func TestGitCommandEnvDoesNotInheritDeploymentControls(t *testing.T) {
+	t.Setenv("PATH", "/test/bin")
+	t.Setenv("GIT_DIR", "/attacker/repository")
+	t.Setenv("GIT_SSH_COMMAND", "ssh -o ProxyCommand=evil")
+	t.Setenv("HTTPS_PROXY", "http://attacker.invalid:8080")
+
+	env := gitCommandEnv()
+	values := make(map[string]string, len(env))
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok {
+			t.Fatalf("malformed environment entry %q", item)
+		}
+		values[key] = value
+	}
+	if values["PATH"] != "/test/bin" || values["LANG"] != "C" {
+		t.Fatalf("stable Git environment = %#v", values)
+	}
+	for _, key := range []string{"GIT_DIR", "GIT_SSH_COMMAND", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "SSH_AUTH_SOCK"} {
+		if _, ok := values[key]; ok {
+			t.Fatalf("inherited deployment control %s in Git environment: %#v", key, values)
+		}
+	}
+	if values["GIT_TERMINAL_PROMPT"] != "0" || values["GIT_ASKPASS"] != "/bin/false" || values["GIT_CONFIG_NOSYSTEM"] != "1" {
+		t.Fatalf("Git interaction controls are not explicit: %#v", values)
+	}
+}
+
 func TestGitRollbackAtomicallySwapsPreviousRelease(t *testing.T) {
 	webRoot := filepath.Join(t.TempDir(), "www")
 	siteRoot := filepath.Join(webRoot, "sites", "example")
