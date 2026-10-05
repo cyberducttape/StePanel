@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Features
+
+- **Blank PHP site creation**: administrators can create a site from the
+  Sites page or `POST /api/sites` (`template: php`). A durable `site.create`
+  job writes a placeholder page into SiteManager staging, creates the site's
+  system account and PHP-FPM pool through the root broker, activates the
+  tree, and seals ownership, recording a Class A `site.created` audit event.
+  A failure, or an unclean shutdown mid-creation, removes the account, pool
+  and tree it created. `site.lifecycle.create` now reports the real
+  capability instead of "unsupported". Routes and customer assignment keep
+  their existing workflows.
+
 ### Production Readiness
 
 - **Deterministic binary and database upgrade rollback (reliability)**: when

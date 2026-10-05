@@ -1322,7 +1322,42 @@
     setCount('#backupFreshness', backupData.__error ? 'Unavailable' : latest ? formatAge(latest.verified_at) : 'Never');
     gridStatus.textContent = siteData.sites && siteData.sites.length
       ? `${siteData.sites.length} managed site(s). Select one to open its workspace.`
-      : 'No managed sites yet. Start by migrating a cPanel backup or deploying a site.';
+      : isAdministrator ? 'No managed sites yet. Create a site above, or migrate a cPanel backup.' : 'No sites are assigned to this account yet.';
+  }
+
+  // Administrators create sites through a durable job; follow it until it
+  // finishes, then show the new site in the grid.
+  const createForm = document.querySelector('#siteCreateForm');
+  if (createForm) {
+    const createStatus = createForm.querySelector('#siteCreateStatus');
+    const terminal = new Set(['completed', 'failed', 'cancelled', 'dead-letter']);
+    createForm.addEventListener('submit', withBusySubmit(async (event) => {
+      event.preventDefault();
+      const site = createForm.elements.site.value.trim();
+      const template = createForm.elements.template.value;
+      createStatus.textContent = `Queuing ${site}…`;
+      try {
+        const queued = await postJSON('/api/sites', { site, template });
+        createStatus.textContent = `Creating ${site}: preparing its account and PHP pool…`;
+        for (let attempt = 0; attempt < 90; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          const job = await getJSON(`/api/jobs/${encodeURIComponent(queued.job_id)}`);
+          if (!terminal.has(job.state)) continue;
+          if (job.state === 'completed') {
+            createStatus.textContent = `${site} is ready. Connect a domain from its workspace.`;
+            createForm.reset();
+            await loadGrid();
+            openWorkspace(site);
+          } else {
+            createStatus.textContent = `${site} was not created: ${job.error || job.state}. Nothing was left behind.`;
+          }
+          return;
+        }
+        createStatus.textContent = `${site} is still being created; follow job ${queued.job_id} under Activity.`;
+      } catch (error) {
+        createStatus.textContent = error.message;
+      }
+    }));
   }
 
   loadGrid()

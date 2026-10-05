@@ -190,12 +190,11 @@ func (a *App) ProbeCapabilities() CapabilitiesResponse {
 func (a *App) probeAllCapabilities() map[string]Capability {
 	caps := make(map[string]Capability)
 
-	// Site lifecycle. There is no generic synchronous create endpoint yet;
-	// archive import is deliberately reported separately because it still
-	// needs the SiteManager integration gate. Termination is executable only
-	// when its durable job, database helper, site helper, backup signing, and
-	// site tree are all present.
-	caps["site.lifecycle.create"] = newCapability(CapabilityUnsupported, "generic site creation is not yet exposed through SiteManager; use the explicitly partial archive-import workflow")
+	// Site lifecycle. Creation (POST /api/sites, site_creation.go) needs the
+	// durable job store, the site helper and the web root. Termination is
+	// executable only when its durable job, database helper, site helper,
+	// backup signing, and site tree are all present.
+	caps["site.lifecycle.create"] = a.checkSiteCreationCapability()
 	caps["site.lifecycle.delete"] = a.checkSiteDeletionCapability()
 	caps["site.lifecycle.suspend"] = newCapability(CapabilityUnsupported, "site suspension is not implemented; the current alternative is site termination")
 
@@ -257,6 +256,22 @@ func (a *App) probeAllCapabilities() map[string]Capability {
 	caps["dns.management"] = a.checkDNSCapability()
 
 	return caps
+}
+
+func (a *App) checkSiteCreationCapability() Capability {
+	if a.Jobs == nil {
+		return newCapability(CapabilityUnsupported, "durable job store is not initialized")
+	}
+	if a.Config.WebRoot == "" || a.Config.RecoveryRoot == "" {
+		return newCapability(CapabilityUnsupported, "site creation requires the web root and site recovery root")
+	}
+	if a.Config.SiteCtl == "" {
+		return newCapability(CapabilityUnsupported, "the site helper (STEPANEL_SITECTL) is required to create the site account and PHP-FPM pool")
+	}
+	if !isExecutableRegularFile(a.Config.SiteCtl) {
+		return newCapability(CapabilityConfigured, "the site helper path must be an executable regular file")
+	}
+	return newCapability(CapabilityLocal, "blank PHP sites can be created; the site helper and web root are configured, and the helper's account and PHP-FPM setup are verified when a site is created")
 }
 
 func (a *App) checkSiteDeletionCapability() Capability {

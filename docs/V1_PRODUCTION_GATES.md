@@ -46,6 +46,8 @@ These items do not silently become release claims. They are tracked separately:
 - Reversible site suspend/resume with reason, audit event, and capability
   reporting.
 - First-class blank PHP, WordPress, Git, and Node site creation workflows.
+  Blank PHP sites: implemented (`POST /api/sites`, durable `site.create` job,
+  `site_creation_test.go`); WordPress, Git and Node templates are open.
 - Recovery Proof that rehearses filesystem restore, database restore,
   configuration regeneration, application startup, and an HTTP health probe.
 
@@ -98,9 +100,10 @@ and this gate now describes the implementation as it is:
 
 **How each operation actually flows:**
 ```
-create  → no blank-site path; new sites are published from staging (archive,
-          cPanel, WordPress, backup restore) after broker/stepanel-sitectl
-          prepare-root creates the account and PHP-FPM pool
+create  → site.create job (site_creation.go): SiteManager.CreateStaging() + template
+          → broker/stepanel-sitectl prepare (account, PHP-FPM pool)
+          → SiteManager.ActivateStaged() → broker seal; on failure (or after an
+          unclean shutdown) broker delete + SiteManager.Delete() remove the new site
 import  → SiteManager.CreateStaging() + domain extract + SiteManager.ActivateStaged()
 clone   → SiteManager.CreateStaging() + copy (staging.go) + SiteManager.ActivateStaged()
 restore → SiteManager.CreateStaging() + domain restore + SiteManager.ActivateStaged()

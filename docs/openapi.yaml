@@ -468,6 +468,29 @@ paths:
       summary: List managed PHP site routes
       responses:
         '200': {description: Managed site vhost names}
+    post:
+      summary: Create a site from a template
+      description: >
+        Administrator only. Queues a durable site.create job that writes the
+        template into SiteManager staging, creates the site's system account
+        and PHP-FPM pool through the root broker, activates the tree and seals
+        its ownership. A failed or interrupted creation removes everything it
+        created. Accepts an optional Idempotency-Key header.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [site]
+              properties:
+                site: {type: string, pattern: '^[a-z0-9_-]{1,32}$'}
+                template: {type: string, enum: [php], default: php}
+      responses:
+        '202': {description: Creation job queued, with job_id and status_url}
+        '403': {description: Administrator CSRF request required}
+        '409': {description: Site already exists}
+        '422': {description: Invalid site name or unsupported template}
   /api/sites/overview:
     get:
       summary: List site-centric developer workspaces

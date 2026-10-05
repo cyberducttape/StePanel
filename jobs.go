@@ -158,7 +158,7 @@ var errJobLeaseNotHeld = errors.New("job lease is not held by this worker")
 
 const workerHeartbeatFreshness = 30 * time.Second
 
-var durableWorkerJobKinds = []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "backup.rehearsal", "cloud.action", "node.deployment", "site.terminate", "migration.analysis", "archive.inspect", "archive.import"}
+var durableWorkerJobKinds = []string{"cpmove.restore", "site.backup", "certificate.issue", "wordpress.restore", "backup.restore", "backup.rehearsal", "cloud.action", "node.deployment", "site.terminate", "migration.analysis", "archive.inspect", "archive.import", "site.create"}
 
 type workerHeartbeatState struct {
 	mu          sync.RWMutex

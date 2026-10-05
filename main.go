@@ -683,7 +683,7 @@ func Main() {
 	mux.Handle("/api/proxy", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.proxyList)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/proxy/test", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.proxyTest)), http.MethodPost))
 	mux.Handle("/api/proxy/", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.proxyManage)), http.MethodDelete))
-	mux.Handle("/api/sites", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.siteList)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/sites", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.sites)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/sites/overview", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteOverviewList)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/overview/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteOverviewResource)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/recovery/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteRecovery)), http.MethodGet, http.MethodHead))
@@ -1309,6 +1309,8 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleArchiveInspectionJob(ctx, &item)
 	case "archive.import":
 		return a.handleArchiveImportJob(ctx, &item)
+	case "site.create":
+		return a.handleSiteCreation(ctx, item)
 	default:
 		return nil, fmt.Errorf("no durable worker handler for job kind %q", item.Kind)
 	}
@@ -1320,7 +1322,7 @@ func durableWorkloadClass(kind string) string {
 		return "restore"
 	case "site.backup":
 		return "backup"
-	case "archive.inspect", "archive.import", "migration.analysis":
+	case "archive.inspect", "archive.import", "migration.analysis", "site.create":
 		return "extract"
 	case "cloud.action", "certificate.issue", "node.deployment":
 		return "build"

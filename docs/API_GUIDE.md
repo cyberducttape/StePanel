@@ -181,11 +181,27 @@ curl -fsS -H "Authorization: Bearer $STEPANEL_TOKEN" \
   "$PANEL/api/sites/overview/$SITE" | jq
 ```
 
+Administrators create a site from a template. The site gets its own system
+account and PHP-FPM pool and a placeholder page; creation runs as a durable
+job and leaves nothing behind if it fails:
+
+```sh
+curl -fsS -X POST -H "Authorization: Bearer $STEPANEL_TOKEN" \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: create-$SITE" \
+  -d "{\"site\":\"$SITE\",\"template\":\"php\"}" \
+  "$PANEL/api/sites" | jq   # returns job_id and status_url
+```
+
+`template` is `php` (a blank PHP site, the default). Creation does not publish
+a route or assign the site to a customer: publish a route with
+`/api/sites/deploy` and assign the site with `PATCH /api/accounts/{username}`.
+
 Common site resources:
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/sites` | Administrator site route inventory |
+| `POST` | `/api/sites` | Create a site from a template (administrator; durable job) |
 | `GET` | `/api/sites/usage/{site}` | Bounded regular-file usage |
 | `GET` | `/api/sites/logs/{site}` | Allowlisted, bounded site logs |
 | `GET`/`PUT`/`DELETE` | `/api/sites/environment/{site}` | Encrypted site environment metadata |

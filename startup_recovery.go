@@ -48,6 +48,23 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager) []err
 				continue
 			}
 		}
+		if txn.Kind == siteCreationTransactionKind && !txn.HadExisting {
+			// An interrupted site creation also leaves the site account, PHP
+			// pool and site root the helper prepared; creation refuses any site
+			// whose root already exists, so all of it belongs to the
+			// interrupted job. Remove it through the documented privileged
+			// deletion path, then finalize through SiteManager.
+			if deleteErr := siteHelperContext(context.Background(), cfg, "delete", txn.Site); deleteErr != nil {
+				failures = append(failures, fmt.Errorf("remove interrupted site creation %s: %w", id, deleteErr))
+				log.Printf("remove interrupted site creation %s: %v", id, deleteErr)
+				continue
+			}
+			if deleteErr := siteManager.Delete(context.Background(), txn.Site); deleteErr != nil {
+				failures = append(failures, fmt.Errorf("finalize interrupted site creation %s: %w", id, deleteErr))
+				log.Printf("finalize interrupted site creation %s: %v", id, deleteErr)
+				continue
+			}
+		}
 		log.Printf("recovered interrupted site transaction %s", id)
 		recoveryMessage := "previous site restored after unclean shutdown"
 		if !txn.HadExisting {
