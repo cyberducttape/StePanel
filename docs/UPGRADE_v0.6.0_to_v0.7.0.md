@@ -199,6 +199,12 @@ curl http://localhost:8080/metrics | head -20
 
 ## Rollback Procedure
 
+If the new release fails its post-install health check, `install.sh` rolls
+back automatically: it restores the previous binary, configuration and the
+control-plane database as they were before the upgrade (see STATE.md,
+"Upgrade rollback"). The manual procedure below is for rolling back an
+upgrade that succeeded.
+
 If you encounter issues, rollback to v0.6.0:
 
 ```bash

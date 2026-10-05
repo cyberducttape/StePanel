@@ -628,6 +628,8 @@ if [[ "$INSTALL_MODSEC" == "1" ]]; then configure_modsecurity; fi
 
 INSTALL_TXN=$(mktemp -d /var/tmp/stepanel-install.XXXXXX)
 chmod 0700 "$INSTALL_TXN"
+# shellcheck source=deploy/lib/control-plane-txn.sh
+. "$ROOT_DIR/deploy/lib/control-plane-txn.sh"
 declare -a TXN_TARGETS=() TXN_BACKUPS=() TXN_EXISTED=() TXN_TEMPS=()
 INSTALL_COMMITTED=0
 STEPANEL_WAS_ACTIVE=0
@@ -659,6 +661,12 @@ rollback_install() {
   trap - ERR EXIT INT TERM
   if (( INSTALL_COMMITTED )); then exit "$status"; fi
   echo 'Installation failed; restoring the previous StePanel-owned files.' >&2
+  # The candidate may already have migrated the control-plane database. Stop
+  # it before restoring the database the previous release left.
+  if (( CONTROL_PLANE_TXN_ACTIVE )); then
+    systemctl stop stepanel.service stepanel-worker.service 2>/dev/null || true
+    control_plane_txn_rollback || echo 'Restoring the control-plane database failed; restore it from the snapshot in the install transaction.' >&2
+  fi
   for (( index=${#TXN_TARGETS[@]}-1; index>=0; index-- )); do
     rm -f "${TXN_TARGETS[$index]}"
     if [[ ${TXN_EXISTED[$index]} == 1 ]]; then cp -a "${TXN_BACKUPS[$index]}" "${TXN_TARGETS[$index]}"; fi
@@ -721,6 +729,9 @@ for managed_target in "${managed_targets[@]}"; do backup_managed_target "$manage
 if (( STEPANEL_WAS_ACTIVE )); then systemctl stop stepanel.service; fi
 if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl stop stepanel-worker.service; fi
 if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl stop stepanel-root-broker.service; fi
+# With every StePanel process stopped, snapshot the control-plane database so
+# a failed upgrade restores binary and database together.
+control_plane_txn_begin "$DATA_DIR/stepanel-control.db" "$INSTALL_TXN"
 
 install -d -m 0750 "$APP_DIR" "$DATA_DIR/imports" "$DATA_DIR/mail" "$DATA_DIR/apps" /var/www/sites
 install -d -m 0755 -o root -g root "$PROXY_ROOT" "$VHOST_ROOT"
@@ -959,6 +970,7 @@ if (( health_ready != 1 )); then
   false
 fi
 INSTALL_COMMITTED=1
+control_plane_txn_commit
 trap - ERR EXIT INT TERM
 for temporary in "${TXN_TEMPS[@]}"; do rm -f "$temporary"; done
 rm -rf "$INSTALL_TXN"

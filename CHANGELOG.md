@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Deterministic binary and database upgrade rollback (reliability)**: when
+  a new release failed its post-install health check, `install.sh` restored
+  the previous binary but not the control-plane database the candidate had
+  already migrated, so the previous release then refused the newer schema
+  (or could not read re-sealed secrets). The installer now snapshots the
+  database file set while all services are stopped and, on failure, stops the
+  candidate, keeps its database aside for diagnosis, and restores the
+  pre-upgrade files exactly before restarting the previous release
+  (`deploy/lib/control-plane-txn.sh`). The upgrade smoke's broken candidate
+  previously failed before the installer's transaction began, so the
+  rollback path was never exercised; it now delegates CLI commands to the
+  real binary and damages the database when started as a service, and the
+  smoke checks that the restored database verifies.
 - **Durable pre-migration snapshots with retention (reliability)**: the
   control-plane snapshot taken before schema migrations was written by
   `VACUUM INTO` straight to its final name with the process umask, never

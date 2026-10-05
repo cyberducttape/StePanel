@@ -36,12 +36,29 @@ that looks like a recovery point. The newest three snapshots are kept;
 older ones, including `<db>.pre-migration-<ns>.bak` files written beside the
 database by earlier releases, are removed at the next migration.
 
-To roll back an upgrade, stop the panel and worker, reinstall the previous
-binary, and restore the snapshot for that release's schema version:
-`stepanel restore-control-plane <snapshot> --dry-run`, then without
-`--dry-run`. Some migrations are one-way for older binaries (for example the
-context-bound encryption in SECRETS.md), so the snapshot is the supported
-rollback path.
+## Upgrade rollback
+
+`install.sh` treats the binary and the control-plane database as one
+transaction. After stopping every StePanel service it copies the database
+file set (database, `-wal`, `-shm`) into the install transaction; this needs
+no StePanel binary and runs no migration. If the candidate then fails its
+post-install health check, the installer stops it, moves the candidate's
+database aside as `stepanel-control.db.failed-upgrade-<UTC time>` for
+diagnosis, restores the copied files exactly, and restarts the previous
+release with its own files, units and configuration. Writes the failed
+candidate made are discarded with its database. Delete the
+`failed-upgrade` files once diagnosed; they hold the same secrets as the
+database. `deploy/lab/upgrade-smoke.sh` proves this on a disposable host with
+a candidate that damages the database before failing.
+
+To roll back an upgrade that succeeded, stop the panel and worker, reinstall
+the previous release, then restore the pre-migration snapshot for its schema
+version with that release's binary:
+`stepanel restore-control-plane <snapshot> --dry-run`, then
+`stepanel restore-control-plane <snapshot> --replace`. Writes made since the
+upgrade are lost. Some migrations are one-way for older binaries (for
+example the context-bound encryption in SECRETS.md), so the snapshot is the
+supported rollback path.
 
 ## Required backup procedure
 

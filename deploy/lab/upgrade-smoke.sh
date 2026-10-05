@@ -111,10 +111,13 @@ set +a
 /opt/stepanel/stepanel restore-control-plane /tmp/stepanel-upgrade-control.db --dry-run
 
 # Exercise the installer's transaction rollback using a release tree whose
-# binary always fails its post-install health check. The previously upgraded
-# candidate must remain active and ready after the failed replacement.
+# service binary damages the control-plane database and fails its
+# post-install health check (deploy/lab/broken-candidate.sh). The previously
+# upgraded candidate must be active and ready on the restored database.
 if [[ -n "$broken_root" ]]; then
   candidate_version=$("$candidate_root/stepanel" version | awk 'NR == 1 { print $2 }')
+  control_db=/var/lib/ste-panel/stepanel-control.db
+  rm -f "$control_db".failed-upgrade-*
   if (cd "$broken_root" && ./install.sh --unsafe-lab); then
     echo 'broken candidate unexpectedly installed successfully' >&2
     exit 1
@@ -122,4 +125,8 @@ if [[ -n "$broken_root" ]]; then
   systemctl is-active --quiet stepanel.service stepanel-worker.service
   /opt/stepanel/stepanel version | grep -Fx "StePanel $candidate_version"
   curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
+  # The broken candidate really did damage the database (its copy was kept
+  # aside), and the database now in place is the sound pre-upgrade one.
+  compgen -G "$control_db.failed-upgrade-*" >/dev/null || { echo 'broken candidate never reached the database; rollback was not exercised' >&2; exit 1; }
+  /opt/stepanel/stepanel restore-control-plane "$control_db" --dry-run
 fi
