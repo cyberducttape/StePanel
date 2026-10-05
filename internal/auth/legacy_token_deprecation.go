@@ -210,7 +210,7 @@ func (ltd *LegacyTokenDeprecation) CleanupExpiredTokens(olderThanDays int) (int6
 		return 0, errors.New("database unavailable")
 	}
 
-	cutoff := time.Now().AddDate(0, 0, -olderThanDays)
+	cutoff := ltd.now().AddDate(0, 0, -olderThanDays)
 	result, err := ltd.db.Exec(
 		`DELETE FROM api_token_deprecation WHERE expires_at < ?`,
 		cutoff,
@@ -233,7 +233,7 @@ func (ltd *LegacyTokenDeprecation) GetExpiredTokens() ([]string, error) {
 
 	rows, err := ltd.db.Query(
 		`SELECT token_hash FROM api_token_deprecation WHERE expires_at < ?`,
-		time.Now(),
+		ltd.now(),
 	)
 	if err != nil {
 		return nil, err

@@ -236,3 +236,94 @@ func TestUninitializedLegacyTokenPolicyFailsClosed(t *testing.T) {
 		t.Fatal("uninitialized policy reported the cutoff as not passed")
 	}
 }
+
+// Every entry point fails closed without a database, and nothing may mark a
+// token before the host-wide deadline is known.
+func TestLegacyTokenPolicyFailsClosedWithoutState(t *testing.T) {
+	ltd := NewLegacyTokenDeprecationWithClock(nil, nil)
+	if ltd.now == nil {
+		t.Fatal("nil clock was not replaced")
+	}
+	if err := ltd.InitializeSchema(); err == nil {
+		t.Error("InitializeSchema without a database succeeded")
+	}
+	if _, err := ltd.MarkLegacyTokenDeprecated("h"); err == nil {
+		t.Error("MarkLegacyTokenDeprecated without a database succeeded")
+	}
+	if _, err := ltd.IsLegacyTokenExpired("h"); err == nil {
+		t.Error("IsLegacyTokenExpired without a database succeeded")
+	}
+	if _, err := ltd.GetLegacyTokenStatus("h"); err == nil {
+		t.Error("GetLegacyTokenStatus without a database succeeded")
+	}
+	if _, err := ltd.CleanupExpiredTokens(1); err == nil {
+		t.Error("CleanupExpiredTokens without a database succeeded")
+	}
+	if _, err := ltd.GetExpiredTokens(); err == nil {
+		t.Error("GetExpiredTokens without a database succeeded")
+	}
+
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "uninit.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	uninitialized := NewLegacyTokenDeprecation(db)
+	if _, err := uninitialized.MarkLegacyTokenDeprecated("h"); err == nil {
+		t.Error("a token was marked before the policy deadline was loaded")
+	}
+	if expired, _ := uninitialized.IsLegacyTokenExpired("h"); !expired {
+		t.Error("an uninitialized policy treated a legacy token as valid")
+	}
+}
+
+func TestLegacyTokenPolicyReportsStoreFailures(t *testing.T) {
+	now := LegacyTokenHardCutoff.AddDate(0, 0, -60)
+	ltd := openDeprecationDBAt(t, filepath.Join(t.TempDir(), "depr.sqlite"), func() time.Time { return now })
+	if _, err := ltd.db.Exec(`DROP TABLE api_token_deprecation`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ltd.MarkLegacyTokenDeprecated("h"); err == nil {
+		t.Error("MarkLegacyTokenDeprecated ignored a missing table")
+	}
+	if _, err := ltd.IsLegacyTokenExpired("h"); err == nil {
+		t.Error("IsLegacyTokenExpired ignored a missing table")
+	}
+	if _, err := ltd.CleanupExpiredTokens(1); err == nil {
+		t.Error("CleanupExpiredTokens ignored a missing table")
+	}
+	if _, err := ltd.GetExpiredTokens(); err == nil {
+		t.Error("GetExpiredTokens ignored a missing table")
+	}
+	if _, err := ltd.db.Exec(`DROP TABLE legacy_token_policy; CREATE TABLE legacy_token_policy (id INTEGER PRIMARY KEY, activated_at TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ltd.db.Exec(`INSERT INTO legacy_token_policy (id, activated_at) VALUES (1, 'not a time')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ltd.InitializeSchema(); err == nil {
+		t.Error("InitializeSchema accepted an unreadable activation time")
+	}
+}
+
+func TestLegacyTokenStatusReportsTheDeadline(t *testing.T) {
+	now := LegacyTokenHardCutoff.AddDate(0, 0, -60)
+	ltd := openDeprecationDBAt(t, filepath.Join(t.TempDir(), "depr.sqlite"), func() time.Time { return now })
+	if status, err := ltd.GetLegacyTokenStatus("unused"); err != nil || status != nil {
+		t.Fatalf("status of an unused token = %+v, %v", status, err)
+	}
+	if _, err := ltd.MarkLegacyTokenDeprecated("used"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := ltd.GetLegacyTokenStatus("used")
+	if err != nil || status == nil || status.IsExpired || status.ExpiresAt == nil || !status.ExpiresAt.Equal(LegacyTokenHardCutoff) {
+		t.Fatalf("status before the cutoff = %+v, %v", status, err)
+	}
+	now = LegacyTokenHardCutoff.Add(time.Hour)
+	if status, err = ltd.GetLegacyTokenStatus("used"); err != nil || !status.IsExpired || status.Message != ExpirationMessage {
+		t.Fatalf("status after the cutoff = %+v, %v", status, err)
+	}
+	if removed, err := ltd.CleanupExpiredTokens(0); err != nil || removed != 1 {
+		t.Fatalf("CleanupExpiredTokens = %d, %v", removed, err)
+	}
+}

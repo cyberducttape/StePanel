@@ -244,8 +244,28 @@ func (x *Extractor) Dir(name string, mode os.FileMode) (string, error) {
 	if err := x.root.MkdirAll(clean, x.ParentMode); err != nil {
 		return "", fmt.Errorf("create directory %q: %w", clean, err)
 	}
-	if err := x.root.Chmod(clean, mode.Perm()); err != nil {
-		return "", fmt.Errorf("set permissions of %q: %w", clean, err)
+	// Set the mode through a descriptor (fchmod), not by path: os.Root.Chmod
+	// uses fchmodat2, which systemd seccomp filters on older distributions
+	// (for example AlmaLinux 9) deny with EPERM.
+	dir, err := x.root.Open(clean)
+	if err != nil {
+		return "", fmt.Errorf("open directory %q: %w", clean, err)
+	}
+	info, statErr := dir.Stat()
+	var chmodErr error
+	if statErr == nil && info.IsDir() {
+		chmodErr = dir.Chmod(mode.Perm())
+	}
+	closeErr := dir.Close()
+	switch {
+	case statErr != nil:
+		return "", fmt.Errorf("inspect directory %q: %w", clean, statErr)
+	case !info.IsDir():
+		return "", fmt.Errorf("entry %q is not a directory", clean)
+	case chmodErr != nil:
+		return "", fmt.Errorf("set permissions of %q: %w", clean, chmodErr)
+	case closeErr != nil:
+		return "", fmt.Errorf("close directory %q: %w", clean, closeErr)
 	}
 	return clean, nil
 }

@@ -234,3 +234,35 @@ func TestDirSpoolBoundsAndChecksCapacity(t *testing.T) {
 		t.Fatal("spool without a directory accepted")
 	}
 }
+
+// os.Root.Chmod issues fchmodat2, which the systemd seccomp filters of
+// older distributions (AlmaLinux 9) reject with EPERM inside the panel and
+// worker units; every installed cPanel restore failed that way. Modes must be
+// set through a descriptor (fchmod) instead.
+func TestExtractorSetsModesThroughDescriptors(t *testing.T) {
+	source, err := os.ReadFile("archivesafe.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(source), ".root.Chmod(") {
+		t.Fatal("archivesafe sets a mode by path with os.Root.Chmod; use fchmod on an open descriptor")
+	}
+	dir := t.TempDir()
+	x, err := OpenExtractor(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	if _, err := x.Dir("assets/", 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "assets")); err != nil || info.Mode().Perm() != 0o750 {
+		t.Fatalf("directory mode = %v, %v; want 0750", info, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plain"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.Dir("plain/", 0o755); err == nil {
+		t.Fatal("a directory entry over an existing file was accepted")
+	}
+}

@@ -20,6 +20,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Archive extraction on installed hosts (fix)**: the shared archive
+  extractor set directory modes with `os.Root.Chmod`, which issues the
+  `fchmodat2` system call. The panel and worker units' `@system-service`
+  seccomp filter rejects it with EPERM on older systemd releases (for
+  example AlmaLinux 9), so every installed cPanel restore and backup restore
+  failed. Directory modes are now set through an open descriptor (`fchmod`),
+  as file modes already were.
 - **Deterministic binary and database upgrade rollback (reliability)**: when
   a new release failed its post-install health check, `install.sh` restored
   the previous binary but not the control-plane database the candidate had
