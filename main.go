@@ -369,6 +369,9 @@ func Main() {
 		log.Fatalf("initialize recovery rehearsal store: %v", err)
 	}
 	auth.apiTokens = &apiTokenStore{db: controlPlaneDB}
+	if err := auth.enforceLegacyTokenCutoff(); err != nil {
+		log.Fatalf("enforce legacy API token cutoff: %v", err)
+	}
 	accounts, err := OpenAccountStoreDB(controlPlaneDB, cfg.AccountState, cfg.AccountKey)
 	if err != nil {
 		log.Fatalf("open persistent shared-hosting account state: %v", err)

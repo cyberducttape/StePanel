@@ -21,7 +21,7 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 
 ### Authentication & Tokens
 - ✅ API token rate limiting (600 req/min per token, configurable)
-- ✅ Legacy token deprecation tracking (30-day grace period) 
+- ✅ Legacy unscoped tokens refused and revoked at a host-wide hard cutoff (see LEGACY_TOKEN_MIGRATION.md)
 - ✅ TOTP enforcement for admin login
 - ✅ Session management with secure cookies
 

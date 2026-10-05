@@ -458,19 +458,10 @@ func TestTokenNotExposedInLogs(t *testing.T) {
 }
 ```
 
-**Legacy Token Expiration**:
-```go
-// Verify: expired tokens are rejected
-func TestExpiredTokenRejected(t *testing.T) {
-    token := createLegacyToken()
-    token.LegacyExpiresAt = time.Now().Add(-1 * time.Hour)
-    
-    _, err := authenticateToken(token)
-    if err == nil {
-        t.Fatal("expired token accepted")
-    }
-}
-```
+**Legacy Token Expiration**: covered by `legacy_token_cutoff_test.go`
+(a dormant legacy token is refused and revoked at the hard cutoff; use
+shortly before the cutoff does not extend it; legacy tokens are refused
+without a deprecation policy) and `internal/auth/legacy_token_deprecation_test.go`.
 
 ## Continuous Adversarial Testing
 

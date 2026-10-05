@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Legacy API token hard cutoff (security)**: unscoped legacy tokens now
+  stop working at one host-wide deadline, the later of 2026-11-15 and 30
+  days after the policy is first activated on the host. Previously the
+  30-day clock started at each token's first use, so a dormant or stolen
+  token that had not been used never expired. After the cutoff every
+  unscoped token is revoked in the token store
+  (`auth.api_token.legacy_revoked`), legacy tokens are refused when no
+  deprecation policy is configured, and the security center reports the
+  enforced deadline instead of a hard-coded date.
 - **Typed broker follow-up fixes (security, reliability)**: removing the
   generic helper bridge left gaps that are now closed. Private Git clones in
   the release pipeline and WordPress database cleanup use typed broker

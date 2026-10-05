@@ -63,7 +63,7 @@ and never affects the operation; failures are logged.
 | Operation | Class | Events |
 |---|---|---|
 | Customer and administrator API token creation | A, intent-first | `auth.api_token.created`, `auth.admin_api_token.created` |
-| API token revocation | A, revocation | `auth.api_token.revoked`, `auth.admin_api_token.revoked` |
+| API token revocation, legacy-token hard cutoff | A, revocation | `auth.api_token.revoked`, `auth.admin_api_token.revoked`, `auth.api_token.legacy_revoked` |
 | Hosting account creation, plan or site assignment | A, intent-first | `hosting.account.created`, `hosting.account.updated` |
 | Account suspension (admin, PATCH, automatic) | A, revocation | `account.suspended`, `account.suspension.temporary`, `account.suspended.auto`, `hosting.account.suspended` |
 | Account unsuspension | A, intent-first | `account.unsuspended`, `hosting.account.unsuspended` |

@@ -23,7 +23,7 @@ type apiTokenInfo struct {
 	Scopes          []string `json:"scopes,omitempty"`
 	LegacyUnscoped  bool     `json:"legacy_unscoped"`             // True for pre-scope tokens (god-mode for backward compat)
 	DeprecatedAt    *int64   `json:"deprecated_at,omitempty"`     // When legacy status detected
-	LegacyExpiresAt *int64   `json:"legacy_expires_at,omitempty"` // Auto-expiration for legacy tokens (30 days from deprecation)
+	LegacyExpiresAt *int64   `json:"legacy_expires_at,omitempty"` // Host-wide hard cutoff for legacy tokens
 }
 
 type apiTokenStore struct{ db *sql.DB }
@@ -32,8 +32,6 @@ func (s *apiTokenStore) create(username, name string, expiresAt *int64) (apiToke
 	return s.createScoped(username, name, expiresAt, nil, customerAPIScopes)
 }
 
-// Legacy token deprecation timeline
-const legacyTokenGracePeriodDays = 30
 const legacyTokenExpirationErrorMsg = "legacy unscoped API tokens have been deprecated and expired; create a new scoped API token"
 
 var adminAPIScopes = map[string]bool{"admin:read": true, "admin:operate": true}
@@ -293,6 +291,19 @@ func (s *apiTokenStore) revokeAll(username string) error {
 	return err
 }
 
+// revokeLegacyUnscoped revokes every active token without scopes. It is used
+// only after the legacy-token hard cutoff has passed.
+func (s *apiTokenStore) revokeLegacyUnscoped() (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, nil
+	}
+	result, err := s.db.Exec(`UPDATE api_tokens SET revoked_at = unixepoch() WHERE (scopes IS NULL OR TRIM(scopes) = '') AND revoked_at IS NULL`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 	username := a.Auth.UsernameForRequest(r)
 	if username == "" || a.Auth.IsAdministrator(r) || a.APITokens == nil {
@@ -311,6 +322,12 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.Error(w, "API token state is unavailable", 503)
 			return
+		}
+		legacyDeadline := a.Auth.legacyTokenDeadline().Unix()
+		for i := range items {
+			if items[i].LegacyUnscoped && items[i].RevokedAt == nil {
+				items[i].LegacyExpiresAt = &legacyDeadline
+			}
 		}
 		// Compute legacy token warnings for security center
 		hasLegacyTokens := false
@@ -450,7 +467,7 @@ func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
 
 	var legacyTokens []LegacyTokenWarning
 	// Calculate days until deadline dynamically (not a hardcoded constant that becomes wrong every day)
-	deadline := time.Date(2026, time.November, 15, 0, 0, 0, 0, time.UTC)
+	deadline := a.Auth.legacyTokenDeadline()
 	daysUntilDeadline := int64(deadline.Sub(time.Now()).Hours() / 24)
 	if daysUntilDeadline < 0 {
 		daysUntilDeadline = 0 // Deadline has passed
@@ -465,7 +482,7 @@ func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
 				CreatedAt:   token.CreatedAt,
 				AccessLevel: "Full account access (all scopes)",
 				RiskLevel:   "High",
-				Action:      "Regenerate with specific scopes required by 2026-11-15",
+				Action:      "Regenerate with specific scopes required by " + deadline.Format("2006-01-02"),
 			})
 		}
 	}
@@ -482,7 +499,7 @@ func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
 		"has_legacy_tokens":   len(legacyTokens) > 0,
 		"legacy_count":        len(legacyTokens),
 		"legacy_tokens":       legacyTokens,
-		"migration_deadline":  "2026-11-15T00:00:00Z",
+		"migration_deadline":  deadline.Format(time.RFC3339),
 		"days_until_deadline": daysUntilDeadline,
 		"migration_status":    migrationStatus,
 		"phase":               2,

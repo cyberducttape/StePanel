@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -474,12 +475,8 @@ func (a Auth) StillAuthenticated(r *http.Request) bool {
 	if !ok || subtle.ConstantTimeCompare([]byte(tokenUser), []byte(username)) != 1 {
 		return false
 	}
-	if isLegacyUnscoped && a.legacyTokenDeprecation != nil {
-		digest := sha256.Sum256([]byte(tokenValue))
-		expired, err := a.legacyTokenDeprecation.IsLegacyTokenExpired(hex.EncodeToString(digest[:]))
-		if err != nil || expired {
-			return false
-		}
+	if isLegacyUnscoped && !a.legacyTokenAllowed(tokenValue, false) {
+		return false
 	}
 	if subtle.ConstantTimeCompare([]byte(username), []byte(a.Username)) == 1 {
 		return true
@@ -604,32 +601,10 @@ func (a Auth) validAPITokenWithScopes(r *http.Request) (string, []string, bool) 
 		return "", nil, false
 	}
 
-	// Enforce the legacy-token deprecation lifecycle. Prior to this,
-	// LegacyTokenDeprecation existed as a subsystem but no auth-path call
-	// site ever consulted it — so a token with no scopes retained full
-	// customer API access indefinitely regardless of how long ago it was
-	// deprecated. This block:
-	//
-	//   - Records first-use of a legacy unscoped token so the 30-day
-	//     grace-period clock actually starts.
-	//   - Refuses tokens whose grace period has already expired.
-	//
-	// The check is best-effort: a database failure fails-closed (refusing
-	// the token) rather than fails-open, because an unchecked legacy
-	// token is the entire vulnerability class we are closing.
-	if isLegacyUnscoped && a.legacyTokenDeprecation != nil {
-		digest := sha256.Sum256([]byte(tokenValue))
-		hash := hex.EncodeToString(digest[:])
-		expired, err := a.legacyTokenDeprecation.IsLegacyTokenExpired(hash)
-		if err != nil {
-			return "", nil, false
-		}
-		if expired {
-			return "", nil, false
-		}
-		if _, err := a.legacyTokenDeprecation.MarkLegacyTokenDeprecated(hash); err != nil {
-			return "", nil, false
-		}
+	// Unscoped legacy tokens are accepted only until the host-wide hard
+	// cutoff (see legacyTokenAllowed).
+	if isLegacyUnscoped && !a.legacyTokenAllowed(tokenValue, true) {
+		return "", nil, false
 	}
 
 	if subtle.ConstantTimeCompare([]byte(username), []byte(a.Username)) == 1 {
@@ -640,6 +615,64 @@ func (a Auth) validAPITokenWithScopes(r *http.Request) (string, []string, bool) 
 	}
 	_, exists := a.Accounts.Get(username)
 	return username, scopes, exists && !a.Accounts.TenantSuspended(username)
+}
+
+// legacyTokenAllowed enforces the hard cutoff for unscoped legacy tokens.
+// It fails closed: without a configured deprecation policy, or when the
+// policy store cannot be read, the token is refused. Once the cutoff has
+// passed, every unscoped token is revoked in the token store, so the cutoff
+// survives even if the policy state were later lost. recordUse records the
+// token's latest use for the security center.
+func (a Auth) legacyTokenAllowed(tokenValue string, recordUse bool) bool {
+	if a.legacyTokenDeprecation == nil {
+		return false
+	}
+	digest := sha256.Sum256([]byte(tokenValue))
+	hash := hex.EncodeToString(digest[:])
+	expired, err := a.legacyTokenDeprecation.IsLegacyTokenExpired(hash)
+	if err != nil {
+		return false
+	}
+	if expired {
+		if err := a.enforceLegacyTokenCutoff(); err != nil {
+			log.Printf("[ERROR] legacy token cutoff could not be persisted: %v", err)
+		}
+		return false
+	}
+	if recordUse {
+		if _, err := a.legacyTokenDeprecation.MarkLegacyTokenDeprecated(hash); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// legacyTokenDeadline is the enforced hard cutoff for unscoped legacy tokens,
+// or the published default when no policy is configured (in which case such
+// tokens are already refused).
+func (a Auth) legacyTokenDeadline() time.Time {
+	if a.legacyTokenDeprecation != nil && !a.legacyTokenDeprecation.Deadline().IsZero() {
+		return a.legacyTokenDeprecation.Deadline()
+	}
+	return authpolicy.LegacyTokenHardCutoff
+}
+
+// enforceLegacyTokenCutoff revokes every unscoped legacy token once the
+// host-wide cutoff has passed. It is a revocation, so it is never blocked by
+// the audit ledger.
+func (a Auth) enforceLegacyTokenCutoff() error {
+	if a.legacyTokenDeprecation == nil || a.apiTokens == nil || !a.legacyTokenDeprecation.CutoffPassed() {
+		return nil
+	}
+	revoked, err := a.apiTokens.revokeLegacyUnscoped()
+	if err != nil {
+		return err
+	}
+	if revoked > 0 {
+		RevocationAudit(a.AuditLog, "system", "auth.api_token.legacy_revoked", "legacy-tokens",
+			fmt.Sprintf("%d unscoped token(s) revoked at the hard cutoff %s", revoked, a.legacyTokenDeprecation.Deadline().Format(time.RFC3339)))
+	}
+	return nil
 }
 
 func (a Auth) HasAPIScope(r *http.Request, scope string) bool {

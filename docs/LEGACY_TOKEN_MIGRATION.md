@@ -29,6 +29,31 @@ func (a Auth) HasRequiredCustomerScope(r *http.Request, scope string) bool {
 
 ---
 
+## Current Enforcement
+
+Unscoped legacy tokens are accepted only until one host-wide hard cutoff:
+the later of **2026-11-15 00:00 UTC** and 30 days after this policy was
+first activated on the host. The activation time is recorded once in the
+`legacy_token_policy` table and never moves.
+
+- The cutoff does not depend on when a token is used. A dormant token, or a
+  stolen one replayed later, stops working at the same moment as an active
+  one. (Earlier releases started a per-token 30-day clock at first use, so a
+  token that was never used never expired.)
+- Once the cutoff has passed, every unscoped token is revoked in
+  `api_tokens` at startup and on the first refused use, and the revocation
+  is recorded as `auth.api_token.legacy_revoked`. The tokens stay revoked
+  even if the policy state is later lost.
+- Without a configured deprecation policy, or when its state cannot be read,
+  legacy tokens are refused (fail closed). Scoped tokens are unaffected.
+- The security center (`migration_deadline`) and the token listing
+  (`legacy_expires_at`) report the enforced deadline.
+
+Implementation: `internal/auth/legacy_token_deprecation.go` and
+`Auth.legacyTokenAllowed` in `auth.go`.
+
+---
+
 ## Solution: Mandatory Migration
 
 ### Phase 1: Surface Legacy Tokens (Immediate)
