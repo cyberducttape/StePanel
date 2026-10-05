@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -109,10 +111,20 @@ func (a *App) checkProductionReadiness() ProductionReadinessReport {
 
 	// Production mode checks
 	checks := []ProductionReadinessCheck{
+		a.checkKernelReadiness(),
+		a.checkControlPlaneReadiness(),
+		a.checkWorkerReadiness(),
+		a.checkRootBrokerReadiness(),
+		a.checkWebServerReadiness(),
+		a.checkPHPReadiness(),
+		a.checkBackupStorageReadiness(),
+		a.checkDiskSpaceReadiness(),
 		a.checkFilesystemQuotaReadiness(),
 		a.checkEncryptionKeysReadiness(),
 		a.checkOfflineBackupReadiness(),
 		a.checkTLSReadiness(),
+		a.checkDNSReadiness(),
+		checkClockReadiness(),
 		checkSafetyBypassReadiness(),
 	}
 
@@ -138,6 +150,122 @@ func (a *App) checkProductionReadiness() ProductionReadinessReport {
 	}
 
 	return report
+}
+
+func (a *App) checkKernelReadiness() ProductionReadinessCheck {
+	if runtime.GOOS != "linux" {
+		return ProductionReadinessCheck{Name: "Kernel", Status: "fail", Severity: "critical", Message: "production host must run Linux"}
+	}
+	if _, err := os.Stat("/proc"); err != nil {
+		return ProductionReadinessCheck{Name: "Kernel", Status: "fail", Severity: "critical", Message: "procfs is unavailable: " + err.Error()}
+	}
+	return ProductionReadinessCheck{Name: "Kernel", Status: "pass", Severity: "info", Message: "Linux kernel and procfs detected"}
+}
+
+func (a *App) checkControlPlaneReadiness() ProductionReadinessCheck {
+	if a.Jobs == nil {
+		return ProductionReadinessCheck{Name: "Control Plane", Status: "fail", Severity: "critical", Message: "durable job store is not initialized"}
+	}
+	if a.Jobs.db != nil {
+		if err := a.Jobs.IntegrityCheck(); err != nil {
+			return ProductionReadinessCheck{Name: "Control Plane", Status: "fail", Severity: "critical", Message: "control-plane integrity check failed: " + err.Error()}
+		}
+	}
+	return ProductionReadinessCheck{Name: "Control Plane", Status: "pass", Severity: "info", Message: "durable job and control-plane state are available"}
+}
+
+func (a *App) checkWorkerReadiness() ProductionReadinessCheck {
+	if a.Config.WorkerMode != "external" {
+		return ProductionReadinessCheck{Name: "Worker", Status: "pass", Severity: "info", Message: "jobs execute in the control-plane process"}
+	}
+	checks := readinessChecks(a.Config, a.Jobs)
+	check, ok := checks["durable_worker"]
+	if !ok || !check.Ready {
+		message := "external durable worker is unavailable"
+		if ok && check.Detail != "" {
+			message = check.Detail
+		}
+		return ProductionReadinessCheck{Name: "Worker", Status: "fail", Severity: "critical", Message: message, Remediation: "Start stepanel-worker and verify its heartbeat"}
+	}
+	return ProductionReadinessCheck{Name: "Worker", Status: "pass", Severity: "info", Message: check.Detail}
+}
+
+func (a *App) checkRootBrokerReadiness() ProductionReadinessCheck {
+	check := rootBrokerHealthCheck()
+	if check.Ready {
+		return ProductionReadinessCheck{Name: "Root Broker", Status: "pass", Severity: "info", Message: check.Detail}
+	}
+	return ProductionReadinessCheck{Name: "Root Broker", Status: "fail", Severity: "critical", Message: check.Detail, Remediation: "Start the configured stepanel-root broker and verify its socket"}
+}
+
+func (a *App) checkWebServerReadiness() ProductionReadinessCheck {
+	webserver := strings.ToLower(strings.TrimSpace(a.Config.WebServer))
+	allowed := map[string]bool{"apache": true, "apache2": true, "caddy": true, "openlitespeed": true, "lsws": true}
+	if !allowed[webserver] {
+		return ProductionReadinessCheck{Name: "Web Server", Status: "fail", Severity: "critical", Message: "unsupported web server: " + webserver}
+	}
+	services := ServiceStatus()
+	service := webserver
+	if webserver == "apache" {
+		service = "apache2"
+		if services[service] == "" {
+			service = "httpd"
+		}
+	}
+	if state := services[service]; state != "active" && state != "installed" {
+		return ProductionReadinessCheck{Name: "Web Server", Status: "fail", Severity: "critical", Message: fmt.Sprintf("%s service state is %s", webserver, state), Remediation: "Start the configured web server and verify its virtual-host configuration"}
+	}
+	return ProductionReadinessCheck{Name: "Web Server", Status: "pass", Severity: "info", Message: fmt.Sprintf("%s service is %s", webserver, services[service])}
+}
+
+func (a *App) checkPHPReadiness() ProductionReadinessCheck {
+	if !isExecutableRegularFile(a.Config.SiteCtl) {
+		return ProductionReadinessCheck{Name: "PHP", Status: "fail", Severity: "critical", Message: "the configured site helper is not executable", Remediation: "Install stepanel-sitectl and set STEPANEL_SITECTL"}
+	}
+	return ProductionReadinessCheck{Name: "PHP", Status: "pass", Severity: "info", Message: "site helper is executable; PHP-FPM is managed through the typed helper boundary"}
+}
+
+func (a *App) checkBackupStorageReadiness() ProductionReadinessCheck {
+	free, err := availableBytes(a.Config.BackupRoot)
+	if err != nil {
+		return ProductionReadinessCheck{Name: "Backup Storage", Status: "fail", Severity: "critical", Message: err.Error()}
+	}
+	if free < a.Config.MinFreeBytes {
+		return ProductionReadinessCheck{Name: "Backup Storage", Status: "fail", Severity: "critical", Message: fmt.Sprintf("%d bytes free; minimum is %d", free, a.Config.MinFreeBytes)}
+	}
+	return ProductionReadinessCheck{Name: "Backup Storage", Status: "pass", Severity: "info", Message: fmt.Sprintf("%d bytes free", free)}
+}
+
+func (a *App) checkDiskSpaceReadiness() ProductionReadinessCheck {
+	free, err := availableBytes(a.Config.WebRoot)
+	if err != nil {
+		return ProductionReadinessCheck{Name: "Disk Space", Status: "fail", Severity: "critical", Message: err.Error()}
+	}
+	if free < a.Config.MinFreeBytes {
+		return ProductionReadinessCheck{Name: "Disk Space", Status: "fail", Severity: "critical", Message: fmt.Sprintf("%d bytes free on %s; minimum is %d", free, a.Config.WebRoot, a.Config.MinFreeBytes)}
+	}
+	return ProductionReadinessCheck{Name: "Disk Space", Status: "pass", Severity: "info", Message: fmt.Sprintf("%d bytes free on %s", free, a.Config.WebRoot)}
+}
+
+func (a *App) checkDNSReadiness() ProductionReadinessCheck {
+	capability := a.checkDNSCapability()
+	if capability.Mode == CapabilityAvailable {
+		return ProductionReadinessCheck{Name: "DNS", Status: "pass", Severity: "info", Message: capability.Reason}
+	}
+	return ProductionReadinessCheck{Name: "DNS", Status: "warning", Severity: "warning", Message: capability.Reason, Remediation: "Validate each production domain and configure provider credentials for automated DNS changes"}
+}
+
+func checkClockReadiness() ProductionReadinessCheck {
+	if _, err := exec.LookPath("timedatectl"); err != nil {
+		return ProductionReadinessCheck{Name: "Clock Synchronization", Status: "warning", Severity: "warning", Message: "timedatectl is unavailable; clock synchronization was not verified"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "timedatectl", "show", "--property=NTPSynchronized", "--value").Output()
+	if err == nil && strings.TrimSpace(string(output)) == "yes" {
+		return ProductionReadinessCheck{Name: "Clock Synchronization", Status: "pass", Severity: "info", Message: "system time is synchronized"}
+	}
+	return ProductionReadinessCheck{Name: "Clock Synchronization", Status: "warning", Severity: "warning", Message: "system time synchronization could not be verified", Remediation: "Enable and verify systemd-timesyncd, chrony, or another trusted time source"}
 }
 
 // checkFilesystemQuotaReadiness checks if filesystem quotas are enforced

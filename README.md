@@ -197,6 +197,20 @@ verified SQLite backup, and `stepanel restore-control-plane SOURCE --dry-run`
 to validate a candidate before the guarded maintenance-window restore:
 `stepanel restore-control-plane SOURCE --replace`.
 
+For API automation, build or install `stepanelctl` and set `STEPANEL_URL` and
+`STEPANEL_TOKEN`. The read-only operator CLI emits the API's JSON directly:
+
+```sh
+stepanelctl doctor --production
+stepanelctl sites list
+stepanelctl site inspect example
+stepanelctl jobs list
+stepanelctl jobs watch site-create-<id>
+```
+
+`doctor --production` checks the production prerequisite report, while
+`jobs watch` polls durable job state until it reaches a terminal result.
+
 ## Quick workflows
 
 - Migrate a cPanel account with the [cpmove guide](docs/CPMOVE_IMPORTS.md).

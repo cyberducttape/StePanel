@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -29,6 +30,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "unsupported command; run stepanelctl help")
 		os.Exit(2)
 	}
+	if len(args) == 3 && args[0] == "jobs" && args[1] == "watch" {
+		if err := watch(*base, *token, path); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := get(*base, *token, path); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -45,10 +53,12 @@ Environment:
 Commands:
   status                 show readiness
   doctor                 show system diagnostics
+  doctor --production    verify production prerequisites
   capabilities           explain verified host capabilities
   sites list             list sites
   site inspect NAME      inspect one site
   jobs list              list durable jobs
+  jobs watch ID          wait for one durable job to finish
 
 Use -url and -token to override the environment.`)
 }
@@ -65,7 +75,9 @@ func commandPath(args []string) (string, bool) {
 	case len(args) == 1 && args[0] == "status":
 		return "/readyz", true
 	case len(args) == 1 && args[0] == "doctor":
-		return "/api/doctor", true
+		return "/api/admin/production-readiness", true
+	case len(args) == 2 && args[0] == "doctor" && args[1] == "--production":
+		return "/api/admin/production-readiness", true
 	case len(args) == 1 && args[0] == "capabilities":
 		return "/api/capabilities", true
 	case len(args) == 2 && args[0] == "sites" && args[1] == "list":
@@ -74,40 +86,78 @@ func commandPath(args []string) (string, bool) {
 		return "/api/sites/overview/" + args[2], true
 	case len(args) == 2 && args[0] == "jobs" && args[1] == "list":
 		return "/api/jobs", true
+	case len(args) == 3 && args[0] == "jobs" && args[1] == "watch" && args[2] != "":
+		return "/api/jobs/" + args[2], true
 	default:
 		return "", false
 	}
 }
 
-func get(base, token, path string) error {
-	base = strings.TrimRight(strings.TrimSpace(base), "/")
-	if base == "" {
-		return fmt.Errorf("STEPANEL_URL is empty")
-	}
-	req, err := http.NewRequest(http.MethodGet, base+path, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	if strings.TrimSpace(token) != "" {
-		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
-	}
+func watch(base, token, path string) error {
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("request %s: %w", path, err)
+	for {
+		body, status, err := fetch(client, base, token, path)
+		if err != nil {
+			return err
+		}
+		if status < 200 || status >= 300 {
+			return fmt.Errorf("%s returned HTTP %d: %s", path, status, strings.TrimSpace(string(body)))
+		}
+		var job struct {
+			State string `json:"state"`
+		}
+		if err := json.Unmarshal(body, &job); err != nil {
+			return fmt.Errorf("decode job response: %w", err)
+		}
+		switch job.State {
+		case "completed", "failed", "dead-letter", "cancelled":
+			_, err := os.Stdout.Write(body)
+			if err == nil && (len(body) == 0 || body[len(body)-1] != '\n') {
+				_, err = fmt.Fprintln(os.Stdout)
+			}
+			return err
+		}
+		time.Sleep(time.Second)
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+}
+
+func get(base, token, path string) error {
+	client := &http.Client{Timeout: 30 * time.Second}
+	body, status, err := fetch(client, base, token, path)
 	if err != nil {
-		return fmt.Errorf("read response: %w", err)
+		return err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s returned HTTP %d: %s", path, resp.StatusCode, strings.TrimSpace(string(body)))
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("%s returned HTTP %d: %s", path, status, strings.TrimSpace(string(body)))
 	}
 	_, err = os.Stdout.Write(body)
 	if err == nil && (len(body) == 0 || body[len(body)-1] != '\n') {
 		_, err = fmt.Fprintln(os.Stdout)
 	}
 	return err
+}
+
+func fetch(client *http.Client, base, token, path string) ([]byte, int, error) {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return nil, 0, fmt.Errorf("STEPANEL_URL is empty")
+	}
+	req, err := http.NewRequest(http.MethodGet, base+path, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("request %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return nil, 0, fmt.Errorf("read response: %w", err)
+	}
+	return body, resp.StatusCode, nil
 }
