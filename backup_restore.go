@@ -49,12 +49,12 @@ type backupRehearsalResult struct {
 	Phases           []recovery.Phase `json:"phases,omitempty"`
 }
 
-func (a *App) enqueueBackupRestoreJob(request durableBackupRestoreRequest) (Job, error) {
+func (a *App) enqueueBackupRestoreJob(request durableBackupRestoreRequest, operationKey string) (Job, error) {
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return Job{}, err
 	}
-	job, _, err := a.Jobs.EnqueueIdempotent("backup.restore", request.Site, "", payload, 2)
+	job, _, err := a.Jobs.EnqueueIdempotent("backup.restore", request.Site, operationKey, payload, 2)
 	return job, err
 }
 
@@ -78,6 +78,12 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, fmt.Errorf("acquire durable site lock: %w", lockErr)
 	}
 	defer releaseUnlock()
+	// Restoring replaces live site content: Class A. A retried job records a
+	// fresh intent for each attempt.
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode, request.Site, request.Backup)
+	if err != nil {
+		return nil, err
+	}
 	var result BackupRestoreResult
 	var restoreErr error
 	switch request.Mode {
@@ -116,18 +122,18 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 			}
 		}
 	default:
-		return nil, errors.New("unsupported backup restore mode")
+		restoreErr = errors.New("unsupported backup restore mode")
 	}
 	if restoreErr != nil {
-		recordAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".failed", request.Site, restoreErr.Error())
+		intent.Failed(restoreErr.Error())
 		return nil, restoreErr
 	}
+	intent.Completed(request.Backup)
 	if strings.HasPrefix(request.Mode, "offsite-") && a.BackupIndex != nil {
 		if err := a.BackupIndex.MarkOffsiteRestoreVerified(a.Config.OffsiteTarget, request.Site, request.Backup, time.Now().UTC()); err != nil {
 			return nil, fmt.Errorf("restore completed but recording offsite restore verification failed: %w", err)
 		}
 	}
-	recordAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode+".completed", request.Site, request.Backup)
 	output, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
@@ -183,12 +189,12 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 		}
 	}
 	if err != nil {
-		recordAudit(a.Config.AuditLog, request.Actor, "backup.rehearsal.failed", request.Site, request.Backup)
+		TelemetryAudit(a.Config.AuditLog, request.Actor, "backup.rehearsal.failed", request.Site, request.Backup)
 		return nil, err
 	}
 	result.DurationMS = run.record.DurationMS
 	result.Phases = run.record.Phases
-	recordAudit(a.Config.AuditLog, request.Actor, "backup.rehearsal.completed", request.Site, request.Backup)
+	TelemetryAudit(a.Config.AuditLog, request.Actor, "backup.rehearsal.completed", request.Site, request.Backup)
 	return json.Marshal(result)
 }
 
@@ -402,7 +408,7 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "backup does not belong to site", http.StatusForbidden)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.verify", input.Site, input.Backup)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "backup.verify", input.Site, input.Backup)
 	writeJSON(w, http.StatusOK, map[string]any{"verified": true, "backup": input.Backup, "site": manifest.Site, "consistency": manifest.Consistency, "archive_verified": manifest.ArchiveVerified, "database_dump_verified": manifest.DatabaseDumpVerified, "application_quiesced": manifest.ApplicationQuiesced, "filesystem_snapshot": manifest.FilesystemSnapshot, "manifest_signed": manifest.SignatureAlgorithm != ""})
 }
 
@@ -630,7 +636,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			return
 		}
 	}
-	if e = runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "apply", input.Site, input.Domain); e != nil {
+	if e = runVhostMutation(operationCtx, a.Config, "apply", input.Site, input.Domain); e != nil {
 		http.Error(w, "could not activate restored staging route", 502)
 		return
 	}
@@ -639,7 +645,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	committed = true
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "backup.restore-to-staging", input.Site, input.Backup)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "backup.restore-to-staging", input.Site, input.Backup)
 	writeJSON(w, 202, map[string]any{"site": input.Site, "domain": input.Domain, "backup": input.Backup, "source_site": manifest.Site, "files_restored": true, "databases_restored": hasDatabase, "database": input.TargetDatabase, "restore_mode": "staging", "consistency": manifest.Consistency, "created_at": time.Now().UTC()})
 }
 
@@ -898,6 +904,11 @@ func (a *App) backupRestoreFilesHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
 		return
 	}
+	operationKey, err := requestOperationKey(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	var input struct {
 		Backup  string `json:"backup"`
 		Site    string `json:"site"`
@@ -926,7 +937,7 @@ func (a *App) backupRestoreFilesHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
 		return
 	}
-	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "files", Site: input.Site, Backup: input.Backup, Actor: a.Auth.UsernameForRequest(r)})
+	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "files", Site: input.Site, Backup: input.Backup, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
 	if err != nil {
 		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
 		return
@@ -1012,6 +1023,11 @@ func (a *App) backupRestoreDatabaseHTTP(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
 		return
 	}
+	operationKey, err := requestOperationKey(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	var input struct {
 		Backup   string `json:"backup"`
 		Site     string `json:"site"`
@@ -1042,7 +1058,7 @@ func (a *App) backupRestoreDatabaseHTTP(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "verified backup does not contain the selected site database", http.StatusUnprocessableEntity)
 		return
 	}
-	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "database", Site: input.Site, Backup: input.Backup, Database: input.Database, Actor: a.Auth.UsernameForRequest(r)})
+	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "database", Site: input.Site, Backup: input.Backup, Database: input.Database, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
 	if err != nil {
 		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
 		return
@@ -1053,6 +1069,11 @@ func (a *App) backupRestoreDatabaseHTTP(w http.ResponseWriter, r *http.Request) 
 func (a *App) backupRestoreOffsiteFilesHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || !a.Auth.CSRF(r) || !a.Auth.IsAdministrator(r) {
 		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
+		return
+	}
+	operationKey, err := requestOperationKey(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	var input struct {
@@ -1074,7 +1095,7 @@ func (a *App) backupRestoreOffsiteFilesHTTP(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "offsite backup restore is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "offsite-files", Site: input.Site, Backup: input.Backup, Actor: a.Auth.UsernameForRequest(r)})
+	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "offsite-files", Site: input.Site, Backup: input.Backup, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
 	if err != nil {
 		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
 		return
@@ -1085,6 +1106,11 @@ func (a *App) backupRestoreOffsiteFilesHTTP(w http.ResponseWriter, r *http.Reque
 func (a *App) backupRestoreOffsiteDatabaseHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || !a.Auth.CSRF(r) || !a.Auth.IsAdministrator(r) {
 		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
+		return
+	}
+	operationKey, err := requestOperationKey(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	var input struct {
@@ -1107,7 +1133,7 @@ func (a *App) backupRestoreOffsiteDatabaseHTTP(w http.ResponseWriter, r *http.Re
 		http.Error(w, "offsite database restore is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "offsite-database", Site: input.Site, Backup: input.Backup, Database: input.Database, Actor: a.Auth.UsernameForRequest(r)})
+	job, err := a.enqueueBackupRestoreJob(durableBackupRestoreRequest{Mode: "offsite-database", Site: input.Site, Backup: input.Backup, Database: input.Database, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
 	if err != nil {
 		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
 		return

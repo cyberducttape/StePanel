@@ -126,7 +126,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "backup schedule mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.Username, "backup.schedule.updated", in.Site, fmt.Sprintf("every %d minutes; keep last %d", in.IntervalMinutes, in.KeepLast))
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "backup.schedule.updated", in.Site, fmt.Sprintf("every %d minutes; keep last %d", in.IntervalMinutes, in.KeepLast))
 		writeJSON(w, http.StatusOK, in)
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
@@ -159,7 +159,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "backup schedule mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.Username, "backup.schedule.deleted", site, "schedule removed")
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "backup.schedule.deleted", site, "schedule removed")
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", 405)
@@ -192,7 +192,7 @@ func (a *App) runDueBackups() {
 		a.Schedules.items[site] = s
 		if err := a.Schedules.persistLocked(); err != nil {
 			a.Schedules.items[site] = previous
-			recordAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", site, err.Error())
+			TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", site, err.Error())
 		}
 	}
 }

@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -1172,7 +1171,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if actor := a.Auth.UsernameForRequest(r); !a.Auth.RecoveryActionAllowed(actor) {
-			recordAudit(a.Config.AuditLog, actor, "hosting.account.mfa-reset.throttled", actor, "account-recovery rate limit exceeded")
+			TelemetryAudit(a.Config.AuditLog, actor, "hosting.account.mfa-reset.throttled", actor, "account-recovery rate limit exceeded")
 			http.Error(w, "too many account-recovery actions; try again later", http.StatusTooManyRequests)
 			return
 		}
@@ -1192,8 +1191,14 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "account recovery mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.mfa-reset", username, "TOTP regeneration and session revocation")
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		account, secret, err := a.Accounts.ResetTOTP(username)
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -1203,13 +1208,12 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.Auth.sessions != nil {
 			if err := a.Auth.sessions.revokeUser(username); err != nil {
+				intent.Completed("TOTP regenerated; session revocation failed: " + err.Error())
 				http.Error(w, "MFA reset saved but session revocation could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
 		}
-		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.mfa-reset", username, "TOTP regenerated and sessions revoked"); err != nil {
-			return
-		}
+		intent.Completed("TOTP regenerated and sessions revoked")
 		writeJSON(w, http.StatusOK, map[string]any{"account": publicHostingAccount(account), "totp_secret": secret})
 		return
 	}
@@ -1219,7 +1223,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if actor := a.Auth.UsernameForRequest(r); !a.Auth.RecoveryActionAllowed(actor) {
-			recordAudit(a.Config.AuditLog, actor, "hosting.account.credentials-recovered.throttled", actor, "account-recovery rate limit exceeded")
+			TelemetryAudit(a.Config.AuditLog, actor, "hosting.account.credentials-recovered.throttled", actor, "account-recovery rate limit exceeded")
 			http.Error(w, "too many account-recovery actions; try again later", http.StatusTooManyRequests)
 			return
 		}
@@ -1239,8 +1243,14 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "account recovery mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.credentials-recovered", username, "temporary password, new MFA, recovery codes, and session revocation")
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		account, password, totpSecret, recoveryCodes, err := a.Accounts.RecoverCredentials(username)
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -1250,13 +1260,12 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.Auth.sessions != nil {
 			if err := a.Auth.sessions.revokeUser(username); err != nil {
+				intent.Completed("credentials reset; session revocation failed: " + err.Error())
 				http.Error(w, "credentials reset but session revocation could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
 		}
-		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.credentials-recovered", username, "temporary password, new MFA, recovery codes, and session revocation"); err != nil {
-			return
-		}
+		intent.Completed("temporary password, new MFA, recovery codes, and session revocation")
 		writeJSON(w, http.StatusOK, map[string]any{"account": publicHostingAccount(account), "temporary_password": password, "totp_secret": totpSecret, "recovery_codes": recoveryCodes})
 		return
 	}
@@ -1266,7 +1275,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if actor := a.Auth.UsernameForRequest(r); !a.Auth.RecoveryActionAllowed(actor) {
-			recordAudit(a.Config.AuditLog, actor, "hosting.account.recovery-codes-generated.throttled", actor, "account-recovery rate limit exceeded")
+			TelemetryAudit(a.Config.AuditLog, actor, "hosting.account.recovery-codes-generated.throttled", actor, "account-recovery rate limit exceeded")
 			http.Error(w, "too many account-recovery actions; try again later", http.StatusTooManyRequests)
 			return
 		}
@@ -1286,8 +1295,14 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "account recovery mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.recovery-codes-generated", username, "one-time recovery codes and session revocation")
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		account, codes, err := a.Accounts.GenerateRecoveryCodes(username)
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -1297,13 +1312,12 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.Auth.sessions != nil {
 			if err := a.Auth.sessions.revokeUser(username); err != nil {
+				intent.Completed("recovery codes generated; session revocation failed: " + err.Error())
 				http.Error(w, "recovery codes saved but session revocation could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
 		}
-		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.recovery-codes-generated", username, "one-time recovery codes generated and sessions revoked"); err != nil {
-			return
-		}
+		intent.Completed("one-time recovery codes generated and sessions revoked")
 		writeJSON(w, http.StatusOK, map[string]any{"account": publicHostingAccount(account), "recovery_codes": codes})
 		return
 	}
@@ -1313,7 +1327,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if actor := a.Auth.UsernameForRequest(r); !a.Auth.RecoveryActionAllowed(actor) {
-			recordAudit(a.Config.AuditLog, actor, "hosting.account.sessions-revoked-by-admin.throttled", actor, "account-recovery rate limit exceeded")
+			TelemetryAudit(a.Config.AuditLog, actor, "hosting.account.sessions-revoked-by-admin.throttled", actor, "account-recovery rate limit exceeded")
 			http.Error(w, "too many account-recovery actions; try again later", http.StatusTooManyRequests)
 			return
 		}
@@ -1343,11 +1357,9 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		RevocationAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.sessions-revoked-by-admin", username, "administrator forced logout")
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "account session mutation cancelled because the mutation lock was lost", http.StatusConflict)
-			return
-		}
-		if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.sessions-revoked-by-admin", username, "administrator forced logout"); err != nil {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1379,13 +1391,20 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "account still owns managed sites; detach or terminate workloads before removing the login", http.StatusConflict)
 				return
 			}
+			intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.login-removed", username, "customer identity removal")
+			if err != nil {
+				refuseWithoutSecurityAudit(w)
+				return
+			}
 			if a.APITokens != nil {
 				if err := a.APITokens.revokeAll(username); err != nil {
+					intent.Failed("API token revocation: " + err.Error())
 					http.Error(w, "customer API token revocation could not be persisted", http.StatusServiceUnavailable)
 					return
 				}
 			}
 			if err := a.Accounts.RemoveLogin(username); err != nil {
+				intent.Failed("API tokens revoked; login removal: " + err.Error())
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -1396,9 +1415,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			if a.Auth.sessions != nil {
 				_ = a.Auth.sessions.revokeUser(username)
 			}
-			if err := MustAudit(w, a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.login-removed", username, "customer identity removed after site ownership was cleared"); err != nil {
-				return
-			}
+			intent.Completed("customer identity removed after site ownership was cleared")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -1441,11 +1458,18 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+			intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.updated", username, fmt.Sprintf("plan=%s sites=%s", plan, strings.Join(sites, ",")))
+			if err != nil {
+				refuseWithoutSecurityAudit(w)
+				return
+			}
 			updated, err := a.Accounts.Update(username, plan, sites)
 			if err != nil {
+				intent.Failed(err.Error())
 				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 				return
 			}
+			intent.Completed("plan or site assignments changed")
 			if err := operationCtx.Err(); err != nil {
 				http.Error(w, "account update cancelled because the mutation lock was lost", http.StatusConflict)
 				return
@@ -1455,35 +1479,49 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				if _, suspendErr := a.setAccountSuspended(operationCtx, username, true); suspendErr != nil {
 					resourceErr = fmt.Errorf("%w; account suspension failed: %v", resourceErr, suspendErr)
 				}
-				recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.resource-reconciliation-failed", username, resourceErr.Error())
+				TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.resource-reconciliation-failed", username, resourceErr.Error())
 				http.Error(w, "account suspended because resource enforcement could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
-			recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.updated", username, "plan or site assignments changed")
 			if len(pendingResources) > 0 {
 				if _, suspendErr := a.setAccountSuspended(operationCtx, username, true); suspendErr != nil {
 					http.Error(w, "resource enforcement is pending and account suspension could not be persisted", http.StatusServiceUnavailable)
 					return
 				}
-				recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "hosting.account.suspended", username, "resource enforcement pending for: "+strings.Join(pendingResources, ","))
+				RevocationAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.suspended", username, "resource enforcement pending for: "+strings.Join(pendingResources, ","))
 				http.Error(w, "account suspended until resource enforcement is applied", http.StatusServiceUnavailable)
 				return
 			}
 			writeJSON(w, http.StatusOK, publicHostingAccount(updated))
 			return
 		}
+		// Unsuspending restores access and is recorded intent-first;
+		// suspending is a revocation and is never blocked by the ledger.
+		var unsuspend *SecurityAudit
+		if !*input.Suspended {
+			intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.unsuspended", username, "account lifecycle change")
+			if err != nil {
+				refuseWithoutSecurityAudit(w)
+				return
+			}
+			unsuspend = intent
+		}
 		account, err := a.setAccountSuspended(operationCtx, username, *input.Suspended)
 		if err != nil {
+			unsuspend.Failed(err.Error())
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
+		}
+		if account.Suspended {
+			RevocationAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.suspended", username, "account lifecycle changed")
+		} else {
+			unsuspend.Completed("account lifecycle changed")
 		}
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "account update cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		event := "hosting.account.unsuspended"
 		if account.Suspended {
-			event = "hosting.account.suspended"
 			if a.Auth.sessions != nil {
 				if err := a.Auth.sessions.revokeUser(username); err != nil {
 					// Account state is already safely suspended and validSession also
@@ -1494,7 +1532,6 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), event, username, "account lifecycle changed")
 		writeJSON(w, http.StatusOK, publicHostingAccount(account))
 		return
 	}
@@ -1553,8 +1590,14 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.created", input.Username, fmt.Sprintf("plan=%s sites=%s", input.Plan, strings.Join(input.Sites, ",")))
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		account, err := a.Accounts.Create(input.Username, input.Password, input.TOTPSecret, input.Plan, input.Sites)
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
@@ -1567,19 +1610,17 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			if removeErr := a.Accounts.RemoveLogin(account.Username); removeErr != nil {
 				resourceErr = fmt.Errorf("%w; account rollback failed: %v", resourceErr, removeErr)
 			}
-			recordAudit(a.Config.AuditLog, a.Auth.Username, "hosting.account.resource-profile-failed", account.Username, resourceErr.Error())
+			intent.Failed("rolled back: " + resourceErr.Error())
 			http.Error(w, "account creation rolled back because plan resource profiles could not be persisted", http.StatusServiceUnavailable)
 			return
 		}
-		if err := AuditAs(a.Config.AuditLog, a.Auth.Username, "hosting.account.created", account.Username, account.Plan); err != nil {
-			log.Printf("account created but audit persistence is unavailable: %v", err)
-		}
+		intent.Completed(account.Plan)
 		if len(pendingResources) > 0 {
 			if _, suspendErr := a.setAccountSuspended(operationCtx, account.Username, true); suspendErr != nil {
 				http.Error(w, "resource enforcement is pending and account suspension could not be persisted", http.StatusServiceUnavailable)
 				return
 			}
-			recordAudit(a.Config.AuditLog, a.Auth.Username, "hosting.account.suspended", account.Username, "resource enforcement pending for: "+strings.Join(pendingResources, ","))
+			RevocationAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "hosting.account.suspended", account.Username, "resource enforcement pending for: "+strings.Join(pendingResources, ","))
 			http.Error(w, "account suspended until resource enforcement is applied", http.StatusServiceUnavailable)
 			return
 		}
@@ -1620,7 +1661,13 @@ func (a *App) customerPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, username, "hosting.account.password-changed", username, "customer password change")
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
 	if _, err := a.Accounts.SetPassword(username, input.Password); err != nil {
+		intent.Failed(err.Error())
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
@@ -1630,11 +1677,12 @@ func (a *App) customerPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Auth.sessions != nil {
 		if err := a.Auth.sessions.revokeUser(username); err != nil {
+			intent.Completed("password changed; session revocation failed: " + err.Error())
 			http.Error(w, "password changed but session revocation could not be persisted", http.StatusServiceUnavailable)
 			return
 		}
 	}
-	recordAudit(a.Config.AuditLog, username, "hosting.account.password-changed", username, "customer completed password recovery")
+	intent.Completed("customer completed password recovery")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1665,7 +1713,13 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, username, "hosting.account.mfa-enrolled", username, "customer MFA enrollment")
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
 	if _, err := a.Accounts.SetTOTP(username, input.TOTPSecret); err != nil {
+		intent.Failed(err.Error())
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
@@ -1675,11 +1729,12 @@ func (a *App) customerMFA(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Auth.sessions != nil {
 		if err := a.Auth.sessions.revokeUser(username); err != nil {
+			intent.Completed("MFA enrolled; session revocation failed: " + err.Error())
 			http.Error(w, "MFA enrollment saved but session revocation could not be persisted", http.StatusServiceUnavailable)
 			return
 		}
 	}
-	recordAudit(a.Config.AuditLog, username, "hosting.account.mfa-enrolled", username, "customer completed MFA recovery")
+	intent.Completed("customer completed MFA recovery")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1720,6 +1775,6 @@ func (a *App) customerSessionsRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account session mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, username, "hosting.account.sessions-revoked", username, "customer logged out other sessions")
+	RevocationAudit(a.Config.AuditLog, username, "hosting.account.sessions-revoked", username, "customer logged out other sessions")
 	w.WriteHeader(http.StatusNoContent)
 }

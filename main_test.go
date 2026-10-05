@@ -129,8 +129,9 @@ func TestNormalizeAPIErrors(t *testing.T) {
 	}))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/example", nil))
-	if response.Code != http.StatusBadRequest || response.Header().Get("Content-Type") != "application/json" || !strings.Contains(response.Body.String(), `"error":"invalid request"`) || !strings.Contains(response.Body.String(), `"code":400`) {
-		t.Fatalf("unexpected normalized error: %d %s", response.Code, response.Body.String())
+	body := response.Body.String()
+	if response.Code != http.StatusBadRequest || response.Header().Get("Content-Type") != "application/json" || !strings.Contains(body, `"error":"invalid request"`) || !strings.Contains(body, `"code":400`) || !strings.Contains(body, `"error_code":"invalid_request"`) || !strings.Contains(body, `"retryable":false`) || !strings.Contains(body, `"resource":"/api/example"`) {
+		t.Fatalf("unexpected normalized error: %d %s", response.Code, body)
 	}
 }
 

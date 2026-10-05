@@ -681,7 +681,7 @@ func dropDatabase(cfg Config, name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	if cfg.DBCtl != "" {
-		output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "drop", name)
+		output, err := runDatabaseHelperContext(ctx, cfg, 2*time.Minute, "", "drop", name)
 		if err != nil {
 			return fmt.Errorf("drop database: %w: %s", err, strings.TrimSpace(string(output)))
 		}

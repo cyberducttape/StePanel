@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 var gitRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
@@ -256,10 +257,8 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodDelete:
-		if err := AuditAs(a.Config.AuditLog, actor, "webhook.config.disable.initiated", site, "per-site webhook disabled"); err != nil {
-			http.Error(w, "audit system unavailable", http.StatusServiceUnavailable)
-			return
-		}
+		// Disabling only removes deploy authority: a revocation, which the
+		// audit ledger never blocks.
 		if err := a.Webhooks.DisableWebhookConfig(site); err != nil {
 			http.Error(w, "could not disable webhook", http.StatusInternalServerError)
 			return
@@ -268,7 +267,7 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "webhook configuration cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, actor, "webhook.config.disabled", site, "per-site webhook disabled")
+		RevocationAudit(a.Config.AuditLog, actor, "webhook.config.disabled", site, "per-site webhook disabled")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	case http.MethodPost, http.MethodPut:
@@ -310,19 +309,21 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		detail := fmt.Sprintf("repositories=%d refs=%d", len(input.Repositories), len(input.AllowedRefs))
-		if err := AuditAs(a.Config.AuditLog, actor, "webhook.config.update.initiated", site, detail); err != nil {
-			http.Error(w, "audit system unavailable", http.StatusServiceUnavailable)
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, actor, "webhook.config.updated", site, detail)
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
 			return
 		}
 		if err := a.Webhooks.SetWebhookConfig(site, secret, input.Repositories, input.AllowedRefs); err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, "could not persist webhook configuration", http.StatusInternalServerError)
 			return
 		}
+		intent.Completed(detail)
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "webhook configuration cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, actor, "webhook.config.updated", site, detail)
 		writeJSON(w, http.StatusCreated, map[string]any{"site": site, "secret": secret, "generated": generated, "repositories": input.Repositories, "allowed_refs": input.AllowedRefs})
 		return
 	default:
@@ -482,7 +483,7 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 	config, err := a.Webhooks.GetWebhookConfig(site)
 	if err != nil {
 		http.Error(w, "webhook configuration error", http.StatusInternalServerError)
-		recordAudit(a.Config.AuditLog, "webhook", "webhook.auth.error", site, fmt.Sprintf("get webhook config: %v", err))
+		TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.auth.error", site, fmt.Sprintf("get webhook config: %v", err))
 		return
 	}
 	if config == nil || config.WebhookSecret == "" {
@@ -506,7 +507,7 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 	signature := r.Header.Get("X-StePanel-Signature")
 	if !verifyWebhookSignature(body, timestamp, deliveryID, signature, webhookSecret) {
 		http.Error(w, "invalid webhook signature", http.StatusUnauthorized)
-		recordAudit(a.Config.AuditLog, "webhook", "webhook.auth.failed", site, "invalid signature")
+		TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.auth.failed", site, "invalid signature")
 		return
 	}
 
@@ -599,7 +600,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		// site is fine — we substitute the authenticated one — so payload
 		// formats that omit "site" continue to work.
 		if input.Site != "" && input.Site != webhookSite {
-			recordAudit(a.Config.AuditLog, "webhook", "webhook.site.mismatch", webhookSite, fmt.Sprintf("body claimed site %q", input.Site))
+			TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.site.mismatch", webhookSite, fmt.Sprintf("body claimed site %q", input.Site))
 			http.Error(w, "webhook body targets a different site than the URL signature authorized", http.StatusForbidden)
 			return
 		}
@@ -624,28 +625,36 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		// authenticated this request. Re-reading them here would fail open on
 		// a transient store error and race configuration changes.
 		repoLower := strings.ToLower(strings.TrimSpace(input.Repository))
-		if len(webhookAuth.Repositories) > 0 && !containsString(webhookAuth.Repositories, repoLower) {
+		if len(webhookAuth.Repositories) == 0 || !containsString(webhookAuth.Repositories, repoLower) {
 			http.Error(w, "repository is not authorized for this webhook", http.StatusForbidden)
-			recordAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("repository not in whitelist: %s", input.Repository))
+			TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("repository not in whitelist: %s", input.Repository))
 			return
 		}
-		if len(webhookAuth.AllowedRefs) > 0 && !matchRefPattern(input.Ref, webhookAuth.AllowedRefs) {
+		if len(webhookAuth.AllowedRefs) == 0 || !matchRefPattern(input.Ref, webhookAuth.AllowedRefs) {
 			http.Error(w, "ref is not authorized for this webhook", http.StatusForbidden)
-			recordAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("ref not in whitelist: %s", input.Ref))
+			TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.deploy.unauthorized", input.Site, fmt.Sprintf("ref not in whitelist: %s", input.Ref))
 			return
 		}
 	}
 	actor := a.Auth.UsernameForRequest(r)
 	if isWebhook {
-		// Webhook deploys are not routed through Auth.Require, which audits
-		// every other mutation before it runs. Record the accepted deploy the
-		// same way, failing closed, before any host state changes.
 		actor = "webhook"
-		if err := AuditAs(a.Config.AuditLog, actor, "webhook.deploy.accepted", input.Site, input.Repository+"@"+input.Ref); err != nil {
-			http.Error(w, "audit persistence is unavailable", http.StatusServiceUnavailable)
-			return
-		}
 	}
+	// A deployment changes the code a site serves: Class A. Record the intent
+	// before any host state changes (webhook deploys are not routed through
+	// Auth.Require's request audit, so this is their only pre-mutation
+	// record), and record an outcome on every path.
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, actor, "site.git-deployed", input.Site, input.Repository+"@"+input.Ref)
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
+	deployed := false
+	defer func() {
+		if !deployed {
+			intent.Failed("deployment did not activate a release")
+		}
+	}()
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
 	if lockErr != nil {
 		http.Error(w, "site is busy", http.StatusConflict)
@@ -682,7 +691,22 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var cloneOutput []byte
 	if repository.Private {
-		cloneOutput, err, _ = runAllowlistedHelperOutput(ctx, a.Config, nil, a.Config.GitCtl, "clone", input.Site, repository.URL, input.Ref, release, a.Config.GitAllowedHosts)
+		if a.Config.Production || labDirectRootBrokerEnabled() {
+			client, clientErr := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
+			if clientErr != nil {
+				http.Error(w, "root broker is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			allowedHosts := strings.FieldsFunc(a.Config.GitAllowedHosts, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
+			response, executeErr := client.Execute(ctx, &rootbroker.Request{RequestType: "git", Git: &rootbroker.GitRequest{Action: "clone", Site: input.Site, Repository: repository.URL, Ref: input.Ref, Destination: release, AllowedHosts: allowedHosts}})
+			if executeErr != nil {
+				err = executeErr
+			} else if !response.OK {
+				err = errors.New(response.Error)
+			}
+		} else {
+			cloneOutput, err, _ = runAllowlistedHelperOutput(ctx, a.Config, nil, a.Config.GitCtl, "clone", input.Site, repository.URL, input.Ref, release, a.Config.GitAllowedHosts)
+		}
 	} else {
 		clone := exec.CommandContext(ctx, gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", input.Ref, "--single-branch", "--no-tags", repository.URL, release)
 		clone.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")
@@ -731,6 +755,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to activate the new release", http.StatusInternalServerError)
 		return
 	}
+	// The release is live from here on; record that before any later check
+	// can return early.
+	deployed = true
+	intent.Completed(input.Repository + "@" + commit)
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
@@ -743,7 +771,6 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		// The release is live; say so rather than reporting a failed deploy.
 		result.HistoryError = "release activated but deployment history was not persisted: " + err.Error()
 	}
-	recordAudit(a.Config.AuditLog, actor, "site.git-deployed", input.Site, input.Repository+"@"+commit)
 	writeJSON(w, http.StatusAccepted, result)
 }
 
@@ -790,16 +817,22 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "active site release is unavailable", http.StatusConflict)
 		return
 	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.git-rolled-back", input.Site, filepath.Base(previous))
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
 	replaced, err := a.activatePipelineRelease(operationCtx, input.Site, previous)
 	if err != nil {
+		intent.Failed(err.Error())
 		http.Error(w, "unable to preserve the active release", http.StatusInternalServerError)
 		return
 	}
+	intent.Completed(filepath.Base(previous))
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.Username, "site.git-rolled-back", input.Site, filepath.Base(previous))
 	if err := pruneGitReleasesWithPolicy(siteRoot, a.Config.GitReleaseRetention, time.Duration(a.Config.GitReleaseMaxAgeHours)*time.Hour, a.Config.GitReleaseMaxBytes); err != nil {
 		log.Printf("Git release retention for %s: %v", input.Site, err)
 	}

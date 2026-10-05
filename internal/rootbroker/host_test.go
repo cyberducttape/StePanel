@@ -61,6 +61,10 @@ func (f *fakeHost) RunSiteHelper(_ context.Context, args ...string) (string, err
 	return siteidentity.UnixUser(args[len(args)-1]) + "\n", nil
 }
 
+func (f *fakeHost) RunSiteHelperInput(ctx context.Context, _ []byte, args ...string) (string, error) {
+	return f.RunSiteHelper(ctx, args...)
+}
+
 func (f *fakeHost) EnsureSystemUser(_ context.Context, username, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

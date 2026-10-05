@@ -86,7 +86,7 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "WordPress operation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "wordpress."+input.Action, site, "WP-CLI action completed")
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "wordpress."+input.Action, site, "WP-CLI action completed")
 	writeJSON(w, http.StatusAccepted, map[string]any{"site": site, "action": input.Action, "output": strings.TrimSpace(string(output))})
 }
 

@@ -49,6 +49,10 @@ type Broker struct {
 	certbotPath   string
 	systemctlPath string
 	appctlPath    string
+	vhostctlPath  string
+	proxyctlPath  string
+	runnerctlPath string
+	gitctlPath    string
 	gitKeyRoot    string
 	validator     *Validator
 	logger        *log.Logger
@@ -72,6 +76,7 @@ type hostOps interface {
 	// RunSiteHelper runs the installed stepanel-sitectl helper, the single
 	// implementation of site isolation (account, ownership, ACLs, PHP pool).
 	RunSiteHelper(ctx context.Context, args ...string) (string, error)
+	RunSiteHelperInput(ctx context.Context, input []byte, args ...string) (string, error)
 }
 
 // NewBroker creates a new root broker with default recovery root.
@@ -114,6 +119,10 @@ func newBroker(webRoot, recoveryRoot string, logger *log.Logger, host hostOps) (
 		certbotPath:   "/usr/local/sbin/stepanel-certbot",
 		systemctlPath: "/usr/bin/systemctl",
 		appctlPath:    "/usr/local/sbin/stepanel-appctl",
+		vhostctlPath:  "/usr/local/sbin/stepanel-vhostctl",
+		proxyctlPath:  "/usr/local/sbin/stepanel-proxyctl",
+		runnerctlPath: "/usr/local/sbin/stepanel-runnerctl",
+		gitctlPath:    "/usr/local/sbin/stepanel-gitctl",
 		gitKeyRoot:    "/etc/stepanel/git-keys",
 		validator:     NewValidator(webRoot),
 		logger:        logger,
@@ -140,6 +149,10 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 		return b.handleSiteRequest(ctx, req.Site)
 	case "app":
 		return b.handleAppRequest(ctx, req.App)
+	case "worker":
+		return b.handleWorkerRequest(ctx, req.Worker)
+	case "runner":
+		return b.handleRunnerRequest(ctx, req.Runner)
 	case "db":
 		return b.handleDBRequest(ctx, req.DB)
 	case "vhost":
@@ -148,18 +161,119 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 		return b.handleProxyRequest(ctx, req.Proxy)
 	case "git":
 		return b.handleGitRequest(ctx, req.Git)
-	case "helper":
-		return b.handleHelperRequest(ctx, req.Helper)
 	case "certificate":
 		return b.handleCertificateRequest(ctx, req.Certificate)
 	case "task":
 		return b.handleTaskRequest(ctx, req.Task)
+	case "environment":
+		return b.handleEnvironmentRequest(ctx, req.Environment)
+	case "resource":
+		return b.handleResourceRequest(ctx, req.Resource)
 	default:
 		return &Response{
 			OK:    false,
 			Error: fmt.Sprintf("unknown request type: %s", req.RequestType),
 		}, nil
 	}
+}
+
+func (b *Broker) handleResourceRequest(ctx context.Context, req *ResourceRequest) (*Response, error) {
+	if req == nil {
+		return &Response{OK: false, Error: "resource request is nil"}, nil
+	}
+	var args []string
+	switch req.Action {
+	case "apply-account":
+		args = []string{"account-resource-apply", req.Account, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.CPUWeight), strconv.Itoa(req.MemoryHighMB), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.IOWeight), strconv.Itoa(req.TasksMax)}
+	case "apply-site":
+		args = []string{"resource-apply", req.Site, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.CPUWeight), strconv.Itoa(req.MemoryHighMB), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.IOWeight), strconv.Itoa(req.TasksMax), req.Account}
+	case "status":
+		args = []string{"resource-status", req.Site}
+	default:
+		return &Response{OK: false, Error: "unsupported resource action"}, nil
+	}
+	cmd := stepanelhelper.NewCommand(ctx, b.appctlPath, args...)
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("resource operation failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, err := json.Marshal(ResourceResponse{Output: string(output)})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
+}
+
+func (b *Broker) handleEnvironmentRequest(ctx context.Context, req *EnvironmentRequest) (*Response, error) {
+	if req == nil {
+		return &Response{OK: false, Error: "environment request is nil"}, nil
+	}
+	cmd := stepanelhelper.NewCommand(ctx, b.appctlPath, "env-apply", req.Site)
+	cmd.Stdin = strings.NewReader(req.Content)
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("environment update failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	return &Response{OK: true}, nil
+}
+
+func (b *Broker) handleRunnerRequest(ctx context.Context, req *RunnerRequest) (*Response, error) {
+	if req == nil || req.Action != "build" {
+		return &Response{OK: false, Error: "runner request must specify build"}, nil
+	}
+	args := []string{"build", req.Site, req.Image, req.Root, req.Script, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.TasksMax), req.NetworkMode, strconv.FormatInt(req.MaxImageBytes, 10)}
+	cmd := stepanelhelper.NewCommand(ctx, b.runnerctlPath, args...)
+	output, err := stepanelhelper.RunCappedWithCleanup(ctx, cmd, maxBrokerCommandOutput, func() {
+		if cmd.Process != nil {
+			stopRunnerTransientUnit(b.systemctlPath, cmd.Process.Pid)
+		}
+	})
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("runner build failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	return &Response{OK: true}, nil
+}
+
+func (b *Broker) handleWorkerRequest(ctx context.Context, req *WorkerRequest) (*Response, error) {
+	if req == nil {
+		return &Response{OK: false, Error: "worker request is nil"}, nil
+	}
+	args := []string{"worker-" + req.Action, req.Site, req.Name}
+	switch req.Action {
+	case "apply":
+		args = []string{"worker-apply", req.Site, req.Name, req.Type, req.Root,
+			strconv.Itoa(req.Processes), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.Retries)}
+	case "delete", "start", "stop", "restart":
+	default:
+		return &Response{OK: false, Error: "unknown worker action"}, nil
+	}
+	output, err := b.runAppCtl(ctx, args)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("worker %s failed: %v: %s", req.Action, err, strings.TrimSpace(string(output)))}, nil
+	}
+	result := WorkerResponse{Output: strings.TrimSpace(string(output))}
+	switch req.Action {
+	case "apply":
+		result.Applied = true
+	case "delete":
+		result.Deleted = true
+	case "start":
+		result.Started = true
+	case "stop":
+		result.Stopped = true
+	case "restart":
+		result.Restarted = true
+	}
+	details, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	return &Response{OK: true, Details: details}, nil
+}
+
+func (b *Broker) runAppCtl(ctx context.Context, args []string) ([]byte, error) {
+	cmd := stepanelhelper.NewCommand(ctx, b.appctlPath, args...)
+	return stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 }
 
 func (b *Broker) handleTaskRequest(ctx context.Context, req *TaskRequest) (*Response, error) {
@@ -223,51 +337,6 @@ func (b *Broker) handleCertificateRequest(ctx context.Context, req *CertificateR
 	return &Response{OK: true, Details: details}, nil
 }
 
-func (b *Broker) handleHelperRequest(ctx context.Context, req *HelperRequest) (*Response, error) {
-	paths := map[string]string{
-		"appctl": "/usr/local/sbin/stepanel-appctl", "proxyctl": "/usr/local/sbin/stepanel-proxyctl",
-		"sitectl": "/usr/local/sbin/stepanel-sitectl", "vhostctl": "/usr/local/sbin/stepanel-vhostctl",
-		"runnerctl": "/usr/local/sbin/stepanel-runnerctl", "gitctl": "/usr/local/sbin/stepanel-gitctl",
-		"dbctl": "/usr/local/sbin/stepanel-dbctl",
-	}
-	path := paths[req.Name]
-	if helperMutatesAccounts(req) {
-		b.accountMutationMu.Lock()
-		defer b.accountMutationMu.Unlock()
-	}
-	args := append([]string{req.Action}, req.Args...)
-	cmd := stepanelhelper.NewCommand(ctx, path, args...)
-	if len(req.Input) > 64<<20 {
-		return &Response{OK: false, Error: "helper input exceeds broker limit"}, nil
-	}
-	if len(req.Input) > 0 {
-		cmd.Stdin = bytes.NewReader(req.Input)
-	}
-	var output []byte
-	var err error
-	if req.Name == "runnerctl" && req.Action == "build" {
-		output, err = stepanelhelper.RunCappedWithCleanup(ctx, cmd, maxBrokerCommandOutput, func() {
-			if cmd.Process == nil {
-				return
-			}
-			stopRunnerTransientUnit(b.systemctlPath, cmd.Process.Pid)
-		})
-	} else {
-		output, err = stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
-	}
-	if errors.Is(err, stepanelhelper.ErrOutputLimitExceeded) {
-		return &Response{OK: false, Error: "helper output exceeds broker limit"}, nil
-	}
-	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("helper %s failed: %v: %s", req.Name, err, strings.TrimSpace(string(output)))}, nil
-	}
-	details, marshalErr := json.Marshal(HelperResponse{Output: string(output)})
-	if marshalErr != nil {
-		return nil, marshalErr
-	}
-	return &Response{OK: true, Details: details}, nil
-}
-
 func stopRunnerTransientUnit(systemctl string, helperPID int) {
 	if helperPID <= 0 {
 		return
@@ -275,15 +344,6 @@ func stopRunnerTransientUnit(systemctl string, helperPID int) {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = exec.CommandContext(cleanupCtx, systemctl, "--no-block", "stop", fmt.Sprintf("stepanel-runner-%d.service", helperPID)).Run()
-}
-
-// helperMutatesAccounts reports whether a helper action can run useradd,
-// userdel, or usermod. stepanel-sitectl ensures the site user exists before
-// every action, so all of its actions qualify. The scheduler lets unrelated
-// sites run concurrently, so these must share accountMutationMu with the typed
-// site lifecycle operations.
-func helperMutatesAccounts(req *HelperRequest) bool {
-	return req.Name == "sitectl"
 }
 
 // --- Site Operations ---
@@ -574,23 +634,48 @@ func ensureLabManagerSiteRoot(siteRoot string) error {
 }
 
 func (b *Broker) siteAccess(ctx context.Context, req *SiteRequest) (*Response, error) {
-	return unsupportedBrokerResponse("site access")
+	if req.SFTPEnabled == nil || req.ShellEnabled == nil {
+		return &Response{OK: false, Error: "SSH access flags are required"}, nil
+	}
+	output, err := b.host.RunSiteHelperInput(ctx, []byte(req.SSHKeys), "access", req.Site, boolArg(*req.SFTPEnabled), boolArg(*req.ShellEnabled))
+	return siteHelperResponse("site access", output, err)
 }
 
 func (b *Broker) siteResources(ctx context.Context, req *SiteRequest) (*Response, error) {
-	return unsupportedBrokerResponse("site resources")
+	output, err := b.host.RunSiteHelper(ctx, "resources", req.Site, strconv.Itoa(req.PHPWorkers))
+	return siteHelperResponse("site resources", output, err)
 }
 
 func (b *Broker) siteQuota(ctx context.Context, req *SiteRequest) (*Response, error) {
-	return unsupportedBrokerResponse("site quota")
+	output, err := b.host.RunSiteHelper(ctx, "quota", req.Site, strconv.Itoa(req.DiskMB), strconv.Itoa(req.Inodes))
+	return siteHelperResponse("site quota", output, err)
 }
 
 func (b *Broker) siteQuotaClear(ctx context.Context, req *SiteRequest) (*Response, error) {
-	return unsupportedBrokerResponse("site quota clear")
+	output, err := b.host.RunSiteHelper(ctx, "quota-clear", req.Site)
+	return siteHelperResponse("site quota clear", output, err)
 }
 
 func (b *Broker) siteRuntime(ctx context.Context, req *SiteRequest) (*Response, error) {
-	return unsupportedBrokerResponse("site runtime")
+	output, err := b.host.RunSiteHelper(ctx, "runtime", req.Site, req.PHPVersion,
+		req.MemoryLimit, strconv.Itoa(req.ExecTimeout), req.UploadMaxFilesize,
+		req.PostMaxSize, strconv.Itoa(req.MaxInputVars), boolArg(req.OPcache),
+		boolArg(req.DisplayErrors), req.ErrorReporting)
+	return siteHelperResponse("site runtime", output, err)
+}
+
+func boolArg(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
+}
+
+func siteHelperResponse(operation, output string, err error) (*Response, error) {
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("%s failed: %v: %s", operation, err, strings.TrimSpace(output))}, nil
+	}
+	return &Response{OK: true}, nil
 }
 
 func unsupportedBrokerResponse(operation string) (*Response, error) {
@@ -609,12 +694,35 @@ func (b *Broker) handleAppRequest(ctx context.Context, req *AppRequest) (*Respon
 	switch req.Action {
 	case "apply", "delete", "start", "stop", "restart":
 		return b.runAppHelper(ctx, req)
+	case "composer-install", "node-tool", "python-apply", "python-start", "python-stop", "python-restart":
+		return b.runAppTooling(ctx, req)
 	case "rollback":
 		// Rollback is orchestrated by the panel as an apply of the previous manifest.
 		return unsupportedBrokerResponse("app rollback")
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown app action: %s", req.Action)}, nil
 	}
+}
+
+func (b *Broker) runAppTooling(ctx context.Context, req *AppRequest) (*Response, error) {
+	var args []string
+	switch req.Action {
+	case "composer-install":
+		args = []string{"composer-install", req.Site, req.Root, boolArg(req.Development), boolArg(req.OptimizeAutoloader)}
+	case "node-tool":
+		args = []string{"node-tool", req.Site, req.ToolAction, req.PackageManager, req.Root}
+	case "python-apply":
+		args = []string{"python-apply", req.Site, req.Version, req.Root, req.EntryPoint, strconv.Itoa(req.Port), strconv.Itoa(req.Workers)}
+	case "python-start", "python-stop", "python-restart":
+		args = []string{req.Action, req.Site}
+	default:
+		return &Response{OK: false, Error: "unknown application tooling action"}, nil
+	}
+	output, err := b.runAppCtl(ctx, args)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("application operation %s failed: %v: %s", req.Action, err, strings.TrimSpace(string(output)))}, nil
+	}
+	return &Response{OK: true}, nil
 }
 
 func (b *Broker) runAppHelper(ctx context.Context, req *AppRequest) (*Response, error) {
@@ -658,8 +766,14 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 	b.logger.Printf("db: action=%s database=%s", req.Action, req.Database)
 
 	switch req.Action {
+	case "reconcile":
+		return b.dbReconcile(ctx)
 	case "inventory":
 		return b.dbInventory(ctx, req)
+	case "diagnostics", "sessions", "settings":
+		return b.dbReadAction(ctx, req.Action, nil)
+	case "terminate":
+		return b.dbReadAction(ctx, req.Action, []string{req.SessionID})
 	case "dump":
 		if req.DumpPath != "" {
 			return b.dbDumpToPath(ctx, req)
@@ -682,6 +796,33 @@ func (b *Broker) handleDBRequest(ctx context.Context, req *DBRequest) (*Response
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown db action: %s", req.Action)}, nil
 	}
+}
+
+func (b *Broker) dbReadAction(ctx context.Context, action string, args []string) (*Response, error) {
+	helperArgs := append([]string{action}, args...)
+	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, helperArgs...)
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("database %s failed: %v: %s", action, err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, err := json.Marshal(DBResponse{Output: string(output)})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
+}
+
+func (b *Broker) dbReconcile(ctx context.Context) (*Response, error) {
+	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, "reconcile")
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("database reconciliation failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, err := json.Marshal(DBResponse{Output: string(output)})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 func (b *Broker) dbDump(ctx context.Context, req *DBRequest) (*Response, error) {
@@ -842,11 +983,11 @@ func (b *Broker) dbDropManaged(ctx context.Context, req *DBRequest) (*Response, 
 	if err := b.validator.ValidateUsername(req.Username); err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
-	helperAction := "drop-managed"
+	dbctlAction := "drop-managed"
 	if req.Action == "cleanup-wordpress" {
-		helperAction = "cleanup-wordpress"
+		dbctlAction = "cleanup-wordpress"
 	}
-	return b.runDBHelper(ctx, []string{helperAction, req.Database, req.Username}, nil, DBResponse{Dropped: true, Database: req.Database, Username: req.Username})
+	return b.runDBHelper(ctx, []string{dbctlAction, req.Database, req.Username}, nil, DBResponse{Dropped: true, Database: req.Database, Username: req.Username})
 }
 
 func (b *Broker) dbRotate(ctx context.Context, req *DBRequest) (*Response, error) {
@@ -899,6 +1040,8 @@ func (b *Broker) handleVhostRequest(ctx context.Context, req *VhostRequest) (*Re
 		return b.vhostApply(ctx, req)
 	case "apply-auth":
 		return b.vhostApplyAuth(ctx, req)
+	case "import-htaccess":
+		return b.vhostImportHtaccess(ctx, req)
 	case "delete":
 		return b.vhostDelete(ctx, req)
 	default:
@@ -907,15 +1050,50 @@ func (b *Broker) handleVhostRequest(ctx context.Context, req *VhostRequest) (*Re
 }
 
 func (b *Broker) vhostApply(ctx context.Context, req *VhostRequest) (*Response, error) {
-	return unsupportedBrokerResponse("vhost apply")
+	args := []string{"apply", req.Site, req.Domain}
+	if req.Action == "apply-auth" {
+		args = []string{"apply-auth", req.Site, req.Domain, req.BasicAuthUser, req.BasicAuthHash}
+	}
+	return b.runVhostCommand(ctx, args, VhostResponse{Applied: true, Domain: req.Domain})
 }
 
 func (b *Broker) vhostApplyAuth(ctx context.Context, req *VhostRequest) (*Response, error) {
-	return unsupportedBrokerResponse("vhost authentication")
+	return b.runVhostCommand(ctx, []string{"apply-auth", req.Site, req.Domain, req.BasicAuthUser, req.BasicAuthHash}, VhostResponse{Applied: true, Domain: req.Domain})
 }
 
 func (b *Broker) vhostDelete(ctx context.Context, req *VhostRequest) (*Response, error) {
-	return unsupportedBrokerResponse("vhost deletion")
+	return b.runVhostCommand(ctx, []string{"delete", req.Name}, VhostResponse{Deleted: true, Domain: req.Domain})
+}
+
+func (b *Broker) vhostImportHtaccess(ctx context.Context, req *VhostRequest) (*Response, error) {
+	return b.runVhostCommandInput(ctx, []string{"import-htaccess", req.Site, req.Domain}, []byte(req.Directives), VhostResponse{Applied: true, Domain: req.Domain})
+}
+
+func (b *Broker) runVhostCommand(ctx context.Context, args []string, result VhostResponse) (*Response, error) {
+	cmd := stepanelhelper.NewCommand(ctx, b.vhostctlPath, args...)
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("vhost operation failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	return &Response{OK: true, Details: details}, nil
+}
+
+func (b *Broker) runVhostCommandInput(ctx context.Context, args []string, input []byte, result VhostResponse) (*Response, error) {
+	cmd := stepanelhelper.NewCommand(ctx, b.vhostctlPath, args...)
+	cmd.Stdin = bytes.NewReader(input)
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("vhost operation failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 // --- Proxy Operations ---
@@ -932,17 +1110,36 @@ func (b *Broker) handleProxyRequest(ctx context.Context, req *ProxyRequest) (*Re
 		return b.proxyApply(ctx, req)
 	case "reload":
 		return b.proxyReload(ctx, req)
+	case "delete":
+		return b.proxyDelete(ctx, req)
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown proxy action: %s", req.Action)}, nil
 	}
 }
 
 func (b *Broker) proxyApply(ctx context.Context, req *ProxyRequest) (*Response, error) {
-	return unsupportedBrokerResponse("proxy apply")
+	return b.runProxyCommand(ctx, []string{"apply", req.Site, req.Domain, req.Backend}, ProxyResponse{Applied: true})
 }
 
 func (b *Broker) proxyReload(ctx context.Context, req *ProxyRequest) (*Response, error) {
-	return unsupportedBrokerResponse("proxy reload")
+	return b.runProxyCommand(ctx, []string{"reload"}, ProxyResponse{Reloaded: true})
+}
+
+func (b *Broker) proxyDelete(ctx context.Context, req *ProxyRequest) (*Response, error) {
+	return b.runProxyCommand(ctx, []string{"delete", req.Name}, ProxyResponse{Deleted: true})
+}
+
+func (b *Broker) runProxyCommand(ctx context.Context, args []string, result ProxyResponse) (*Response, error) {
+	cmd := stepanelhelper.NewCommand(ctx, b.proxyctlPath, args...)
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("proxy operation failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 // --- Git Operations ---
@@ -1199,8 +1396,28 @@ func (b *Broker) runLabHelper(ctx context.Context, path string, args ...string) 
 }
 
 func (b *Broker) gitClone(ctx context.Context, req *GitRequest) (*Response, error) {
-	b.logger.Printf("git clone requested but broker implementation is unavailable: %s -> %s", req.Repository, req.Destination)
-	return unsupportedBrokerResponse("git clone")
+	if strings.TrimSpace(req.Site) == "" || len(req.AllowedHosts) == 0 {
+		return &Response{OK: false, Error: "private Git clone requires a site and host allowlist"}, nil
+	}
+	allowedHosts := make([]string, 0, len(req.AllowedHosts))
+	for _, host := range req.AllowedHosts {
+		host = strings.TrimSpace(host)
+		if host == "" || strings.ContainsAny(host, "\r\n \t") {
+			return &Response{OK: false, Error: "invalid Git host allowlist"}, nil
+		}
+		allowedHosts = append(allowedHosts, host)
+	}
+	args := []string{"clone", req.Site, req.Repository, req.Ref, req.Destination, strings.Join(allowedHosts, ",")}
+	cmd := stepanelhelper.NewCommand(ctx, b.gitctlPath, args...)
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("private Git clone failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	details, marshalErr := json.Marshal(GitResponse{Cloned: true})
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 func (b *Broker) gitVerifyKey(ctx context.Context, req *GitRequest) (*Response, error) {
@@ -1260,6 +1477,16 @@ const siteHelperPath = "/usr/local/sbin/stepanel-sitectl"
 
 func (execHostOps) RunSiteHelper(ctx context.Context, args ...string) (string, error) {
 	cmd := stepanelhelper.NewCommand(ctx, siteHelperPath, args...)
+	stdout, stderr, err := stepanelhelper.RunCappedSeparate(ctx, cmd, maxBrokerCommandOutput, maxBrokerCommandStderr)
+	if err != nil {
+		return "", fmt.Errorf("%s %s: %w: %s", siteHelperPath, strings.Join(args, " "), err, strings.TrimSpace(string(stderr)))
+	}
+	return string(stdout), nil
+}
+
+func (execHostOps) RunSiteHelperInput(ctx context.Context, input []byte, args ...string) (string, error) {
+	cmd := stepanelhelper.NewCommand(ctx, siteHelperPath, args...)
+	cmd.Stdin = bytes.NewReader(input)
 	stdout, stderr, err := stepanelhelper.RunCappedSeparate(ctx, cmd, maxBrokerCommandOutput, maxBrokerCommandStderr)
 	if err != nil {
 		return "", fmt.Errorf("%s %s: %w: %s", siteHelperPath, strings.Join(args, " "), err, strings.TrimSpace(string(stderr)))

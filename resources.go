@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 // Validation bounds: syntactically acceptable limits for resource values.
@@ -307,6 +309,10 @@ func (a *App) applyAccountResourceEnvelope(account string, plan HostingPlan) err
 
 func (a *App) applyAccountResourceEnvelopeContext(ctx context.Context, account string, plan HostingPlan) error {
 	// Account resource envelope is a config mutation (cgroup setup) - use standard timeout
+	if a.Config.Production {
+		_, err := runTypedResourceOperation(ctx, a.Config, rootbroker.ResourceRequest{Action: "apply-account", Account: account, CPUPercent: plan.CPUPercent, CPUWeight: 100, MemoryHighMB: plan.MemoryMB * 90 / 100, MemoryMB: plan.MemoryMB, IOWeight: 100, TasksMax: plan.TasksMax})
+		return err
+	}
 	return runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.AppCtl, "account-resource-apply", account, strconv.Itoa(plan.CPUPercent), "100", strconv.Itoa(plan.MemoryMB*90/100), strconv.Itoa(plan.MemoryMB), "100", strconv.Itoa(plan.TasksMax))
 }
 
@@ -427,12 +433,36 @@ func (p ResourceProfile) hasFilesystemQuota() bool { return p.DiskMB > 0 || p.In
 
 func (a *App) applyResourceProfile(ctx context.Context, p ResourceProfile, clearFilesystemQuota bool) error {
 	if p.Account != "" {
-		if err := runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.AppCtl, "account-resource-apply", p.Account, strconv.Itoa(p.CPUPercent), strconv.Itoa(p.CPUWeight), strconv.Itoa(p.MemoryHighMB), strconv.Itoa(p.MemoryMB), strconv.Itoa(p.IOWeight), strconv.Itoa(p.TasksMax)); err != nil {
+		var err error
+		if a.Config.Production {
+			_, err = runTypedResourceOperation(ctx, a.Config, rootbroker.ResourceRequest{Action: "apply-account", Account: p.Account, CPUPercent: p.CPUPercent, CPUWeight: p.CPUWeight, MemoryHighMB: p.MemoryHighMB, MemoryMB: p.MemoryMB, IOWeight: p.IOWeight, TasksMax: p.TasksMax})
+		} else {
+			err = runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.AppCtl, "account-resource-apply", p.Account, strconv.Itoa(p.CPUPercent), strconv.Itoa(p.CPUWeight), strconv.Itoa(p.MemoryHighMB), strconv.Itoa(p.MemoryMB), strconv.Itoa(p.IOWeight), strconv.Itoa(p.TasksMax))
+		}
+		if err != nil {
 			return err
 		}
 	}
-	if err := runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.AppCtl, "resource-apply", p.Site, strconv.Itoa(p.CPUPercent), strconv.Itoa(p.CPUWeight), strconv.Itoa(p.MemoryHighMB), strconv.Itoa(p.MemoryMB), strconv.Itoa(p.IOWeight), strconv.Itoa(p.TasksMax), p.Account); err != nil {
-		return err
+	var resourceErr error
+	if a.Config.Production {
+		_, resourceErr = runTypedResourceOperation(ctx, a.Config, rootbroker.ResourceRequest{Action: "apply-site", Site: p.Site, Account: p.Account, CPUPercent: p.CPUPercent, CPUWeight: p.CPUWeight, MemoryHighMB: p.MemoryHighMB, MemoryMB: p.MemoryMB, IOWeight: p.IOWeight, TasksMax: p.TasksMax})
+	} else {
+		resourceErr = runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.AppCtl, "resource-apply", p.Site, strconv.Itoa(p.CPUPercent), strconv.Itoa(p.CPUWeight), strconv.Itoa(p.MemoryHighMB), strconv.Itoa(p.MemoryMB), strconv.Itoa(p.IOWeight), strconv.Itoa(p.TasksMax), p.Account)
+	}
+	if resourceErr != nil {
+		return resourceErr
+	}
+	if a.Config.Production {
+		if err := runTypedSiteMutation(ctx, a.Config, rootbroker.SiteRequest{Action: "resources", Site: p.Site, PHPWorkers: p.PHPWorkers}); err != nil {
+			return err
+		}
+		if p.hasFilesystemQuota() {
+			return runTypedSiteMutation(ctx, a.Config, rootbroker.SiteRequest{Action: "quota", Site: p.Site, DiskMB: p.DiskMB, Inodes: p.Inodes})
+		}
+		if clearFilesystemQuota {
+			return runTypedSiteMutation(ctx, a.Config, rootbroker.SiteRequest{Action: "quota-clear", Site: p.Site})
+		}
+		return nil
 	}
 	if err := runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.SiteCtl, "resources", p.Site, strconv.Itoa(p.PHPWorkers)); err != nil {
 		return err
@@ -592,17 +622,25 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "resource profile applied but state update failed", 503)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.resources.applied", site, "cgroup/FPM profile")
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.resources.applied", site, "cgroup/FPM profile")
 	writeJSON(w, 202, p)
 }
 
 func (a *App) resourceObserved(ctx context.Context, site string) map[string]string {
-	output, err, _ := runAllowlistedHelperOutput(ctx, a.Config, nil, a.Config.AppCtl, "resource-status", site)
+	var output string
+	var err error
+	if a.Config.Production {
+		output, err = runTypedResourceOperation(ctx, a.Config, rootbroker.ResourceRequest{Action: "status", Site: site})
+	} else {
+		var raw []byte
+		raw, err, _ = runAllowlistedHelperOutput(ctx, a.Config, nil, a.Config.AppCtl, "resource-status", site)
+		output = string(raw)
+	}
 	if err != nil {
 		return map[string]string{"state": "unavailable"}
 	}
 	values := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 {
 			values[parts[0]] = parts[1]
@@ -626,7 +664,7 @@ func (a *App) reconcileResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reconciled, failed := a.reconcileResourceProfiles(r.Context())
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "resources.reconciled", "resources", strings.Join(reconciled, ","))
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "resources.reconciled", "resources", strings.Join(reconciled, ","))
 	writeJSON(w, 200, map[string]any{"reconciled": reconciled, "failed": failed})
 }
 

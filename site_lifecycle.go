@@ -77,18 +77,27 @@ func (a *App) buildTerminationPlan(site string) terminationPlan {
 // enqueueSiteTermination records a destructive lifecycle operation before any
 // host state is changed. The site is the serialization key, so a retry or a
 // duplicate request cannot run two teardown workflows concurrently.
-func (a *App) enqueueSiteTermination(site, actor string) (Job, error) {
+func (a *App) enqueueSiteTermination(site, actor string, operationKeys ...string) (Job, error) {
+	operationKey := ""
+	if len(operationKeys) > 0 {
+		operationKey = operationKeys[0]
+	}
 	payload, err := json.Marshal(durableSiteTerminationRequest{Site: site, Actor: actor})
 	if err != nil {
 		return Job{}, err
 	}
-	job, _, err := a.Jobs.EnqueueIdempotent("site.terminate", site, "", payload, 5)
+	job, _, err := a.Jobs.EnqueueIdempotent("site.terminate", site, operationKey, payload, 5)
 	return job, err
 }
 
 func (a *App) siteTermination(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || !a.Auth.CSRF(r) || !a.Auth.IsAdministrator(r) {
 		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
+		return
+	}
+	operationKey, err := requestOperationKey(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	var input struct {
@@ -118,7 +127,7 @@ func (a *App) siteTermination(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, buildTerminationPlanResponse(a.buildTerminationPlan(input.Site)))
 		return
 	}
-	job, err := a.enqueueSiteTermination(input.Site, a.Auth.UsernameForRequest(r))
+	job, err := a.enqueueSiteTermination(input.Site, a.Auth.UsernameForRequest(r), operationKey)
 	if err != nil {
 		http.Error(w, "could not persist site termination job", http.StatusInternalServerError)
 		return
@@ -352,6 +361,21 @@ func runDatabaseTermination(ctx context.Context, cfg Config, database DatabaseRe
 func (a *App) deleteManagedRoute(ctx context.Context, helper, name string) error {
 	if helper == "" {
 		return fmt.Errorf("cannot remove managed route %s: helper is unavailable", name)
+	}
+	if a.Config.Production {
+		var err error
+		switch filepath.Clean(helper) {
+		case filepath.Clean(a.Config.VHostCtl):
+			err = runVhostMutation(ctx, a.Config, "delete", name)
+		case filepath.Clean(a.Config.ProxyCtl):
+			err = runProxyMutation(ctx, a.Config, "delete", name)
+		default:
+			err = errors.New("managed route helper has no typed root-broker operation")
+		}
+		if err != nil {
+			return fmt.Errorf("remove managed route %s: %w", name, err)
+		}
+		return nil
 	}
 	if err := runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, helper, "delete", name); err != nil {
 		return fmt.Errorf("remove managed route %s: %w", name, err)

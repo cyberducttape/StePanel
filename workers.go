@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 type Worker struct {
@@ -153,7 +155,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
-		if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "worker-"+parts[2], site, name); err != nil {
+		if err := runWorkerAction(operationCtx, a.Config, parts[2], site, name); err != nil {
 			http.Error(w, "worker action failed", 502)
 			return
 		}
@@ -161,7 +163,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "worker action cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "worker."+parts[2], site, name)
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "worker."+parts[2], site, name)
 		writeJSON(w, 202, map[string]string{"site": site, "name": name, "action": parts[2]})
 		return
 	}
@@ -273,15 +275,44 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "worker applied but state update is pending", 503)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "worker.updated", site, name)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "worker.updated", site, name)
 	writeJSON(w, 202, input)
 }
 
 func (a *App) applyWorker(ctx context.Context, worker Worker) error {
+	if a.Config.Production {
+		action := "apply"
+		if worker.Deleted {
+			action = "delete"
+		}
+		return runWorkerBroker(ctx, a.Config, rootbroker.WorkerRequest{Action: action, Site: worker.Site, Name: worker.Name, Type: worker.Type, Root: worker.Root, Processes: worker.Processes, MemoryMB: worker.MemoryMB, Retries: worker.Retries})
+	}
 	if worker.Deleted {
 		return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "worker-delete", worker.Site, worker.Name)
 	}
 	return runHelperCommandWithTimeout(ctx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "worker-apply", worker.Site, worker.Name, worker.Type, worker.Root, strconv.Itoa(worker.Processes), strconv.Itoa(worker.MemoryMB), strconv.Itoa(worker.Retries))
+}
+
+func runWorkerAction(ctx context.Context, cfg Config, action, site, name string) error {
+	if cfg.Production {
+		return runWorkerBroker(ctx, cfg, rootbroker.WorkerRequest{Action: action, Site: site, Name: name})
+	}
+	return runHelperCommandWithTimeout(ctx, cfg, helperServiceLifecycleTimeout, cfg.AppCtl, "worker-"+action, site, name)
+}
+
+func runWorkerBroker(ctx context.Context, cfg Config, request rootbroker.WorkerRequest) error {
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return err
+	}
+	response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "worker", Worker: &request})
+	if err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New(response.Error)
+	}
+	return nil
 }
 
 func (a *App) recordWorkerError(key string, applyErr error) {

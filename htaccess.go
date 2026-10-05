@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 const maxHTAccessBytes = 256 << 10
@@ -181,7 +182,7 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 	}
 	conversion, err := translateHTAccess(input.Content)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_htaccess", "the .htaccess content could not be converted", err))
 		return
 	}
 	if input.Action == "preview" {
@@ -209,7 +210,7 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site document root does not exist", http.StatusUnprocessableEntity)
 		return
 	}
-	if a.Config.VHostCtl == "" {
+	if !a.Config.Production && a.Config.VHostCtl == "" {
 		http.Error(w, "Caddy site helper is unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -225,18 +226,33 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(operationCtx, time.Minute)
 	defer cancel()
-	if _, err, _ := runAllowlistedHelperOutput(ctx, a.Config, []byte(conversion.CaddyDirectives), a.Config.VHostCtl, "import-htaccess", input.Site, input.Domain); err != nil {
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.htaccess-migrated", input.Site, fmt.Sprintf("domain=%s supported=%d warnings=%d", input.Domain, conversion.Supported, len(conversion.Warnings)))
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
+	var applyErr error
+	if a.Config.Production {
+		applyErr = runTypedVhostOperationInput(ctx, a.Config, rootbroker.VhostRequest{
+			Action:     "import-htaccess",
+			Site:       input.Site,
+			Domain:     input.Domain,
+			WebServer:  a.Config.WebServer,
+			Directives: conversion.CaddyDirectives,
+		})
+	} else {
+		_, applyErr, _ = runAllowlistedHelperOutput(ctx, a.Config, []byte(conversion.CaddyDirectives), a.Config.VHostCtl, "import-htaccess", input.Site, input.Domain)
+	}
+	if applyErr != nil {
+		intent.Failed("Caddy rejected the translated configuration")
 		http.Error(w, "Caddy rejected the translated configuration", http.StatusServiceUnavailable)
 		return
 	}
+	intent.Completed("configuration applied")
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "configuration migration cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	conversion.Applied = true
-	if err := AuditAs(a.Config.AuditLog, a.Auth.Username, "site.htaccess-migrated", input.Site, fmt.Sprintf("domain=%s supported=%d warnings=%d", input.Domain, conversion.Supported, len(conversion.Warnings))); err != nil {
-		http.Error(w, "configuration applied but audit persistence is unavailable", http.StatusServiceUnavailable)
-		return
-	}
 	writeJSON(w, http.StatusAccepted, conversion)
 }

@@ -35,7 +35,7 @@ evidence recorded in this document or a linked result artifact.
 | Realistic disk admission and reservations | ⚠️ Partial | Known `Content-Length` is admitted using the actual archive size; unknown-length streams still need a fully progressive reservation/recheck model. |
 | VM crash testing: power loss, ENOSPC, DB outage, broker interruption, worker death | ⚠️ Partial | Repository and disposable-VM interruption tests exist; real ENOSPC and host power-loss evidence remain open. |
 | Repeated recovery scenarios | ⚠️ Partial | 114 repository-level SIGKILL repetitions are recorded; the VM failure matrix must repeat each scenario and publish results. |
-| Typed privileged-operation protocol | ⚠️ Partial / **open P0** | Site/database/Git-key operations are typed, but production still uses the schema-validated compatibility RPC for application runtime/package and worker operations, resources/quotas, Python/Node, vhost/proxy, runner, task, SSH access, and some cleanup paths. This remains a release blocker until migrated or explicitly approved as a narrowly scoped exception. |
+| Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
 | Release documentation reconciled with executable evidence | ⚠️ Open | Every checked claim must link to a current test result, hosted run, or reproducible artifact; stale claims must be downgraded or removed. |
 
 ### P1 — strongly recommended for 1.0

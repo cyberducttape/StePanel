@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -261,15 +260,18 @@ func (a *App) accountMembers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid MFA secret", http.StatusUnprocessableEntity)
 			return
 		}
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, owner.Username, "tenant.member.created", req.Username, req.Role)
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		member, err := a.Accounts.CreateMember(owner.Username, req.Username, req.Password, req.TOTPSecret, req.Role)
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
-		if err := AuditAs(a.Config.AuditLog, owner.Username, "tenant.member.created", member.Username, member.Role); err != nil {
-			http.Error(w, "member created but audit persistence failed", http.StatusServiceUnavailable)
-			return
-		}
+		intent.Completed(member.Role)
 		writeJSON(w, http.StatusCreated, publicHostingAccount(member))
 	case http.MethodPatch, http.MethodDelete:
 		if !a.Auth.CSRF(r) {
@@ -282,23 +284,27 @@ func (a *App) accountMembers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == http.MethodDelete {
+			intent, err := BeginSecurityAudit(a.Config.AuditLog, owner.Username, "tenant.member.removed", memberName, "member identity removal")
+			if err != nil {
+				refuseWithoutSecurityAudit(w)
+				return
+			}
 			if a.APITokens != nil {
 				if err := a.APITokens.revokeAll(memberName); err != nil {
+					intent.Failed("API token revocation: " + err.Error())
 					http.Error(w, "member API token revocation could not be persisted", http.StatusServiceUnavailable)
 					return
 				}
 			}
 			if err := a.Accounts.RemoveLogin(memberName); err != nil {
+				intent.Failed("API tokens revoked; login removal: " + err.Error())
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
 			if a.Auth.sessions != nil {
 				_ = a.Auth.sessions.revokeUser(memberName)
 			}
-			if err := AuditAs(a.Config.AuditLog, owner.Username, "tenant.member.removed", memberName, "member identity removed"); err != nil {
-				http.Error(w, "member removed but audit persistence failed", http.StatusServiceUnavailable)
-				return
-			}
+			intent.Completed("member identity removed")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -313,22 +319,37 @@ func (a *App) accountMembers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "suspended or role is required", http.StatusBadRequest)
 			return
 		}
+		// A role change or unsuspension can grant access and is recorded
+		// intent-first; a suspension alone is a revocation.
+		requested := fmt.Sprintf("role=%q suspended=%v", strings.TrimSpace(input.Role), input.Suspended != nil && *input.Suspended)
+		var intent *SecurityAudit
+		if strings.TrimSpace(input.Role) != "" || (input.Suspended != nil && !*input.Suspended) {
+			var err error
+			if intent, err = BeginSecurityAudit(a.Config.AuditLog, owner.Username, "tenant.member.updated", memberName, requested); err != nil {
+				refuseWithoutSecurityAudit(w)
+				return
+			}
+		}
 		if input.Suspended != nil {
 			if _, err := a.Accounts.SetSuspended(memberName, *input.Suspended); err != nil {
+				intent.Failed(err.Error())
 				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 				return
 			}
 		}
 		if strings.TrimSpace(input.Role) != "" {
 			if _, err := a.Accounts.SetMemberRole(memberName, input.Role); err != nil {
+				intent.Failed(err.Error())
 				http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 				return
 			}
 		}
 		updated, _ := a.Accounts.Get(memberName)
-		if err := AuditAs(a.Config.AuditLog, owner.Username, "tenant.member.updated", memberName, fmt.Sprintf("role=%s suspended=%t", accountRole(updated), updated.Suspended)); err != nil {
-			http.Error(w, "member updated but audit persistence failed", http.StatusServiceUnavailable)
-			return
+		result := fmt.Sprintf("role=%s suspended=%t", accountRole(updated), updated.Suspended)
+		if intent != nil {
+			intent.Completed(result)
+		} else {
+			RevocationAudit(a.Config.AuditLog, owner.Username, "tenant.member.updated", memberName, result)
 		}
 		writeJSON(w, http.StatusOK, publicHostingAccount(updated))
 	default:
@@ -404,12 +425,8 @@ func (a *App) accountSuspend(w http.ResponseWriter, r *http.Request) {
 		auditAction = "account.suspension.temporary"
 	}
 
-	auditErr := AuditAs(a.Config.AuditLog, "admin", auditAction, req.Username, req.Reason)
-	if auditErr != nil {
-		log.Printf("suspension audit logging failed for %s: %v", req.Username, auditErr)
-		http.Error(w, "account suspended but audit persistence failed", http.StatusServiceUnavailable)
-		return
-	}
+	// Suspension is a revocation: it is never blocked by the audit ledger.
+	RevocationAudit(a.Config.AuditLog, a.Auth.AuditActor(r), auditAction, req.Username, req.Reason)
 
 	// Return confirmation
 	result := map[string]any{
@@ -470,22 +487,21 @@ func (a *App) accountUnsuspend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Perform unsuspension
-	_, err := a.setAccountSuspended(operationCtx, req.Username, false)
+	// Unsuspension restores access and is recorded before it happens.
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "account.unsuspended", req.Username, req.Reason)
 	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
+	_, err = a.setAccountSuspended(operationCtx, req.Username, false)
+	if err != nil {
+		intent.Failed(err.Error())
 		http.Error(w, "could not unsuspend account: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	intent.Completed(req.Reason)
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "account unsuspension cancelled because the mutation lock was lost", http.StatusConflict)
-		return
-	}
-
-	// Audit the unsuspension
-	auditErr := AuditAs(a.Config.AuditLog, "admin", "account.unsuspended", req.Username, req.Reason)
-	if auditErr != nil {
-		log.Printf("unsuspension audit logging failed for %s: %v", req.Username, auditErr)
-		http.Error(w, "account unsuspended but audit persistence failed", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -530,12 +546,12 @@ func (a *App) checkPlanLimits() error {
 				if err := a.autoSuspendAccount(context.Background(), account.Username); err != nil {
 					return fmt.Errorf("auto-suspend account %s for site limit: %w", account.Username, err)
 				}
-				recordAudit(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,
+				RevocationAudit(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,
 					fmt.Sprintf("site limit exceeded: %d/%d", sitesUsed, plan.SiteLimit))
 			}
 		} else if sitesPercent >= warningThreshold {
 			// Log warning for operator
-			recordAudit(a.Config.AuditLog, "system", "account.usage.warning", account.Username,
+			TelemetryAudit(a.Config.AuditLog, "system", "account.usage.warning", account.Username,
 				fmt.Sprintf("site usage at %d%% of limit (%d/%d)", sitesPercent, sitesUsed, plan.SiteLimit))
 		}
 
@@ -558,11 +574,11 @@ func (a *App) checkPlanLimits() error {
 				if err := a.autoSuspendAccount(context.Background(), account.Username); err != nil {
 					return fmt.Errorf("auto-suspend account %s for database limit: %w", account.Username, err)
 				}
-				recordAudit(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,
+				RevocationAudit(a.Config.AuditLog, "system", "account.suspended.auto", account.Username,
 					fmt.Sprintf("database limit exceeded: %d/%d", databasesUsed, plan.DatabaseLimit))
 			}
 		} else if databasesPercent >= warningThreshold {
-			recordAudit(a.Config.AuditLog, "system", "account.usage.warning", account.Username,
+			TelemetryAudit(a.Config.AuditLog, "system", "account.usage.warning", account.Username,
 				fmt.Sprintf("database usage at %d%% of limit (%d/%d)", databasesPercent, databasesUsed, plan.DatabaseLimit))
 		}
 	}

@@ -38,48 +38,30 @@ var typedTimeouts = map[string]map[string]time.Duration{
 	"app": {
 		"apply": timeoutLifecycle, "delete": timeoutLifecycle, "start": timeoutLifecycle, "stop": timeoutLifecycle,
 		"restart": timeoutLifecycle, "rollback": timeoutLifecycle,
+		"composer-install": timeoutBuild, "node-tool": timeoutBuild, "python-apply": timeoutBuild,
+		"python-start": timeoutLifecycle, "python-stop": timeoutLifecycle, "python-restart": timeoutLifecycle,
 	},
-	"task": {"apply": timeoutLifecycle, "delete": timeoutLifecycle, "kill": timeoutLifecycle, "history": timeoutConfig},
+	"worker": {
+		"apply": timeoutLifecycle, "delete": timeoutLifecycle, "start": timeoutLifecycle, "stop": timeoutLifecycle,
+		"restart": timeoutLifecycle,
+	},
+	"runner":      {"build": timeoutContainer},
+	"task":        {"apply": timeoutLifecycle, "delete": timeoutLifecycle, "kill": timeoutLifecycle, "history": timeoutConfig},
+	"environment": {"apply": timeoutLifecycle},
+	"resource":    {"apply-account": timeoutConfig, "apply-site": timeoutConfig, "status": timeoutConfig},
 	"db": {
-		"inventory": timeoutConfig,
-		"dump":      timeoutBulk, "restore": timeoutBulk, "restore-dump": timeoutBulk, "restore-wordpress": timeoutBulk,
+		"inventory": timeoutConfig, "reconcile": timeoutDatabase, "diagnostics": timeoutConfig,
+		"sessions": timeoutConfig, "settings": timeoutConfig, "terminate": timeoutConfig,
+		"dump": timeoutBulk, "restore": timeoutBulk, "restore-dump": timeoutBulk, "restore-wordpress": timeoutBulk,
 		"provision": timeoutDatabase, "rotate": timeoutDatabase, "drop": timeoutDatabase, "drop-managed": timeoutDatabase, "cleanup-wordpress": timeoutDatabase,
 	},
 	"git": {
 		"generate": timeoutConfig, "public": timeoutConfig, "delete": timeoutLifecycle,
 		"clone": timeoutContainer, "verify-key": timeoutConfig,
 	},
-	"vhost":       {"apply": timeoutConfig, "apply-auth": timeoutConfig, "delete": timeoutConfig},
-	"proxy":       {"apply": timeoutConfig, "reload": timeoutConfig},
+	"vhost":       {"apply": timeoutConfig, "apply-auth": timeoutConfig, "delete": timeoutConfig, "import-htaccess": timeoutConfig},
+	"proxy":       {"apply": timeoutConfig, "reload": timeoutConfig, "delete": timeoutConfig},
 	"certificate": {"issue": 15 * time.Minute},
-}
-
-// helperTimeouts classifies every allow-listed generic helper action.
-var helperTimeouts = map[string]map[string]time.Duration{
-	"appctl": {
-		"composer-install": timeoutBuild, "python-apply": timeoutBuild, "node-tool": timeoutBuild,
-		"python-start": timeoutLifecycle, "python-stop": timeoutLifecycle, "python-restart": timeoutLifecycle,
-		"worker-apply": timeoutLifecycle, "worker-delete": timeoutLifecycle, "worker-start": timeoutLifecycle,
-		"worker-stop": timeoutLifecycle, "worker-restart": timeoutLifecycle,
-		"env-apply": timeoutLifecycle, "resource-apply": timeoutConfig, "account-resource-apply": timeoutConfig,
-		"resource-status": timeoutConfig,
-	},
-	"proxyctl": {"apply": timeoutConfig, "delete": timeoutConfig, "reload": timeoutConfig},
-	"sitectl": {
-		"prepare": timeoutBulk, "prepare-root": timeoutBulk, "seal": timeoutBulk, "delete": timeoutBulk,
-		"access": timeoutConfig, "resources": timeoutConfig, "quota": timeoutConfig, "quota-clear": timeoutConfig,
-		"runtime": timeoutConfig,
-	},
-	"vhostctl":  {"apply": timeoutConfig, "apply-auth": timeoutConfig, "delete": timeoutConfig, "import-htaccess": timeoutConfig},
-	"runnerctl": {"build": timeoutContainer},
-	"gitctl":    {"clone": timeoutContainer},
-	"dbctl": {
-		"reconcile": timeoutDatabase, "inventory": timeoutConfig, "diagnostics": timeoutConfig, "sessions": timeoutConfig,
-		"settings": timeoutConfig, "list": timeoutConfig, "terminate": timeoutConfig,
-		"provision": timeoutDatabase, "rotate": timeoutDatabase, "drop-managed": timeoutDatabase,
-		"cleanup-wordpress": timeoutDatabase, "drop": timeoutDatabase,
-		"dump": timeoutBulk, "restore": timeoutBulk, "restore-dump": timeoutBulk, "restore-wordpress": timeoutBulk,
-	},
 }
 
 // RequestTimeout returns the broker-side safety deadline for a request.
@@ -90,11 +72,6 @@ func RequestTimeout(req *Request) time.Duration {
 	var table map[string]time.Duration
 	var action string
 	switch req.RequestType {
-	case "helper":
-		if req.Helper == nil {
-			return defaultRequestTimeout
-		}
-		table, action = helperTimeouts[req.Helper.Name], req.Helper.Action
 	case "site":
 		if req.Site != nil {
 			table, action = typedTimeouts["site"], req.Site.Action
@@ -103,9 +80,25 @@ func RequestTimeout(req *Request) time.Duration {
 		if req.App != nil {
 			table, action = typedTimeouts["app"], req.App.Action
 		}
+	case "worker":
+		if req.Worker != nil {
+			table, action = typedTimeouts["worker"], req.Worker.Action
+		}
+	case "runner":
+		if req.Runner != nil {
+			table, action = typedTimeouts["runner"], req.Runner.Action
+		}
 	case "task":
 		if req.Task != nil {
 			table, action = typedTimeouts["task"], req.Task.Action
+		}
+	case "environment":
+		if req.Environment != nil {
+			table, action = typedTimeouts["environment"], req.Environment.Action
+		}
+	case "resource":
+		if req.Resource != nil {
+			table, action = typedTimeouts["resource"], req.Resource.Action
 		}
 	case "db":
 		if req.DB != nil {

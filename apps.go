@@ -51,7 +51,7 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := localBackend("http://127.0.0.1:" + strconv.Itoa(app.Port)); err != nil {
-		http.Error(w, err.Error(), 422)
+		writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_backend", "the application backend is invalid", err))
 		return
 	}
 	if _, ok := a.requireSiteAccess(w, r, app.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
@@ -117,6 +117,14 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	deployment := app.Domain + " on port " + strconv.Itoa(app.Port)
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "app.deployed", app.Site, deployment)
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
+	var outcome string
+	defer intent.Finish(&outcome, "application service was not applied; previous configuration kept")
 	app.State = "running"
 	data, err := json.MarshalIndent(app, "", "  ")
 	if err != nil {
@@ -139,6 +147,7 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if rollbackErr != nil {
+			outcome = deployment + "; helper failed and manifest rollback failed: " + rollbackErr.Error()
 			log.Printf("app deploy %s: restore previous manifest: %v", app.Site, rollbackErr)
 			http.Error(w, "app helper failed and manifest rollback failed: "+rollbackErr.Error(), http.StatusServiceUnavailable)
 			return
@@ -146,12 +155,12 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "application service could not be applied; the previous configuration was kept", http.StatusServiceUnavailable)
 		return
 	}
+	outcome = deployment
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
 	a.invalidateAppsCache()
-	recordAudit(a.Config.AuditLog, a.Auth.Username, "app.deployed", app.Site, app.Domain+" on port "+strconv.Itoa(app.Port))
 	writeJSON(w, http.StatusAccepted, app)
 }
 
@@ -250,9 +259,7 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app action cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	if err := AuditAs(a.Config.AuditLog, a.Auth.Username, "app."+parts[1], parts[0], "systemd action"); err != nil {
-		log.Printf("application action completed but audit persistence is unavailable: %v", err)
-	}
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "app."+parts[1], parts[0], "systemd action")
 	writeJSON(w, http.StatusAccepted, map[string]string{"site": parts[0], "action": parts[1]})
 }
 

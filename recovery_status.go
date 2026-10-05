@@ -55,7 +55,7 @@ func (a *App) maybeEnqueueScheduledRehearsal(ctx context.Context, site, backup s
 		return
 	}
 	if _, _, err := a.Jobs.EnqueueIdempotent("backup.rehearsal", site, "rehearsal:"+site+":"+backup, payload, 1); err != nil {
-		recordAudit(a.Config.AuditLog, "scheduler", "backup.rehearsal.enqueue_failed", site, err.Error())
+		TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.rehearsal.enqueue_failed", site, err.Error())
 	}
 }
 

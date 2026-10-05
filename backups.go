@@ -125,6 +125,11 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request", http.StatusForbidden)
 			return
 		}
+		operationKey, err := requestOperationKey(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		var input struct {
 			Site             string `json:"site"`
 			IncludeDatabases bool   `json:"include_databases"`
@@ -171,7 +176,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not encode backup job", http.StatusInternalServerError)
 			return
 		}
-		job, _, err := a.Jobs.EnqueueIdempotent("site.backup", input.Site, "", payload, 3)
+		job, _, err := a.Jobs.EnqueueIdempotent("site.backup", input.Site, operationKey, payload, 3)
 		if err != nil {
 			http.Error(w, "could not persist backup job", http.StatusInternalServerError)
 			return
@@ -484,7 +489,28 @@ func managedDatabasesForSiteContext(parent context.Context, cfg Config, site str
 	}
 	ctx, cancel := context.WithTimeout(parent, helperConfigMutationTimeout)
 	defer cancel()
-	output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "list", site)
+	var output []byte
+	var err error
+	if cfg.Production {
+		client, clientErr := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if clientErr != nil {
+			return nil, fmt.Errorf("create database broker client: %w", clientErr)
+		}
+		response, executeErr := client.DBInventory(ctx)
+		if executeErr != nil {
+			return nil, fmt.Errorf("database inventory through root broker: %w", executeErr)
+		}
+		if !response.OK {
+			return nil, errors.New(response.Error)
+		}
+		var details rootbroker.DBResponse
+		if decodeErr := json.Unmarshal(response.Details, &details); decodeErr != nil {
+			return nil, fmt.Errorf("decode database inventory response: %w", decodeErr)
+		}
+		output = []byte(details.Output)
+	} else {
+		output, err, _ = runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "list", site)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list managed databases: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -493,7 +519,11 @@ func managedDatabasesForSiteContext(parent context.Context, cfg Config, site str
 		if line == "" {
 			continue
 		}
-		name := strings.SplitN(line, "\t", 2)[0]
+		fields := strings.Split(line, "\t")
+		name := fields[0]
+		if cfg.Production && (len(fields) < 2 || fields[1] != site) {
+			continue
+		}
 		if !validManagedDatabaseIdentifier(name, 64) {
 			return nil, errors.New("database helper returned an invalid managed database")
 		}

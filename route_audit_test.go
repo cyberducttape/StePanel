@@ -19,7 +19,7 @@ import (
 var publicMutatingRoutes = map[string]string{
 	"/login":                  "audits auth.login.succeeded (fail-closed), failed, and throttled",
 	"/logout":                 "audits auth.logout",
-	"/api/sites/git-webhook/": "audits webhook.deploy.accepted (fail-closed) before deploying",
+	"/api/sites/git-webhook/": "records the site.git-deployed intent (Class A) before deploying",
 }
 
 func TestEveryMutatingRouteIsAudited(t *testing.T) {

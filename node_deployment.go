@@ -59,11 +59,11 @@ func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := localBackend("http://127.0.0.1:" + strconv.Itoa(input.Port)); err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_backend", "the deployment backend is invalid", err))
 		return
 	}
 	if _, err := localBackend(input.Backend); err != nil {
-		http.Error(w, "invalid backend: "+err.Error(), http.StatusUnprocessableEntity)
+		writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_backend", "the deployment backend is invalid", err))
 		return
 	}
 	if _, ok := a.requireSiteAccess(w, r, input.Site, "site is not assigned to this account", http.StatusForbidden); !ok {
@@ -211,10 +211,10 @@ func (a *App) rollbackNodeDeployment(ctx context.Context, input nodeDeploymentRe
 			if len(match) != 2 {
 				err = errors.New("previous proxy configuration has no recoverable backend")
 			} else {
-				err = runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "apply", input.Site, input.Domain, string(match[1]))
+				err = runProxyMutation(ctx, a.Config, "apply", input.Site, input.Domain, string(match[1]))
 			}
 		} else {
-			err = runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "delete", strings.TrimSuffix(filepath.Base(snapshot.proxyPath), filepath.Ext(snapshot.proxyPath)))
+			err = runProxyMutation(ctx, a.Config, "delete", strings.TrimSuffix(filepath.Base(snapshot.proxyPath), filepath.Ext(snapshot.proxyPath)))
 			if err != nil && strings.Contains(err.Error(), "proxy not found") {
 				err = nil
 			}

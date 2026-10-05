@@ -3,6 +3,7 @@ package rootbroker
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -80,6 +81,65 @@ func TestBrokerTaskKillUsesOnlyValidatedSystemdUnit(t *testing.T) {
 	var details TaskResponse
 	if err := json.Unmarshal(response.Details, &details); err != nil || !details.Killed {
 		t.Fatalf("typed task kill details = %#v, error = %v", details, err)
+	}
+}
+
+func TestBrokerWorkerApplyUsesConcreteHelperContract(t *testing.T) {
+	root := t.TempDir()
+	helper := filepath.Join(root, "appctl")
+	script := "#!/bin/sh\n" +
+		"[ \"$1\" = worker-apply ] && [ \"$2\" = demo ] && [ \"$3\" = queue ] && [ \"$4\" = laravel ] && [ \"$5\" = \"" + filepath.Join(root, "sites", "demo", "public") + "\" ] && [ \"$6\" = 2 ] && [ \"$7\" = 256 ] && [ \"$8\" = 3 ]\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.appctlPath = helper
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "worker", Worker: &WorkerRequest{
+		Action: "apply", Site: "demo", Name: "queue", Type: "laravel", Root: filepath.Join(root, "sites", "demo", "public"), Processes: 2, MemoryMB: 256, Retries: 3,
+	}})
+	if err != nil || response == nil || !response.OK {
+		t.Fatalf("worker response = %#v, error = %v", response, err)
+	}
+	var details WorkerResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil {
+		t.Fatal(err)
+	}
+	if !details.Applied {
+		t.Fatalf("worker details = %#v, want applied", details)
+	}
+}
+
+func TestBrokerAppToolingUsesConcreteHelperContract(t *testing.T) {
+	root := t.TempDir()
+	public := filepath.Join(root, "sites", "demo", "public")
+	helper := filepath.Join(root, "appctl")
+	script := "#!/bin/sh\ncase \"$1\" in\n" +
+		"composer-install) [ \"$2\" = demo ] && [ \"$3\" = \"" + public + "\" ] && [ \"$4\" = 1 ] && [ \"$5\" = 0 ] ;;\n" +
+		"node-tool) [ \"$2\" = demo ] && [ \"$3\" = build ] && [ \"$4\" = pnpm ] && [ \"$5\" = \"" + public + "\" ] ;;\n" +
+		"python-apply) [ \"$2\" = demo ] && [ \"$3\" = 3.12 ] && [ \"$4\" = \"" + public + "\" ] && [ \"$5\" = app:app ] && [ \"$6\" = 8000 ] && [ \"$7\" = 2 ] ;;\n" +
+		"python-start) [ \"$2\" = demo ] ;;\n*) exit 1 ;;\nesac\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.appctlPath = helper
+	cases := []*AppRequest{
+		{Action: "composer-install", Site: "demo", Root: public, Development: true},
+		{Action: "node-tool", Site: "demo", ToolAction: "build", PackageManager: "pnpm", Root: public},
+		{Action: "python-apply", Site: "demo", Version: "3.12", Root: public, EntryPoint: "app:app", Port: 8000, Workers: 2},
+		{Action: "python-start", Site: "demo"},
+	}
+	for _, request := range cases {
+		response, err := broker.Execute(context.Background(), &Request{RequestType: "app", App: request})
+		if err != nil || response == nil || !response.OK {
+			t.Fatalf("app %s response = %#v, error = %v", request.Action, response, err)
+		}
 	}
 }
 
@@ -673,12 +733,134 @@ func TestBrokerCleanupWordPressPreservesDedicatedHelperAction(t *testing.T) {
 	}
 }
 
+func TestBrokerDatabaseDropUsesTypedRequestWithoutUsername(t *testing.T) {
+	root := t.TempDir()
+	argsPath := filepath.Join(root, "args")
+	helper := filepath.Join(root, "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$DBCTL_ARGS\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DBCTL_ARGS", argsPath)
+	b, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.dbctlPath = helper
+	response, err := b.Execute(context.Background(), &Request{RequestType: "db", DB: &DBRequest{Action: "drop", Database: "legacy_db"}})
+	if err != nil || response == nil || !response.OK {
+		t.Fatalf("typed database drop response = %#v, error = %v", response, err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(args)), "drop legacy_db"; got != want {
+		t.Fatalf("database helper args = %q, want %q", got, want)
+	}
+}
+
+func TestBrokerDatabaseReconcileUsesFixedHelper(t *testing.T) {
+	root := t.TempDir()
+	argsPath := filepath.Join(root, "args")
+	helper := filepath.Join(root, "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$DBCTL_ARGS\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DBCTL_ARGS", argsPath)
+	b, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.dbctlPath = helper
+	response, err := b.Execute(context.Background(), &Request{RequestType: "db", DB: &DBRequest{Action: "reconcile"}})
+	if err != nil || response == nil || !response.OK {
+		t.Fatalf("typed database reconcile response = %#v, error = %v", response, err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(args)), "reconcile"; got != want {
+		t.Fatalf("database helper args = %q, want %q", got, want)
+	}
+}
+
+func TestBrokerEnvironmentApplyUsesTypedInputContract(t *testing.T) {
+	root := t.TempDir()
+	inputPath := filepath.Join(root, "environment")
+	helper := filepath.Join(root, "appctl")
+	script := "#!/bin/sh\n[ \"$1\" = env-apply ] && [ \"$2\" = demo ] || exit 1\ncat > \"$APPCTL_INPUT\"\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("APPCTL_INPUT", inputPath)
+	b, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.appctlPath = helper
+	content := "DATABASE_URL=\"mysql://user:secret@localhost/db\"\n"
+	response, err := b.Execute(context.Background(), &Request{RequestType: "environment", Environment: &EnvironmentRequest{Action: "apply", Site: "demo", Content: content}})
+	if err != nil || response == nil || !response.OK {
+		t.Fatalf("typed environment response = %#v, error = %v", response, err)
+	}
+	input, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(input); got != content {
+		t.Fatalf("environment input = %q, want %q", got, content)
+	}
+}
+
+func TestBrokerResourceActionsUseConcreteHelperContract(t *testing.T) {
+	root := t.TempDir()
+	argsPath := filepath.Join(root, "args")
+	helper := filepath.Join(root, "appctl")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$APPCTL_ARGS\"\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("APPCTL_ARGS", argsPath)
+	b, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.appctlPath = helper
+	requests := []*ResourceRequest{
+		{Action: "apply-account", Account: "acme", CPUPercent: 200, CPUWeight: 100, MemoryHighMB: 900, MemoryMB: 1000, IOWeight: 100, TasksMax: 128},
+		{Action: "apply-site", Site: "demo", Account: "acme", CPUPercent: 100, CPUWeight: 100, MemoryHighMB: 450, MemoryMB: 512, IOWeight: 100, TasksMax: 64},
+		{Action: "status", Site: "demo"},
+	}
+	for _, request := range requests {
+		response, err := b.Execute(context.Background(), &Request{RequestType: "resource", Resource: request})
+		if err != nil || response == nil || !response.OK {
+			t.Fatalf("typed resource %s response = %#v, error = %v", request.Action, response, err)
+		}
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "account-resource-apply acme 200 100 900 1000 100 128\n" +
+		"resource-apply demo 100 100 450 512 100 64 acme\n" +
+		"resource-status demo\n"
+	if got := string(args); got != want {
+		t.Fatalf("resource helper args = %q, want %q", got, want)
+	}
+}
+
 func TestBrokerVhostApply(t *testing.T) {
-	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := newTestBroker(t, t.TempDir(), logger)
+	root := t.TempDir()
+	helper := filepath.Join(root, "vhostctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n[ \"$1\" = apply ] && [ \"$2\" = testsite ] && [ \"$3\" = example.com ]\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
+	broker.vhostctlPath = helper
 
 	ctx := context.Background()
 	req := &Request{
@@ -695,8 +877,87 @@ func TestBrokerVhostApply(t *testing.T) {
 	if err != nil {
 		t.Errorf("Execute failed: %v", err)
 	}
-	if resp.OK || !strings.Contains(resp.Error, "not implemented") {
-		t.Fatalf("vhost apply response = %#v, want explicit unsupported response", resp)
+	if !resp.OK {
+		t.Fatalf("vhost apply response = %#v, error = %v", resp, err)
+	}
+}
+
+func TestBrokerVhostImportHtaccessUsesConcreteInputContract(t *testing.T) {
+	root := t.TempDir()
+	inputPath := filepath.Join(root, "directives")
+	helper := filepath.Join(root, "vhostctl")
+	script := "#!/bin/sh\n[ \"$1\" = import-htaccess ] && [ \"$2\" = demo ] && [ \"$3\" = example.com ] || exit 1\ncat > \"$VHOST_INPUT\"\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VHOST_INPUT", inputPath)
+	b, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.vhostctlPath = helper
+	response, err := b.Execute(context.Background(), &Request{RequestType: "vhost", Vhost: &VhostRequest{
+		Action: "import-htaccess", Site: "demo", Domain: "example.com", WebServer: "caddy", Directives: "route /foo {\n}\n",
+	}})
+	if err != nil || response == nil || !response.OK {
+		t.Fatalf("vhost import response = %#v, error = %v", response, err)
+	}
+	input, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(input), "route /foo {\n}\n"; got != want {
+		t.Fatalf("vhost directives = %q, want %q", got, want)
+	}
+}
+
+func TestBrokerProxyOperationsUseConcreteHelperContract(t *testing.T) {
+	root := t.TempDir()
+	helper := filepath.Join(root, "proxyctl")
+	script := "#!/bin/sh\ncase \"$1\" in\n" +
+		"apply) [ \"$2\" = demo ] && [ \"$3\" = app.example.com ] && [ \"$4\" = 127.0.0.1:3000 ] ;;\n" +
+		"reload) [ \"$#\" -eq 1 ] ;;\n" +
+		"delete) [ \"$2\" = demo-app_example_com.conf ] ;;\n*) exit 1 ;;\nesac\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.proxyctlPath = helper
+	cases := []*ProxyRequest{
+		{Action: "apply", Site: "demo", Domain: "app.example.com", Backend: "127.0.0.1:3000", WebServer: "caddy"},
+		{Action: "reload", WebServer: "caddy"},
+		{Action: "delete", Name: "demo-app_example_com.conf", WebServer: "caddy"},
+	}
+	for _, request := range cases {
+		response, err := broker.Execute(context.Background(), &Request{RequestType: "proxy", Proxy: request})
+		if err != nil || response == nil || !response.OK {
+			t.Fatalf("proxy %s response = %#v, error = %v", request.Action, response, err)
+		}
+	}
+}
+
+func TestBrokerRunnerBuildUsesConcreteHelperContract(t *testing.T) {
+	root := t.TempDir()
+	helper := filepath.Join(root, "runnerctl")
+	image := "ghcr.io/containerd/busybox:1.36@sha256:" + strings.Repeat("a", 64)
+	public := filepath.Join(root, "sites", "demo", "public")
+	script := "#!/bin/sh\n[ \"$1\" = build ] && [ \"$2\" = demo ] && [ \"$3\" = " + image + " ] && [ \"$4\" = \"" + public + "\" ] && [ \"$5\" = /var/lib/ste-panel/apps/pipeline-123.sh ] && [ \"$6\" = 100 ] && [ \"$7\" = 512 ] && [ \"$8\" = 128 ] && [ \"$9\" = none ] && [ \"${10}\" = 5368709120 ]\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.runnerctlPath = helper
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "runner", Runner: &RunnerRequest{
+		Action: "build", Site: "demo", Image: image, Root: public, Script: "/var/lib/ste-panel/apps/pipeline-123.sh", CPUPercent: 100, MemoryMB: 512, TasksMax: 128, NetworkMode: "none", MaxImageBytes: 5368709120,
+	}})
+	if err != nil || response == nil || !response.OK {
+		t.Fatalf("runner response = %#v, error = %v", response, err)
 	}
 }
 
@@ -709,17 +970,7 @@ func TestBrokerRejectsEveryUnimplementedMutation(t *testing.T) {
 		name string
 		req  *Request
 	}{
-		{name: "site access", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "access", Site: "testsite"}}},
-		{name: "site resources", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "resources", Site: "testsite"}}},
-		{name: "site quota", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "quota", Site: "testsite"}}},
-		{name: "site quota clear", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "quota-clear", Site: "testsite"}}},
-		{name: "site runtime", req: &Request{RequestType: "site", Site: &SiteRequest{Action: "runtime", Site: "testsite", PHPVersion: "8.2"}}},
 		{name: "app rollback", req: &Request{RequestType: "app", App: &AppRequest{Action: "rollback", Site: "testsite", Port: 3000}}},
-		{name: "vhost auth", req: &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "apply-auth", Site: "testsite", Domain: "example.com", WebServer: "caddy"}}},
-		{name: "vhost delete", req: &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "delete", Site: "testsite", Domain: "example.com", WebServer: "caddy"}}},
-		{name: "proxy apply", req: &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "apply", WebServer: "caddy"}}},
-		{name: "proxy reload", req: &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "reload", WebServer: "caddy"}}},
-		{name: "git clone", req: &Request{RequestType: "git", Git: &GitRequest{Action: "clone", Repository: "https://github.com/user/repo.git", Ref: "main", Destination: "destination"}}},
 		{name: "git key verification", req: &Request{RequestType: "git", Git: &GitRequest{Action: "verify-key", Repository: "https://github.com/user/repo.git", Ref: "main", Destination: "destination"}}},
 	}
 	for _, tc := range cases {
@@ -732,6 +983,45 @@ func TestBrokerRejectsEveryUnimplementedMutation(t *testing.T) {
 				t.Fatalf("response = %#v, want explicit unsupported response", resp)
 			}
 		})
+	}
+}
+
+func TestBrokerSiteConfigurationRequestsUseTypedHelperContract(t *testing.T) {
+	host := &fakeHost{}
+	broker, err := newBroker(t.TempDir(), t.TempDir(), log.New(io.Discard, "", 0), host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sftpEnabled, shellEnabled := true, false
+	cases := []*SiteRequest{
+		{Action: "access", Site: "testsite", SSHKeys: "ssh-ed25519 AAAA", SFTPEnabled: &sftpEnabled, ShellEnabled: &shellEnabled},
+		{Action: "resources", Site: "testsite", PHPWorkers: 8},
+		{Action: "quota", Site: "testsite", DiskMB: 10240, Inodes: 200000},
+		{Action: "quota-clear", Site: "testsite"},
+		{Action: "runtime", Site: "testsite", PHPVersion: "8.2", MemoryLimit: "256M", ExecTimeout: 60, UploadMaxFilesize: "64M", PostMaxSize: "64M", MaxInputVars: 1000, OPcache: true, ErrorReporting: "E_ALL & ~E_DEPRECATED"},
+	}
+	for _, request := range cases {
+		response, err := broker.Execute(context.Background(), &Request{RequestType: "site", Site: request})
+		if err != nil || response == nil || !response.OK {
+			t.Fatalf("site %s response = %#v, error = %v", request.Action, response, err)
+		}
+	}
+	host.mu.Lock()
+	defer host.mu.Unlock()
+	want := [][]string{
+		{"access", "testsite", "1", "0"},
+		{"resources", "testsite", "8"},
+		{"quota", "testsite", "10240", "200000"},
+		{"quota-clear", "testsite"},
+		{"runtime", "testsite", "8.2", "256M", "60", "64M", "64M", "1000", "1", "0", "E_ALL & ~E_DEPRECATED"},
+	}
+	if len(host.helper) != len(want) {
+		t.Fatalf("helper calls = %#v, want %#v", host.helper, want)
+	}
+	for i := range want {
+		if strings.Join(host.helper[i], "\x00") != strings.Join(want[i], "\x00") {
+			t.Fatalf("helper call %d = %#v, want %#v", i, host.helper[i], want[i])
+		}
 	}
 }
 
@@ -786,21 +1076,33 @@ func TestBrokerInvalidPort(t *testing.T) {
 	}
 }
 
-func TestBrokerGitCloneFailsClosed(t *testing.T) {
+func TestBrokerGitCloneUsesConcreteHelperContract(t *testing.T) {
 	logger := log.New(os.Stderr, "[test] ", 0)
-	broker, err := newTestBroker(t, t.TempDir(), logger)
+	webRoot := t.TempDir()
+	broker, err := newTestBroker(t, webRoot, logger)
 	if err != nil {
 		t.Fatalf("NewBroker failed: %v", err)
+	}
+	gitctl := filepath.Join(t.TempDir(), "stepanel-gitctl")
+	if err := os.WriteFile(gitctl, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker.gitctlPath = gitctl
+	destination := filepath.Join(webRoot, "sites", "site", ".stepanel-release-test")
+	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
+		t.Fatal(err)
 	}
 
 	ctx := context.Background()
 	req := &Request{
 		RequestType: "git",
 		Git: &GitRequest{
-			Action:      "clone",
-			Repository:  "https://github.com/user/repo.git",
-			Ref:         "main",
-			Destination: "destination",
+			Action:       "clone",
+			Site:         "site",
+			Repository:   "https://github.com/user/repo.git",
+			Ref:          "main",
+			Destination:  destination,
+			AllowedHosts: []string{"github.com"},
 		},
 	}
 
@@ -808,8 +1110,8 @@ func TestBrokerGitCloneFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Errorf("Execute failed: %v", err)
 	}
-	if resp.OK || !strings.Contains(resp.Error, "not implemented") {
-		t.Fatalf("git clone response = %#v, want explicit unsupported response", resp)
+	if !resp.OK {
+		t.Fatalf("git clone response = %#v, want concrete helper execution", resp)
 	}
 }
 

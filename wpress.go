@@ -152,6 +152,11 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid CSRF token", http.StatusForbidden)
 		return
 	}
+	operationKey, err := requestOperationKey(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	if !allReady(WPressPreflight(a.Config)) {
 		http.Error(w, "WPress dependencies are not installed; check /api/wpress/preflight", http.StatusServiceUnavailable)
 		return
@@ -207,11 +212,16 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not encode restore job", http.StatusInternalServerError)
 		return
 	}
-	job, _, err := a.Jobs.EnqueueIdempotent("wordpress.restore", site, "", payload, 3)
+	job, existing, err := a.Jobs.EnqueueIdempotent("wordpress.restore", site, operationKey, payload, 3)
 	if err != nil {
 		_ = os.Remove(tempPath)
 		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
 		return
+	}
+	if existing {
+		// A replay with the same key already owns the original staged archive;
+		// never strand the newly uploaded duplicate on disk.
+		_ = os.Remove(tempPath)
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": filepath.Join("/api/jobs", job.ID)})
 }

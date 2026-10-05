@@ -381,7 +381,7 @@ func (a *App) handleMigrationAnalysisJob(r *Job) ([]byte, error) {
 		Analysis: *analysis,
 	}
 
-	recordAudit(a.Config.AuditLog, "admin", "migration.analysis.completed",
+	TelemetryAudit(a.Config.AuditLog, "system", "migration.analysis.completed",
 		fmt.Sprintf("%s -> %s", req.SourceSSHHost, req.DestinationHostname),
 		fmt.Sprintf("source scan completed: blockers=%d warnings=%d", len(analysis.Blockers), len(analysis.Warnings)))
 

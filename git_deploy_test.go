@@ -384,11 +384,11 @@ func TestGitDeployWebhookAuditsBeforeMutating(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
 	auditLog := filepath.Join(t.TempDir(), "audit.jsonl")
 	app := &App{Config: Config{AuditLog: auditLog, GitAllowedHosts: "github.com"}}
-	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"repository":"","ref":"main"}`))
-	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, authenticatedWebhook{Site: "site-a"}))
+	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"repository":"https://github.com/x/x.git","ref":"main"}`))
+	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, authenticatedWebhook{Site: "site-a", Repositories: []string{"https://github.com/x/x.git"}, AllowedRefs: []string{"main"}}))
 	app.gitDeploy(httptest.NewRecorder(), r)
 	data, err := os.ReadFile(auditLog)
-	if err != nil || !strings.Contains(string(data), "webhook.deploy.accepted") || !strings.Contains(string(data), `"actor":"webhook"`) {
+	if err != nil || !strings.Contains(string(data), "site.git-deployed.initiated") || !strings.Contains(string(data), `"actor":"webhook"`) {
 		t.Fatalf("accepted webhook deploy was not audited: %v %s", err, data)
 	}
 }
@@ -401,7 +401,7 @@ func TestGitDeployWebhookRefusesWhenAuditUnavailable(t *testing.T) {
 	}
 	app := &App{Config: Config{AuditLog: filepath.Join(blocker, "audit.jsonl"), GitAllowedHosts: "github.com"}}
 	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"repository":"https://github.com/x/x.git","ref":"main"}`))
-	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, authenticatedWebhook{Site: "site-a"}))
+	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, authenticatedWebhook{Site: "site-a", Repositories: []string{"https://github.com/x/x.git"}, AllowedRefs: []string{"main"}}))
 	w := httptest.NewRecorder()
 	app.gitDeploy(w, r)
 	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "audit") {
@@ -435,6 +435,18 @@ func TestGitDeployWebhookEnforcesAuthenticatedPolicyWithoutStore(t *testing.T) {
 				t.Fatalf("unauthorized webhook deploy = %d %s, want 403 %q", w.Code, w.Body.String(), tc.want)
 			}
 		})
+	}
+}
+
+func TestGitDeployWebhookFailsClosedForEmptyAllowlist(t *testing.T) {
+	app := &App{Config: Config{AuditLog: filepath.Join(t.TempDir(), "audit.jsonl"), GitAllowedHosts: "github.com"}}
+	auth := authenticatedWebhook{Site: "site-a"}
+	r := httptest.NewRequest(http.MethodPost, "/api/sites/git-deploy", strings.NewReader(`{"repository":"https://github.com/example/repo.git","ref":"main"}`))
+	r = r.WithContext(context.WithValue(r.Context(), gitWebhookSiteKey{}, auth))
+	w := httptest.NewRecorder()
+	app.gitDeploy(w, r)
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "repository is not authorized") {
+		t.Fatalf("empty webhook policy was accepted: %d %s", w.Code, w.Body.String())
 	}
 }
 

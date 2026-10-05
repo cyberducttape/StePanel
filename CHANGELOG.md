@@ -8,6 +8,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **One audit contract (security)**: audit calls now use two explicit APIs.
+  Class A security-ledger operations (access grants, credential changes,
+  deletions, deployments, restores) durably record an intent before mutating
+  and are refused with HTTP 503 when they cannot, then record an outcome.
+  Previously several of them (site and database deletion, credential
+  rotation, Git deployment, SSH and deploy keys, password changes) were
+  audited best-effort after the change, and credential operations applied
+  the change before failing on the audit. Revocations (token, session and
+  key removal, suspension) are never blocked by the ledger. Telemetry stays
+  best effort. An event persisted in the audit outbox now counts as recorded
+  even if publication to the signed log is deferred. See
+  `docs/AUDIT_CONTRACT.md`.
+- **Accurate audit actors (security)**: audit events name the authenticated
+  requester instead of the configured panel administrator, including the
+  admin suspend/unsuspend endpoints that recorded every action as `admin`.
+- **Audit event names**: Class A operations add `<action>.initiated` and
+  `<action>.failed` events. `webhook.deploy.accepted` is replaced by
+  `site.git-deployed.initiated` (actor `webhook`);
+  `webhook.config.update.initiated` is now `webhook.config.updated.initiated`;
+  `webhook.config.disable.initiated` is removed (disabling is a revocation);
+  restore completions are `cpmove.restore`, `wordpress.restore` and
+  `backup.<mode>` instead of `*.completed`.
 - **Webhook deploys enforce the policy that authenticated them (security)**:
   `gitDeploy` previously re-read the site's webhook configuration and skipped
   the repository/ref allowlists when that second read failed. The verified

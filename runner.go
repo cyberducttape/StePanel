@@ -1,10 +1,14 @@
 package stepanel
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 // Build images must be immutable references so the same request cannot run
@@ -100,7 +104,12 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args := a.pipelineBuildArgs(input.Site, input.Image, root, scriptPath)
-	if err = runHelperCommand(operationCtx, a.Config, a.Config.RunnerCtl, args...); err != nil {
+	request, parseErr := runnerRequestFromArgs(args)
+	if parseErr != nil {
+		http.Error(w, "invalid runner resource limits", http.StatusInternalServerError)
+		return
+	}
+	if err = runRunnerBuild(operationCtx, a.Config, request); err != nil {
 		http.Error(w, "sandboxed build failed", 502)
 		return
 	}
@@ -108,7 +117,7 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sandboxed build cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "runner.build", input.Site, input.Image)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "runner.build", input.Site, input.Image)
 	artifact, err := safePath(a.Config.WebRoot, "sites", input.Site, ".stepanel-artifact")
 	if err != nil {
 		http.Error(w, "invalid build artifact path", 500)
@@ -119,4 +128,27 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		response["history_error"] = "build completed but deployment history was not persisted: " + err.Error()
 	}
 	writeJSON(w, 202, response)
+}
+
+func runnerRequestFromArgs(args []string) (rootbroker.RunnerRequest, error) {
+	if len(args) != 10 || args[0] != "build" {
+		return rootbroker.RunnerRequest{}, errors.New("invalid runner arguments")
+	}
+	cpu, err := strconv.Atoi(args[5])
+	if err != nil {
+		return rootbroker.RunnerRequest{}, err
+	}
+	memory, err := strconv.Atoi(args[6])
+	if err != nil {
+		return rootbroker.RunnerRequest{}, err
+	}
+	tasks, err := strconv.Atoi(args[7])
+	if err != nil {
+		return rootbroker.RunnerRequest{}, err
+	}
+	maxBytes, err := strconv.ParseInt(args[9], 10, 64)
+	if err != nil {
+		return rootbroker.RunnerRequest{}, err
+	}
+	return rootbroker.RunnerRequest{Action: "build", Site: args[1], Image: args[2], Root: args[3], Script: args[4], CPUPercent: cpu, MemoryMB: memory, TasksMax: tasks, NetworkMode: args[8], MaxImageBytes: maxBytes}, nil
 }

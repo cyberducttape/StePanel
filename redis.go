@@ -157,7 +157,7 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Redis allocation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.redis.updated", site, fmt.Sprintf("database=%d memory_mb=%d", input.Database, input.MemoryMB))
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.redis.updated", site, fmt.Sprintf("database=%d memory_mb=%d", input.Database, input.MemoryMB))
 		writeJSON(w, 200, input)
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
@@ -178,18 +178,24 @@ func (a *App) siteRedis(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Redis allocation deletion cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.redis.deleted", site, "allocation removal")
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		a.Redis.mu.Lock()
-		err := persistMapKeyChange(a.Redis.values, site, (*RedisAllocation)(nil), a.Redis.persistLocked)
+		err = persistMapKeyChange(a.Redis.values, site, (*RedisAllocation)(nil), a.Redis.persistLocked)
 		a.Redis.mu.Unlock()
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, "Redis allocation could not be saved", 503)
 			return
 		}
+		intent.Completed("allocation removed")
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "Redis allocation deletion cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.redis.deleted", site, "allocation removed")
 		w.WriteHeader(204)
 	}
 }

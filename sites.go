@@ -472,6 +472,13 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "route publication cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.deployed", input.Site, input.Domain)
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
+	var outcome string
+	defer intent.Finish(&outcome, "route was not published")
 	if a.Routes != nil {
 		route := routeState(name, input.Site, input.Domain, "pending")
 		if err := a.Routes.save(route); err != nil {
@@ -479,7 +486,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := runHelperCommand(operationCtx, a.Config, a.Config.VHostCtl, "apply", input.Site, input.Domain); err != nil {
+	if err := runVhostMutation(operationCtx, a.Config, "apply", input.Site, input.Domain); err != nil {
 		if a.Routes != nil {
 			route := routeState(name, input.Site, input.Domain, "pending")
 			route.LastError = err.Error()
@@ -490,6 +497,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site helper rejected the route or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
+	outcome = input.Domain
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "route publication cancelled because the mutation lock was lost", http.StatusConflict)
 		return
@@ -501,7 +509,6 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.deployed", input.Site, input.Domain)
 	writeJSON(w, http.StatusAccepted, map[string]string{"site": input.Site, "domain": input.Domain, "config": filepath.Join(a.Config.VHostRoot, name)})
 }
 
@@ -556,6 +563,26 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "route deletion cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	// Route removal is Class A. The intent is recorded immediately before
+	// the first mutation, which differs between managed and unmanaged routes.
+	var intent *SecurityAudit
+	var outcome string
+	beginDeletion := func() bool {
+		if intent != nil {
+			return true
+		}
+		var err error
+		if intent, err = BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.deleted", name, "managed PHP vhost removal"); err != nil {
+			refuseWithoutSecurityAudit(w)
+			return false
+		}
+		return true
+	}
+	defer func() {
+		if intent != nil {
+			intent.Finish(&outcome, "route was not removed")
+		}
+	}()
 	if a.Routes != nil {
 		if hasDesired {
 			if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
@@ -563,6 +590,9 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 			}
 			if !a.Auth.HasRequiredCustomerScope(r, "site:deploy") && !a.Auth.IsAdministrator(r) {
 				http.Error(w, "insufficient token scope for site deployment", http.StatusForbidden)
+				return
+			}
+			if !beginDeletion() {
 				return
 			}
 			desired.State, desired.LastError, desired.UpdatedAt = "delete-pending", "", time.Now().UTC()
@@ -579,7 +609,10 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireSiteAccess(w, r, desired.Site, "site route is not assigned to this account", http.StatusForbidden); !ok {
 		return
 	}
-	if err := runHelperCommand(operationCtx, a.Config, a.Config.VHostCtl, "delete", name); err != nil {
+	if !beginDeletion() {
+		return
+	}
+	if err := runVhostMutation(operationCtx, a.Config, "delete", name); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
 			if saveErr := a.SaveRouteState(desired); saveErr != nil {
@@ -590,6 +623,7 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site route was not removed because validation or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
+	outcome = "managed PHP vhost removed"
 	if err := operationCtx.Err(); err != nil {
 		if hasDesired {
 			desired.LastError = err.Error()
@@ -611,6 +645,5 @@ func (a *App) siteManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "route deletion cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.deleted", name, "managed PHP vhost removed")
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": name})
 }

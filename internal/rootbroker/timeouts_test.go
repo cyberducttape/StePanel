@@ -32,22 +32,23 @@ func TestRequestTimeoutCoversPanelTimeoutClasses(t *testing.T) {
 		want time.Duration
 	}{
 		{"app apply", &Request{RequestType: "app", App: &AppRequest{Action: "apply"}}, 60 * time.Second},
+		{"worker restart", &Request{RequestType: "worker", Worker: &WorkerRequest{Action: "restart"}}, 60 * time.Second},
+		{"runner build", &Request{RequestType: "runner", Runner: &RunnerRequest{Action: "build"}}, 30 * time.Minute},
 		{"task apply", &Request{RequestType: "task", Task: &TaskRequest{Action: "apply"}}, 60 * time.Second},
+		{"environment apply", &Request{RequestType: "environment", Environment: &EnvironmentRequest{Action: "apply"}}, 60 * time.Second},
+		{"resource status", &Request{RequestType: "resource", Resource: &ResourceRequest{Action: "status"}}, 30 * time.Second},
 		{"site delete", &Request{RequestType: "site", Site: &SiteRequest{Action: "delete"}}, 120 * time.Minute},
 		{"site seal", &Request{RequestType: "site", Site: &SiteRequest{Action: "seal"}}, 120 * time.Minute},
-		{"database dump", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "dbctl", Action: "dump"}}, 120 * time.Minute},
 		{"database restore", &Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump"}}, 120 * time.Minute},
 		{"database provision", &Request{RequestType: "db", DB: &DBRequest{Action: "provision"}}, 60 * time.Minute},
-		{"git clone", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "gitctl", Action: "clone"}}, 30 * time.Minute},
-		{"runner build", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "runnerctl", Action: "build"}}, 30 * time.Minute},
+		{"git clone", &Request{RequestType: "git", Git: &GitRequest{Action: "clone"}}, 30 * time.Minute},
+		{"runner build typed", &Request{RequestType: "runner", Runner: &RunnerRequest{Action: "build"}}, 30 * time.Minute},
 		{"git delete", &Request{RequestType: "git", Git: &GitRequest{Action: "delete"}}, 60 * time.Second},
-		{"composer install", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "composer-install"}}, 15 * time.Minute},
-		{"python apply", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "python-apply"}}, 15 * time.Minute},
-		{"node tool", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "node-tool"}}, 15 * time.Minute},
-		{"worker restart", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "worker-restart"}}, 60 * time.Second},
-		{"sitectl delete", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "sitectl", Action: "delete"}}, 120 * time.Minute},
-		{"proxy apply", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "proxyctl", Action: "apply"}}, defaultRequestTimeout},
-		{"nil helper", &Request{RequestType: "helper"}, defaultRequestTimeout},
+		{"composer install", &Request{RequestType: "app", App: &AppRequest{Action: "composer-install"}}, 15 * time.Minute},
+		{"python apply", &Request{RequestType: "app", App: &AppRequest{Action: "python-apply"}}, 15 * time.Minute},
+		{"node tool", &Request{RequestType: "app", App: &AppRequest{Action: "node-tool"}}, 15 * time.Minute},
+		{"worker restart typed", &Request{RequestType: "worker", Worker: &WorkerRequest{Action: "restart"}}, 60 * time.Second},
+		{"proxy apply", &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "apply"}}, 30 * time.Second},
 	}
 	for _, tc := range cases {
 		if got := RequestTimeout(tc.req); got != tc.want {
@@ -60,20 +61,13 @@ func TestRequestTimeoutCoversPanelTimeoutClasses(t *testing.T) {
 // new long-running action cannot silently inherit the 30-second default and
 // be SIGKILLed mid-operation.
 func TestEveryBrokerActionHasATimeoutClass(t *testing.T) {
-	for name, actions := range helperSchemas {
-		for action := range actions {
-			if _, ok := helperTimeouts[name][action]; !ok {
-				t.Errorf("helper %s/%s has no timeout class in helperTimeouts", name, action)
-			}
-		}
-	}
 	source, err := os.ReadFile("broker.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	handlers := map[string]string{
-		"site": "handleSiteRequest", "app": "handleAppRequest", "db": "handleDBRequest",
-		"vhost": "handleVhostRequest", "proxy": "handleProxyRequest", "git": "handleGitRequest", "task": "handleTaskRequest",
+		"site": "handleSiteRequest", "app": "handleAppRequest", "worker": "handleWorkerRequest", "runner": "handleRunnerRequest", "db": "handleDBRequest",
+		"vhost": "handleVhostRequest", "proxy": "handleProxyRequest", "git": "handleGitRequest", "task": "handleTaskRequest", "environment": "handleEnvironmentRequest", "resource": "handleResourceRequest",
 	}
 	text := string(source)
 	for requestType, handler := range handlers {

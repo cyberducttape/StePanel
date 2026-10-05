@@ -98,7 +98,7 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to select Node version", 500)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.Username, "node.version.selected", input.Site, "Node v"+version)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "node.version.selected", input.Site, "Node v"+version)
 	writeJSON(w, http.StatusOK, map[string]string{"site": input.Site, "version": "v" + version})
 }
 
@@ -118,7 +118,7 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	backend, err := localBackend(input.Backend)
 	if err != nil {
-		http.Error(w, err.Error(), 422)
+		writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_backend", "the proxy backend is invalid", err))
 		return
 	}
 	name := proxyConfigName(a.Config.WebServer, input.Site, input.Domain)
@@ -142,15 +142,21 @@ func (a *App) deployProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid proxy path", 422)
 		return
 	}
-	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "apply", input.Site, strings.ToLower(input.Domain), backend); err != nil {
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "proxy.deployed", input.Site, input.Domain+" -> "+backend)
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
+	if err := runProxyMutation(operationCtx, a.Config, "apply", input.Site, strings.ToLower(input.Domain), backend); err != nil {
+		intent.Failed(err.Error())
 		http.Error(w, "proxy helper rejected the configuration or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
+	intent.Completed(input.Domain + " -> " + backend)
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "proxy deployment cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.Username, "proxy.deployed", input.Site, input.Domain+" -> "+backend)
 	writeJSON(w, http.StatusAccepted, map[string]any{"site": input.Site, "domain": input.Domain, "backend": backend, "config": path, "reloaded": true})
 }
 
@@ -183,7 +189,7 @@ func (a *App) proxyTest(w http.ResponseWriter, r *http.Request) {
 	}
 	backend, err := localBackend(input.Backend)
 	if err != nil {
-		http.Error(w, err.Error(), 422)
+		writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_backend", "the proxy backend is invalid", err))
 		return
 	}
 	client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -220,15 +226,21 @@ func (a *App) proxyManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proxy mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.ProxyCtl, "delete", name); err != nil {
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "proxy.deleted", name, "managed proxy removal")
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
+	if err := runProxyMutation(operationCtx, a.Config, "delete", name); err != nil {
+		intent.Failed(err.Error())
 		http.Error(w, "proxy was not removed because the helper or webserver reload failed", http.StatusServiceUnavailable)
 		return
 	}
+	intent.Completed("managed proxy removed")
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "proxy deletion cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.Username, "proxy.deleted", name, "managed proxy removed")
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": name, "reloaded": true})
 }
 

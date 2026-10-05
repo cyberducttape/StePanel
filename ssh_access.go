@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -108,9 +109,14 @@ func (a *App) applySiteAccess(ctx context.Context, access SiteAccess) error {
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, helperConfigMutationTimeout)
 	defer cancel()
+	if a.Config.Production {
+		return runTypedSiteMutation(commandCtx, a.Config, rootbroker.SiteRequest{Action: "access", Site: access.Site, SSHKeys: payload, SFTPEnabled: boolPtr(access.SFTPEnabled), ShellEnabled: boolPtr(access.ShellEnabled)})
+	}
 	_, err, _ := runAllowlistedHelperOutput(commandCtx, a.Config, []byte(payload), a.Config.SiteCtl, "access", access.Site, stringBool(access.SFTPEnabled), stringBool(access.ShellEnabled))
 	return err
 }
+
+func boolPtr(value bool) *bool { return &value }
 
 func (a *App) saveSiteAccess(access SiteAccess) error {
 	a.Access.mu.Lock()
@@ -235,19 +241,27 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 		}
 		access.Site = site
 		access.State, access.LastError = "pending", ""
+		policy := fmt.Sprintf("sftp=%t shell=%t", access.SFTPEnabled, access.ShellEnabled)
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.ssh-access.updated", site, policy)
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		a.Access.mu.Lock()
-		err := persistMapKeyChange(a.Access.values, site, &access, a.Access.persistLocked)
+		err = persistMapKeyChange(a.Access.values, site, &access, a.Access.persistLocked)
 		a.Access.mu.Unlock()
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, "SSH access state could not be saved", 503)
 			return
 		}
 		access, err = a.applyAndSaveSiteAccess(operationCtx, access)
 		if err != nil {
+			intent.Completed(policy + "; persisted, reconciliation pending")
 			http.Error(w, "SSH access is pending reconciliation", 502)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.ssh-access.updated", site, "access policy changed")
+		intent.Completed(policy)
 		writeJSON(w, 200, access)
 	case http.MethodPost:
 		if !a.Auth.CSRF(r) {
@@ -268,7 +282,7 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 		}
 		key, err := parseSSHKey(input.PublicKey)
 		if err != nil {
-			http.Error(w, err.Error(), 422)
+			writePublicError(w, r, http.StatusUnprocessableEntity, publicError("invalid_ssh_key", "the public SSH key is invalid", err))
 			return
 		}
 		key.Label = input.Label
@@ -292,19 +306,26 @@ func (a *App) siteAccess(w http.ResponseWriter, r *http.Request) {
 		access.State, access.LastError = "pending", ""
 		access.Keys = append([]SSHKey(nil), access.Keys...)
 		access.Keys = append(access.Keys, key)
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.ssh-key.added", site, key.Fingerprint)
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		a.Access.mu.Lock()
 		err = persistMapKeyChange(a.Access.values, site, &access, a.Access.persistLocked)
 		a.Access.mu.Unlock()
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, "SSH key could not be saved", 503)
 			return
 		}
 		access, err = a.applyAndSaveSiteAccess(operationCtx, access)
 		if err != nil {
+			intent.Completed(key.Fingerprint + "; persisted, reconciliation pending")
 			http.Error(w, "SSH key is pending reconciliation", 502)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.ssh-key.added", site, key.Fingerprint)
+		intent.Completed(key.Fingerprint)
 		writeJSON(w, 201, key)
 	}
 }
@@ -367,12 +388,14 @@ func (a *App) siteAccessKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "SSH key could not be removed", 503)
 		return
 	}
+	// The revocation is committed once persisted; record it even if the
+	// host has not applied it yet.
+	RevocationAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.ssh-key.removed", site, label)
 	access, err = a.applyAndSaveSiteAccess(operationCtx, access)
 	if err != nil {
 		http.Error(w, "SSH key revocation is pending reconciliation", 502)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.ssh-key.removed", site, label)
 	w.WriteHeader(204)
 }
 

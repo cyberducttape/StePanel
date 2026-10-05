@@ -14,10 +14,10 @@ import (
 func TestAuditChainRecordsActorAndVerifies(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
-	if err := AuditAs(path, "admin", "site.deployed", "account", "example.com"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "site.deployed", "account", "example.com"); err != nil {
 		t.Fatal(err)
 	}
-	if err := AuditAs(path, "admin", "site.backup.completed", "account", "checksum"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "site.backup.completed", "account", "checksum"); err != nil {
 		t.Fatal(err)
 	}
 	if err := VerifyAuditLog(path); err != nil {
@@ -45,10 +45,10 @@ func TestAuditChainRecordsActorAndVerifies(t *testing.T) {
 func TestAuditEventsFiltersVerifiedHistory(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("q", 32))
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
-	if err := AuditAs(path, "admin", "site.deployed", "account", "example.com"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "site.deployed", "account", "example.com"); err != nil {
 		t.Fatal(err)
 	}
-	if err := AuditAs(path, "admin", "site.backup.completed", "account", "checksum"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "site.backup.completed", "account", "checksum"); err != nil {
 		t.Fatal(err)
 	}
 	app := &App{Config: Config{AuditLog: path}}
@@ -66,7 +66,7 @@ func TestAuditRequiresStrongSigningKey(t *testing.T) {
 	previousKeyPath := auditKeyPath
 	auditKeyPath = filepath.Join(t.TempDir(), "missing-audit.key")
 	t.Cleanup(func() { auditKeyPath = previousKeyPath })
-	if err := Audit(filepath.Join(t.TempDir(), "audit.jsonl"), "test.action", "site", "detail"); err == nil {
+	if err := SecurityAuditRequired(filepath.Join(t.TempDir(), "audit.jsonl"), "system", "test.action", "site", "detail"); err == nil {
 		t.Fatal("audit event was accepted without a signing key")
 	}
 	auditMu.Lock()
@@ -77,7 +77,7 @@ func TestAuditRequiresStrongSigningKey(t *testing.T) {
 func TestVerifyAuditLogRejectsTampering(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("s", 32))
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
-	if err := AuditAs(path, "admin", "test.action", "site", "original"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "test.action", "site", "original"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -96,14 +96,14 @@ func TestVerifyAuditLogRejectsTampering(t *testing.T) {
 func TestVerifyAuditLogRejectsWrongKey(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("a", 32))
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
-	if err := AuditAs(path, "admin", "test.action", "site", "detail"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "test.action", "site", "detail"); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("b", 32))
 	if err := VerifyAuditLog(path); err == nil {
 		t.Fatal("audit log passed verification with the wrong key")
 	}
-	if err := AuditAs(path, "admin", "second.action", "site", "detail"); err == nil {
+	if err := SecurityAuditRequired(path, "admin", "second.action", "site", "detail"); err == nil {
 		t.Fatal("audit chain accepted an event signed with a replacement key")
 	}
 	auditMu.Lock()
@@ -114,7 +114,7 @@ func TestVerifyAuditLogRejectsWrongKey(t *testing.T) {
 func TestVerifyAuditLogRejectsRewrittenState(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("w", 32))
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
-	if err := AuditAs(path, "admin", "test.action", "site", "detail"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "test.action", "site", "detail"); err != nil {
 		t.Fatal(err)
 	}
 	stateData, err := os.ReadFile(path + ".state")
@@ -146,7 +146,7 @@ func TestAuditPreservesUnsignedLegacyLog(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{\"legacy\":true}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := Audit(path, "service.started", "stepanel", "upgrade"); err != nil {
+	if err := SecurityAuditRequired(path, "system", "service.started", "stepanel", "upgrade"); err != nil {
 		t.Fatal(err)
 	}
 	matches, err := filepath.Glob(path + ".legacy-*")
@@ -170,10 +170,10 @@ func TestValidateAuditEventRejectsBadTimestampAndIdentity(t *testing.T) {
 func TestAuditChainContinuesAcrossRotation(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("r", 32))
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
-	if err := AuditAs(path, "admin", "one", "site", "first"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "one", "site", "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := AuditAs(path, "admin", "two", "site", "second"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "two", "site", "second"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(path, path+".1"); err != nil {
@@ -182,7 +182,7 @@ func TestAuditChainContinuesAcrossRotation(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := AuditAs(path, "admin", "three", "site", "third"); err != nil {
+	if err := SecurityAuditRequired(path, "admin", "three", "site", "third"); err != nil {
 		t.Fatal(err)
 	}
 	if err := VerifyAuditLog(path); err != nil {

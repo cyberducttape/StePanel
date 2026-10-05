@@ -261,7 +261,7 @@ func Main() {
 	if bypasses := activeSafetyBypasses(); cfg.Production && len(bypasses) > 0 {
 		detail := "unsafe lab mode: " + strings.Join(bypasses, ", ")
 		log.Printf("CRITICAL: production safety invariants are bypassed (%s); this host is not production-safe", strings.Join(bypasses, ", "))
-		recordAudit(cfg.AuditLog, "system", "control_plane.safety_bypass_active", Version, detail)
+		TelemetryAudit(cfg.AuditLog, "system", "control_plane.safety_bypass_active", Version, detail)
 	}
 	if strings.TrimSpace(cfg.AccountState) == "" || strings.ContainsAny(cfg.AccountState, "\x00\r\n") || cfg.Production && !filepath.IsAbs(cfg.AccountState) {
 		log.Fatal("STEPANEL_ACCOUNT_STATE must be a non-empty filesystem path and absolute in production")
@@ -524,7 +524,7 @@ func Main() {
 		}
 		if cfg.DBCtl != "" && os.Getenv("STEPANEL_SKIP_STARTUP_DB_RECONCILE") != "1" {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "reconcile")
+			output, err := runDatabaseHelperContext(ctx, cfg, 2*time.Minute, "", "reconcile")
 			cancel()
 			if err != nil {
 				failures = append(failures, fmt.Errorf("reconcile interrupted database operations: %w: %s", err, strings.TrimSpace(string(output))))
@@ -571,7 +571,7 @@ func Main() {
 			log.Printf("startup recovery and reconciliation completed")
 		}
 	}
-	startupAuditErr = Audit(cfg.AuditLog, "service.started", "stepanel", "control plane initialized")
+	startupAuditErr = SecurityAuditRequired(cfg.AuditLog, "system", "service.started", "stepanel", "control plane initialized")
 	if startupAuditErr != nil {
 		log.Printf("initialize audit chain: %v", startupAuditErr)
 	}
@@ -1082,18 +1082,18 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, request.Actor, "cpmove.restore", request.User, request.Filename)
+	if err != nil {
+		return nil, err
+	}
 	a.Metrics.RestoreStarted()
 	result, restoreErr := restoreCPMoveArchiveContext(operationCtx, a.Config, upload.Path, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs)
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
-		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "cpmove.restore.failed", request.User, restoreErr.Error()); auditErr != nil {
-			return nil, fmt.Errorf("%w; audit persistence failed: %v", restoreErr, auditErr)
-		}
+		intent.Failed(restoreErr.Error())
 		return nil, restoreErr
 	}
-	if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "cpmove.restore.completed", request.User, result.StagedAt); auditErr != nil {
-		log.Printf("cpmove restore completed but audit persistence is unavailable: %v", auditErr)
-	}
+	intent.Completed(result.StagedAt)
 	removeUpload = true
 
 	// Invalidate metadata caches after successful site restore
@@ -1133,9 +1133,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	}
 	result, err := CreateSiteBackupContext(operationCtx, a.Config, access, request.IncludeDatabases)
 	if err != nil {
-		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "site.backup.failed", request.Site, err.Error()); auditErr != nil {
-			return nil, fmt.Errorf("%w; audit persistence failed: %v", err, auditErr)
-		}
+		TelemetryAudit(a.Config.AuditLog, request.Actor, "site.backup.failed", request.Site, err.Error())
 		if request.Scheduled {
 			started := request.StartedAt
 			if started.IsZero() {
@@ -1146,7 +1144,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, err
 	}
 	if err = a.uploadOffsiteBackup(operationCtx, result); err != nil {
-		recordAudit(a.Config.AuditLog, request.Actor, "site.backup.offsite_failed", request.Site, err.Error())
+		TelemetryAudit(a.Config.AuditLog, request.Actor, "site.backup.offsite_failed", request.Site, err.Error())
 		if request.Scheduled {
 			started := request.StartedAt
 			if started.IsZero() {
@@ -1156,9 +1154,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		return nil, err
 	}
-	if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "site.backup.completed", request.Site, result.ArchiveSHA256); auditErr != nil {
-		log.Printf("backup completed but audit persistence is unavailable: %v", auditErr)
-	}
+	TelemetryAudit(a.Config.AuditLog, request.Actor, "site.backup.completed", request.Site, result.ArchiveSHA256)
 	if request.Scheduled {
 		started := request.StartedAt
 		if started.IsZero() {
@@ -1166,7 +1162,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		a.Schedules.recordResult(request.Site, started, nil)
 		if err := pruneSiteBackups(a.Config.BackupRoot, access, request.KeepLast); err != nil {
-			recordAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
+			TelemetryAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
 		}
 		a.maybeEnqueueScheduledRehearsal(ctx, request.Site, filepath.Base(result.Path))
 	}
@@ -1198,9 +1194,7 @@ func (a *App) handleCertificateJob(ctx context.Context, item Job) ([]byte, error
 	if !response.OK {
 		return nil, fmt.Errorf("certificate helper failed: %s", response.Error)
 	}
-	if err := AuditAs(a.Config.AuditLog, request.Actor, "certificate.issued", request.Domain, "Let's Encrypt certificate requested"); err != nil {
-		log.Printf("certificate issued but audit persistence is unavailable: %v", err)
-	}
+	TelemetryAudit(a.Config.AuditLog, request.Actor, "certificate.issued", request.Domain, "Let's Encrypt certificate requested")
 	output, err := json.Marshal(CertificateResult{Domain: request.Domain, Status: "issued"})
 	if err != nil {
 		return nil, err
@@ -1248,19 +1242,19 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := a.capacity.check(a.Config, "WPress restore", stagedArchiveDemands(a.Config, uint64(request.Size))); err != nil {
 		return nil, err
 	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, request.Actor, "wordpress.restore", request.Site, "staged WPress archive")
+	if err != nil {
+		return nil, err
+	}
 	a.Metrics.RestoreStarted()
 	result, restoreErr := RestoreWPressContext(operationCtx, a.Config, request.TempPath, access, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force)
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
-		if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "wordpress.restore.failed", request.Site, restoreErr.Error()); auditErr != nil {
-			return nil, fmt.Errorf("%w; audit persistence failed: %v", restoreErr, auditErr)
-		}
+		intent.Failed(restoreErr.Error())
 		return nil, restoreErr
 	}
 	detail := fmt.Sprintf("%s; metadata=%t; htaccess=%t", result.StagedAt, result.MetadataApplied, result.HTAccessRestored)
-	if auditErr := AuditAs(a.Config.AuditLog, request.Actor, "wordpress.restore.completed", request.Site, detail); auditErr != nil {
-		log.Printf("WordPress restore completed but audit persistence is unavailable: %v", auditErr)
-	}
+	intent.Completed(detail)
 	removeStaged = true
 	output, err := json.Marshal(result)
 	if err != nil {
@@ -1407,7 +1401,7 @@ func (a *App) jobStatus(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "job.dead_letter.requeued", id, "operator-approved retry")
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "job.dead_letter.requeued", id, "operator-approved retry")
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "requeued", "job_id": id})
 		return
 	}
@@ -1724,9 +1718,45 @@ func (e *apiErrorWriter) Unwrap() http.ResponseWriter { return e.w }
 
 // apiError is the JSON error envelope for every /api/ error response.
 type apiError struct {
-	Error     string `json:"error"`
-	Code      int    `json:"code"`
-	RequestID string `json:"request_id,omitempty"`
+	Error      string `json:"error"`
+	Code       int    `json:"code"`
+	ErrorCode  string `json:"error_code,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
+	Resource   string `json:"resource,omitempty"`
+	Retryable  bool   `json:"retryable"`
+	NextAction string `json:"next_action"`
+}
+
+// apiErrorMetadata supplies stable, machine-readable guidance while retaining
+// the legacy string error and numeric HTTP code fields for existing clients.
+func apiErrorMetadata(status int, resource string) (code, nextAction string, retryable bool) {
+	switch status {
+	case http.StatusBadRequest:
+		return "invalid_request", "Correct the request and try again.", false
+	case http.StatusUnauthorized:
+		return "unauthorized", "Authenticate again and retry.", false
+	case http.StatusForbidden:
+		return "forbidden", "Use an authorized account or token.", false
+	case http.StatusNotFound:
+		return "not_found", "Verify the resource identifier and try again.", false
+	case http.StatusConflict:
+		return "conflict", "Wait for the current operation to finish or cancel it, then retry.", true
+	case http.StatusUnprocessableEntity:
+		return "validation_failed", "Correct the request fields and try again.", false
+	case http.StatusTooManyRequests:
+		return "rate_limited", "Wait briefly and retry.", true
+	case http.StatusInsufficientStorage:
+		return "insufficient_storage", "Free disk space or reduce the operation size, then retry.", false
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return "upstream_unavailable", "Restore service readiness and retry.", true
+	case http.StatusNotImplemented:
+		return "unsupported", "Enable the required capability or use a supported operation.", false
+	default:
+		if status >= 500 {
+			return "internal_error", "Use the request ID when checking server logs before retrying.", true
+		}
+		return fmt.Sprintf("http_%d", status), "Review the response and try again if appropriate.", false
+	}
 }
 
 // normalizeAPIErrors gives API clients one predictable JSON error envelope
@@ -1750,12 +1780,13 @@ func normalizeAPIErrors(next http.Handler) http.Handler {
 			log.Printf(`{"level":"error","request_id":%q,"path":%q,"status":%d,"error":%q}`, requestID, r.URL.Path, captured.status, message)
 			message = safeServerErrorMessage(captured.status)
 		}
+		errorCode, nextAction, retryable := apiErrorMetadata(captured.status, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(captured.status)
 		if r.Method == http.MethodHead {
 			return
 		}
-		_ = json.NewEncoder(w).Encode(apiError{Error: message, Code: captured.status, RequestID: requestID})
+		_ = json.NewEncoder(w).Encode(apiError{Error: message, Code: captured.status, ErrorCode: errorCode, RequestID: requestID, Resource: r.URL.Path, Retryable: retryable, NextAction: nextAction})
 	})
 }
 
@@ -1764,7 +1795,8 @@ func normalizeAPIErrors(next http.Handler) http.Handler {
 // envelope is not rewritten because it is not plain text.
 func writeAPIError(w http.ResponseWriter, r *http.Request, status int, message string) {
 	requestID, _ := r.Context().Value(requestIDContextKey{}).(string)
-	writeJSON(w, status, apiError{Error: message, Code: status, RequestID: requestID})
+	errorCode, nextAction, retryable := apiErrorMetadata(status, r.URL.Path)
+	writeJSON(w, status, apiError{Error: message, Code: status, ErrorCode: errorCode, RequestID: requestID, Resource: r.URL.Path, Retryable: retryable, NextAction: nextAction})
 }
 
 // safeServerErrorMessage returns client-safe text for a server error status.
@@ -1833,30 +1865,6 @@ func validateAuditEvent(event AuditEvent) error {
 	return nil
 }
 
-func Audit(path, action, target, detail string) error {
-	if defaultAuditOutbox != nil {
-		return defaultAuditOutbox.enqueue(context.Background(), path, "system", action, target, detail)
-	}
-	// Sync root package's mocked auditKeyPath to audit package for tests
-	if auditKeyPath != "/etc/stepanel-audit.key" {
-		audit.TestSetKeyPath(auditKeyPath)
-	}
-	logger := audit.New(path)
-	return logger.Log(context.Background(), action, target, detail)
-}
-
-func AuditAs(path, actor, action, target, detail string) error {
-	if defaultAuditOutbox != nil {
-		return defaultAuditOutbox.enqueue(context.Background(), path, actor, action, target, detail)
-	}
-	// Sync root package's mocked auditKeyPath to audit package for tests
-	if auditKeyPath != "/etc/stepanel-audit.key" {
-		audit.TestSetKeyPath(auditKeyPath)
-	}
-	logger := audit.New(path)
-	return logger.LogAs(context.Background(), actor, action, target, detail)
-}
-
 func VerifyAuditLog(path string) error {
 	// Create a temporary logger for the specific path to verify it
 	logger := audit.New(path)
@@ -1865,53 +1873,4 @@ func VerifyAuditLog(path string) error {
 
 func AuditPersistenceError() error {
 	return audit.PersistenceError()
-}
-
-func MustAudit(w http.ResponseWriter, auditLog, actor, action, target, detail string) error {
-	var err error
-	if defaultAuditOutbox != nil {
-		err = defaultAuditOutbox.enqueue(context.Background(), auditLog, actor, action, target, detail)
-	} else {
-		// Sync root package's mocked auditKeyPath to audit package for tests
-		if auditKeyPath != "/etc/stepanel-audit.key" {
-			audit.TestSetKeyPath(auditKeyPath)
-		}
-		logger := audit.New(auditLog)
-		err = logger.LogAs(context.Background(), actor, action, target, detail)
-	}
-	if err != nil {
-		log.Printf("[CRITICAL] audit persistence unavailable during %s for %s/%s: %v", action, actor, target, err)
-		http.Error(w, "audit system unavailable; the operation was applied but could not be recorded, contact an administrator", http.StatusServiceUnavailable)
-		return err
-	}
-	return nil
-}
-
-func ShouldAudit(auditLog, actor, action, target, detail string) error {
-	// Sync root package's mocked auditKeyPath to audit package for tests
-	if auditKeyPath != "/etc/stepanel-audit.key" {
-		audit.TestSetKeyPath(auditKeyPath)
-	}
-	logger := audit.New(auditLog)
-	if err := logger.LogAs(context.Background(), actor, action, target, detail); err != nil {
-		log.Printf("[ERROR] audit persistence failed during %s/%s: %v (operator should investigate)", action, target, err)
-		return err
-	}
-	return nil
-}
-
-// recordAudit is for best-effort telemetry and background notifications. It
-// deliberately logs the failure rather than allowing an ignored error to
-// hide an unhealthy audit sink. Mutations whose correctness depends on the
-// audit record must use MustAudit or a durable lifecycle journal.
-func recordAudit(auditLog, actor, action, target, detail string) {
-	if defaultAuditOutbox != nil {
-		if err := defaultAuditOutbox.enqueue(context.Background(), auditLog, actor, action, target, detail); err != nil {
-			log.Printf("[ERROR] audit outbox unavailable for %s/%s: %v", action, target, err)
-		}
-		return
-	}
-	if err := ShouldAudit(auditLog, actor, action, target, detail); err != nil {
-		log.Printf("[ERROR] audit record unavailable for %s/%s: %v", action, target, err)
-	}
 }

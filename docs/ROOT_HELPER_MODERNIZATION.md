@@ -4,7 +4,7 @@
 > the migration described below is historical context, not the current
 > privilege-boundary design. See `docs/ROOT_BROKER_INTEGRATION.md`,
 > `docs/SUDO_THREAT_MODEL.md`, and `docs/CURRENT_STATUS.md` for the current
-> architecture and remaining compatibility work.
+> architecture and typed operation contract.
 
 ## Issue 1: Bash Helpers Are Now Complex Subsystems
 

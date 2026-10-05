@@ -430,7 +430,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not kill task: "+err.Error(), 502)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "task.killed", site, name)
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "task.killed", site, name)
 		writeJSON(w, 202, map[string]string{"site": site, "name": name, "action": "kill"})
 		return
 	}
@@ -522,7 +522,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "scheduled task removed but state cleanup is pending", 503)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "task.deleted", site, name)
+		TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "task.deleted", site, name)
 		w.WriteHeader(204)
 		return
 	}
@@ -599,7 +599,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "scheduled task applied but state update is pending", 503)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "task.updated", site, name)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "task.updated", site, name)
 	writeJSON(w, 202, input)
 }
 
@@ -744,7 +744,7 @@ func (a *App) reconcileTasksHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reconciled, failed := a.reconcileTasks(r.Context())
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "tasks.reconciled", "tasks", strings.Join(reconciled, ","))
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "tasks.reconciled", "tasks", strings.Join(reconciled, ","))
 	writeJSON(w, http.StatusOK, map[string]any{"reconciled": reconciled, "failed": failed})
 }
 

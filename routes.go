@@ -165,9 +165,9 @@ func (a *App) reconcileRoutes(ctx context.Context) (reconciled []string, failed 
 		}
 		var err error
 		if route.State == "delete-pending" {
-			err = runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", route.Name)
+			err = runVhostMutation(operationCtx, a.Config, "delete", route.Name)
 		} else {
-			err = runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "apply", route.Site, route.Domain)
+			err = runVhostMutation(operationCtx, a.Config, "apply", route.Site, route.Domain)
 		}
 		if err != nil {
 			route.LastError = err.Error()

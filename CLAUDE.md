@@ -5,6 +5,20 @@ This document establishes the code quality expectations and architectural patter
 **Last Updated:** 2026-09-25  
 **Scope:** All new code and refactored subsystems must follow Tier 1 standards
 
+## Audit Contract
+
+Every audit call uses one of the two classes in `audit_contract.go`
+(see `docs/AUDIT_CONTRACT.md`):
+
+- **Class A (security ledger):** `BeginSecurityAudit` before the mutation
+  (refuse with `refuseWithoutSecurityAudit` if it fails), then
+  `Completed`/`Failed`/`Finish`. Pure revocations use `RevocationAudit` after
+  the change and are never blocked.
+- **Class B (telemetry):** `TelemetryAudit`, best effort.
+
+Classify every new operation in `docs/AUDIT_CONTRACT.md`. Use
+`Auth.AuditActor(r)` as the actor, never `Auth.Username`.
+
 ## Tier 1 Code Quality Standards
 
 StePanel's mature subsystems (durable jobs, audit logging, backups, account isolation) demonstrate the quality bar for all new code. All code must meet these standards:

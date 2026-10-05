@@ -163,7 +163,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	createdDatabase := false
 	stateRollback := func() {
 		if routeApplied {
-			if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, "delete", routeName); err != nil {
+			if err := runVhostMutation(operationCtx, a.Config, "delete", routeName); err != nil {
 				log.Printf("staging route cleanup failed for %s: %v", input.Site, err)
 			}
 		}
@@ -304,7 +304,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	if basicAuth {
 		args = append(args, input.AuthUser, authHash)
 	}
-	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperConfigMutationTimeout, a.Config.VHostCtl, args...); err != nil {
+	if err := runVhostMutation(operationCtx, a.Config, vhostAction, args[1:]...); err != nil {
 		http.Error(w, "could not activate staging route", 502)
 		return
 	}
@@ -324,7 +324,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := StagingResult{Source: input.Source, Site: input.Site, Domain: input.Domain, FilesCopied: input.Files, EnvironmentCopied: input.Environment, DatabaseCopied: input.Database, TargetDatabase: input.TargetDatabase, SecretsCopied: false, CreatedAt: time.Now().UTC()}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "staging.created", input.Site, input.Source+" -> "+input.Domain)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "staging.created", input.Site, input.Source+" -> "+input.Domain)
 	writeJSON(w, 202, result)
 }
 

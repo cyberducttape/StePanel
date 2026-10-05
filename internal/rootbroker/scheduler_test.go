@@ -292,15 +292,9 @@ func TestRequestLockKeys(t *testing.T) {
 		{"git clone", &Request{RequestType: "git", Git: &GitRequest{Action: "clone", Destination: "/var/www/sites/alpha/.stepanel-release-1"}}, []string{"git:/var/www/sites/alpha/.stepanel-release-1"}},
 		{"certificate", &Request{RequestType: "certificate", Certificate: &CertificateRequest{Action: "issue", Domain: "example.org"}}, []string{"certificate:example.org"}},
 		{"proxy is exclusive", &Request{RequestType: "proxy", Proxy: &ProxyRequest{Action: "reload"}}, nil},
-		{"helper site", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "composer-install", Args: []string{"alpha", "/var/www/sites/alpha/public", "0", "1"}}}, []string{"site:alpha"}},
-		{"helper account", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "account-resource-apply", Args: []string{"acme", "1", "2", "3", "4", "5", "6"}}}, []string{"account:acme"}},
-		{"helper route delete", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "vhostctl", Action: "delete", Args: []string{"site-alpha-example.conf"}}}, []string{"vhostctl:host"}},
-		{"helper proxy reload", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "proxyctl", Action: "reload"}}, []string{"proxyctl:host"}},
-		{"dbctl provision", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "dbctl", Action: "provision", Args: []string{"alpha_db", "alpha_user", "alpha", "utf8mb4"}}}, []string{"database:alpha_db", "site:alpha"}},
-		{"dbctl restore", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "dbctl", Action: "restore", Args: []string{"alpha_db", "alpha"}}}, []string{"database:alpha_db", "site:alpha"}},
-		{"dbctl dump", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "dbctl", Action: "dump", Args: []string{"alpha_db"}}}, []string{"database:alpha_db"}},
-		{"dbctl list", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "dbctl", Action: "list", Args: []string{"alpha"}}}, []string{"site:alpha"}},
-		{"dbctl engine", &Request{RequestType: "helper", Helper: &HelperRequest{Name: "dbctl", Action: "terminate", Args: []string{"42"}}}, []string{"dbctl:engine"}},
+		{"resource account", &Request{RequestType: "resource", Resource: &ResourceRequest{Action: "apply-account", Account: "acme"}}, []string{"account:acme"}},
+		{"database restore", &Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump", Site: "alpha", Database: "alpha_db"}}, []string{"site:alpha", "database:alpha_db"}},
+		{"database engine", &Request{RequestType: "db", DB: &DBRequest{Action: "terminate", SessionID: "42"}}, []string{"dbctl:engine"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -308,59 +302,5 @@ func TestRequestLockKeys(t *testing.T) {
 				t.Fatalf("keys = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-// Every allow-listed helper action except the explicitly host-scoped ones
-// takes the site first; if a new action breaks that assumption it must be
-// classified in helperLockKeys rather than silently keyed on the wrong value.
-func TestHelperSchemasTakeSiteFirstUnlessClassified(t *testing.T) {
-	classified := map[string]bool{
-		"appctl/account-resource-apply": true,
-		"proxyctl/delete":               true,
-		"proxyctl/reload":               true,
-		"vhostctl/delete":               true,
-	}
-	siteFirst := reflect.ValueOf(argSite).Pointer()
-	for name, actions := range helperSchemas {
-		if name == "dbctl" {
-			continue
-		}
-		for action, spec := range actions {
-			if classified[name+"/"+action] {
-				continue
-			}
-			if len(spec.args) == 0 || reflect.ValueOf(spec.args[0]).Pointer() != siteFirst {
-				t.Errorf("%s/%s does not take the site first; classify it in helperLockKeys", name, action)
-			}
-		}
-	}
-	for action := range helperSchemas["dbctl"] {
-		spec := helperSchemas["dbctl"][action]
-		switch action {
-		case "list", "reconcile", "inventory", "diagnostics", "sessions", "settings", "terminate":
-			continue
-		}
-		if reflect.ValueOf(spec.args[0]).Pointer() != reflect.ValueOf(argDatabase).Pointer() {
-			t.Errorf("dbctl/%s does not take the database first; classify it in dbctlLockKeys", action)
-		}
-		position, hasSite := dbctlSitePosition[action]
-		for i, arg := range spec.args {
-			isSite := reflect.ValueOf(arg).Pointer() == siteFirst
-			if isSite && (!hasSite || position != i) {
-				t.Errorf("dbctl/%s takes a site at %d; record it in dbctlSitePosition", action, i)
-			}
-		}
-	}
-}
-
-func TestHelperMutatesAccountsCoversSitectl(t *testing.T) {
-	for action := range helperSchemas["sitectl"] {
-		if !helperMutatesAccounts(&HelperRequest{Name: "sitectl", Action: action}) {
-			t.Errorf("sitectl/%s must hold the account mutation lock", action)
-		}
-	}
-	if helperMutatesAccounts(&HelperRequest{Name: "appctl", Action: "composer-install"}) {
-		t.Error("appctl does not mutate host accounts")
 	}
 }

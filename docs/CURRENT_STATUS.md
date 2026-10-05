@@ -68,9 +68,10 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - Archive inspection/import handlers return durable output and report operation
   errors through the job state. Archive scanning is context-bound and bounded
   for redirects, compressed bytes, entries, and decompressed content.
-- Scheduled-task termination and Git deploy-key generation, retrieval, and
-  deletion use typed root-broker requests; corresponding generic helper actions
-  are rejected. The wider helper-callsite migration remains incomplete.
+- Privileged operations use typed root-broker requests. The generic helper RPC
+  and its caller-controlled helper/action/argv payload have been removed; an
+  untyped production helper call now fails closed. Development installs retain
+  direct helper execution for local workflows.
 - The reported CodeQL path and integer alerts are resolved; the hosted CodeQL
   scan for `635ea5f` reported zero open alerts. The local full race suite and
   serial suite pass through `eb39e63`. Validation for the current documentation
@@ -83,14 +84,15 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 ## Key Subsystem Status
 
-### Helper Layer Modernization (foundation complete; migration in progress)
+### Helper Layer Modernization (typed production protocol complete)
 
-**Status:** Foundation complete; Phase 4 callsite replacement is in progress
+**Status:** The production callsite migration is complete. Root-broker requests
+are finite typed operations; no generic helper request type or handler remains.
 
 - ✅ Phase 1: Design & Foundation (100%)
 - ✅ Phase 2: Broker foundation and validation (100%)
 - ✅ Phase 3: Integration Testing (100%)
-- 🔄 Phase 4: Callsite Replacement (production calls go through the broker; schema-validated generic helper requests remain to be replaced with typed requests)
+- ✅ Phase 4: Callsite Replacement (100%; production mutations and helper-backed reads use typed requests)
 
 **What it is:** Replace 14 shell scripts (1200 lines, high security consequence) with a typed Go root broker. The broker centralizes input validation and fails closed for mutation paths that are not implemented yet; it is not a claim that every helper operation is available.
 
@@ -100,20 +102,17 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 - Integration documentation and migration guide
 - `internal/rootbroker/client.go` — direct typed-client integration surface
 
-**Status:** Native production installs route app/proxy/site/vhost/runner/Git mutations, TLS, and large database restore streams through the root-owned Unix-socket broker. The panel and worker no longer receive a sudoers grant; the remaining stdin/compatibility path is for older installations and tests only. The former `BrokerBridge` wrapper was removed because it had no production callers and exposed unsupported operations through a misleading transitional abstraction.
+**Status:** Native production installs route site, app, worker, environment, resource, proxy, vhost, runner, Git, TLS, and database operations through the root-owned Unix-socket broker. The panel and worker have no sudoers grant. The broker accepts concrete request types only; production helper wrappers reject calls without a typed operation. The former `BrokerBridge` wrapper was removed because it had no production callers and exposed unsupported operations through a misleading transitional abstraction.
 
-**Compatibility helper RPC (2026-10):** the generic `helper` request no longer
-accepts up to 32 caller-controlled arguments. Every forwarded action is declared
-in `internal/rootbroker/helper_schema.go` with exact arity and a semantic type
-per argument: site and account names, database identifiers, ports and bounded
-limits, private proxy backends, digest-pinned images, and paths that must equal
-the named site's `public` or release staging directory under the web root.
-Undeclared actions (including the unused `gitctl verify`) are rejected. This is
-an intermediate step: the remaining goal before 1.0 is one Go request type per
-privileged operation, with ownership checks, so that no generic helper RPC
-remains.
+**Typed protocol evidence (2026-10):** `rootbroker.Request` has no generic
+helper field, the broker has no generic helper handler, and production helper
+wrappers fail closed instead of serializing arbitrary helper argv. Fixed argv
+validation remains internal for resource and runner operations after the broker
+constructs arguments from their typed request fields.
 
-**Next Action:** Replace the schema-validated compatibility actions with dedicated typed requests, starting with database restore/dump streaming.
+**Next Action:** Keep the typed protocol invariant executable in tests and
+re-audit every newly added production callsite. Task direct-helper fallback is
+limited to non-production development installs.
 
 ---
 
@@ -306,10 +305,10 @@ All workflows use **journaled staged activation** — operations are staged in a
 3. Complete actual host power-loss validation before approving Gate 5 Phase 7
 
 ### Short-term
-4. Write the one-page privileged-request model and inventory every
-   remaining generic helper action
-5. Replace generic helper requests with typed requests, starting with
-   database restore/dump streaming, then retire the generic path
+4. Publish the typed privileged-request model and retain the regression test
+   proving that generic helper requests are rejected
+5. Extend typed broker operations only through concrete request and response
+   structures with resource-scoped validation and locking
 6. Extend restore rehearsals to import databases and start the site on a
    staging hostname, so the measured recovery time is a true RTO
 

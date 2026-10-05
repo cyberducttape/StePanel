@@ -103,6 +103,14 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 
 ## Audit & Compliance
 
+### Audit Ledger
+High-impact operations (access grants, credential changes, deletions,
+deployments, restores) record a durable intent before mutating and are
+refused if they cannot; revocations are never blocked and are recorded
+afterwards. Informational events are best-effort telemetry. See
+[AUDIT_CONTRACT.md](./AUDIT_CONTRACT.md) for the contract and the
+classification of every operation.
+
 ### Code Review
 - Archive importer: Adversarial test suite with 75+ security tests
 - Container validation: Path injection and registry tests

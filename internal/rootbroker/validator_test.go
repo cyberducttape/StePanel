@@ -263,7 +263,7 @@ func TestValidateGitDestination(t *testing.T) {
 			t.Errorf("valid destination %q rejected: %v", destination, err)
 		}
 	}
-	for _, destination := range []string{"", "/etc", "../etc", "sites/../etc"} {
+	for _, destination := range []string{"", "/etc", "/var/www/../etc", "../etc", "sites/../etc"} {
 		if err := v.ValidateGitDestination(destination); err == nil {
 			t.Errorf("unsafe destination %q accepted", destination)
 		}
@@ -375,50 +375,16 @@ func TestValidateEncoding(t *testing.T) {
 	}
 }
 
-func TestValidateHelperRequestAllowlist(t *testing.T) {
+func TestGenericHelperRequestIsNoLongerAccepted(t *testing.T) {
 	v := NewValidator("/var/www")
-	valid := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "python-start", Args: []string{"site"}}}
-	if err := v.ValidateRequest(valid); err != nil {
-		t.Fatalf("valid helper request rejected: %v", err)
-	}
-	for _, action := range []string{"apply", "delete", "start", "stop", "restart"} {
-		request := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: action, Args: []string{"demo"}}}
-		if err := v.ValidateRequest(request); err == nil {
-			t.Errorf("app helper action %q remained available through generic helper ABI", action)
-		}
-	}
-	for _, action := range []string{"task-apply", "task-history", "task-delete"} {
-		request := &Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: action, Args: []string{"demo", "nightly"}}}
-		if err := v.ValidateRequest(request); err == nil {
-			t.Errorf("task helper action %q remained available through generic helper ABI", action)
-		}
-	}
-	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "task-kill", Args: []string{"demo", "nightly"}}}); err == nil {
-		t.Fatal("task-kill remained available through the generic helper ABI")
-	}
-	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "gitctl", Action: "delete", Args: []string{"demo"}}}); err == nil {
-		t.Fatal("Git deploy-key deletion remained available through the generic helper ABI")
-	}
-	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "gitctl", Action: "public", Args: []string{"demo"}}}); err == nil {
-		t.Fatal("Git public-key retrieval remained available through the generic helper ABI")
-	}
-	if err := v.ValidateRequest(&Request{RequestType: "helper", Helper: &HelperRequest{Name: "gitctl", Action: "generate", Args: []string{"demo"}}}); err == nil {
-		t.Fatal("Git deploy-key generation remained available through the generic helper ABI")
+	if err := v.ValidateRequest(&Request{RequestType: "helper"}); err == nil {
+		t.Fatal("generic helper request type remains accepted")
 	}
 	if err := v.ValidateRequest(&Request{RequestType: "git", Git: &GitRequest{Action: "generate", Site: "demo"}}); err != nil {
 		t.Fatalf("typed Git deploy-key generation rejected: %v", err)
 	}
 	if err := v.ValidateRequest(&Request{RequestType: "git", Git: &GitRequest{Action: "generate", Site: "../outside"}}); err == nil {
 		t.Fatal("typed Git deploy-key generation accepted an invalid site name")
-	}
-	for _, req := range []*Request{
-		{RequestType: "helper", Helper: &HelperRequest{Name: "not-a-helper", Action: "apply"}},
-		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "shell"}},
-		{RequestType: "helper", Helper: &HelperRequest{Name: "appctl", Action: "python-start", Args: []string{"bad\narg"}}},
-	} {
-		if err := v.ValidateRequest(req); err == nil {
-			t.Errorf("invalid helper request accepted: %#v", req.Helper)
-		}
 	}
 }
 

@@ -35,22 +35,22 @@ func TestHelperCommandUsesNonInteractiveSudo(t *testing.T) {
 	}
 }
 
-func TestProductionHelperDispatchFailsClosedWithoutBrokerRoute(t *testing.T) {
+func TestProductionHelperDispatchRequiresTypedBrokerOperation(t *testing.T) {
 	helper := filepath.Join(t.TempDir(), "unrouted-helper")
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 91\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	cfg := Config{Production: true}
 
-	if err := runHelperCommand(context.Background(), cfg, helper, "mutate"); err == nil || !strings.Contains(err.Error(), "root broker") {
-		t.Fatalf("runHelperCommand error = %v, want fail-closed broker routing error", err)
+	if err := runHelperCommand(context.Background(), cfg, helper, "mutate"); err == nil || !strings.Contains(err.Error(), "typed root-broker") {
+		t.Fatalf("runHelperCommand error = %v, want fail-closed typed-operation error", err)
 	}
-	if err := runHelperCommandWithTimeout(context.Background(), cfg, time.Second, helper, "mutate"); err == nil || !strings.Contains(err.Error(), "root broker") {
-		t.Fatalf("runHelperCommandWithTimeout error = %v, want fail-closed broker routing error", err)
+	if err := runHelperCommandWithTimeout(context.Background(), cfg, time.Second, helper, "mutate"); err == nil || !strings.Contains(err.Error(), "typed root-broker") {
+		t.Fatalf("runHelperCommandWithTimeout error = %v, want fail-closed typed-operation error", err)
 	}
 	output, err, handled := runAllowlistedHelperOutput(context.Background(), cfg, nil, helper, "mutate")
-	if !handled || err == nil || !strings.Contains(err.Error(), "root broker") || len(output) != 0 {
-		t.Fatalf("runAllowlistedHelperOutput = (%q, %v, %t), want fail-closed broker routing error", output, err, handled)
+	if !handled || err == nil || !strings.Contains(err.Error(), "typed root-broker") || len(output) != 0 {
+		t.Fatalf("runAllowlistedHelperOutput = (%q, %v, %t), want fail-closed typed-operation error", output, err, handled)
 	}
 }
 

@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 type PHPProfile struct {
@@ -183,11 +185,26 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "PHP profile applied but state update is pending", 503)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.php.updated", site, p.Version)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.php.updated", site, p.Version)
 	writeJSON(w, 202, p)
 }
 
 func (a *App) applyPHPProfile(ctx context.Context, p PHPProfile) error {
+	if a.Config.Production {
+		return runTypedSiteMutation(ctx, a.Config, rootbroker.SiteRequest{
+			Action:            "runtime",
+			Site:              p.Site,
+			PHPVersion:        p.Version,
+			MemoryLimit:       p.MemoryLimit,
+			ExecTimeout:       p.MaxExecutionTime,
+			UploadMaxFilesize: p.UploadMaxFilesize,
+			PostMaxSize:       p.PostMaxSize,
+			MaxInputVars:      p.MaxInputVars,
+			OPcache:           p.OPcache,
+			DisplayErrors:     p.DisplayErrors,
+			ErrorReporting:    p.ErrorReporting,
+		})
+	}
 	return runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.SiteCtl, "runtime", p.Site, p.Version, p.MemoryLimit, itoa(p.MaxExecutionTime), p.UploadMaxFilesize, p.PostMaxSize, itoa(p.MaxInputVars), boolString(p.OPcache), boolString(p.DisplayErrors), p.ErrorReporting)
 }
 

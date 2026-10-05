@@ -104,7 +104,7 @@ test('site overview makes backup failures explicit', async ({ page }) => {
 
 test('navigation: cPanel migration controls render', async ({ page }) => {
   await page.getByRole('link', { name: 'Migrations' }).click();
-  await expect(page.locator('#migrations')).toBeInViewport();
+  await expect(page.locator('#cpmoveForm')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Import a cpmove backup' })).toBeVisible();
 });
 

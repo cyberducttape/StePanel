@@ -100,12 +100,20 @@ func requestLockKeys(req *Request) []string {
 		add("site", req.App.Site)
 	case "task":
 		add("site", req.Task.Site)
+	case "environment":
+		add("site", req.Environment.Site)
+	case "resource":
+		if req.Resource.Action == "apply-account" {
+			add("account", req.Resource.Account)
+		} else {
+			add("site", req.Resource.Site)
+		}
 	case "vhost":
 		add("site", req.Vhost.Site)
 	case "db":
 		add("site", req.DB.Site)
 		add("database", req.DB.Database)
-		if len(keys) == 0 {
+		if len(keys) == 0 || req.DB.Action == "reconcile" || req.DB.Action == "inventory" {
 			// Engine-wide reads (inventory); dbctl locks its own catalog.
 			add("dbctl", "engine")
 		}
@@ -117,51 +125,6 @@ func requestLockKeys(req *Request) []string {
 		}
 	case "certificate":
 		add("certificate", req.Certificate.Domain)
-	case "helper":
-		keys = helperLockKeys(req.Helper)
-	}
-	return keys
-}
-
-// helperLockKeys relies on the validated helper schema: every action except
-// those handled explicitly takes the site as its first argument.
-func helperLockKeys(req *HelperRequest) []string {
-	switch {
-	case req.Name == "dbctl":
-		return dbctlLockKeys(req.Action, req.Args)
-	case req.Name == "appctl" && req.Action == "account-resource-apply":
-		return []string{"account:" + req.Args[0]}
-	case req.Name == "proxyctl" && req.Action == "delete",
-		req.Name == "proxyctl" && req.Action == "reload",
-		req.Name == "vhostctl" && req.Action == "delete":
-		// Route names, not sites; the helpers flock the shared web server
-		// configuration they rewrite.
-		return []string{req.Name + ":host"}
-	case len(req.Args) > 0 && schemaSitePattern.MatchString(req.Args[0]):
-		return []string{"site:" + req.Args[0]}
-	}
-	return nil
-}
-
-// dbctlSitePosition is the index of the site argument for dbctl actions that
-// take one alongside a database.
-var dbctlSitePosition = map[string]int{
-	"provision":         2,
-	"restore":           1,
-	"restore-dump":      1,
-	"restore-wordpress": 2,
-}
-
-func dbctlLockKeys(action string, args []string) []string {
-	switch action {
-	case "list":
-		return []string{"site:" + args[0]}
-	case "reconcile", "inventory", "diagnostics", "sessions", "settings", "terminate":
-		return []string{"dbctl:engine"}
-	}
-	keys := []string{"database:" + args[0]}
-	if position, ok := dbctlSitePosition[action]; ok {
-		keys = append(keys, "site:"+args[position])
 	}
 	return keys
 }

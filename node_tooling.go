@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 var nodeToolActions = map[string]bool{"install": true, "build": true}
@@ -56,7 +58,13 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Node tooling operation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "node-tool", input.Site, input.Action, input.PackageManager, root); err != nil {
+	var toolErr error
+	if a.Config.Production {
+		toolErr = runTypedAppOperation(operationCtx, a.Config, rootbroker.AppRequest{Action: "node-tool", Site: input.Site, ToolAction: input.Action, PackageManager: input.PackageManager, Root: root})
+	} else {
+		toolErr = runHelperCommandWithTimeout(operationCtx, a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "node-tool", input.Site, input.Action, input.PackageManager, root)
+	}
+	if err := toolErr; err != nil {
 		http.Error(w, "Node tooling action failed", 502)
 		return
 	}
@@ -64,6 +72,6 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Node tooling operation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "node."+input.Action, input.Site, input.PackageManager)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "node."+input.Action, input.Site, input.PackageManager)
 	writeJSON(w, http.StatusAccepted, input)
 }

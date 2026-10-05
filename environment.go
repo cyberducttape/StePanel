@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 func (a *App) applyEnvironment(ctx context.Context, access SiteCapability, vars map[string]environmentValue) error {
@@ -37,7 +39,22 @@ func (a *App) applyEnvironmentLocked(ctx context.Context, site string, vars map[
 	sort.Strings(lines)
 	commandCtx, cancel := context.WithTimeout(ctx, helperConfigMutationTimeout)
 	defer cancel()
-	_, err, _ := runAllowlistedHelperOutput(commandCtx, a.Config, []byte(strings.Join(lines, "\n")+"\n"), a.Config.AppCtl, "env-apply", site)
+	content := strings.Join(lines, "\n") + "\n"
+	if a.Config.Production {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
+		if err != nil {
+			return err
+		}
+		response, err := client.Execute(commandCtx, &rootbroker.Request{RequestType: "environment", Environment: &rootbroker.EnvironmentRequest{Action: "apply", Site: site, Content: content}})
+		if err != nil {
+			return err
+		}
+		if !response.OK {
+			return errors.New(response.Error)
+		}
+		return nil
+	}
+	_, err, _ := runAllowlistedHelperOutput(commandCtx, a.Config, []byte(content), a.Config.AppCtl, "env-apply", site)
 	return err
 }
 
@@ -417,11 +434,17 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "environment mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		intent, auditErr := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.environment.updated", site, fmt.Sprintf("%d variable change(s)", len(updates)))
+		if auditErr != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		a.Environments.mu.Lock()
 		previous, existed := a.Environments.values[site]
 		input, mergeErr := mergeEnvironmentUpdate(previous, updates)
 		if mergeErr != nil {
 			a.Environments.mu.Unlock()
+			intent.Failed(mergeErr.Error())
 			http.Error(w, mergeErr.Error(), 422)
 			return
 		}
@@ -436,18 +459,20 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 		}
 		a.Environments.mu.Unlock()
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, "environment state could not be saved", 503)
 			return
 		}
 		if err := a.applyEnvironment(operationCtx, access, input); err != nil {
+			intent.Completed(fmt.Sprintf("%d variables; persisted, host reconciliation pending", len(input)))
 			http.Error(w, "environment is pending host reconciliation", 502)
 			return
 		}
+		intent.Completed(fmt.Sprintf("%d variables", len(input)))
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "environment update cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.environment.updated", site, fmt.Sprintf("%d variables", len(input)))
 		w.WriteHeader(204)
 	case http.MethodDelete:
 		if !a.Auth.CSRF(r) {
@@ -468,7 +493,17 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "environment mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.environment.deleted", site, "removal of all variables")
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		if err := a.removeEnvironment(operationCtx, access); err != nil {
+			if strings.Contains(err.Error(), "metadata cleanup pending") {
+				intent.Completed("all variables removed; metadata cleanup pending")
+			} else {
+				intent.Failed(err.Error())
+			}
 			if strings.Contains(err.Error(), "desired state save failed") {
 				http.Error(w, "environment state could not be saved", 503)
 			} else if strings.Contains(err.Error(), "metadata cleanup pending") {
@@ -478,7 +513,7 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.environment.deleted", site, "all variables removed")
+		intent.Completed("all variables removed")
 		w.WriteHeader(204)
 	}
 }

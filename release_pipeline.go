@@ -105,6 +105,13 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "release cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.release.pipeline", input.Site, input.Repository+"@"+input.Ref)
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
+	var outcome string
+	defer intent.Finish(&outcome, "pipeline did not activate a release")
 	ctx, cancel := context.WithTimeout(operationCtx, 20*time.Minute)
 	defer cancel()
 	deploymentID, err := newJobID("deployment")
@@ -169,6 +176,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "atomic activation failed", 503)
 		return
 	}
+	outcome = input.Repository + "@" + commit
 	result.Previous = previous
 	if err := a.recordDeployment(input.Site, "activation", "completed", "atomic built release activated", result, ""); err != nil {
 		// The release is live; say so rather than reporting a failed deploy.
@@ -179,7 +187,6 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "site.release.pipeline", input.Site, input.Repository+"@"+commit)
 	writeJSON(w, 202, result)
 }
 
@@ -233,7 +240,11 @@ func (a *App) runPipelineBuild(ctx context.Context, site, image string, commands
 		return err
 	}
 	args := a.pipelineBuildArgs(site, image, root, script.Name())
-	return runHelperCommand(ctx, a.Config, a.Config.RunnerCtl, args...)
+	request, err := runnerRequestFromArgs(args)
+	if err != nil {
+		return err
+	}
+	return runRunnerBuild(ctx, a.Config, request)
 }
 
 // pipelineBuildArgs constructs the argument list for the stepanel-runnerctl

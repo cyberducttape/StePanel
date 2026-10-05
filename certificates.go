@@ -23,6 +23,11 @@ func (a *App) issueCertificate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusForbidden)
 		return
 	}
+	operationKey, err := requestOperationKey(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	var input struct{ Domain, Email string }
 	if err := decodeJSON(w, r, 4096, &input); err != nil {
 		http.Error(w, "invalid JSON", 400)
@@ -48,7 +53,7 @@ func (a *App) issueCertificate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not encode certificate job", http.StatusInternalServerError)
 		return
 	}
-	job, _, err := a.Jobs.EnqueueIdempotent("certificate.issue", input.Domain, "", payload, 3)
+	job, _, err := a.Jobs.EnqueueIdempotent("certificate.issue", input.Domain, operationKey, payload, 3)
 	if err != nil {
 		http.Error(w, "could not persist certificate job", http.StatusInternalServerError)
 		return

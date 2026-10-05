@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -59,22 +60,12 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	if cfg.Production {
-		// Route managed mutations through their typed broker contract before
-		// the generic compatibility adapter. The generic adapter reports every
-		// helper request as handled, so placing this below it silently bypasses
-		// the typed DB ABI.
-		if typedDatabaseMutation(args) {
+		// Route each supported production database action through the typed
+		// broker contract. Any action not represented by DBRequest fails closed.
+		if typedDatabaseAction(args) {
 			return runTypedDatabaseMutation(ctx, cfg, input, args...)
 		}
-		var helperInput []byte
-		if input != "" {
-			helperInput = []byte(input + "\n")
-		}
-		output, err, handled := runAllowlistedHelperOutput(ctx, cfg, helperInput, cfg.DBCtl, args...)
-		if handled {
-			return output, err
-		}
-		return nil, errors.New("production database helper is not routed through the root broker")
+		return nil, errors.New("production database action has no typed root-broker operation")
 	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, args...)
 	if input == "" {
@@ -83,12 +74,12 @@ func runDatabaseHelperContext(parent context.Context, cfg Config, timeout time.D
 	return runBoundedCommandInput(ctx, cmd, strings.NewReader(input+"\n"))
 }
 
-func typedDatabaseMutation(args []string) bool {
+func typedDatabaseAction(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
 	switch args[0] {
-	case "provision", "rotate", "drop-managed", "cleanup-wordpress":
+	case "provision", "rotate", "drop", "drop-managed", "cleanup-wordpress", "inventory", "diagnostics", "sessions", "settings", "terminate", "reconcile":
 		return true
 	default:
 		return false
@@ -98,22 +89,38 @@ func typedDatabaseMutation(args []string) bool {
 func runTypedDatabaseMutation(ctx context.Context, cfg Config, input string, args ...string) ([]byte, error) {
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create root broker client: %w", err)
 	}
-	if len(args) < 2 {
-		return nil, errors.New("invalid typed database mutation")
+	if len(args) == 0 {
+		return nil, errors.New("invalid typed database action")
 	}
-	req := &rootbroker.DBRequest{Action: args[0], Database: args[1]}
+	req := &rootbroker.DBRequest{Action: args[0]}
 	switch args[0] {
+	case "reconcile", "inventory", "diagnostics", "sessions", "settings":
+		if len(args) != 1 {
+			return nil, errors.New("invalid database read arguments")
+		}
+	case "terminate":
+		if len(args) != 2 {
+			return nil, errors.New("invalid database session termination arguments")
+		}
+		req.SessionID = args[1]
+	case "drop":
+		if len(args) != 2 {
+			return nil, errors.New("invalid database arguments")
+		}
+		req.Database = args[1]
 	case "provision":
 		if len(args) != 5 {
 			return nil, errors.New("invalid database provision arguments")
 		}
+		req.Database = args[1]
 		req.Username, req.Site, req.Encoding, req.Password = args[2], args[3], args[4], input
 	case "rotate", "drop-managed", "cleanup-wordpress":
 		if len(args) != 3 {
 			return nil, errors.New("invalid managed database arguments")
 		}
+		req.Database = args[1]
 		req.Username, req.Password = args[2], input
 	}
 	response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "db", DB: req})
@@ -123,7 +130,14 @@ func runTypedDatabaseMutation(ctx context.Context, cfg Config, input string, arg
 	if !response.OK {
 		return nil, errors.New(response.Error)
 	}
-	return response.Details, nil
+	if len(response.Details) == 0 {
+		return nil, nil
+	}
+	var details rootbroker.DBResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil {
+		return nil, err
+	}
+	return []byte(details.Output), nil
 }
 
 // runDatabaseRestoreFromPath keeps large SQL streams inside the privileged
@@ -394,7 +408,14 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "database mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		provision := fmt.Sprintf("site=%s user=%s encoding=%s", in.Site, in.User, in.Encoding)
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "database.provisioned", in.Name, provision)
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		if _, err := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, in.Password, "provision", in.Name, in.User, in.Site, in.Encoding); err != nil {
+			intent.Failed(err.Error())
 			log.Printf("database provision rejected for %s: %v", in.Name, err)
 			http.Error(w, "database or user already exists, or provisioning failed", http.StatusConflict)
 			return
@@ -403,7 +424,7 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "database provisioning cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.provisioned", in.Name, fmt.Sprintf("site=%s user=%s encoding=%s", in.Site, in.User, in.Encoding))
+		intent.Completed(provision)
 		writeJSON(w, http.StatusCreated, DatabaseResource{Name: in.Name, Site: in.Site, User: in.User, Encoding: in.Encoding})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -503,15 +524,21 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "database credential rotation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "database.credentials_rotated", name, "user="+in.User)
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		if _, err := runDatabaseHelperContext(operationCtx, a.Config, 30*time.Second, in.Password, "rotate", name, in.User); err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, "credential rotation failed", http.StatusConflict)
 			return
 		}
+		intent.Completed("user=" + in.User)
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "database credential rotation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.credentials_rotated", name, "user="+in.User)
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodDelete && !credentialRotation:
 		if in.Confirm != "DROP "+name {
@@ -534,15 +561,22 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "database deletion cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		deletion := "user=" + in.User + " safety_backup=" + safetyBackup.Path + " sha256=" + safetyBackup.SHA256
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "database.deleted", name, deletion)
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		if _, err := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, "", "drop-managed", name, in.User); err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, "database deletion failed", http.StatusConflict)
 			return
 		}
+		intent.Completed(deletion)
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "database deletion cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "database.deleted", name, "user="+in.User+" safety_backup="+safetyBackup.Path+" sha256="+safetyBackup.SHA256)
 		writeJSON(w, http.StatusOK, map[string]any{"deleted": name, "safety_backup": safetyBackup})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -617,6 +651,6 @@ func (a *App) databaseSessionTerminate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session termination failed", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.Username, "database.session_terminated", id, "explicit operator confirmation")
+	RevocationAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "database.session_terminated", id, "explicit operator confirmation")
 	w.WriteHeader(http.StatusNoContent)
 }

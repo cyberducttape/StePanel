@@ -234,7 +234,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	clientIP := a.ClientIP(r)
 	if a.loginLimiter != nil && !a.loginLimiter.Allow(clientIP) {
-		recordAudit(a.AuditLog, "unknown", "auth.login.throttled", clientIP, "login rate limit exceeded")
+		TelemetryAudit(a.AuditLog, "unknown", "auth.login.throttled", clientIP, "login rate limit exceeded")
 		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
 		return
 	}
@@ -246,7 +246,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	accountKey := loginAccountLimiterKey(clientIP, username)
 	if a.loginAccountLimiter != nil && !a.loginAccountLimiter.Allow(accountKey) {
-		recordAudit(a.AuditLog, "unknown", "auth.login.throttled", clientIP, "account login rate limit exceeded")
+		TelemetryAudit(a.AuditLog, "unknown", "auth.login.throttled", clientIP, "account login rate limit exceeded")
 		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
 		return
 	}
@@ -281,7 +281,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		if actor == "" {
 			actor = "unknown"
 		}
-		recordAudit(a.AuditLog, actor, "auth.login.failed", clientIP, "invalid credentials")
+		TelemetryAudit(a.AuditLog, actor, "auth.login.failed", clientIP, "invalid credentials")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(loginPage("Invalid credentials", true)))
@@ -295,7 +295,7 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 	if a.loginAccountLimiter != nil {
 		a.loginAccountLimiter.Reset(accountKey)
 	}
-	if err := AuditAs(a.AuditLog, username, "auth.login.succeeded", clientIP, "session issued"); err != nil {
+	if err := SecurityAuditRequired(a.AuditLog, username, "auth.login.succeeded", clientIP, "session issued"); err != nil {
 		http.Error(w, "audit persistence is unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -343,7 +343,7 @@ func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	if actor == "" {
 		actor = a.Username
 	}
-	recordAudit(a.AuditLog, actor, "auth.logout", a.ClientIP(r), "session ended")
+	TelemetryAudit(a.AuditLog, actor, "auth.logout", a.ClientIP(r), "session ended")
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_session", MaxAge: -1, Path: "/", HttpOnly: true, Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", MaxAge: -1, Path: "/", Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -358,7 +358,7 @@ func (a Auth) Require(next http.Handler) http.Handler {
 			r = r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, username))
 			r = r.WithContext(context.WithValue(r.Context(), apiTokenScopesKey{}, scopes))
 			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				if err := AuditAs(a.AuditLog, username, "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
+				if err := SecurityAuditRequired(a.AuditLog, username, "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
 					http.Error(w, "audit persistence is unavailable", 503)
 					return
 				}
@@ -372,7 +372,7 @@ func (a Auth) Require(next http.Handler) http.Handler {
 		}
 		if a.validSession(r) {
 			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				if err := AuditAs(a.AuditLog, a.UsernameForRequest(r), "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
+				if err := SecurityAuditRequired(a.AuditLog, a.UsernameForRequest(r), "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
 					http.Error(w, "audit persistence is unavailable", http.StatusServiceUnavailable)
 					return
 				}
@@ -563,6 +563,22 @@ func (a Auth) UsernameForRequest(r *http.Request) string {
 	return parts[0]
 }
 
+// AuditActor names the actor of a request in audit events: the
+// authenticated requester, or "auth-disabled" when authentication is turned
+// off (non-production only), where every request acts with full authority
+// and no identity exists. With authentication enabled and no identity it
+// returns "", so Class A operations fail closed rather than record an
+// unattributed mutation.
+func (a Auth) AuditActor(r *http.Request) string {
+	if username := a.UsernameForRequest(r); username != "" {
+		return username
+	}
+	if !a.Enabled {
+		return "auth-disabled"
+	}
+	return ""
+}
+
 func (a Auth) IsAPITokenRequest(r *http.Request) bool {
 	_, ok := r.Context().Value(apiTokenUsernameKey{}).(string)
 	return ok
@@ -660,6 +676,9 @@ func (a Auth) HasRequiredCustomerScope(r *http.Request, scope string) bool {
 	}
 	scopes, _ := r.Context().Value(apiTokenScopesKey{}).([]string)
 	if len(scopes) == 0 {
+		// Legacy credentials remain inside their bounded migration window. The
+		// authentication path applies the expiry deadline; until then retain the
+		// tenant role boundary so a legacy token is not broader than its account.
 		username, _ := r.Context().Value(apiTokenUsernameKey{}).(string)
 		if a.Accounts == nil {
 			return true

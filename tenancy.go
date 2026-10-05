@@ -83,7 +83,7 @@ func (a *App) requireSiteAccess(w http.ResponseWriter, r *http.Request, site, de
 	access, ok := a.authorizeSite(r, site)
 	if !ok {
 		actor := a.Auth.UsernameForRequest(r)
-		recordAudit(a.Config.AuditLog, actor, "tenant.access_denied", site, r.Method+" "+r.URL.Path)
+		TelemetryAudit(a.Config.AuditLog, actor, "tenant.access_denied", site, r.Method+" "+r.URL.Path)
 		http.Error(w, deniedMessage, deniedStatus)
 	}
 	return access, ok

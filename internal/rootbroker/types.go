@@ -14,6 +14,12 @@ type Request struct {
 	// App operations: apply, start, stop, restart, rollback
 	App *AppRequest `json:"app,omitempty"`
 
+	// Worker operations: apply, delete, start, stop, restart
+	Worker *WorkerRequest `json:"worker,omitempty"`
+
+	// Sandboxed build operation.
+	Runner *RunnerRequest `json:"runner,omitempty"`
+
 	// Database operations: inventory, provision, dump, restore, restore-dump,
 	// restore-wordpress, drop, drop-managed, cleanup-wordpress, rotate
 	DB *DBRequest `json:"db,omitempty"`
@@ -27,17 +33,38 @@ type Request struct {
 	// Git operations: clone, verify-key
 	Git *GitRequest `json:"git,omitempty"`
 
-	// Helper is a transitional, allow-listed bridge for helper callsites that
-	// have not yet gained a dedicated typed operation. The broker still owns
-	// the executable path and validates the helper/action pair.
-	Helper *HelperRequest `json:"helper,omitempty"`
-
 	// Certificate requests expose only the bounded issuance operation; they
 	// cannot select an executable, arbitrary arguments, or certificate paths.
 	Certificate *CertificateRequest `json:"certificate,omitempty"`
 
 	// Task requests expose validated scheduler controls without helper argv.
 	Task *TaskRequest `json:"task,omitempty"`
+
+	// Environment requests update one site's systemd environment file.
+	Environment *EnvironmentRequest `json:"environment,omitempty"`
+	Resource    *ResourceRequest    `json:"resource,omitempty"`
+}
+
+type EnvironmentRequest struct {
+	Action  string `json:"action"`
+	Site    string `json:"site"`
+	Content string `json:"content"`
+}
+
+type ResourceRequest struct {
+	Action       string `json:"action"`
+	Site         string `json:"site,omitempty"`
+	Account      string `json:"account,omitempty"`
+	CPUPercent   int    `json:"cpu_percent"`
+	CPUWeight    int    `json:"cpu_weight"`
+	MemoryHighMB int    `json:"memory_high_mb"`
+	MemoryMB     int    `json:"memory_mb"`
+	IOWeight     int    `json:"io_weight"`
+	TasksMax     int    `json:"tasks_max"`
+}
+
+type ResourceResponse struct {
+	Output string `json:"output,omitempty"`
 }
 
 type CertificateRequest struct {
@@ -76,17 +103,6 @@ type TaskResponse struct {
 	Output  string `json:"output,omitempty"`
 }
 
-type HelperRequest struct {
-	Name   string   `json:"name"`
-	Action string   `json:"action"`
-	Args   []string `json:"args,omitempty"`
-	Input  []byte   `json:"input,omitempty"`
-}
-
-type HelperResponse struct {
-	Output string `json:"output,omitempty"`
-}
-
 // Response is the top-level RPC response sent back to the app.
 type Response struct {
 	OK      bool            `json:"ok"`
@@ -97,23 +113,29 @@ type Response struct {
 // --- Site Operations ---
 
 type SiteRequest struct {
-	Action        string `json:"action"` // create, delete, seal, prepare, access, resources, quota, quota-clear, runtime
-	Site          string `json:"site"`   // Validated: [a-z0-9_-]{1,32}
-	SSHKeys       string `json:"ssh_keys,omitempty"`
-	SFTPEnabled   *bool  `json:"sftp,omitempty"`
-	ShellEnabled  *bool  `json:"shell,omitempty"`
-	PHPWorkers    int    `json:"php_workers,omitempty"`
-	DiskMB        int    `json:"disk_mb,omitempty"`
-	Inodes        int    `json:"inodes,omitempty"`
-	PHPVersion    string `json:"php_version,omitempty"` // e.g. "8.2"
-	MemoryMB      int    `json:"memory_mb,omitempty"`
-	ExecTimeout   int    `json:"exec_timeout,omitempty"`
-	UploadSize    int    `json:"upload_size,omitempty"`
-	PostSize      int    `json:"post_size,omitempty"`
-	InputTimeout  int    `json:"input_timeout,omitempty"`
-	OpcacheSize   int    `json:"opcache_size,omitempty"`
-	DisplayErrors bool   `json:"display_errors,omitempty"`
-	ErrorLogging  bool   `json:"error_logging,omitempty"`
+	Action            string `json:"action"` // create, delete, seal, prepare, access, resources, quota, quota-clear, runtime
+	Site              string `json:"site"`   // Validated: [a-z0-9_-]{1,32}
+	SSHKeys           string `json:"ssh_keys,omitempty"`
+	SFTPEnabled       *bool  `json:"sftp,omitempty"`
+	ShellEnabled      *bool  `json:"shell,omitempty"`
+	PHPWorkers        int    `json:"php_workers,omitempty"`
+	DiskMB            int    `json:"disk_mb,omitempty"`
+	Inodes            int    `json:"inodes,omitempty"`
+	PHPVersion        string `json:"php_version,omitempty"`  // e.g. "8.2"
+	MemoryLimit       string `json:"memory_limit,omitempty"` // e.g. "256M"
+	UploadMaxFilesize string `json:"upload_max_filesize,omitempty"`
+	PostMaxSize       string `json:"post_max_size,omitempty"`
+	MaxInputVars      int    `json:"max_input_vars,omitempty"`
+	OPcache           bool   `json:"opcache,omitempty"`
+	ErrorReporting    string `json:"error_reporting,omitempty"`
+	MemoryMB          int    `json:"memory_mb,omitempty"`
+	ExecTimeout       int    `json:"exec_timeout,omitempty"`
+	UploadSize        int    `json:"upload_size,omitempty"`
+	PostSize          int    `json:"post_size,omitempty"`
+	InputTimeout      int    `json:"input_timeout,omitempty"`
+	OpcacheSize       int    `json:"opcache_size,omitempty"`
+	DisplayErrors     bool   `json:"display_errors,omitempty"`
+	ErrorLogging      bool   `json:"error_logging,omitempty"`
 }
 
 type SiteResponse struct {
@@ -126,11 +148,17 @@ type SiteResponse struct {
 // --- App Operations ---
 
 type AppRequest struct {
-	Action  string `json:"action"`  // apply, delete, start, stop, restart, rollback
-	Site    string `json:"site"`    // Validated site name
-	Version string `json:"version"` // Node version (e.g. "18.0.0", validated against pattern)
-	Port    int    `json:"port"`    // 1024-65535
-	Root    string `json:"root"`    // Site's public root (validated)
+	Action             string `json:"action"` // lifecycle, package, Python, or Node tooling action
+	Site               string `json:"site"`
+	Version            string `json:"version"`
+	Port               int    `json:"port"`
+	Root               string `json:"root"`
+	ToolAction         string `json:"tool_action,omitempty"`
+	PackageManager     string `json:"package_manager,omitempty"`
+	Development        bool   `json:"development,omitempty"`
+	OptimizeAutoloader bool   `json:"optimize_autoloader,omitempty"`
+	EntryPoint         string `json:"entrypoint,omitempty"`
+	Workers            int    `json:"workers,omitempty"`
 }
 
 type AppResponse struct {
@@ -144,17 +172,51 @@ type AppResponse struct {
 	Output     string `json:"output,omitempty"`
 }
 
+type WorkerRequest struct {
+	Action    string `json:"action"`
+	Site      string `json:"site"`
+	Name      string `json:"name"`
+	Type      string `json:"type,omitempty"`
+	Root      string `json:"root,omitempty"`
+	Processes int    `json:"processes,omitempty"`
+	MemoryMB  int    `json:"memory_mb,omitempty"`
+	Retries   int    `json:"retries,omitempty"`
+}
+
+type WorkerResponse struct {
+	Applied   bool   `json:"applied,omitempty"`
+	Deleted   bool   `json:"deleted,omitempty"`
+	Started   bool   `json:"started,omitempty"`
+	Stopped   bool   `json:"stopped,omitempty"`
+	Restarted bool   `json:"restarted,omitempty"`
+	Output    string `json:"output,omitempty"`
+}
+
+type RunnerRequest struct {
+	Action        string `json:"action"`
+	Site          string `json:"site"`
+	Image         string `json:"image"`
+	Root          string `json:"root"`
+	Script        string `json:"script"`
+	CPUPercent    int    `json:"cpu_percent"`
+	MemoryMB      int    `json:"memory_mb"`
+	TasksMax      int    `json:"tasks_max"`
+	NetworkMode   string `json:"network_mode"`
+	MaxImageBytes int64  `json:"max_image_bytes"`
+}
+
 // --- Database Operations ---
 
 type DBRequest struct {
-	Action   string `json:"action"`              // inventory, provision, dump, restore-dump, drop
-	Database string `json:"database"`            // Database name (validated)
-	Username string `json:"username"`            // DB username (validated)
-	Password string `json:"password"`            // DB password (not logged)
-	Site     string `json:"site"`                // Associated site
-	Encoding string `json:"encoding"`            // utf8mb4, UTF8, etc.
-	DumpData []byte `json:"dump_data,omitempty"` // For restore-dump action
-	DumpPath string `json:"dump_path,omitempty"` // Root broker reads and streams this validated staging file
+	Action    string `json:"action"`   // inventory, provision, dump, restore-dump, drop
+	Database  string `json:"database"` // Database name (validated)
+	SessionID string `json:"session_id,omitempty"`
+	Username  string `json:"username"`            // DB username (validated)
+	Password  string `json:"password"`            // DB password (not logged)
+	Site      string `json:"site"`                // Associated site
+	Encoding  string `json:"encoding"`            // utf8mb4, UTF8, etc.
+	DumpData  []byte `json:"dump_data,omitempty"` // For restore-dump action
+	DumpPath  string `json:"dump_path,omitempty"` // Root broker reads and streams this validated staging file
 }
 
 type DBResponse struct {
@@ -172,13 +234,15 @@ type DBResponse struct {
 type VhostRequest struct {
 	Action        string `json:"action"` // apply, delete, apply-auth
 	Site          string `json:"site"`
-	Domain        string `json:"domain"` // Validated domain name
+	Domain        string `json:"domain"`         // Validated domain name
+	Name          string `json:"name,omitempty"` // Managed config name for delete
 	SSLCertPath   string `json:"ssl_cert_path,omitempty"`
 	SSLKeyPath    string `json:"ssl_key_path,omitempty"`
 	WebServer     string `json:"webserver"` // caddy, apache, nginx, ols
 	BasicAuthUser string `json:"basic_auth_user,omitempty"`
 	BasicAuthHash string `json:"basic_auth_hash,omitempty"` // bcrypt hash
 	UpstreamPort  int    `json:"upstream_port,omitempty"`
+	Directives    string `json:"directives,omitempty"`
 }
 
 type VhostResponse struct {
@@ -190,7 +254,11 @@ type VhostResponse struct {
 // --- Proxy Operations ---
 
 type ProxyRequest struct {
-	Action    string            `json:"action"`              // apply, reload
+	Action    string            `json:"action"` // apply, reload, delete
+	Site      string            `json:"site,omitempty"`
+	Domain    string            `json:"domain,omitempty"`
+	Backend   string            `json:"backend,omitempty"`
+	Name      string            `json:"name,omitempty"`
 	WebServer string            `json:"webserver"`           // caddy, apache, nginx, ols
 	Upstreams map[string]string `json:"upstreams,omitempty"` // domain -> upstream address
 	CertPath  string            `json:"cert_path,omitempty"`
@@ -200,6 +268,7 @@ type ProxyRequest struct {
 type ProxyResponse struct {
 	Applied  bool `json:"applied,omitempty"`
 	Reloaded bool `json:"reloaded,omitempty"`
+	Deleted  bool `json:"deleted,omitempty"`
 }
 
 // --- Git Operations ---

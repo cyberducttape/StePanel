@@ -3,11 +3,13 @@ package rootbroker
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
@@ -15,6 +17,7 @@ import (
 )
 
 var taskNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+var workerNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 
 // Validator performs input validation at the root boundary.
 // All user-supplied data is validated before any system operations.
@@ -220,6 +223,21 @@ func (v *Validator) ValidateGitRef(ref string) error {
 // only the repository and ref is insufficient even when the current broker
 // action is unavailable.
 func (v *Validator) ValidateGitDestination(destination string) error {
+	// The installed git helper receives an absolute release path. Accept it
+	// only when it resolves inside the broker web root; other broker file
+	// operations continue to use the stricter relative-path policy.
+	if filepath.IsAbs(destination) {
+		rootAbs, err := filepath.Abs(v.webRoot)
+		if err != nil {
+			return fmt.Errorf("cannot resolve web root: %w", err)
+		}
+		clean := filepath.Clean(destination)
+		rel, err := filepath.Rel(filepath.Clean(rootAbs), clean)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("git destination is outside the web root")
+		}
+		return nil
+	}
 	if err := v.ValidateFilePath(v.webRoot, destination); err != nil {
 		return fmt.Errorf("invalid git destination: %w", err)
 	}
@@ -304,6 +322,10 @@ func (v *Validator) ValidateRequest(req *Request) error {
 		return v.validateSiteRequest(req.Site)
 	case "app":
 		return v.validateAppRequest(req.App)
+	case "worker":
+		return v.validateWorkerRequest(req.Worker)
+	case "runner":
+		return v.validateRunnerRequest(req.Runner)
 	case "db":
 		return v.validateDBRequest(req.DB)
 	case "vhost":
@@ -312,15 +334,85 @@ func (v *Validator) ValidateRequest(req *Request) error {
 		return v.validateProxyRequest(req.Proxy)
 	case "git":
 		return v.validateGitRequest(req.Git)
-	case "helper":
-		return v.validateHelperRequest(req.Helper)
 	case "certificate":
 		return v.validateCertificateRequest(req.Certificate)
 	case "task":
 		return v.validateTaskRequest(req.Task)
+	case "environment":
+		return v.validateEnvironmentRequest(req.Environment)
+	case "resource":
+		return v.validateResourceRequest(req.Resource)
 	default:
 		return fmt.Errorf("unknown request type: %s", req.RequestType)
 	}
+}
+
+func (v *Validator) validateResourceRequest(req *ResourceRequest) error {
+	if req == nil {
+		return errors.New("resource request is nil")
+	}
+	var action string
+	var args []string
+	switch req.Action {
+	case "apply-account":
+		action = "account-resource-apply"
+		args = []string{req.Account, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.CPUWeight), strconv.Itoa(req.MemoryHighMB), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.IOWeight), strconv.Itoa(req.TasksMax)}
+	case "apply-site":
+		action = "resource-apply"
+		args = []string{req.Site, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.CPUWeight), strconv.Itoa(req.MemoryHighMB), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.IOWeight), strconv.Itoa(req.TasksMax), req.Account}
+	case "status":
+		action = "resource-status"
+		args = []string{req.Site}
+	default:
+		return errors.New("unsupported resource action")
+	}
+	return v.validateFixedCommandArgs("appctl", action, args)
+}
+
+func (v *Validator) validateEnvironmentRequest(req *EnvironmentRequest) error {
+	if req == nil || req.Action != "apply" {
+		return errors.New("environment request must specify the apply action")
+	}
+	if err := v.ValidateSiteName(req.Site); err != nil {
+		return err
+	}
+	if len(req.Content) > 1<<20 || strings.ContainsRune(req.Content, '\x00') {
+		return errors.New("environment content is invalid or too large")
+	}
+	return nil
+}
+
+func (v *Validator) validateRunnerRequest(req *RunnerRequest) error {
+	if req == nil || req.Action != "build" {
+		return errors.New("runner request must specify build")
+	}
+	args := []string{req.Site, req.Image, req.Root, req.Script, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.TasksMax), req.NetworkMode, strconv.FormatInt(req.MaxImageBytes, 10)}
+	return v.validateFixedCommandArgs("runnerctl", "build", args)
+}
+
+func (v *Validator) validateWorkerRequest(req *WorkerRequest) error {
+	if req == nil || (req.Action != "apply" && req.Action != "delete" && req.Action != "start" && req.Action != "stop" && req.Action != "restart") {
+		return errors.New("worker request must specify a supported action")
+	}
+	if err := v.ValidateSiteName(req.Site); err != nil {
+		return err
+	}
+	if !workerNamePattern.MatchString(req.Name) {
+		return errors.New("invalid worker name")
+	}
+	if req.Action != "apply" {
+		return nil
+	}
+	if req.Type != "laravel" && req.Type != "horizon" && req.Type != "node" && req.Type != "celery" && req.Type != "rq" {
+		return errors.New("invalid worker type")
+	}
+	if req.Root != filepath.Join(v.webRoot, "sites", req.Site, "public") {
+		return errors.New("worker root must be the site's public directory")
+	}
+	if req.Processes < 1 || req.Processes > 64 || req.MemoryMB < 64 || req.MemoryMB > 65536 || req.Retries < 0 || req.Retries > 20 {
+		return errors.New("worker limits are out of range")
+	}
+	return nil
 }
 
 func (v *Validator) validateTaskRequest(req *TaskRequest) error {
@@ -383,13 +475,6 @@ func (v *Validator) validateCertificateRequest(req *CertificateRequest) error {
 	return nil
 }
 
-func (v *Validator) validateHelperRequest(req *HelperRequest) error {
-	if req == nil {
-		return fmt.Errorf("helper request is nil")
-	}
-	return v.validateHelperArgs(req.Name, req.Action, req.Args)
-}
-
 func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 	if req == nil {
 		return fmt.Errorf("site request is nil")
@@ -403,8 +488,35 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 		}
 	}
 	if req.DiskMB > 0 {
-		if err := v.ValidateNumericRange("disk_mb", req.DiskMB, 512, 1048576); err != nil {
+		if err := v.ValidateNumericRange("disk_mb", req.DiskMB, 1, 1048576); err != nil {
 			return err
+		}
+	}
+	switch req.Action {
+	case "access":
+		if req.SFTPEnabled == nil || req.ShellEnabled == nil || len(req.SSHKeys) > 1<<20 || strings.ContainsAny(req.SSHKeys, "\x00\r") {
+			return errors.New("invalid SSH access request")
+		}
+	case "resources":
+		if req.PHPWorkers < 1 || req.PHPWorkers > 512 {
+			return fmt.Errorf("php_workers must be between 1 and 512")
+		}
+	case "quota":
+		if req.DiskMB < 1 || req.DiskMB > 1048576 || req.Inodes < 1 || req.Inodes > 1000000000 {
+			return fmt.Errorf("quota is out of range")
+		}
+	case "quota-clear":
+		// No additional fields are accepted.
+	case "runtime":
+		if !regexp.MustCompile(`^[0-9]+\.[0-9]+$`).MatchString(req.PHPVersion) ||
+			!regexp.MustCompile(`^[1-9][0-9]{0,4}M$`).MatchString(req.MemoryLimit) {
+			return fmt.Errorf("invalid PHP runtime profile")
+		}
+		if !regexp.MustCompile(`^[1-9][0-9]{0,4}M$`).MatchString(req.UploadMaxFilesize) ||
+			!regexp.MustCompile(`^[1-9][0-9]{0,4}M$`).MatchString(req.PostMaxSize) ||
+			req.ExecTimeout < 1 || req.ExecTimeout > 3600 || req.MaxInputVars < 1 || req.MaxInputVars > 1000000 ||
+			!regexp.MustCompile(`^[A-Z0-9_~& |]{1,80}$`).MatchString(req.ErrorReporting) {
+			return fmt.Errorf("invalid PHP runtime profile")
 		}
 	}
 	return nil
@@ -415,7 +527,7 @@ func (v *Validator) validateAppRequest(req *AppRequest) error {
 		return fmt.Errorf("app request is nil")
 	}
 	switch req.Action {
-	case "apply", "delete", "start", "stop", "restart", "rollback":
+	case "apply", "delete", "start", "stop", "restart", "rollback", "composer-install", "node-tool", "python-apply", "python-start", "python-stop", "python-restart":
 	default:
 		return errors.New("unsupported app action")
 	}
@@ -433,6 +545,35 @@ func (v *Validator) validateAppRequest(req *AppRequest) error {
 			return errors.New("app root must be the site's public directory")
 		}
 	}
+	publicRoot := filepath.Join(v.webRoot, "sites", req.Site, "public")
+	switch req.Action {
+	case "composer-install":
+		if filepath.Clean(req.Root) != publicRoot {
+			return errors.New("composer root must be the site's public directory")
+		}
+	case "node-tool":
+		if req.ToolAction != "install" && req.ToolAction != "build" {
+			return errors.New("unsupported Node tool action")
+		}
+		if req.PackageManager != "npm" && req.PackageManager != "yarn" && req.PackageManager != "pnpm" {
+			return errors.New("unsupported Node package manager")
+		}
+		if filepath.Clean(req.Root) != publicRoot {
+			return errors.New("Node tool root must be the site's public directory")
+		}
+	case "python-apply":
+		if !schemaPythonVersion.MatchString(req.Version) || !schemaEntrypointPattern.MatchString(req.EntryPoint) || req.Workers < 1 || req.Workers > 64 {
+			return errors.New("invalid Python application")
+		}
+		if err := v.ValidatePort(req.Port); err != nil {
+			return err
+		}
+		if filepath.Clean(req.Root) != publicRoot {
+			return errors.New("Python root must be the site's public directory")
+		}
+	case "python-start", "python-stop", "python-restart":
+		// Lifecycle actions require only the validated site and action.
+	}
 	return nil
 }
 
@@ -440,11 +581,25 @@ func (v *Validator) validateDBRequest(req *DBRequest) error {
 	if req == nil {
 		return fmt.Errorf("db request is nil")
 	}
-	if err := v.ValidateDatabaseName(req.Database); err != nil {
-		return err
-	}
-	if err := v.ValidateUsername(req.Username); err != nil {
-		return err
+	switch req.Action {
+	case "reconcile", "inventory", "diagnostics", "sessions", "settings":
+		return nil
+	case "terminate":
+		if !schemaSessionPattern.MatchString(req.SessionID) {
+			return errors.New("invalid session ID")
+		}
+		return nil
+	case "drop", "dump":
+		if err := v.ValidateDatabaseName(req.Database); err != nil {
+			return err
+		}
+	default:
+		if err := v.ValidateDatabaseName(req.Database); err != nil {
+			return err
+		}
+		if err := v.ValidateUsername(req.Username); err != nil {
+			return err
+		}
 	}
 	if req.DumpPath != "" {
 		if err := v.validateDumpPath(req.DumpPath); err != nil {
@@ -529,14 +684,37 @@ func (v *Validator) validateVhostRequest(req *VhostRequest) error {
 	if req == nil {
 		return fmt.Errorf("vhost request is nil")
 	}
+	if err := v.ValidateWebServer(req.WebServer); err != nil {
+		return err
+	}
+	if req.Action == "delete" {
+		if !schemaRouteNamePattern.MatchString(req.Name) {
+			return errors.New("invalid site route name")
+		}
+		return nil
+	}
+	if req.Action == "import-htaccess" {
+		if err := v.ValidateSiteName(req.Site); err != nil {
+			return err
+		}
+		if err := v.ValidateDomain(req.Domain); err != nil {
+			return err
+		}
+		if len(req.Directives) == 0 || len(req.Directives) > 1<<20 || strings.ContainsRune(req.Directives, '\x00') {
+			return errors.New("invalid translated htaccess directives")
+		}
+		return nil
+	}
 	if err := v.ValidateSiteName(req.Site); err != nil {
 		return err
 	}
 	if err := v.ValidateDomain(req.Domain); err != nil {
 		return err
 	}
-	if err := v.ValidateWebServer(req.WebServer); err != nil {
-		return err
+	if req.Action == "apply-auth" {
+		if !schemaAuthUserPattern.MatchString(req.BasicAuthUser) || !schemaBcryptPattern.MatchString(req.BasicAuthHash) {
+			return errors.New("invalid Basic Auth credentials")
+		}
 	}
 	return nil
 }
@@ -547,6 +725,47 @@ func (v *Validator) validateProxyRequest(req *ProxyRequest) error {
 	}
 	if err := v.ValidateWebServer(req.WebServer); err != nil {
 		return err
+	}
+	switch req.Action {
+	case "apply":
+		if err := v.ValidateSiteName(req.Site); err != nil {
+			return err
+		}
+		if err := v.ValidateDomain(req.Domain); err != nil {
+			return err
+		}
+		if err := validateProxyBackend(req.Backend); err != nil {
+			return err
+		}
+	case "delete":
+		if !schemaProxyNamePattern.MatchString(req.Name) {
+			return errors.New("invalid proxy name")
+		}
+	case "reload":
+	default:
+		return errors.New("unsupported proxy action")
+	}
+	return nil
+}
+
+func validateProxyBackend(backend string) error {
+	if backend == "" || len(backend) > 256 || strings.ContainsAny(backend, "\x00\r\n \t") {
+		return errors.New("invalid proxy backend")
+	}
+	u, err := url.Parse("http://" + backend)
+	if err != nil || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Hostname() == "" {
+		return errors.New("invalid proxy backend port")
+	}
+	portNumber, err := strconv.Atoi(u.Port())
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return errors.New("invalid proxy backend port")
+	}
+	if strings.EqualFold(u.Hostname(), "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || !(ip.IsLoopback() || ip.IsPrivate()) || ip.Equal(net.ParseIP("169.254.169.254")) || ip.Equal(net.ParseIP("100.100.100.200")) || ip.Equal(net.ParseIP("fd00:ec2::254")) {
+		return errors.New("proxy backend must target localhost or a private IP")
 	}
 	return nil
 }
@@ -566,6 +785,14 @@ func (v *Validator) validateGitRequest(req *GitRequest) error {
 	}
 	if err := v.ValidateGitDestination(req.Destination); err != nil {
 		return err
+	}
+	if req.Action == "clone" {
+		if err := v.ValidateSiteName(req.Site); err != nil {
+			return fmt.Errorf("clone site: %w", err)
+		}
+		if len(req.AllowedHosts) == 0 {
+			return fmt.Errorf("Git host allowlist is required")
+		}
 	}
 	return nil
 }

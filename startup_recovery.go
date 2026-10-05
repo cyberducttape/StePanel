@@ -25,7 +25,7 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager) []err
 	}
 	for _, id := range databaseRecoveries {
 		log.Printf("recovered databases for interrupted site transaction %s", id)
-		if err := Audit(cfg.AuditLog, "restore.database-recovered", id, "managed databases removed after unclean shutdown"); err != nil {
+		if err := SecurityAuditRequired(cfg.AuditLog, "system", "restore.database-recovered", id, "managed databases removed after unclean shutdown"); err != nil {
 			failures = append(failures, fmt.Errorf("audit database recovery %s: %w", id, err))
 		}
 	}
@@ -53,7 +53,7 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager) []err
 		if !txn.HadExisting {
 			recoveryMessage = "new site removed after unclean shutdown"
 		}
-		if err := Audit(cfg.AuditLog, "restore.recovered", id, recoveryMessage); err != nil {
+		if err := SecurityAuditRequired(cfg.AuditLog, "system", "restore.recovered", id, recoveryMessage); err != nil {
 			failures = append(failures, fmt.Errorf("audit site recovery %s: %w", id, err))
 		}
 	}
@@ -64,7 +64,7 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager) []err
 	}
 	for _, id := range releaseRecoveries {
 		log.Printf("recovered interrupted release activation %s", id)
-		if err := Audit(cfg.AuditLog, "release.activation-recovered", id, "release activation reconciled after unclean shutdown"); err != nil {
+		if err := SecurityAuditRequired(cfg.AuditLog, "system", "release.activation-recovered", id, "release activation reconciled after unclean shutdown"); err != nil {
 			failures = append(failures, fmt.Errorf("audit release recovery %s: %w", id, err))
 		}
 	}

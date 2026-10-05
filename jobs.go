@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -75,6 +76,21 @@ func validJobOperationKey(value string) bool {
 		return false
 	}
 	return true
+}
+
+// requestOperationKey validates an optional HTTP idempotency key. Callers may
+// pass the returned value directly to EnqueueIdempotent; an empty value keeps
+// the existing active-job de-duplication behavior for clients that have not
+// opted into replay-safe retries yet.
+func requestOperationKey(r *http.Request) (string, error) {
+	if r == nil {
+		return "", errors.New("request is required")
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key != "" && !validJobOperationKey(key) {
+		return "", errors.New("invalid Idempotency-Key")
+	}
+	return key, nil
 }
 
 func newJobID(kind string) (string, error) {

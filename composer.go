@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 type ComposerOperation struct {
@@ -145,7 +147,13 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 	}
 	defer releaseUnlock()
 	started := time.Now()
-	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "composer-install", site, root, boolString(input.Development), boolString(input.OptimizeAutoloader)); err != nil {
+	var installErr error
+	if a.Config.Production {
+		installErr = runTypedAppOperation(operationCtx, a.Config, rootbroker.AppRequest{Action: "composer-install", Site: site, Root: root, Development: input.Development, OptimizeAutoloader: input.OptimizeAutoloader})
+	} else {
+		installErr = runHelperCommandWithTimeout(operationCtx, a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "composer-install", site, root, boolString(input.Development), boolString(input.OptimizeAutoloader))
+	}
+	if err := installErr; err != nil {
 		http.Error(w, "Composer install failed", 502)
 		return
 	}
@@ -165,6 +173,6 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Composer succeeded but operation state could not be saved", 503)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "composer.install", site, command)
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "composer.install", site, command)
 	writeJSON(w, 202, op)
 }

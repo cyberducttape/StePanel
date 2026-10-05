@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 var pythonVersionPattern = regexp.MustCompile(`^3\.(12|13)$`)
@@ -89,16 +91,24 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Python application mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "python.deployed", app.Site, app.EntryPoint)
+	if err != nil {
+		refuseWithoutSecurityAudit(w)
+		return
+	}
+	var outcome string
+	defer intent.Finish(&outcome, "desired Python application was not persisted")
 	app.State, app.LastError = "pending", ""
 	if err := savePythonApp(a.Config.AppRoot, app); err != nil {
 		http.Error(w, "could not persist desired Python application", 503)
 		return
 	}
+	outcome = app.EntryPoint + "; persisted, reconciliation pending"
 	if err := a.applyPythonApp(operationCtx, app); err != nil {
 		app.LastError = err.Error()
 		if saveErr := savePythonApp(a.Config.AppRoot, app); saveErr != nil {
 			// Log but don't fail the request - client can see the application is in error state
-			recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python.state_save_failed", app.Site, saveErr.Error())
+			TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "python.state_save_failed", app.Site, saveErr.Error())
 		}
 		http.Error(w, "Python application is pending reconciliation", 502)
 		return
@@ -106,7 +116,7 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 	if err := operationCtx.Err(); err != nil {
 		app.State, app.LastError = "pending", err.Error()
 		if saveErr := savePythonApp(a.Config.AppRoot, app); saveErr != nil {
-			recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python.state_save_failed", app.Site, saveErr.Error())
+			TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "python.state_save_failed", app.Site, saveErr.Error())
 		}
 		http.Error(w, "Python application is pending reconciliation", http.StatusConflict)
 		return
@@ -116,7 +126,7 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Python application applied but state update is pending", 503)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python.deployed", app.Site, app.EntryPoint)
+	outcome = app.EntryPoint
 	writeJSON(w, 202, app)
 }
 
@@ -124,6 +134,9 @@ func (a *App) applyPythonApp(ctx context.Context, app PythonApp) error {
 	// Python setup can take 10-30 minutes depending on dependencies.
 	// Note: reconciliation context may have shorter deadline; consider moving
 	// to async jobs for long-running operations (see docs/STARTUP_READINESS.md).
+	if a.Config.Production {
+		return runTypedAppOperation(ctx, a.Config, rootbroker.AppRequest{Action: "python-apply", Site: app.Site, Version: app.Version, Root: app.Root, EntryPoint: app.EntryPoint, Port: app.Port, Workers: app.Workers})
+	}
 	return runHelperCommandWithTimeout(ctx, a.Config, helperPackageBuildTimeout, a.Config.AppCtl, "python-apply", app.Site, app.Version, app.Root, app.EntryPoint, strconv.Itoa(app.Port), strconv.Itoa(app.Workers))
 }
 
@@ -230,7 +243,13 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
-	if err := runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "python-"+parts[1], parts[0]); err != nil {
+	var actionErr error
+	if a.Config.Production {
+		actionErr = runTypedAppOperation(operationCtx, a.Config, rootbroker.AppRequest{Action: "python-" + parts[1], Site: parts[0]})
+	} else {
+		actionErr = runHelperCommandWithTimeout(operationCtx, a.Config, helperServiceLifecycleTimeout, a.Config.AppCtl, "python-"+parts[1], parts[0])
+	}
+	if err := actionErr; err != nil {
 		http.Error(w, "Python action failed", 502)
 		return
 	}
@@ -238,6 +257,6 @@ func (a *App) pythonAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Python action cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	recordAudit(a.Config.AuditLog, a.Auth.UsernameForRequest(r), "python."+parts[1], parts[0], "systemd action")
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "python."+parts[1], parts[0], "systemd action")
 	writeJSON(w, 202, map[string]string{"site": parts[0], "action": parts[1]})
 }

@@ -235,7 +235,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		} else if request.Operation == "loadbalancer" {
 			auditAction = "loadbalancer." + request.Action
 		}
-		recordAudit(a.Config.AuditLog, request.Actor, auditPrefix+auditAction+".failed", result.ID, err.Error())
+		TelemetryAudit(a.Config.AuditLog, request.Actor, auditPrefix+auditAction+".failed", result.ID, err.Error())
 		return nil, err
 	}
 	if request.Operation == "dns" && a.DNSDesired != nil {
@@ -253,7 +253,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 	} else if request.Operation == "loadbalancer" {
 		auditAction = "loadbalancer." + request.Action
 	}
-	recordAudit(a.Config.AuditLog, request.Actor, auditPrefix+auditAction, result.ID, result.Provider)
+	TelemetryAudit(a.Config.AuditLog, request.Actor, auditPrefix+auditAction, result.ID, result.Provider)
 	output, err := json.Marshal(result)
 	if err != nil {
 		return nil, err

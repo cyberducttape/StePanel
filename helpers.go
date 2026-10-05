@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -205,35 +206,21 @@ func existingRegularEntry(root, name string) (string, error) {
 
 func runHelperCommand(ctx context.Context, cfg Config, path string, args ...string) error {
 	if cfg.Production {
-		if err, handled := runAllowlistedHelperViaBroker(ctx, cfg, path, args...); handled {
-			return err
-		}
-		return errors.New("production helper is not routed through the root broker")
+		return errors.New("production helper has no typed root-broker operation")
 	}
 	return h.RunHelperCommand(ctx, cfg.Sudo, path, args...)
 }
 
 func runHelperCommandWithTimeout(ctx context.Context, cfg Config, timeout time.Duration, path string, args ...string) error {
 	if cfg.Production {
-		if err, handled := runAllowlistedHelperViaBroker(ctx, cfg, path, args...); handled {
-			return err
-		}
-		return errors.New("production helper is not routed through the root broker")
+		return errors.New("production helper has no typed root-broker operation")
 	}
 	return h.RunHelperCommandWithTimeout(ctx, cfg.Sudo, path, timeout, args...)
 }
 
-func runAllowlistedHelperViaBroker(ctx context.Context, cfg Config, path string, args ...string) (error, bool) {
-	_, err, handled := runAllowlistedHelperOutputViaBroker(ctx, cfg, nil, path, args...)
-	return err, handled
-}
-
 func runAllowlistedHelperOutput(ctx context.Context, cfg Config, input []byte, path string, args ...string) ([]byte, error, bool) {
 	if cfg.Production {
-		if output, err, handled := runAllowlistedHelperOutputViaBroker(ctx, cfg, input, path, args...); handled {
-			return output, err, true
-		}
-		return nil, errors.New("production helper is not routed through the root broker"), true
+		return nil, errors.New("production helper has no typed root-broker operation"), true
 	}
 	cmd := helperCommandContext(ctx, cfg, path, args...)
 	if input == nil {
@@ -244,36 +231,165 @@ func runAllowlistedHelperOutput(ctx context.Context, cfg Config, input []byte, p
 	return output, err, true
 }
 
-func runAllowlistedHelperOutputViaBroker(ctx context.Context, cfg Config, input []byte, path string, args ...string) ([]byte, error, bool) {
-	name := filepath.Base(path)
-	if !strings.HasPrefix(name, "stepanel-") || !strings.HasSuffix(name, "ctl") {
-		return nil, nil, false
-	}
-	name = strings.TrimPrefix(name, "stepanel-")
+// runTypedSiteMutation sends site isolation/configuration changes through the
+// concrete root-broker protocol. It is deliberately separate from the
+// compatibility helper bridge so production call sites cannot silently turn a
+// typed operation back into arbitrary helper argv.
+func runTypedSiteMutation(ctx context.Context, cfg Config, request rootbroker.SiteRequest) error {
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 	if err != nil {
-		return nil, err, true
+		return err
 	}
-	if len(args) == 0 {
-		return nil, errors.New("privileged helper action is required"), true
-	}
-	resp, err := client.Execute(ctx, &rootbroker.Request{
-		RequestType: "helper",
-		Helper:      &rootbroker.HelperRequest{Name: name, Action: args[0], Args: args[1:], Input: input},
-	})
+	response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "site", Site: &request})
 	if err != nil {
-		return nil, err, true
+		return err
 	}
-	if !resp.OK {
-		return nil, errors.New(resp.Error), true
+	if !response.OK {
+		return errors.New(response.Error)
 	}
-	var details rootbroker.HelperResponse
-	if len(resp.Details) > 0 {
-		if err := json.Unmarshal(resp.Details, &details); err != nil {
-			return nil, err, true
+	return nil
+}
+
+func runTypedAppOperation(ctx context.Context, cfg Config, request rootbroker.AppRequest) error {
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return err
+	}
+	response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "app", App: &request})
+	if err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New(response.Error)
+	}
+	return nil
+}
+
+func runTypedVhostOperation(ctx context.Context, cfg Config, request rootbroker.VhostRequest) error {
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return err
+	}
+	response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "vhost", Vhost: &request})
+	if err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New(response.Error)
+	}
+	return nil
+}
+
+func runTypedVhostOperationInput(ctx context.Context, cfg Config, request rootbroker.VhostRequest) error {
+	return runTypedVhostOperation(ctx, cfg, request)
+}
+
+func runTypedProxyOperation(ctx context.Context, cfg Config, request rootbroker.ProxyRequest) error {
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return err
+	}
+	response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "proxy", Proxy: &request})
+	if err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New(response.Error)
+	}
+	return nil
+}
+
+func runTypedResourceOperation(ctx context.Context, cfg Config, request rootbroker.ResourceRequest) (string, error) {
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+	if err != nil {
+		return "", err
+	}
+	response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "resource", Resource: &request})
+	if err != nil {
+		return "", err
+	}
+	if !response.OK {
+		return "", errors.New(response.Error)
+	}
+	var details rootbroker.ResourceResponse
+	if err := json.Unmarshal(response.Details, &details); err != nil {
+		return "", err
+	}
+	return details.Output, nil
+}
+
+func runVhostMutation(ctx context.Context, cfg Config, action string, args ...string) error {
+	if cfg.Production {
+		request := rootbroker.VhostRequest{Action: action, WebServer: cfg.WebServer}
+		switch action {
+		case "apply":
+			if len(args) != 2 {
+				return errors.New("invalid vhost apply arguments")
+			}
+			request.Site, request.Domain = args[0], args[1]
+		case "apply-auth":
+			if len(args) != 4 {
+				return errors.New("invalid vhost auth arguments")
+			}
+			request.Site, request.Domain, request.BasicAuthUser, request.BasicAuthHash = args[0], args[1], args[2], args[3]
+		case "import-htaccess":
+			return errors.New("use runTypedVhostOperationInput for htaccess imports")
+		case "delete":
+			if len(args) != 1 {
+				return errors.New("invalid vhost delete arguments")
+			}
+			request.Name = args[0]
+		default:
+			return errors.New("unsupported vhost action")
 		}
+		return runTypedVhostOperation(ctx, cfg, request)
 	}
-	return []byte(details.Output), nil, true
+	return runHelperCommandWithTimeout(ctx, cfg, helperConfigMutationTimeout, cfg.VHostCtl, append([]string{action}, args...)...)
+}
+
+func runProxyMutation(ctx context.Context, cfg Config, action string, args ...string) error {
+	if cfg.Production {
+		request := rootbroker.ProxyRequest{Action: action, WebServer: cfg.WebServer}
+		switch action {
+		case "apply":
+			if len(args) != 3 {
+				return errors.New("invalid proxy apply arguments")
+			}
+			request.Site, request.Domain, request.Backend = args[0], args[1], args[2]
+		case "delete":
+			if len(args) != 1 {
+				return errors.New("invalid proxy delete arguments")
+			}
+			request.Name = args[0]
+		case "reload":
+			if len(args) != 0 {
+				return errors.New("invalid proxy reload arguments")
+			}
+		default:
+			return errors.New("unsupported proxy action")
+		}
+		return runTypedProxyOperation(ctx, cfg, request)
+	}
+	return runHelperCommandWithTimeout(ctx, cfg, helperConfigMutationTimeout, cfg.ProxyCtl, append([]string{action}, args...)...)
+}
+
+func runRunnerBuild(ctx context.Context, cfg Config, request rootbroker.RunnerRequest) error {
+	if cfg.Production {
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if err != nil {
+			return err
+		}
+		response, err := client.Execute(ctx, &rootbroker.Request{RequestType: "runner", Runner: &request})
+		if err != nil {
+			return err
+		}
+		if !response.OK {
+			return errors.New(response.Error)
+		}
+		return nil
+	}
+	return runHelperCommand(ctx, cfg, cfg.RunnerCtl, "build", request.Site, request.Image, request.Root, request.Script,
+		itoa(request.CPUPercent), itoa(request.MemoryMB), itoa(request.TasksMax), request.NetworkMode, strconv.FormatInt(request.MaxImageBytes, 10))
 }
 
 func siteHelper(cfg Config, action, site string) error {

@@ -142,9 +142,28 @@ run_podman_as_site() {
   # account, so create the complete tree with the same ownership before
   # starting the transient unit. Do not delegate this to RuntimeDirectory=;
   # its default root ownership is exactly what makes rootless Podman fail.
-  install -d -o "$site_user" -g "$site_user" -m 0700 \
+  # Podman validates XDG_RUNTIME_DIR itself, including the directory at the
+  # exact path rather than only its children.  Do not rely on install(1)'s
+  # ownership handling for intermediate directories: on some systemd/tmpfs
+  # combinations the runtime root is created by another component and remains
+  # root-owned even though the child paths are correct.
+  install -d -m 0700 \
     "/run/$runner_runtime/containers" \
     "/run/$runner_runtime/config/containers"
+  chown "$site_user:$site_user" \
+    "/run/$runner_runtime" \
+    "/run/$runner_runtime/containers" \
+    "/run/$runner_runtime/config" \
+    "/run/$runner_runtime/config/containers"
+  chmod 0700 \
+    "/run/$runner_runtime" \
+    "/run/$runner_runtime/containers" \
+    "/run/$runner_runtime/config" \
+    "/run/$runner_runtime/config/containers"
+  [[ $(stat -c '%u:%g' "/run/$runner_runtime") == "$(id -u "$site_user"):$(id -g "$site_user")" ]] || {
+    echo "runtime directory is not owned by $site_user" >&2
+    return 1
+  }
   install -o "$site_user" -g "$site_user" -m 0600 /dev/null "/run/$runner_runtime/config/containers/storage.conf"
   printf '[storage.options.overlay]\nmount_program = "%s"\n' "$fuse_overlayfs" \
     > "/run/$runner_runtime/config/containers/storage.conf"
@@ -189,9 +208,20 @@ run_podman_as_site() {
 }
 
 # Pull the immutable digest before execution so the size gate cannot be
-# bypassed by a first-use pull during `podman run`.
-run_podman_as_site "$podman_bin" pull "$image" >/dev/null
-image_size=$(run_podman_as_site "$podman_bin" image inspect --format '{{.Size}}' "$image")
+# bypassed by a first-use pull during `podman run`. Preserve the bounded
+# systemd/Podman diagnostic; otherwise a transient-unit failure is reported
+# only as an opaque exit status to the caller.
+if ! pull_output=$(run_podman_as_site "$podman_bin" pull "$image" 2>&1); then
+  echo "container image pull failed:" >&2
+  printf '%s\n' "$pull_output" >&2
+  exit 1
+fi
+if ! image_inspect_output=$(run_podman_as_site "$podman_bin" image inspect --format '{{.Size}}' "$image" 2>&1); then
+  echo "container image inspection failed:" >&2
+  printf '%s\n' "$image_inspect_output" >&2
+  exit 1
+fi
+image_size=$image_inspect_output
 [[ $image_size =~ ^[0-9]+$ && $image_size -le $max_image_bytes ]] || { echo "container image exceeds configured size limit ($max_image_bytes bytes)" >&2; exit 1; }
 # Keep all customer-tree mutation under the site account. Root validates the
 # final directory but never recursively deletes a customer-controlled path.

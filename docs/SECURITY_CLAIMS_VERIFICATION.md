@@ -102,20 +102,20 @@ Last verified: 2026-10-02 against `main`.
 
 ## Privileged execution
 
-### Privileged work crosses a typed, validated boundary (Partial)
+### Privileged work crosses a typed, validated boundary (Verified)
 - **Implementation:** the panel runs unprivileged; production installs send
   privileged requests to the root broker (`cmd/stepanel-root`,
   `internal/rootbroker`) over a peer-authorized Unix socket. The broker
   validates every request (`validator.go`) and runs root-owned helper scripts
   in `deploy/integrations/stepanel-*` with argument vectors, never a shell
-  command string. Generic helper requests are checked against a per-action
-  schema (`helper_schema.go`).
-- **Tests:** `internal/rootbroker`: `TestValidateHelperRequestAllowlist`,
-  `TestHelperSchemaRejectsOutOfContractArguments`,
-  `TestHelperSchemaAcceptsWellFormedRequests`.
-- **Boundary:** the helpers are Bash scripts, not compiled code, and some
-  operations still use the schema-validated generic helper request rather than
-  a dedicated typed request. In Go code, the only `sh -c` runs a fixed,
+  command string. The generic helper request has been removed; the broker
+  accepts concrete request types, and fixed command arguments are derived from
+  and validated against those typed fields.
+- **Tests:** `internal/rootbroker`: `TestGenericHelperRequestIsNoLongerAccepted`,
+  `TestTypedRequestFixedCommandArgumentsRejectInvalidInputs`,
+  `TestTypedRequestFixedCommandArgumentsAreValid`.
+- **Boundary:** the fixed host operations are implemented by root-owned Bash
+  helpers rather than compiled code. In Go code, the only `sh -c` runs a fixed,
   input-free inventory command on remote hosts over SSH (`ssh_inventory.go`);
   where helper scripts use `sh -c` (`stepanel-appctl` running Node and
   Composer tools as the site user), values are passed as positional

@@ -214,16 +214,20 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "at least one administrator scope is required", http.StatusUnprocessableEntity)
 			return
 		}
+		intent, err := BeginSecurityAudit(a.AuditLog, username, "auth.admin_api_token.created", username, "scopes="+strings.Join(request.Scopes, ","))
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		item, secret, err := a.apiTokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes, adminAPIScopes)
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
+		intent.Completed("token=" + item.ID + " scopes=" + strings.Join(item.Scopes, ","))
 		if err := r.Context().Err(); err != nil {
 			http.Error(w, "administrator token mutation cancelled because the mutation lock was lost", http.StatusConflict)
-			return
-		}
-		if err := MustAudit(w, a.AuditLog, username, "auth.admin_api_token.created", item.ID, strings.Join(item.Scopes, ",")); err != nil {
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"token": secret, "metadata": item})
@@ -237,11 +241,9 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		RevocationAudit(a.AuditLog, username, "auth.admin_api_token.revoked", id, "administrator token revoked")
 		if err := r.Context().Err(); err != nil {
 			http.Error(w, "administrator token mutation cancelled because the mutation lock was lost", http.StatusConflict)
-			return
-		}
-		if err := MustAudit(w, a.AuditLog, username, "auth.admin_api_token.revoked", id, "administrator token revoked"); err != nil {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -365,16 +367,20 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
+		intent, err := BeginSecurityAudit(a.Config.AuditLog, username, "auth.api_token.created", username, "scopes="+strings.Join(request.Scopes, ","))
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
 		item, secret, err := a.APITokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes, customerAPIScopes)
 		if err != nil {
+			intent.Failed(err.Error())
 			http.Error(w, err.Error(), 422)
 			return
 		}
+		intent.Completed("token=" + item.ID + " scopes=" + strings.Join(item.Scopes, ","))
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
-			return
-		}
-		if err := MustAudit(w, a.Config.AuditLog, username, "auth.api_token.created", item.ID, strings.Join(item.Scopes, ",")); err != nil {
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"token": secret, "metadata": item})
@@ -402,11 +408,9 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 404)
 			return
 		}
+		RevocationAudit(a.Config.AuditLog, username, "auth.api_token.revoked", id, "customer token revoked")
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
-			return
-		}
-		if err := MustAudit(w, a.Config.AuditLog, username, "auth.api_token.revoked", id, "customer token revoked"); err != nil {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -524,7 +528,7 @@ func (a *App) sendLegacyTokenNotifications(username string) error {
 	// (see auth.go validAPITokenWithScopes) — the token is refused when
 	// the grace period elapses regardless of whether the holder was
 	// notified.
-	if err := AuditAs(a.Config.AuditLog, username, "token.legacy_unscoped.notification_required", "legacy-tokens", "operator or external pipeline must deliver notification"); err != nil {
+	if err := SecurityAuditRequired(a.Config.AuditLog, username, "token.legacy_unscoped.notification_required", "legacy-tokens", "operator or external pipeline must deliver notification"); err != nil {
 		return err
 	}
 
