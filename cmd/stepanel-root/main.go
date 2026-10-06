@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,10 +17,12 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
 	webRootFlag := flag.String("webroot", "/var/www", "Web root directory")
+	controlPlaneDBFlag := flag.String("control-plane-db", os.Getenv("STEPANEL_CONTROL_PLANE_DB"), "SQLite control-plane database used for fencing")
 	socketFlag := flag.String("socket", "", "serve the broker on a Unix socket instead of stdin/stdout")
 	socketGroupFlag := flag.String("socket-group", "", "group allowed to access the Unix socket")
 	maxConcurrentFlag := flag.Int("max-concurrent", rootbroker.DefaultMaxConcurrent, "maximum privileged operations executed at once on the Unix socket")
@@ -31,7 +34,16 @@ func main() {
 
 	logger := log.New(os.Stderr, "[stepanel-root] ", log.LstdFlags)
 
-	broker, err := rootbroker.NewBroker(*webRootFlag, logger)
+	var fencingDB *sql.DB
+	var err error
+	if *controlPlaneDBFlag != "" {
+		fencingDB, err = sql.Open("sqlite", "file:"+*controlPlaneDBFlag+"?_pragma=busy_timeout(5000)")
+		if err != nil {
+			logger.Fatalf("failed to open fencing database: %v", err)
+		}
+		defer fencingDB.Close()
+	}
+	broker, err := rootbroker.NewBrokerWithFencingDB(*webRootFlag, "/var/lib/stepanel/recovery", fencingDB, logger)
 	if err != nil {
 		logger.Fatalf("failed to create broker: %v", err)
 	}

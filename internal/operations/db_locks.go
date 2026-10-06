@@ -74,6 +74,63 @@ type Lease struct {
 	ExpiresAt   time.Time
 }
 
+// FencingToken is the durable identity of one lease acquisition. It is safe
+// to pass across a process boundary; the receiver must verify it against the
+// current resource_locks row before publishing a mutation.
+type FencingToken struct {
+	ResourceKey string `json:"resource_key"`
+	OwnerID     string `json:"owner_id"`
+	Generation  int64  `json:"generation"`
+}
+
+type fencingTokensContextKey struct{}
+
+// WithFencingTokens associates the leases protecting an operation with its
+// context. Downstream clients can carry these tokens to privileged services.
+func WithFencingTokens(ctx context.Context, tokens ...FencingToken) context.Context {
+	if len(tokens) == 0 {
+		return ctx
+	}
+	merged := append([]FencingToken(nil), FencingTokens(ctx)...)
+	merged = append(merged, tokens...)
+	return context.WithValue(ctx, fencingTokensContextKey{}, merged)
+}
+
+// FencingTokens returns a copy of the fencing tokens attached to ctx.
+func FencingTokens(ctx context.Context) []FencingToken {
+	if ctx == nil {
+		return nil
+	}
+	tokens, _ := ctx.Value(fencingTokensContextKey{}).([]FencingToken)
+	return append([]FencingToken(nil), tokens...)
+}
+
+// Token returns the serializable fencing identity for a lease.
+func (lease Lease) Token() FencingToken {
+	return FencingToken{ResourceKey: lease.ResourceKey, OwnerID: lease.OwnerID, Generation: lease.Generation}
+}
+
+// VerifyFencingToken accepts a token only while its exact generation is the
+// live owner of the resource. This check is deliberately performed by the
+// privileged boundary immediately before it starts a host mutation.
+func VerifyFencingToken(db *sql.DB, token FencingToken) error {
+	if db == nil || token.ResourceKey == "" || token.OwnerID == "" || token.Generation <= 0 {
+		return ErrLeaseLost
+	}
+	var present int
+	err := db.QueryRow(`
+		SELECT 1 FROM resource_locks
+		WHERE resource_key = ? AND owner_id = ? AND generation = ? AND lease_until > ?
+	`, token.ResourceKey, token.OwnerID, token.Generation, time.Now().UnixNano()).Scan(&present)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrLeaseLost
+	}
+	if err != nil {
+		return fmt.Errorf("verify fencing token: %w", err)
+	}
+	return nil
+}
+
 // DBLocks provides SQLite-backed leased locks with fencing generations for
 // cross-process coordination.
 type DBLocks struct {

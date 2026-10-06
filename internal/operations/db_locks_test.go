@@ -11,6 +11,40 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestFencingTokenRejectsTakenOverLease(t *testing.T) {
+	dbA, dbB, cleanup := openTwoHandles(t)
+	defer cleanup()
+
+	locksA, err := NewDBLocks(dbA, "actor-a", 50*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locksB, err := NewDBLocks(dbB, "actor-b", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaseA, err := locksA.TryAcquire("site:fenced")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyFencingToken(dbA, leaseA.Token()); err != nil {
+		t.Fatalf("current token rejected: %v", err)
+	}
+	if _, err := dbB.Exec(`UPDATE resource_locks SET lease_until = 0 WHERE resource_key = ?`, leaseA.ResourceKey); err != nil {
+		t.Fatal(err)
+	}
+	leaseB, err := locksB.TryAcquire("site:fenced")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyFencingToken(dbA, leaseA.Token()); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("stale token error = %v, want ErrLeaseLost", err)
+	}
+	if err := VerifyFencingToken(dbA, leaseB.Token()); err != nil {
+		t.Fatalf("new token rejected: %v", err)
+	}
+}
+
 // openTwoHandles returns two independent *sql.DB handles pointed at the same
 // on-disk file, together with a cleanup. The two-handle setup is what makes
 // these tests meaningful cross-process regressions: a single *sql.DB with

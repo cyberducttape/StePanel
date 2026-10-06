@@ -2,6 +2,7 @@ package rootbroker
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log"
@@ -9,9 +10,39 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cyberducttape/StePanel/internal/operations"
 	"golang.org/x/crypto/ssh"
+	_ "modernc.org/sqlite"
 )
+
+func TestBrokerRejectsMissingAndStaleFencingTokens(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "fencing.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE resource_locks (resource_key TEXT PRIMARY KEY, owner_id TEXT NOT NULL, lease_until INTEGER NOT NULL, generation INTEGER NOT NULL, acquired_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO resource_locks(resource_key, owner_id, lease_until, generation, acquired_at) VALUES (?, ?, ?, ?, ?)`, "site:demo", "actor-b", time.Now().Add(time.Minute).UnixNano(), 2, time.Now().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+
+	broker, err := newBrokerWithFencingDB(t.TempDir(), t.TempDir(), log.New(io.Discard, "", 0), &fakeHost{}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &Request{RequestType: "site", Site: &SiteRequest{Action: "delete", Site: "demo"}}
+	if response, err := broker.Execute(context.Background(), request); err != nil || response.OK || !strings.Contains(response.Error, "fencing token required") {
+		t.Fatalf("missing token response = %#v, error = %v", response, err)
+	}
+	request.Fencing = []operations.FencingToken{{ResourceKey: "site:demo", OwnerID: "actor-a", Generation: 1}}
+	if response, err := broker.Execute(context.Background(), request); err != nil || response.OK || !strings.Contains(response.Error, "fencing token rejected") {
+		t.Fatalf("stale token response = %#v, error = %v", response, err)
+	}
+}
 
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)

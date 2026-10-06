@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
+	"github.com/cyberducttape/StePanel/internal/operations"
 	"github.com/cyberducttape/StePanel/internal/siteidentity"
 	"golang.org/x/crypto/ssh"
 )
@@ -57,6 +59,7 @@ type Broker struct {
 	validator     *Validator
 	logger        *log.Logger
 	host          hostOps
+	fencingDB     *sql.DB
 	// accountMutationMu serializes operations that can modify the host's
 	// account database (/etc/passwd, /etc/group, and related locks). The
 	// panel and worker use separate broker clients, so client-local locking
@@ -99,7 +102,18 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 	return newBroker(webRoot, recoveryRoot, logger, execHostOps{})
 }
 
+// NewBrokerWithFencingDB creates a broker that verifies any fencing tokens
+// supplied by the unprivileged panel against the shared control-plane DB.
+// A nil database preserves the standalone/test broker behavior.
+func NewBrokerWithFencingDB(webRoot, recoveryRoot string, fencingDB *sql.DB, logger *log.Logger) (*Broker, error) {
+	return newBrokerWithFencingDB(webRoot, recoveryRoot, logger, execHostOps{}, fencingDB)
+}
+
 func newBroker(webRoot, recoveryRoot string, logger *log.Logger, host hostOps) (*Broker, error) {
+	return newBrokerWithFencingDB(webRoot, recoveryRoot, logger, host, nil)
+}
+
+func newBrokerWithFencingDB(webRoot, recoveryRoot string, logger *log.Logger, host hostOps, fencingDB *sql.DB) (*Broker, error) {
 	if webRoot == "" {
 		return nil, fmt.Errorf("web root is required")
 	}
@@ -127,6 +141,7 @@ func newBroker(webRoot, recoveryRoot string, logger *log.Logger, host hostOps) (
 		validator:     NewValidator(webRoot),
 		logger:        logger,
 		host:          host,
+		fencingDB:     fencingDB,
 	}, nil
 }
 
@@ -139,6 +154,16 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 			OK:    false,
 			Error: fmt.Sprintf("validation error: %v", err),
 		}, nil
+	}
+	if b.fencingDB != nil && requestRequiresFencing(req) {
+		if len(req.Fencing) == 0 {
+			return &Response{OK: false, Error: "fencing token required for mutating request"}, nil
+		}
+		for _, token := range req.Fencing {
+			if err := operations.VerifyFencingToken(b.fencingDB, token); err != nil {
+				return &Response{OK: false, Error: fmt.Sprintf("fencing token rejected: %v", err)}, nil
+			}
+		}
 	}
 
 	// Route to appropriate handler
@@ -174,6 +199,26 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 			OK:    false,
 			Error: fmt.Sprintf("unknown request type: %s", req.RequestType),
 		}, nil
+	}
+}
+
+func requestRequiresFencing(req *Request) bool {
+	if req == nil {
+		return false
+	}
+	switch req.RequestType {
+	case "health":
+		return false
+	case "db":
+		return req.DB != nil && req.DB.Action != "inventory" && req.DB.Action != "dump"
+	case "git":
+		return req.Git != nil && req.Git.Action != "verify-key"
+	case "task":
+		return req.Task != nil && req.Task.Action != "history"
+	case "resource":
+		return req.Resource != nil && req.Resource.Action != "status"
+	default:
+		return true
 	}
 }
 

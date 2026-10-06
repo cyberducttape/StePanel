@@ -34,6 +34,7 @@ func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (c
 		return nil, nil, err
 	}
 	operationCtx, cancelOperation := context.WithCancel(ctx)
+	operationCtx = operations.WithFencingTokens(operationCtx, lease.Token())
 	holdCtx, cancelHold := context.WithCancel(context.Background())
 	holdDone := make(chan struct{})
 	go func() {
@@ -111,6 +112,7 @@ func (a *App) acquireSiteMutationLocksContext(ctx context.Context, keys ...strin
 		holdCtx, cancelHold := context.WithCancel(context.Background())
 		holdDone := make(chan struct{})
 		held = append(held, heldLease{key: key, lease: lease, cancel: cancelHold, done: holdDone})
+		operationCtx = operations.WithFencingTokens(operationCtx, lease.Token())
 		go func(key string, lease operations.Lease, holdCtx context.Context) {
 			defer close(holdDone)
 			if err := a.dbLocks.Hold(holdCtx, lease); err != nil && !errors.Is(err, context.Canceled) {

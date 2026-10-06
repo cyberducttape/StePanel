@@ -1,12 +1,21 @@
 package rootbroker
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/cyberducttape/StePanel/internal/operations"
+)
 
 // Request is the top-level RPC request type sent from the unprivileged app.
 // All fields are strongly-typed to prevent parsing ambiguity.
 type Request struct {
 	// RequestType identifies which operation to perform, such as "health", "site", "app", "db", "vhost", "proxy", or "certificate".
 	RequestType string `json:"type"`
+
+	// Fencing carries the durable lease generations protecting this request.
+	// The broker verifies supplied tokens against the shared control-plane DB
+	// immediately before dispatching the host mutation.
+	Fencing []operations.FencingToken `json:"fencing,omitempty"`
 
 	// Site operations: create, delete, seal, prepare, access, resources, quota, quota-clear, runtime
 	Site *SiteRequest `json:"site,omitempty"`

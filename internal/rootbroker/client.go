@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
+	"github.com/cyberducttape/StePanel/internal/operations"
 )
 
 // Client communicates with the root broker via the production subprocess
@@ -68,6 +69,13 @@ func (c *Client) Ping(ctx context.Context) error {
 }
 
 func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Response, error) {
+	if req != nil && len(req.Fencing) == 0 {
+		if tokens := operations.FencingTokens(ctx); len(tokens) > 0 {
+			copyReq := *req
+			copyReq.Fencing = tokens
+			req = &copyReq
+		}
+	}
 	// Native installs use one long-lived root-owned broker service. This keeps
 	// every broker operation on the same peer-authorized privilege boundary.
 	if socketPath := strings.TrimSpace(os.Getenv("STEPANEL_ROOT_BROKER_SOCKET")); socketPath != "" {
