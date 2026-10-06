@@ -6,11 +6,15 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/secretbox"
 )
 
 type apiTokenInfo struct {
@@ -26,7 +30,88 @@ type apiTokenInfo struct {
 	LegacyExpiresAt *int64   `json:"legacy_expires_at,omitempty"` // Host-wide hard cutoff for legacy tokens
 }
 
-type apiTokenStore struct{ db *sql.DB }
+type apiTokenStore struct {
+	db             *sql.DB
+	idempotencyBox *secretbox.Box
+}
+
+func (s *apiTokenStore) configureIdempotencyKey(masterKey string) error {
+	if strings.TrimSpace(masterKey) == "" {
+		return errors.New("API token idempotency requires STEPANEL_ACCOUNT_KEY")
+	}
+	box, err := secretbox.New([]byte(masterKey), "api-token-idempotency")
+	if err != nil {
+		return err
+	}
+	s.idempotencyBox = box
+	return nil
+}
+
+var (
+	errIdempotencyConflict = errors.New("idempotency key was reused for a different request")
+	errIdempotencyInFlight = errors.New("idempotent operation is already in progress")
+)
+
+type apiTokenIdempotencyResult struct {
+	Item   apiTokenInfo `json:"metadata"`
+	Secret string       `json:"token"`
+}
+
+func (s *apiTokenStore) idempotencyHash(operation, principal string, request any) (string, error) {
+	data, err := json.Marshal(struct {
+		Operation string `json:"operation"`
+		Principal string `json:"principal"`
+		Request   any    `json:"request"`
+	}{operation, principal, request})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func (s *apiTokenStore) sealIdempotencyResult(result []byte, principal, operation, key string) ([]byte, error) {
+	if s.idempotencyBox == nil {
+		return nil, errors.New("idempotent API token mutations require STEPANEL_ACCOUNT_KEY")
+	}
+	return s.idempotencyBox.Seal(result, principal, operation, key)
+}
+
+func (s *apiTokenStore) openIdempotencyResult(result []byte, principal, operation, key string) ([]byte, error) {
+	if s.idempotencyBox == nil {
+		return nil, errors.New("idempotent API token result key is unavailable")
+	}
+	return s.idempotencyBox.Open(result, principal, operation, key)
+}
+
+func (s *apiTokenStore) lookupIdempotency(tx *sql.Tx, principal, operation, key, requestHash string) (bool, []byte, error) {
+	var storedHash, state string
+	var result []byte
+	err := tx.QueryRow(`SELECT request_hash, state, result FROM idempotency_records WHERE principal = ? AND operation = ? AND idempotency_key = ?`, principal, operation, key).Scan(&storedHash, &state, &result)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil, nil
+	}
+	if err != nil {
+		return false, nil, err
+	}
+	if storedHash != requestHash {
+		return true, nil, errIdempotencyConflict
+	}
+	if state != "completed" {
+		return true, nil, errIdempotencyInFlight
+	}
+	return true, result, nil
+}
+
+func (s *apiTokenStore) beginIdempotency(tx *sql.Tx, principal, operation, key, requestHash string) (bool, error) {
+	now := time.Now().Unix()
+	result, err := tx.Exec(`INSERT INTO idempotency_records (principal, operation, idempotency_key, request_hash, state, result, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', X'', ?, ?) ON CONFLICT(principal, operation, idempotency_key) DO NOTHING`, principal, operation, key, requestHash, now, now)
+	if err != nil {
+		return false, err
+	}
+	inserted, err := result.RowsAffected()
+	return inserted == 1, err
+}
 
 func (s *apiTokenStore) create(username, name string, expiresAt *int64) (apiTokenInfo, string, error) {
 	return s.createScoped(username, name, expiresAt, nil, customerAPIScopes)
@@ -84,13 +169,7 @@ func (s *apiTokenStore) createScoped(username, name string, expiresAt *int64, sc
 		return apiTokenInfo{}, "", errors.New("API token store is unavailable")
 	}
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 80 {
-		return apiTokenInfo{}, "", errors.New("token name must be 1-80 characters")
-	}
-	if expiresAt != nil && *expiresAt <= time.Now().Unix() {
-		return apiTokenInfo{}, "", errors.New("token expiry must be in the future")
-	}
-	scopeText, normalizedScopes, err := normalizeTokenScopes(scopes, allowed)
+	scopeText, normalizedScopes, err := validateTokenRequest(name, expiresAt, scopes, allowed)
 	if err != nil {
 		return apiTokenInfo{}, "", err
 	}
@@ -112,6 +191,100 @@ func (s *apiTokenStore) createScoped(username, name string, expiresAt *int64, sc
 		return apiTokenInfo{}, "", err
 	}
 	return apiTokenInfo{ID: id, Name: name, Prefix: secret[:12], CreatedAt: now, ExpiresAt: expiresAt, Scopes: normalizedScopes}, secret, nil
+}
+
+func validateTokenRequest(name string, expiresAt *int64, scopes []string, allowed map[string]bool) (string, []string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 80 {
+		return "", nil, errors.New("token name must be 1-80 characters")
+	}
+	if expiresAt != nil && *expiresAt <= time.Now().Unix() {
+		return "", nil, errors.New("token expiry must be in the future")
+	}
+	scopeText, normalizedScopes, err := normalizeTokenScopes(scopes, allowed)
+	if err != nil {
+		return "", nil, err
+	}
+	return scopeText, normalizedScopes, nil
+}
+
+func (s *apiTokenStore) createScopedIdempotent(username, name string, expiresAt *int64, scopes []string, allowed map[string]bool, operation, key string) (apiTokenInfo, string, error) {
+	if s == nil || s.db == nil {
+		return apiTokenInfo{}, "", errors.New("API token store is unavailable")
+	}
+	name = strings.TrimSpace(name)
+	scopeText, normalizedScopes, err := validateTokenRequest(name, expiresAt, scopes, allowed)
+	if err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	requestHash, err := s.idempotencyHash(operation, username, struct {
+		Name      string   `json:"name"`
+		ExpiresAt *int64   `json:"expires_at"`
+		Scopes    []string `json:"scopes"`
+	}{name, expiresAt, normalizedScopes})
+	if err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	defer tx.Rollback()
+	inserted, err := s.beginIdempotency(tx, username, operation, key, requestHash)
+	if err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	if inserted {
+		// The record was created by this transaction; it is not a replay.
+	} else {
+		existing, storedResult, err := s.lookupIdempotency(tx, username, operation, key, requestHash)
+		if err != nil {
+			return apiTokenInfo{}, "", err
+		}
+		if existing {
+			plain, err := s.openIdempotencyResult(storedResult, username, operation, key)
+			if err != nil {
+				return apiTokenInfo{}, "", fmt.Errorf("open idempotent token result: %w", err)
+			}
+			var response apiTokenIdempotencyResult
+			if err := json.Unmarshal(plain, &response); err != nil {
+				return apiTokenInfo{}, "", fmt.Errorf("decode idempotent token result: %w", err)
+			}
+			return response.Item, response.Secret, nil
+		}
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	secret := "stp_" + base64.RawURLEncoding.EncodeToString(raw)
+	digest := sha256.Sum256([]byte(secret))
+	hash := hex.EncodeToString(digest[:])
+	idBytes := make([]byte, 16)
+	if _, err := rand.Read(idBytes); err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	id := hex.EncodeToString(idBytes)
+	now := time.Now().Unix()
+	item := apiTokenInfo{ID: id, Name: name, Prefix: secret[:12], CreatedAt: now, ExpiresAt: expiresAt, Scopes: normalizedScopes}
+	if _, err := tx.Exec(`INSERT INTO api_tokens (id, username, name, token_hash, token_prefix, scopes, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, username, name, hash, secret[:12], scopeText, now, expiresAt); err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	plain, err := json.Marshal(apiTokenIdempotencyResult{Item: item, Secret: secret})
+	if err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	sealed, err := s.sealIdempotencyResult(plain, username, operation, key)
+	if err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	if _, err := tx.Exec(`UPDATE idempotency_records SET state = 'completed', result = ?, updated_at = ? WHERE principal = ? AND operation = ? AND idempotency_key = ? AND request_hash = ?`, sealed, time.Now().Unix(), username, operation, key, requestHash); err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return apiTokenInfo{}, "", err
+	}
+	return item, secret, nil
 }
 
 func (s *apiTokenStore) authenticate(secret string) (string, bool) {
@@ -199,6 +372,11 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid CSRF token", http.StatusForbidden)
 			return
 		}
+		operationKey, err := requestOperationKey(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		var request struct {
 			Name      string   `json:"name"`
 			ExpiresAt *int64   `json:"expires_at"`
@@ -217,14 +395,24 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			refuseWithoutSecurityAudit(w)
 			return
 		}
-		item, secret, err := a.apiTokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes, adminAPIScopes)
+		var item apiTokenInfo
+		var secret string
+		if operationKey != "" {
+			item, secret, err = a.apiTokens.createScopedIdempotent(username, request.Name, request.ExpiresAt, request.Scopes, adminAPIScopes, "auth.admin_api_token.create", operationKey)
+		} else {
+			item, secret, err = a.apiTokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes, adminAPIScopes)
+		}
 		if err != nil {
+			if errors.Is(err, errIdempotencyConflict) || errors.Is(err, errIdempotencyInFlight) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			intent.Failed(err.Error())
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		intent.Completed("token=" + item.ID + " scopes=" + strings.Join(item.Scopes, ","))
-		if err := r.Context().Err(); err != nil {
+		if operationKey == "" && r.Context().Err() != nil {
 			http.Error(w, "administrator token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
@@ -235,12 +423,26 @@ func (a Auth) adminAPITokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid token request", http.StatusBadRequest)
 			return
 		}
-		if err := a.apiTokens.revoke(username, id); err != nil {
+		operationKey, err := requestOperationKey(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		if operationKey != "" {
+			err = a.apiTokens.revokeIdempotent(username, id, "auth.admin_api_token.revoke", operationKey)
+		} else {
+			err = a.apiTokens.revoke(username, id)
+		}
+		if err != nil {
+			if errors.Is(err, errIdempotencyConflict) || errors.Is(err, errIdempotencyInFlight) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 		RevocationAudit(a.AuditLog, username, "auth.admin_api_token.revoked", id, "administrator token revoked")
-		if err := r.Context().Err(); err != nil {
+		if operationKey == "" && r.Context().Err() != nil {
 			http.Error(w, "administrator token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
@@ -281,6 +483,58 @@ func (s *apiTokenStore) revoke(username, id string) error {
 		return errors.New("token not found or already revoked")
 	}
 	return nil
+}
+
+func (s *apiTokenStore) revokeIdempotent(username, id, operation, key string) error {
+	if s == nil || s.db == nil {
+		return errors.New("API token store is unavailable")
+	}
+	requestHash, err := s.idempotencyHash(operation, username, struct {
+		ID string `json:"id"`
+	}{id})
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	inserted, err := s.beginIdempotency(tx, username, operation, key, requestHash)
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		existing, storedResult, err := s.lookupIdempotency(tx, username, operation, key, requestHash)
+		if err != nil {
+			return err
+		}
+		if existing {
+			if _, err := s.openIdempotencyResult(storedResult, username, operation, key); err != nil {
+				return fmt.Errorf("open idempotent revocation result: %w", err)
+			}
+			return nil
+		}
+	}
+	execResult, err := tx.Exec(`UPDATE api_tokens SET revoked_at = unixepoch() WHERE id = ? AND username = ? AND revoked_at IS NULL`, id, username)
+	if err != nil {
+		return err
+	}
+	count, err := execResult.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return errors.New("token not found or already revoked")
+	}
+	sealed, err := s.sealIdempotencyResult([]byte(`{}`), username, operation, key)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE idempotency_records SET state = 'completed', result = ?, updated_at = ? WHERE principal = ? AND operation = ? AND idempotency_key = ? AND request_hash = ?`, sealed, time.Now().Unix(), username, operation, key, requestHash); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *apiTokenStore) revokeAll(username string) error {
@@ -361,6 +615,11 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "at least one scope is required; a token with no scopes can perform no actions", http.StatusUnprocessableEntity)
 			return
 		}
+		operationKey, err := requestOperationKey(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		if a.Accounts != nil {
 			account, exists := a.Accounts.Get(username)
 			if !exists || a.Accounts.TenantSuspended(username) {
@@ -389,14 +648,24 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			refuseWithoutSecurityAudit(w)
 			return
 		}
-		item, secret, err := a.APITokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes, customerAPIScopes)
+		var item apiTokenInfo
+		var secret string
+		if operationKey != "" {
+			item, secret, err = a.APITokens.createScopedIdempotent(username, request.Name, request.ExpiresAt, request.Scopes, customerAPIScopes, "auth.api_token.create", operationKey)
+		} else {
+			item, secret, err = a.APITokens.createScoped(username, request.Name, request.ExpiresAt, request.Scopes, customerAPIScopes)
+		}
 		if err != nil {
+			if errors.Is(err, errIdempotencyConflict) || errors.Is(err, errIdempotencyInFlight) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			intent.Failed(err.Error())
 			http.Error(w, err.Error(), 422)
 			return
 		}
 		intent.Completed("token=" + item.ID + " scopes=" + strings.Join(item.Scopes, ","))
-		if err := operationCtx.Err(); err != nil {
+		if operationKey == "" && operationCtx.Err() != nil {
 			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
@@ -411,6 +680,11 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "token ID is required", 400)
 			return
 		}
+		operationKey, err := requestOperationKey(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), "account:"+username)
 		if lockErr != nil {
 			http.Error(w, "API token mutation is busy", http.StatusConflict)
@@ -421,12 +695,21 @@ func (a *App) apiTokens(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}
-		if err := a.APITokens.revoke(username, id); err != nil {
+		if operationKey != "" {
+			err = a.APITokens.revokeIdempotent(username, id, "auth.api_token.revoke", operationKey)
+		} else {
+			err = a.APITokens.revoke(username, id)
+		}
+		if err != nil {
+			if errors.Is(err, errIdempotencyConflict) || errors.Is(err, errIdempotencyInFlight) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			http.Error(w, err.Error(), 404)
 			return
 		}
 		RevocationAudit(a.Config.AuditLog, username, "auth.api_token.revoked", id, "customer token revoked")
-		if err := operationCtx.Err(); err != nil {
+		if operationKey == "" && operationCtx.Err() != nil {
 			http.Error(w, "API token mutation cancelled because the mutation lock was lost", http.StatusConflict)
 			return
 		}

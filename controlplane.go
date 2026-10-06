@@ -71,6 +71,17 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     revoked_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(username, revoked_at);
+CREATE TABLE IF NOT EXISTS idempotency_records (
+    principal       TEXT NOT NULL,
+    operation       TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_hash    TEXT NOT NULL,
+    state           TEXT NOT NULL,
+    result          BLOB NOT NULL,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    PRIMARY KEY (principal, operation, idempotency_key)
+);
 CREATE TABLE IF NOT EXISTS state_blobs (
     name TEXT PRIMARY KEY,
     payload BLOB NOT NULL,
@@ -243,6 +254,20 @@ CREATE INDEX IF NOT EXISTS jobs_owner_state_idx ON jobs(owner, state, started_at
             store TEXT PRIMARY KEY,
             version INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
+        );`)
+		return err
+	}),
+	migration.NewMigration(12, "add synchronous idempotency records", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS idempotency_records (
+            principal       TEXT NOT NULL,
+            operation       TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash    TEXT NOT NULL,
+            state           TEXT NOT NULL,
+            result          BLOB NOT NULL,
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL,
+            PRIMARY KEY (principal, operation, idempotency_key)
         );`)
 		return err
 	}),

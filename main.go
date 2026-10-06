@@ -369,6 +369,11 @@ func Main() {
 		log.Fatalf("initialize recovery rehearsal store: %v", err)
 	}
 	auth.apiTokens = &apiTokenStore{db: controlPlaneDB}
+	if strings.TrimSpace(cfg.AccountKey) != "" {
+		if err := auth.apiTokens.configureIdempotencyKey(cfg.AccountKey); err != nil {
+			log.Fatalf("configure API token idempotency: %v", err)
+		}
+	}
 	if err := auth.enforceLegacyTokenCutoff(); err != nil {
 		log.Fatalf("enforce legacy API token cutoff: %v", err)
 	}

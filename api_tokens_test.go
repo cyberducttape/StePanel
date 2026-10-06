@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -120,6 +121,46 @@ func TestAPITokenLifecycleStoresOnlyHashAndRevokes(t *testing.T) {
 	}
 	if _, ok := store.authenticate(secret); ok {
 		t.Fatal("revoked token remained valid")
+	}
+}
+
+func TestAPITokenIdempotencyReplaysSecretAndRejectsKeyReuse(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := &apiTokenStore{db: db}
+	if err := store.configureIdempotencyKey("12345678901234567890123456789012"); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().Add(time.Hour).Unix()
+	first, secret, err := store.createScopedIdempotent("customer", "automation", &expires, []string{"site:read"}, customerAPIScopes, "auth.api_token.create", "retry-token-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, replayedSecret, err := store.createScopedIdempotent("customer", "automation", &expires, []string{"site:read"}, customerAPIScopes, "auth.api_token.create", "retry-token-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID || secret != replayedSecret {
+		t.Fatalf("idempotent replay = (%q, %q), want (%q, %q)", second.ID, replayedSecret, first.ID, secret)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE username = ?`, "customer").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("token count = %d, want 1", count)
+	}
+	if _, _, err := store.createScopedIdempotent("customer", "different", &expires, []string{"site:read"}, customerAPIScopes, "auth.api_token.create", "retry-token-1"); !errors.Is(err, errIdempotencyConflict) {
+		t.Fatalf("reused key error = %v, want conflict", err)
+	}
+	if err := store.revokeIdempotent("customer", first.ID, "auth.api_token.revoke", "retry-revoke-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.revokeIdempotent("customer", first.ID, "auth.api_token.revoke", "retry-revoke-1"); err != nil {
+		t.Fatal(err)
 	}
 }
 
