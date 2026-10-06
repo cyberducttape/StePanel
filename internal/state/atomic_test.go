@@ -5,16 +5,79 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func preserveStateHooks(t *testing.T) {
 	t.Helper()
-	mkdirAll, createTemp, rename, open := stateMkdirAll, stateCreateTemp, stateRename, stateOpen
+	mkdirAll, createTemp, remove, rename, open := stateMkdirAll, stateCreateTemp, stateRemove, stateRename, stateOpen
 	chmod, write, syncFile, closeFile := stateChmod, stateWrite, stateSync, stateClose
 	t.Cleanup(func() {
-		stateMkdirAll, stateCreateTemp, stateRename, stateOpen = mkdirAll, createTemp, rename, open
+		stateMkdirAll, stateCreateTemp, stateRemove, stateRename, stateOpen = mkdirAll, createTemp, remove, rename, open
 		stateChmod, stateWrite, stateSync, stateClose = chmod, write, syncFile, closeFile
+	})
+}
+
+func TestRemoveDurableRemovesAndSyncsParent(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "journal.json")
+	if err := os.WriteFile(path, []byte("journal"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	synced := 0
+	preserveStateHooks(t)
+	stateSync = func(*os.File) error {
+		synced++
+		return nil
+	}
+	if err := RemoveDurable(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("journal stat error = %v, want not-exist", err)
+	}
+	if synced != 1 {
+		t.Fatalf("directory syncs = %d, want 1", synced)
+	}
+
+	// Cleanup is idempotent and still syncs the containing directory.
+	if err := RemoveDurable(path); err != nil {
+		t.Fatal(err)
+	}
+	if synced != 2 {
+		t.Fatalf("directory syncs after missing removal = %d, want 2", synced)
+	}
+}
+
+func TestRemoveDurableReportsDurabilityFailures(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "journal.json")
+	if err := os.WriteFile(path, []byte("journal"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("remove", func(t *testing.T) {
+		preserveStateHooks(t)
+		stateRemove = func(string) error { return errors.New("remove failed") }
+		if err := RemoveDurable(path); err == nil || !strings.Contains(err.Error(), "remove failed") {
+			t.Fatalf("RemoveDurable error = %v, want remove failure", err)
+		}
+	})
+	t.Run("directory open", func(t *testing.T) {
+		preserveStateHooks(t)
+		stateOpen = func(string) (*os.File, error) { return nil, errors.New("open failed") }
+		if err := RemoveDurable(path); err == nil || !strings.Contains(err.Error(), "open failed") {
+			t.Fatalf("RemoveDurable error = %v, want directory open failure", err)
+		}
+	})
+	t.Run("directory sync", func(t *testing.T) {
+		preserveStateHooks(t)
+		stateSync = func(*os.File) error { return errors.New("sync failed") }
+		if err := RemoveDurable(path); err == nil || !strings.Contains(err.Error(), "sync failed") {
+			t.Fatalf("RemoveDurable error = %v, want directory sync failure", err)
+		}
 	})
 }
 

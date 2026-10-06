@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/state"
 )
 
 // Site-creation step journal.
@@ -171,7 +173,7 @@ func (j *creationJournal) cleanup() error {
 	if j == nil || j.path == "" {
 		return nil
 	}
-	if err := os.Remove(j.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := state.RemoveDurable(j.path); err != nil {
 		return fmt.Errorf("remove creation journal: %w", err)
 	}
 	return nil

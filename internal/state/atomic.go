@@ -3,6 +3,7 @@
 package state
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 var (
 	stateMkdirAll   = os.MkdirAll
 	stateCreateTemp = os.CreateTemp
+	stateRemove     = os.Remove
 	stateRename     = os.Rename
 	stateOpen       = os.Open
 	stateChmod      = func(file *os.File, mode os.FileMode) error { return file.Chmod(mode) }
@@ -19,6 +21,29 @@ var (
 	stateSync       = func(file *os.File) error { return file.Sync() }
 	stateClose      = func(file *os.File) error { return file.Close() }
 )
+
+// RemoveDurable removes path and fsyncs its parent directory. A missing path
+// is treated as an idempotent cleanup, but the parent is still synced so the
+// caller gets the same directory durability guarantee either way.
+func RemoveDurable(path string) error {
+	if err := stateRemove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	dir, err := stateOpen(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("open state directory for removal sync: %w", err)
+	}
+	syncErr := stateSync(dir)
+	closeErr := stateClose(dir)
+	if syncErr != nil {
+		return fmt.Errorf("sync state directory after removal: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close state directory after removal: %w", closeErr)
+	}
+	return nil
+}
 
 // WriteAtomic writes data to path with the requested permissions, fsyncs the
 // file, atomically replaces the destination, and fsyncs its parent directory.

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/state"
 )
 
 const releaseActivationJournalVersion = 1
@@ -77,7 +79,7 @@ func (j *releaseActivationJournal) cleanup() error {
 	if j == nil || j.path == "" {
 		return nil
 	}
-	if err := os.Remove(j.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := state.RemoveDurable(j.path); err != nil {
 		return fmt.Errorf("remove release activation journal: %w", err)
 	}
 	return nil
