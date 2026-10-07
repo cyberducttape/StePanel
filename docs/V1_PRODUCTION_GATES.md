@@ -58,9 +58,9 @@ These items do not silently become release claims. They are tracked separately:
 
 ### Test coverage ratchet
 
-CI enforces a repository-wide statement-coverage floor of **45%** and
+CI enforces a repository-wide statement-coverage floor of **50%** and
 package-specific floors for the security boundary, durable jobs, archive
-importer, and legacy root workflow handlers. The 45% value is an executable
+importer, and legacy root workflow handlers. The 50% value is an executable
 ratchet from the current 47.5% baseline, not a production-quality claim by
 itself. It must increase as root-package handlers are extracted and tested;
 the release process must not lower it to accommodate a regression. Coverage is
@@ -481,6 +481,9 @@ privileged broker and panel/worker services retain `PrivateDevices=true`.
 - [x] No mysterious half-states discovered — the drills found two real leaks, both fixed: restore scratch trees under the import root and manager staging trees were never cleaned after a crash
 - [x] Recovery is deterministic at repository level — 114 consecutive SIGKILL drills (6 repetitions of all 19 kill points) recovered to the same verified state
 - [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM
+- [ ] Repeat the real-host recovery matrix 20–50 times per operation/fault
+  combination, with post-boot invariant evidence retained (see
+  `docs/REAL_HOST_FAILURE_MATRIX.md`)
 
 ---
 

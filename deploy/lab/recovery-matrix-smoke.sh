@@ -9,6 +9,7 @@ command -v systemctl >/dev/null || { echo 'recovery matrix requires systemd' >&2
 
 repo=/work/deploy/lab
 : "${RECOVERY_MATRIX_PREFIX:=ci-matrix-$(date +%s)}"
+base_prefix=$RECOVERY_MATRIX_PREFIX
 
 run_import_recovery() {
   CPMOVE_RECOVERY_SMOKE_SITE="${RECOVERY_MATRIX_PREFIX}-cpmove" \
@@ -41,10 +42,14 @@ run_deploy_recovery() {
     bash "$repo/deploy-recovery-smoke.sh"
 }
 
-run_import_recovery
-run_backup_recovery
-run_suspension_recovery
-run_deploy_recovery
+run_matrix_once() {
+  local iteration=$1
+  RECOVERY_MATRIX_PREFIX="${base_prefix}-r${iteration}"
+  echo "recovery matrix iteration ${iteration}/${RECOVERY_MATRIX_REPEATS} (prefix ${RECOVERY_MATRIX_PREFIX})"
+  run_import_recovery
+  run_backup_recovery
+  run_suspension_recovery
+  run_deploy_recovery
 
 # The default matrix is deliberately bounded for the normal install smoke.
 # Set RECOVERY_MATRIX_FULL=1 on an isolated host to execute every supported
@@ -92,5 +97,14 @@ if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
       bash "$repo/account-suspension-recovery-smoke.sh"
   done
 fi
+}
 
-echo "recovery matrix passed (prefix $RECOVERY_MATRIX_PREFIX)"
+repeats=${RECOVERY_MATRIX_REPEATS:-1}
+[[ $repeats =~ ^[1-9][0-9]*$ && $repeats -le 50 ]] || {
+  echo 'RECOVERY_MATRIX_REPEATS must be an integer from 1 through 50' >&2
+  exit 64
+}
+for iteration in $(seq 1 "$repeats"); do
+  run_matrix_once "$iteration"
+done
+echo "recovery matrix passed (${repeats} iteration(s), base prefix $base_prefix)"

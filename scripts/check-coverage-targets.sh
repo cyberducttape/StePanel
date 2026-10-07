@@ -12,7 +12,7 @@ set -Eeuo pipefail
 declare -A COVERAGE_TARGETS=(
   # Most legacy HTTP/workflow handlers still live in the root package. Keep a
   # dedicated floor so aggregate coverage cannot hide regressions there.
-  ["github.com/cyberducttape/StePanel"]="45"
+  ["github.com/cyberducttape/StePanel"]="48"
   ["github.com/cyberducttape/StePanel/internal/auth"]="90"
   ["github.com/cyberducttape/StePanel/internal/helper"]="90"
   ["github.com/cyberducttape/StePanel/internal/state"]="85"

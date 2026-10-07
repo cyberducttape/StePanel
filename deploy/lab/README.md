@@ -63,4 +63,5 @@ run with `--unsafe-lab`.
 | `STEPANEL_LAB_DIRECT_ROOT_BROKER`, `STEPANEL_LAB_ROOT_BROKER_SOCKET`, `STEPANEL_LAB_ROOT_BROKER_HELPERS` | Run the root broker directly or over a lab socket where the container runtime blocks setuid transitions (installation smoke tests) |
 | `STEPANEL_SKIP_STARTUP_HOST_RECONCILE`, `STEPANEL_SKIP_STARTUP_DB_RECONCILE`, `STEPANEL_SKIP_QUOTA_CHECK`, `STEPANEL_LAB_HTTP_COOKIES` | Safety bypasses for hosts without quotas, a database, or HTTPS |
 | `STEPANEL_KILL_AT=operation:point` | Recovery drills: the process kills itself with SIGKILL at the named boundary to prove startup recovery |
+| `RECOVERY_MATRIX_REPEATS=1..50` | Repeat the real-host recovery matrix with isolated site/account prefixes; use `20`–`50` for destructive soak evidence |
 | `STEPANEL_SUDO` | Non-production compatibility only: prefix helper commands with this `sudo` binary. Production uses the root broker socket |
