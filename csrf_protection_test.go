@@ -1,215 +1,106 @@
 package stepanel
 
 import (
-	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-// TestCSRFProtectionEnforcement verifies that state-changing operations require
-// a valid CSRF token, preventing cross-site request forgery attacks where a
-// malicious site tricks an authenticated user into making unwanted changes.
-func TestCSRFProtectionEnforcement(t *testing.T) {
-
-	type csrfTest struct {
-		name            string
-		method          string
-		withCSRFToken   bool
-		hasValidSession bool
-		shouldAllow     bool
+func newCSRFTestAuth(t *testing.T) (Auth, []*http.Cookie) {
+	t.Helper()
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	tests := []csrfTest{
-		// Safe methods never require CSRF tokens
-		{
-			name:            "GET request allowed without CSRF token",
-			method:          http.MethodGet,
-			withCSRFToken:   false,
-			hasValidSession: true,
-			shouldAllow:     true,
-		},
-		{
-			name:            "HEAD request allowed without CSRF token",
-			method:          http.MethodHead,
-			withCSRFToken:   false,
-			hasValidSession: true,
-			shouldAllow:     true,
-		},
-		// Mutating methods require CSRF tokens
-		{
-			name:            "POST without CSRF token is denied",
-			method:          http.MethodPost,
-			withCSRFToken:   false,
-			hasValidSession: true,
-			shouldAllow:     false,
-		},
-		{
-			name:            "PUT without CSRF token is denied",
-			method:          http.MethodPut,
-			withCSRFToken:   false,
-			hasValidSession: true,
-			shouldAllow:     false,
-		},
-		{
-			name:            "DELETE without CSRF token is denied",
-			method:          http.MethodDelete,
-			withCSRFToken:   false,
-			hasValidSession: true,
-			shouldAllow:     false,
-		},
-		{
-			name:            "PATCH without CSRF token is denied",
-			method:          http.MethodPatch,
-			withCSRFToken:   false,
-			hasValidSession: true,
-			shouldAllow:     false,
-		},
-		// With CSRF token, mutations are allowed
-		{
-			name:            "POST with CSRF token is allowed",
-			method:          http.MethodPost,
-			withCSRFToken:   true,
-			hasValidSession: true,
-			shouldAllow:     true,
-		},
-		{
-			name:            "DELETE with CSRF token is allowed",
-			method:          http.MethodDelete,
-			withCSRFToken:   true,
-			hasValidSession: true,
-			shouldAllow:     true,
-		},
-		// CSRF token doesn't help without valid session
-		{
-			name:            "POST with CSRF token but no session is denied",
-			method:          http.MethodPost,
-			withCSRFToken:   true,
-			hasValidSession: false,
-			shouldAllow:     false,
-		},
+	auth.AuditLog = t.TempDir() + "/audit.jsonl"
+	login := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=admin&password=correct+horse+battery+staple"))
+	login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	auth.Login(response, login)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d, want %d", response.Code, http.StatusSeeOther)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(tt.method, "/api/test", nil)
-
-			// Simulate CSRF token in header
-			if tt.withCSRFToken {
-				r.Header.Set("X-CSRF-Token", "valid-token-value")
-			}
-
-			// Check if this would be allowed
-			isSafeMethod := tt.method == http.MethodGet || tt.method == http.MethodHead || tt.method == http.MethodOptions
-			needsCSRF := !isSafeMethod
-
-			// Simulate CSRF check
-			hasCSRF := tt.withCSRFToken && tt.hasValidSession
-
-			allowed := !needsCSRF || hasCSRF
-
-			if allowed != tt.shouldAllow {
-				t.Errorf("%s %s: expected %v, got %v",
-					tt.method, tt.name, tt.shouldAllow, allowed)
-			}
-		})
-	}
+	return auth, response.Result().Cookies()
 }
 
-// TestCSRFTokenBoundary verifies that CSRF token validation correctly
-// distinguishes between safe and unsafe HTTP methods.
-func TestCSRFTokenBoundary(t *testing.T) {
-	tests := []struct {
-		method string
-		isSafe bool
-	}{
-		{http.MethodGet, true},
-		{http.MethodHead, true},
-		{http.MethodOptions, true},
-		{http.MethodTrace, true},
-		{http.MethodPost, false},
-		{http.MethodPut, false},
-		{http.MethodPatch, false},
-		{http.MethodDelete, false},
-		{http.MethodConnect, false},
+func serveLogout(t *testing.T, auth Auth, request *http.Request) *httptest.ResponseRecorder {
+	t.Helper()
+	response := httptest.NewRecorder()
+	auth.Require(http.HandlerFunc(auth.Logout)).ServeHTTP(response, request)
+	return response
+}
+
+func sessionRequest(method string, cookies []*http.Cookie) *http.Request {
+	request := httptest.NewRequest(method, "/logout", nil)
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
 	}
+	return request
+}
 
-	for _, tt := range tests {
-		isSafe := tt.method == http.MethodGet ||
-			tt.method == http.MethodHead ||
-			tt.method == http.MethodOptions ||
-			tt.method == http.MethodTrace
-
-		if isSafe != tt.isSafe {
-			t.Errorf("%s: expected isSafe=%v, got %v", tt.method, tt.isSafe, isSafe)
+func csrfCookie(cookies []*http.Cookie) string {
+	for _, cookie := range cookies {
+		if cookie.Name == "stepanel_csrf" {
+			return cookie.Value
 		}
 	}
+	return ""
 }
 
-// TestCSRFTokenNotRequiredForAPITokens verifies that API token requests
-// don't require CSRF tokens (they use bearer authentication, not cookies).
-func TestCSRFTokenNotRequiredForAPITokens(t *testing.T) {
-
-	type tokenTest struct {
-		name          string
-		isAPIToken    bool
-		withCSRFToken bool
-		shouldAllow   bool
+func TestCSRFProtectionUsesRealAuthenticatedHandler(t *testing.T) {
+	tests := []struct {
+		name       string
+		mutate     func(*http.Request, string)
+		wantStatus int
+	}{
+		{name: "session without token", mutate: func(*http.Request, string) {}, wantStatus: http.StatusForbidden},
+		{name: "session with bad token", mutate: func(r *http.Request, _ string) { r.Header.Set("X-CSRF-Token", "wrong") }, wantStatus: http.StatusForbidden},
+		{name: "session with matching header", mutate: func(r *http.Request, token string) { r.Header.Set("X-CSRF-Token", token) }, wantStatus: http.StatusSeeOther},
+		{name: "multipart body token is rejected", mutate: func(r *http.Request, token string) {
+			r.Header.Set("Content-Type", "multipart/form-data; boundary=test")
+			r.Body = io.NopCloser(strings.NewReader("csrf=" + token))
+		}, wantStatus: http.StatusForbidden},
 	}
-
-	tests := []tokenTest{
-		{
-			name:          "API token POST without CSRF token is allowed",
-			isAPIToken:    true,
-			withCSRFToken: false,
-			shouldAllow:   true,
-		},
-		{
-			name:          "API token DELETE without CSRF token is allowed",
-			isAPIToken:    true,
-			withCSRFToken: false,
-			shouldAllow:   true,
-		},
-		{
-			name:          "browser session POST without CSRF token is denied",
-			isAPIToken:    false,
-			withCSRFToken: false,
-			shouldAllow:   false,
-		},
-		{
-			name:          "browser session POST with CSRF token is allowed",
-			isAPIToken:    false,
-			withCSRFToken: true,
-			shouldAllow:   true,
-		},
-	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, "/api/test", nil)
-			ctx := r.Context()
-
-			if tt.isAPIToken {
-				ctx = context.WithValue(ctx, apiTokenUsernameKey{}, "user")
-			}
-
-			if tt.withCSRFToken {
-				r.Header.Set("X-CSRF-Token", "valid-token")
-			}
-
-			r = r.WithContext(ctx)
-
-			// CSRF check logic:
-			// - API tokens don't need CSRF (they're not vulnerable to CSRF)
-			// - Browser sessions need CSRF for POST/PUT/DELETE
-			isAPITokenRequest := r.Context().Value(apiTokenUsernameKey{}) != nil
-			hasCSRF := r.Header.Get("X-CSRF-Token") != ""
-
-			allowed := isAPITokenRequest || hasCSRF
-
-			if allowed != tt.shouldAllow {
-				t.Errorf("%s: expected %v, got %v", tt.name, tt.shouldAllow, allowed)
+			auth, cookies := newCSRFTestAuth(t)
+			request := sessionRequest(http.MethodPost, cookies)
+			tt.mutate(request, csrfCookie(cookies))
+			if got := serveLogout(t, auth, request).Code; got != tt.wantStatus {
+				t.Fatalf("logout status = %d, want %d", got, tt.wantStatus)
 			}
 		})
+	}
+}
+
+func TestCSRFProtectionUsesRealBearerAuthentication(t *testing.T) {
+	auth, _ := newCSRFTestAuth(t)
+	db, err := openControlPlaneDB(t.TempDir() + "/control-plane.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	store := &apiTokenStore{db: db}
+	_, secret, err := store.createScoped("admin", "test", nil, []string{"admin:read"}, adminAPIScopes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.apiTokens = store
+
+	request := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	request.Header.Set("Authorization", "Bearer "+secret)
+	if got := serveLogout(t, auth, request).Code; got != http.StatusSeeOther {
+		t.Fatalf("valid bearer logout status = %d, want %d", got, http.StatusSeeOther)
+	}
+
+	invalid := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	invalid.Header.Set("Authorization", "Bearer invalid-token")
+	if got := serveLogout(t, auth, invalid).Code; got != http.StatusUnauthorized {
+		t.Fatalf("invalid bearer status = %d, want %d", got, http.StatusUnauthorized)
 	}
 }

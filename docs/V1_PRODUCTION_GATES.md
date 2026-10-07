@@ -48,12 +48,13 @@ These items do not silently become release claims. They are tracked separately:
 - First-class blank PHP, WordPress, Git, and Node site creation workflows.
   Blank PHP sites: implemented (`POST /api/sites`, durable `site.create` job,
   `site_creation_test.go`); WordPress, Git and Node templates are open.
-- Recovery Proof that rehearses filesystem restore, database restore,
-  configuration regeneration, application startup, and an HTTP health probe.
-
-Until Recovery Proof exists, recovery rehearsal status must say exactly what it
-proves: current archive-level verification does not prove database import or
-application startup.
+- Recovery Proof is available through the explicitly configured
+  `STEPANEL_RECOVERY_PROOF_COMMAND`. The command receives `<site> <stage>` and
+  must restore the staged files/database, regenerate configuration, activate
+  services, and fail unless an application HTTP health probe succeeds. A
+  rehearsal records the stronger `application` level only when that command
+  exits successfully; without it, archive-level status continues to say that
+  database import and application startup were not proven.
 
 ### Test coverage ratchet
 

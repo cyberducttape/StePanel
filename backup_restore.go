@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -310,6 +311,19 @@ func (a *App) rehearseBackupArchive(operationCtx context.Context, request durabl
 		}
 	}
 	run.end("validate")
+	if command := strings.TrimSpace(a.Config.RecoveryProofCommand); command != "" {
+		run.begin()
+		proofCtx, cancel := context.WithTimeout(operationCtx, 15*time.Minute)
+		proof := exec.CommandContext(proofCtx, command, request.Site, stage)
+		proof.Env = append(os.Environ(), "STEPANEL_RECOVERY_PROOF_SITE="+request.Site, "STEPANEL_RECOVERY_PROOF_STAGE="+stage)
+		output, proofErr := proof.CombinedOutput()
+		cancel()
+		if proofErr != nil {
+			return backupRehearsalResult{}, fmt.Errorf("application recovery proof failed: %w: %s", proofErr, strings.TrimSpace(string(output)))
+		}
+		run.end("application-proof")
+		run.record.Level = recovery.LevelApplication
+	}
 	run.record.FilesRestored = result.FilesExtracted
 	run.record.BytesRestored = result.BytesExtracted
 	run.record.Databases = result.DatabasesChecked

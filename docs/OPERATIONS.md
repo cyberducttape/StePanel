@@ -85,9 +85,12 @@ For recovery confidence without changing customer state, use the backup
 `Rehearse restore` action (or `POST /api/backups/rehearse`). The durable job
 verifies the signed archive, extracts it into a temporary isolated directory,
 checks the site tree and every recorded database dump, reports counts and
-bytes, and removes the temporary directory. It intentionally does not activate
-a site or run a database engine; use restore-to-staging for that stronger
-end-to-end rehearsal.
+bytes, and removes the temporary directory. Configure
+`STEPANEL_RECOVERY_PROOF_COMMAND` to extend this into the production proof:
+the command receives the site name and temporary stage path and owns database
+restore, configuration generation, service activation, and an HTTP health
+probe. Its successful exit is required before the rehearsal is recorded at
+the `application` level.
 
 Every rehearsal, passed or failed, is recorded with its timing, and each
 site's **Recovery status** (Backups tab, or `GET /api/sites/recovery/{site}`)
@@ -97,10 +100,10 @@ summarizes the evidence:
   is stale, the newest backup is old or unsigned, or its offsite copy is
   missing), `failing` (the most recent rehearsal failed, even if an older one
   passed), `unverified` (never rehearsed), or `no_backup`.
-- **Measured recovery time**: how long the last passing rehearsal took to
-  verify, decrypt, and extract the backup. This is a recovery time for the
-  archive only; database import and application start are not yet rehearsed,
-  and the status says so.
+- **Measured recovery time**: how long the last passing rehearsal took. An
+  archive-level result measures verification, decryption, and extraction;
+  an application-level result also includes the configured restore, service,
+  and HTTP proof command.
 - **Recovery point**: the age of the newest backup, which is how much recent
   change a restore would lose.
 - **Encryption key**: `proven` once a rehearsal has decrypted an encrypted

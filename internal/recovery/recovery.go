@@ -25,6 +25,10 @@ const (
 	// extracted into a disposable directory, file tree validated (no
 	// symlinks or special files), and every database dump present.
 	LevelArchive Level = "archive"
+	// LevelApplication is recorded only after the configured proof command
+	// verifies the restored database, generated configuration, services, and
+	// application HTTP response.
+	LevelApplication Level = "application"
 )
 
 // Describe states in plain language what a level proves and what it does
@@ -33,6 +37,8 @@ func (l Level) Describe() string {
 	switch l {
 	case LevelArchive:
 		return "Backup signature verified, archive decrypted and extracted, files and database dumps recovered. Database import and application start are not yet rehearsed."
+	case LevelApplication:
+		return "Backup was restored by the configured proof command, which verified database import, generated configuration, service activation, and an application HTTP response."
 	default:
 		return "Unknown rehearsal level."
 	}

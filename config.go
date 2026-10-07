@@ -23,6 +23,7 @@ type Config struct {
 	ProxyRoot, VHostRoot, AppRoot, MalwareRoot, AppCtl, ProxyCtl                             string
 	SiteCtl, VHostCtl, Certbot, DBCtl, RunnerCtl, GitCtl, TaskCtl                            string
 	WPressExtract, WPCLI, AuditLog, JobState, SessionState, AccountState, RecoveryRoot, Sudo string
+	RecoveryProofCommand                                                                     string
 	DBHost, DBUser, DBPassword, DBPasswordFile                                               string
 	DBEngine, DBVersion, DBAdminURL                                                          string
 	GitAllowedHosts, GitWebhookSecret                                                        string
@@ -71,6 +72,7 @@ type Config struct {
 
 func LoadConfig() Config {
 	c := Config{WebServer: "caddy", Listen: ":8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", TaskCtl: "/usr/local/sbin/stepanel-taskctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", RunnerAllowedRegistries: "docker.io,ghcr.io,quay.io", RunnerNetworkMode: "none", RunnerMaxImageBytes: defaultRunnerMaxImageBytes, MaxUpload: 20 << 30, MaxEntries: 1000000, MaxConcurrentJobs: 2, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, MinFreeBytes: 5 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200, RehearsalIntervalHours: 24}
+	c.RecoveryProofCommand = os.Getenv("STEPANEL_RECOVERY_PROOF_COMMAND")
 	if v := os.Getenv("STEPANEL_WEBSERVER"); v != "" {
 		c.WebServer = strings.ToLower(strings.TrimSpace(v))
 	}

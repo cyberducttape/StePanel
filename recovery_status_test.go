@@ -133,6 +133,29 @@ func TestPassingRehearsalIsRecordedAndVerifiesRecovery(t *testing.T) {
 	}
 }
 
+func TestApplicationRecoveryProofRaisesRehearsalLevel(t *testing.T) {
+	f := newRecoveryFixture(t)
+	proof := filepath.Join(f.dir, "recovery-proof")
+	if err := os.WriteFile(proof, []byte("#!/bin/sh\n[ -d \"$2/site/public\" ] && [ -f \"$2/site/public/index.html\" ]\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	f.app.Config.RecoveryProofCommand = proof
+	if err := f.rehearse(t, context.Background(), durableBackupRehearsalRequest{Site: "account", Backup: f.backup, Actor: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	status := f.status(t)
+	if status.LastPassed == nil || status.LastPassed.Level != recovery.LevelApplication || !strings.Contains(status.LastPassed.LevelDescription, "database import") {
+		t.Fatalf("application proof status = %+v", status.LastPassed)
+	}
+	phases := map[string]bool{}
+	for _, phase := range status.History[0].Phases {
+		phases[phase.Name] = true
+	}
+	if !phases["application-proof"] {
+		t.Fatalf("application proof phase missing: %+v", status.History[0].Phases)
+	}
+}
+
 func TestUnsignedBackupDegradesVerifiedRecovery(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

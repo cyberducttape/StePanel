@@ -501,8 +501,9 @@ the coverage map above:
 - Tenants cannot read or change each other's resources through StePanel (covered).
 - Server-originated requests cannot reach internal addresses (covered).
 - Recovery journals stay valid across interruption (covered for the tested operations).
-- Backups are proven restorable (archive level rehearsed; database import and
-  application start not yet).
+- Backups are proven restorable at archive level by default; when
+  `STEPANEL_RECOVERY_PROOF_COMMAND` is configured, rehearsal additionally
+  requires database import, service activation, and an application HTTP probe.
 - Tenant workloads are network-isolated (not provided today).
 - Expired tokens are rejected (covered).
 
