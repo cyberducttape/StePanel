@@ -159,7 +159,7 @@ func TestValidateConfigAcceptsTrustedTLSTermination(t *testing.T) {
 	cfg := LoadConfig()
 	cfg.Listen = ":8080"
 	cfg.ImportRoot = "/var/lib/ste-panel/imports"
-	cfg.BackupRoot = "/var/lib/ste-panel/backups"
+	cfg.BackupRoot = "/var/backups/stepanel"
 	cfg.WebRoot = "/var/www"
 	cfg.MailRoot = "/var/lib/ste-panel/mail"
 	cfg.NVMDir = "/var/lib/ste-panel/nvm"
@@ -175,6 +175,23 @@ func TestValidateConfigAcceptsTrustedTLSTermination(t *testing.T) {
 	cfg.WPCLI = "/usr/local/bin/wp"
 	if err := ValidateConfig(cfg); err != nil {
 		t.Fatalf("trusted proxy TLS config rejected: %v", err)
+	}
+}
+
+func TestValidateConfigRejectsPathsOutsideSystemdWritableRoots(t *testing.T) {
+	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_SKIP_QUOTA_CHECK", "1")
+	t.Setenv("STEPANEL_UNSAFE_LAB", "1")
+	cfg := LoadConfig()
+	cfg.Production = true
+	cfg.BackupRoot = "/srv/stepanel-backups"
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_BACKUP_ROOT") || !strings.Contains(err.Error(), "systemd writable roots") {
+		t.Fatalf("outside backup root error = %v", err)
+	}
+	cfg.BackupRoot = "/var/backups/stepanel"
+	cfg.ImportRoot = "/srv/stepanel-imports"
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_IMPORT_ROOT") || !strings.Contains(err.Error(), "systemd writable roots") {
+		t.Fatalf("outside import root error = %v", err)
 	}
 }
 

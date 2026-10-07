@@ -400,6 +400,35 @@ func TestBackupManifestReportsLogicalConsistency(t *testing.T) {
 	}
 }
 
+func TestBackupManifestReportsWordPressQuiesce(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	publicRoot := filepath.Join(webRoot, "sites", "account", "public")
+	writeTestFile(t, filepath.Join(publicRoot, "wp-config.php"), "<?php")
+	writeTestFile(t, filepath.Join(publicRoot, "index.php"), "<?php echo 'ok';")
+	logPath := filepath.Join(root, "wp-actions.log")
+	wp := filepath.Join(root, "wp")
+	if err := os.WriteFile(wp, []byte("#!/bin/sh\nif [ \"$4\" = is-active ]; then exit 1; fi\nprintf '%s\\n' \"$4\" >> \"$WP_ACTION_LOG\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WP_ACTION_LOG", logPath)
+	result, err := CreateSiteBackupContext(context.Background(), Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), WPCLI: wp}, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := readTestBackupManifest(t, result.Path)
+	if manifest.Consistency != "application-quiesced" || !manifest.ApplicationQuiesced {
+		t.Fatalf("manifest consistency = %#v", manifest)
+	}
+	actions, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(actions) != "activate\ndeactivate\n" {
+		t.Fatalf("WordPress maintenance actions = %q", actions)
+	}
+}
+
 func TestVerifyBackupArchiveRejectsTampering(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

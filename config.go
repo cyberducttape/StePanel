@@ -406,6 +406,24 @@ func ValidateConfig(c Config) error {
 			problems = append(problems, fmt.Errorf("%s must not be the filesystem root", name))
 		}
 	}
+	if c.Production {
+		for name, path := range map[string]string{
+			"STEPANEL_IMPORT_ROOT":   c.ImportRoot,
+			"STEPANEL_BACKUP_ROOT":   c.BackupRoot,
+			"STEPANEL_WEB_ROOT":      c.WebRoot,
+			"STEPANEL_MAIL_ROOT":     c.MailRoot,
+			"STEPANEL_NVM_DIR":       c.NVMDir,
+			"STEPANEL_PROXY_ROOT":    c.ProxyRoot,
+			"STEPANEL_VHOST_ROOT":    c.VHostRoot,
+			"STEPANEL_APP_ROOT":      c.AppRoot,
+			"STEPANEL_MALWARE_ROOT":  c.MalwareRoot,
+			"STEPANEL_RECOVERY_ROOT": c.RecoveryRoot,
+		} {
+			if err := validateProductionSandboxPath(name, path); err != nil {
+				problems = append(problems, err)
+			}
+		}
+	}
 	statePaths := map[string]string{
 		"STEPANEL_AUDIT_LOG":     c.AuditLog,
 		"STEPANEL_JOB_STATE":     c.JobState,
@@ -525,6 +543,35 @@ func ValidateConfig(c Config) error {
 		}
 	}
 	return errors.Join(problems...)
+}
+
+// validateProductionSandboxPath keeps production configuration inside the
+// paths writable by the shipped systemd units. The application service uses
+// /var/lib/ste-panel, /var/www/sites, and /var/backups/stepanel; the root
+// broker additionally owns /etc and the managed OpenLiteSpeed tree. A path
+// outside these roots would pass ordinary path validation but fail only when
+// the first operation reaches ProtectSystem=strict.
+func validateProductionSandboxPath(name, path string) error {
+	clean := filepath.Clean(path)
+	allowed := []string{"/var/lib/ste-panel"}
+	switch name {
+	case "STEPANEL_BACKUP_ROOT":
+		allowed = []string{"/var/backups/stepanel"}
+	case "STEPANEL_WEB_ROOT":
+		allowed = []string{"/var/www"}
+	case "STEPANEL_RECOVERY_ROOT":
+		allowed = []string{"/var/www/sites"}
+	case "STEPANEL_NVM_DIR":
+		allowed = []string{"/opt/stepanel", "/var/lib/ste-panel"}
+	case "STEPANEL_PROXY_ROOT", "STEPANEL_VHOST_ROOT":
+		allowed = []string{"/etc", "/usr/local/lsws", "/var/lib/ste-panel"}
+	}
+	for _, root := range allowed {
+		if clean == root || strings.HasPrefix(clean, root+string(os.PathSeparator)) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s=%s is outside the production systemd writable roots; use a path below %s", name, path, strings.Join(allowed, " or "))
 }
 
 // validateEncryptionKey checks if an encryption key looks like it was machine-generated

@@ -1147,7 +1147,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
-	result, err := CreateSiteBackupContext(operationCtx, a.Config, access, request.IncludeDatabases)
+	result, err := createSiteBackupContext(operationCtx, a.Config, access, request.IncludeDatabases, &a.capacity)
 	if err != nil {
 		TelemetryAudit(a.Config.AuditLog, request.Actor, "site.backup.failed", request.Site, err.Error())
 		if request.Scheduled {

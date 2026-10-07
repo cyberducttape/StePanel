@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -196,6 +197,10 @@ func CreateSiteBackup(cfg Config, site SiteCapability, includeDatabases bool) (r
 // this form so a fenced mutation lease cannot continue publishing a backup
 // after another process has taken over the resource.
 func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapability, includeDatabases bool) (result BackupResult, returnErr error) {
+	return createSiteBackupContext(ctx, cfg, site, includeDatabases, nil)
+}
+
+func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapability, includeDatabases bool, ledger *capacityLedger) (result BackupResult, returnErr error) {
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
@@ -222,6 +227,20 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := os.Chmod(tempDir, 0700); err != nil {
 		return result, err
 	}
+	reservation, err := reserveBackupCapacity(cfg, siteName, tempDir, includeDatabases, ledger)
+	if err != nil {
+		return result, err
+	}
+	defer reservation.release()
+	quiesced, resume, err := quiesceWordPressForBackup(ctx, cfg, publicRoot)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		if resumeErr := resume(); returnErr == nil && resumeErr != nil {
+			returnErr = fmt.Errorf("resume WordPress after backup: %w", resumeErr)
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
@@ -236,7 +255,11 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	}
 	gz := gzip.NewWriter(archive)
 	tw := tar.NewWriter(gz)
-	manifest := BackupManifest{Version: 1, Site: siteName, CreatedAt: time.Now().UTC(), Archive: "backup.tar.gz", Databases: []string{}, Entries: []BackupEntry{}, Consistency: "crash-consistent / logical backup"}
+	consistency := backup.ConsistencyCrashConsistent
+	if quiesced {
+		consistency = backup.ConsistencyApplicationQuiesced
+	}
+	manifest := BackupManifest{Version: 1, Site: siteName, CreatedAt: time.Now().UTC(), Archive: "backup.tar.gz", Databases: []string{}, Entries: []BackupEntry{}, Consistency: consistency, ApplicationQuiesced: quiesced}
 	var uncompressedBytes int64
 	closeArchive := func() error {
 		if err := tw.Close(); err != nil {
@@ -285,6 +308,16 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 			dumpPath := filepath.Join(tempDir, database+".sql")
 			if err := dumpManagedDatabaseContext(ctx, cfg, database, dumpPath); err != nil {
 				return result, abortArchive(err)
+			}
+			if info, statErr := os.Stat(dumpPath); statErr == nil {
+				measured := uint64(info.Size())
+				if measured > backupDatabaseReservation {
+					if err := reservation.grow(tempDir, measured-backupDatabaseReservation); err != nil {
+						return result, abortArchive(err)
+					}
+				}
+			} else if statErr != nil {
+				return result, abortArchive(statErr)
 			}
 			if err := addBackupFileExpectedContext(ctx, tw, dumpPath, "databases/"+database+".sql", &uncompressedBytes, &manifest, nil); err != nil {
 				return result, abortArchive(err)
@@ -376,6 +409,81 @@ func CreateSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	}
 	result = BackupResult{Site: siteName, Path: finalPath, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: cfg.BackupSigningKey != "", Encrypted: manifest.Encryption != ""}
 	return result, nil
+}
+
+const backupDatabaseReservation = 64 << 20
+
+func reserveBackupCapacity(cfg Config, site, stagingPath string, includeDatabases bool, ledger *capacityLedger) (*capacityReservation, error) {
+	if ledger == nil {
+		return nil, nil
+	}
+	root, err := safePath(cfg.WebRoot, "sites", site, "public")
+	if err != nil {
+		return nil, err
+	}
+	var siteBytes uint64
+	err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.Mode().IsRegular() {
+			if info.Size() < 0 {
+				return fmt.Errorf("negative size for %s", path)
+			}
+			siteBytes = saturatingAdd(siteBytes, uint64(info.Size()))
+			if siteBytes > uint64(maxBackupBytes) {
+				return fmt.Errorf("backup exceeds maximum size of %d bytes", maxBackupBytes)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("estimate backup size: %w", err)
+	}
+	estimate := saturatingAdd(siteBytes, 1<<20)
+	if cfg.BackupEncryptionKey != "" {
+		estimate = saturatingAdd(estimate, siteBytes)
+	}
+	if includeDatabases {
+		estimate = saturatingAdd(estimate, backupDatabaseReservation)
+	}
+	return ledger.reserve(cfg, "backup", stagingPath, []capacityDemand{{Path: stagingPath, Bytes: estimate}})
+}
+
+// quiesceWordPressForBackup uses the site's existing mutation lock together
+// with WordPress maintenance mode when both wp-cli and WordPress are present.
+// Non-WordPress sites retain the explicit crash-consistent contract.
+func quiesceWordPressForBackup(parent context.Context, cfg Config, publicRoot string) (bool, func() error, error) {
+	noop := func() error { return nil }
+	if cfg.WPCLI == "" || !commandAvailable(cfg.WPCLI) {
+		return false, noop, nil
+	}
+	if _, err := os.Stat(filepath.Join(publicRoot, "wp-config.php")); err != nil {
+		if os.IsNotExist(err) {
+			return false, noop, nil
+		}
+		return false, noop, err
+	}
+	run := func(action string) error {
+		ctx, cancel := context.WithTimeout(parent, helperConfigMutationTimeout)
+		defer cancel()
+		args := []string{"--path=" + publicRoot, "--no-color", "maintenance-mode", action}
+		output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, cfg.WPCLI, args...))
+		if err != nil {
+			return fmt.Errorf("WordPress maintenance-mode %s failed: %w: %s", action, err, strings.TrimSpace(string(output)))
+		}
+		return nil
+	}
+	checkCtx, cancel := context.WithTimeout(parent, helperConfigMutationTimeout)
+	checkOutput, checkErr := runBoundedCommand(checkCtx, exec.CommandContext(checkCtx, cfg.WPCLI, "--path="+publicRoot, "--no-color", "maintenance-mode", "is-active"))
+	cancel()
+	if checkErr == nil || strings.Contains(strings.ToLower(string(checkOutput)), "active") {
+		return true, noop, nil
+	}
+	if err := run("activate"); err != nil {
+		return false, noop, err
+	}
+	return true, func() error { return run("deactivate") }, nil
 }
 
 func addBackupTree(tw *tar.Writer, root, prefix string, maxEntries int, totalBytes *int64, manifest *BackupManifest) error {

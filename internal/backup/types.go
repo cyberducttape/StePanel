@@ -4,6 +4,13 @@ import "time"
 
 const MaxBackupBytes int64 = 20 << 30
 
+const (
+	ConsistencyCrashConsistent     = "crash-consistent / logical backup"
+	ConsistencyDatabaseConsistent  = "database-consistent"
+	ConsistencyApplicationQuiesced = "application-quiesced"
+	ConsistencyFilesystemSnapshot  = "filesystem-snapshot"
+)
+
 type BackupEntry struct {
 	Path   string `json:"path"`
 	Size   int64  `json:"size"`

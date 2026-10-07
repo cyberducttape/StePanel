@@ -206,6 +206,35 @@ func (r *capacityReservation) release() {
 	}
 }
 
+// grow adds a newly measured demand to an existing reservation before the
+// workflow starts the write that needs it. This is used by backups because
+// database dump sizes are not knowable until the helper has produced them.
+func (r *capacityReservation) grow(path string, bytes uint64) error {
+	if r == nil || bytes == 0 {
+		return nil
+	}
+	device, err := filesystemDevice(path)
+	if err != nil {
+		return fmt.Errorf("inspect %s capacity at %s: %w", r.workflow, path, err)
+	}
+	l := r.ledger
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if bytes > ^uint64(0)-l.held[device] {
+		return fmt.Errorf("%s capacity estimate overflow", r.workflow)
+	}
+	free, err := availableBytes(path)
+	if err != nil {
+		return fmt.Errorf("inspect %s capacity at %s: %w", r.workflow, path, err)
+	}
+	if free < saturatingAdd(saturatingAdd(l.held[device], bytes), r.reserve) {
+		return &capacityError{fmt.Sprintf("insufficient free space at %s for an additional %d bytes needed by this %s", path, bytes, r.workflow)}
+	}
+	l.held[device] += bytes
+	r.held[device] += bytes
+	return nil
+}
+
 // heldBytes reports the bytes currently promised on path's filesystem.
 func (l *capacityLedger) heldBytes(path string) uint64 {
 	device, err := filesystemDevice(path)
