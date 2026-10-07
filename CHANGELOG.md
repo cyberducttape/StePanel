@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Features
 
+- **Independent offsite recovery proof**: added
+  `stepanel offsite-recovery-proof`, which lists the configured remote
+  repository, selects a random backup manifest, downloads only that backup,
+  verifies its checksum and signature, decrypts and extracts it, validates
+  database dumps, and runs the configured application recovery proof. The
+  downloader now follows the manifest-declared archive, including encrypted
+  `backup.tar.gz.enc` artifacts, so this workflow can run from a disposable
+  recovery host without access to the primary host's local backup tree.
 - **Blank PHP site creation**: administrators can create a site from the
   Sites page or `POST /api/sites` (`template: php`). A durable `site.create`
   job writes a placeholder page into SiteManager staging, creates the site's
@@ -20,6 +28,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Backup consistency and capacity admission**: WordPress backups can acquire
+  the site mutation barrier and maintenance mode, and manifests distinguish
+  application-quiesced backups from crash-consistent logical backups. Backup
+  creation now validates the complete site tree before staging, rejects
+  symlinks and special files consistently with restore/import safety policy,
+  and reserves estimated site, database, encryption, and free-space capacity
+  through the shared ledger.
+- **Recovery and security-boundary evidence**: application recovery proofs,
+  real request-level CSRF tests, staged coverage targets, and repeated recovery
+  matrix documentation now strengthen the production gate. Documentation also
+  explicitly scopes Unix users, ownership, PHP-FPM pools, and cgroups to
+  trusted or semi-trusted shared hosting; StePanel 1.0 is single-host and is
+  not a hostile-workload, high-availability, multi-host platform.
 - **Archive extraction on installed hosts (fix)**: the shared archive
   extractor set directory modes with `os.Root.Chmod`, which issues the
   `fchmodat2` system call. The panel and worker units' `@system-service`
