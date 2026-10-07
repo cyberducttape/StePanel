@@ -201,8 +201,13 @@ gate the single-host 1.0 release:
 
 ## Path to 1.0
 
-StePanel 1.0 is the **production contract for operator-managed, single-host
-hosting** defined in [ROADMAP.md](./ROADMAP.md). It is complete when:
+StePanel 1.0 is the **production-ready contract for operator-managed,
+single-host hosting** defined in [ROADMAP.md](./ROADMAP.md). It is not a
+high-availability hosting platform: the control plane, SQLite state, host
+resources, and service activation remain tied to one host, with offsite copies
+providing disaster-recovery material rather than an automatic standby.
+
+It is complete when:
 
 - every gate in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) has
   recorded evidence (Gate 5 real-host ENOSPC and power-loss evidence is the

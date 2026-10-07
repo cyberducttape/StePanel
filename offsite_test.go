@@ -1,6 +1,10 @@
 package stepanel
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestValidateOffsiteTarget(t *testing.T) {
 	for _, target := range []string{"s3:bucket/stepanel", "b2:bucket/backups", "ssh:host:/srv/backups"} {
@@ -25,5 +29,21 @@ func TestValidBackupNameRejectsRemotePathTraversal(t *testing.T) {
 		if validBackupName(name) {
 			t.Errorf("unsafe backup name %q accepted", name)
 		}
+	}
+}
+
+func TestListOffsiteBackupsFiltersManifestObjects(t *testing.T) {
+	root := t.TempDir()
+	rclone := filepath.Join(root, "rclone")
+	if err := os.WriteFile(rclone, []byte("#!/bin/sh\nprintf '%s\\n' 'account/backup-1/manifest.json' 'account/backup-1/manifest.json' 'account/backup-1/backup.tar.gz' 'bad/path name/manifest.json' '../escape/manifest.json'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	backups, err := listOffsiteBackupsContext(t.Context(), Config{OffsiteTarget: "s3:bucket/stepanel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 || backups[0].Site != "account" || backups[0].Backup != "backup-1" {
+		t.Fatalf("offsite backups = %#v, want one validated reference", backups)
 	}
 }

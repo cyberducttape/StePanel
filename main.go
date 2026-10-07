@@ -188,6 +188,18 @@ func Main() {
 		_, _ = fmt.Fprintf(os.Stdout, "%s  %s\n", manifest.ArchiveSHA256, filepath.Join(os.Args[2], manifest.Archive))
 		return
 	}
+	if len(os.Args) == 2 && os.Args[1] == "offsite-recovery-proof" {
+		result, err := RunOffsiteRecoveryProof(LoadConfig())
+		if err != nil {
+			log.Fatal(err)
+		}
+		data, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			log.Fatal(err)
+		}
+		_, _ = fmt.Fprintln(os.Stdout, string(data))
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "verify-audit" {
 		if err := audit.Verify(os.Args[2]); err != nil {
 			log.Fatal(err)

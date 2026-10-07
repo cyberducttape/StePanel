@@ -30,6 +30,7 @@ panel when started without arguments. Its subcommands:
 | `stepanel verify-backup DIR` | Verify a backup's manifest, signature, and archive offline |
 | `stepanel verify-audit LOG` | Verify an audit log's HMAC chain offline |
 | `stepanel dr-check` | Print a secret-safe control-plane disaster-recovery inventory |
+| `stepanel offsite-recovery-proof` | Select a random remote backup and run the full independent recovery proof |
 | `stepanel backup-control-plane DEST` | Write a verified backup of the SQLite control plane |
 | `stepanel restore-control-plane SOURCE --dry-run` / `--replace` | Validate, then restore, a control-plane backup |
 | `stepanel convert-htaccess` | Translate `.htaccess` rules on stdin to Caddy directives |
@@ -127,6 +128,26 @@ when the site has not been rehearsed within `STEPANEL_REHEARSAL_INTERVAL_HOURS`
 (default 24; `0` turns automatic rehearsals off). Sites without a backup
 schedule are rehearsed only on demand. Rehearsals need the configured free-space
 reserve under the import root and refuse to start without it.
+
+### Independent offsite recovery proof
+
+An upload marker or a successful remote `rclone` read proves storage access,
+not disaster recovery. On a separate disposable VM or recovery host with no
+access to the primary host's local backup directory, install the same StePanel
+release, provide the offsite `RCLONE_CONFIG`, signing/encryption keys, and
+`STEPANEL_RECOVERY_PROOF_COMMAND`, then run periodically:
+
+```sh
+stepanel offsite-recovery-proof
+```
+
+The command lists the remote repository, selects a random valid backup
+manifest, downloads only that backup, verifies its signature/checksum, decrypts
+and extracts it, validates database dumps, and runs the application proof
+command. A passing result is evidence about the remote repository itself; it
+does not rely on the primary host's backup index or local backup tree. Schedule
+it externally (for example with a systemd timer) and retain its JSON output and
+logs as DR evidence.
 
 ## Health check
 
