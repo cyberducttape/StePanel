@@ -400,6 +400,25 @@ func TestBackupManifestReportsLogicalConsistency(t *testing.T) {
 	}
 }
 
+func TestCreateSiteBackupRejectsSymlinkBeforeStaging(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	publicRoot := filepath.Join(webRoot, "sites", "account", "public")
+	if err := os.MkdirAll(publicRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "outside"), filepath.Join(publicRoot, "storage")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups")}, AuthorizedSite{site: "account"}, false)
+	if err == nil || !strings.Contains(err.Error(), "must not contain symlinks") {
+		t.Fatalf("CreateSiteBackup error = %v, want explicit symlink policy", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "backups")); !os.IsNotExist(statErr) {
+		t.Fatalf("backup root stat error = %v, want no staging before validation", statErr)
+	}
+}
+
 func TestBackupManifestReportsWordPressQuiesce(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

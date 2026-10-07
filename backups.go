@@ -212,6 +212,10 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err != nil {
 		return result, err
 	}
+	siteBytes, err := backup.ValidateTree(publicRoot, maxBackupBytes)
+	if err != nil {
+		return result, fmt.Errorf("validate backup tree: %w", err)
+	}
 	if err := os.MkdirAll(cfg.BackupRoot, 0750); err != nil {
 		return result, err
 	}
@@ -227,7 +231,7 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := os.Chmod(tempDir, 0700); err != nil {
 		return result, err
 	}
-	reservation, err := reserveBackupCapacity(cfg, siteName, tempDir, includeDatabases, ledger)
+	reservation, err := reserveBackupCapacity(cfg, tempDir, includeDatabases, ledger, siteBytes)
 	if err != nil {
 		return result, err
 	}
@@ -413,36 +417,13 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 
 const backupDatabaseReservation = 64 << 20
 
-func reserveBackupCapacity(cfg Config, site, stagingPath string, includeDatabases bool, ledger *capacityLedger) (*capacityReservation, error) {
+func reserveBackupCapacity(cfg Config, stagingPath string, includeDatabases bool, ledger *capacityLedger, siteBytes int64) (*capacityReservation, error) {
 	if ledger == nil {
 		return nil, nil
 	}
-	root, err := safePath(cfg.WebRoot, "sites", site, "public")
-	if err != nil {
-		return nil, err
-	}
-	var siteBytes uint64
-	err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if info.Mode().IsRegular() {
-			if info.Size() < 0 {
-				return fmt.Errorf("negative size for %s", path)
-			}
-			siteBytes = saturatingAdd(siteBytes, uint64(info.Size()))
-			if siteBytes > uint64(maxBackupBytes) {
-				return fmt.Errorf("backup exceeds maximum size of %d bytes", maxBackupBytes)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("estimate backup size: %w", err)
-	}
-	estimate := saturatingAdd(siteBytes, 1<<20)
+	estimate := saturatingAdd(uint64(siteBytes), 1<<20)
 	if cfg.BackupEncryptionKey != "" {
-		estimate = saturatingAdd(estimate, siteBytes)
+		estimate = saturatingAdd(estimate, uint64(siteBytes))
 	}
 	if includeDatabases {
 		estimate = saturatingAdd(estimate, backupDatabaseReservation)

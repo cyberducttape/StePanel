@@ -4,10 +4,8 @@ set -Eeuo pipefail
 # Per-package coverage targets for critical components
 # These enforce quality standards for safety-critical code.
 #
-# internal/backup is intentionally absent: it currently declares only types,
-# so it has no statements to measure. The backup engine still lives in the
-# root package (backups.go). Add a target here when that logic is extracted;
-# the checker fails on any listed package with no coverage data.
+# The backup tree policy is isolated here even though the backup engine still
+# lives in the root package; add further targets as more engine logic moves.
 
 declare -A COVERAGE_TARGETS=(
   # Most legacy HTTP/workflow handlers still live in the root package. Keep a
@@ -23,6 +21,7 @@ declare -A COVERAGE_TARGETS=(
   ["github.com/cyberducttape/StePanel/internal/audit"]="95"
   ["github.com/cyberducttape/StePanel/internal/rootbroker"]="65"
   ["github.com/cyberducttape/StePanel/internal/importer"]="55"
+  ["github.com/cyberducttape/StePanel/internal/backup"]="90"
 )
 
 profile=${1:-coverage.out}

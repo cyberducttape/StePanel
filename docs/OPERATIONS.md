@@ -3,6 +3,19 @@
 Documentation version: `main / unreleased`; use the matching release tag when
 operating a version older than the current branch.
 
+## Managed-site backup filesystem policy
+
+StePanel-managed site trees must contain only regular files and directories.
+Backups reject symbolic links and special files before creating a staging
+directory or starting database work. This prevents a backup or restore from
+depending on paths outside the site tree, and matches the no-follow policy used
+by archive import, site lifecycle, and privileged path validation.
+
+Applications that use paths such as `public/storage -> ../storage` must be
+configured with a regular directory inside the managed site or with storage
+mounted at that directory. StePanel does not dereference or preserve arbitrary
+symlink targets.
+
 ## Command reference
 
 The `stepanel` binary (`/opt/stepanel/stepanel` on installed hosts) runs the

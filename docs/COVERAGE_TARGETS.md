@@ -11,6 +11,7 @@ The next staged targets are deliberately tied to failure-prone state machines:
 | --- | ---: | ---: |
 | Root broker / privilege validation | 65% | 90% |
 | Backup publication and restore | root package floor | 85% |
+| Backup tree policy/size admission | 90% | 90% |
 | Site create/delete lifecycle | not isolated | 85% |
 | Auth/session/account security | 90%+ | 90% |
 | Archive extraction | importer 55% | 90% |
