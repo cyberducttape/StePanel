@@ -28,6 +28,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **CodeQL hardening (security)**: secretbox sealing now rejects plaintext
+  sizes that would overflow its allocation-capacity calculation, and API error
+  normalization captures non-JSON error responses regardless of their declared
+  content type. This prevents reflected HTML/script bodies from bypassing the
+  JSON error envelope while preserving explicitly generated JSON errors.
 - **Backup consistency and capacity admission**: WordPress backups can acquire
   the site mutation barrier and maintenance mode, and manifests distinguish
   application-quiesced backups from crash-consistent logical backups. Backup

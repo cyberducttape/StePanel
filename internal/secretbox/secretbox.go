@@ -89,7 +89,12 @@ func (b *Box) Seal(plaintext []byte, context ...string) ([]byte, error) {
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, err
 	}
-	out := make([]byte, 0, len(Magic)+len(nonce)+len(plaintext)+b.aead.Overhead())
+	maxInt := int(^uint(0) >> 1)
+	prefixLen := len(Magic) + len(nonce)
+	if len(plaintext) > maxInt-prefixLen-b.aead.Overhead() {
+		return nil, errors.New("secretbox: plaintext is too large")
+	}
+	out := make([]byte, 0, prefixLen+len(plaintext)+b.aead.Overhead())
 	out = append(out, Magic...)
 	out = append(out, nonce...)
 	return b.aead.Seal(out, nonce, plaintext, b.associatedData(context)), nil

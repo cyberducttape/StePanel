@@ -1705,7 +1705,8 @@ func (e *apiErrorWriter) WriteHeader(status int) {
 	}
 	e.wroteHeader = true
 	e.status = status
-	if status >= 400 && strings.HasPrefix(e.w.Header().Get("Content-Type"), "text/plain") {
+	contentType := strings.ToLower(e.w.Header().Get("Content-Type"))
+	if status >= 400 && !strings.HasPrefix(contentType, "application/json") && !strings.HasPrefix(contentType, "application/problem+json") {
 		e.capture = true
 		return
 	}

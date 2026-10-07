@@ -135,6 +135,18 @@ func TestNormalizeAPIErrors(t *testing.T) {
 	}
 }
 
+func TestNormalizeAPIErrorsDoesNotReflectHTMLTypedBody(t *testing.T) {
+	handler := normalizeAPIErrors(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		http.Error(w, r.URL.Query().Get("message"), http.StatusBadRequest)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/example?message=%3Cscript%3Ealert(1)%3C%2Fscript%3E", nil))
+	if response.Header().Get("Content-Type") != "application/json" || strings.Contains(response.Body.String(), "<script>") {
+		t.Fatalf("HTML-typed API error was reflected: content-type=%q body=%s", response.Header().Get("Content-Type"), response.Body.String())
+	}
+}
+
 func TestNormalizeAPIErrorsHidesServerErrorDetail(t *testing.T) {
 	handler := normalizeAPIErrors(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "open /var/lib/stepanel/secret.db: permission denied", http.StatusInternalServerError)
