@@ -49,6 +49,12 @@ some of them and not others:
 Being an authorized panel user also does not make an untrusted site safe to
 administer from the same host.
 
+This model is appropriate for traditional shared hosting with trusted or
+semi-trusted customers and explicit operator policy. It must not be marketed
+as a security boundary for mutually hostile arbitrary-code tenants. Use
+separate VMs, microVMs, or a rigorously isolated container platform when a
+kernel or local privilege-escalation vulnerability must not cross customers.
+
 ## Privilege isolation
 
 - Run the HTTP service as the dedicated unprivileged `stepanel` account.

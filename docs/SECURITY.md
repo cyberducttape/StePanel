@@ -50,6 +50,19 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 - ✅ Task webhooks are validated when saved and again when delivered
 - ⚠️ Tenant code (PHP, tasks, workers) shares the host network; task units deny only cloud metadata ranges
 
+### Security properties and scope
+
+- ✅ Production privileged mutations use typed root-broker operations with
+  operation-specific validation; the panel and worker do not receive general
+  sudo access or a generic shell payload path.
+- ✅ `internal/safehttp` validates public HTTPS destinations, rejects URL
+  credentials/fragments and private or loopback ranges, revalidates redirects,
+  and enforces the address policy again at connection time.
+- ⚠️ These controls reduce StePanel attack surface but do not change the
+  shared-kernel tenant boundary described in `SECURITY.md`. Unix users,
+  ownership, PHP-FPM pools, and cgroups are suitable isolation for trusted or
+  semi-trusted shared hosting, not for mutually hostile arbitrary-code tenants.
+
 ### Webhooks
 - ✅ Per-site webhook isolation
 - ✅ Repository allowlist (webhook can only deploy from configured repos)
