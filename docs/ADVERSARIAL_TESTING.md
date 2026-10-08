@@ -69,7 +69,7 @@ This table names the tests that actually exist on `main` (verified
 | Error messages do not reveal other tenants' resources | Covered | `tenant_isolation_test.go`: `TestErrorMessageLeakageDoesNotRevealResourceExistence`, `TestAuditLogDoesNotLeakCrossTenantTargets` |
 | API token scopes | Covered | `api_token_scopes_test.go`: `TestAPITokenScopeEnforcement`; `api_tokens_test.go`: `TestCustomerAPIScopeGatesDeployAction` |
 | Privilege escalation to administrator | Covered | `privilege_escalation_test.go`: `TestPrivilegeEscalationPrevention`, `TestNoImplicitAdminEscalation` |
-| CSRF | Covered | `csrf_protection_test.go`: `TestCSRFProtectionEnforcement`, `TestCSRFTokenBoundary`; `auth_test.go`: `TestAuthSessionAndCSRF` |
+| CSRF | Covered | `csrf_protection_test.go`: `TestCSRFProtectionUsesRealAuthenticatedHandler`, `TestCSRFProtectionUsesRealBearerAuthentication`; `auth_test.go`: `TestAuthSessionAndCSRF` |
 | Cross-site restore | Covered | `adversarial_test.go`: `TestCrossSiteRestoreBlocked` |
 | Database name validation | Covered | `adversarial_test.go`: `TestDatabaseNameValidation`, `TestDatabaseNameAllowlist`; `internal/rootbroker`: `TestValidateDatabaseName` |
 | Recovery journals | Covered | `recovery_test.go`: `TestDatabaseRecoveryJournalSurvivesProcessKill`; `internal/rootbroker`: `TestCreationJournalPersistsReloadsAndCleansUp`; `crash_drill_test.go` (SIGKILL at every boundary) |

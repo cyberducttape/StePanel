@@ -28,6 +28,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Production gate documentation consistency**: corrected the adversarial
+  testing coverage map to reference the current CSRF test names, so the
+  documentation-reference gate validates cleanly.
 - **CodeQL hardening (security)**: secretbox sealing now rejects plaintext
   sizes that would overflow its allocation-capacity calculation, and API error
   normalization captures non-JSON error responses regardless of their declared
