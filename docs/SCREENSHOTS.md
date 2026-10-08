@@ -1,91 +1,85 @@
-# Product preview
+# Screenshots
 
-The assets in this document are synchronized with the current development
-administrator dashboard (v0.7.0), including the managed-sites workspace,
-resource posture, Security Center, deployment records, and recovery workflows.
-They are deterministic product illustrations, not captures from a live host;
-values are representative and the real dashboard renders service, site,
-database, capability, job state, and user role from the configured server.
+These are screenshots of the real StePanel UI, not mockups. They are captured
+from a running control plane with synthetic data by
+[`scripts/capture-screenshots.sh`](../scripts/capture-screenshots.sh), which
+records the commit, version, browser, and capture time in
+[`assets/screenshots/metadata.txt`](assets/screenshots/metadata.txt).
 
-**Note:** The preview images may show version numbers for demonstration purposes.
-These are synthetic illustrations; the actual version should match the current
-repository version. When updating previews for future releases, ensure version
-numbers align with the tagged release.
+## Operator overview
 
-## Operator workspace
+![Operator overview](assets/screenshots/operator-overview.png)
 
-![StePanel operator workspace preview](assets/operator-workspace-preview.png)
+The administrator's starting point: managed sites, connected domains, backup
+freshness, and platform checks that need review. "Control plane needs
+attention" is real: the demo runs on a development host, so production checks
+such as filesystem quotas and TLS do not pass.
 
-This is the primary product overview: resource posture, Security Center,
-deployment status, restore-to-staging, and site workspace operations. Values are
-synthetic and do not represent a live host.
+## Managed sites
 
-## Developer workspace
+![Managed sites](assets/screenshots/sites.png)
 
-![Developer workspace preview](assets/developer-workspace-preview.png)
+Create a site from a template and see each site's domains, applications,
+databases, and latest backup.
 
-This is an illustrative product mockup for the new developer workflows, not a
-capture from a live host. It shows the intended workspace organization for PHP
-runtime profiles, encrypted environment metadata, Composer, the Podman build
-runner, staging, logs, workers, deploy keys, and scheduled tasks. Each card
-maps to authenticated API and helper behavior documented in
-[Developer workflows](DEVELOPER_WORKFLOWS.md).
+## Site workspace
 
-## Dashboard
+![Site workspace, domains tab](assets/screenshots/site-workspace.png)
 
-![StePanel dashboard workspace preview](assets/dashboard-workspace-preview.png)
+Each site has its own workspace with tabs for domains, runtime, deployments,
+databases, backups, logs, workers, tasks, security, and settings.
 
-This is the current dark, navigation-led dashboard shell. It matches the live
-workspace hierarchy—operator context, managed-site cards, security posture,
-and persistent jobs—rather than the retired light infrastructure layout. The
-preview is rendered at 2× resolution for crisp display on GitHub and retina
-screens. The editable [SVG source](assets/dashboard-workspace-preview.svg) remains
-available for presentations and product materials.
+## Backups and recovery status
 
-## What the preview covers
+![Site backups and recovery status](assets/screenshots/site-backups.png)
 
-<table>
-<tr>
-<td width="50%"><strong>Live operations</strong><br>Service inventory, health counts, load, uptime, and attention states come from the host rather than placeholder activity.</td>
-<td width="50%"><strong>Safe migrations</strong><br>The migration center makes cpmove and WordPress restore workflows visible, reviewable, and asynchronous.</td>
-</tr>
-<tr>
-<td><strong>Database operations</strong><br>The current dashboard identifies the engine and adds native database inventory, least-privilege provisioning, credential rotation, diagnostics, and safety-dump-protected deletion.</td>
-<td><strong>Persistent jobs</strong><br>Restore, backup, certificate, and application work is represented by durable job state with status links.</td>
-</tr>
-<tr>
-<td><strong>Security posture</strong><br>Operator checks, readiness, request correlation, and capability-aware controls are surfaced before changes are made.</td>
-<td><strong>Developer workspace</strong><br>Managed sites group domains, runtime/environment controls, deployments, logs, workers, scheduled tasks, and verified recent activity.</td>
-</tr>
-<tr>
-<td><strong>Resource and recovery operations</strong><br>Administrators can inspect desired/applied resource profiles, live cgroup counters, reconciliation state, bounded site usage, and restore verified files or managed database dumps locally, from off-site storage, or into isolated staging where supported.</td>
-<td><strong>Security operations</strong><br>The read-only Security Center combines posture checks, service health, disk/inode pressure, and backup schedule health without implying firewall or patch automation.</td>
-</tr>
-</table>
+Recovery status reports what has been proven, not just what exists. Here the
+backups are signed and verified, but no restore rehearsal has passed yet, so
+the site is marked **Unverified**.
 
-This illustration mirrors the current development dashboard structure using
-representative values, including Caddy as the selected webserver, automatic
-HTTPS, the managed-sites workspace, database operations panel, and the
-Apache-to-Caddy `.htaccess` migration entry point.
-At runtime, all service counts, health states, load, security checks, and jobs
-come from the current server; the application does not ship simulated activity.
+## Activity and jobs
+
+![Recent jobs](assets/screenshots/activity.png)
+
+Site creation, backups, restores, and imports run as durable jobs with
+recorded state.
 
 ## Customer workspace
 
-The shared-hosting beta has a separate, role-aware customer workspace. It uses
-the same professional navigation, responsive task cards, and accessible visual
-system as the administrator dashboard, but it shows the customer's plan,
-assigned-site count, assigned site cards, and matching backup/job activity.
-Infrastructure, security, database, migration, cloud, SSH, and account
-administration controls are intentionally absent. The server enforces the same
-scope at the API boundary; this is not only a visual simplification.
+![Customer overview](assets/screenshots/customer-overview.png)
 
-The operator preview above is an administrator illustration, not a customer screenshot.
-For release review, capture both roles from the tagged build with synthetic
-data and verify the mobile layout as well as the role boundary. See
-[`SHARED_HOSTING.md`](SHARED_HOSTING.md) for the supported customer scope.
+A customer account signs in with a password and TOTP code and sees only its
+assigned sites, plan, and usage. Infrastructure, security, database, migration,
+and account administration controls are absent, and the API enforces the same
+scope. See [SHARED_HOSTING.md](SHARED_HOSTING.md) for what the customer
+workspace supports.
 
-For release reviews, capture screenshots from the tagged build as a supplement
-to this deterministic preview. Follow the [live screenshot checklist](LIVE_SCREENSHOTS.md)
-to verify theme, responsive layout, capability-specific controls, and role
-boundaries on a disposable installation.
+## Mobile and sign-in
+
+<table>
+<tr>
+<td width="40%"><img src="assets/screenshots/operator-overview-mobile.png" alt="Operator overview on a phone"></td>
+<td width="60%"><img src="assets/screenshots/login.png" alt="Sign-in page"></td>
+</tr>
+</table>
+
+## How the screenshots are made
+
+```sh
+npm ci
+npx playwright install chromium   # or set PLAYWRIGHT_CHANNEL=chrome
+scripts/capture-screenshots.sh    # writes docs/assets/screenshots
+```
+
+The script builds StePanel, starts a disposable control plane with throwaway
+secrets, and seeds it through the same API the dashboard uses: three sites,
+four domains on the reserved `.example` TLD, three backups, and one customer
+account. Everything on screen is server state. Because the demo host has no
+root broker, the root helpers are replaced by stand-ins. The vhost helper only
+writes the route file StePanel reads back, and the application and site
+isolation helpers do nothing, so no web server, Unix account, or cgroup is
+changed.
+
+Regenerate the screenshots when the UI changes and before each release. For a
+release review, also follow the [live screenshot checklist](LIVE_SCREENSHOTS.md)
+on a disposable installation of the tagged build.

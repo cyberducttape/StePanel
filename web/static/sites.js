@@ -863,7 +863,7 @@
       output,
       data.__error ? errorState('Backup inventory', data.__error) : el('ul', { className: 'resource-list' }, backups.length ? backups.map((backup) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [
-          el('strong', {}, backup.name || backup.path || 'Backup'),
+          el('strong', {}, backup.name || (backup.path || '').split('/').pop() || 'Backup'),
           el('small', {}, backup.verified_at ? `Verified ${ctx.formatAge(backup.verified_at)}` : 'Not yet verified'),
         ]),
         el('div', { className: 'item-actions' }, [

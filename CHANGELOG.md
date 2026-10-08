@@ -325,6 +325,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- **Real screenshots replace the concept mockups**: the README and
+  `docs/SCREENSHOTS.md` now show captures of the actual UI instead of
+  illustrations that did not match it. `scripts/capture-screenshots.sh`
+  regenerates them: it starts a disposable control plane, seeds synthetic
+  sites, `.example` domains, backups, and a customer account through the API,
+  and captures operator, site workspace, backup, activity, customer, mobile,
+  and sign-in views with Playwright.
+- **UI fixes found while capturing**: the customer "Your plan and access"
+  panel rendered as a white card with unreadable text in the dark theme;
+  site workspace action buttons such as "Create verified backup" were
+  unstyled; and backup entries showed the full server path instead of the
+  backup name.
+
 - **Documentation audit against the code**: every current document was
   checked for references to files, tests, functions, commands, API routes,
   and settings that do not exist. `SECURITY_CLAIMS_VERIFICATION.md` was

@@ -844,6 +844,7 @@ body[data-theme] .database-admin,
 body[data-theme] .activity-card,
 body[data-theme] .security-card,
 body[data-theme] .site-detail,
+body[data-theme] .account-panel,
 body[data-theme] .site-card { background: var(--appearance-surface) !important; border-color: var(--appearance-line) !important; box-shadow: var(--appearance-shadow) !important; }
 body[data-theme] .site-card button,
 body[data-theme] .site-detail .site-detail-actions button,
@@ -856,6 +857,10 @@ body[data-theme] .file-input,
 body[data-theme] .site-detail input { background: var(--appearance-bg) !important; border-color: var(--appearance-line) !important; color: var(--appearance-text) !important; }
 body[data-theme] .table-row,
 body[data-theme] .database-grid > div { background: var(--appearance-surface) !important; border-color: var(--appearance-line) !important; }
+body[data-theme] .account-card,
+body[data-theme] .account-resource-card { background: var(--appearance-raised) !important; border-color: var(--appearance-line) !important; color: var(--appearance-text); }
+body[data-theme] .account-card small,
+body[data-theme] .account-status { color: var(--appearance-muted) !important; }
 body[data-theme] .resource-table,
 body[data-theme] .table-row,
 body[data-theme] .activity-item { border-color: var(--appearance-line) !important; }
@@ -1058,7 +1063,8 @@ body[data-theme] > .app-shell { zoom: var(--ui-scale, 1); min-height: calc(100vh
 .resource-list-item .item-meta strong { color: #eaf1f8; font-size: 13px; }
 .resource-list-item .item-meta small { color: #8fa1b5; font-size: 11px; }
 .resource-list-item .item-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.resource-list-item .item-actions button {
+.resource-list-item .item-actions button,
+.workspace-panel-actions button {
   border: 1px solid #3a4b60;
   border-radius: 8px;
   background: #182535;
@@ -1067,7 +1073,8 @@ body[data-theme] > .app-shell { zoom: var(--ui-scale, 1); min-height: calc(100vh
   padding: 7px 11px;
   cursor: pointer;
 }
-.resource-list-item .item-actions button:hover { border-color: #5ca8df; color: #eaf1f8; }
+.resource-list-item .item-actions button:hover,
+.workspace-panel-actions button:hover { border-color: #5ca8df; color: #eaf1f8; }
 .resource-list-item .item-actions button.danger { color: #f87171; border-color: #5a3232; }
 .resource-list-item .item-actions button.danger:hover { background: #2a1518; border-color: #b42318; }
 

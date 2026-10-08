@@ -11,17 +11,22 @@ StePanel is an open-source server management panel written in Go. It installs Ca
 
 It is designed for people who want a small, understandable hosting control plane instead of a large opaque platform.
 
-![StePanel operator workspace preview](docs/assets/operator-workspace-preview.png)
+![StePanel operator overview](docs/assets/screenshots/operator-overview.png)
 
-The operator workspace is the strongest overview of StePanel's current value:
-resource posture, security checks, deployment state, restore-to-staging, and
-managed site operations in one view. It uses deterministic representative data;
-it is a product illustration rather than a capture from a live host.
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/screenshots/site-workspace.png" alt="Site workspace with connected domains"><br><sub>Each site has its own workspace: domains, runtime, deployments, databases, backups, logs, workers, and tasks.</sub></td>
+<td width="50%"><img src="docs/assets/screenshots/site-backups.png" alt="Backups and recovery status for a site"><br><sub>Recovery status says what has actually been proven: signed backups, restore rehearsals, and recovery point.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/assets/screenshots/customer-overview.png" alt="Customer view of an assigned site and plan"><br><sub>Customers sign in with MFA and see only their assigned sites, plan, and usage.</sub></td>
+<td><img src="docs/assets/screenshots/activity.png" alt="Durable job activity"><br><sub>Every backup, restore, and site change runs as a durable job you can follow.</sub></td>
+</tr>
+</table>
 
-![StePanel developer workspace preview](docs/assets/developer-workspace-preview.png)
-
-The developer workspace shows the application workflow around PHP runtime,
-encrypted environment metadata, builds, staging, logs, and workers.
+These are screenshots of the real UI, captured with synthetic demo data by
+[`scripts/capture-screenshots.sh`](scripts/capture-screenshots.sh). See
+[SCREENSHOTS.md](docs/SCREENSHOTS.md) for every view and how they are produced.
 
 ## Why StePanel?
 
@@ -66,10 +71,8 @@ Root-owned platform helpers ── Caddy/Apache, PHP-FPM, databases, systemd
 Web applications, databases, verified backups, recoverable releases
 ```
 
-See the [complete product preview](docs/SCREENSHOTS.md) for the dashboard and
-all workspace illustrations. A live lab screenshot is intentionally not
-included until it can be captured from a disposable tagged installation with
-synthetic data.
+See [SCREENSHOTS.md](docs/SCREENSHOTS.md) for every dashboard view, captured
+from the real UI with synthetic data.
 
 Operational key backup and rotation procedures are documented in
 [`docs/SECRETS.md`](docs/SECRETS.md).

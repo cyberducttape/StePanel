@@ -1,9 +1,11 @@
 # Live UI screenshots
 
-The images in [`SCREENSHOTS.md`](SCREENSHOTS.md) are deterministic product
-previews, not evidence from a running installation. Release reviews should add
-captures from the tagged build so operators can see the actual capability,
-role, theme, and responsive state.
+The images in [`SCREENSHOTS.md`](SCREENSHOTS.md) are real UI captures from a
+disposable development control plane, produced by
+`scripts/capture-screenshots.sh`. That host has no root broker, so web server,
+account, and cgroup changes are stubbed. Release reviews should also capture
+an installed host running the tagged build, so operators can see the actual
+capability, role, theme, and responsive state with real helpers.
 
 Use a disposable host or container with synthetic data only. Do not capture
 real customer names, domains, credentials, tokens, source code, or IPs.
