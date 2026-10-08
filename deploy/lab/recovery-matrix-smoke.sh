@@ -45,7 +45,7 @@ run_deploy_recovery() {
 run_matrix_once() {
   local iteration=$1
   RECOVERY_MATRIX_PREFIX="${base_prefix}-r${iteration}"
-  echo "recovery matrix iteration ${iteration}/${RECOVERY_MATRIX_REPEATS} (prefix ${RECOVERY_MATRIX_PREFIX})"
+  echo "recovery matrix iteration ${iteration}/${repeats} (prefix ${RECOVERY_MATRIX_PREFIX})"
   run_import_recovery
   run_backup_recovery
   run_suspension_recovery
