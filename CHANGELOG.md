@@ -28,6 +28,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Fixes to today's recovery and XSS hardening**: an untyped successful
+  `/api/` response now actually gets `Content-Type: application/octet-stream`.
+  The earlier default was set after `WriteHeader` and never reached the
+  client. WordPress backup quiescing now reads `wp maintenance-mode is-active`
+  from its exit status instead of matching the word "active" in its output,
+  which had produced backups falsely labeled `application-quiesced`. A
+  WordPress install whose wp-cli fails now gets a backup labeled
+  crash-consistent instead of no backup. The offsite recovery proof lists only
+  manifests and refuses a truncated listing instead of silently sampling only
+  the first backups. Recovery proof command output is bounded.
+
 - **Production gate documentation consistency**: corrected the adversarial
   testing coverage map to reference the current CSRF test names, so the
   documentation-reference gate validates cleanly.

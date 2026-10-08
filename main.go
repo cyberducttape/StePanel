@@ -1710,7 +1710,24 @@ func (e *apiErrorWriter) WriteHeader(status int) {
 		e.capture = true
 		return
 	}
+	// Headers are snapshotted when WriteHeader is forwarded, so the safe
+	// default must be chosen here: an untyped API body is never sniffed
+	// as HTML/JS by a browser.
+	if contentType == "" && bodyAllowedForStatus(status) {
+		e.w.Header().Set("Content-Type", "application/octet-stream")
+	}
 	e.w.WriteHeader(status)
+}
+
+// bodyAllowedForStatus reports whether status may carry a response body.
+func bodyAllowedForStatus(status int) bool {
+	switch {
+	case status >= 100 && status <= 199:
+		return false
+	case status == http.StatusNoContent, status == http.StatusNotModified:
+		return false
+	}
+	return true
 }
 
 func (e *apiErrorWriter) Write(body []byte) (int, error) {
@@ -1721,12 +1738,6 @@ func (e *apiErrorWriter) Write(body []byte) (int, error) {
 		// Copy through the underlying writer without making this middleware a
 		// response-body sink. The API middleware only forwards responses whose
 		// handler selected their content type; error bodies are captured above.
-		//
-		// If no content type has been selected yet, force a safe binary default
-		// so untrusted bytes are not interpreted as executable HTML/JS by a browser.
-		if e.w.Header().Get("Content-Type") == "" {
-			e.w.Header().Set("Content-Type", "application/octet-stream")
-		}
 		written, err := io.Copy(e.w, bytes.NewReader(body))
 		return int(written), err
 	}

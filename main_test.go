@@ -147,6 +147,29 @@ func TestNormalizeAPIErrorsDoesNotReflectHTMLTypedBody(t *testing.T) {
 	}
 }
 
+// TestNormalizeAPIErrorsTypesUntypedSuccessBody guards against browsers
+// sniffing an untyped API body as HTML. A real server is used because
+// headers are snapshotted when WriteHeader is forwarded.
+func TestNormalizeAPIErrorsTypesUntypedSuccessBody(t *testing.T) {
+	server := httptest.NewServer(normalizeAPIErrors(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("explicit") != "" {
+			w.WriteHeader(http.StatusOK)
+		}
+		_, _ = w.Write([]byte("<script>alert(1)</script>"))
+	})))
+	defer server.Close()
+	for _, query := range []string{"", "?explicit=1"} {
+		response, err := http.Get(server.URL + "/api/example" + query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if got := response.Header.Get("Content-Type"); got != "application/octet-stream" {
+			t.Fatalf("untyped API body%s content-type = %q, want application/octet-stream", query, got)
+		}
+	}
+}
+
 func TestNormalizeAPIErrorsHidesServerErrorDetail(t *testing.T) {
 	handler := normalizeAPIErrors(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "open /var/lib/stepanel/secret.db: permission denied", http.StatusInternalServerError)

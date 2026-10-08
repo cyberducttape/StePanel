@@ -448,6 +448,48 @@ func TestBackupManifestReportsWordPressQuiesce(t *testing.T) {
 	}
 }
 
+// TestBackupWordPressQuiesceUsesExitStatus guards against treating wp-cli
+// output text as maintenance-mode state, and against a broken WordPress
+// install blocking its own backup.
+func TestBackupWordPressQuiesceUsesExitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name, isActive, wantConsistency, wantActions string
+	}{
+		{"not active with message", "echo 'Maintenance mode is not active.'; exit 1", "application-quiesced", "activate\ndeactivate\n"},
+		{"already active", "exit 0", "application-quiesced", ""},
+		{"wp-cli broken", "echo 'Error: Error establishing a database connection. active'; exit 255", "crash-consistent / logical backup", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			webRoot := filepath.Join(root, "www")
+			publicRoot := filepath.Join(webRoot, "sites", "account", "public")
+			writeTestFile(t, filepath.Join(publicRoot, "wp-config.php"), "<?php")
+			logPath := filepath.Join(root, "wp-actions.log")
+			wp := filepath.Join(root, "wp")
+			script := "#!/bin/sh\nif [ \"$4\" = is-active ]; then " + tc.isActive + "; fi\nprintf '%s\\n' \"$4\" >> \"$WP_ACTION_LOG\"\n"
+			if err := os.WriteFile(wp, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("WP_ACTION_LOG", logPath)
+			result, err := CreateSiteBackupContext(context.Background(), Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), WPCLI: wp}, AuthorizedSite{site: "account"}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest := readTestBackupManifest(t, result.Path)
+			if manifest.Consistency != tc.wantConsistency || manifest.ApplicationQuiesced != (tc.wantConsistency == "application-quiesced") {
+				t.Fatalf("manifest consistency = %q quiesced = %v, want %q", manifest.Consistency, manifest.ApplicationQuiesced, tc.wantConsistency)
+			}
+			actions, err := os.ReadFile(logPath)
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if string(actions) != tc.wantActions {
+				t.Fatalf("WordPress maintenance actions = %q, want %q", actions, tc.wantActions)
+			}
+		})
+	}
+}
+
 func TestVerifyBackupArchiveRejectsTampering(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

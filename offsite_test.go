@@ -3,6 +3,7 @@ package stepanel
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,5 +46,17 @@ func TestListOffsiteBackupsFiltersManifestObjects(t *testing.T) {
 	}
 	if len(backups) != 1 || backups[0].Site != "account" || backups[0].Backup != "backup-1" {
 		t.Fatalf("offsite backups = %#v, want one validated reference", backups)
+	}
+}
+
+func TestListOffsiteBackupsRefusesTruncatedListing(t *testing.T) {
+	root := t.TempDir()
+	rclone := filepath.Join(root, "rclone")
+	if err := os.WriteFile(rclone, []byte("#!/bin/sh\nyes 'account/backup-1/manifest.json' | head -c 9000000\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if _, err := listOffsiteBackupsContext(t.Context(), Config{OffsiteTarget: "s3:bucket/stepanel"}); err == nil || !strings.Contains(err.Error(), "listing exceeds") {
+		t.Fatalf("listOffsiteBackupsContext error = %v, want truncated-listing refusal", err)
 	}
 }

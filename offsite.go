@@ -158,6 +158,10 @@ func validBackupName(name string) bool {
 	return true
 }
 
+// maxOffsiteListingBytes bounds the manifest listing used to choose a
+// recovery-proof backup (roughly 100k manifests).
+const maxOffsiteListingBytes = 8 << 20
+
 type offsiteBackupReference struct {
 	Site   string
 	Backup string
@@ -175,11 +179,17 @@ func listOffsiteBackupsContext(parent context.Context, cfg Config) ([]offsiteBac
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "rclone", "lsf", strings.TrimRight(cfg.OffsiteTarget, "/"), "--recursive", "--files-only")
+	// Only manifests are listed so a large repository stays well inside the
+	// output bound. A listing that reaches the bound is refused rather than
+	// silently sampling only the first backups in lexical order.
+	cmd := exec.CommandContext(ctx, "rclone", "lsf", strings.TrimRight(cfg.OffsiteTarget, "/"), "--recursive", "--files-only", "--include", "/*/*/manifest.json")
 	cmd.Env = cloudCommandEnv()
-	output, err := runBoundedCommand(ctx, cmd)
+	output, err := runBoundedCommandLimit(ctx, cmd, maxOffsiteListingBytes)
 	if err != nil {
 		return nil, fmt.Errorf("list offsite backups failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if len(output) >= maxOffsiteListingBytes {
+		return nil, fmt.Errorf("offsite backup listing exceeds %d bytes; prune the repository before running a recovery proof", maxOffsiteListingBytes)
 	}
 	seen := make(map[string]bool)
 	var backups []offsiteBackupReference

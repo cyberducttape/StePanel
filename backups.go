@@ -455,14 +455,25 @@ func quiesceWordPressForBackup(parent context.Context, cfg Config, publicRoot st
 		}
 		return nil
 	}
+	// "is-active" reports only through its exit status: 0 when maintenance
+	// mode is already on, 1 when it is off. Output text is not a signal
+	// ("Maintenance mode is not active" contains "active").
 	checkCtx, cancel := context.WithTimeout(parent, helperConfigMutationTimeout)
 	checkOutput, checkErr := runBoundedCommand(checkCtx, exec.CommandContext(checkCtx, cfg.WPCLI, "--path="+publicRoot, "--no-color", "maintenance-mode", "is-active"))
 	cancel()
-	if checkErr == nil || strings.Contains(strings.ToLower(string(checkOutput)), "active") {
+	if checkErr == nil {
 		return true, noop, nil
 	}
+	var exitErr *exec.ExitError
+	if !errors.As(checkErr, &exitErr) || exitErr.ExitCode() != 1 {
+		// A broken WordPress install must not block its own backup; the
+		// manifest records the weaker crash-consistent guarantee instead.
+		log.Printf("backup of %s is crash-consistent: WordPress maintenance-mode state unavailable: %v: %s", publicRoot, checkErr, strings.TrimSpace(string(checkOutput)))
+		return false, noop, nil
+	}
 	if err := run("activate"); err != nil {
-		return false, noop, err
+		log.Printf("backup of %s is crash-consistent: %v", publicRoot, err)
+		return false, noop, nil
 	}
 	return true, func() error { return run("deactivate") }, nil
 }
