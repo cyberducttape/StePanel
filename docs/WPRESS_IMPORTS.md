@@ -13,7 +13,10 @@ Install these commands on the destination host:
 - `mariadb` or `mysql`.
 
 Override executable paths with `STEPANEL_WPRESS_EXTRACT` and `STEPANEL_WPCLI`.
-Production configurations must use absolute executable paths.
+Production configurations must use absolute executable paths, and wp-cli must
+be `/usr/local/bin/wp`. The root helper runs that fixed path as the site's
+isolated account, so the imported site's PHP never executes with panel
+privileges. The site is sealed to that account before the first wp-cli call.
 Set `STEPANEL_ACCOUNT_KEY` before enabling imports: the database password is
 held in an encrypted durable job payload and is never returned by job-status
 APIs. Preserve this key with the control-plane database during recovery.

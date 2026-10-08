@@ -106,6 +106,8 @@ func requestLockKeys(req *Request) []string {
 		add("site", req.Task.Site)
 	case "environment":
 		add("site", req.Environment.Site)
+	case "wordpress":
+		add("site", req.WordPress.Site)
 	case "resource":
 		if req.Resource.Action == "apply-account" {
 			add("account", req.Resource.Account)

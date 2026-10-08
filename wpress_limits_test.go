@@ -19,7 +19,7 @@ func TestApplyWPressPackageMetadataUsesWPCLI(t *testing.T) {
 	}
 	t.Setenv("TEST_WPCLI_LOG", logPath)
 	metadata := wpressPackageMetadata{PluginsPresent: true, Plugins: []string{"akismet/akismet.php"}, TemplatePresent: true, Template: "twentytwentyfour", StylesheetPresent: true, Stylesheet: "twentytwentyfour"}
-	if err := applyWPressPackageMetadata(Config{WPCLI: helper}, filepath.Join(root, "site"), metadata); err != nil {
+	if err := applyWPressPackageMetadata(Config{WPCLI: helper, WebRoot: filepath.Join(root, "www")}, "account", metadata); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(logPath)

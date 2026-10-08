@@ -28,6 +28,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **wp-cli runs as the site's isolated user**: wp-cli executes the site's own
+  `wp-config.php` and WordPress core. Customer WordPress actions, backup
+  maintenance mode, and WPress import configuration previously ran it as the
+  `stepanel` panel user, so tenant PHP (including PHP from an uploaded
+  archive) ran with panel privileges. These calls now go through a typed
+  `wordpress` root-broker request. The broker builds wp-cli arguments from
+  named operations with fixed patterns, and `stepanel-appctl wp` runs the
+  fixed `/usr/local/bin/wp` through `runuser` as the site user with a cleared
+  environment, refusing global options such as `--exec`, `--require`, and
+  `--path`. The `wp-config.php` database password travels on stdin. WPress
+  imports seal the site to its account before the first wp-cli call.
+  Production now requires `STEPANEL_WPCLI=/usr/local/bin/wp`.
+- **Root broker starts on non-OpenLiteSpeed hosts again**: `/usr/local/lsws`
+  is now an optional `ReadWritePaths` entry; requiring it failed systemd
+  namespace setup (`226/NAMESPACE`) on Caddy and Apache hosts.
+
 - **Fixes to today's recovery and XSS hardening**: an untyped successful
   `/api/` response now actually gets `Content-Type: application/octet-stream`.
   The earlier default was set after `WriteHeader` and never reached the

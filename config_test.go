@@ -413,3 +413,16 @@ func TestSafetyBypassReadinessIsCritical(t *testing.T) {
 		t.Fatalf("readiness with bypass = %#v; want critical failure naming it", check)
 	}
 }
+
+func TestValidateConfigProductionRequiresFixedWPCLI(t *testing.T) {
+	cfg := LoadConfig()
+	cfg.Production = true
+	cfg.WPCLI = "/opt/wp-cli/wp"
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_WPCLI must be /usr/local/bin/wp") {
+		t.Fatalf("ValidateConfig error = %v, want fixed wp-cli path requirement", err)
+	}
+	cfg.WPCLI = "/usr/local/bin/wp"
+	if err := ValidateConfig(cfg); err != nil && strings.Contains(err.Error(), "STEPANEL_WPCLI must be") {
+		t.Fatalf("ValidateConfig rejected the fixed wp-cli path: %v", err)
+	}
+}

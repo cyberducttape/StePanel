@@ -52,6 +52,10 @@ type Request struct {
 	// Environment requests update one site's systemd environment file.
 	Environment *EnvironmentRequest `json:"environment,omitempty"`
 	Resource    *ResourceRequest    `json:"resource,omitempty"`
+
+	// WordPress requests run one named wp-cli operation as the site's
+	// isolated user; they cannot select the executable, path, or argv.
+	WordPress *WordPressRequest `json:"wordpress,omitempty"`
 }
 
 type EnvironmentRequest struct {
@@ -110,6 +114,32 @@ type TaskResponse struct {
 	Applied bool   `json:"applied,omitempty"`
 	Deleted bool   `json:"deleted,omitempty"`
 	Output  string `json:"output,omitempty"`
+}
+
+// WordPressRequest names one wp-cli operation. Only the fields that the
+// action documents in wordpressArgs are read.
+type WordPressRequest struct {
+	Action string `json:"action"`
+	Site   string `json:"site"`
+	// Name is the option or wp-config constant for option-* and config-set.
+	Name  string `json:"name,omitempty"`
+	Value string `json:"value,omitempty"`
+	// Search and Replace are the site URLs for search-replace.
+	Search  string `json:"search,omitempty"`
+	Replace string `json:"replace,omitempty"`
+	// Database settings for config-create.
+	DBName   string `json:"db_name,omitempty"`
+	DBUser   string `json:"db_user,omitempty"`
+	DBHost   string `json:"db_host,omitempty"`
+	DBPrefix string `json:"db_prefix,omitempty"`
+	// Secret is written to wp-cli's stdin for --prompt; it never reaches argv.
+	Secret string `json:"secret,omitempty"`
+}
+
+type WordPressResponse struct {
+	Output string `json:"output,omitempty"`
+	// Active reports maintenance-status.
+	Active bool `json:"active,omitempty"`
 }
 
 // Response is the top-level RPC response sent back to the app.

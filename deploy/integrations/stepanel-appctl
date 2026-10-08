@@ -387,6 +387,23 @@ EOF
       build:pnpm) command=(pnpm run build --if-present);;
     esac
     runuser -u "$site_user" -- sh -c 'cd "$1" && shift && exec env HOME="$1" NODE_ENV=production PATH="/usr/local/bin:/usr/bin:/bin" "$@"' sh "$root" "$root" "${command[@]}" ;;
+  wp)
+    # The root broker builds the arguments from a named operation; this
+    # helper fixes the executable and WordPress path, refuses wp-cli global
+    # options that load or reach other code, and runs as the site user so
+    # site PHP never executes with root or panel privileges.
+    (( $# >= 3 )) || { echo 'usage: stepanel-appctl wp SITE WP-CLI-ARGS...' >&2; exit 64; }
+    shift 2
+    site_root="/var/www/sites/$site"; root="$site_root/public"
+    wp_cli=/usr/local/bin/wp
+    [[ -x $wp_cli && ! -L $root && -d $root ]] || { echo 'wp-cli or the site public directory is unavailable' >&2; exit 1; }
+    for arg in "$@"; do
+      case "$arg" in
+        --path*|--url*|--exec*|--require*|--ssh*|--http*|--user*|--allow-root*|--context*) echo "refusing wp-cli global option ${arg%%=*}" >&2; exit 1 ;;
+      esac
+      [[ $arg != *$'\n'* && $arg != *$'\r'* ]] || { echo 'invalid wp-cli argument' >&2; exit 1; }
+    done
+    exec runuser -u "$site_user" -- env -i HOME="$site_root" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 WP_CLI_CACHE_DIR="$site_root/.wp-cli/cache" WP_CLI_DISABLE_AUTO_CHECK_UPDATE=1 "$wp_cli" --path="$root" --no-color "$@" ;;
   composer-install)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl composer-install SITE ROOT DEVELOPMENT OPTIMIZE' >&2; exit 64; }
     root=$3; development=$4; optimize=$5

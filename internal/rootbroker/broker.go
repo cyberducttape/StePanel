@@ -194,6 +194,8 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 		return b.handleEnvironmentRequest(ctx, req.Environment)
 	case "resource":
 		return b.handleResourceRequest(ctx, req.Resource)
+	case "wordpress":
+		return b.handleWordPressRequest(ctx, req.WordPress)
 	default:
 		return &Response{
 			OK:    false,
@@ -217,6 +219,8 @@ func requestRequiresFencing(req *Request) bool {
 		return req.Task != nil && req.Task.Action != "history"
 	case "resource":
 		return req.Resource != nil && req.Resource.Action != "status"
+	case "wordpress":
+		return req.WordPress != nil && !wordPressReadOnlyActions[req.WordPress.Action]
 	default:
 		return true
 	}

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"github.com/cyberducttape/StePanel/internal/upload"
 )
 
@@ -399,32 +400,38 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 			return WPressResult{}, fmt.Errorf("normalize table prefix: %w", err)
 		}
 	}
-	if err := configureWordPressContext(ctx, cfg, home, dbName, dbUser, dbPassword, targetPrefix); err != nil {
+	// Seal before the first wp-cli call: wp-cli runs as the site's isolated
+	// user and must own the tree it configures. The final seal below covers
+	// the files wp-cli writes.
+	if err := siteHelperContext(ctx, cfg, "seal", site); err != nil {
+		return WPressResult{}, fmt.Errorf("seal isolated site before WordPress configuration: %w", err)
+	}
+	if err := configureWordPressContext(ctx, cfg, site, dbName, dbUser, dbPassword, targetPrefix); err != nil {
 		return WPressResult{}, err
 	}
-	if err := applyWPressPackageMetadataContext(ctx, cfg, home, metadata); err != nil {
+	if err := applyWPressPackageMetadataContext(ctx, cfg, site, metadata); err != nil {
 		return WPressResult{}, err
 	}
 	urlReplaced := false
 	if siteURL != "" {
-		oldURL, getErr := runWPOutputContext(ctx, cfg, home, "option", "get", "siteurl")
-		if getErr == nil && strings.TrimSpace(oldURL) != "" && strings.TrimSpace(oldURL) != siteURL {
-			if err := runWPContext(ctx, cfg, home, "search-replace", strings.TrimSpace(oldURL), siteURL, "--all-tables-with-prefix", "--precise", "--recurse-objects", "--skip-columns=guid", "--quiet"); err != nil {
+		current, getErr := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "option-get", Site: site, Name: "siteurl"})
+		oldURL := strings.TrimSpace(current.Output)
+		if getErr == nil && oldURL != "" && oldURL != siteURL {
+			if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "search-replace", Site: site, Search: oldURL, Replace: siteURL}); err != nil {
 				return WPressResult{}, fmt.Errorf("replace site URL: %w", err)
 			}
-			if err := runWPContext(ctx, cfg, home, "option", "update", "home", siteURL); err != nil {
-				return WPressResult{}, fmt.Errorf("update home URL: %w", err)
-			}
-			if err := runWPContext(ctx, cfg, home, "option", "update", "siteurl", siteURL); err != nil {
-				return WPressResult{}, fmt.Errorf("update site URL: %w", err)
+			for _, option := range []string{"home", "siteurl"} {
+				if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "option-update", Site: site, Name: option, Value: siteURL}); err != nil {
+					return WPressResult{}, fmt.Errorf("update %s URL: %w", option, err)
+				}
 			}
 			urlReplaced = true
 		}
 	}
-	if err := runWPContext(ctx, cfg, home, "rewrite", "flush"); err != nil {
+	if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "rewrite-flush", Site: site}); err != nil {
 		return WPressResult{}, fmt.Errorf("flush rewrite rules: %w", err)
 	}
-	if err := runWPContext(ctx, cfg, home, "cache", "flush"); err != nil {
+	if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "cache-flush", Site: site}); err != nil {
 		return WPressResult{}, fmt.Errorf("flush WordPress cache: %w", err)
 	}
 	if err := siteHelperContext(ctx, cfg, "seal", site); err != nil {
@@ -503,27 +510,27 @@ func readWPressPackageMetadata(path string) (wpressPackageMetadata, error) {
 	return metadata, nil
 }
 
-func applyWPressPackageMetadata(cfg Config, home string, metadata wpressPackageMetadata) error {
-	return applyWPressPackageMetadataContext(context.Background(), cfg, home, metadata)
+func applyWPressPackageMetadata(cfg Config, site string, metadata wpressPackageMetadata) error {
+	return applyWPressPackageMetadataContext(context.Background(), cfg, site, metadata)
 }
 
-func applyWPressPackageMetadataContext(ctx context.Context, cfg Config, home string, metadata wpressPackageMetadata) error {
+func applyWPressPackageMetadataContext(ctx context.Context, cfg Config, site string, metadata wpressPackageMetadata) error {
 	if metadata.PluginsPresent {
 		data, err := json.Marshal(metadata.Plugins)
 		if err != nil {
 			return fmt.Errorf("encode active plugins: %w", err)
 		}
-		if err := runWPContext(ctx, cfg, home, "option", "update", "active_plugins", string(data), "--format=json"); err != nil {
+		if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "option-update", Site: site, Name: "active_plugins", Value: string(data)}); err != nil {
 			return fmt.Errorf("restore active plugins: %w", err)
 		}
 	}
 	if metadata.TemplatePresent && metadata.Template != "" {
-		if err := runWPContext(ctx, cfg, home, "option", "update", "template", metadata.Template); err != nil {
+		if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "option-update", Site: site, Name: "template", Value: metadata.Template}); err != nil {
 			return fmt.Errorf("restore active theme: %w", err)
 		}
 	}
 	if metadata.StylesheetPresent && metadata.Stylesheet != "" {
-		if err := runWPContext(ctx, cfg, home, "option", "update", "stylesheet", metadata.Stylesheet); err != nil {
+		if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "option-update", Site: site, Name: "stylesheet", Value: metadata.Stylesheet}); err != nil {
 			return fmt.Errorf("restore active stylesheet: %w", err)
 		}
 	}
@@ -667,83 +674,26 @@ func copyFile(src, dst string, mode os.FileMode) error {
 
 func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
 
-func runCommand(timeout time.Duration, name string, args ...string) error {
-	return runCommandContext(context.Background(), timeout, name, args...)
+func configureWordPress(cfg Config, site, dbName, dbUser, dbPassword, prefix string) error {
+	return configureWordPressContext(context.Background(), cfg, site, dbName, dbUser, dbPassword, prefix)
 }
 
-func runCommandContext(parent context.Context, timeout time.Duration, name string, args ...string) error {
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
-	output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, name, args...))
+func configureWordPressContext(ctx context.Context, cfg Config, site, dbName, dbUser, dbPassword, prefix string) error {
+	exists, err := managedSiteFileExists(cfg.WebRoot, site, "", "wp-config.php")
 	if err != nil {
-		return fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("inspect wp-config.php: %w", err)
 	}
-	return nil
-}
-
-func runCommandInput(timeout time.Duration, name, input string, args ...string) error {
-	return runCommandInputContext(context.Background(), timeout, name, input, args...)
-}
-
-func runCommandInputContext(parent context.Context, timeout time.Duration, name, input string, args ...string) error {
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
-	output, err := runBoundedCommandInput(ctx, exec.CommandContext(ctx, name, args...), strings.NewReader(input))
-	if err != nil {
-		return fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
-func runWP(cfg Config, home string, args ...string) error {
-	return runWPContext(context.Background(), cfg, home, args...)
-}
-
-func runWPContext(ctx context.Context, cfg Config, home string, args ...string) error {
-	base := []string{"--path=" + home, "--skip-plugins", "--skip-themes"}
-	base = append(base, args...)
-	return runCommandContext(ctx, 10*time.Minute, cfg.WPCLI, base...)
-}
-
-func runWPInput(cfg Config, home, input string, args ...string) error {
-	return runWPInputContext(context.Background(), cfg, home, input, args...)
-}
-
-func runWPInputContext(ctx context.Context, cfg Config, home, input string, args ...string) error {
-	base := []string{"--path=" + home, "--skip-plugins", "--skip-themes"}
-	base = append(base, args...)
-	return runCommandInputContext(ctx, 10*time.Minute, cfg.WPCLI, input, base...)
-}
-
-func runWPOutput(cfg Config, home string, args ...string) (string, error) {
-	return runWPOutputContext(context.Background(), cfg, home, args...)
-}
-
-func runWPOutputContext(parent context.Context, cfg Config, home string, args ...string) (string, error) {
-	base := []string{"--path=" + home, "--skip-plugins", "--skip-themes"}
-	base = append(base, args...)
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
-	defer cancel()
-	output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, cfg.WPCLI, base...))
-	return string(output), err
-}
-
-func configureWordPress(cfg Config, home, dbName, dbUser, dbPassword, prefix string) error {
-	return configureWordPressContext(context.Background(), cfg, home, dbName, dbUser, dbPassword, prefix)
-}
-
-func configureWordPressContext(ctx context.Context, cfg Config, home, dbName, dbUser, dbPassword, prefix string) error {
-	if !fileExists(filepath.Join(home, "wp-config.php")) {
-		if err := runWPInputContext(ctx, cfg, home, dbPassword+"\n", "config", "create", "--dbname="+dbName, "--dbuser="+dbUser, "--dbhost="+cfg.DBHost, "--dbprefix="+prefix, "--prompt=dbpass", "--skip-check", "--skip-salts"); err != nil {
+	if !exists {
+		if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "config-create", Site: site, DBName: dbName, DBUser: dbUser, DBHost: cfg.DBHost, DBPrefix: prefix, Secret: dbPassword}); err != nil {
 			return fmt.Errorf("create wp-config.php: %w", err)
 		}
 	}
 	for _, setting := range [][2]string{{"DB_NAME", dbName}, {"DB_USER", dbUser}, {"DB_HOST", cfg.DBHost}} {
-		if err := runWPContext(ctx, cfg, home, "config", "set", setting[0], setting[1], "--type=constant"); err != nil {
+		if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "config-set", Site: site, Name: setting[0], Value: setting[1]}); err != nil {
 			return fmt.Errorf("configure %s: %w", setting[0], err)
 		}
 	}
-	if err := runWPInputContext(ctx, cfg, home, dbPassword+"\n", "config", "set", "DB_PASSWORD", "--type=constant", "--prompt=value"); err != nil {
+	if _, err := runWordPress(ctx, cfg, rootbroker.WordPressRequest{Action: "config-set-password", Site: site, Secret: dbPassword}); err != nil {
 		return fmt.Errorf("configure DB_PASSWORD: %w", err)
 	}
 	return nil

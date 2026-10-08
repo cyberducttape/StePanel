@@ -216,6 +216,7 @@ if [[ -n "$DB_USER" && ! "$DB_USER" =~ ^[A-Za-z0-9_]{1,32}$ ]]; then echo "STEPA
 if [[ -n "$DB_USER" && -z "$DB_PASSWORD" ]]; then echo "STEPANEL_DB_PASSWORD is required when STEPANEL_DB_USER is set." >&2; exit 1; fi
 if [[ "$WPRESS_EXTRACT" == *$'\n'* || "$WPRESS_EXTRACT" == *$'\r'* || "$WPCLI" == *$'\n'* || "$WPCLI" == *$'\r'* ]]; then echo "WordPress executable paths may not contain newlines." >&2; exit 1; fi
 if [[ "$WPRESS_EXTRACT" != /* || "$WPCLI" != /* ]]; then echo "STEPANEL_WPRESS_EXTRACT and STEPANEL_WPCLI must be absolute executable paths in production." >&2; exit 1; fi
+if [[ "$WPCLI" != /usr/local/bin/wp ]]; then echo "STEPANEL_WPCLI must be /usr/local/bin/wp: stepanel-appctl runs that fixed path as each site's user." >&2; exit 1; fi
 
 if [[ "$INSTALL_FAIL2BAN" != "0" && "$INSTALL_FAIL2BAN" != "1" ]]; then echo "STEPANEL_INSTALL_FAIL2BAN must be 0 or 1." >&2; exit 1; fi
 if [[ "$INSTALL_FAIL2BAN" == "1" && -z "$FAIL2BAN_IGNORE_IP" && -t 0 ]]; then read -r -p "Trusted management IPs/CIDRs for Fail2ban (required): " FAIL2BAN_IGNORE_IP; fi

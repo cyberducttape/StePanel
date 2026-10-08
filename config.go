@@ -518,6 +518,11 @@ func ValidateConfig(c Config) error {
 				problems = append(problems, fmt.Errorf("%s: %w", name, err))
 			}
 		}
+		// stepanel-appctl runs this fixed wp-cli as each site's user; the
+		// panel cannot choose the executable that root launches.
+		if c.WPCLI != "" && filepath.Clean(c.WPCLI) != productionWPCLI {
+			problems = append(problems, fmt.Errorf("STEPANEL_WPCLI must be %s in production; the root helper runs that path as the site user", productionWPCLI))
+		}
 	}
 	if c.Production {
 		key := strings.TrimSpace(os.Getenv("STEPANEL_AUDIT_KEY"))
@@ -546,6 +551,9 @@ func ValidateConfig(c Config) error {
 	}
 	return errors.Join(problems...)
 }
+
+// productionWPCLI is the wp-cli executable stepanel-appctl runs.
+const productionWPCLI = "/usr/local/bin/wp"
 
 // validateProductionSandboxPath keeps production configuration inside the
 // paths writable by the shipped systemd units. The application service uses

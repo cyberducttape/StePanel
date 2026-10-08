@@ -65,9 +65,15 @@ func TestEveryBrokerActionHasATimeoutClass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wordpressSource, err := os.ReadFile("wordpress.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = append(source, wordpressSource...)
 	handlers := map[string]string{
 		"site": "handleSiteRequest", "app": "handleAppRequest", "worker": "handleWorkerRequest", "runner": "handleRunnerRequest", "db": "handleDBRequest",
 		"vhost": "handleVhostRequest", "proxy": "handleProxyRequest", "git": "handleGitRequest", "task": "handleTaskRequest", "environment": "handleEnvironmentRequest", "resource": "handleResourceRequest",
+		"wordpress": "handleWordPressRequest",
 	}
 	text := string(source)
 	for requestType, handler := range handlers {

@@ -252,7 +252,9 @@ Authenticated users can query `GET /api/wordpress/status/{site}` and run the
 closed set of operations through `POST /api/wordpress/{site}` with an action of
 `status`, `update_core`, `update_plugins`, `update_themes`, `maintenance_on`,
 `maintenance_off`, or `cron`. Actions require `wp-cli`, a valid `wp-config.php`,
-site ownership, CSRF protection, and are bounded and audited. Arbitrary WP-CLI
+site ownership, CSRF protection, and are bounded and audited. wp-cli runs as the
+site's isolated account through the root broker, never as the panel user. On
+production hosts it must be installed at `/usr/local/bin/wp`. Arbitrary WP-CLI
 arguments and repository build commands remain intentionally unsupported.
 
 ## Not yet available to customers

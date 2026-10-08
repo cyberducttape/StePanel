@@ -41,6 +41,20 @@ deploy/integrations/stepanel-{site,app,db,vhost,proxy,git,runner}ctl, stepanel-c
 | **Audit event** | The panel writes a fail-closed audit event before every mutating request (`Auth.Require`, and webhook deploys explicitly). |
 | **Recovery** | Site creation, database restore, vhost changes, release activation, file restores, and termination keep journals that startup recovery replays or rolls back. |
 
+## Tenant code runs as the tenant
+
+Commands that load a site's own code run as that site's isolated account, never
+as root or `stepanel`. WordPress is the main case: wp-cli executes
+`wp-config.php` and WordPress core from the site tree. The typed `wordpress`
+request names one operation (maintenance mode, option update, search-replace,
+`wp-config.php` settings, updates). The broker builds the wp-cli arguments
+from fixed patterns, so uploaded archive metadata cannot become wp-cli options
+such as `--exec` or `--require`. `stepanel-appctl wp` then runs the fixed
+`/usr/local/bin/wp` against the site's `public` directory through
+`runuser -u <site user>` with a cleared environment. The database password for
+`wp-config.php` travels on stdin, never in argv. Composer and Node tooling use
+the same `runuser` path.
+
 ## What is not finished
 
 Some privileged operations still use the schema-validated generic `helper`

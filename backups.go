@@ -16,7 +16,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -236,7 +235,7 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		return result, err
 	}
 	defer reservation.release()
-	quiesced, resume, err := quiesceWordPressForBackup(ctx, cfg, publicRoot)
+	quiesced, resume, err := quiesceWordPressForBackup(ctx, cfg, siteName, publicRoot)
 	if err != nil {
 		return result, err
 	}
@@ -433,8 +432,9 @@ func reserveBackupCapacity(cfg Config, stagingPath string, includeDatabases bool
 
 // quiesceWordPressForBackup uses the site's existing mutation lock together
 // with WordPress maintenance mode when both wp-cli and WordPress are present.
-// Non-WordPress sites retain the explicit crash-consistent contract.
-func quiesceWordPressForBackup(parent context.Context, cfg Config, publicRoot string) (bool, func() error, error) {
+// Non-WordPress sites retain the explicit crash-consistent contract. wp-cli
+// runs as the site's isolated user (see runWordPress).
+func quiesceWordPressForBackup(parent context.Context, cfg Config, site, publicRoot string) (bool, func() error, error) {
 	noop := func() error { return nil }
 	if cfg.WPCLI == "" || !commandAvailable(cfg.WPCLI) {
 		return false, noop, nil
@@ -446,36 +446,24 @@ func quiesceWordPressForBackup(parent context.Context, cfg Config, publicRoot st
 		return false, noop, err
 	}
 	run := func(action string) error {
-		ctx, cancel := context.WithTimeout(parent, helperConfigMutationTimeout)
-		defer cancel()
-		args := []string{"--path=" + publicRoot, "--no-color", "maintenance-mode", action}
-		output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, cfg.WPCLI, args...))
-		if err != nil {
-			return fmt.Errorf("WordPress maintenance-mode %s failed: %w: %s", action, err, strings.TrimSpace(string(output)))
-		}
-		return nil
+		_, err := runWordPress(parent, cfg, rootbroker.WordPressRequest{Action: action, Site: site})
+		return err
 	}
-	// "is-active" reports only through its exit status: 0 when maintenance
-	// mode is already on, 1 when it is off. Output text is not a signal
-	// ("Maintenance mode is not active" contains "active").
-	checkCtx, cancel := context.WithTimeout(parent, helperConfigMutationTimeout)
-	checkOutput, checkErr := runBoundedCommand(checkCtx, exec.CommandContext(checkCtx, cfg.WPCLI, "--path="+publicRoot, "--no-color", "maintenance-mode", "is-active"))
-	cancel()
-	if checkErr == nil {
-		return true, noop, nil
-	}
-	var exitErr *exec.ExitError
-	if !errors.As(checkErr, &exitErr) || exitErr.ExitCode() != 1 {
+	status, err := runWordPress(parent, cfg, rootbroker.WordPressRequest{Action: "maintenance-status", Site: site})
+	if err != nil {
 		// A broken WordPress install must not block its own backup; the
 		// manifest records the weaker crash-consistent guarantee instead.
-		log.Printf("backup of %s is crash-consistent: WordPress maintenance-mode state unavailable: %v: %s", publicRoot, checkErr, strings.TrimSpace(string(checkOutput)))
+		log.Printf("backup of %s is crash-consistent: WordPress maintenance-mode state unavailable: %v", site, err)
 		return false, noop, nil
 	}
-	if err := run("activate"); err != nil {
-		log.Printf("backup of %s is crash-consistent: %v", publicRoot, err)
+	if status.Active {
+		return true, noop, nil
+	}
+	if err := run("maintenance-activate"); err != nil {
+		log.Printf("backup of %s is crash-consistent: %v", site, err)
 		return false, noop, nil
 	}
-	return true, func() error { return run("deactivate") }, nil
+	return true, func() error { return run("maintenance-deactivate") }, nil
 }
 
 func addBackupTree(tw *tar.Writer, root, prefix string, maxEntries int, totalBytes *int64, manifest *BackupManifest) error {

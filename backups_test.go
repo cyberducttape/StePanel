@@ -427,7 +427,7 @@ func TestBackupManifestReportsWordPressQuiesce(t *testing.T) {
 	writeTestFile(t, filepath.Join(publicRoot, "index.php"), "<?php echo 'ok';")
 	logPath := filepath.Join(root, "wp-actions.log")
 	wp := filepath.Join(root, "wp")
-	if err := os.WriteFile(wp, []byte("#!/bin/sh\nif [ \"$4\" = is-active ]; then exit 1; fi\nprintf '%s\\n' \"$4\" >> \"$WP_ACTION_LOG\"\n"), 0700); err != nil {
+	if err := os.WriteFile(wp, []byte("#!/bin/sh\nfor arg; do last=$arg; done\nif [ \"$last\" = is-active ]; then exit 1; fi\nprintf '%s\\n' \"$last\" >> \"$WP_ACTION_LOG\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("WP_ACTION_LOG", logPath)
@@ -466,7 +466,7 @@ func TestBackupWordPressQuiesceUsesExitStatus(t *testing.T) {
 			writeTestFile(t, filepath.Join(publicRoot, "wp-config.php"), "<?php")
 			logPath := filepath.Join(root, "wp-actions.log")
 			wp := filepath.Join(root, "wp")
-			script := "#!/bin/sh\nif [ \"$4\" = is-active ]; then " + tc.isActive + "; fi\nprintf '%s\\n' \"$4\" >> \"$WP_ACTION_LOG\"\n"
+			script := "#!/bin/sh\nfor arg; do last=$arg; done\nif [ \"$last\" = is-active ]; then " + tc.isActive + "; fi\nprintf '%s\\n' \"$last\" >> \"$WP_ACTION_LOG\"\n"
 			if err := os.WriteFile(wp, []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}

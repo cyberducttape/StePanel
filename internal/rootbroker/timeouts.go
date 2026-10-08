@@ -49,6 +49,15 @@ var typedTimeouts = map[string]map[string]time.Duration{
 	"task":        {"apply": timeoutLifecycle, "delete": timeoutLifecycle, "kill": timeoutLifecycle, "history": timeoutConfig},
 	"environment": {"apply": timeoutLifecycle},
 	"resource":    {"apply-account": timeoutConfig, "apply-site": timeoutConfig, "status": timeoutConfig},
+	// wp-cli boots WordPress for every call; updates download packages and
+	// search-replace rewrites every table.
+	"wordpress": {
+		"status": timeoutLifecycle, "maintenance-status": timeoutLifecycle, "maintenance-activate": timeoutLifecycle, "maintenance-deactivate": timeoutLifecycle,
+		"option-get": timeoutLifecycle, "option-update": timeoutLifecycle, "config-create": timeoutLifecycle, "config-set": timeoutLifecycle, "config-set-password": timeoutLifecycle,
+		"rewrite-flush": timeoutLifecycle, "cache-flush": timeoutLifecycle,
+		"core-update": timeoutBuild, "plugin-update-all": timeoutBuild, "theme-update-all": timeoutBuild, "cron-run-due": timeoutBuild,
+		"search-replace": timeoutDatabase,
+	},
 	"db": {
 		"inventory": timeoutConfig, "reconcile": timeoutDatabase, "diagnostics": timeoutConfig,
 		"sessions": timeoutConfig, "settings": timeoutConfig, "terminate": timeoutConfig,
@@ -99,6 +108,10 @@ func RequestTimeout(req *Request) time.Duration {
 	case "resource":
 		if req.Resource != nil {
 			table, action = typedTimeouts["resource"], req.Resource.Action
+		}
+	case "wordpress":
+		if req.WordPress != nil {
+			table, action = typedTimeouts["wordpress"], req.WordPress.Action
 		}
 	case "db":
 		if req.DB != nil {

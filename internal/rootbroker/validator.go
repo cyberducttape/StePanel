@@ -352,6 +352,8 @@ func (v *Validator) ValidateRequest(req *Request) error {
 		return v.validateEnvironmentRequest(req.Environment)
 	case "resource":
 		return v.validateResourceRequest(req.Resource)
+	case "wordpress":
+		return v.validateWordPressRequest(req.WordPress)
 	default:
 		return fmt.Errorf("unknown request type: %s", req.RequestType)
 	}

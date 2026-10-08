@@ -1,11 +1,10 @@
 package stepanel
 
 import (
-	"context"
 	"net/http"
-	"os/exec"
 	"strings"
-	"time"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 // wordpressAction is intentionally a closed set. Repository-provided or
@@ -14,14 +13,16 @@ type wordpressAction struct {
 	Action string `json:"action"`
 }
 
-var wordpressActions = map[string][]string{
-	"status":          {"core", "version", "--format=json"},
-	"update_core":     {"core", "update"},
-	"update_plugins":  {"plugin", "update", "--all"},
-	"update_themes":   {"theme", "update", "--all"},
-	"maintenance_on":  {"maintenance-mode", "activate"},
-	"maintenance_off": {"maintenance-mode", "deactivate"},
-	"cron":            {"cron", "event", "run", "--due-now"},
+// wordpressActions maps the public action names to broker WordPress
+// operations, which run wp-cli as the site's isolated user.
+var wordpressActions = map[string]string{
+	"status":          "status",
+	"update_core":     "core-update",
+	"update_plugins":  "plugin-update-all",
+	"update_themes":   "theme-update-all",
+	"maintenance_on":  "maintenance-activate",
+	"maintenance_off": "maintenance-deactivate",
+	"cron":            "cron-run-due",
 }
 
 func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +46,7 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", 400)
 		return
 	}
-	args, ok := wordpressActions[input.Action]
+	operation, ok := wordpressActions[input.Action]
 	if !ok {
 		http.Error(w, "unsupported WordPress action", 422)
 		return
@@ -54,8 +55,7 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "wp-cli is not installed", 503)
 		return
 	}
-	root, err := existingManagedSitePublicRoot(a.Config.WebRoot, site)
-	if err != nil {
+	if _, err := existingManagedSitePublicRoot(a.Config.WebRoot, site); err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}
@@ -74,12 +74,9 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "WordPress operation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
-	defer cancel()
-	commandArgs := append([]string{"--path=" + root, "--no-color"}, args...)
-	output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, a.Config.WPCLI, commandArgs...))
+	result, err := runWordPress(operationCtx, a.Config, rootbroker.WordPressRequest{Action: operation, Site: site})
 	if err != nil {
-		http.Error(w, "WordPress action failed: "+strings.TrimSpace(string(output)), 502)
+		http.Error(w, "WordPress action failed: "+err.Error(), 502)
 		return
 	}
 	if err := operationCtx.Err(); err != nil {
@@ -87,7 +84,7 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "wordpress."+input.Action, site, "WP-CLI action completed")
-	writeJSON(w, http.StatusAccepted, map[string]any{"site": site, "action": input.Action, "output": strings.TrimSpace(string(output))})
+	writeJSON(w, http.StatusAccepted, map[string]any{"site": site, "action": input.Action, "output": strings.TrimSpace(result.Output)})
 }
 
 func (a *App) wordpressStatus(w http.ResponseWriter, r *http.Request) {
