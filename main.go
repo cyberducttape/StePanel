@@ -1721,6 +1721,12 @@ func (e *apiErrorWriter) Write(body []byte) (int, error) {
 		// Copy through the underlying writer without making this middleware a
 		// response-body sink. The API middleware only forwards responses whose
 		// handler selected their content type; error bodies are captured above.
+		//
+		// If no content type has been selected yet, force a safe binary default
+		// so untrusted bytes are not interpreted as executable HTML/JS by a browser.
+		if e.w.Header().Get("Content-Type") == "" {
+			e.w.Header().Set("Content-Type", "application/octet-stream")
+		}
 		written, err := io.Copy(e.w, bytes.NewReader(body))
 		return int(written), err
 	}
