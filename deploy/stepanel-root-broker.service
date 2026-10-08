@@ -36,7 +36,7 @@ ProtectSystem=strict
 # under /etc, while all other host writes are confined to managed state,
 # site data, and the selected webserver/certbot logs. Certbot uses its own
 # state/cache/log directories under /var/lib, /var/cache, and /var/log.
-ReadWritePaths=/etc /run /tmp /usr/local/lsws /var/backups/stepanel /var/lib/stepanel /var/lib/stepanel-privileged -/var/lib/letsencrypt -/var/cache/letsencrypt -/var/lib/ste-panel -/var/www -/var/log/apache2 -/var/log/httpd -/var/log/letsencrypt
+ReadWritePaths=/etc /run /tmp -/usr/local/lsws /var/backups/stepanel /var/lib/stepanel /var/lib/stepanel-privileged -/var/lib/letsencrypt -/var/cache/letsencrypt -/var/lib/ste-panel -/var/www -/var/log/apache2 -/var/log/httpd -/var/log/letsencrypt
 
 [Install]
 WantedBy=multi-user.target
