@@ -566,7 +566,9 @@ func validateProductionSandboxPath(name, path string) error {
 	allowed := []string{"/var/lib/ste-panel"}
 	switch name {
 	case "STEPANEL_BACKUP_ROOT":
-		allowed = []string{"/var/backups/stepanel"}
+		// Both are writable by the panel, worker, and broker units; the
+		// container image and Kubernetes manifests use /var/lib/ste-panel.
+		allowed = []string{"/var/backups/stepanel", "/var/lib/ste-panel"}
 	case "STEPANEL_WEB_ROOT":
 		allowed = []string{"/var/www"}
 	case "STEPANEL_RECOVERY_ROOT":

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"time"
 
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
@@ -16,7 +17,12 @@ import (
 // during panel startup, before new work is admitted, and is the same code
 // the crash-recovery drills exercise after a real SIGKILL. Failures are
 // isolated per item and returned rather than stopping recovery.
-func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager) []error {
+//
+// lockSite takes the site's durable mutation lease before recovery mutates
+// it, so broker requests carry a current fencing token and cannot race a
+// lease another process now holds. A nil lockSite (tests without a control
+// plane database) runs unlocked.
+func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker) []error {
 	var failures []error
 	databaseRecoveries, err := RecoverTransactionDatabases(cfg, cfg.RecoveryRoot)
 	if err != nil {
@@ -41,8 +47,15 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager) []err
 			log.Printf("load recovered site transaction %s: %v", id, loadErr)
 			continue
 		}
+		siteCtx, unlock, lockErr := lockRecoveredSite(lockSite, txn.Site)
+		if lockErr != nil {
+			failures = append(failures, fmt.Errorf("lock recovered site transaction %s: %w", id, lockErr))
+			log.Printf("lock recovered site transaction %s: %v", id, lockErr)
+			continue
+		}
 		if txn.HadExisting {
-			if sealErr := siteHelper(cfg, "seal", txn.Site); sealErr != nil {
+			if sealErr := siteHelperContext(siteCtx, cfg, "seal", txn.Site); sealErr != nil {
+				unlock()
 				failures = append(failures, fmt.Errorf("seal recovered site transaction %s: %w", id, sealErr))
 				log.Printf("seal recovered site transaction %s: %v", id, sealErr)
 				continue
@@ -54,17 +67,20 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager) []err
 			// whose root already exists, so all of it belongs to the
 			// interrupted job. Remove it through the documented privileged
 			// deletion path, then finalize through SiteManager.
-			if deleteErr := siteHelperContext(context.Background(), cfg, "delete", txn.Site); deleteErr != nil {
+			if deleteErr := siteHelperContext(siteCtx, cfg, "delete", txn.Site); deleteErr != nil {
+				unlock()
 				failures = append(failures, fmt.Errorf("remove interrupted site creation %s: %w", id, deleteErr))
 				log.Printf("remove interrupted site creation %s: %v", id, deleteErr)
 				continue
 			}
-			if deleteErr := siteManager.Delete(context.Background(), txn.Site); deleteErr != nil {
+			if deleteErr := siteManager.Delete(siteCtx, txn.Site); deleteErr != nil {
+				unlock()
 				failures = append(failures, fmt.Errorf("finalize interrupted site creation %s: %w", id, deleteErr))
 				log.Printf("finalize interrupted site creation %s: %v", id, deleteErr)
 				continue
 			}
 		}
+		unlock()
 		log.Printf("recovered interrupted site transaction %s", id)
 		recoveryMessage := "previous site restored after unclean shutdown"
 		if !txn.HadExisting {
@@ -96,4 +112,25 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager) []err
 		}
 	}
 	return failures
+}
+
+// siteLocker acquires a site's durable mutation lease; see
+// App.acquireSiteMutationLockContext.
+type siteLocker func(context.Context, string) (context.Context, func(), error)
+
+// recoveredSiteLockWait bounds how long startup recovery waits for a lease
+// left by the interrupted process, which expires after the lease time.
+const recoveredSiteLockWait = 3 * time.Minute
+
+func lockRecoveredSite(lockSite siteLocker, site string) (context.Context, func(), error) {
+	if lockSite == nil {
+		return context.Background(), func() {}, nil
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), recoveredSiteLockWait)
+	siteCtx, unlock, err := lockSite(waitCtx, site)
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	return siteCtx, func() { unlock(); cancel() }, nil
 }

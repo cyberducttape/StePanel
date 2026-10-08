@@ -353,3 +353,36 @@ func TestSiteMutationLockLossTerminatesInFlightHelper(t *testing.T) {
 		t.Fatal("helper completed after its lease was lost")
 	}
 }
+
+// Startup recovery seals and deletes sites through the broker, which rejects
+// mutating requests without a fencing token. The recovery context must carry
+// the site's lease token, and the lease must be released afterwards.
+func TestRecoveredSiteLockCarriesFencingToken(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "control-plane.sqlite")
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	locks, err := operations.NewDBLocks(db, "panel-recovery", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{dbLocks: locks}
+	ctx, unlock, err := lockRecoveredSite(app.acquireSiteMutationLockContext, "recovered-site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokens := operations.FencingTokens(ctx); len(tokens) != 1 {
+		t.Fatalf("recovery context fencing tokens = %v, want the site lease", tokens)
+	}
+	unlock()
+	if _, err := locks.TryAcquire("recovered-site"); err != nil {
+		t.Fatalf("recovery did not release the site lease: %v", err)
+	}
+	if ctx, unlock, err := lockRecoveredSite(nil, "unlocked-site"); err != nil || len(operations.FencingTokens(ctx)) != 0 {
+		t.Fatalf("nil locker = (%v, %v), want an unlocked context", operations.FencingTokens(ctx), err)
+	} else {
+		unlock()
+	}
+}

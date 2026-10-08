@@ -558,7 +558,7 @@ func Main() {
 				failures = append(failures, fmt.Errorf("reconcile interrupted database operations: %w: %s", err, strings.TrimSpace(string(output))))
 			}
 		}
-		failures = append(failures, recoverUncleanShutdown(cfg, siteManager)...)
+		failures = append(failures, recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext)...)
 		if replayed, err := app.replaySpooledDeployments(); err != nil {
 			failures = append(failures, fmt.Errorf("replay spooled deployment history: %w", err))
 		} else if replayed > 0 {

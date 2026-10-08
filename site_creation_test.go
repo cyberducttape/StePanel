@@ -204,7 +204,7 @@ func TestStartupRecoveryRemovesInterruptedSiteCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failures := recoverUncleanShutdown(f.app.Config, manager); len(failures) != 0 {
+	if failures := recoverUncleanShutdown(f.app.Config, manager, f.app.acquireSiteMutationLockContext); len(failures) != 0 {
 		t.Fatalf("recovery failures: %v", failures)
 	}
 	if _, err := os.Lstat(filepath.Join(f.webRoot, "sites", "half-made")); !os.IsNotExist(err) {

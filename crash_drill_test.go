@@ -93,7 +93,7 @@ func restartRecovery(t *testing.T, f interruptionFixture) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failures := recoverUncleanShutdown(f.cfg, manager); len(failures) != 0 {
+	if failures := recoverUncleanShutdown(f.cfg, manager, nil); len(failures) != 0 {
 		t.Fatalf("startup recovery failures: %v", failures)
 	}
 }

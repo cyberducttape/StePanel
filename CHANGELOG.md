@@ -28,6 +28,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Panel becomes ready after a crash mid-site-transaction**: startup
+  recovery re-sealed or removed interrupted sites through the root broker
+  without a fencing token, so the broker refused it and readiness stayed
+  degraded until an operator intervened. Recovery now takes each site's
+  durable lease first and sends that lease's token.
+- **Container image starts again**: the production path check rejected the
+  image's and Kubernetes manifests' `STEPANEL_BACKUP_ROOT` under
+  `/var/lib/ste-panel`, which every production unit can write. It is allowed
+  again alongside `/var/backups/stepanel`.
+
 - **wp-cli runs as the site's isolated user**: wp-cli executes the site's own
   `wp-config.php` and WordPress core. Customer WordPress actions, backup
   maintenance mode, and WPress import configuration previously ran it as the

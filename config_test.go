@@ -426,3 +426,16 @@ func TestValidateConfigProductionRequiresFixedWPCLI(t *testing.T) {
 		t.Fatalf("ValidateConfig rejected the fixed wp-cli path: %v", err)
 	}
 }
+
+// The container image and Kubernetes manifests keep backups under
+// /var/lib/ste-panel, which every production unit can write.
+func TestValidateProductionSandboxPathAllowsContainerBackupRoot(t *testing.T) {
+	for _, path := range []string{"/var/backups/stepanel", "/var/lib/ste-panel/backups"} {
+		if err := validateProductionSandboxPath("STEPANEL_BACKUP_ROOT", path); err != nil {
+			t.Errorf("backup root %s rejected: %v", path, err)
+		}
+	}
+	if err := validateProductionSandboxPath("STEPANEL_BACKUP_ROOT", "/srv/backups"); err == nil {
+		t.Error("backup root outside the writable roots was accepted")
+	}
+}
