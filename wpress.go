@@ -311,14 +311,14 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	committed := false
 	defer func() {
 		if !committed {
-			if err := txn.cleanupDatabases(cfg); err != nil {
+			if err := txn.cleanupDatabases(context.WithoutCancel(ctx), cfg); err != nil {
 				log.Printf("defer WordPress database recovery for transaction %s: %v", txn.ID, err)
 			}
 			if err := txn.Rollback(); err != nil {
 				log.Printf("defer WordPress filesystem recovery for transaction %s: %v", txn.ID, err)
 			}
 			if txn.HadExisting {
-				if err := siteHelperContext(context.Background(), cfg, "seal", site); err != nil {
+				if err := siteHelperContext(context.WithoutCancel(ctx), cfg, "seal", site); err != nil {
 					log.Printf("defer WordPress site sealing for transaction %s: %v", txn.ID, err)
 				}
 			}
@@ -794,10 +794,6 @@ func mysqlObjectExistsContext(ctx context.Context, cfg Config, query string) (bo
 		return false, err
 	}
 	return strings.TrimSpace(output) != "0", nil
-}
-
-func cleanupWPressDatabase(cfg Config, dbName, dbUser string) error {
-	return cleanupWPressDatabaseContext(context.Background(), cfg, dbName, dbUser)
 }
 
 func cleanupWPressDatabaseContext(parent context.Context, cfg Config, dbName, dbUser string) error {

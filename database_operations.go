@@ -647,7 +647,15 @@ func (a *App) databaseSessionTerminate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "confirmation must exactly match TERMINATE "+id, http.StatusUnprocessableEntity)
 		return
 	}
-	if _, err := runDatabaseHelper(a.Config, 15*time.Second, "", "terminate", id); err != nil {
+	// Terminating a session mutates through the root broker, which requires
+	// a lease's fencing token.
+	operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), "database:session:"+id)
+	if lockErr != nil {
+		http.Error(w, "session termination is busy", http.StatusConflict)
+		return
+	}
+	defer release()
+	if _, err := runDatabaseHelperContext(operationCtx, a.Config, 15*time.Second, "", "terminate", id); err != nil {
 		http.Error(w, "session termination failed", http.StatusConflict)
 		return
 	}

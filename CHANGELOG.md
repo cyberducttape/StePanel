@@ -49,6 +49,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Startup and rollback broker calls carry a lease**: the root broker
+  rejects unfenced mutations, but the startup database reconcile, startup
+  recovery of interrupted database transactions, and the rollback cleanup of
+  failed site creation, cpmove imports, and WordPress restores called it
+  without one. On a production host the panel started degraded ("fencing
+  token required") and failed cleanups were refused. Each now holds the
+  relevant lease. Read-only database actions (diagnostics, sessions,
+  settings) no longer require a token, and terminating a database session
+  takes one.
+- Python applications need the distribution's venv support, which Debian
+  and Ubuntu package separately; the installation guide says so and
+  `stepanel-appctl` names the missing package.
+
 - **First Rocky Linux 9 KVM certification run** (SELinux enforcing, full
   recovery matrix, abrupt guest loss idle and mid-backup, real ENOSPC); see
   `docs/lab-results/2026-10-09-rocky9-kvm-certification.md` and

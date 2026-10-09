@@ -397,3 +397,45 @@ func TestLeaseTimeLeavesWatchdogHeadroom(t *testing.T) {
 		t.Fatalf("lease time %s leaves %s for a live owner; the fencing watchdog needs at least %s", controlPlaneLeaseTime, healthyMinimum, need)
 	}
 }
+
+// The startup database reconcile mutates through the root broker, which
+// rejects requests without a fencing token; it must run under its own lease.
+func TestStartupDatabaseReconcileHoldsLease(t *testing.T) {
+	root := t.TempDir()
+	logPath := filepath.Join(root, "dbctl.log")
+	helper := filepath.Join(root, "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \""+logPath+"\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(root, "control-plane.sqlite")
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	locks, err := operations.NewDBLocks(db, "panel-startup", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{dbLocks: locks}
+	var tokens []operations.FencingToken
+	locker := func(ctx context.Context, key string) (context.Context, func(), error) {
+		leased, release, err := app.acquireSiteMutationLockContext(ctx, key)
+		if err == nil {
+			tokens = operations.FencingTokens(leased)
+		}
+		return leased, release, err
+	}
+	if err := reconcileDatabaseOperations(Config{DBCtl: helper}, locker); err != nil {
+		t.Fatal(err)
+	}
+	if len(tokens) != 1 || tokens[0].ResourceKey != databaseReconcileLease {
+		t.Fatalf("reconcile fencing tokens = %#v, want one %q lease", tokens, databaseReconcileLease)
+	}
+	if data, err := os.ReadFile(logPath); err != nil || string(data) != "reconcile\n" {
+		t.Fatalf("database helper calls = %q, %v", data, err)
+	}
+	if _, err := locks.TryAcquire(databaseReconcileLease); err != nil {
+		t.Fatalf("reconcile did not release its lease: %v", err)
+	}
+}

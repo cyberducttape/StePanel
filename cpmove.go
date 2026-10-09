@@ -321,14 +321,16 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 		if committed {
 			return
 		}
-		if err := txn.cleanupDatabases(cfg); err != nil {
+		// The operation context may already be cancelled; keep its lease
+		// token so the broker accepts the cleanup.
+		if err := txn.cleanupDatabases(context.WithoutCancel(ctx), cfg); err != nil {
 			log.Printf("defer cpmove database recovery for transaction %s: %v", txn.ID, err)
 		}
 		if err := txn.Rollback(); err != nil {
 			log.Printf("defer cpmove filesystem recovery for transaction %s: %v", txn.ID, err)
 		}
 		if txn.HadExisting {
-			if err := siteHelperContext(context.Background(), cfg, "seal", user); err != nil {
+			if err := siteHelperContext(context.WithoutCancel(ctx), cfg, "seal", user); err != nil {
 				log.Printf("defer cpmove site sealing for transaction %s: %v", txn.ID, err)
 			}
 		}
@@ -682,7 +684,7 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 		cancel()
 		if err != nil {
 			failures = append(failures, name+": import failed: "+strings.TrimSpace(string(output)))
-			if cleanupErr := dropDatabase(cfg, name); cleanupErr != nil {
+			if cleanupErr := dropDatabase(parent, cfg, name); cleanupErr != nil {
 				failures = append(failures, name+": cleanup failed: "+cleanupErr.Error())
 			}
 			continue
@@ -692,8 +694,10 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 	return restored, failures
 }
 
-func dropDatabase(cfg Config, name string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+// dropDatabase removes a managed database. parent must carry the site lease
+// (its fencing token) when the drop goes through the root broker.
+func dropDatabase(parent context.Context, cfg Config, name string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 2*time.Minute)
 	defer cancel()
 	if cfg.DBCtl != "" {
 		output, err := runDatabaseHelperContext(ctx, cfg, 2*time.Minute, "", "drop", name)

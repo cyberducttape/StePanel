@@ -392,27 +392,6 @@ func runRunnerBuild(ctx context.Context, cfg Config, request rootbroker.RunnerRe
 		itoa(request.CPUPercent), itoa(request.MemoryMB), itoa(request.TasksMax), request.NetworkMode, strconv.FormatInt(request.MaxImageBytes, 10))
 }
 
-func siteHelper(cfg Config, action, site string) error {
-	if cfg.Production || labDirectRootBrokerEnabled() {
-		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
-		if err != nil {
-			return err
-		}
-		resp, err := client.Execute(context.Background(), &rootbroker.Request{
-			RequestType: "site",
-			Site:        &rootbroker.SiteRequest{Action: action, Site: site},
-		})
-		if err != nil {
-			return err
-		}
-		if !resp.OK {
-			return errors.New(resp.Error)
-		}
-		return nil
-	}
-	return h.SiteHelper(cfg.Sudo, cfg.SiteCtl, action, site)
-}
-
 func openRegularNoFollow(path string, expected os.FileInfo) (*os.File, os.FileInfo, error) {
 	return h.OpenRegularNoFollow(path, expected)
 }

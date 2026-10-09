@@ -277,6 +277,10 @@ func (b *Broker) dispatch(ctx context.Context, req *Request) (*Response, error) 
 	}
 }
 
+// dbReadOnlyActions read database state without mutating it and need no
+// fencing token: there is no lease for an administrator viewing diagnostics.
+var dbReadOnlyActions = map[string]bool{"inventory": true, "dump": true, "diagnostics": true, "sessions": true, "settings": true}
+
 func requestRequiresFencing(req *Request) bool {
 	if req == nil {
 		return false
@@ -285,7 +289,7 @@ func requestRequiresFencing(req *Request) bool {
 	case "health":
 		return false
 	case "db":
-		return req.DB != nil && req.DB.Action != "inventory" && req.DB.Action != "dump"
+		return req.DB != nil && !dbReadOnlyActions[req.DB.Action]
 	case "git":
 		return req.Git != nil && req.Git.Action != "verify-key"
 	case "task":

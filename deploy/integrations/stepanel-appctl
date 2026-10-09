@@ -328,7 +328,7 @@ EOF
     # mutates the environment used by an existing service.
     if [[ ! -x "$venv/bin/gunicorn" ]]; then
         venv_stage=$(mktemp -d "/var/www/sites/$site/.stepanel-venv.XXXXXX")
-        "python$version" -m venv "$venv_stage" || { cleanup_python_stage; exit 1; }
+        "python$version" -m venv "$venv_stage" || { cleanup_python_stage; echo "python$version cannot create a virtualenv; on Debian/Ubuntu install python$version-venv" >&2; exit 1; }
         chown -R "$site_user:$site_user" "$venv_stage" || { cleanup_python_stage; exit 1; }
         if ! runuser -u "$site_user" -- env -i HOME="/var/www/sites/$site" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 "$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"; then
             echo 'gunicorn could not be installed in the site virtualenv' >&2

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"strings"
 	"time"
 
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
@@ -24,7 +25,7 @@ import (
 // plane database) runs unlocked.
 func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker) []error {
 	var failures []error
-	databaseRecoveries, err := RecoverTransactionDatabases(cfg, cfg.RecoveryRoot)
+	databaseRecoveries, err := RecoverTransactionDatabases(cfg, cfg.RecoveryRoot, lockSite)
 	if err != nil {
 		failures = append(failures, err)
 		log.Printf("recover interrupted database transactions (continuing with isolated failures): %v", err)
@@ -133,4 +134,24 @@ func lockRecoveredSite(lockSite siteLocker, site string) (context.Context, func(
 		return nil, nil, err
 	}
 	return siteCtx, func() { unlock(); cancel() }, nil
+}
+
+// databaseReconcileLease names the lease the startup database reconcile
+// holds: the root broker rejects unfenced database mutations.
+const databaseReconcileLease = "database:reconcile"
+
+// reconcileDatabaseOperations asks the database helper to finish or roll
+// back operations an unclean shutdown interrupted, under a dedicated lease
+// so the broker accepts it. A nil lockSite runs unlocked.
+func reconcileDatabaseOperations(cfg Config, lockSite siteLocker) error {
+	ctx, unlock, err := lockRecoveredSite(lockSite, databaseReconcileLease)
+	if err != nil {
+		return fmt.Errorf("lock interrupted database reconcile: %w", err)
+	}
+	defer unlock()
+	output, err := runDatabaseHelperContext(ctx, cfg, 2*time.Minute, "", "reconcile")
+	if err != nil {
+		return fmt.Errorf("reconcile interrupted database operations: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }

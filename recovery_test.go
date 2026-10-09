@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -57,7 +58,7 @@ func TestDatabaseRecoveryJournalSurvivesProcessKill(t *testing.T) {
 	}
 
 	recovery := filepath.Join(root, "recovery")
-	recovered, err := RecoverTransactionDatabases(Config{DBCtl: helper}, recovery)
+	recovered, err := RecoverTransactionDatabases(Config{DBCtl: helper}, recovery, nil)
 	if err != nil || len(recovered) != 1 {
 		t.Fatalf("database recoveries = %#v, err=%v; want one recovery", recovered, err)
 	}
@@ -163,9 +164,20 @@ func TestRecoverTransactionDatabasesCleansJournalBeforeSiteRollback(t *testing.T
 		t.Fatal(err)
 	}
 	t.Setenv("TEST_DBCTL_LOG", logPath)
-	recovered, err := RecoverTransactionDatabases(Config{DBCtl: helper}, recovery)
+	// The broker rejects unfenced database mutations, so recovery must hold
+	// the site's lease (and release it) around the drops.
+	var locked []string
+	released := 0
+	locker := func(ctx context.Context, key string) (context.Context, func(), error) {
+		locked = append(locked, key)
+		return ctx, func() { released++ }, nil
+	}
+	recovered, err := RecoverTransactionDatabases(Config{DBCtl: helper}, recovery, locker)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(locked) != 1 || locked[0] != txn.Site || released != 1 {
+		t.Fatalf("site leases = %q (released %d), want one lease on %q", locked, released, txn.Site)
 	}
 	if len(recovered) != 1 || recovered[0] != txn.ID {
 		t.Fatalf("database recoveries = %#v, want %q", recovered, txn.ID)

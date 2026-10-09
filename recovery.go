@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -140,15 +141,17 @@ func (t *SiteTransaction) TrackDatabase(database ManagedDatabase) error {
 	return nil
 }
 
-func (t *SiteTransaction) cleanupDatabases(cfg Config) error {
+// cleanupDatabases drops the transaction's managed databases. ctx must carry
+// the site's lease: the root broker rejects unfenced database mutations.
+func (t *SiteTransaction) cleanupDatabases(ctx context.Context, cfg Config) error {
 	for len(t.Databases) > 0 {
 		database := t.Databases[0]
 		var err error
 		switch database.Kind {
 		case "cpmove":
-			err = dropDatabase(cfg, database.Name)
+			err = dropDatabase(ctx, cfg, database.Name)
 		case "wordpress":
-			err = cleanupWPressDatabase(cfg, database.Name, database.User)
+			err = cleanupWPressDatabaseContext(ctx, cfg, database.Name, database.User)
 		default:
 			err = fmt.Errorf("unsupported managed database kind %q", database.Kind)
 		}
@@ -366,7 +369,10 @@ func RecoverSiteTransactions(root string, configuredRoots ...string) ([]string, 
 	return recovered, errors.Join(failures...)
 }
 
-func RecoverTransactionDatabases(cfg Config, root string) ([]string, error) {
+// RecoverTransactionDatabases drops databases left by interrupted site
+// transactions. lockSite takes each site's lease first so the broker accepts
+// the drops; nil runs unlocked (no control-plane database).
+func RecoverTransactionDatabases(cfg Config, root string, lockSite siteLocker) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -400,7 +406,14 @@ func RecoverTransactionDatabases(cfg Config, root string) ([]string, error) {
 		if txn.State == "committed" || txn.State == "rolled-back" || len(txn.Databases) == 0 {
 			continue
 		}
-		if err := txn.cleanupDatabases(cfg); err != nil {
+		siteCtx, unlock, lockErr := lockRecoveredSite(lockSite, txn.Site)
+		if lockErr != nil {
+			failures = append(failures, fmt.Errorf("lock transaction %s site: %w", txn.ID, lockErr))
+			continue
+		}
+		err = txn.cleanupDatabases(siteCtx, cfg)
+		unlock()
+		if err != nil {
 			failures = append(failures, fmt.Errorf("recover transaction %s databases: %w", txn.ID, err))
 			continue
 		}

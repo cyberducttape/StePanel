@@ -552,11 +552,8 @@ func Main() {
 			failures = append(failures, fmt.Errorf("flush audit outbox during startup: %w", err))
 		}
 		if cfg.DBCtl != "" && os.Getenv("STEPANEL_SKIP_STARTUP_DB_RECONCILE") != "1" {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			output, err := runDatabaseHelperContext(ctx, cfg, 2*time.Minute, "", "reconcile")
-			cancel()
-			if err != nil {
-				failures = append(failures, fmt.Errorf("reconcile interrupted database operations: %w: %s", err, strings.TrimSpace(string(output))))
+			if err := reconcileDatabaseOperations(cfg, app.acquireSiteMutationLockContext); err != nil {
+				failures = append(failures, err)
 			}
 		}
 		failures = append(failures, recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext)...)

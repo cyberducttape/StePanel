@@ -249,9 +249,12 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 			// The site did not exist before this job: remove the account, PHP
 			// pool and site root the helper created, through the documented
 			// privileged deletion path, then finalize through SiteManager.
-			if err := siteHelperContext(context.Background(), a.Config, "delete", req.Site); err != nil {
+			// Keep the job's lease token: the broker rejects unfenced
+			// mutations, and ctx may already be cancelled.
+			cleanupCtx := context.WithoutCancel(ctx)
+			if err := siteHelperContext(cleanupCtx, a.Config, "delete", req.Site); err != nil {
 				log.Printf("remove partially created site %s: %v", req.Site, err)
-			} else if err := manager.Delete(context.Background(), req.Site); err != nil {
+			} else if err := manager.Delete(cleanupCtx, req.Site); err != nil {
 				log.Printf("finalize removal of partially created site %s: %v", req.Site, err)
 			}
 		}

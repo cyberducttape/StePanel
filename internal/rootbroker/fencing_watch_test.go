@@ -107,3 +107,16 @@ func TestBrokerKeepsOperationWithLiveLease(t *testing.T) {
 		t.Fatal("helper did not complete under a live lease")
 	}
 }
+
+// Read-only database actions back administrator views and hold no lease;
+// every mutating database action must still be fenced.
+func TestDatabaseFencingDistinguishesReads(t *testing.T) {
+	for action, fenced := range map[string]bool{
+		"inventory": false, "dump": false, "diagnostics": false, "sessions": false, "settings": false,
+		"terminate": true, "reconcile": true, "drop": true, "drop-managed": true, "provision": true, "restore": true, "cleanup-wordpress": true,
+	} {
+		if got := requestRequiresFencing(&Request{RequestType: "db", DB: &DBRequest{Action: action}}); got != fenced {
+			t.Errorf("db %s requires fencing = %v, want %v", action, got, fenced)
+		}
+	}
+}
