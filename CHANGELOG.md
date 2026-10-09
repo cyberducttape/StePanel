@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- **Chunked uploads are no longer refused for the upload ceiling**: an
+  upload without `Content-Length` was admitted at the full
+  `STEPANEL_MAX_UPLOAD_BYTES`, so a small upload failed on a host with less
+  free space than the ceiling, and a large one blocked other uploads. It is
+  now reserved 256 MiB ahead of the bytes written and stopped with `507`
+  (partial object removed) only when the next step no longer fits.
+- **cPanel database restores check database disk space**: twice the size of
+  the archive's SQL dumps is required on the local database data directory
+  (`STEPANEL_DB_DATA_DIR`, default `/var/lib/mysql`) before restoring.
+
 - **Python apps and Node builds work again on new installs**: a `nosymfollow`
   bind mount on `/var/www` blocked the symlinks that Python virtualenvs and
   `node_modules` rely on. The installer no longer creates it and removes it on

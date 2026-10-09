@@ -244,15 +244,92 @@ func TestCapacityReservationConsumeReleasesWrittenBytes(t *testing.T) {
 func TestDeclaredUploadBytes(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/", nil)
 	request.ContentLength = 42
-	if size, err := declaredUploadBytes(request, 10); err != nil || size != 42 {
-		t.Fatalf("declared = %d, %v; want Content-Length", size, err)
+	if size, known, err := declaredUploadBytes(request, 10); err != nil || size != 42 || !known {
+		t.Fatalf("declared = %d, %v, %v; want known Content-Length", size, known, err)
 	}
 	request.ContentLength = -1
-	if size, err := declaredUploadBytes(request, 10); err != nil || size != 10 {
-		t.Fatalf("declared = %d, %v; want upload ceiling", size, err)
+	if size, known, err := declaredUploadBytes(request, 10); err != nil || size != 10 || known {
+		t.Fatalf("declared = %d, %v, %v; want the ceiling as an unknown-length limit", size, known, err)
 	}
-	if _, err := declaredUploadBytes(request, 0); !errors.Is(err, errUploadLengthRequired) {
+	if _, _, err := declaredUploadBytes(request, 0); !errors.Is(err, errUploadLengthRequired) {
 		t.Fatalf("err = %v, want errUploadLengthRequired", err)
+	}
+}
+
+func withProgressiveStep(t *testing.T, step uint64) {
+	t.Helper()
+	previous := progressiveUploadStep
+	progressiveUploadStep = step
+	t.Cleanup(func() { progressiveUploadStep = previous })
+}
+
+// An upload of unknown length holds one step ahead of the bytes written
+// instead of the whole upload ceiling.
+func TestProgressiveReservationExtendsAheadOfWrites(t *testing.T) {
+	withProgressiveStep(t, 1000)
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	var ledger capacityLedger
+	demandsFor := func(archive uint64) []capacityDemand { return []capacityDemand{{Path: cfg.ImportRoot, Bytes: archive}} }
+	reservation, err := ledger.reserveProgressive(cfg, "test", cfg.ImportRoot, 3500, demandsFor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.release()
+	if held := ledger.heldBytes(cfg.ImportRoot); held != 1000 {
+		t.Fatalf("initial hold = %d, want one step (1000), not the 3500 ceiling", held)
+	}
+	if err := reservation.consume(400); err != nil || ledger.heldBytes(cfg.ImportRoot) != 600 || reservation.admitted != 1000 {
+		t.Fatalf("after 400 written: held %d admitted %d err %v", ledger.heldBytes(cfg.ImportRoot), reservation.admitted, err)
+	}
+	// Within half a step of the admitted size: extend before the writer arrives.
+	if err := reservation.consume(600); err != nil || reservation.admitted != 2000 || ledger.heldBytes(cfg.ImportRoot) != 1400 {
+		t.Fatalf("after 600 written: held %d admitted %d err %v", ledger.heldBytes(cfg.ImportRoot), reservation.admitted, err)
+	}
+	if err := reservation.consume(3200); err != nil || reservation.admitted != 3500 {
+		t.Fatalf("extension must stop at the ceiling: admitted %d err %v", reservation.admitted, err)
+	}
+	var capacity *capacityError
+	if err := reservation.consume(3501); !errors.As(err, &capacity) {
+		t.Fatalf("writing past the ceiling = %v, want capacity error", err)
+	}
+}
+
+func TestProgressiveReservationStopsWhenSpaceRunsOut(t *testing.T) {
+	withProgressiveStep(t, 1000)
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	var ledger capacityLedger
+	demandsFor := func(archive uint64) []capacityDemand { return []capacityDemand{{Path: cfg.ImportRoot, Bytes: archive}} }
+	reservation, err := ledger.reserveProgressive(cfg, "test", cfg.ImportRoot, 1<<40, demandsFor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.release()
+	reservation.reserve = 1 << 62 // the filesystem can no longer absorb another step
+	var capacity *capacityError
+	if err := reservation.consume(900); !errors.As(err, &capacity) || !strings.Contains(err.Error(), "to continue this test") {
+		t.Fatalf("extension without space = %v, want capacity error", err)
+	}
+}
+
+// A chunked upload smaller than free space must not be refused because the
+// configured ceiling exceeds free space.
+func TestChunkedUploadIsNotRefusedForTheUploadCeiling(t *testing.T) {
+	withProgressiveStep(t, 64<<10)
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	cfg.MaxUpload = 1 << 60 // far beyond any filesystem
+	app := &App{Config: cfg, Auth: Auth{}}
+	request := archiveUploadRequest(t, "/api/cpmove/inspect", "backup", "site.tar.gz", bytes.Repeat([]byte("x"), 4096))
+	request.ContentLength = -1
+	response := httptest.NewRecorder()
+	app.inspect(response, request)
+	if response.Code == http.StatusInsufficientStorage || strings.Contains(response.Body.String(), "insufficient free space") {
+		t.Fatalf("small chunked upload refused for capacity: %d %s", response.Code, response.Body.String())
+	}
+	if held := app.capacity.heldBytes(cfg.ImportRoot); held != 0 {
+		t.Fatalf("reservation leaked after the request: %d bytes held", held)
 	}
 }
 

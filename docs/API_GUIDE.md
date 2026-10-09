@@ -278,8 +278,11 @@ curl -fsS -X POST -b cookies.txt -H "X-CSRF-Token: $csrf" \
 The archive streams directly into its staged object (no multipart spool
 copy). Free space for the archive, its extracted tree, the site staging tree,
 and `STEPANEL_MIN_FREE_BYTES` is checked from `Content-Length` before the body
-is read; a short host answers `507` without accepting the upload, and a body
-without `Content-Length` is admitted at `STEPANEL_MAX_UPLOAD_BYTES`.
+is read; a short host answers `507` without accepting the upload. A body
+without `Content-Length` is admitted progressively: the panel reserves
+256 MiB ahead of the bytes received, up to `STEPANEL_MAX_UPLOAD_BYTES`, and
+answers `507` mid-stream (removing the partial upload) if the next step no
+longer fits.
 
 Queue a cPanel restore using the `upload_id` returned by inspection. The
 archive is uploaded once and retained as an immutable server-side object. The

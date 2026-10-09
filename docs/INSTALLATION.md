@@ -310,7 +310,8 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_REHEARSAL_INTERVAL_HOURS` | `0`–`8760` hours (default `24`) | Minimum spacing of automatic restore rehearsals, which follow successful scheduled backups; `0` disables them |
 | `STEPANEL_RECOVERY_PROOF_COMMAND` | Absolute executable path | Optional application-level recovery proof command; invoked as `<site> <temporary-stage>` and must restore the database, regenerate configuration, activate services, and verify application HTTP success |
 | `STEPANEL_MIN_FREE_BYTES` | Bytes | Refuse new restores below this free-space threshold |
-| `STEPANEL_MAX_UPLOAD_BYTES` | Bytes, up to 20 GiB | Maximum compressed restore request size |
+| `STEPANEL_MAX_UPLOAD_BYTES` | Bytes, up to 20 GiB | Maximum compressed restore request size; uploads without `Content-Length` are reserved progressively up to this ceiling |
+| `STEPANEL_DB_DATA_DIR` | Absolute directory | Local database data directory charged for database growth during cPanel restores; defaults to `/var/lib/mysql` (or the PostgreSQL data root) when the database is local |
 | `STEPANEL_MAX_ARCHIVE_ENTRIES` | `1`–`1000000` | Maximum filesystem entries in a restore or backup |
 | `STEPANEL_MAX_CONCURRENT_JOBS` | `1`–`32` | Global restore, backup, and certificate job slots |
 | `STEPANEL_WORKER_MODE` | `embedded` or `external` | Run jobs in the panel process or in the separately supervised worker service; the installer selects `external` |

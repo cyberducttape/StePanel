@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -99,6 +100,61 @@ type capacityReservation struct {
 	stagingPath  string
 	stagingDev   uint64
 	consumedSize uint64
+
+	// An upload without Content-Length is admitted progressively: it holds
+	// demandsFor(admitted) and extends by step before the written size
+	// reaches admitted, up to limit. See reserveProgressive.
+	progressive bool
+	admitted    uint64
+	limit       uint64
+	step        uint64
+	demandsFor  func(uint64) []capacityDemand
+}
+
+// progressiveUploadStep is how far ahead of the bytes written an upload of
+// unknown length is admitted. Each extension is checked against current free
+// space and every other outstanding reservation.
+var progressiveUploadStep uint64 = 256 << 20
+
+// reserveProgressive admits an upload of unknown length one step at a time
+// instead of reserving the whole upload ceiling up front, which would refuse
+// a small streamed upload whenever the ceiling's worth of space is not free.
+func (l *capacityLedger) reserveProgressive(cfg Config, workflow, stagingPath string, limit uint64, demandsFor func(uint64) []capacityDemand) (*capacityReservation, error) {
+	first := min(progressiveUploadStep, limit)
+	reservation, err := l.reserve(cfg, workflow, stagingPath, demandsFor(first))
+	if err != nil {
+		return nil, err
+	}
+	reservation.progressive = true
+	reservation.admitted = first
+	reservation.limit = limit
+	reservation.step = progressiveUploadStep
+	reservation.demandsFor = demandsFor
+	return reservation, nil
+}
+
+// extendLocked adds demands to the reservation if every filesystem can absorb
+// them on top of all outstanding holds and the reserve. The caller holds l.mu.
+func (r *capacityReservation) extendLocked(demands []capacityDemand) error {
+	grouped, err := groupDemands(r.workflow, demands)
+	if err != nil {
+		return err
+	}
+	l := r.ledger
+	for _, demand := range grouped {
+		free, err := availableBytes(demand.path)
+		if err != nil {
+			return fmt.Errorf("inspect %s capacity at %s: %w", r.workflow, demand.path, err)
+		}
+		if required := saturatingAdd(saturatingAdd(l.held[demand.device], demand.bytes), r.reserve); free < required {
+			return &capacityError{fmt.Sprintf("insufficient free space at %s to continue this %s: %d bytes available, %d more needed beyond %d already reserved", demand.path, r.workflow, free, demand.bytes, l.held[demand.device])}
+		}
+	}
+	for _, demand := range grouped {
+		l.held[demand.device] += demand.bytes
+		r.held[demand.device] += demand.bytes
+	}
+	return nil
 }
 
 // check verifies that every filesystem can absorb the demands on top of
@@ -176,11 +232,25 @@ func (r *capacityReservation) consume(size int64) error {
 	l := r.ledger
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if written := uint64(size); written > r.consumedSize {
+	written := uint64(size)
+	if written > r.consumedSize {
 		landed := min(written-r.consumedSize, r.held[r.stagingDev])
 		r.held[r.stagingDev] -= landed
 		l.held[r.stagingDev] -= landed
 		r.consumedSize = written
+	}
+	if r.progressive {
+		// Stay at least half a step ahead of the writer.
+		for r.admitted < r.limit && saturatingAdd(written, r.step/2) > r.admitted {
+			next := min(r.step, r.limit-r.admitted)
+			if err := r.extendLocked(r.demandsFor(next)); err != nil {
+				return err
+			}
+			r.admitted += next
+		}
+		if written > r.admitted {
+			return &capacityError{fmt.Sprintf("this %s exceeded its admitted size of %d bytes", r.workflow, r.admitted)}
+		}
 	}
 	free, err := availableBytes(r.stagingPath)
 	if err != nil {
@@ -255,15 +325,16 @@ func admitCapacity(cfg Config, workflow string, demands []capacityDemand) error 
 
 // declaredUploadBytes is the archive size admitted before the body is read.
 // Content-Length bounds the archive (multipart framing only adds to it); a
-// streamed body without one is admitted at the configured upload ceiling.
-func declaredUploadBytes(r *http.Request, maxUpload int64) (uint64, error) {
+// streamed body without one reports known=false with the configured upload
+// ceiling as its limit, and is admitted progressively.
+func declaredUploadBytes(r *http.Request, maxUpload int64) (size uint64, known bool, err error) {
 	switch {
 	case r.ContentLength >= 0:
-		return uint64(r.ContentLength), nil
+		return uint64(r.ContentLength), true, nil
 	case maxUpload > 0:
-		return uint64(maxUpload), nil
+		return uint64(maxUpload), false, nil
 	default:
-		return 0, errUploadLengthRequired
+		return 0, false, errUploadLengthRequired
 	}
 }
 
@@ -423,10 +494,15 @@ func (a *App) stageArchiveUpload(w http.ResponseWriter, r *http.Request, workflo
 		a.writeUploadError(w, r, fmt.Errorf("prepare upload storage: %w", err))
 		return nil, nil, false
 	}
-	declared, err := declaredUploadBytes(r, a.Config.MaxUpload)
+	declared, known, err := declaredUploadBytes(r, a.Config.MaxUpload)
 	var reservation *capacityReservation
 	if err == nil {
-		reservation, err = a.capacity.reserve(a.Config, workflow, a.Config.ImportRoot, archiveUploadDemands(a.Config, declared))
+		if known {
+			reservation, err = a.capacity.reserve(a.Config, workflow, a.Config.ImportRoot, archiveUploadDemands(a.Config, declared))
+		} else {
+			demandsFor := func(archive uint64) []capacityDemand { return archiveUploadDemands(a.Config, archive) }
+			reservation, err = a.capacity.reserveProgressive(a.Config, workflow, a.Config.ImportRoot, declared, demandsFor)
+		}
 	}
 	if err != nil {
 		a.writeUploadError(w, r, err)
@@ -452,12 +528,42 @@ func (a *App) stageArchiveUpload(w http.ResponseWriter, r *http.Request, workflo
 	return staged, reservation, true
 }
 
+// databaseDataDir names the filesystem a local database server stores its
+// data in, or "" for a remote server or an unknown layout (in which case no
+// database capacity is reserved). STEPANEL_DB_DATA_DIR overrides it.
+func databaseDataDir(cfg Config) string {
+	if cfg.DBDataDir != "" {
+		return cfg.DBDataDir
+	}
+	host := strings.TrimSpace(cfg.DBHost)
+	if host != "" && host != "localhost" && host != "127.0.0.1" && host != "::1" && !strings.HasPrefix(host, "localhost:") && !strings.HasPrefix(host, "/") {
+		return ""
+	}
+	candidates := []string{"/var/lib/mysql"}
+	if strings.EqualFold(cfg.DBEngine, "postgresql") {
+		candidates = []string{"/var/lib/pgsql", "/var/lib/postgresql"}
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
 // checkCPMoveCapacity admits a cPanel restore whose archive is already
-// staged: the inspected expanded tree in the import root and the
-// site-manager staging tree, on top of in-progress upload reservations.
-func (a *App) checkCPMoveCapacity(expandedBytes int64) error {
-	if expandedBytes < 0 {
+// staged: the inspected expanded tree in the import root, the site-manager
+// staging tree, and -- when databases are restored into a local server --
+// their growth in its data directory, on top of in-progress reservations.
+func (a *App) checkCPMoveCapacity(expandedBytes, databaseBytes int64, restoreDatabases bool) error {
+	if expandedBytes < 0 || databaseBytes < 0 {
 		return errors.New("invalid cpmove size estimate")
 	}
-	return a.capacity.check(a.Config, "cpmove", stagedArchiveDemands(a.Config, uint64(expandedBytes)))
+	demands := stagedArchiveDemands(a.Config, uint64(expandedBytes))
+	if dir := databaseDataDir(a.Config); restoreDatabases && databaseBytes > 0 && dir != "" {
+		// A restored dump can occupy about twice its size in the data
+		// directory once indexes and logs are counted.
+		demands = append(demands, capacityDemand{Path: dir, Bytes: saturatingAdd(uint64(databaseBytes), uint64(databaseBytes))})
+	}
+	return a.capacity.check(a.Config, "cpmove", demands)
 }

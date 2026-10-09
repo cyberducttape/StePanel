@@ -136,8 +136,15 @@ and stream the archive part straight into its private staged object through
 20 GiB archive is written to disk once.
 
 Admission happens before the first body byte is read. The declared size is
-the request `Content-Length` (or `STEPANEL_MAX_UPLOAD_BYTES` for a body
-without one; with no ceiling configured the request is refused with 411).
+the request `Content-Length`. A body without one (chunked transfer) is
+admitted progressively, one 256 MiB step at a time, never beyond
+`STEPANEL_MAX_UPLOAD_BYTES`; with no ceiling configured it is refused with
+411. Before the written bytes come within half a step of the admitted size,
+the next step is reserved against current free space and outstanding holds;
+if it does not fit, the upload stops with `507` and the partial object is
+removed. A chunked upload is therefore not refused merely because the
+configured ceiling exceeds free space, and it never holds more than one step
+beyond what it has written.
 Demands are summed per filesystem, so an import root and site root on one
 device are charged together:
 
@@ -161,9 +168,12 @@ A cPanel archive's expanded size is unknown before inspection, so the gzip
 size is a lower bound there; after inspection the handler re-checks with the
 inspected expanded size and reports `required_free_bytes`. Both durable
 restore jobs (cPanel and WPress) re-check the extracted and staging trees
-against free space and outstanding upload holds before extracting. Database
-working space on the database server's data directory is not reserved
-because that directory is outside the panel's filesystems.
+against free space and outstanding upload holds before extracting. When a
+cPanel restore includes databases and the server is local, twice the
+inspected size of the archive's `mysql/*.sql` dumps (data plus indexes and
+logs) is also required on the database data directory: `STEPANEL_DB_DATA_DIR`
+if set, otherwise `/var/lib/mysql` (or `/var/lib/pgsql` /
+`/var/lib/postgresql`). A remote database server's disk is not checked.
 
 Stalled uploads are cut off: the handler refreshes the connection read
 deadline as body bytes arrive, so a client that sends nothing for 2 minutes

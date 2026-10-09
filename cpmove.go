@@ -30,6 +30,7 @@ type CPMoveInfo struct {
 	UploadID          string   `json:"upload_id,omitempty"`
 	ArchiveBytes      int64    `json:"archive_bytes"`
 	ExpandedBytes     int64    `json:"expanded_bytes"`
+	DatabaseBytes     int64    `json:"database_bytes"`
 	RequiredFreeBytes int64    `json:"required_free_bytes"`
 	Entries           int      `json:"entries"`
 	User              string   `json:"detected_user"`
@@ -52,6 +53,7 @@ type cpmoveUpload struct {
 	Filename      string    `json:"filename"`
 	Size          int64     `json:"size"`
 	ExpandedBytes int64     `json:"expanded_bytes"`
+	DatabaseBytes int64     `json:"database_bytes"`
 	SHA256        string    `json:"sha256"`
 	Owner         string    `json:"owner"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -75,7 +77,7 @@ func readCPMoveUpload(root, id string) (cpmoveUpload, error) {
 		return cpmoveUpload{}, err
 	}
 	var upload cpmoveUpload
-	if err := json.Unmarshal(data, &upload); err != nil || upload.ID != id || upload.Owner == "" || upload.Size < 0 || upload.ExpandedBytes < 0 || len(upload.SHA256) != 2*sha256.Size {
+	if err := json.Unmarshal(data, &upload); err != nil || upload.ID != id || upload.Owner == "" || upload.Size < 0 || upload.ExpandedBytes < 0 || upload.DatabaseBytes < 0 || len(upload.SHA256) != 2*sha256.Size {
 		return cpmoveUpload{}, errors.New("invalid upload metadata")
 	}
 	if _, err := hex.DecodeString(upload.SHA256); err != nil {
@@ -194,6 +196,9 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 		if strings.HasPrefix(name, "mysql/") {
 			info.HasMySQL = true
 			if strings.HasSuffix(name, ".sql") {
+				// The dumps bound the database server's data growth; the
+				// import admission check reserves for it.
+				info.DatabaseBytes += h.Size
 				db := strings.TrimSuffix(filepath.Base(name), ".sql")
 				if !seen[db] {
 					info.Databases = append(info.Databases, db)

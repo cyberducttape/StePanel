@@ -25,6 +25,7 @@ type Config struct {
 	WPressExtract, WPCLI, AuditLog, JobState, SessionState, AccountState, RecoveryRoot, Sudo string
 	RecoveryProofCommand                                                                     string
 	DBHost, DBUser, DBPassword, DBPasswordFile                                               string
+	DBDataDir                                                                                string
 	DBEngine, DBVersion, DBAdminURL                                                          string
 	GitAllowedHosts, GitWebhookSecret                                                        string
 	RunnerAllowedRegistries, RunnerNetworkMode                                               string
@@ -233,6 +234,7 @@ func LoadConfig() Config {
 		}
 	}
 	c.DBHost = os.Getenv("STEPANEL_DB_HOST")
+	c.DBDataDir = strings.TrimSpace(os.Getenv("STEPANEL_DB_DATA_DIR"))
 	c.DBUser = os.Getenv("STEPANEL_DB_USER")
 	c.DBPassword = os.Getenv("STEPANEL_DB_PASSWORD")
 	c.DBPasswordFile = os.Getenv("STEPANEL_DB_PASSWORD_FILE")

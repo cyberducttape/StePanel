@@ -202,12 +202,38 @@ func TestRestoreCPMoveCapacityAccountsForExpandedCopies(t *testing.T) {
 		}
 	}
 	overflow := &App{Config: Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: ^uint64(0)}}
-	if err := overflow.checkCPMoveCapacity(34 << 30); err == nil || !strings.Contains(err.Error(), "capacity estimate overflow") {
+	if err := overflow.checkCPMoveCapacity(34<<30, 0, false); err == nil || !strings.Contains(err.Error(), "capacity estimate overflow") {
 		t.Fatalf("overflow capacity check error = %v", err)
 	}
 	short := &App{Config: Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), MinFreeBytes: 1 << 50}}
-	if err := short.checkCPMoveCapacity(34 << 30); err == nil || !strings.Contains(err.Error(), "required for this cpmove") {
+	if err := short.checkCPMoveCapacity(34<<30, 0, false); err == nil || !strings.Contains(err.Error(), "required for this cpmove") {
 		t.Fatalf("insufficient capacity check error = %v", err)
+	}
+}
+
+func TestCPMoveCapacityReservesDatabaseGrowthOnlyForLocalRestores(t *testing.T) {
+	root := t.TempDir()
+	imports := filepath.Join(root, "imports")
+	data := filepath.Join(root, "mysql")
+	for _, path := range []string{imports, filepath.Join(root, "web", "sites"), data} {
+		if err := os.MkdirAll(path, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const dumps = 1 << 55 // twice this exceeds any test filesystem
+	app := &App{Config: Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), DBDataDir: data}}
+	if err := app.checkCPMoveCapacity(0, dumps, false); err != nil {
+		t.Fatalf("files-only restore was charged for database growth: %v", err)
+	}
+	if err := app.checkCPMoveCapacity(0, dumps, true); err == nil || !strings.Contains(err.Error(), "required for this cpmove") {
+		t.Fatalf("database restore capacity error = %v", err)
+	}
+	remote := &App{Config: Config{ImportRoot: imports, WebRoot: filepath.Join(root, "web"), DBHost: "db.internal"}}
+	if err := remote.checkCPMoveCapacity(0, dumps, true); err != nil {
+		t.Fatalf("a remote database server's disk is not local capacity: %v", err)
+	}
+	if err := app.checkCPMoveCapacity(0, -1, true); err == nil {
+		t.Fatal("negative database estimate was accepted")
 	}
 }
 
