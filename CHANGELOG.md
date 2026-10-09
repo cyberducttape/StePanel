@@ -56,8 +56,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   managed sockets.
 
 - **Caddy redirect-aware boundary smoke**: sensitive-file and out-of-root
-  symlink checks now follow the disposable host's HTTP-to-HTTPS redirect before
-  asserting the final response is denied.
+  symlink checks now treat the production HTTP-to-HTTPS redirect as safe while
+  asserting that the first response cannot disclose either resource. The
+  synthetic `.test` host no longer depends on disposable TLS issuance.
 
 - **FTPS site identity and revocation**: vsftpd now chroots each login to
   the site account's actual home directory, accepts only explicitly
