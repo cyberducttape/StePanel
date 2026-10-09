@@ -50,8 +50,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - **Cross-distribution PHP socket selection**: the Caddy site helper now reads
   the installer-owned PHP socket root instead of hardcoding Debian's `/run/php`,
-  keeping versioned PHP-FPM routes working on RHEL-family hosts. Install-smoke
-  diagnostics now include PHP-FPM status, journal output, and managed sockets.
+  keeping versioned PHP-FPM routes working on RHEL-family hosts, and recognizes
+  RHEL's active unversioned pool when a site has a runtime version profile.
+  Install-smoke diagnostics now include PHP-FPM status, journal output, and
+  managed sockets.
 
 - **FTPS site identity and revocation**: vsftpd now chroots each login to
   the site account's actual home directory, accepts only explicitly
