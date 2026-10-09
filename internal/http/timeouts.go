@@ -2,7 +2,10 @@ package http
 
 import (
 	"context"
+	"errors"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -27,6 +30,39 @@ type TimeoutConfiguration struct {
 
 	// Large downloads
 	DownloadWrite time.Duration
+
+	// Synchronous long operations (builds, deployments, restore-to-staging)
+	// that still run inside the request; see LongOperationPaths.
+	LongOperation time.Duration
+}
+
+// LongOperationPaths are synchronous API routes whose handlers do minutes of
+// work (Git checkout and build, dependency installs, container builds,
+// restore-to-staging) inside the request. They get LongOperation as both the
+// request deadline and the response write deadline, instead of the 30-second
+// API class that would cancel them. They should become durable jobs that
+// return a job ID; until then web/static/api.js must list the same paths
+// (TestLongOperationPathsMatchClient) so the browser does not give up first.
+var LongOperationPaths = []string{
+	"/api/deployments/run",
+	"/api/runner/build",
+	"/api/sites/git-deploy",
+	"/api/composer/",
+	"/api/node/tooling",
+	"/api/python/",
+	"/api/staging",
+	"/api/backups/restore-to-staging",
+	"/api/backups/restore-offsite-to-staging",
+}
+
+// IsLongOperationPath reports whether path is a synchronous long operation.
+func IsLongOperationPath(path string) bool {
+	for _, prefix := range LongOperationPaths {
+		if path == prefix || (strings.HasSuffix(prefix, "/") && strings.HasPrefix(path, prefix)) {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultTimeouts provides sensible defaults for all timeout classes
@@ -57,6 +93,10 @@ func DefaultTimeouts() TimeoutConfiguration {
 		// Downloads: large file transfers
 		// Includes: backup downloads, export streams
 		DownloadWrite: 5 * time.Minute,
+
+		// Long operations: the largest handler budget is restore-to-staging
+		// and staging creation (30 minutes plus database restore).
+		LongOperation: 60 * time.Minute,
 	}
 }
 
@@ -159,6 +199,13 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 				startsWith(r.URL.Path, "/api/export"):
 				// Downloads need long write timeouts
 				timeout = tc.DownloadWrite
+			case IsLongOperationPath(r.URL.Path):
+				// The server-wide write timeout would end the response before
+				// the work finishes; extend it for this request only.
+				timeout = tc.LongOperation
+				if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout + time.Minute)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+					log.Printf("extend write deadline for %s: %v", r.URL.Path, err)
+				}
 			case startsWith(r.URL.Path, "/api/jobs/") ||
 				startsWith(r.URL.Path, "/api/activity"):
 				// Activity polling

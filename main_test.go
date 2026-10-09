@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	httputil "github.com/cyberducttape/StePanel/internal/http"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -381,5 +382,38 @@ func TestJobsEnforceConfiguredGlobalCapacity(t *testing.T) {
 	defer cancel()
 	if err := jobs.Wait(ctx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A long operation must outlive the server-wide write timeout: the timeout
+// middleware extends the write deadline through the logging and API error
+// wrappers. Without it the client sees a dropped connection.
+func TestLongOperationOutlivesServerWriteTimeout(t *testing.T) {
+	timeouts := httputil.DefaultTimeouts()
+	timeouts.LongOperation = 5 * time.Second
+	handler := logging(normalizeAPIErrors(timeouts.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(600 * time.Millisecond)
+		writeJSON(w, http.StatusOK, map[string]string{"path": r.URL.Path})
+	}))), nil, false)
+	server := httptest.NewUnstartedServer(handler)
+	server.Config.WriteTimeout = 300 * time.Millisecond
+	server.Start()
+	defer server.Close()
+	for path, long := range map[string]bool{"/api/deployments/run": true, "/api/sites": false} {
+		response, err := http.Post(server.URL+path, "application/json", strings.NewReader("{}"))
+		if long {
+			if err != nil {
+				t.Fatalf("%s: long operation was cut off by the server write timeout: %v", path, err)
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("%s status = %d", path, response.StatusCode)
+			}
+			continue
+		}
+		if err == nil {
+			_ = response.Body.Close()
+			t.Fatalf("%s: ordinary route outlived the 300ms write timeout; the test no longer proves the extension", path)
+		}
 	}
 }

@@ -49,6 +49,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Long synchronous operations are no longer cut off at 30 seconds**: the
+  timeout middleware gave every unclassified API route a 30-second deadline,
+  so release pipelines (20-minute budget), Git deploys, Composer/Node/Python
+  tooling, runner builds, staging creation, and restore-to-staging were
+  cancelled mid-work, and the 5-minute server write timeout ended any longer
+  response. These routes (`LongOperationPaths`) now get a 60-minute request
+  and write deadline, the browser waits 61 minutes for them, the shipped
+  Apache proxy configuration allows 3700 seconds, and a test keeps the
+  server and client route lists identical. They should become durable jobs.
+
 - **Startup and rollback broker calls carry a lease**: the root broker
   rejects unfenced mutations, but the startup database reconcile, startup
   recovery of interrupted database transactions, and the rollback cleanup of

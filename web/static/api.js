@@ -14,12 +14,35 @@
   // timeout bounds them. Pass `timeout` (0 for none) to override.
   const DEFAULT_READ_TIMEOUT_MS = 30000;
   const DEFAULT_MUTATION_TIMEOUT_MS = 120000;
+  // Synchronous long operations (builds, deployments, restore-to-staging)
+  // still run inside the request. The server allows them 60 minutes
+  // (LongOperationPaths in internal/http/timeouts.go, kept identical by
+  // TestLongOperationPathsMatchClient); wait slightly longer so the server's
+  // answer, not a client abort, ends the request.
+  const LONG_OPERATION_PATHS = [
+    '/api/deployments/run',
+    '/api/runner/build',
+    '/api/sites/git-deploy',
+    '/api/composer/',
+    '/api/node/tooling',
+    '/api/python/',
+    '/api/staging',
+    '/api/backups/restore-to-staging',
+    '/api/backups/restore-offsite-to-staging',
+  ];
+  const LONG_OPERATION_TIMEOUT_MS = 61 * 60 * 1000;
+
+  const isLongOperation = (url) => {
+    const path = String(url).split(/[?#]/)[0];
+    return LONG_OPERATION_PATHS.some((prefix) => path === prefix || (prefix.endsWith('/') && path.startsWith(prefix)));
+  };
 
   const isUpload = (body) =>
     (typeof FormData !== 'undefined' && body instanceof FormData) ||
     (typeof Blob !== 'undefined' && body instanceof Blob);
 
-  const defaultTimeout = (method, body) => {
+  const defaultTimeout = (method, body, url) => {
+    if (isLongOperation(url)) return LONG_OPERATION_TIMEOUT_MS;
     if (!MUTATING.has(method)) return DEFAULT_READ_TIMEOUT_MS;
     return isUpload(body) ? 0 : DEFAULT_MUTATION_TIMEOUT_MS;
   };
@@ -85,7 +108,7 @@
 
     const controller = new AbortController();
     let timedOut = false;
-    const limit = timeout ?? defaultTimeout(init.method, init.body);
+    const limit = timeout ?? defaultTimeout(init.method, init.body, url);
     const timer = limit > 0 ? setTimeout(() => { timedOut = true; controller.abort(); }, limit) : null;
     const forwardAbort = () => controller.abort();
     if (signal) {

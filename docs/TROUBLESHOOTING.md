@@ -520,11 +520,11 @@ sudo systemctl restart stepanel
 For Apache (Debian/Ubuntu):
 ```bash
 # Edit /etc/apache2/stepanel-panel/stepanel.conf
-# Ensure proxy timeout is set to at least 1800 seconds:
+# Ensure proxy timeout is set to at least 3700 seconds (60-minute requests):
 
-ProxyPass / http://127.0.0.1:8090/ timeout=1800
+ProxyPass / http://127.0.0.1:8090/ timeout=3700
 ProxyPassReverse / http://127.0.0.1:8090/
-ProxyTimeout 1800
+ProxyTimeout 3700
 ```
 
 For Apache (RHEL/CentOS):
@@ -536,16 +536,16 @@ For Apache (RHEL/CentOS):
 For Nginx:
 ```nginx
 # In the upstream or location block:
-proxy_read_timeout 1800s;
+proxy_read_timeout 3700s;
 proxy_connect_timeout 1800s;
-proxy_send_timeout 1800s;
+proxy_send_timeout 3700s;
 ```
 
 For Caddy:
 ```caddy
 # In the reverse_proxy block:
 reverse_proxy 127.0.0.1:8090 {
-    timeout 30m
+    timeout 62m
     flush_interval -1
 }
 ```

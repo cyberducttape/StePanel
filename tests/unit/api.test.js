@@ -154,3 +154,12 @@ test('a malformed CSRF cookie does not throw out of the request layer', async ()
   await api.post('/api/x', {});
   assert.equal(calls[0].init.headers['X-CSRF-Token'], '');
 });
+
+test('synchronous long operations wait longer than the server deadline', async () => {
+  const { api, timers } = loadAPI(() => response(200, {}));
+  await api.post('/api/deployments/run', {});
+  await api.post('/api/composer/shop', {});
+  await api.post('/api/backups/restore-to-staging?x=1', {});
+  await api.post('/api/deployments', {});
+  assert.deepEqual(timers, [3660000, 3660000, 3660000, 120000]);
+});
