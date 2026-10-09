@@ -49,6 +49,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Rootless build runner works under SELinux, and through the broker**: on
+  an SELinux-enforcing Rocky Linux 9 host the runner could not pull images,
+  and release pipeline builds (which run through the root broker) never ran
+  on any host because `systemd-run --pipe` fails inside a system service.
+  Five faults are fixed (see the October 9 lab report): unit options that set
+  `no_new_privs`, podman storage in the web tree (now
+  `/var/lib/containers/stepanel-runner`), a per-build runtime directory podman
+  could not reuse, `--pipe` output handling, and a release tree the site
+  account could not read. Builds no longer mount the live document root with
+  a relabelling `:Z` (they use a private copy), artifacts are restored to the
+  site's SELinux label, and a failed build keeps the last good artifact.
+  `release-pipeline-smoke.sh` exercises checkout, build, and activation.
+
 - **Slow request bodies are bounded**: route classes only set a context
   deadline, which does not interrupt a blocked body read, while the server
   read timeout is sized for 60-minute uploads. A client trickling an

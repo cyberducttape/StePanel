@@ -827,13 +827,53 @@ func TestRootBrokerDoesNotInheritPanelSecrets(t *testing.T) {
 	}
 }
 
+// On SELinux hosts the runner must reach container_runtime_t and must never
+// relabel served content; a failed build must keep the previous artifact.
+// See docs/lab-results/2026-10-09-rocky9-kvm-certification.md.
+func TestRunnerWorksUnderSELinuxAndKeepsLastGoodArtifact(t *testing.T) {
+	helper, err := os.ReadFile("deploy/integrations/stepanel-runnerctl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(helper)
+	// These make systemd set no_new_privs, which blocks newuidmap and the
+	// SELinux transition into container_runtime_t.
+	for _, forbidden := range []string{
+		"--property=ProtectKernelTunables", "--property=ProtectKernelModules", "--property=ProtectKernelLogs",
+		"--property=ProtectClock", "--property=RestrictRealtime", "RestrictAddressFamilies=",
+		`-v "$root:/src`, `--working-directory="$root"`, `runner_runtime="stepanel-runner-${site_user}-${BASHPID}`,
+		`-delete`, "systemd-run --quiet --wait --pipe",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("runner helper must not contain %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"runner_storage_root=/var/lib/containers/stepanel-runner",
+		`graphroot = "%s"`,
+		`runner_runtime="stepanel-runner-${site_user}"`,
+		`--working-directory="$runner_home"`,
+		`cp -a --reflink=auto --no-preserve=ownership -- "$root/." "$source_copy/"`,
+		`chown -R -h -- "$site_user:$site_user" "$source_copy"`,
+		`-v "$source_copy:/src:ro,Z"`,
+		`-v "$build_artifact:/artifact:rw,Z"`,
+		`restorecon -R -F -x -- "$build_artifact"`,
+		`runuser -u "$site_user" -- mv -T -- "$build_artifact" "$artifact"`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("runner helper is missing %q", required)
+		}
+	}
+}
+
 func TestRootlessRunnerUsesBoundedTransientService(t *testing.T) {
 	helper, err := os.ReadFile("deploy/integrations/stepanel-runnerctl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, required := range []string{
-		"systemd-run --quiet --wait --pipe --collect --service-type=exec",
+		"systemd-run --quiet --wait --collect --service-type=exec",
+		`--property="StandardOutput=append:$log"`,
 		"--property=NoNewPrivileges=no",
 		"--property=Delegate=yes",
 		"--property=DevicePolicy=closed",
@@ -844,14 +884,12 @@ func TestRootlessRunnerUsesBoundedTransientService(t *testing.T) {
 		"mount_program = \"%s\"",
 		"--property=ProtectSystem=strict",
 		"--property=ProtectProc=invisible",
-		"--property=ProtectKernelTunables=yes",
 		"--property=RuntimeMaxSec=30min",
 		"runner_owner_pid=$BASHPID",
 		"runner_unit=\"stepanel-runner-${runner_owner_pid}.service\"",
 		"--property=CPUQuota=",
 		"--property=MemoryMax=",
 		"--property=TasksMax=",
-		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
 		"ensure_subid_range uid",
 		"ensure_subid_range gid",
 	} {

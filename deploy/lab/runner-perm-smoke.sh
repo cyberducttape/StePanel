@@ -55,6 +55,7 @@ chmod 0600 "$script"
 cat > "$script" <<'EOF'
 set -eu
 echo runner-perm-smoke > /artifact/proof
+cat /src/stepanel-runner-source.txt > /artifact/proof-source
 EOF
 trap 'rm -f -- "$script"' EXIT
 
@@ -62,14 +63,36 @@ site_root="/var/www/sites/$RUNNER_TEST_SITE"
 artifact="$site_root/.stepanel-artifact"
 scratch="$site_root/.stepanel-runner-scratch"
 
+# The build reads a copy of the source; prove the copy carries live content.
+runuser -u "$site_user" -- sh -c 'printf "%s\n" runner-source > "$1"' sh "$site_root/public/stepanel-runner-source.txt"
+selinux=0
+if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then selinux=1; fi
+public_label_before=$( (( selinux )) && stat -c %C -- "$site_root/public" || true)
+
 # Assert clean starting state so a leftover from a previous run cannot mask
 # the fix under test.
 [[ ! -e $scratch ]] || { echo "leftover scratch at $scratch — clean up before rerunning" >&2; exit 1; }
 rm -f -- "$artifact/proof" 2>/dev/null || true
 
-/usr/local/sbin/stepanel-runnerctl build \
-  "$RUNNER_TEST_SITE" "$RUNNER_TEST_IMAGE" "$site_root/public" "$script" \
-  100 256 128 none 5368709120
+# Run twice: Podman records its run directories on first use, so the second
+# build proves the runner's per-site runtime directory is stable.
+for attempt in 1 2; do
+  /usr/local/sbin/stepanel-runnerctl build \
+    "$RUNNER_TEST_SITE" "$RUNNER_TEST_IMAGE" "$site_root/public" "$script" \
+    100 256 128 none 5368709120 || { echo "runner build $attempt failed" >&2; exit 1; }
+done
+rm -f -- "$site_root/public/stepanel-runner-source.txt"
+
+# A failed build must not destroy the last good artifact.
+failing=$(mktemp --tmpdir="$STEPANEL_APP_ROOT" pipeline-fail-XXXXXXXX.sh)
+chown stepanel:stepanel "$failing"; chmod 0600 "$failing"
+printf 'set -eu\necho partial > /artifact/proof\nexit 3\n' > "$failing"
+if /usr/local/sbin/stepanel-runnerctl build "$RUNNER_TEST_SITE" "$RUNNER_TEST_IMAGE" "$site_root/public" "$failing" 100 256 128 none 5368709120; then
+  rm -f -- "$failing"; echo 'failing build reported success' >&2; exit 1
+fi
+rm -f -- "$failing"
+[[ $(cat "$artifact/proof") == "runner-perm-smoke" ]] || { echo "a failed build replaced the last good artifact" >&2; exit 1; }
+compgen -G "$site_root/.stepanel-build.*" >/dev/null && { echo "failed build left its build directory behind" >&2; exit 1; }
 
 site_uid=$(id -u "$site_user")
 for subid_file in /etc/subuid /etc/subgid; do
@@ -85,5 +108,16 @@ done
 [[ ! -e $scratch ]] || { echo "helper left scratch dir behind at $scratch" >&2; exit 1; }
 [[ -f $artifact/proof ]] || { echo "expected artifact was not written — build did not run" >&2; exit 1; }
 [[ $(cat "$artifact/proof") == "runner-perm-smoke" ]] || { echo "artifact content is not what the sandbox wrote" >&2; exit 1; }
+[[ $(cat "$artifact/proof-source") == "runner-source" ]] || { echo "the build did not see the site source" >&2; exit 1; }
+# Podman storage stays out of the web tree.
+[[ -d /var/lib/containers/stepanel-runner/$site_user/storage ]] || { echo "runner storage is not under /var/lib/containers" >&2; exit 1; }
+if (( selinux )); then
+  # The served tree keeps its label, and the artifact is restored to the
+  # site's label so a published release stays readable by the web server.
+  [[ $(stat -c %C -- "$site_root/public") == "$public_label_before" ]] || { echo "build relabelled the live document root" >&2; exit 1; }
+  artifact_type=$(stat -c %C -- "$artifact/proof" | cut -d: -f3)
+  public_type=$(printf '%s' "$public_label_before" | cut -d: -f3)
+  [[ $artifact_type == "$public_type" ]] || { echo "artifact label $artifact_type does not match the site's $public_type" >&2; exit 1; }
+fi
 
 echo "runner-perm smoke passed"

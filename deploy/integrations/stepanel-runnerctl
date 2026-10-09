@@ -2,6 +2,9 @@
 set -Eeuo pipefail
 runner_owner_pid=$BASHPID
 [[ $EUID -eq 0 ]] || { echo 'must run as root' >&2; exit 1; }
+# Commands below run as the site account, which may not be able to enter the
+# caller's working directory.
+cd /
 [[ $# -eq 10 && $1 == "build" ]] || { echo 'usage: stepanel-runnerctl build SITE IMAGE ROOT SCRIPT CPU_PERCENT MEMORY_MB TASKS_MAX NETWORK_MODE MAX_IMAGE_BYTES' >&2; exit 64; }
 site=$2 image=$3 root=$4 script=$5 cpu_percent=$6 memory_mb=$7 tasks_max=$8 network_mode=$9 max_image_bytes=${10}
 [[ $site =~ ^[a-z0-9_-]{1,32}$ && $image =~ ^[a-z0-9][a-z0-9._/-]{0,180}(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$ && $cpu_percent =~ ^[0-9]+$ && $memory_mb =~ ^[0-9]+$ && $tasks_max =~ ^[0-9]+$ && $max_image_bytes =~ ^[0-9]+$ && $cpu_percent -ge 25 && $cpu_percent -le 6400 && $memory_mb -ge 64 && $memory_mb -le 1048576 && $tasks_max -ge 16 && $tasks_max -le 100000 && $max_image_bytes -gt 0 && ( $network_mode == "none" || $network_mode == "egress" ) && ( $root == "/var/www/sites/$site/public" || $root =~ ^/var/www/sites/$site/\.stepanel-release-[A-Za-z0-9-]+$ ) ]] || { echo 'invalid build request' >&2; exit 1; }
@@ -107,6 +110,18 @@ flock -u 9
 exec 9>&-
 artifact="$site_root/.stepanel-artifact"
 scratch=
+source_copy=
+build_artifact=
+# Podman storage lives outside the web tree: under SELinux the site tree is
+# web content, which the container runtime may not use for its database and
+# layers. New directories under /var/lib/containers inherit the container
+# storage label (container_var_lib_t) from the distribution policy.
+runner_storage_root=/var/lib/containers/stepanel-runner
+runner_home="$runner_storage_root/$site_user"
+install -d -m 0711 -o root -g root /var/lib/containers "$runner_storage_root"
+[[ -d $runner_home && ! -L $runner_home ]] || install -d -m 0700 -o "$site_user" -g "$site_user" "$runner_home"
+[[ $(stat -c '%u:%g' -- "$runner_home") == "$site_uid:$site_gid" ]] || { echo 'runner storage has unexpected ownership' >&2; exit 1; }
+runuser -u "$site_user" -- install -d -m 0700 "$runner_home/storage"
 
 # Podman must run outside the broker's NoNewPrivileges and namespace
 # restrictions: newuidmap/newgidmap need their narrowly scoped setuid
@@ -116,7 +131,10 @@ scratch=
 # limit so a killed broker cannot leave a build running indefinitely.
 runner_unit=
 runner_runtime=
+runner_log_dir="/run/stepanel-runner-log-$runner_owner_pid"
+install -d -m 0700 -o root -g root "$runner_log_dir"
 cleanup_runner() {
+  rm -rf -- "$runner_log_dir" 2>/dev/null || true
   if [[ -n ${runner_unit:-} ]]; then
     systemctl stop "$runner_unit" >/dev/null 2>&1 || true
   fi
@@ -126,11 +144,21 @@ cleanup_runner() {
   if [[ -n ${scratch:-} ]]; then
     runuser -u "$site_user" -- rm -rf -- "$scratch" 2>/dev/null || true
   fi
+  if [[ -n ${source_copy:-} ]]; then
+    rm -rf -- "$source_copy" 2>/dev/null || true
+  fi
+  if [[ -n ${build_artifact:-} ]]; then
+    runuser -u "$site_user" -- rm -rf -- "$build_artifact" 2>/dev/null || true
+  fi
 }
 trap cleanup_runner EXIT
 
 run_podman_as_site() {
-  runner_runtime="stepanel-runner-${site_user}-${BASHPID}-${RANDOM}"
+  # Podman 5 records its run directories in the storage database on first use
+  # and reuses them, so the runtime directory must be stable per site. Builds
+  # for one site are serialized by the broker's site lock.
+  runner_runtime="stepanel-runner-${site_user}"
+  rm -rf -- "/run/$runner_runtime"
   runner_unit="stepanel-runner-${runner_owner_pid}.service"
   local memory_overhead=128 tasks_overhead=32
   # Rootless Podman may fail its native-overlay capability probe inside the
@@ -167,7 +195,8 @@ run_podman_as_site() {
     return 1
   }
   install -o "$site_user" -g "$site_user" -m 0600 /dev/null "/run/$runner_runtime/config/containers/storage.conf"
-  printf '[storage.options.overlay]\nmount_program = "%s"\n' "$fuse_overlayfs" \
+  printf '[storage]\ndriver = "overlay"\ngraphroot = "%s"\nrunroot = "%s"\n[storage.options.overlay]\nmount_program = "%s"\n' \
+    "$runner_home/storage" "/run/$runner_runtime/containers" "$fuse_overlayfs" \
     > "/run/$runner_runtime/config/containers/storage.conf"
   # slirp4netns needs the TUN device for egress builds; offline builds get
   # only /dev/fuse under the closed device policy.
@@ -178,18 +207,33 @@ run_podman_as_site() {
   # device policy, protected host filesystems, and explicit resource limits;
   # denying namespace creation here makes every rootless pull fail before
   # the container can start.
-  if systemd-run --quiet --wait --pipe --collect --service-type=exec --unit="$runner_unit" \
-    --uid="$site_user" --gid="$site_user" --working-directory="$root" \
-    --setenv="HOME=$site_root" --setenv="XDG_RUNTIME_DIR=/run/$runner_runtime" \
+  #
+  # Options that make systemd set no_new_privs are deliberately absent
+  # (ProtectKernelTunables/Modules/Logs, ProtectClock, RestrictRealtime,
+  # RestrictAddressFamilies on systemd 252): no_new_privs stops newuidmap's
+  # setuid transition and, under SELinux, podman's transition into
+  # container_runtime_t ("avc: denied { nnp_transition }"), so no build could
+  # start. The site account is unprivileged, and each container still runs
+  # with all capabilities dropped, no-new-privileges, a read-only root,
+  # seccomp, a user namespace, and (under SELinux) the container_t domain.
+  #
+  # The unit's output goes to a log in a root-owned directory instead of
+  # systemd-run --pipe: handing a caller's pipes to PID 1 fails ("Connection
+  # reset by peer") when systemd-run itself runs inside a system service, as
+  # it does under the root broker. Root owns the log directory, so the site
+  # account cannot plant a symlink for PID 1 to follow.
+  local log="$runner_log_dir/$BASHPID-$RANDOM.log"
+  if systemd-run --quiet --wait --collect --service-type=exec --unit="$runner_unit" \
+    --property="StandardOutput=append:$log" --property="StandardError=append:$log" \
+    --uid="$site_user" --gid="$site_user" --working-directory="$runner_home" \
+    --setenv="HOME=$runner_home" --setenv="XDG_RUNTIME_DIR=/run/$runner_runtime" \
     --setenv="XDG_CONFIG_HOME=/run/$runner_runtime/config" \
     --property=NoNewPrivileges=no --property=RestrictSUIDSGID=no \
     --property=Delegate=yes --property=PartOf=stepanel-root-broker.service \
     --property=PrivateTmp=yes --property=DevicePolicy=closed "${device_args[@]}" --property=ProtectHome=yes \
     --property=ProtectSystem=strict --property="ReadWritePaths=$site_root" \
-    --property=ProtectProc=invisible --property=ProtectKernelTunables=yes \
-    --property=ProtectKernelModules=yes --property=ProtectKernelLogs=yes \
-    --property=ProtectClock=yes --property=RestrictRealtime=yes \
-    --property='RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK' \
+    --property="ReadWritePaths=$runner_home" --property="ReadWritePaths=-$runner_storage_root/src-$site_user" \
+    --property=ProtectProc=invisible \
     --property=CPUQuota="${cpu_percent}%" \
     --property=MemoryMax="$((memory_mb + memory_overhead))M" \
     --property=TasksMax="$((tasks_max + tasks_overhead))" \
@@ -199,6 +243,10 @@ run_podman_as_site() {
     local status=0
   else
     local status=$?
+  fi
+  if [[ -f $log ]]; then
+    cat -- "$log"
+    rm -f -- "$log"
   fi
   # systemd removes RuntimeDirectory= on stop, but not when systemd-run fails
   # before the unit starts. This may run in a command-substitution subshell,
@@ -223,18 +271,31 @@ if ! image_inspect_output=$(run_podman_as_site "$podman_bin" image inspect --for
   printf '%s\n' "$image_inspect_output" >&2
   exit 1
 fi
-image_size=$image_inspect_output
+# Podman may print warnings (for example about the pause process's systemd
+# cgroup) on stderr, which the transient unit pipes with stdout; the size is
+# the numeric line.
+image_size=$(printf '%s\n' "$image_inspect_output" | awk '/^[0-9]+$/ { size = $0 } END { print size }')
 [[ $image_size =~ ^[0-9]+$ && $image_size -le $max_image_bytes ]] || { echo "container image exceeds configured size limit ($max_image_bytes bytes)" >&2; exit 1; }
 # Keep all customer-tree mutation under the site account. Root validates the
 # final directory but never recursively deletes a customer-controlled path.
-runuser -u "$site_user" -- install -d -m 0750 "$artifact"
-[[ -d $artifact && ! -L $artifact ]] || { echo 'artifact path is not a directory' >&2; exit 1; }
-artifact_uid=$(stat -c '%u' -- "$artifact")
-artifact_gid=$(stat -c '%g' -- "$artifact")
-[[ $artifact_uid == "$site_uid" && $artifact_gid == "$site_gid" ]] || { echo 'artifact directory has unexpected ownership' >&2; exit 1; }
-# Do not follow build-created symlinks or cross into another filesystem. This
-# runs as the site account, so a path race cannot turn cleanup into root deletion.
-runuser -u "$site_user" -- find -P -- "$artifact" -xdev -depth -mindepth 1 -delete
+#
+# Each build writes a fresh directory. It replaces .stepanel-artifact only
+# after the build succeeds, so a failed build leaves the last good artifact
+# intact. Build directories orphaned by a killed run are removed first.
+runuser -u "$site_user" -- find -P "$site_root" -mindepth 1 -maxdepth 1 -name '.stepanel-build.*' -mmin +60 -exec rm -rf -- {} +
+build_artifact=$(runuser -u "$site_user" -- mktemp -d "$site_root/.stepanel-build.XXXXXXXX")
+# mktemp creates 0700, which also sets the ACL mask to ---; the panel must be
+# able to validate and publish the artifact through its ACL entry. Symbolic
+# modes keep the setgid bit inherited from the site root.
+runuser -u "$site_user" -- chmod u=rwx,g=rx,o= -- "$build_artifact"
+[[ $build_artifact == "$site_root"/.stepanel-build.* && -d $build_artifact && ! -L $build_artifact ]] || { echo 'build directory is not a directory' >&2; exit 1; }
+build_uid=$(stat -c '%u' -- "$build_artifact")
+build_gid=$(stat -c '%g' -- "$build_artifact")
+# Sealed site roots are setgid to the web group, so directories the site
+# account creates there inherit that group; ownership by the site account is
+# what matters.
+site_root_gid=$(stat -c '%g' -- "$site_root")
+[[ $build_uid == "$site_uid" && ( $build_gid == "$site_gid" || $build_gid == "$site_root_gid" ) ]] || { echo 'build directory has unexpected ownership' >&2; exit 1; }
 # The submitted script lives in STEPANEL_APP_ROOT, which is owned by the
 # stepanel service account (0750/0600). The isolated sp-* site account that
 # rootless Podman drops to is not in that group and cannot traverse into
@@ -248,7 +309,7 @@ runuser -u "$site_user" -- install -d -m 0700 "$scratch"
 # rm -rf ever touches a customer path.
 scratch_uid=$(stat -c '%u' -- "$scratch")
 scratch_gid=$(stat -c '%g' -- "$scratch")
-[[ $scratch_uid == "$site_uid" && $scratch_gid == "$site_gid" ]] || { echo 'scratch directory has unexpected ownership' >&2; exit 1; }
+[[ $scratch_uid == "$site_uid" && ( $scratch_gid == "$site_gid" || $scratch_gid == "$site_root_gid" ) ]] || { echo 'scratch directory has unexpected ownership' >&2; exit 1; }
 build_script="$scratch/build.sh"
 # Create the file writable, stream contents in as the site account, then drop
 # write on it. 0500 = r-x for owner only, matching the container's read-only
@@ -256,8 +317,47 @@ build_script="$scratch/build.sh"
 runuser -u "$site_user" -- install -m 0600 /dev/null "$build_script"
 cat -- "$script" | runuser -u "$site_user" -- tee "$build_script" >/dev/null
 runuser -u "$site_user" -- chmod 0500 "$build_script"
+# Build from a copy of the source. The container mounts use :Z so SELinux
+# gives them a private container label; mounting the live document root (or
+# a release about to be published) that way would relabel served files and
+# lock the web server out of them.
+#
+# Root makes the copy because a release staged by the panel is private to the
+# panel account. It copies into a root-owned directory (never into a path the
+# site account controls, which could be swapped for a symlink), without
+# following links, and then hands the copy to the site account without
+# following links either.
+source_copy="$runner_storage_root/src-$site_user"
+rm -rf -- "$source_copy"
+install -d -m 0700 -o root -g root "$source_copy"
+cp -a --reflink=auto --no-preserve=ownership -- "$root/." "$source_copy/"
+chown -R -h -- "$site_user:$site_user" "$source_copy"
 cpus=$(awk "BEGIN { printf \"%.2f\", $cpu_percent / 100 }")
 # Convert network_mode to podman flag: "none" -> "--network none", "egress" -> "--network slirp4netns"
 network_args=(--network none)
 [[ $network_mode == "egress" ]] && network_args=(--network slirp4netns)
-run_podman_as_site "$podman_bin" run --rm "${network_args[@]}" --userns keep-id --cap-drop ALL --security-opt no-new-privileges --read-only --cpus "$cpus" --memory "${memory_mb}m" --pids-limit "$tasks_max" --tmpfs /tmp:rw,noexec,nosuid,size=512m -v "$root:/src:ro,Z" -v "$artifact:/artifact:rw,Z" -v "$build_script:/run/stepanel/build.sh:ro,Z" -w /src "$image" /bin/sh /run/stepanel/build.sh
+build_status=0
+run_podman_as_site "$podman_bin" run --rm "${network_args[@]}" --userns keep-id --cap-drop ALL --security-opt no-new-privileges --read-only --cpus "$cpus" --memory "${memory_mb}m" --pids-limit "$tasks_max" --tmpfs /tmp:rw,noexec,nosuid,size=512m -v "$source_copy:/src:ro,Z" -v "$build_artifact:/artifact:rw,Z" -v "$build_script:/run/stepanel/build.sh:ro,Z" -w /src "$image" /bin/sh /run/stepanel/build.sh || build_status=$?
+if (( build_status != 0 )); then
+  # The build directory is discarded by the EXIT trap; the previous artifact
+  # is untouched.
+  exit "$build_status"
+fi
+# The build directory was relabelled for the container; restore the site
+# tree's labels before it is validated and published, or the web server would
+# be denied the activated release. restorecon relabels without following links
+# and -x keeps it on this filesystem.
+if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled && command -v restorecon >/dev/null 2>&1; then
+  restorecon -R -F -x -- "$build_artifact" || { echo 'could not restore SELinux labels on the build artifact' >&2; exit 1; }
+fi
+# Promote the successful build. Renames run as the site account inside its own
+# tree; the superseded artifact is deleted only after the new one is in place.
+superseded=
+if [[ -e $artifact || -L $artifact ]]; then
+  superseded="$build_artifact.superseded"
+  runuser -u "$site_user" -- mv -T -- "$artifact" "$superseded"
+fi
+runuser -u "$site_user" -- mv -T -- "$build_artifact" "$artifact"
+build_artifact=
+[[ -z $superseded ]] || runuser -u "$site_user" -- rm -rf -- "$superseded"
+exit 0

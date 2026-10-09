@@ -196,8 +196,8 @@ fi
 
 if has_phase runner; then
   start=$SECONDS
-  if guest_job runner 15 'env RUNNER_TEST_IMAGE=ghcr.io/containerd/busybox:1.36@sha256:907ca53d7e2947e849b839b1cd258c98fd3916c60f2e6e70c30edbf741ab6754 bash /work/deploy/lab/runner-perm-smoke.sh'; then
-    record runner PASS $((SECONDS - start)) 'rootless runner'
+  if guest_job runner 30 'env RUNNER_TEST_IMAGE=ghcr.io/containerd/busybox:1.36@sha256:907ca53d7e2947e849b839b1cd258c98fd3916c60f2e6e70c30edbf741ab6754 bash /work/deploy/lab/runner-perm-smoke.sh && bash /work/deploy/lab/release-pipeline-smoke.sh'; then
+    record runner PASS $((SECONDS - start)) 'rootless runner, failed-build retention, and release pipeline build-to-activation'
   else
     record runner FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/runner.log")"
   fi

@@ -127,9 +127,17 @@ application lifecycle helper.
 
 `POST /api/runner/build` accepts a site, immutable OCI image digest, and up to 16 bounded build
 commands. Image tags are rejected; use an image reference ending in
-`@sha256:<64 lowercase hex characters>`. The rootless Podman runner mounts source read-only and artifact output
-writable, drops capabilities, uses a read-only container filesystem and a
-separate network namespace. CPU, memory, and PID ceilings are taken from the
+`@sha256:<64 lowercase hex characters>`. The rootless Podman runner mounts a
+private copy of the source read-only (never the live document root) and a
+fresh per-build output directory writable, drops capabilities, uses a
+read-only container filesystem and a separate network namespace. A build
+replaces the site's `.stepanel-artifact` only when it succeeds, so a failed
+build keeps the last good artifact. Podman storage lives in
+`/var/lib/containers/stepanel-runner/<site user>`, outside the web tree; on
+SELinux hosts containers run as `container_t` and the artifact is restored to
+the site's label before publication. Storage from earlier versions in
+`/var/www/sites/<site>/.local/share/containers` is no longer used and can be
+removed with `podman system reset` as the site account. CPU, memory, and PID ceilings are taken from the
 site resource profile (with conservative defaults for legacy sites). It does
 not activate a release: review the artifact
 and use the existing atomic deployment workflow for activation/rollback.

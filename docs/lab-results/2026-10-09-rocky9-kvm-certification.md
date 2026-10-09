@@ -29,7 +29,7 @@ loss, multi-host recovery, or the recovery-time SLA.
 | Abrupt guest loss, idle | PASS | QEMU `SIGKILL`; services and `/readyz` back in 23 s including guest boot |
 | Abrupt guest loss during a backup | PASS | 300 MiB site; guest killed mid-archive; after reboot the job completed, the listed backup verified, no staging remained, a fresh backup completed and verified (262 s) |
 | Real ENOSPC on a dedicated filesystem | PASS | backup failed with ENOSPC; nothing partial was published |
-| Rootless build runner | **FAIL** | SELinux, see below |
+| Rootless build runner | **FAIL**, then fixed | SELinux, see below; passes after the fix |
 
 ### Full recovery matrix
 
@@ -70,21 +70,49 @@ All were invisible to container-based CI.
    after `suspend:persisted`.
 5. **The ENOSPC test counted ext4's `lost+found`** as a published artifact.
 
-## Open defect: rootless build runner under SELinux
+## Rootless build runner under SELinux (fixed the same day)
 
-The runner cannot pull images on an SELinux-enforcing RHEL host:
+The run first failed to pull images:
 
 ```
 avc: denied { nnp_transition } comm="(podman)" tcontext=...:container_runtime_t
 avc: denied { create } comm="podman" name="db.sql" tcontext=...:httpd_sys_content_t
 ```
 
-The transient unit's hardening implies `no_new_privs`, so podman cannot
-transition to `container_runtime_t`; running as `init_t`, it may not create
-its storage database in the site tree (web content). A fix needs runner
-storage outside the web tree with container labels and/or an SELinux policy
-module; it is not attempted here. Until then the runner is unsupported on
-SELinux-enforcing hosts.
+Investigation on the same guest found five independent faults:
+
+1. Unit options that make systemd set `no_new_privs` (`ProtectKernelTunables`,
+   `ProtectKernelModules`, `ProtectKernelLogs`, `ProtectClock`,
+   `RestrictRealtime`, `RestrictAddressFamilies` on systemd 252) blocked both
+   `newuidmap`'s setuid transition and podman's transition into
+   `container_runtime_t`. They were removed; `ProtectProc`, `ProtectSystem`,
+   `ProtectHome`, `PrivateTmp`, the closed device policy, and resource limits
+   remain, and containers now run confined as `container_t`.
+2. Podman storage lived in the site tree (web content). It now lives in
+   `/var/lib/containers/stepanel-runner/<site user>` (container storage label).
+3. Podman 5 records its run directories on first use; the runner used a new
+   random runtime directory per build, so every build after the first failed.
+   The runtime directory is now stable per site.
+4. `systemd-run --pipe` fails inside a system service ("Connection reset by
+   peer"), so builds started through the root broker -- every release
+   pipeline -- never ran. The unit now writes to a root-owned log.
+5. The release staging tree is private to the panel account, so the site
+   account could not read it. Root now copies it into a root-owned directory
+   without following links and hands the copy to the site account.
+
+The live document root was also mounted with `:Z`, which relabels it with a
+private container label; builds now use the copy, and the artifact is
+restored to the site's label before publication. A failed build no longer
+empties the previous artifact.
+
+Acceptance on the same SELinux-enforcing guest:
+`runner-perm-smoke.sh` (two builds, a failed build that must keep the last
+good artifact, source visibility, label checks) and
+`release-pipeline-smoke.sh` (`octocat/Hello-World` checked out, built with a
+pinned image, validated, atomically activated, runner state cleaned up) both
+pass with **no SELinux denials**; `restorecon -nRv` on the activated document
+root reports nothing to relabel. HTTPS serving of the test domain was not
+checked because Caddy cannot obtain a certificate for `.example.test`.
 
 ## Reproducing
 
