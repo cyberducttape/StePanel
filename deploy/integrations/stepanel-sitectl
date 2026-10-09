@@ -155,9 +155,12 @@ if [[ $action == access ]]; then
   fi
   if [[ $sftp == 1 || $shell == 1 ]]; then
     # System accounts are created locked. Public-key SSH/SFTP access still
-    # requires an unlocked account; password authentication remains disabled
-    # by the managed sshd policy and no password is assigned here.
-    usermod --unlock "$site_user" || { restore_access; echo 'could not unlock the SSH/SFTP account' >&2; exit 1; }
+    # requires an unlocked account. RHEL-family usermod rejects an empty
+    # password field, so install a random hash that is not known to anyone;
+    # password authentication remains disabled by the managed sshd policy.
+    command -v openssl >/dev/null 2>&1 || { restore_access; echo 'openssl is required to provision SSH/SFTP access' >&2; exit 1; }
+    ssh_password_hash=$(openssl passwd -6 -stdin <<< "$(openssl rand -base64 48)") || { restore_access; echo 'could not generate an SSH/SFTP account password hash' >&2; exit 1; }
+    usermod --password "$ssh_password_hash" "$site_user" || { restore_access; echo 'could not enable the SSH/SFTP account' >&2; exit 1; }
     command -v sshd >/dev/null 2>&1 || { restore_access; echo 'sshd is required for SSH access management' >&2; exit 1; }
     mv -f "$staged" "$authorized_keys"
     cat > "$ssh_config" <<EOF
