@@ -28,6 +28,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Installation-smoke coverage**: disposable systemd hosts now include the
+  OpenSSH server and client required by the real SFTP provisioning smoke on
+  Debian/Ubuntu and RHEL-family images. CI also measures the session package's
+  security floor from its complete package-specific test run instead of relying
+  only on the repository-wide coverage profile; the generic target checker can
+  now explicitly exclude such independently measured targets.
+
 - **FTPS site identity and revocation**: vsftpd now chroots each login to
   the site account's actual home directory, accepts only explicitly
   provisioned site users, and no longer derives a site path from the hashed

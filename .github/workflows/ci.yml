@@ -48,7 +48,15 @@ jobs:
       - name: Enforce coverage floor
         run: bash scripts/check-coverage.sh coverage.out
       - name: Enforce critical-package coverage floors
-        run: bash scripts/check-coverage-targets.sh coverage.out
+        run: |
+          set -eu
+          COVERAGE_TARGETS_EXCLUDE=github.com/cyberducttape/StePanel/internal/session \
+            bash scripts/check-coverage-targets.sh coverage.out
+          # Go's repository-wide profile can omit statements exercised only by
+          # package-local tests. Keep the session security floor tied to its
+          # complete package-specific test run.
+          go test -p 1 ./internal/session -coverprofile=session-coverage.out -covermode=atomic
+          COVERAGE_MINIMUM=90 bash scripts/check-coverage.sh session-coverage.out
       - name: Enforce security-sensitive package coverage floors
         run: |
           set -eu

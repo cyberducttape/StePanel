@@ -25,6 +25,7 @@ declare -A COVERAGE_TARGETS=(
 )
 
 profile=${1:-coverage.out}
+excluded_targets=${COVERAGE_TARGETS_EXCLUDE:-}
 
 [[ -f "$profile" ]] || { echo "coverage profile not found: $profile" >&2; exit 1; }
 
@@ -35,6 +36,9 @@ echo ""
 # a package declared above can never be silently skipped by the checker.
 target_spec=""
 for package in "${!COVERAGE_TARGETS[@]}"; do
+  case ",$excluded_targets," in
+    *",$package,"*) continue ;;
+  esac
   target_spec+="${package}=${COVERAGE_TARGETS[$package]};"
 done
 
