@@ -310,7 +310,10 @@ if [[ $action == runtime ]]; then
   error_pattern='^[A-Z0-9_~& |]{1,80}$'
   [[ $php_version =~ ^[0-9]+\.[0-9]+$ && $memory_limit =~ ^[1-9][0-9]{0,4}M$ && $max_execution_time =~ ^[1-9][0-9]{0,4}$ && $upload_max_filesize =~ ^[1-9][0-9]{0,4}M$ && $post_max_size =~ ^[1-9][0-9]{0,4}M$ && $max_input_vars =~ ^[1-9][0-9]{0,6}$ && $opcache_enabled =~ ^[01]$ && $display_errors =~ ^[01]$ && $error_reporting =~ $error_pattern ]] || { echo 'invalid PHP runtime profile' >&2; exit 1; }
   tmp=$(mktemp "$php_state/.runtime.XXXXXX")
-  printf 'php_version=%q\nmemory_limit=%q\nmax_execution_time=%q\nupload_max_filesize=%q\npost_max_size=%q\nmax_input_vars=%q\nopcache_enabled=%q\ndisplay_errors=%q\nerror_reporting=%q\n' "$php_version" "$memory_limit" "$max_execution_time" "$upload_max_filesize" "$post_max_size" "$max_input_vars" "$opcache_enabled" "$display_errors" "$error_reporting" > "$tmp"
+  # Values have already passed strict allow-list validation, so write the
+  # profile format directly. Shell-escaping with %q would persist backslashes
+  # that parse_config_file intentionally does not interpret.
+  printf 'php_version=%s\nmemory_limit=%s\nmax_execution_time=%s\nupload_max_filesize=%s\npost_max_size=%s\nmax_input_vars=%s\nopcache_enabled=%s\ndisplay_errors=%s\nerror_reporting=%s\n' "$php_version" "$memory_limit" "$max_execution_time" "$upload_max_filesize" "$post_max_size" "$max_input_vars" "$opcache_enabled" "$display_errors" "$error_reporting" > "$tmp"
   chown root:root "$tmp"; chmod 0600 "$tmp"; mv -f "$tmp" "$profile"
 elif [[ $action == resources ]]; then
   workers=$3

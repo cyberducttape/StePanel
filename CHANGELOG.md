@@ -44,6 +44,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   The root-owned authorized-key directory is traversable by sshd while its
   individual key files remain non-writable by customer accounts.
 
+- **PHP runtime profile round trips**: validated runtime values are now written
+  without shell-escape sequences, so `error_reporting` survives a subsequent
+  site-management operation and PHP configuration regeneration.
+
 - **FTPS site identity and revocation**: vsftpd now chroots each login to
   the site account's actual home directory, accepts only explicitly
   provisioned site users, and no longer derives a site path from the hashed
