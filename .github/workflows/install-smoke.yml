@@ -141,6 +141,9 @@ jobs:
               -p NoNewPrivileges -p RestrictSUIDSGID -p ProtectSystem -p ProtectHome \
               -p PrivateTmp -p PrivateDevices -p RestrictNamespaces -p ReadWritePaths >"$diagnostics_dir/systemctl-properties.txt" 2>&1 || true
             docker exec stepanel-install systemctl status stepanel-root-broker.service --no-pager >"$diagnostics_dir/root-broker-status.txt" 2>&1 || true
+            docker exec stepanel-install sh -c 'systemctl list-unit-files --type=service --no-legend "php*-fpm.service" "php-fpm.service" | awk "{print \$1}" | xargs -r systemctl status --no-pager' >"$diagnostics_dir/php-fpm-status.txt" 2>&1 || true
+            docker exec stepanel-install sh -c 'systemctl list-unit-files --type=service --no-legend "php*-fpm.service" "php-fpm.service" | awk "{print \$1}" | xargs -r journalctl -n 200 --no-pager -u' >"$diagnostics_dir/php-fpm-journal.txt" 2>&1 || true
+            docker exec stepanel-install find /run/php /run/php-fpm -maxdepth 1 -type s -name "stepanel-*" -ls >"$diagnostics_dir/php-fpm-sockets.txt" 2>&1 || true
             docker exec stepanel-install systemctl show stepanel-root-broker.service \
               -p ActiveState -p SubState -p Result -p ExecMainStatus -p MainPID \
               -p NoNewPrivileges -p PrivateDevices -p ProtectSystem -p RestrictNamespaces \

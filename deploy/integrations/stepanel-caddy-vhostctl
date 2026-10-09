@@ -44,8 +44,13 @@ symlink=$(find -P "$public_root" -xdev -type l -print -quit)
 socket=
 selected_version=
 profile="/var/www/sites/$site/.php/runtime.env"
+web_group_config=/etc/ste-panel.env
+[[ -f $web_group_config && ! -L $web_group_config ]] || { echo 'authoritative web identity configuration is unavailable' >&2; exit 1; }
+[[ $(stat -c %u "$web_group_config") == 0 && $(( 8#$(stat -c %a "$web_group_config") & 077 )) == 0 ]] || { echo 'authoritative web identity configuration is not root-owned and private' >&2; exit 1; }
+socket_root=$(sed -n 's/^STEPANEL_PHP_SOCKET_ROOT="\(\/[^"[:space:]]*\)"$/\1/p' "$web_group_config")
+[[ $socket_root == /* && $socket_root != *$'\n'* && $socket_root != *$'\r'* && $socket_root != *' '* ]] || { echo 'authoritative PHP socket root is invalid' >&2; exit 1; }
 [[ ! -f $profile || -L $profile ]] || selected_version=$(awk -F= '$1 == "php_version" { gsub(/['"'"'\047]/, "", $2); print $2; exit }' "$profile")
-if [[ -n $selected_version ]]; then candidates=("/run/php/stepanel-$site-$selected_version.sock"); else candidates=(/run/php/stepanel-"$site"-*.sock /run/php-fpm/stepanel-"$site".sock); fi
+if [[ -n $selected_version ]]; then candidates=("$socket_root/stepanel-$site-$selected_version.sock"); else candidates=("$socket_root/stepanel-$site-"*.sock "$socket_root/stepanel-$site.sock"); fi
 for candidate in "${candidates[@]}"; do
   [[ -S $candidate ]] || continue
   socket=$candidate
