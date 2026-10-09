@@ -376,7 +376,11 @@ ACL access for the unprivileged control plane, and renders private PHP-FPM
 pools for installed PHP versions. Restored files are sealed to the site user
 and selected webserver group afterward. Site users are not added to the shared
 webserver group; Caddy or Apache receives group read access to static files and
-PHP-FPM sockets instead. The site deployment API renders a validated Caddy or
+PHP-FPM sockets instead. The installer records the selected web-server group
+and PHP socket root in the root-owned `/etc/ste-panel.env`; the root broker and
+site helper consume that same identity. The `/var/www` mount is protected with
+`nosymfollow`, preventing web-server and PHP consumers from following a site
+symlink outside the managed filesystem. The site deployment API renders a validated Caddy or
 Apache vhost that routes PHP requests to an active pool and refuses conflicting
 domains. OpenLiteSpeed PHP routing remains operator-integrated.
 

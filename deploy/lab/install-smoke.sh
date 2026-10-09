@@ -221,6 +221,21 @@ if [[ $STEPANEL_WEBSERVER == apache ]]; then
   apachectl -t 2>/dev/null || httpd -t
 else
   caddy validate --config /etc/caddy/Caddyfile
+  systemctl is-active --quiet stepanel-nosymfollow.service
+  findmnt -no OPTIONS -T /var/www | tr ',' '\n' | grep -Fxq nosymfollow
+  sensitive_file="/var/www/sites/$site/public/.env"
+  symlink_target="/var/www/sites/$site/.stepanel-caddy-outside-secret"
+  symlink_path="/var/www/sites/$site/public/stepanel-outside-secret"
+  printf '%s\n' 'must-not-be-served' > "$sensitive_file"
+  printf '%s\n' 'must-not-be-followed' > "$symlink_target"
+  ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
+  trap 'rm -f "$sensitive_file" "$symlink_target" "$symlink_path"' EXIT
+  caddy_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/.env || true)
+  [[ $caddy_status == 403 || $caddy_status == 404 ]] || { echo "Caddy served a sensitive file with HTTP $caddy_status" >&2; exit 1; }
+  caddy_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/stepanel-outside-secret || true)
+  [[ $caddy_status == 403 || $caddy_status == 404 ]] || { echo "Caddy followed an out-of-root symlink with HTTP $caddy_status" >&2; exit 1; }
+  rm -f "$sensitive_file" "$symlink_target" "$symlink_path"
+  trap - EXIT
 fi
 
 # Exercise the installed HTTP upload and durable cpmove worker path. This

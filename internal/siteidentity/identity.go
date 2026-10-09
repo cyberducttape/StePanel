@@ -8,6 +8,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"os"
+	"regexp"
 	"strings"
 )
 
@@ -27,17 +30,46 @@ func UnixUser(site string) string {
 	return "sp-" + prefix + "-" + hex.EncodeToString(sum[:])[:8]
 }
 
-// ErrNoWebGroup reports that neither supported web server group exists.
-var ErrNoWebGroup = errors.New("neither the www-data nor the apache group exists")
+var webGroupLine = regexp.MustCompile(`^STEPANEL_WEB_GROUP="([a-z_][a-z0-9_-]*)"$`)
 
-// WebGroup selects the web server group the same way stepanel-sitectl does:
-// www-data (Debian/Ubuntu) when present, otherwise apache (RHEL family).
-// groupExists reports whether a group name resolves on the host.
-func WebGroup(groupExists func(name string) bool) (string, error) {
-	for _, candidate := range []string{"www-data", "apache"} {
-		if groupExists(candidate) {
-			return candidate, nil
-		}
+// WebGroupFromEnv reads the installer-owned web-server group from the
+// root-owned environment file. Production callers must use this value rather
+// than independently guessing from whichever distribution groups happen to
+// exist on the host.
+func WebGroupFromEnv(path string, groupExists func(name string) bool) (string, error) {
+	if path == "" {
+		return "", errors.New("web group configuration path is empty")
 	}
-	return "", ErrNoWebGroup
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("inspect web group configuration: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", errors.New("web group configuration must be a regular file")
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return "", errors.New("web group configuration must not be group or world accessible")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read web group configuration: %w", err)
+	}
+	var group string
+	for _, line := range strings.Split(string(data), "\n") {
+		matches := webGroupLine.FindStringSubmatch(strings.TrimSuffix(line, "\r"))
+		if len(matches) == 0 {
+			continue
+		}
+		if group != "" && group != matches[1] {
+			return "", errors.New("web group configuration contains conflicting values")
+		}
+		group = matches[1]
+	}
+	if group == "" {
+		return "", errors.New("web group configuration does not define STEPANEL_WEB_GROUP")
+	}
+	if groupExists == nil || !groupExists(group) {
+		return "", fmt.Errorf("configured web group %q does not exist", group)
+	}
+	return group, nil
 }

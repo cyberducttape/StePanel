@@ -1,7 +1,6 @@
 package siteidentity
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,27 +56,42 @@ func TestUnixUserMatchesShellHelper(t *testing.T) {
 	}
 }
 
-func TestWebGroupPrefersWWWDataThenApache(t *testing.T) {
-	cases := []struct {
-		present []string
-		want    string
-		err     error
-	}{
-		{[]string{"www-data", "apache"}, "www-data", nil},
-		{[]string{"apache"}, "apache", nil},
-		{nil, "", ErrNoWebGroup},
-	}
-	for _, tc := range cases {
-		got, err := WebGroup(func(name string) bool {
-			for _, present := range tc.present {
-				if present == name {
-					return true
-				}
+func TestWebGroupFromEnvSupportsCaddyAndDistributionGroups(t *testing.T) {
+	for _, group := range []string{"caddy", "www-data", "apache", "nogroup"} {
+		t.Run(group, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "ste-panel.env")
+			if err := os.WriteFile(path, []byte("STEPANEL_WEB_GROUP=\""+group+"\"\nSTEPANEL_PHP_SOCKET_ROOT=\"/run/php\"\n"), 0600); err != nil {
+				t.Fatal(err)
 			}
-			return false
+			got, err := WebGroupFromEnv(path, func(name string) bool { return name == group })
+			if err != nil || got != group {
+				t.Fatalf("WebGroupFromEnv() = %q, %v; want %q", got, err, group)
+			}
 		})
-		if got != tc.want || !errors.Is(err, tc.err) {
-			t.Errorf("WebGroup(%v) = %q, %v; want %q, %v", tc.present, got, err, tc.want, tc.err)
-		}
+	}
+}
+
+func TestWebGroupFromEnvFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ste-panel.env")
+	for _, tc := range []struct {
+		name string
+		mode os.FileMode
+		body string
+	}{
+		{name: "missing value", mode: 0600, body: "STEPANEL_WEBSERVER=\"caddy\"\n"},
+		{name: "group readable", mode: 0640, body: "STEPANEL_WEB_GROUP=\"caddy\"\n"},
+		{name: "unknown group", mode: 0600, body: "STEPANEL_WEB_GROUP=\"missing\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(tc.body), tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := WebGroupFromEnv(path, func(string) bool { return false }); err == nil || got != "" {
+				t.Fatalf("WebGroupFromEnv() = %q, %v; want a fail-closed error", got, err)
+			}
+		})
 	}
 }

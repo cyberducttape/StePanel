@@ -28,6 +28,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Web identity and Caddy filesystem isolation**: the installer now persists
+  one authoritative web-server group and PHP socket root for the root broker
+  and site helper, including Caddy on Debian/Ubuntu and RHEL-family hosts.
+  Managed Caddy routes deny environment, VCS, credential, archive, and
+  database files; `/var/www` is mounted with `nosymfollow` so Caddy cannot
+  follow a site symlink outside its filesystem boundary.
 - **Panel becomes ready after a crash mid-site-transaction**: startup
   recovery re-sealed or removed interrupted sites through the root broker
   without a fencing token, so the broker refused it and readiness stayed

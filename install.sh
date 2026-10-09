@@ -471,6 +471,7 @@ WEB_GROUP="$([[ "$PKG" == "apt" ]] && printf www-data || printf apache)"
 if [[ "$WEB_SERVER" == "openlitespeed" ]]; then WEB_GROUP="$(id -gn nobody 2>/dev/null || printf nogroup)"; fi
 if [[ "$WEB_SERVER" == "caddy" ]]; then WEB_GROUP="$(id -gn caddy 2>/dev/null || printf caddy)"; fi
 getent group "$WEB_GROUP" >/dev/null || { echo "Web server group $WEB_GROUP was not created by the package installation." >&2; exit 1; }
+PHP_SOCKET_ROOT="$([[ "$PKG" == "apt" ]] && printf /run/php || printf /run/php-fpm)"
 if [[ "$WEB_SERVER" == "openlitespeed" ]]; then PROXY_ROOT=/usr/local/lsws/conf/vhosts/stepanel/proxy; VHOST_ROOT=/usr/local/lsws/conf/vhosts/stepanel/sites; elif [[ "$WEB_SERVER" == "caddy" ]]; then PROXY_ROOT=/etc/caddy/stepanel.d; VHOST_ROOT=/etc/caddy/stepanel.d; elif [[ "$PKG" == "apt" ]]; then PROXY_ROOT=/etc/apache2/stepanel-proxy; VHOST_ROOT=/etc/apache2/stepanel-sites; else PROXY_ROOT=/etc/httpd/conf.d/stepanel-proxy; VHOST_ROOT=/etc/httpd/conf.d/stepanel-sites; fi
 
 if [[ "$DB_ENGINE" == "postgresql" && "$PKG" == "dnf" && ! -f /var/lib/pgsql/data/PG_VERSION ]]; then
@@ -701,12 +702,14 @@ managed_targets=(
   /usr/local/sbin/stepanel-vhostctl
   /usr/local/sbin/stepanel-dbctl
   /usr/local/sbin/stepanel-runnerctl
+  /usr/local/sbin/stepanel-nosymfollow
   /etc/stepanel-dbctl.conf
   /etc/stepanel-db.password
   "$ENV_FILE"
   /etc/systemd/system/stepanel.service
   /etc/systemd/system/stepanel-worker.service
   /etc/systemd/system/stepanel-root-broker.service
+  /etc/systemd/system/stepanel-nosymfollow.service
   /etc/logrotate.d/stepanel
   /etc/sudoers.d/stepanel
   /etc/stepanel-audit.key
@@ -764,6 +767,7 @@ install -m 0755 "$ROOT_DIR/deploy/integrations/install-fail2ban.sh" "$APP_DIR/in
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-appctl" /usr/local/sbin/stepanel-appctl
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-gitctl" /usr/local/sbin/stepanel-gitctl
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-runnerctl" /usr/local/sbin/stepanel-runnerctl
+install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-nosymfollow" /usr/local/sbin/stepanel-nosymfollow
 if [[ "$WEB_SERVER" == "caddy" ]]; then
   install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-caddy-proxyctl" /usr/local/sbin/stepanel-proxyctl
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then
@@ -853,6 +857,8 @@ TXN_TEMPS+=("$env_tmp")
 {
   write_env STEPANEL_ENV production
   write_env STEPANEL_WEBSERVER "$WEB_SERVER"
+  write_env STEPANEL_WEB_GROUP "$WEB_GROUP"
+  write_env STEPANEL_PHP_SOCKET_ROOT "$PHP_SOCKET_ROOT"
   write_env STEPANEL_LISTEN 127.0.0.1:8090
   write_env STEPANEL_ADMIN_USERNAME "$ADMIN_USERNAME"
   write_env STEPANEL_ADMIN_PASSWORD_HASH "$ADMIN_PASSWORD_HASH"
@@ -922,6 +928,7 @@ unset AUDIT_KEY
 install -m 0644 "$ROOT_DIR/deploy/stepanel.service" /etc/systemd/system/stepanel.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-worker.service" /etc/systemd/system/stepanel-worker.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service
+install -m 0644 "$ROOT_DIR/deploy/stepanel-nosymfollow.service" /etc/systemd/system/stepanel-nosymfollow.service
 # useradd/usermod take the account database lock files under /etc. Keep the
 # broker's ProtectSystem=full policy narrow while making those namespace paths
 # present; touch never truncates an existing lock held by another process.
@@ -944,6 +951,7 @@ if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   if command -v setsebool >/dev/null 2>&1; then setsebool -P httpd_can_network_connect 1; fi
 fi
 systemctl daemon-reload
+systemctl enable --now stepanel-nosymfollow.service
 if [[ "$WEB_SERVER" == "apache" ]]; then
   if command -v apachectl >/dev/null 2>&1; then apachectl -t; else httpd -t; fi
 fi

@@ -9,15 +9,16 @@ site=$2
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
 [[ $action == prepare || $action == prepare-root || $action == seal || $action == delete || $action == runtime || $action == resources || $action == quota || $action == quota-clear || $action == access ]] || { echo 'invalid action' >&2; exit 64; }
 
-if getent group www-data >/dev/null; then
-  web_group=www-data
-  socket_root=/run/php
-elif getent group apache >/dev/null; then
-  web_group=apache
-  socket_root=/run/php-fpm
-else
-  echo 'Apache group was not found' >&2
-  exit 1
+web_group_config=/etc/ste-panel.env
+[[ -f $web_group_config && ! -L $web_group_config ]] || { echo 'authoritative web group configuration is unavailable' >&2; exit 1; }
+[[ $(stat -c %u "$web_group_config") == 0 && $(( 8#$(stat -c %a "$web_group_config") & 077 )) == 0 ]] || { echo 'authoritative web group configuration is not root-owned and private' >&2; exit 1; }
+web_group=$(sed -n 's/^STEPANEL_WEB_GROUP="\([a-z_][a-z0-9_-]*\)"$/\1/p' "$web_group_config")
+socket_root=$(sed -n 's/^STEPANEL_PHP_SOCKET_ROOT="\(\/[^"[:space:]]*\)"$/\1/p' "$web_group_config")
+[[ $web_group =~ ^[a-z_][a-z0-9_-]*$ && $socket_root == /* && $socket_root != *$'\n'* && $socket_root != *$'\r'* && $socket_root != *' '* ]] || { echo 'authoritative web identity configuration is invalid' >&2; exit 1; }
+getent group "$web_group" >/dev/null || { echo "configured web server group $web_group does not exist" >&2; exit 1; }
+if [[ ! -d $socket_root ]]; then
+  [[ ! -e $socket_root ]] || { echo "PHP socket root $socket_root is unavailable" >&2; exit 1; }
+  install -d -m 0755 "$socket_root"
 fi
 
 hash=$(printf '%s' "$site" | sha256sum)
@@ -292,6 +293,8 @@ setfacl -R -m u:stepanel:rwX "$site_root"
 find "$site_root" -type d -exec setfacl -m d:u:stepanel:rwx {} +
 
 if [[ $action == seal ]]; then
+  symlink=$(find -P "$site_root" -xdev -type l -print -quit)
+  [[ -z $symlink ]] || { echo "site tree contains a symlink and cannot be sealed: $symlink" >&2; exit 1; }
   chown -R "$site_user:$web_group" "$site_root"
   find "$site_root" -type d -exec chmod 2750 {} +
   setfacl -R -m u:stepanel:rwX "$site_root"

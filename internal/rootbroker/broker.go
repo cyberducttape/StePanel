@@ -1489,8 +1489,8 @@ func (b *Broker) gitVerifyKey(ctx context.Context, req *GitRequest) (*Response, 
 // --- Helpers ---
 
 // execHostOps is the production hostOps implementation. Site account names
-// and the web group come from internal/siteidentity, the same derivation the
-// stepanel-sitectl shell helper uses.
+// come from internal/siteidentity, while the web group comes from the
+// installer-owned /etc/ste-panel.env contract consumed by stepanel-sitectl.
 type execHostOps struct{}
 
 func (execHostOps) EnsureSystemUser(ctx context.Context, username, home string) error {
@@ -1556,7 +1556,7 @@ func (execHostOps) RunSiteHelperInput(ctx context.Context, input []byte, args ..
 }
 
 func (execHostOps) WebGroup() (string, error) {
-	return siteidentity.WebGroup(func(name string) bool {
+	return siteidentity.WebGroupFromEnv("/etc/ste-panel.env", func(name string) bool {
 		_, err := user.LookupGroup(name)
 		return err == nil
 	})

@@ -1,0 +1,13 @@
+[Unit]
+Description=StePanel filesystem symlink isolation for /var/www
+After=local-fs.target
+Before=caddy.service apache2.service httpd.service stepanel.service stepanel-worker.service stepanel-root-broker.service
+ConditionPathIsDirectory=/var/www
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/stepanel-nosymfollow
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

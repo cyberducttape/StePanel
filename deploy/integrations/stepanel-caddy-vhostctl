@@ -36,6 +36,11 @@ domain=${3,,}
 (( ${#site} + ${#domain} <= 220 )) || { echo 'site and domain combination is too long' >&2; exit 1; }
 public_root="/var/www/sites/$site/public"
 [[ -d $public_root && ! -L $public_root ]] || { echo 'site document root is unavailable or unsafe' >&2; exit 1; }
+# Caddy's file_server follows symlinks, so a site tree containing one is not a
+# filesystem boundary. Reject such trees before publishing a route; imports
+# and deployments must use regular files and directories only.
+symlink=$(find -P "$public_root" -xdev -type l -print -quit)
+[[ -z $symlink ]] || { echo "site document root contains a symlink: $symlink" >&2; exit 1; }
 socket=
 selected_version=
 profile="/var/www/sites/$site/.php/runtime.env"
@@ -69,6 +74,10 @@ case "$action" in
     if [[ $action == apply-auth ]]; then [[ $auth_user =~ ^[A-Za-z0-9._-]{1,64}$ && $auth_hash =~ $bcrypt_pattern ]] || { echo 'invalid Basic Auth credentials' >&2; exit 1; }; fi
     {
       printf '# Managed by StePanel. Manual changes will be replaced.\n%s {\n\troot * %s\n\tencode zstd gzip\n' "$domain" "$public_root"
+      cat <<'EOF'
+	@stepanel_sensitive path_regexp stepanel_sensitive (?i)^/(\.env(\.[^/]*)?|\.git(/.*)?|\.svn(/.*)?|\.hg(/.*)?|\.htpasswd|\.htaccess|(.*/)?[^/]+\.(sql|sqlite3?|db|bak|backup|tar|tgz|zip|enc)(\.[^/]*)?)$
+	respond @stepanel_sensitive 404
+EOF
       if [[ -f "/var/www/sites/$site/.stepanel-staging-noindex" && ! -L "/var/www/sites/$site/.stepanel-staging-noindex" ]]; then printf '\theader X-Robots-Tag "noindex, nofollow"\n'; fi
       if [[ $action == apply-auth ]]; then printf '\tbasic_auth {\n\t\t%s %s\n\t}\n' "$auth_user" "$auth_hash"; fi
       if [[ $action == import-htaccess ]]; then
@@ -85,7 +94,7 @@ case "$action" in
           printf '\tredir %s %s %s\n' "$source" "$destination" "$code"
         done
       fi
-      printf '\tphp_fastcgi unix/%s\n\tfile_server\n}\n' "$socket"
+      printf '\tphp_fastcgi unix/%s\n\tfile_server {\n\t\thide %s/.env %s/.env.* %s/.git %s/.git/* %s/.svn %s/.svn/* %s/.hg %s/.hg/* %s/.htpasswd %s/.htaccess\n\t}\n}\n' "$socket" "$public_root" "$public_root" "$public_root" "$public_root" "$public_root" "$public_root" "$public_root" "$public_root" "$public_root" "$public_root"
     } > "$staged"
     chmod 0644 "$staged"
     chown root:root "$staged"

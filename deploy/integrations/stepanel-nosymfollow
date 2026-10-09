@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+mount_root=/var/www
+command -v findmnt >/dev/null 2>&1 || { echo 'findmnt is required for /var/www symlink isolation' >&2; exit 1; }
+command -v mount >/dev/null 2>&1 || { echo 'mount is required for /var/www symlink isolation' >&2; exit 1; }
+[[ -d $mount_root && ! -L $mount_root ]] || { echo '/var/www is missing or unsafe' >&2; exit 1; }
+
+if findmnt -no OPTIONS -T "$mount_root" | tr ',' '\n' | grep -Fxq nosymfollow; then
+  exit 0
+fi
+
+# A bind mount gives /var/www its own mount flags without changing the
+# underlying filesystem's options. nosymfollow is enforced by the VFS for
+# every consumer of this mount, including Caddy, PHP-FPM, and site users.
+mount --bind "$mount_root" "$mount_root"
+mount -o remount,bind,nosymfollow "$mount_root"
+findmnt -no OPTIONS -T "$mount_root" | tr ',' '\n' | grep -Fxq nosymfollow || {
+  echo 'kernel/filesystem did not enable nosymfollow on /var/www' >&2
+  exit 1
+}
