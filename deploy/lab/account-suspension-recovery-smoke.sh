@@ -139,13 +139,20 @@ done
 curl --fail --silent --show-error --max-time 10 "$PANEL/readyz" >/dev/null
 accounts=$(curl --fail --silent --show-error --max-time 10 \
   -H "Cookie: $COOKIE_HEADER" "$PANEL/api/accounts")
-SUSPENSION_SMOKE_ACCOUNT="$SUSPENSION_SMOKE_ACCOUNT" ACCOUNTS_JSON="$accounts" python3 <<'PY'
+# A kill after the suspension is persisted must leave the account suspended.
+# A kill before it is persisted happens before the request is acknowledged
+# (the administrator sees a failed request and retries); the account must be
+# unchanged and consistent, never half-suspended.
+want_suspended=False
+[[ $SUSPENSION_KILL_AT == suspend:persisted ]] && want_suspended=True
+SUSPENSION_SMOKE_ACCOUNT="$SUSPENSION_SMOKE_ACCOUNT" ACCOUNTS_JSON="$accounts" WANT_SUSPENDED="$want_suspended" python3 <<'PY'
 import json, os, sys
 target = os.environ["SUSPENSION_SMOKE_ACCOUNT"]
+want = os.environ["WANT_SUSPENDED"] == "True"
 accounts = json.loads(os.environ["ACCOUNTS_JSON"])["accounts"]
 match = next((account for account in accounts if account.get("username") == target), None)
-if not match or match.get("suspended") is not True:
-    print(f"recovered account state = {match!r}; want suspended=true", file=sys.stderr)
+if not match or match.get("suspended") is not want:
+    print(f"recovered account state = {match!r}; want suspended={want}", file=sys.stderr)
     sys.exit(1)
 PY
 

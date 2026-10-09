@@ -58,7 +58,13 @@ run_matrix_once() {
 if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
   matrix_prefix=${RECOVERY_MATRIX_PREFIX//[^a-zA-Z0-9_-]/-}
   matrix_prefix=${matrix_prefix:0:12}
-  full_site() { printf '%s-f-%s-%s' "$matrix_prefix" "${1:0:4}" "${2##*:}"; }
+  # Site and account names are limited to 32 characters; the boundary name
+  # (for example suspend:before-persist) would otherwise push past it.
+  full_site() {
+    local name
+    name=$(printf '%s-f-%s-%s' "$matrix_prefix" "${1:0:4}" "${2##*:}")
+    printf '%s' "${name:0:32}"
+  }
 
   site=$(full_site cpmove cpmove:activate)
   CPMOVE_RECOVERY_SMOKE_SITE="$site" CPMOVE_KILL_AT=cpmove:activate bash "$repo/cpmove-recovery-smoke.sh"

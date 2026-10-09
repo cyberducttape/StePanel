@@ -90,3 +90,27 @@ func TestInstallerRejectsUnsafeSettingsFiles(t *testing.T) {
 		t.Fatalf("non-StePanel variable accepted: %v %s", err, output)
 	}
 }
+
+// A fresh install must still require consent before stopping another web
+// server, while an upgrade of an existing installation that keeps the same
+// web server must not be refused (the N-1 upgrade smoke).
+func TestInstallerTakeoverConsentAndUpgrade(t *testing.T) {
+	script, err := os.ReadFile("install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(script)
+	for _, required := range []string{
+		`preflight_blockers+=("rerun with --take-over-host to stop and disable: ${PREEXISTING_WEB_SERVICES[*]}")`,
+		`grep -Fxq "STEPANEL_WEBSERVER=\"$WEB_SERVER\"" "$ENV_FILE"; then`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("install.sh is missing %q", required)
+		}
+	}
+	upgrade := strings.Index(text, `grep -Fxq "STEPANEL_WEBSERVER=\"$WEB_SERVER\"" "$ENV_FILE"; then`)
+	guard := strings.Index(text, `preflight_blockers+=("rerun with --take-over-host`)
+	if upgrade < 0 || guard < 0 || upgrade > guard {
+		t.Fatal("the upgrade consent check must run before the takeover guard")
+	}
+}

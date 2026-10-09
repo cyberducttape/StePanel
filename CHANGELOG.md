@@ -49,6 +49,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **First Rocky Linux 9 KVM certification run** (SELinux enforcing, full
+  recovery matrix, abrupt guest loss idle and mid-backup, real ENOSPC); see
+  `docs/lab-results/2026-10-09-rocky9-kvm-certification.md` and
+  `deploy/lab/local-kvm-certification.sh`. It found and fixed: scheduled
+  tasks and Python apps that SELinux prevented from starting; Git deploys
+  broken after any site seal by an ACL mask reset; and full-matrix drill
+  errors. The rootless build runner remains unsupported under SELinux.
+- **Upgrades are no longer refused on Debian/Ubuntu**: the host-takeover
+  guard refused to stop the Apache that PHP packages pull in, even when
+  upgrading an existing installation with the same web server. That consent
+  was given at first install, so upgrades proceed and say so.
+
 - **HTTP error-rate alert fires at low traffic**: `StePanelHTTP5xxRateHigh`
   clamped its denominator to one request per second, so on a quiet panel
   10 requests with 2 failures (20%) evaluated to about 0.67% and never

@@ -345,6 +345,16 @@ for web_service in "${PREEXISTING_WEB_SERVICES[@]}"; do
 done
 echo "  ENABLE and START $SELECTED_WEB_SERVICE, $DB_SERVICE, php-fpm, stepanel, stepanel-root-broker"
 echo "  CREATE or UPDATE $APP_DIR, $DATA_DIR, /var/www/sites, $ENV_FILE, /usr/local/sbin/stepanel-*, systemd units"
+# Upgrading a host StePanel already manages with the same web server: the
+# operator consented to the takeover when StePanel was first installed, and
+# any other web server present (for example Apache pulled in as a PHP package
+# dependency on Debian/Ubuntu) cannot be serving, since StePanel's web server
+# owns ports 80 and 443. Do not ask again.
+if (( ${#PREEXISTING_WEB_SERVICES[@]} > 0 && TAKE_OVER_HOST == 0 )) && [[ -f $ENV_FILE && ! -L $ENV_FILE ]] \
+  && grep -Fxq "STEPANEL_WEBSERVER=\"$WEB_SERVER\"" "$ENV_FILE"; then
+  echo "  upgrade of an existing $WEB_SERVER installation: ${PREEXISTING_WEB_SERVICES[*]} will be stopped and disabled as at first install"
+  TAKE_OVER_HOST=1
+fi
 if (( ${#PREEXISTING_WEB_SERVICES[@]} > 0 && TAKE_OVER_HOST == 0 && GUIDED == 1 && DRY_RUN == 0 )); then
   echo "This server already runs: ${PREEXISTING_WEB_SERVICES[*]}."
   echo "StePanel needs ports 80 and 443, so the installer would stop and disable it."

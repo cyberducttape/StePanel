@@ -208,12 +208,24 @@ func TestBackupRecoversFromRealENOSPC(t *testing.T) {
 	if !errors.Is(backupErr, syscall.ENOSPC) {
 		t.Fatalf("backup error = %v, want real ENOSPC", backupErr)
 	}
-	entries, err := os.ReadDir(backupRoot)
+	all, err := os.ReadDir(backupRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A dedicated ext4 filesystem carries mkfs's lost+found; it is not a
+	// backup artifact.
+	var entries []os.DirEntry
+	for _, entry := range all {
+		if entry.Name() != "lost+found" {
+			entries = append(entries, entry)
+		}
+	}
 	if len(entries) != 1 || entries[0].Name() != filepath.Base(fillPath) {
-		t.Fatalf("backup root after ENOSPC = %#v, want only the filler (no partial publication)", entries)
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		t.Fatalf("backup root after ENOSPC = %q, want only the filler (no partial publication)", names)
 	}
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".backup-") {
