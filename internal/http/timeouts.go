@@ -55,6 +55,12 @@ var LongOperationPaths = []string{
 	"/api/backups/restore-offsite-to-staging",
 }
 
+// IsUploadPath reports whether path receives a large archive upload. Uploads
+// keep the server-wide read timeout and their own idle-body guard.
+func IsUploadPath(path string) bool {
+	return startsWith(path, "/api/cpmove/") || startsWith(path, "/api/wpress/") || startsWith(path, "/api/backup/import")
+}
+
 // IsLongOperationPath reports whether path is a synchronous long operation.
 func IsLongOperationPath(path string) bool {
 	for _, prefix := range LongOperationPaths {
@@ -190,9 +196,7 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 				// Streams manage their own write deadlines and lifetime.
 				next.ServeHTTP(w, r)
 				return
-			case startsWith(r.URL.Path, "/api/cpmove/") ||
-				startsWith(r.URL.Path, "/api/wpress/") ||
-				startsWith(r.URL.Path, "/api/backup/import"):
+			case IsUploadPath(r.URL.Path):
 				// Uploads need long timeouts
 				timeout = tc.UploadRead
 			case startsWith(r.URL.Path, "/api/backup/download") ||
@@ -213,6 +217,17 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 			default:
 				// Default API timeout
 				timeout = tc.APIRead
+			}
+
+			// A context deadline does not interrupt a blocked r.Body read,
+			// and the server-wide read timeout is sized for uploads. Bound
+			// the network read for every other class too, so a slowly
+			// trickled request body cannot hold a handler past its class.
+			// Uploads keep the server read timeout plus their idle guard.
+			if !IsUploadPath(r.URL.Path) {
+				if err := http.NewResponseController(w).SetReadDeadline(time.Now().Add(timeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+					log.Printf("set read deadline for %s: %v", r.URL.Path, err)
+				}
 			}
 
 			// Create context with timeout

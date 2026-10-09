@@ -7,6 +7,7 @@ import (
 	"errors"
 	httputil "github.com/cyberducttape/StePanel/internal/http"
 	"html/template"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -415,5 +416,44 @@ func TestLongOperationOutlivesServerWriteTimeout(t *testing.T) {
 			_ = response.Body.Close()
 			t.Fatalf("%s: ordinary route outlived the 300ms write timeout; the test no longer proves the extension", path)
 		}
+	}
+}
+
+// A client that trickles an ordinary request body must not hold a handler
+// past the route's class deadline: the context deadline alone does not
+// interrupt a blocked body read, and the server read timeout is sized for
+// uploads.
+func TestSlowRequestBodyHitsClassReadDeadline(t *testing.T) {
+	timeouts := httputil.DefaultTimeouts()
+	timeouts.APIRead = 300 * time.Millisecond
+	readDone := make(chan time.Duration, 1)
+	handler := logging(normalizeAPIErrors(timeouts.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		var input map[string]any
+		if err := decodeJSON(w, r, 1024, &input); err == nil {
+			t.Error("trickled body decoded successfully")
+		}
+		readDone <- time.Since(started)
+	}))), nil, false)
+	server := httptest.NewUnstartedServer(handler)
+	server.Config.ReadTimeout = 10 * time.Second
+	server.Start()
+	defer server.Close()
+
+	conn, err := net.Dial("tcp", server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("POST /api/sites HTTP/1.1\r\nHost: test\r\nContent-Type: application/json\r\nContent-Length: 50\r\n\r\n{\"si")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case elapsed := <-readDone:
+		if elapsed > 2*time.Second {
+			t.Fatalf("body read blocked %s, want the 300ms class deadline", elapsed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler still blocked reading a trickled body after 5s")
 	}
 }

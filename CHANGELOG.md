@@ -49,6 +49,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Slow request bodies are bounded**: route classes only set a context
+  deadline, which does not interrupt a blocked body read, while the server
+  read timeout is sized for 60-minute uploads. A client trickling an
+  ordinary JSON body could hold a handler for up to an hour. Every non-upload
+  request now gets a network read deadline matching its class.
+
 - **Long synchronous operations are no longer cut off at 30 seconds**: the
   timeout middleware gave every unclassified API route a 30-second deadline,
   so release pipelines (20-minute budget), Git deploys, Composer/Node/Python
