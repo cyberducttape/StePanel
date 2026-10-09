@@ -25,6 +25,7 @@
     'backup.restore': 'Backup restore',
     'node.deployment': 'Deployment',
     'migration.analysis': 'Migration analysis',
+    'site.operation': 'Site operation',
   }[job.kind] || job.kind.replaceAll('.', ' '));
   const duration = (job) => {
     const start = new Date(job.started_at);

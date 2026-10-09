@@ -59,10 +59,28 @@ print(json.dumps({"site": sys.argv[1], "repository": sys.argv[2], "ref": sys.arg
                   "commands": ["cp /src/README /artifact/index.html", "printf 'built\\n' > /artifact/build.txt"]}))
 PY
 )
-status=$(curl --silent --show-error --max-time 1800 -o "$work/response.json" -w '%{http_code}' \
+# The pipeline is a durable site operation: 202 with a job ID, then the job
+# carries the pipeline's response as its output.
+status=$(curl --silent --show-error --max-time 30 -o "$work/response.json" -w '%{http_code}' \
   -H "Cookie: stepanel_session=$session; stepanel_csrf=$csrf" -H "X-CSRF-Token: $csrf" \
   -H 'Content-Type: application/json' --data "$body" "$PANEL/api/deployments/run")
 response=$(cat "$work/response.json")
+if [[ $status == 202 ]]; then
+  job_id=$(python3 -c 'import json, sys; print(json.load(sys.stdin)["job_id"])' < "$work/response.json")
+  state=
+  for _ in $(seq 1 1800); do
+    job=$(curl --silent --max-time 10 -H "Cookie: stepanel_session=$session; stepanel_csrf=$csrf" "$PANEL/api/jobs/$job_id" || true)
+    state=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("state", ""))' "$job" 2>/dev/null || true)
+    [[ $state == completed || $state == failed || $state == dead-letter || $state == cancelled ]] && break
+    sleep 1
+  done
+  if [[ $state == completed ]]; then
+    response=$(python3 -c 'import json, sys; print(json.dumps(json.loads(sys.argv[1]).get("output", {})))' "$job")
+  else
+    status="job $state"
+    response=$job
+  fi
+fi
 [[ $status == 2?? ]] || {
   echo "release pipeline returned HTTP $status: $response" >&2
   echo 'latest deployment record:' >&2

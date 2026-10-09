@@ -1,7 +1,6 @@
 package stepanel
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -527,10 +526,16 @@ func (a *App) gitWebhook(w http.ResponseWriter, r *http.Request) {
 	// gitDeploy treats that value — not input.Site from the body — as the
 	// trusted deploy target, so a valid signature for siteA can never trigger a
 	// deploy on siteB regardless of what the body claims.
-	config.Site = site
-	request := r.Clone(context.WithValue(r.Context(), gitWebhookSiteKey{}, newAuthenticatedWebhook(config)))
-	request.Body = io.NopCloser(bytes.NewReader(body))
-	a.gitDeploy(w, request)
+	//
+	// The deployment runs as a durable job (see site_operations.go), which
+	// re-reads this site's webhook policy before it starts. The sender gets
+	// 202 and the job ID instead of waiting on a checkout and build.
+	if input := siteFromBody("", body); input != "" && input != site {
+		TelemetryAudit(a.Config.AuditLog, "webhook", "webhook.site.mismatch", site, fmt.Sprintf("body claimed site %q", input))
+		http.Error(w, "webhook body targets a different site than the URL signature authorized", http.StatusForbidden)
+		return
+	}
+	a.enqueueSiteOperation(w, r, siteOperationPayload{Operation: "git.deploy", Path: "/api/sites/git-deploy", Body: body, Site: site, Actor: "webhook", Webhook: true})
 }
 
 // containsString checks if a string is in a list (case-insensitive for URLs)

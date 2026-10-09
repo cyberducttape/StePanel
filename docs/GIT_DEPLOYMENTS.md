@@ -56,8 +56,10 @@ retained under the site root as `.stepanel-previous-<id>`.
 Git checkout, build-pipeline, activation, and rollback operations are serialized
 per site. Operations for different sites may proceed concurrently; same-site
 pipelines cannot race over the shared `.stepanel-artifact` path or release
-pointer. The request has a ten-minute timeout and returns the exact deployed
-commit on success.
+pointer. The request queues a durable job and answers `202` with its
+`job_id`; the completed job's `output` carries the exact deployed commit.
+Signed webhook deliveries are queued the same way, and the worker re-reads the
+site's webhook policy before the deployment starts.
 
 ## Roll back
 

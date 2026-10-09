@@ -6,7 +6,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- **Builds, deployments, and staging restores are durable jobs**: Git
+  deploys, signed Git webhooks, release pipelines, runner builds, staging
+  creation, restore-to-staging (local and offsite), Composer install, Node
+  tooling, and Python deploys no longer hold an HTTP request open for up to
+  60 minutes. The request is authenticated, CSRF-checked, and authorized for
+  the site, then answers `202` with a `job_id`; a worker runs the unchanged
+  handler as the original requester (scopes and site access are re-checked)
+  with a 60-minute deadline, and the job's `output` is the response the
+  endpoint used to return. Operations on one site run one at a time. A
+  dropped browser no longer cancels a build. **API clients must follow the
+  job** (`status_url`) instead of reading the result from the response.
+- **Interrupted operations are repaired, not repeated**: if a worker dies
+  mid-operation, the next claim recovers that site's interrupted release
+  activation and site transactions under its lease (the same recovery panel
+  startup runs, limited to the site) and reports the operation as
+  interrupted instead of re-running it.
+- The 60-minute HTTP class (`LongOperationPaths`) is gone; Python
+  start/stop/restart keep a 3-minute synchronous class.
+
 ### Fixed
+
+- **Signed Git webhook deployments were cut off after 30 seconds**: the
+  webhook route ran the checkout inside the request on the ordinary API
+  deadline. Deliveries are now queued, and the worker re-reads the site's
+  webhook policy before deploying, so a webhook removed in the meantime
+  stops the deployment.
+- **The Composer button in the site workspace never ran**: it posted to
+  `/api/composer/<site>` instead of `/api/composer/<site>/install` and sent
+  `optimize` instead of `optimize_autoloader`.
 
 - **Chunked uploads are no longer refused for the upload ceiling**: an
   upload without `Content-Length` was admitted at the full

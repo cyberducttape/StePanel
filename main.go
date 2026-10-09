@@ -699,7 +699,7 @@ func Main() {
 	mux.Handle("/api/certificates/issue", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.issueCertificate)), http.MethodPost))
 	mux.Handle("/api/node/versions", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.nodeVersions)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/node/select", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.selectNode)), http.MethodPost))
-	mux.Handle("/api/node/tooling", allowMethods(app.Auth.Require(http.HandlerFunc(app.nodeTooling)), http.MethodPost))
+	mux.Handle("/api/node/tooling", allowMethods(app.Auth.Require(app.siteOperation("node.tooling")), http.MethodPost))
 	mux.Handle("/api/proxy/deploy", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.deployProxy)), http.MethodPost))
 	mux.Handle("/api/proxy", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.proxyList)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/proxy/test", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.proxyTest)), http.MethodPost))
@@ -720,18 +720,18 @@ func Main() {
 	mux.Handle("/api/workers/", allowMethods(app.Auth.Require(http.HandlerFunc(app.workers)), http.MethodGet, http.MethodPut, http.MethodPost, http.MethodDelete))
 	mux.Handle("/api/tasks/{site}/{name}/kill", allowMethods(app.Auth.Require(http.HandlerFunc(app.tasks)), http.MethodPost))
 	mux.Handle("/api/tasks/", allowMethods(app.Auth.Require(http.HandlerFunc(app.tasks)), http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete))
-	mux.Handle("/api/python/deploy", allowMethods(app.Auth.Require(http.HandlerFunc(app.pythonDeploy)), http.MethodPost))
+	mux.Handle("/api/python/deploy", allowMethods(app.Auth.Require(app.siteOperation("python.deploy")), http.MethodPost))
 	mux.Handle("/api/python/", allowMethods(app.Auth.Require(http.HandlerFunc(app.pythonAction)), http.MethodPost))
-	mux.Handle("/api/composer/", allowMethods(app.Auth.Require(http.HandlerFunc(app.composer)), http.MethodGet, http.MethodHead, http.MethodPost))
+	mux.Handle("/api/composer/", allowMethods(app.Auth.Require(app.siteOperation("composer.install")), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/sites/php/", allowMethods(app.Auth.Require(http.HandlerFunc(app.phpRuntime)), http.MethodGet, http.MethodHead, http.MethodPut))
 	mux.Handle("/api/sites/resources/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteResources)), http.MethodGet, http.MethodHead, http.MethodPut))
 	mux.Handle("/api/sites/usage/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteUsage)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/reconcile/resources", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.reconcileResources)), http.MethodPost))
 	mux.Handle("/api/reconcile/tasks", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.reconcileTasksHTTP)), http.MethodPost))
-	mux.Handle("/api/staging", allowMethods(app.Auth.Require(http.HandlerFunc(app.stagingCreate)), http.MethodPost))
-	mux.Handle("/api/runner/build", allowMethods(app.Auth.Require(http.HandlerFunc(app.runnerBuild)), http.MethodPost))
+	mux.Handle("/api/staging", allowMethods(app.Auth.Require(app.siteOperation("staging.create")), http.MethodPost))
+	mux.Handle("/api/runner/build", allowMethods(app.Auth.Require(app.siteOperation("runner.build")), http.MethodPost))
 	mux.Handle("/api/deployments", allowMethods(app.Auth.Require(http.HandlerFunc(app.deployments)), http.MethodGet, http.MethodHead, http.MethodPost))
-	mux.Handle("/api/deployments/run", allowMethods(app.Auth.Require(http.HandlerFunc(app.releasePipeline)), http.MethodPost))
+	mux.Handle("/api/deployments/run", allowMethods(app.Auth.Require(app.siteOperation("release.pipeline")), http.MethodPost))
 	mux.Handle("/api/sites/logs/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteLogs)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/deploy", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteDeploy)), http.MethodPost))
 	mux.Handle("/api/sites/domains/claim", allowMethods(app.Auth.Require(http.HandlerFunc(app.domainClaim)), http.MethodPost))
@@ -740,8 +740,8 @@ func Main() {
 	mux.Handle("/api/sites/terminate", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.siteTermination)), http.MethodPost))
 	mux.Handle("/api/backups", allowMethods(app.Auth.Require(http.HandlerFunc(app.backups)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/backups/rehearse", allowMethods(app.Auth.Require(http.HandlerFunc(app.backupRehearse)), http.MethodPost))
-	mux.Handle("/api/backups/restore-to-staging", allowMethods(app.Auth.Require(http.HandlerFunc(app.backupRestoreToStaging)), http.MethodPost))
-	mux.Handle("/api/backups/restore-offsite-to-staging", allowMethods(app.Auth.Require(http.HandlerFunc(app.backupRestoreOffsiteToStaging)), http.MethodPost))
+	mux.Handle("/api/backups/restore-to-staging", allowMethods(app.Auth.Require(app.siteOperation("backup.restore-to-staging")), http.MethodPost))
+	mux.Handle("/api/backups/restore-offsite-to-staging", allowMethods(app.Auth.Require(app.siteOperation("backup.offsite-to-staging")), http.MethodPost))
 	mux.Handle("/api/backups/restore-files", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.backupRestoreFilesHTTP)), http.MethodPost))
 	mux.Handle("/api/backups/restore-database", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.backupRestoreDatabaseHTTP)), http.MethodPost))
 	mux.Handle("/api/backups/restore-offsite-files", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.backupRestoreOffsiteFilesHTTP)), http.MethodPost))
@@ -750,7 +750,7 @@ func Main() {
 	mux.Handle("/api/backup-schedules", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.backupSchedules)), http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete))
 	mux.Handle("/api/apps", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.appList)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/apps/deploy", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.appDeploy)), http.MethodPost))
-	mux.Handle("/api/sites/git-deploy", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.gitDeploy)), http.MethodPost))
+	mux.Handle("/api/sites/git-deploy", allowMethods(app.Auth.RequireAdministrator(app.siteOperation("git.deploy")), http.MethodPost))
 	mux.Handle("/api/sites/git-key/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteGitKey)), http.MethodGet, http.MethodHead, http.MethodPost, http.MethodDelete))
 	// Webhook endpoint now includes site in path for per-site secret isolation.
 	// Old endpoint /api/sites/git-webhook supported global secret only and is deprecated.
@@ -1338,6 +1338,8 @@ func (a *App) handleDurableJob(ctx context.Context, item Job) ([]byte, error) {
 		return a.handleArchiveImportJob(ctx, &item)
 	case "site.create":
 		return a.handleSiteCreation(ctx, item)
+	case siteOperationKind:
+		return a.handleSiteOperationJob(ctx, item)
 	default:
 		return nil, fmt.Errorf("no durable worker handler for job kind %q", item.Kind)
 	}
@@ -1351,7 +1353,7 @@ func durableWorkloadClass(kind string) string {
 		return "backup"
 	case "archive.inspect", "archive.import", "migration.analysis", "site.create":
 		return "extract"
-	case "cloud.action", "certificate.issue", "node.deployment":
+	case "cloud.action", "certificate.issue", "node.deployment", siteOperationKind:
 		return "build"
 	case "site.terminate":
 		return "db_restore"

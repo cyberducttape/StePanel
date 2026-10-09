@@ -24,8 +24,16 @@ import (
 // lease another process now holds. A nil lockSite (tests without a control
 // plane database) runs unlocked.
 func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker) []error {
+	return recoverInterruptedState(cfg, siteManager, lockSite, "")
+}
+
+// recoverInterruptedState is recoverUncleanShutdown limited to one site when
+// site is not empty. A worker runs the site-scoped pass, holding the site's
+// lease, when it finds a site operation that a crash interrupted, so the site
+// is repaired without waiting for the panel to restart.
+func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, site string) []error {
 	var failures []error
-	databaseRecoveries, err := RecoverTransactionDatabases(cfg, cfg.RecoveryRoot, lockSite)
+	databaseRecoveries, err := recoverTransactionDatabases(cfg, cfg.RecoveryRoot, lockSite, site)
 	if err != nil {
 		failures = append(failures, err)
 		log.Printf("recover interrupted database transactions (continuing with isolated failures): %v", err)
@@ -36,7 +44,7 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockS
 			failures = append(failures, fmt.Errorf("audit database recovery %s: %w", id, err))
 		}
 	}
-	recovered, err := RecoverSiteTransactions(cfg.RecoveryRoot, cfg.WebRoot, cfg.MailRoot)
+	recovered, err := recoverSiteTransactions(cfg.RecoveryRoot, site, cfg.WebRoot, cfg.MailRoot)
 	if err != nil {
 		failures = append(failures, err)
 		log.Printf("recover interrupted site transactions (continuing with isolated failures): %v", err)
@@ -91,7 +99,7 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockS
 			failures = append(failures, fmt.Errorf("audit site recovery %s: %w", id, err))
 		}
 	}
-	releaseRecoveries, err := recoverReleaseActivationJournals(cfg)
+	releaseRecoveries, err := recoverReleaseActivationJournalsFor(cfg, site)
 	if err != nil {
 		failures = append(failures, err)
 		log.Printf("recover interrupted release activations (continuing with isolated failures): %v", err)
@@ -104,8 +112,9 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockS
 	}
 	// Pipeline checkout/build staging has no activation journal yet. If the
 	// process dies in that window, discard only manager-owned release trees
-	// after journal recovery has had first opportunity to use them.
-	if err == nil {
+	// after journal recovery has had first opportunity to use them. Only the
+	// host-wide pass does this: the age check is not site-scoped.
+	if err == nil && site == "" {
 		if orphaned, cleanupErr := siteManager.CleanupOrphanedStaging(context.Background(), orphanedStagingMinAge); cleanupErr != nil {
 			failures = append(failures, fmt.Errorf("cleanup orphaned staging: %w", cleanupErr))
 		} else if orphaned > 0 {

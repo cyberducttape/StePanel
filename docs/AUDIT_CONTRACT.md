@@ -72,6 +72,7 @@ and never affects the operation; failures are logged.
 | Login removal, tenant member creation, removal, role change | A, intent-first | `hosting.account.login-removed`, `tenant.member.*` |
 | Tenant member suspension only | A, revocation | `tenant.member.updated` |
 | Git deployment (session or webhook), rollback, release pipeline | A, intent-first | `site.git-deployed`, `site.git-rolled-back`, `site.release.pipeline` |
+| Queuing a long site operation (`site.operation` job) | A (request ledger) | the `http.request` event `Auth.Require` writes; the operation's own events are written by the worker with the original actor |
 | Webhook configuration update | A, intent-first | `webhook.config.updated` |
 | Webhook disable | A, revocation | `webhook.config.disabled` |
 | Site creation | A, intent-first | `site.created` |

@@ -31,28 +31,20 @@ type TimeoutConfiguration struct {
 	// Large downloads
 	DownloadWrite time.Duration
 
-	// Synchronous long operations (builds, deployments, restore-to-staging)
-	// that still run inside the request; see LongOperationPaths.
-	LongOperation time.Duration
+	// Synchronous service lifecycle actions; see ServiceOperationPaths.
+	ServiceOperation time.Duration
 }
 
-// LongOperationPaths are synchronous API routes whose handlers do minutes of
-// work (Git checkout and build, dependency installs, container builds,
-// restore-to-staging) inside the request. They get LongOperation as both the
-// request deadline and the response write deadline, instead of the 30-second
-// API class that would cancel them. They should become durable jobs that
-// return a job ID; until then web/static/api.js must list the same paths
-// (TestLongOperationPathsMatchClient) so the browser does not give up first.
-var LongOperationPaths = []string{
-	"/api/deployments/run",
-	"/api/runner/build",
-	"/api/sites/git-deploy",
-	"/api/composer/",
-	"/api/node/tooling",
+// ServiceOperationPaths are synchronous API routes that start, stop, or
+// restart a site service inside the request, bounded by the helper's 60-second
+// service lifecycle timeout plus the site lock wait. They get ServiceOperation
+// as both the request and response write deadline instead of the 30-second
+// API class. Work that takes minutes (builds, deployments, dependency
+// installs, staging) is a durable job instead and answers in milliseconds.
+// web/static/api.js lists the same paths (TestServiceOperationPathsMatchClient)
+// so the browser does not give up first.
+var ServiceOperationPaths = []string{
 	"/api/python/",
-	"/api/staging",
-	"/api/backups/restore-to-staging",
-	"/api/backups/restore-offsite-to-staging",
 }
 
 // IsUploadPath reports whether path receives a large archive upload. Uploads
@@ -61,9 +53,9 @@ func IsUploadPath(path string) bool {
 	return startsWith(path, "/api/cpmove/") || startsWith(path, "/api/wpress/") || startsWith(path, "/api/backup/import")
 }
 
-// IsLongOperationPath reports whether path is a synchronous long operation.
-func IsLongOperationPath(path string) bool {
-	for _, prefix := range LongOperationPaths {
+// IsServiceOperationPath reports whether path is a synchronous service action.
+func IsServiceOperationPath(path string) bool {
+	for _, prefix := range ServiceOperationPaths {
 		if path == prefix || (strings.HasSuffix(prefix, "/") && strings.HasPrefix(path, prefix)) {
 			return true
 		}
@@ -100,9 +92,9 @@ func DefaultTimeouts() TimeoutConfiguration {
 		// Includes: backup downloads, export streams
 		DownloadWrite: 5 * time.Minute,
 
-		// Long operations: the largest handler budget is restore-to-staging
-		// and staging creation (30 minutes plus database restore).
-		LongOperation: 60 * time.Minute,
+		// Service lifecycle actions: the 60-second helper timeout plus
+		// waiting for the site lock.
+		ServiceOperation: 3 * time.Minute,
 	}
 }
 
@@ -203,10 +195,10 @@ func (tc TimeoutConfiguration) Middleware() func(http.Handler) http.Handler {
 				startsWith(r.URL.Path, "/api/export"):
 				// Downloads need long write timeouts
 				timeout = tc.DownloadWrite
-			case IsLongOperationPath(r.URL.Path):
+			case IsServiceOperationPath(r.URL.Path):
 				// The server-wide write timeout would end the response before
 				// the work finishes; extend it for this request only.
-				timeout = tc.LongOperation
+				timeout = tc.ServiceOperation
 				if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout + time.Minute)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 					log.Printf("extend write deadline for %s: %v", r.URL.Path, err)
 				}

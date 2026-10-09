@@ -315,6 +315,23 @@ Other delivery endpoints:
 bytes, so the `backup` file part must be the last part of the request (with
 curl, put `-F 'backup=@site.wpress'` after the other `-F` options).
 
+Long site operations are durable jobs: `POST /api/sites/git-deploy`,
+`/api/sites/git-webhook/<site>`, `/api/runner/build`, `/api/deployments/run`,
+`/api/staging`, `/api/backups/restore-to-staging`,
+`/api/backups/restore-offsite-to-staging`, `/api/composer/<site>/install`,
+`/api/node/tooling`, and `/api/python/deploy` check authentication, CSRF,
+and site access, then answer `202 Accepted` with
+`{"job_id", "status_url", "operation", "site"}`. Follow `status_url` (or
+`/api/jobs/events`) until the job is `completed`, when `output` holds the
+response the operation used to return, or `dead-letter`, when `error` holds
+its message (for example a validation failure or a refused image). The worker
+runs the operation as the original requester, so scopes and site access are
+checked again when it starts. Operations on one site run one at a time.
+`Idempotency-Key` is honoured. A job interrupted by a worker crash is not
+repeated: the worker repairs the site and reports the operation as
+interrupted. Python start, stop, and restart stay synchronous (3-minute
+deadline).
+
 See the dedicated [Git deployment](GIT_DEPLOYMENTS.md), [developer
 workflows](DEVELOPER_WORKFLOWS.md), [cPanel import](CPMOVE_IMPORTS.md), and
 [WordPress import](WPRESS_IMPORTS.md) guides for request bodies and provider

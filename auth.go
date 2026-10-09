@@ -398,6 +398,10 @@ func (a Auth) CSRF(r *http.Request) bool {
 	if _, ok := r.Context().Value(apiTokenUsernameKey{}).(string); ok {
 		return true
 	}
+	// A replayed site operation passed this check when it was queued.
+	if _, ok := r.Context().Value(replayedIdentityKey{}).(string); ok {
+		return true
+	}
 	cookie, err := r.Cookie("stepanel_csrf")
 	if err != nil {
 		return false
@@ -540,6 +544,9 @@ func (a Auth) passwordHashFor(username string) (string, bool) {
 
 func (a Auth) UsernameForRequest(r *http.Request) string {
 	if username, ok := r.Context().Value(apiTokenUsernameKey{}).(string); ok {
+		return username
+	}
+	if username, ok := r.Context().Value(replayedIdentityKey{}).(string); ok {
 		return username
 	}
 	if !a.validSession(r) {

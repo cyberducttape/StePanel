@@ -86,6 +86,13 @@ func (j *releaseActivationJournal) cleanup() error {
 }
 
 func recoverReleaseActivationJournals(cfg Config) ([]string, error) {
+	return recoverReleaseActivationJournalsFor(cfg, "")
+}
+
+// recoverReleaseActivationJournalsFor reconciles interrupted release
+// activations, only those of site when it is not empty. A site-scoped pass
+// leaves journals it cannot attribute to the panel's startup recovery.
+func recoverReleaseActivationJournalsFor(cfg Config, site string) ([]string, error) {
 	entries, err := os.ReadDir(cfg.RecoveryRoot)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -109,7 +116,13 @@ func recoverReleaseActivationJournals(cfg Config) ([]string, error) {
 		}
 		var journal releaseActivationJournal
 		if err := json.Unmarshal(data, &journal); err != nil {
+			if site != "" {
+				continue
+			}
 			return recovered, fmt.Errorf("decode release activation journal %s: %w", entry.Name(), err)
+		}
+		if site != "" && journal.Site != site {
+			continue
 		}
 		if journal.Version != releaseActivationJournalVersion || journal.ID == "" || safeUser(journal.Site) == "" || journal.StagedRoot == "" {
 			return recovered, fmt.Errorf("release activation journal %s is invalid", entry.Name())

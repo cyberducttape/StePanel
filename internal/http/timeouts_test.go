@@ -64,16 +64,17 @@ func TestTimeoutMiddlewareLeavesEventStreamWithoutDeadline(t *testing.T) {
 	}
 }
 
-func TestLongOperationPathsGetLongDeadline(t *testing.T) {
+func TestServiceOperationPathsGetServiceDeadline(t *testing.T) {
 	tc := DefaultTimeouts()
 	for path, long := range map[string]bool{
-		"/api/deployments/run": true, "/api/runner/build": true, "/api/sites/git-deploy": true,
-		"/api/composer/shop": true, "/api/node/tooling": true, "/api/python/deploy": true, "/api/staging": true,
-		"/api/backups/restore-to-staging": true, "/api/backups/restore-offsite-to-staging": true,
-		"/api/deployments": false, "/api/sites/deploy": false, "/api/stagingx": false, "/api/backups": false,
+		"/api/python/shop/restart": true, "/api/python/shop/stop": true,
+		// Builds and deployments are durable jobs: the request only queues them.
+		"/api/deployments/run": false, "/api/runner/build": false, "/api/sites/git-deploy": false,
+		"/api/composer/shop/install": false, "/api/node/tooling": false, "/api/staging": false,
+		"/api/backups/restore-to-staging": false, "/api/sites/deploy": false, "/api/pythonx": false,
 	} {
-		if got := IsLongOperationPath(path); got != long {
-			t.Errorf("IsLongOperationPath(%q) = %v, want %v", path, got, long)
+		if got := IsServiceOperationPath(path); got != long {
+			t.Errorf("IsServiceOperationPath(%q) = %v, want %v", path, got, long)
 		}
 		var deadline time.Time
 		handler := tc.Middleware()(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -81,8 +82,8 @@ func TestLongOperationPathsGetLongDeadline(t *testing.T) {
 		}))
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, path, nil))
 		remaining := time.Until(deadline)
-		if long && remaining < 59*time.Minute {
-			t.Errorf("%s deadline %s, want the 60-minute long-operation class", path, remaining)
+		if long && remaining < tc.ServiceOperation-time.Minute {
+			t.Errorf("%s deadline %s, want the service-operation class", path, remaining)
 		}
 		if !long && remaining > tc.LongPoll {
 			t.Errorf("%s deadline %s, want an ordinary API deadline", path, remaining)
@@ -90,28 +91,28 @@ func TestLongOperationPathsGetLongDeadline(t *testing.T) {
 	}
 }
 
-// The browser must not abort a long operation before the server's deadline.
-func TestLongOperationPathsMatchClient(t *testing.T) {
+// The browser must not abort a service action before the server's deadline.
+func TestServiceOperationPathsMatchClient(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("..", "..", "web", "static", "api.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	block := regexp.MustCompile(`(?s)const LONG_OPERATION_PATHS = \[(.*?)\];`).FindSubmatch(source)
+	block := regexp.MustCompile(`(?s)const SERVICE_OPERATION_PATHS = \[(.*?)\];`).FindSubmatch(source)
 	if block == nil {
-		t.Fatal("web/static/api.js does not define LONG_OPERATION_PATHS")
+		t.Fatal("web/static/api.js does not define SERVICE_OPERATION_PATHS")
 	}
 	var client []string
 	for _, match := range regexp.MustCompile(`'([^']+)'`).FindAllSubmatch(block[1], -1) {
 		client = append(client, string(match[1]))
 	}
-	if strings.Join(client, ",") != strings.Join(LongOperationPaths, ",") {
-		t.Fatalf("client long-operation paths %q differ from server %q", client, LongOperationPaths)
+	if strings.Join(client, ",") != strings.Join(ServiceOperationPaths, ",") {
+		t.Fatalf("client service-operation paths %q differ from server %q", client, ServiceOperationPaths)
 	}
-	timeout := regexp.MustCompile(`LONG_OPERATION_TIMEOUT_MS = (\d+) \* 60 \* 1000`).FindSubmatch(source)
+	timeout := regexp.MustCompile(`SERVICE_OPERATION_TIMEOUT_MS = (\d+) \* 60 \* 1000`).FindSubmatch(source)
 	if timeout == nil {
-		t.Fatal("web/static/api.js does not define LONG_OPERATION_TIMEOUT_MS in minutes")
+		t.Fatal("web/static/api.js does not define SERVICE_OPERATION_TIMEOUT_MS in minutes")
 	}
-	if minutes, _ := strconv.Atoi(string(timeout[1])); time.Duration(minutes)*time.Minute <= DefaultTimeouts().LongOperation {
-		t.Fatalf("client long-operation timeout %d minutes must exceed the server's %s", minutes, DefaultTimeouts().LongOperation)
+	if minutes, _ := strconv.Atoi(string(timeout[1])); time.Duration(minutes)*time.Minute <= DefaultTimeouts().ServiceOperation {
+		t.Fatalf("client service-operation timeout %d minutes must exceed the server's %s", minutes, DefaultTimeouts().ServiceOperation)
 	}
 }

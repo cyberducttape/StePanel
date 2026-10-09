@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Exercise a real Git deployment across a panel SIGKILL during activation.
+# Exercise a real Git deployment across a SIGKILL during activation. Git
+# deployments are durable site operations, so the process killed is the one
+# running jobs: the worker service in external worker mode, else the panel.
 set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'deploy recovery smoke must run as root' >&2; exit 1; }
@@ -14,7 +16,11 @@ command -v systemctl >/dev/null || { echo 'deploy recovery smoke requires system
 : "${DEPLOY_RECOVERY_SMOKE_SITE:=ci-smoke}"
 : "${DEPLOY_KILL_AT:=deploy:activate}"
 
-dropin_dir=/run/systemd/system/stepanel.service.d
+service=stepanel.service
+if systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null; then
+  service=stepanel-worker.service
+fi
+dropin_dir=/run/systemd/system/$service.d
 dropin="$dropin_dir/recovery-smoke.conf"
 mkdir -p "$dropin_dir"
 work=$(mktemp -d)
@@ -24,10 +30,10 @@ journal_root=/var/www/sites/.stepanel-recovery
 
 cleanup() {
   local status=$?
-  systemctl stop stepanel.service >/dev/null 2>&1 || true
+  systemctl stop "$service" >/dev/null 2>&1 || true
   rm -f -- "$dropin"
   systemctl daemon-reload >/dev/null 2>&1 || true
-  timeout --foreground 30s systemctl start stepanel.service >/dev/null 2>&1 || true
+  timeout --foreground 30s systemctl start "$service" >/dev/null 2>&1 || true
   rm -rf -- "$work"
   if (( status != 0 )); then
     echo "deploy recovery smoke failed (status $status)" >&2
@@ -73,20 +79,20 @@ cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
 printf '%s\n' '[Service]' "Environment=STEPANEL_KILL_AT=$DEPLOY_KILL_AT" > "$dropin"
 systemctl daemon-reload
-systemctl restart stepanel.service
+systemctl restart "$service"
 for _ in $(seq 1 60); do
-  if systemctl is-active --quiet stepanel.service && \
+  if systemctl is-active --quiet "$service" && \
      curl --fail --silent --max-time 2 "$PANEL/readyz" >/dev/null; then
     break
   fi
   sleep 1
 done
 curl --fail --silent --show-error --max-time 10 "$PANEL/readyz" >/dev/null
-before=$(systemctl show stepanel.service -p MainPID --value)
-[[ "$before" =~ ^[1-9][0-9]*$ ]] || { echo "could not determine panel PID: $before" >&2; exit 1; }
+before=$(systemctl show "$service" -p MainPID --value)
+[[ "$before" =~ ^[1-9][0-9]*$ ]] || { echo "could not determine $service PID: $before" >&2; exit 1; }
 
 set +e
-curl --silent --show-error --max-time 120 \
+queued=$(curl --silent --show-error --max-time 120 \
   -H "Cookie: $cookie_header" \
   -H "X-CSRF-Token: $csrf" \
   -H 'Content-Type: application/json' \
@@ -95,36 +101,50 @@ import json, sys
 print(json.dumps({"site": sys.argv[1], "repository": "https://github.com/octocat/Hello-World.git", "ref": "master"}))
 PY
 )" \
-  "$PANEL/api/sites/git-deploy" >/dev/null
+  "$PANEL/api/sites/git-deploy")
 set -e
+job_id=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("job_id", ""))' "$queued" 2>/dev/null || true)
 
 killed=0
 for _ in $(seq 1 120); do
-  current=$(systemctl show stepanel.service -p MainPID --value)
+  current=$(systemctl show "$service" -p MainPID --value)
   if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
     killed=1
     break
   fi
   sleep 1
 done
-(( killed )) || { echo 'panel PID never changed; deploy activation kill boundary was not observed' >&2; exit 1; }
+(( killed )) || { echo "$service PID never changed; deploy activation kill boundary was not observed" >&2; exit 1; }
 
-systemctl stop stepanel.service || true
+systemctl stop "$service" || true
 rm -f -- "$dropin"
 systemctl daemon-reload
-systemctl start stepanel.service
+systemctl start "$service"
 for _ in $(seq 1 120); do
-  if systemctl is-active --quiet stepanel.service && \
+  if systemctl is-active --quiet "$service" && \
      curl --fail --silent --max-time 2 "$PANEL/readyz" >/dev/null; then
     break
   fi
   sleep 1
 done
 curl --fail --silent --show-error --max-time 10 "$PANEL/readyz" >/dev/null
+# The interrupted job is reclaimed once its lease expires; the worker repairs
+# the site and reports the operation as interrupted instead of repeating it.
+if [[ -n $job_id ]]; then
+  state=
+  for _ in $(seq 1 300); do
+    job=$(curl --silent --max-time 10 -H "Cookie: $cookie_header" "$PANEL/api/jobs/$job_id" || true)
+    state=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("state", ""))' "$job" 2>/dev/null || true)
+    [[ $state == dead-letter || $state == failed || $state == completed || $state == cancelled ]] && break
+    sleep 1
+  done
+  [[ $state == dead-letter || $state == failed ]] || { echo "interrupted deployment job ended as '$state': $job" >&2; exit 1; }
+  grep -q 'interrupted' <<< "$job" || { echo "interrupted deployment job does not say so: $job" >&2; exit 1; }
+fi
 grep -Fx 'original release survives interrupted deployment' "$public/deploy-recovery-marker.txt" >/dev/null
 if find "$journal_root" -maxdepth 1 -type f -name 'release-activation-*.json' -print -quit 2>/dev/null | grep -q .; then
   echo 'release activation journal remains after startup recovery' >&2
   exit 1
 fi
 
-echo "deploy recovery smoke passed (panel was killed at $DEPLOY_KILL_AT and original site content was restored)"
+echo "deploy recovery smoke passed ($service was killed at $DEPLOY_KILL_AT and original site content was restored)"

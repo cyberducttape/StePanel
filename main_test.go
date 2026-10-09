@@ -386,12 +386,12 @@ func TestJobsEnforceConfiguredGlobalCapacity(t *testing.T) {
 	}
 }
 
-// A long operation must outlive the server-wide write timeout: the timeout
+// A service action must outlive the server-wide write timeout: the timeout
 // middleware extends the write deadline through the logging and API error
 // wrappers. Without it the client sees a dropped connection.
-func TestLongOperationOutlivesServerWriteTimeout(t *testing.T) {
+func TestServiceOperationOutlivesServerWriteTimeout(t *testing.T) {
 	timeouts := httputil.DefaultTimeouts()
-	timeouts.LongOperation = 5 * time.Second
+	timeouts.ServiceOperation = 5 * time.Second
 	handler := logging(normalizeAPIErrors(timeouts.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(600 * time.Millisecond)
 		writeJSON(w, http.StatusOK, map[string]string{"path": r.URL.Path})
@@ -400,11 +400,11 @@ func TestLongOperationOutlivesServerWriteTimeout(t *testing.T) {
 	server.Config.WriteTimeout = 300 * time.Millisecond
 	server.Start()
 	defer server.Close()
-	for path, long := range map[string]bool{"/api/deployments/run": true, "/api/sites": false} {
+	for path, long := range map[string]bool{"/api/python/shop/restart": true, "/api/sites": false} {
 		response, err := http.Post(server.URL+path, "application/json", strings.NewReader("{}"))
 		if long {
 			if err != nil {
-				t.Fatalf("%s: long operation was cut off by the server write timeout: %v", path, err)
+				t.Fatalf("%s: service action was cut off by the server write timeout: %v", path, err)
 			}
 			_ = response.Body.Close()
 			if response.StatusCode != http.StatusOK {

@@ -317,6 +317,13 @@ func (t *SiteTransaction) persist() error {
 }
 
 func RecoverSiteTransactions(root string, configuredRoots ...string) ([]string, error) {
+	return recoverSiteTransactions(root, "", configuredRoots...)
+}
+
+// recoverSiteTransactions rolls back interrupted transactions, only those of
+// site when it is not empty. A site-scoped pass leaves entries it cannot
+// attribute (unreadable journals) to the panel's startup recovery.
+func recoverSiteTransactions(root, site string, configuredRoots ...string) ([]string, error) {
 	webRoot, mailRoot := recoveryConfiguredRoots(configuredRoots)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -333,6 +340,9 @@ func RecoverSiteTransactions(root string, configuredRoots ...string) ([]string, 
 		}
 		dir := filepath.Join(root, entry.Name())
 		txn, err := loadSiteTransaction(dir)
+		if err != nil && site != "" {
+			continue
+		}
 		if err != nil {
 			if quarantineErr := quarantineRecoveryTransaction(root, dir, err); quarantineErr != nil {
 				failures = append(failures, fmt.Errorf("quarantine invalid transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
@@ -347,6 +357,9 @@ func RecoverSiteTransactions(root string, configuredRoots ...string) ([]string, 
 			} else {
 				failures = append(failures, fmt.Errorf("quarantined unsafe transaction %s: %w", entry.Name(), err))
 			}
+			continue
+		}
+		if site != "" && txn.Site != site {
 			continue
 		}
 		if txn.State == "committed" || txn.State == "rolled-back" {
@@ -373,6 +386,12 @@ func RecoverSiteTransactions(root string, configuredRoots ...string) ([]string, 
 // transactions. lockSite takes each site's lease first so the broker accepts
 // the drops; nil runs unlocked (no control-plane database).
 func RecoverTransactionDatabases(cfg Config, root string, lockSite siteLocker) ([]string, error) {
+	return recoverTransactionDatabases(cfg, root, lockSite, "")
+}
+
+// recoverTransactionDatabases is RecoverTransactionDatabases limited to site
+// when it is not empty.
+func recoverTransactionDatabases(cfg Config, root string, lockSite siteLocker, site string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -387,6 +406,9 @@ func RecoverTransactionDatabases(cfg Config, root string, lockSite siteLocker) (
 			continue
 		}
 		txn, err := loadSiteTransaction(filepath.Join(root, entry.Name()))
+		if err != nil && site != "" {
+			continue
+		}
 		if err != nil {
 			if quarantineErr := quarantineRecoveryTransaction(root, filepath.Join(root, entry.Name()), err); quarantineErr != nil {
 				failures = append(failures, fmt.Errorf("quarantine invalid transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
@@ -403,7 +425,7 @@ func RecoverTransactionDatabases(cfg Config, root string, lockSite siteLocker) (
 			}
 			continue
 		}
-		if txn.State == "committed" || txn.State == "rolled-back" || len(txn.Databases) == 0 {
+		if txn.State == "committed" || txn.State == "rolled-back" || len(txn.Databases) == 0 || (site != "" && txn.Site != site) {
 			continue
 		}
 		siteCtx, unlock, lockErr := lockRecoveredSite(lockSite, txn.Site)

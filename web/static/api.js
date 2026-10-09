@@ -14,27 +14,19 @@
   // timeout bounds them. Pass `timeout` (0 for none) to override.
   const DEFAULT_READ_TIMEOUT_MS = 30000;
   const DEFAULT_MUTATION_TIMEOUT_MS = 120000;
-  // Synchronous long operations (builds, deployments, restore-to-staging)
-  // still run inside the request. The server allows them 60 minutes
-  // (LongOperationPaths in internal/http/timeouts.go, kept identical by
-  // TestLongOperationPathsMatchClient); wait slightly longer so the server's
-  // answer, not a client abort, ends the request.
-  const LONG_OPERATION_PATHS = [
-    '/api/deployments/run',
-    '/api/runner/build',
-    '/api/sites/git-deploy',
-    '/api/composer/',
-    '/api/node/tooling',
+  // Service start/stop/restart actions run inside the request. The server
+  // allows them 3 minutes (ServiceOperationPaths in
+  // internal/http/timeouts.go, kept identical by
+  // TestServiceOperationPathsMatchClient); wait slightly longer so the
+  // server's answer, not a client abort, ends the request.
+  const SERVICE_OPERATION_PATHS = [
     '/api/python/',
-    '/api/staging',
-    '/api/backups/restore-to-staging',
-    '/api/backups/restore-offsite-to-staging',
   ];
-  const LONG_OPERATION_TIMEOUT_MS = 61 * 60 * 1000;
+  const SERVICE_OPERATION_TIMEOUT_MS = 4 * 60 * 1000;
 
-  const isLongOperation = (url) => {
+  const isServiceOperation = (url) => {
     const path = String(url).split(/[?#]/)[0];
-    return LONG_OPERATION_PATHS.some((prefix) => path === prefix || (prefix.endsWith('/') && path.startsWith(prefix)));
+    return SERVICE_OPERATION_PATHS.some((prefix) => path === prefix || (prefix.endsWith('/') && path.startsWith(prefix)));
   };
 
   const isUpload = (body) =>
@@ -42,7 +34,7 @@
     (typeof Blob !== 'undefined' && body instanceof Blob);
 
   const defaultTimeout = (method, body, url) => {
-    if (isLongOperation(url)) return LONG_OPERATION_TIMEOUT_MS;
+    if (isServiceOperation(url)) return SERVICE_OPERATION_TIMEOUT_MS;
     if (!MUTATING.has(method)) return DEFAULT_READ_TIMEOUT_MS;
     return isUpload(body) ? 0 : DEFAULT_MUTATION_TIMEOUT_MS;
   };

@@ -403,9 +403,9 @@ generic Docker deployments still require the operator to provide it explicitly.
 
 **Important:** When proxying StePanel, configure your reverse proxy to allow
 long-running requests. Uploads (20 GB at typical bandwidth requires 30
-minutes) and synchronous build, deployment, and restore-to-staging requests
-(up to 60 minutes; see `LongOperationPaths` in `internal/http/timeouts.go`)
-stay open until the work finishes. Set timeouts to at least an hour: Apache's
+minutes) stay open until the transfer finishes. Builds, deployments, and
+restore-to-staging are durable jobs and answer immediately. Set timeouts to
+at least an hour: Apache's
 `ProxyTimeout 3700`, Nginx's `proxy_read_timeout 3700s`, or Caddy's
 `timeout 62m` if you set one (Caddy's `reverse_proxy` has none by default). See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 for configuration examples.

@@ -27,6 +27,23 @@
   const putJSON = (path, body) => api.put(path, body ?? {});
   const patchJSON = (path, body) => api.patch(path, body ?? {});
   const deleteJSON = (path) => api.delete(path);
+  // Builds, deployments, dependency installs, and staging restores answer
+  // with a durable job. Follow it to the end and return the operation's
+  // result, or throw its error, so callers read like a synchronous request.
+  // The job keeps running if this page is closed; Activity shows it.
+  const runOperation = async (path, body, onQueued) => {
+    const queued = await postJSON(path, body);
+    if (!queued || !queued.job_id) return queued;
+    if (onQueued) onQueued(queued.job_id);
+    const done = new Set(['completed', 'failed', 'cancelled', 'dead-letter']);
+    for (let delay = 1000; ; delay = Math.min(delay * 1.5, 5000)) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      const job = await getJSON(`/api/jobs/${encodeURIComponent(queued.job_id)}`);
+      if (!done.has(job.state)) continue;
+      if (job.state === 'completed') return job.output || {};
+      throw new Error(job.error || `The operation was ${job.state}.`);
+    }
+  };
 
   // ---------------------------------------------------------------------
   // Small DOM helpers
@@ -228,7 +245,7 @@
       panel.replaceChildren(el('p', { className: 'import-note' }, 'Loading…'));
       const renderPanel = document.createElement('div');
       try {
-        await TABS[index].render(site, renderPanel, { isAdministrator, accountRole, can, webserver, getJSON, postJSON, putJSON, patchJSON, deleteJSON, field, button, badge, formatAge, formatBytes, el, confirmDangerous, statusOutput });
+        await TABS[index].render(site, renderPanel, { isAdministrator, accountRole, can, webserver, getJSON, postJSON, runOperation, putJSON, patchJSON, deleteJSON, field, button, badge, formatAge, formatBytes, el, confirmDangerous, statusOutput });
         if (token !== requestToken) return;
         panel.replaceChildren(...renderPanel.childNodes);
       } catch (error) {
@@ -539,8 +556,8 @@
     if (nodeApp) {
       const toolingOutput = ctx.statusOutput();
       panel.append(el('div', { className: 'workspace-panel-actions' }, ctx.can('site:deploy') ? [
-        ctx.button('npm install', async () => { toolingOutput.textContent = 'Installing dependencies…'; try { await ctx.postJSON('/api/node/tooling', { site, action: 'install', package_manager: 'npm' }); toolingOutput.textContent = 'Dependencies installed.'; } catch (error) { toolingOutput.textContent = error.message; } }),
-        ctx.button('npm run build', async () => { toolingOutput.textContent = 'Building…'; try { await ctx.postJSON('/api/node/tooling', { site, action: 'build', package_manager: 'npm' }); toolingOutput.textContent = 'Build completed.'; } catch (error) { toolingOutput.textContent = error.message; } }),
+        ctx.button('npm install', async () => { toolingOutput.textContent = 'Installing dependencies…'; try { await ctx.runOperation('/api/node/tooling', { site, action: 'install', package_manager: 'npm' }); toolingOutput.textContent = 'Dependencies installed.'; } catch (error) { toolingOutput.textContent = error.message; } }),
+        ctx.button('npm run build', async () => { toolingOutput.textContent = 'Building…'; try { await ctx.runOperation('/api/node/tooling', { site, action: 'build', package_manager: 'npm' }); toolingOutput.textContent = 'Build completed.'; } catch (error) { toolingOutput.textContent = error.message; } }),
       ] : [el('span', { className: 'import-note' }, 'Your role can view this application but cannot run build commands.')]), toolingOutput);
     }
 
@@ -553,7 +570,7 @@
         const data = Object.fromEntries(new FormData(pyForm));
         pythonOutput.textContent = 'Deploying Python application…';
         try {
-          await ctx.postJSON('/api/python/deploy', { site, version: data.version, entrypoint: data.entrypoint, port: Number(data.port), workers: Number(data.workers) });
+          await ctx.runOperation('/api/python/deploy', { site, version: data.version, entrypoint: data.entrypoint, port: Number(data.port), workers: Number(data.workers) });
           pythonOutput.textContent = 'Python application deployed.';
         } catch (error) { pythonOutput.textContent = error.message; }
       },
@@ -580,7 +597,7 @@
     panel.append(el('h4', {}, 'Composer'), el('div', { className: 'workspace-panel-actions' }, ctx.can('site:deploy') ? [
       ctx.button('Run composer install', async () => {
         composerOutput.textContent = 'Running composer install…';
-        try { await ctx.postJSON(`/api/composer/${encodeURIComponent(site)}`, { development: false, optimize: true }); composerOutput.textContent = 'Composer install completed.'; } catch (error) { composerOutput.textContent = error.message; }
+        try { await ctx.runOperation(`/api/composer/${encodeURIComponent(site)}/install`, { development: false, optimize_autoloader: true }); composerOutput.textContent = 'Composer install completed.'; } catch (error) { composerOutput.textContent = error.message; }
       }),
       ] : [el('span', { className: 'import-note' }, 'Your role can view this site but cannot run Composer operations.')]), composerOutput);
   }
@@ -636,7 +653,7 @@
           const ref = refField.querySelector('input').value.trim() || 'main';
           output.textContent = 'Deploying…';
           try {
-            await ctx.postJSON('/api/sites/git-deploy', { site, repository, ref });
+            await ctx.runOperation('/api/sites/git-deploy', { site, repository, ref });
             output.textContent = 'Deployment completed.';
             renderDeploymentsTab(site, panel, ctx);
           } catch (error) { output.textContent = error.message; }
@@ -835,7 +852,7 @@
       const values = confirmation.values || {};
       output.textContent = includeDatabase ? 'Restoring files and database to staging…' : 'Restoring to staging…';
       try {
-        const result = await ctx.postJSON('/api/backups/restore-to-staging', {
+        const result = await ctx.runOperation('/api/backups/restore-to-staging', {
           site, backup: backupName, domain: values.domain,
           ...(includeDatabase ? {
             database: values.database,
