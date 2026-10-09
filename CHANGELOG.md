@@ -37,6 +37,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   The SFTP smoke resolves `sshd` to an absolute path for RHEL-family launchers
   that reject relative daemon invocation and reports the daemon log when a
   restricted session cannot connect.
+  SSH/SFTP access provisioning also unlocks newly-created system accounts for
+  public-key authentication and restores their prior shadow state on rollback.
+  Revoking both SSH and SFTP access locks the account again.
 
 - **FTPS site identity and revocation**: vsftpd now chroots each login to
   the site account's actual home directory, accepts only explicitly

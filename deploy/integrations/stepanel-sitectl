@@ -137,12 +137,14 @@ if [[ $action == access ]]; then
   config_backup=$(mktemp)
   key_existed=0; config_existed=0
   old_shell=$(getent passwd "$site_user" | cut -d: -f7)
+  old_shadow=$(getent shadow "$site_user" | cut -d: -f2)
   if [[ -f $authorized_keys ]]; then cp -p "$authorized_keys" "$key_backup"; key_existed=1; fi
   if [[ -f $ssh_config ]]; then cp -p "$ssh_config" "$config_backup"; config_existed=1; fi
   restore_access() {
     if (( key_existed )); then mv -f "$key_backup" "$authorized_keys"; else rm -f "$authorized_keys"; fi
     if (( config_existed )); then mv -f "$config_backup" "$ssh_config"; else rm -f "$ssh_config"; fi
     usermod --shell "$old_shell" "$site_user" 2>/dev/null || true
+    usermod --password "$old_shadow" "$site_user" 2>/dev/null || true
     systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
     rm -f "$key_backup" "$config_backup"
   }
@@ -152,6 +154,10 @@ if [[ $action == access ]]; then
     usermod --shell /usr/sbin/nologin "$site_user" || { restore_access; echo 'could not disable the site shell' >&2; exit 1; }
   fi
   if [[ $sftp == 1 || $shell == 1 ]]; then
+    # System accounts are created locked. Public-key SSH/SFTP access still
+    # requires an unlocked account; password authentication remains disabled
+    # by the managed sshd policy and no password is assigned here.
+    usermod --unlock "$site_user" || { restore_access; echo 'could not unlock the SSH/SFTP account' >&2; exit 1; }
     command -v sshd >/dev/null 2>&1 || { restore_access; echo 'sshd is required for SSH access management' >&2; exit 1; }
     mv -f "$staged" "$authorized_keys"
     cat > "$ssh_config" <<EOF
@@ -172,6 +178,7 @@ EOF
       exit 1
     fi
   else
+    usermod --lock "$site_user" || { restore_access; echo 'could not lock the SSH/SFTP account' >&2; exit 1; }
     rm -f "$authorized_keys" "$ssh_config" "$staged"
     if (( key_existed || config_existed )); then
       if ! (command -v sshd >/dev/null 2>&1 && sshd -t && (systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null)); then
