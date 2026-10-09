@@ -618,46 +618,79 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 	if token == "" {
 		return nil, errors.New("STEPANEL_LINODE_TOKEN is not configured")
 	}
-	var reader io.Reader
-	if payload != nil {
-		data, err := json.Marshal(payload)
+	const maxCloudResponseBytes = 8 << 20
+	requestPage := func(page int) (map[string]any, error) {
+		var reader io.Reader
+		if payload != nil {
+			data, err := json.Marshal(payload)
+			if err != nil {
+				return nil, err
+			}
+			reader = bytes.NewReader(data)
+		}
+		// Build URL safely using url.URL to prevent SSRF attacks.
+		baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
+		if method == http.MethodGet && page > 1 {
+			query := baseURL.Query()
+			query.Set("page", strconv.Itoa(page))
+			baseURL.RawQuery = query.Encode()
+		}
+		req, err := http.NewRequestWithContext(ctx, method, baseURL.String(), reader)
 		if err != nil {
 			return nil, err
 		}
-		reader = bytes.NewReader(data)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := (&http.Client{Timeout: 30 * time.Second}).Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
+		if err != nil {
+			return nil, err
+		}
+		defer res.Body.Close()
+		if res.StatusCode/100 != 2 {
+			return nil, fmt.Errorf("Linode API returned %s", res.Status)
+		}
+		if res.StatusCode == http.StatusNoContent {
+			return nil, nil
+		}
+		data, err := io.ReadAll(io.LimitReader(res.Body, maxCloudResponseBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(data)) > maxCloudResponseBytes {
+			return nil, errors.New("Linode API response exceeds the 8 MiB limit")
+		}
+		var value map[string]any
+		if err := json.Unmarshal(data, &value); err != nil {
+			return nil, err
+		}
+		return value, nil
 	}
-	// Build URL safely using url.URL to prevent SSRF attacks
-	baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
-	req, err := http.NewRequestWithContext(ctx, method, baseURL.String(), reader)
-	if err != nil {
-		return nil, err
+	value, err := requestPage(1)
+	if err != nil || method != http.MethodGet || value == nil {
+		return value, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	res, err := (&http.Client{Timeout: 30 * time.Second}).Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
-	if err != nil {
-		return nil, err
+	pages, _ := value["pages"].(float64)
+	if pages < 2 {
+		return value, nil
 	}
-	defer res.Body.Close()
-	if res.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("Linode API returned %s", res.Status)
+	data, ok := value["data"].([]any)
+	if !ok {
+		return value, nil
 	}
-	if res.StatusCode == http.StatusNoContent {
-		return nil, nil
+	for page := 2; page <= int(pages) && page <= 1000; page++ {
+		next, err := requestPage(page)
+		if err != nil {
+			return nil, err
+		}
+		if next == nil {
+			break
+		}
+		if items, ok := next["data"].([]any); ok {
+			data = append(data, items...)
+		}
 	}
-	var value any
-	const maxCloudResponseBytes = 8 << 20
-	limited := io.LimitReader(res.Body, maxCloudResponseBytes+1)
-	data, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > maxCloudResponseBytes {
-		return nil, errors.New("Linode API response exceeds the 8 MiB limit")
-	}
-	if err := json.Unmarshal(data, &value); err != nil {
-		return nil, err
-	}
+	value["data"] = data
+	value["results"] = float64(len(data))
 	return value, nil
 }
 
@@ -795,32 +828,8 @@ func cloudCommandEnv() []string {
 }
 
 func linodeInventory(ctx context.Context) (CloudInventory, error) {
-	token := os.Getenv("STEPANEL_LINODE_TOKEN")
-	if token == "" {
-		return CloudInventory{}, errors.New("STEPANEL_LINODE_TOKEN is not configured")
-	}
-	client := &http.Client{Timeout: 10 * time.Second}
 	get := func(path string) (any, error) {
-		baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL.String(), nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Accept", "application/json")
-		res, err := client.Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
-		if err != nil {
-			return nil, err
-		}
-		defer res.Body.Close()
-		if res.StatusCode/100 != 2 {
-			return nil, fmt.Errorf("Linode API returned %s", res.Status)
-		}
-		var value any
-		if err := json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(&value); err != nil {
-			return nil, err
-		}
-		return value, nil
+		return linodeAPIRequest(ctx, http.MethodGet, path, nil)
 	}
 	paths := []struct{ name, path string }{{"servers", "/linode/instances"}, {"dns", "/domains"}, {"load_balancers", "/nodebalancers"}, {"snapshots", "/account/linode/backups"}}
 	inv := CloudInventory{Provider: "linode"}

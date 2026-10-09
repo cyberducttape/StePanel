@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Features
 
+- **FTPS management and bounded recovery downloads**: administrators can now
+  enable or revoke per-site FTPS through the authenticated `/api/ftp` mutation
+  workflow. Offsite restore downloads enforce explicit manifest and object
+  size limits before verification and extraction.
+
 - **Independent offsite recovery proof**: added
   `stepanel offsite-recovery-proof`, which lists the configured remote
   repository, selects a random backup manifest, downloads only that backup,
@@ -27,6 +32,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   their existing workflows.
 
 ### Production Readiness
+
+- **Provider pagination and startup ordering**: Linode inventory and duplicate
+  detection now follow bounded provider pages through one API client, and the
+  server binds its listener before startup work is released.
 
 - **Tenant account collision and broker-state hardening**: existing site
   accounts are now accepted only when their home directory matches the

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"net/http"
 	"os"
 	"os/exec"
@@ -229,6 +230,48 @@ func (a *App) ftpStatus(w http.ResponseWriter, r *http.Request) {
 		"ftps_required":     true,
 		"setup_warning":     "Keep vsftpd disabled until FTPS certificates, firewall rules, and per-site users are configured.",
 	})
+}
+
+func (a *App) ftpEndpoint(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		a.ftpStatus(w, r)
+		return
+	}
+	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
+		http.Error(w, "invalid FTPS mutation request", http.StatusForbidden)
+		return
+	}
+	var input struct {
+		Site     string `json:"site"`
+		Enabled  *bool  `json:"enabled"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(w, r, 4096, &input); err != nil {
+		return
+	}
+	input.Site = safeUser(strings.TrimSpace(input.Site))
+	if input.Site == "" || input.Enabled == nil {
+		http.Error(w, "site and enabled are required", http.StatusUnprocessableEntity)
+		return
+	}
+	if !*input.Enabled {
+		input.Password = ""
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), helperConfigMutationTimeout)
+	defer cancel()
+	request := rootbroker.SiteRequest{Action: "ftp", Site: input.Site, FTPEnabled: input.Enabled, FTPPassword: input.Password}
+	var err error
+	if a.Config.Production || labDirectRootBrokerEnabled() {
+		err = runTypedSiteMutation(ctx, a.Config, request)
+	} else {
+		_, err, _ = runAllowlistedHelperOutput(ctx, a.Config, []byte(input.Password), a.Config.SiteCtl, "ftp", input.Site, boolString(*input.Enabled))
+	}
+	if err != nil {
+		http.Error(w, "FTPS mutation failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.ftps.updated", input.Site, boolString(*input.Enabled))
+	writeJSON(w, http.StatusOK, map[string]any{"site": input.Site, "enabled": *input.Enabled})
 }
 
 func formatUptime(seconds float64) string {

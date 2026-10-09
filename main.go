@@ -24,6 +24,7 @@ import (
 	"log"
 	"math/rand/v2"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -679,7 +680,7 @@ func Main() {
 	mux.Handle("/api/database/settings", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.databaseSettings)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/databases", allowMethods(app.Auth.Require(http.HandlerFunc(app.databaseCollection)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/databases/", allowMethods(app.Auth.Require(http.HandlerFunc(app.databaseResource)), http.MethodGet, http.MethodHead, http.MethodPatch, http.MethodDelete))
-	mux.Handle("/api/ftp", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.ftpStatus)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/ftp", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.ftpEndpoint)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/security/audit", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.securityAudit)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/security/center", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.securityCenter)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/audit/events", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.auditEvents)), http.MethodGet, http.MethodHead))
@@ -822,18 +823,24 @@ func Main() {
 	server.ReadTimeout = timeoutCfg.UploadRead
 	server.WriteTimeout = timeoutCfg.DownloadWrite
 	server.IdleTimeout = 30 * time.Second
+	listener, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		log.Fatal(err)
+	}
 	serverStarted := make(chan struct{})
+	close(serverStarted)
 	go func() {
 		log.Printf("StePanel listening on %s", cfg.Listen)
-		close(serverStarted)
-		var err error
 		if cfg.TLSCertFile != "" {
-			err = server.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+			err := server.ServeTLS(listener, cfg.TLSCertFile, cfg.TLSKeyFile)
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatal(err)
+			}
 		} else {
-			err = server.ListenAndServe()
-		}
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			err := server.Serve(listener)
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatal(err)
+			}
 		}
 	}()
 	<-serverStarted

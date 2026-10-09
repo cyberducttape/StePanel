@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -102,7 +103,17 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		cleanup()
 		return "", func() {}, err
 	}
-	manifestData, err := os.ReadFile(filepath.Join(root, "manifest.json"))
+	manifestPath := filepath.Join(root, "manifest.json")
+	manifestInfo, err := os.Stat(manifestPath)
+	if err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("stat downloaded offsite manifest: %w", err)
+	}
+	if manifestInfo.Size() > maxOffsiteManifestBytes {
+		cleanup()
+		return "", func() {}, errors.New("downloaded offsite manifest exceeds the 8 MiB limit")
+	}
+	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("read downloaded offsite manifest: %w", err)
@@ -122,12 +133,18 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 	// this object, so absence is allowed and strict backup verification enforces the
 	// configured signing policy.
 	ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
-	cmd := exec.CommandContext(ctx, "rclone", "copyto", remoteRoot+"/manifest.sig", filepath.Join(root, "manifest.sig"), "--immutable")
+	signaturePath := filepath.Join(root, "manifest.sig")
+	cmd := exec.CommandContext(ctx, "rclone", "copyto", remoteRoot+"/manifest.sig", signaturePath, "--immutable", "--max-size", strconv.FormatInt(maxOffsiteObjectBytes, 10))
 	cmd.Env = cloudCommandEnv()
 	_, copyErr := runBoundedCommand(ctx, cmd)
 	cancel()
+	if copyErr == nil {
+		if info, statErr := os.Stat(signaturePath); statErr != nil || info.Size() > maxOffsiteObjectBytes {
+			copyErr = errors.New("downloaded offsite signature exceeds the object limit")
+		}
+	}
 	if copyErr != nil {
-		_ = os.Remove(filepath.Join(root, "manifest.sig"))
+		_ = os.Remove(signaturePath)
 	}
 	return root, cleanup, nil
 }
@@ -137,11 +154,18 @@ func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object
 	defer cancel()
 	remote := remoteRoot + "/" + object
 	local := filepath.Join(localRoot, object)
-	cmd := exec.CommandContext(ctx, "rclone", "copyto", remote, local, "--immutable")
+	cmd := exec.CommandContext(ctx, "rclone", "copyto", remote, local, "--immutable", "--max-size", strconv.FormatInt(maxOffsiteObjectBytes, 10))
 	cmd.Env = cloudCommandEnv()
 	output, err := runBoundedCommand(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("download offsite backup object %s: %w: %s", object, err, strings.TrimSpace(string(output)))
+	}
+	info, err := os.Stat(local)
+	if err != nil {
+		return fmt.Errorf("stat downloaded offsite backup object %s: %w", object, err)
+	}
+	if info.Size() > maxOffsiteObjectBytes {
+		return fmt.Errorf("downloaded offsite backup object %s exceeds the %d-byte limit", object, maxOffsiteObjectBytes)
 	}
 	return nil
 }
@@ -161,6 +185,13 @@ func validBackupName(name string) bool {
 // maxOffsiteListingBytes bounds the manifest listing used to choose a
 // recovery-proof backup (roughly 100k manifests).
 const maxOffsiteListingBytes = 8 << 20
+
+const maxOffsiteManifestBytes = 8 << 20
+
+// This admission limit applies before archive verification and extraction. It
+// is intentionally explicit so a remote object cannot consume an unbounded
+// amount of restore-disk space.
+const maxOffsiteObjectBytes = 20 << 30
 
 type offsiteBackupReference struct {
 	Site   string
