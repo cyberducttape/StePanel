@@ -18,8 +18,10 @@ import (
 // PHP pool: "sp-" + the first 18 characters of the site name with "_"
 // replaced by "-" + "-" + the first 8 hex digits of sha256(site).
 //
-// The hash suffix keeps names unique after truncation and "_"→"-" folding,
-// and keeps the result within the 32-character useradd limit.
+// This is a legacy deterministic name retained for compatibility. It is not
+// a uniqueness proof: only 32 bits are available after truncation. Callers
+// that allocate or remove accounts must verify the account's home directory
+// matches the requested site before reusing or deleting it.
 func UnixUser(site string) string {
 	sum := sha256.Sum256([]byte(site))
 	prefix := site

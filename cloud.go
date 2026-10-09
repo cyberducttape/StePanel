@@ -154,9 +154,14 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		err = executeSSHAction(workerCtx, request.ID, request.Action, request.Service)
 		result = CloudActionResult{Provider: "ssh", Action: request.Action, ID: request.ID, CompletedAt: time.Now().UTC()}
 	case "dns":
-		// Validate DNS IDs to prevent SSRF attacks
-		if !cloudNumericID.MatchString(request.DNS.DomainID) || !cloudNumericID.MatchString(request.DNS.RecordID) {
+		if request.Action != "create" && request.Action != "update" && request.Action != "delete" {
+			return nil, fmt.Errorf("unsupported DNS action %q", request.Action)
+		}
+		if !cloudNumericID.MatchString(request.DNS.DomainID) || (request.Action != "create" && !cloudNumericID.MatchString(request.DNS.RecordID)) {
 			return nil, fmt.Errorf("invalid domain or record ID format")
+		}
+		if request.Action != "delete" && !cloudDNSRecordValid(request.DNS) {
+			return nil, fmt.Errorf("invalid DNS record")
 		}
 		request.DNS.Type = strings.ToUpper(request.DNS.Type)
 		var path, method string
@@ -190,9 +195,14 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		result = CloudActionResult{Provider: "linode", Action: "dns." + request.Action, ID: request.DNS.DomainID, CompletedAt: time.Now().UTC()}
 	case "loadbalancer":
-		// Validate load balancer IDs to prevent SSRF attacks
-		if !cloudNumericID.MatchString(request.LB.NodeBalancerID) || !cloudNumericID.MatchString(request.LB.ConfigID) || !cloudNumericID.MatchString(request.LB.NodeID) {
+		if request.LB.Action != "add" && request.LB.Action != "remove" {
+			return nil, fmt.Errorf("unsupported load balancer action %q", request.LB.Action)
+		}
+		if !cloudNumericID.MatchString(request.LB.NodeBalancerID) || !cloudNumericID.MatchString(request.LB.ConfigID) || (request.LB.Action == "remove" && !cloudNumericID.MatchString(request.LB.NodeID)) {
 			return nil, fmt.Errorf("invalid nodebalancer, config, or node ID format")
+		}
+		if request.LB.Action == "add" && (net.ParseIP(request.LB.Address) == nil || request.LB.Port < 1 || request.LB.Port > 65535 || request.LB.Weight < 1 || request.LB.Weight > 100) {
+			return nil, fmt.Errorf("invalid backend address, port, or weight")
 		}
 		var path, method string
 		var body any

@@ -33,6 +33,8 @@ php_state="$site_root/.php"
 if [[ $action == delete ]]; then
   [[ $# == 2 ]] || { echo 'usage: stepanel-sitectl delete SITE' >&2; exit 64; }
   if id "$site_user" >/dev/null 2>&1; then
+    existing_home=$(getent passwd "$site_user" | cut -d: -f6)
+    [[ $existing_home == "$site_root" ]] || { echo "refusing site deletion: account $site_user belongs to a different site" >&2; exit 1; }
     for pool in /etc/php/*/fpm/pool.d/stepanel-"$site".conf /etc/php-fpm.d/stepanel-"$site".conf; do
       [[ -e $pool && ! -L $pool ]] || continue
       rm -f "$pool"
@@ -61,6 +63,8 @@ ensure_site_user() {
   local attempt output
   for (( attempt = 1; attempt <= 20; attempt++ )); do
     if id "$site_user" >/dev/null 2>&1; then
+      existing_home=$(getent passwd "$site_user" | cut -d: -f6)
+      [[ $existing_home == "$site_root" ]] || { echo "account $site_user is already assigned to a different site" >&2; return 1; }
       return 0
     fi
     output=$(useradd --system --home-dir "$site_root" --shell /usr/sbin/nologin --user-group "$site_user" 2>&1) && return 0
@@ -169,6 +173,8 @@ if [[ $action == access ]]; then
 # Managed by StePanel. Do not edit.
 Match User $site_user
     AuthorizedKeysFile $authorized_keys
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
 EOF
     chmod 0644 "$authorized_keys" "$ssh_config"
     chown root:root "$authorized_keys" "$ssh_config"
@@ -213,16 +219,21 @@ if [[ $action == ftp ]]; then
   list_backup=$(mktemp)
   cp -p "$ftp_userlist" "$list_backup"
   list_staged=$(mktemp /etc/vsftpd/.users.XXXXXX)
+  ftp_ssh_config="/etc/ssh/sshd_config.d/stepanel-ftp-$site_user.conf"
+  config_backup=$(mktemp)
+  config_existed=0
+  if [[ -f $ftp_ssh_config ]]; then cp -p "$ftp_ssh_config" "$config_backup"; config_existed=1; fi
   old_shadow=$(getent shadow "$site_user" | cut -d: -f2-2)
   restore_ftp() {
     cp -p "$list_backup" "$ftp_userlist"
     [[ -n $old_shadow ]] && usermod --password "$old_shadow" "$site_user" 2>/dev/null || true
-    rm -f "$list_backup" "$list_staged"
+    if (( config_existed )); then mv -f "$config_backup" "$ftp_ssh_config"; else rm -f "$ftp_ssh_config"; fi
+    rm -f "$list_backup" "$list_staged" "$config_backup"
   }
   trap restore_ftp ERR
   if [[ $ftp_enabled == 1 ]]; then
     password=$(cat)
-    [[ ${#password} -ge 12 && ${#password} -le 128 && $password != *$'\r'* && $password != *$'\n'* && $password != *$'\0'* ]] || { echo 'FTPS password must be 12-128 characters without control bytes' >&2; exit 1; }
+    [[ ${#password} -ge 12 && ${#password} -le 128 && $password != *$'\r'* && $password != *$'\n'* ]] || { echo 'FTPS password must be 12-128 characters without control bytes' >&2; exit 1; }
     printf '%s:%s\n' "$site_user" "$password" | chpasswd
     awk -v user="$site_user" '$0 != user { print }' "$ftp_userlist" > "$list_staged"
     printf '%s\n' "$site_user" >> "$list_staged"
@@ -230,9 +241,20 @@ if [[ $action == ftp ]]; then
     passwd -l "$site_user" >/dev/null
     awk -v user="$site_user" '$0 != user { print }' "$ftp_userlist" > "$list_staged"
   fi
+  command -v sshd >/dev/null 2>&1 || { echo 'sshd is required to enforce FTPS SSH password isolation' >&2; exit 1; }
+  install -d -m 0755 -o root -g root /etc/ssh/sshd_config.d
+  if [[ $ftp_enabled == 1 ]]; then
+    ssh_staged=$(mktemp /etc/ssh/sshd_config.d/.stepanel-ftp.XXXXXX)
+    printf '# Managed by StePanel. Do not edit.\nMatch User %s\n    PasswordAuthentication no\n    KbdInteractiveAuthentication no\n' "$site_user" > "$ssh_staged"
+    chown root:root "$ssh_staged"; chmod 0644 "$ssh_staged"; mv -f "$ssh_staged" "$ftp_ssh_config"
+  else
+    rm -f "$ftp_ssh_config"
+  fi
+  sshd -t || { echo 'sshd rejected the FTPS SSH password isolation policy' >&2; exit 1; }
+  systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || { echo 'could not reload sshd after FTPS policy change' >&2; exit 1; }
   chown root:root "$list_staged"; chmod 0600 "$list_staged"; mv -f "$list_staged" "$ftp_userlist"
   trap - ERR
-  rm -f "$list_backup"
+  rm -f "$list_backup" "$config_backup"
   exit 0
 fi
 

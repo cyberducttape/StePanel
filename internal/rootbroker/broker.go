@@ -73,6 +73,7 @@ type Broker struct {
 // inferred from where the web root lives on disk.
 type hostOps interface {
 	EnsureSystemUser(ctx context.Context, username, home string) error
+	ValidateSystemUser(ctx context.Context, username, home string) error
 	DeleteSystemUser(ctx context.Context, username string) error
 	Chown(ctx context.Context, path, owner, group string, recursive bool) error
 	WebGroup() (string, error)
@@ -574,6 +575,9 @@ func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, e
 	}
 
 	siteUser := siteidentity.UnixUser(req.Site)
+	if err := b.host.ValidateSystemUser(ctx, siteUser, siteRoot); err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("refusing to delete site with mismatched system account: %v", err)}, nil
+	}
 
 	b.logger.Printf("deleting site: user=%s root=%s", siteUser, siteRoot)
 
@@ -1510,11 +1514,22 @@ func (execHostOps) EnsureSystemUser(ctx context.Context, username, home string) 
 	// Other useradd failures must stop the workflow before it creates a site
 	// tree that cannot be owned by the intended account.
 	if err := stepanelhelper.NewCommand(ctx, "id", "-u", username).Run(); err == nil {
-		return nil
+		return (execHostOps{}).ValidateSystemUser(ctx, username, home)
 	}
 	cmd := stepanelhelper.NewCommand(ctx, "useradd", "--system", "--home-dir", home, "--shell", "/usr/sbin/nologin", "--user-group", username)
 	if output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput); err != nil {
 		return fmt.Errorf("useradd failed: %w (output: %s)", err, output)
+	}
+	return nil
+}
+
+func (execHostOps) ValidateSystemUser(_ context.Context, username, home string) error {
+	account, err := user.Lookup(username)
+	if err != nil {
+		return fmt.Errorf("lookup existing system user: %w", err)
+	}
+	if account.HomeDir != home {
+		return fmt.Errorf("account home %q does not match site root %q", account.HomeDir, home)
 	}
 	return nil
 }

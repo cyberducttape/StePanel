@@ -28,6 +28,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Tenant account collision and broker-state hardening**: existing site
+  accounts are now accepted only when their home directory matches the
+  requested site, and deletion applies the same check, preventing a
+  deterministic-name collision from crossing tenant boundaries. The native
+  root broker now reads the installer-authoritative
+  `STEPANEL_CONTROL_PLANE_DB` and refuses to start without an absolute path.
+  Linode create/add jobs validate only IDs required by their action, while
+  FTPS accepts valid passwords and installs an explicit per-account SSH
+  password-authentication denial policy.
+
 - **Installation-smoke coverage**: disposable systemd hosts now include the
   OpenSSH server and client required by the real SFTP provisioning smoke on
   Debian/Ubuntu and RHEL-family images. CI also measures the session package's

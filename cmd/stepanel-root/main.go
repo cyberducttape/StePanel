@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -30,6 +31,9 @@ func main() {
 
 	if *webRootFlag == "" {
 		log.Fatal("webroot is required")
+	}
+	if *controlPlaneDBFlag == "" || !filepath.IsAbs(*controlPlaneDBFlag) {
+		log.Fatal("STEPANEL_CONTROL_PLANE_DB must be an absolute path")
 	}
 
 	logger := log.New(os.Stderr, "[stepanel-root] ", log.LstdFlags)

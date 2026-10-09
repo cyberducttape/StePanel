@@ -72,6 +72,8 @@ func (f *fakeHost) EnsureSystemUser(_ context.Context, username, _ string) error
 	return nil
 }
 
+func (f *fakeHost) ValidateSystemUser(_ context.Context, _ string, _ string) error { return nil }
+
 func (f *fakeHost) DeleteSystemUser(_ context.Context, username string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
