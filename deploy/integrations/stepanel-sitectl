@@ -100,7 +100,9 @@ if [[ $action == access ]]; then
   ssh_config_root=/etc/ssh/sshd_config.d
   authorized_keys="$ssh_key_root/$site_user"
   ssh_config="$ssh_config_root/stepanel-$site_user.conf"
-  install -d -m 0700 -o root -g root "$ssh_key_root"
+  # sshd must traverse this root-owned directory while looking up a user's
+  # key. The files remain root-owned and non-writable by customers.
+  install -d -m 0755 -o root -g root "$ssh_key_root"
   install -d -m 0755 -o root -g root "$ssh_config_root"
   staged=$(mktemp "$ssh_key_root/.authorized_keys.XXXXXX")
   forced=

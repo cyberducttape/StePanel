@@ -41,6 +41,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   public-key authentication using a random unknown password hash and restores
   their prior shadow state on rollback.
   Revoking both SSH and SFTP access locks the account again.
+  The root-owned authorized-key directory is traversable by sshd while its
+  individual key files remain non-writable by customer accounts.
 
 - **FTPS site identity and revocation**: vsftpd now chroots each login to
   the site account's actual home directory, accepts only explicitly
