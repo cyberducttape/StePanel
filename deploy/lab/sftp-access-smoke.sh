@@ -59,9 +59,13 @@ for _ in {1..20}; do
 done
 kill -0 "$sshd_pid" 2>/dev/null || { sed -n '1,120p' "$tmp/sshd.log" >&2; exit 1; }
 
-printf 'pwd\nquit\n' | sftp -q -P "$port" -i "$tmp/client" \
+if ! printf 'pwd\nquit\n' | sftp -q -P "$port" -i "$tmp/client" \
   -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  -b - "$site_user@127.0.0.1" >/dev/null
+  -b - "$site_user@127.0.0.1" >/dev/null; then
+  echo 'SFTP client could not complete the restricted session; sshd log:' >&2
+  sed -n '1,160p' "$tmp/sshd.log" >&2
+  exit 1
+fi
 set +e
 ssh -q -p "$port" -i "$tmp/client" -o BatchMode=yes -o StrictHostKeyChecking=no \
   -o UserKnownHostsFile=/dev/null "$site_user@127.0.0.1" true >/dev/null 2>&1
