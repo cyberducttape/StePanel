@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- **Python apps and Node builds work again on new installs**: a `nosymfollow`
+  bind mount on `/var/www` blocked the symlinks that Python virtualenvs and
+  `node_modules` rely on. The installer no longer creates it and removes it on
+  upgrade. Python virtualenvs moved out of the document root to
+  `/var/www/sites/<site>/.venv`, and the previous `public/.venv` is removed
+  after a successful redeploy.
+- **FTPS no longer breaks SSH/SFTP key access**: FTPS and SSH/SFTP keys share
+  the site account's password field. Revoking FTPS no longer locks out
+  installed keys, enabling keys no longer replaces the FTPS password, and an
+  `sshd` validation or reload failure now rolls the FTPS change back. FTPS
+  changes take the site mutation lock and are recorded as Class A
+  `site.ftps.enabled` / `site.ftps.disabled` audit events. Site deletion
+  removes the account from the FTPS allowlist.
+
 ### Features
 
 - **FTPS management and bounded recovery downloads**: administrators can now
@@ -103,9 +119,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **Web identity and Caddy filesystem isolation**: the installer now persists
   one authoritative web-server group and PHP socket root for the root broker
   and site helper, including Caddy on Debian/Ubuntu and RHEL-family hosts.
-  Managed Caddy routes deny environment, VCS, credential, archive, and
-  database files; `/var/www` is mounted with `nosymfollow` so Caddy cannot
-  follow a site symlink outside its filesystem boundary.
+  Managed Caddy routes deny environment, VCS, credential, archive, database
+  and `node_modules` files, and the vhost helper and site sealing refuse a
+  document root containing a symlink.
 - **Panel becomes ready after a crash mid-site-transaction**: startup
   recovery re-sealed or removed interrupted sites through the root broker
   without a fencing token, so the broker refused it and readiness stayed

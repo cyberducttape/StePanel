@@ -39,7 +39,13 @@ if [[ $action == delete ]]; then
       [[ -e $pool && ! -L $pool ]] || continue
       rm -f "$pool"
     done
-    rm -f "/etc/stepanel/ssh/authorized_keys/$site_user" "/etc/ssh/sshd_config.d/stepanel-$site_user.conf"
+    rm -f "/etc/stepanel/ssh/authorized_keys/$site_user" "/etc/ssh/sshd_config.d/stepanel-$site_user.conf" "/etc/ssh/sshd_config.d/stepanel-ftp-$site_user.conf"
+    ftp_userlist=/etc/vsftpd/stepanel.users
+    if [[ -f $ftp_userlist && ! -L $ftp_userlist ]] && grep -Fxq -- "$site_user" "$ftp_userlist"; then
+      list_staged=$(mktemp /etc/vsftpd/.users.XXXXXX)
+      awk -v user="$site_user" '$0 != user { print }' "$ftp_userlist" > "$list_staged"
+      chown root:root "$list_staged"; chmod 0600 "$list_staged"; mv -f "$list_staged" "$ftp_userlist"
+    fi
     for unit in $(systemctl list-unit-files --type=service --no-legend 'php*-fpm.service' 'php-fpm.service' 2>/dev/null | awk '{print $1}'); do
       systemctl reload "$unit" 2>/dev/null || true
     done
@@ -95,6 +101,22 @@ else
   install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root" "$public_root"
 fi
 install -d -m 0750 -o "$site_user" -g "$web_group" "$php_state" "$php_state/sessions" "$php_state/tmp"
+
+# FTPS and SSH/SFTP key access share the account's password field. It holds
+# the FTPS password while FTPS is enabled, otherwise a random hash nobody
+# knows while SSH/SFTP keys are installed (public-key login needs an unlocked
+# account), and is locked when neither is enabled. sshd password login stays
+# disabled for the account in every state.
+ftp_userlist=/etc/vsftpd/stepanel.users
+ssh_authorized_keys="/etc/stepanel/ssh/authorized_keys/$site_user"
+ftps_enabled_for_site() { [[ -f $ftp_userlist && ! -L $ftp_userlist ]] && grep -Fxq -- "$site_user" "$ftp_userlist"; }
+ssh_keys_enabled_for_site() { [[ -s $ssh_authorized_keys && ! -L $ssh_authorized_keys ]]; }
+set_unknown_password() {
+  local hash
+  command -v openssl >/dev/null 2>&1 || { echo 'openssl is required to unlock the site account' >&2; return 1; }
+  hash=$(openssl passwd -6 -stdin <<< "$(openssl rand -base64 48)") || return 1
+  usermod --password "$hash" "$site_user"
+}
 
 if [[ $action == access ]]; then
   (( $# == 4 )) || { echo 'usage: stepanel-sitectl access SITE SFTP SHELL' >&2; exit 64; }
@@ -162,11 +184,11 @@ if [[ $action == access ]]; then
   if [[ $sftp == 1 || $shell == 1 ]]; then
     # System accounts are created locked. Public-key SSH/SFTP access still
     # requires an unlocked account. RHEL-family usermod rejects an empty
-    # password field, so install a random hash that is not known to anyone;
-    # password authentication remains disabled by the managed sshd policy.
-    command -v openssl >/dev/null 2>&1 || { restore_access; echo 'openssl is required to provision SSH/SFTP access' >&2; exit 1; }
-    ssh_password_hash=$(openssl passwd -6 -stdin <<< "$(openssl rand -base64 48)") || { restore_access; echo 'could not generate an SSH/SFTP account password hash' >&2; exit 1; }
-    usermod --password "$ssh_password_hash" "$site_user" || { restore_access; echo 'could not enable the SSH/SFTP account' >&2; exit 1; }
+    # password field, so install a random hash that is not known to anyone,
+    # unless FTPS already unlocked the account with its own password.
+    if ! ftps_enabled_for_site; then
+      set_unknown_password || { restore_access; echo 'could not enable the SSH/SFTP account' >&2; exit 1; }
+    fi
     command -v sshd >/dev/null 2>&1 || { restore_access; echo 'sshd is required for SSH access management' >&2; exit 1; }
     mv -f "$staged" "$authorized_keys"
     cat > "$ssh_config" <<EOF
@@ -189,7 +211,9 @@ EOF
       exit 1
     fi
   else
-    usermod --lock "$site_user" || { restore_access; echo 'could not lock the SSH/SFTP account' >&2; exit 1; }
+    if ! ftps_enabled_for_site; then
+      usermod --lock "$site_user" || { restore_access; echo 'could not lock the SSH/SFTP account' >&2; exit 1; }
+    fi
     rm -f "$authorized_keys" "$ssh_config" "$staged"
     if (( key_existed || config_existed )); then
       if ! (command -v sshd >/dev/null 2>&1 && sshd -t && (systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null)); then
@@ -211,50 +235,60 @@ if [[ $action == ftp ]]; then
   [[ -f $ftp_config ]] || ftp_config=/etc/vsftpd/vsftpd.conf
   [[ -f $ftp_config && ! -L $ftp_config ]] || { echo 'vsftpd is not installed or configured' >&2; exit 1; }
   command -v chpasswd >/dev/null 2>&1 || { echo 'chpasswd is required for FTPS provisioning' >&2; exit 1; }
-  ftp_userlist=/etc/vsftpd/stepanel.users
+  command -v sshd >/dev/null 2>&1 || { echo 'sshd is required to enforce FTPS SSH password isolation' >&2; exit 1; }
+  password=
+  if [[ $ftp_enabled == 1 ]]; then
+    password=$(cat)
+    [[ ${#password} -ge 12 && ${#password} -le 128 && $password != *$'\r'* && $password != *$'\n'* ]] || { echo 'FTPS password must be 12-128 characters without control bytes' >&2; exit 1; }
+  fi
   install -d -m 0750 -o root -g root /etc/vsftpd
   [[ ! -e $ftp_userlist || ! -L $ftp_userlist ]] || { echo 'FTPS user allowlist is unsafe' >&2; exit 1; }
   [[ -f $ftp_userlist ]] || : > "$ftp_userlist"
   chmod 0600 "$ftp_userlist"; chown root:root "$ftp_userlist"
-  list_backup=$(mktemp)
-  cp -p "$ftp_userlist" "$list_backup"
-  list_staged=$(mktemp /etc/vsftpd/.users.XXXXXX)
   ftp_ssh_config="/etc/ssh/sshd_config.d/stepanel-ftp-$site_user.conf"
-  config_backup=$(mktemp)
+  install -d -m 0755 -o root -g root /etc/ssh/sshd_config.d
+  list_backup=$(mktemp); config_backup=$(mktemp); list_staged=; ssh_staged=
+  cp -p "$ftp_userlist" "$list_backup"
   config_existed=0
   if [[ -f $ftp_ssh_config ]]; then cp -p "$ftp_ssh_config" "$config_backup"; config_existed=1; fi
-  old_shadow=$(getent shadow "$site_user" | cut -d: -f2-2)
-  restore_ftp() {
-    cp -p "$list_backup" "$ftp_userlist"
-    [[ -n $old_shadow ]] && usermod --password "$old_shadow" "$site_user" 2>/dev/null || true
-    if (( config_existed )); then mv -f "$config_backup" "$ftp_ssh_config"; else rm -f "$ftp_ssh_config"; fi
-    rm -f "$list_backup" "$list_staged" "$config_backup"
+  old_shadow=$(getent shadow "$site_user" | cut -d: -f2)
+  ftp_committed=0
+  # Every exit before the commit point, including explicit `exit 1` paths that
+  # an ERR trap would miss, restores the allowlist, password and sshd policy.
+  finish_ftp() {
+    if (( ! ftp_committed )); then
+      cp -p "$list_backup" "$ftp_userlist" 2>/dev/null || true
+      [[ -z $old_shadow ]] || usermod --password "$old_shadow" "$site_user" 2>/dev/null || true
+      if (( config_existed )); then cp -p "$config_backup" "$ftp_ssh_config" 2>/dev/null || true; else rm -f "$ftp_ssh_config"; fi
+      systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
+    fi
+    rm -f "$list_backup" "$config_backup" "${list_staged:-}" "${ssh_staged:-}"
   }
-  trap restore_ftp ERR
+  trap finish_ftp EXIT
+  list_staged=$(mktemp /etc/vsftpd/.users.XXXXXX)
+  awk -v user="$site_user" '$0 != user { print }' "$ftp_userlist" > "$list_staged"
   if [[ $ftp_enabled == 1 ]]; then
-    password=$(cat)
-    [[ ${#password} -ge 12 && ${#password} -le 128 && $password != *$'\r'* && $password != *$'\n'* ]] || { echo 'FTPS password must be 12-128 characters without control bytes' >&2; exit 1; }
-    printf '%s:%s\n' "$site_user" "$password" | chpasswd
-    awk -v user="$site_user" '$0 != user { print }' "$ftp_userlist" > "$list_staged"
+    printf '%s:%s\n' "$site_user" "$password" | chpasswd || { echo 'could not set the FTPS password' >&2; exit 1; }
     printf '%s\n' "$site_user" >> "$list_staged"
-  else
-    passwd -l "$site_user" >/dev/null
-    awk -v user="$site_user" '$0 != user { print }' "$ftp_userlist" > "$list_staged"
-  fi
-  command -v sshd >/dev/null 2>&1 || { echo 'sshd is required to enforce FTPS SSH password isolation' >&2; exit 1; }
-  install -d -m 0755 -o root -g root /etc/ssh/sshd_config.d
-  if [[ $ftp_enabled == 1 ]]; then
     ssh_staged=$(mktemp /etc/ssh/sshd_config.d/.stepanel-ftp.XXXXXX)
     printf '# Managed by StePanel. Do not edit.\nMatch User %s\n    PasswordAuthentication no\n    KbdInteractiveAuthentication no\n' "$site_user" > "$ssh_staged"
-    chown root:root "$ssh_staged"; chmod 0644 "$ssh_staged"; mv -f "$ssh_staged" "$ftp_ssh_config"
+    chown root:root "$ssh_staged"; chmod 0644 "$ssh_staged"; mv -f "$ssh_staged" "$ftp_ssh_config"; ssh_staged=
   else
+    # Revoking FTPS discards its password but must not lock out installed
+    # SSH/SFTP keys, which need the account unlocked.
+    if ssh_keys_enabled_for_site; then
+      set_unknown_password || { echo 'could not revoke the FTPS password' >&2; exit 1; }
+    else
+      usermod --lock "$site_user" >/dev/null || { echo 'could not lock the site account' >&2; exit 1; }
+    fi
     rm -f "$ftp_ssh_config"
   fi
   sshd -t || { echo 'sshd rejected the FTPS SSH password isolation policy' >&2; exit 1; }
   systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || { echo 'could not reload sshd after FTPS policy change' >&2; exit 1; }
-  chown root:root "$list_staged"; chmod 0600 "$list_staged"; mv -f "$list_staged" "$ftp_userlist"
-  trap - ERR
-  rm -f "$list_backup" "$config_backup"
+  chown root:root "$list_staged"; chmod 0600 "$list_staged"
+  mv -f "$list_staged" "$ftp_userlist" || { echo 'could not publish the FTPS user allowlist' >&2; exit 1; }
+  list_staged=
+  ftp_committed=1
   exit 0
 fi
 
@@ -370,9 +404,11 @@ php_max_children=5
 parse_config_file "$profile" || { echo 'failed to parse PHP runtime configuration' >&2; exit 1; }
 parse_config_file "$php_state/resources.env" || { echo 'failed to parse PHP resources configuration' >&2; exit 1; }
 
-if [[ $action == seal ]]; then
-  symlink=$(find -P "$site_root" -xdev -type l -print -quit)
-  [[ -z $symlink ]] || { echo "site tree contains a symlink and cannot be sealed: $symlink" >&2; exit 1; }
+if [[ $action == seal && -d $site_root/public ]]; then
+  # Only the document root is served. Runtime trees beside it, such as the
+  # Python virtualenv, and node_modules (never served) legitimately use links.
+  symlink=$(find -P "$site_root/public" -xdev -path "$site_root/public/node_modules" -prune -o -type l -print -quit)
+  [[ -z $symlink ]] || { echo "site document root contains a symlink and cannot be sealed: $symlink" >&2; exit 1; }
 fi
 if [[ $action == prepare || $action == seal ]]; then
   command -v setfacl >/dev/null 2>&1 || { echo 'setfacl is required for site isolation' >&2; exit 1; }

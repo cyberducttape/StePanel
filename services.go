@@ -257,7 +257,24 @@ func (a *App) ftpEndpoint(w http.ResponseWriter, r *http.Request) {
 	if !*input.Enabled {
 		input.Password = ""
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), helperConfigMutationTimeout)
+	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), input.Site)
+	if lockErr != nil {
+		http.Error(w, "FTPS mutation is busy", http.StatusConflict)
+		return
+	}
+	defer releaseUnlock()
+	// Enabling FTPS installs a password credential, so it is intent-first.
+	// Disabling is a pure revocation and is recorded after the change.
+	var intent *SecurityAudit
+	if *input.Enabled {
+		var err error
+		intent, err = BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.ftps.enabled", input.Site, "ftps=true")
+		if err != nil {
+			refuseWithoutSecurityAudit(w)
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(operationCtx, helperConfigMutationTimeout)
 	defer cancel()
 	request := rootbroker.SiteRequest{Action: "ftp", Site: input.Site, FTPEnabled: input.Enabled, FTPPassword: input.Password}
 	var err error
@@ -267,10 +284,17 @@ func (a *App) ftpEndpoint(w http.ResponseWriter, r *http.Request) {
 		_, err, _ = runAllowlistedHelperOutput(ctx, a.Config, []byte(input.Password), a.Config.SiteCtl, "ftp", input.Site, boolString(*input.Enabled))
 	}
 	if err != nil {
+		if intent != nil {
+			intent.Failed(err.Error())
+		}
 		http.Error(w, "FTPS mutation failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.ftps.updated", input.Site, boolString(*input.Enabled))
+	if intent != nil {
+		intent.Completed("ftps=true")
+	} else {
+		RevocationAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.ftps.disabled", input.Site, "ftps=false")
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"site": input.Site, "enabled": *input.Enabled})
 }
 

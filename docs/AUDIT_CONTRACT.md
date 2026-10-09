@@ -84,6 +84,8 @@ and never affects the operation; failures are logged.
 | Backup, cpMove and WordPress restores | A, intent-first | `backup.<mode>`, `cpmove.restore`, `wordpress.restore` |
 | SSH access policy, SSH key addition, Git deploy key creation | A, intent-first | `site.ssh-access.updated`, `site.ssh-key.added`, `site.git-deploy-key.created` |
 | SSH key removal, Git deploy key deletion | A, revocation | `site.ssh-key.removed`, `site.git-deploy-key.deleted` |
+| FTPS enablement (password install) | A, intent-first | `site.ftps.enabled` |
+| FTPS revocation | A, revocation | `site.ftps.disabled` |
 | Environment variable changes and removal | A, intent-first | `site.environment.updated`, `site.environment.deleted` |
 | Redis allocation removal | A, intent-first | `site.redis.deleted` |
 | Backups, verification, rehearsals, restore-to-staging, retention | B | `site.backup.*`, `backup.verify`, `backup.rehearsal.*`, ... |

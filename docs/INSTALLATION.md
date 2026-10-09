@@ -378,9 +378,11 @@ and selected webserver group afterward. Site users are not added to the shared
 webserver group; Caddy or Apache receives group read access to static files and
 PHP-FPM sockets instead. The installer records the selected web-server group
 and PHP socket root in the root-owned `/etc/ste-panel.env`; the root broker and
-site helper consume that same identity. The `/var/www` mount is protected with
-`nosymfollow`, preventing web-server and PHP consumers from following a site
-symlink outside the managed filesystem. The site deployment API renders a validated Caddy or
+site helper consume that same identity. The Caddy vhost helper and site
+sealing refuse a document root that contains a symlink (`node_modules`, which
+managed routes never serve, is exempt), so a published route cannot follow a
+link out of its site. Python virtualenvs live beside the document root at
+`/var/www/sites/<site>/.venv`. The site deployment API renders a validated Caddy or
 Apache vhost that routes PHP requests to an active pool and refuses conflicting
 domains. OpenLiteSpeed PHP routing remains operator-integrated.
 

@@ -38,8 +38,10 @@ public_root="/var/www/sites/$site/public"
 [[ -d $public_root && ! -L $public_root ]] || { echo 'site document root is unavailable or unsafe' >&2; exit 1; }
 # Caddy's file_server follows symlinks, so a site tree containing one is not a
 # filesystem boundary. Reject such trees before publishing a route; imports
-# and deployments must use regular files and directories only.
-symlink=$(find -P "$public_root" -xdev -type l -print -quit)
+# and deployments must use regular files and directories only. node_modules
+# is exempt because package managers link its contents, and the route below
+# never serves it.
+symlink=$(find -P "$public_root" -xdev -path "$public_root/node_modules" -prune -o -type l -print -quit)
 [[ -z $symlink ]] || { echo "site document root contains a symlink: $symlink" >&2; exit 1; }
 socket=
 selected_version=
@@ -80,7 +82,7 @@ case "$action" in
     {
       printf '# Managed by StePanel. Manual changes will be replaced.\n%s {\n\troot * %s\n\tencode zstd gzip\n' "$domain" "$public_root"
       cat <<'EOF'
-	@stepanel_sensitive path_regexp stepanel_sensitive (?i)^/(\.env(\.[^/]*)?|\.git(/.*)?|\.svn(/.*)?|\.hg(/.*)?|\.htpasswd|\.htaccess|(.*/)?[^/]+\.(sql|sqlite3?|db|bak|backup|tar|tgz|zip|enc)(\.[^/]*)?)$
+	@stepanel_sensitive path_regexp stepanel_sensitive (?i)^/(node_modules(/.*)?|\.env(\.[^/]*)?|\.git(/.*)?|\.svn(/.*)?|\.hg(/.*)?|\.htpasswd|\.htaccess|(.*/)?[^/]+\.(sql|sqlite3?|db|bak|backup|tar|tgz|zip|enc)(\.[^/]*)?)$
 	respond @stepanel_sensitive 404
 EOF
       if [[ -f "/var/www/sites/$site/.stepanel-staging-noindex" && ! -L "/var/www/sites/$site/.stepanel-staging-noindex" ]]; then printf '\theader X-Robots-Tag "noindex, nofollow"\n'; fi

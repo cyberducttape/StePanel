@@ -227,8 +227,6 @@ if [[ $STEPANEL_WEBSERVER == apache ]]; then
   apachectl -t 2>/dev/null || httpd -t
 else
   caddy validate --config /etc/caddy/Caddyfile
-  systemctl is-active --quiet stepanel-nosymfollow.service
-  findmnt -no OPTIONS -T /var/www | tr ',' '\n' | grep -Fxq nosymfollow
   sensitive_file="/var/www/sites/$site/public/.env"
   symlink_target="/var/www/sites/$site/.stepanel-caddy-outside-secret"
   symlink_path="/var/www/sites/$site/public/stepanel-outside-secret"
@@ -238,8 +236,10 @@ else
   trap 'rm -f "$sensitive_file" "$symlink_target" "$symlink_path"' EXIT
   caddy_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/.env || true)
   [[ $caddy_status == 308 || $caddy_status == 403 || $caddy_status == 404 ]] || { echo "Caddy served a sensitive file with HTTP $caddy_status" >&2; exit 1; }
-  caddy_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/stepanel-outside-secret || true)
-  [[ $caddy_status == 308 || $caddy_status == 403 || $caddy_status == 404 ]] || { echo "Caddy followed an out-of-root symlink with HTTP $caddy_status" >&2; exit 1; }
+  if /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.example.test 2>/dev/null; then
+    echo 'Caddy vhost helper published a document root containing a symlink' >&2
+    exit 1
+  fi
   rm -f "$sensitive_file" "$symlink_target" "$symlink_path"
   trap - EXIT
 fi

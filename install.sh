@@ -780,7 +780,6 @@ install -d -m 0755 -o root -g root /usr/local/share/stepanel/python
 install -m 0644 -o root -g root "$ROOT_DIR/deploy/python/gunicorn-23.0.0.requirements.txt" /usr/local/share/stepanel/python/gunicorn-23.0.0.requirements.txt
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-gitctl" /usr/local/sbin/stepanel-gitctl
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-runnerctl" /usr/local/sbin/stepanel-runnerctl
-install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-nosymfollow" /usr/local/sbin/stepanel-nosymfollow
 if [[ "$WEB_SERVER" == "caddy" ]]; then
   install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-caddy-proxyctl" /usr/local/sbin/stepanel-proxyctl
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then
@@ -941,7 +940,6 @@ unset AUDIT_KEY
 install -m 0644 "$ROOT_DIR/deploy/stepanel.service" /etc/systemd/system/stepanel.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-worker.service" /etc/systemd/system/stepanel-worker.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service
-install -m 0644 "$ROOT_DIR/deploy/stepanel-nosymfollow.service" /etc/systemd/system/stepanel-nosymfollow.service
 # useradd/usermod take the account database lock files under /etc. Keep the
 # broker's ProtectSystem=full policy narrow while making those namespace paths
 # present; touch never truncates an existing lock held by another process.
@@ -964,7 +962,17 @@ if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   if command -v setsebool >/dev/null 2>&1; then setsebool -P httpd_can_network_connect 1; fi
 fi
 systemctl daemon-reload
-systemctl enable --now stepanel-nosymfollow.service
+# An earlier build bind-mounted /var/www with nosymfollow. That also blocks the
+# symlinks Python virtualenvs and node_modules rely on, so retire it. Symlink
+# isolation for served content is enforced by the vhost helpers instead.
+if [[ -e /etc/systemd/system/stepanel-nosymfollow.service ]]; then
+  systemctl disable --now stepanel-nosymfollow.service
+  rm -f /etc/systemd/system/stepanel-nosymfollow.service /usr/local/sbin/stepanel-nosymfollow
+  systemctl daemon-reload
+  if [[ $(findmnt -no TARGET -T /var/www) == /var/www ]] && findmnt -no OPTIONS -T /var/www | tr ',' '\n' | grep -Fxq nosymfollow; then
+    umount /var/www
+  fi
+fi
 if [[ "$WEB_SERVER" == "apache" ]]; then
   if command -v apachectl >/dev/null 2>&1; then apachectl -t; else httpd -t; fi
 fi

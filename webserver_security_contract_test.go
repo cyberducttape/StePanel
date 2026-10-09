@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -15,13 +16,24 @@ func TestInstallerPersistsAuthoritativeWebIdentity(t *testing.T) {
 	for _, line := range []string{
 		`write_env STEPANEL_WEB_GROUP "$WEB_GROUP"`,
 		`write_env STEPANEL_PHP_SOCKET_ROOT "$PHP_SOCKET_ROOT"`,
-		`install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-nosymfollow" /usr/local/sbin/stepanel-nosymfollow`,
-		`install -m 0644 "$ROOT_DIR/deploy/stepanel-nosymfollow.service" /etc/systemd/system/stepanel-nosymfollow.service`,
-		`systemctl enable --now stepanel-nosymfollow.service`,
+		// The retired /var/www nosymfollow mount broke virtualenv and
+		// node_modules symlinks; upgrades must remove it.
+		`systemctl disable --now stepanel-nosymfollow.service`,
+		`umount /var/www`,
 	} {
 		if !strings.Contains(source, line) {
 			t.Fatalf("install.sh is missing authoritative identity contract %q", line)
 		}
+	}
+	if strings.Contains(source, "systemctl enable --now stepanel-nosymfollow.service") {
+		t.Fatal("install.sh still enables the /var/www nosymfollow mount")
+	}
+}
+
+func TestPythonVirtualenvLivesOutsideDocumentRoot(t *testing.T) {
+	source := string(mustReadTestFile(t, "deploy/integrations/stepanel-appctl"))
+	if !strings.Contains(source, `; venv="/var/www/sites/$site/.venv"`) || regexp.MustCompile(`(^|[^_])venv="\$root/\.venv"`).MatchString(source) {
+		t.Fatal("Python virtualenv must live beside the document root, where vhost symlink checks do not apply")
 	}
 }
 
@@ -32,7 +44,8 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	}
 	source := string(sourceBytes)
 	for _, required := range []string{
-		`find -P "$public_root" -xdev -type l`,
+		`find -P "$public_root" -xdev -path "$public_root/node_modules" -prune -o -type l`,
+		`^/(node_modules(/.*)?|`,
 		`@stepanel_sensitive path_regexp`,
 		`respond @stepanel_sensitive 404`,
 		`file_server {`,
@@ -59,14 +72,11 @@ func TestSiteHelperUsesAuthoritativeWebIdentityAndRejectsSymlinks(t *testing.T) 
 	for _, required := range []string{
 		`STEPANEL_WEB_GROUP`,
 		`STEPANEL_PHP_SOCKET_ROOT`,
-		`find -P "$site_root" -xdev -type l`,
+		`find -P "$site_root/public" -xdev -path "$site_root/public/node_modules" -prune -o -type l`,
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("site helper is missing protection %q", required)
 		}
-	}
-	if !strings.Contains(string(mustReadTestFile(t, "deploy/stepanel-nosymfollow.service")), "stepanel-nosymfollow") {
-		t.Fatal("nosymfollow systemd unit is not installed as a managed service")
 	}
 	if strings.Contains(source, "getent group www-data") || strings.Contains(source, "getent group apache") {
 		t.Fatal("site helper independently guesses the web-server group")

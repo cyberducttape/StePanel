@@ -74,12 +74,22 @@ curl --fail --silent --show-error --ftp-ssl --ssl-reqd --insecure --user "$site_
   "ftp://127.0.0.1:$port/upload.txt" -o "$tmp/download.txt"
 cmp -s "$tmp/upload.txt" "$tmp/download.txt"
 
+# FTPS and SSH/SFTP keys share the account password field: installing keys
+# must keep the FTPS password, and revoking FTPS must keep the keys usable.
+ssh-keygen -q -t ed25519 -N '' -f "$tmp/client"
+"$helper" access "$site" 1 0 < "$tmp/client.pub"
+curl --fail --silent --show-error --ftp-ssl --ssl-reqd --insecure --user "$site_user:$password" \
+  "ftp://127.0.0.1:$port/upload.txt" -o "$tmp/after-ssh.txt" || { echo 'enabling SFTP keys replaced the FTPS password' >&2; exit 1; }
+
 printf '\n' | "$helper" ftp "$site" 0
+[[ $(getent shadow "$site_user" | cut -d: -f2) != '!'* ]] || { echo 'revoking FTPS locked out installed SSH/SFTP keys' >&2; exit 1; }
 set +e
 curl --silent --ftp-ssl --ssl-reqd --insecure --user "$site_user:$password" \
   "ftp://127.0.0.1:$port/upload.txt" -o "$tmp/revoked.txt"
 revoked_status=$?
 set -e
 (( revoked_status != 0 )) || { echo 'revoked FTPS account still authenticated' >&2; exit 1; }
-! grep -Fxq "$site_user" /etc/vsftpd/stepanel.users
+if grep -Fxq "$site_user" /etc/vsftpd/stepanel.users; then echo 'revoked FTPS account is still allowlisted' >&2; exit 1; fi
+"$helper" access "$site" 0 0 < /dev/null
+[[ $(getent shadow "$site_user" | cut -d: -f2) == '!'* ]] || { echo 'site account stayed unlocked with neither FTPS nor SSH access' >&2; exit 1; }
 echo 'FTPS upload/download/revocation smoke passed'

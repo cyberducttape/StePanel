@@ -827,8 +827,6 @@ func Main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	serverStarted := make(chan struct{})
-	close(serverStarted)
 	go func() {
 		log.Printf("StePanel listening on %s", cfg.Listen)
 		if cfg.TLSCertFile != "" {
@@ -843,7 +841,8 @@ func Main() {
 			}
 		}
 	}()
-	<-serverStarted
+	// The listener is bound above, so readiness probes can connect before
+	// startup recovery finishes.
 	go runStartup()
 	<-runCtx.Done()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
