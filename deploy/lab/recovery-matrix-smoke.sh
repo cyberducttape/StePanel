@@ -71,16 +71,26 @@ if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
       DATABASE_RESTORE_RECOVERY=1 \
       bash "$repo/backup-recovery-smoke.sh"
   done
-  # Exercise every restore checkpoint. The provision/provisioned/database
-  # checkpoints are reached by the database-inclusive restore path; the
-  # remaining checkpoints are reached by the file restore path. Each case
-  # creates its own backup and database so a killed worker cannot contaminate
-  # the next boundary.
-  for boundary in restore:provision restore:provisioned restore:database restore:verify restore:extract restore:activate restore:commit; do
+  # Exercise each restore checkpoint on the path that reaches it: verify,
+  # extract, activate and commit are file-restore checkpoints
+  # (backupRestoreFiles); database is the database-only restore. Each case
+  # kills the other restore at a known-good checkpoint, and creates its own
+  # backup and database so a killed worker cannot contaminate the next case.
+  #
+  # restore:provision and restore:provisioned are reached only by the
+  # restore-to-staging database path (restoreDatabaseIntoStagingContext),
+  # which no real-host drill exercises yet; they are covered by unit-level
+  # failure injection only.
+  for boundary in restore:database restore:verify restore:extract restore:activate restore:commit; do
     site=$(full_site restore "$boundary")
+    if [[ $boundary == restore:database ]]; then
+      file_boundary=restore:activate; database_boundary=$boundary
+    else
+      file_boundary=$boundary; database_boundary=restore:database
+    fi
     CPMOVE_SMOKE_SITE="$site" bash "$repo/cpmove-import-smoke.sh"
     BACKUP_RECOVERY_SMOKE_SITE="$site" BACKUP_KILL_AT=backup:archive \
-      RESTORE_KILL_AT="$boundary" DATABASE_RESTORE_KILL_AT="$boundary" \
+      RESTORE_KILL_AT="$file_boundary" DATABASE_RESTORE_KILL_AT="$database_boundary" \
       TERMINATE_KILL_AT=terminate:site-state DATABASE_RESTORE_RECOVERY=1 \
       bash "$repo/backup-recovery-smoke.sh"
   done
