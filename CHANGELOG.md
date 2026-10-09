@@ -55,6 +55,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   Install-smoke diagnostics now include PHP-FPM status, journal output, and
   managed sockets.
 
+- **Caddy redirect-aware boundary smoke**: sensitive-file and out-of-root
+  symlink checks now follow the disposable host's HTTP-to-HTTPS redirect before
+  asserting the final response is denied.
+
 - **FTPS site identity and revocation**: vsftpd now chroots each login to
   the site account's actual home directory, accepts only explicitly
   provisioned site users, and no longer derives a site path from the hashed

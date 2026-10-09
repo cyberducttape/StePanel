@@ -236,9 +236,9 @@ else
   printf '%s\n' 'must-not-be-followed' > "$symlink_target"
   ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
   trap 'rm -f "$sensitive_file" "$symlink_target" "$symlink_path"' EXIT
-  caddy_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/.env || true)
+  caddy_status=$(curl --silent --show-error --location --max-redirs 3 --insecure --resolve ci-smoke.example.test:443:127.0.0.1 --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/.env || true)
   [[ $caddy_status == 403 || $caddy_status == 404 ]] || { echo "Caddy served a sensitive file with HTTP $caddy_status" >&2; exit 1; }
-  caddy_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/stepanel-outside-secret || true)
+  caddy_status=$(curl --silent --show-error --location --max-redirs 3 --insecure --resolve ci-smoke.example.test:443:127.0.0.1 --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/stepanel-outside-secret || true)
   [[ $caddy_status == 403 || $caddy_status == 404 ]] || { echo "Caddy followed an out-of-root symlink with HTTP $caddy_status" >&2; exit 1; }
   rm -f "$sensitive_file" "$symlink_target" "$symlink_path"
   trap - EXIT
