@@ -49,6 +49,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **HTTP error-rate alert fires at low traffic**: `StePanelHTTP5xxRateHigh`
+  clamped its denominator to one request per second, so on a quiet panel
+  10 requests with 2 failures (20%) evaluated to about 0.67% and never
+  fired. It now divides by the real rate and requires 20 requests in five
+  minutes; the new `StePanelHTTP5xxLowTraffic` alert covers lower volumes
+  with an absolute count. `observability/alerts_test.yml` holds promtool
+  rule tests, which CI now runs.
+- **Browser request layer**: a malformed CSRF cookie no longer throws out of
+  every mutation, and mutations time out after two minutes by default
+  (uploads stay untimed and are bounded by the server).
+
 - **Privileged operations stop when their lease is lost**: the root broker
   checked a request's fencing token only before starting it, then ran the
   helper detached from the caller. A crashed or partitioned owner's helper

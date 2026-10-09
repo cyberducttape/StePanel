@@ -9,18 +9,21 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../../web/static/api.js'), 'utf8');
 
-function loadAPI(respond) {
+function loadAPI(respond, { cookie = 'other=1; stepanel_csrf=tok%20en' } = {}) {
   const calls = [];
   const events = [];
+  const timers = [];
   const window = {
     dispatchEvent: (event) => events.push(event),
   };
   const context = {
     window,
-    document: { cookie: 'other=1; stepanel_csrf=tok%20en' },
+    document: { cookie },
     AbortController,
+    FormData,
+    Blob,
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
-    setTimeout,
+    setTimeout: (fn, ms) => { timers.push(ms); return setTimeout(fn, ms); },
     clearTimeout,
     fetch: async (url, init) => {
       calls.push({ url, init });
@@ -28,7 +31,7 @@ function loadAPI(respond) {
     },
   };
   vm.runInNewContext(source, context);
-  return { api: window.StepanelAPI, calls, events };
+  return { api: window.StepanelAPI, calls, events, timers };
 }
 
 function response(status, body, headers = {}) {
@@ -131,12 +134,23 @@ test('network failures, timeouts, and cancellation are distinguished', async () 
   await assert.rejects(pending, (error) => error.kind === 'aborted');
 });
 
-test('reads time out by default; mutations do not', async () => {
-  const { api, calls } = loadAPI(() => response(200, {}));
+test('reads and mutations time out by default; uploads do not', async () => {
+  const { api, timers } = loadAPI(() => response(200, {}));
   await api.get('/api/x');
+  assert.deepEqual(timers, [30000]);
   await api.post('/api/x', {});
-  // Both requests carry an abort signal; only the default read timeout can
-  // fire it, which the timeout test above exercises.
-  assert.ok(calls[0].init.signal);
-  assert.ok(calls[1].init.signal);
+  assert.deepEqual(timers, [30000, 120000]);
+  await api.request('/api/upload', { method: 'POST', body: new FormData() });
+  await api.request('/api/upload', { method: 'POST', body: new Blob(['archive']) });
+  assert.deepEqual(timers, [30000, 120000], 'uploads must not get the default mutation timeout');
+  await api.post('/api/x', {}, { timeout: 0 });
+  await api.post('/api/x', {}, { timeout: 5000 });
+  assert.deepEqual(timers, [30000, 120000, 5000]);
+});
+
+test('a malformed CSRF cookie does not throw out of the request layer', async () => {
+  const { api, calls } = loadAPI(() => response(200, {}), { cookie: 'stepanel_csrf=%' });
+  assert.equal(api.csrf(), '');
+  await api.post('/api/x', {});
+  assert.equal(calls[0].init.headers['X-CSRF-Token'], '');
 });

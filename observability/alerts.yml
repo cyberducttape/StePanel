@@ -11,18 +11,40 @@ groups:
           summary: StePanel target is unavailable
           description: Prometheus cannot scrape the StePanel metrics endpoint for five minutes.
 
+      # The ratio uses the real request rate. With no traffic the division is
+      # NaN and the rule is simply not satisfied; it is not clamped, which
+      # would understate the ratio on a quiet single-host panel. A minimum
+      # sample volume keeps one failed request out of four from paging.
       - alert: StePanelHTTP5xxRateHigh
         expr: |
-          sum(rate(stepanel_http_errors_total{job="stepanel"}[5m]))
-          /
-          clamp_min(sum(rate(stepanel_http_requests_total{job="stepanel"}[5m])), 1)
-          > 0.05
+          (
+            sum(rate(stepanel_http_errors_total{job="stepanel"}[5m]))
+            /
+            sum(rate(stepanel_http_requests_total{job="stepanel"}[5m]))
+            > 0.05
+          )
+          and
+          sum(increase(stepanel_http_requests_total{job="stepanel"}[5m])) >= 20
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: StePanel HTTP error rate is elevated
           description: More than five percent of StePanel requests returned 5xx responses for ten minutes.
+
+      # Below the ratio rule's sample volume, alert on an absolute count, so a
+      # low-traffic panel where most requests fail is still noticed.
+      - alert: StePanelHTTP5xxLowTraffic
+        expr: |
+          sum(increase(stepanel_http_errors_total{job="stepanel"}[15m])) >= 3
+          and
+          sum(increase(stepanel_http_requests_total{job="stepanel"}[5m])) < 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: StePanel is returning server errors at low traffic
+          description: At least three StePanel requests returned 5xx responses in fifteen minutes while traffic was too low for the error-rate alert.
 
       - alert: StePanelSQLiteBusy
         expr: increase(stepanel_sqlite_busy_errors_total{job="stepanel"}[10m]) > 0

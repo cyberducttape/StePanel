@@ -6,14 +6,35 @@
   // modules never call fetch() directly.
 
   const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-  // Reads time out by default; mutations do not, because uploads, imports,
-  // and job submissions can legitimately take minutes. Pass `timeout` to
-  // bound a specific call.
+  // Every request has a default timeout so a dropped connection cannot leave
+  // the interface waiting forever. Long work is submitted as a durable job
+  // and followed by job ID, so mutations only need time to be accepted.
+  // Uploads (FormData or Blob bodies) are the exception: their duration
+  // depends on archive size and link speed, and the server's upload read
+  // timeout bounds them. Pass `timeout` (0 for none) to override.
   const DEFAULT_READ_TIMEOUT_MS = 30000;
+  const DEFAULT_MUTATION_TIMEOUT_MS = 120000;
 
+  const isUpload = (body) =>
+    (typeof FormData !== 'undefined' && body instanceof FormData) ||
+    (typeof Blob !== 'undefined' && body instanceof Blob);
+
+  const defaultTimeout = (method, body) => {
+    if (!MUTATING.has(method)) return DEFAULT_READ_TIMEOUT_MS;
+    return isUpload(body) ? 0 : DEFAULT_MUTATION_TIMEOUT_MS;
+  };
+
+  // A malformed cookie (for example a stray "%") must not throw out of the
+  // request layer. Sending no token lets the server answer 403, which the
+  // caller reports like any other rejected request.
   const csrf = () => {
     const match = document.cookie.match(/(?:^|; )stepanel_csrf=([^;]+)/);
-    return match ? decodeURIComponent(match[1]) : '';
+    if (!match) return '';
+    try {
+      return decodeURIComponent(match[1]);
+    } catch (_) {
+      return '';
+    }
   };
 
   const kindForStatus = (status) => {
@@ -64,7 +85,7 @@
 
     const controller = new AbortController();
     let timedOut = false;
-    const limit = timeout ?? (MUTATING.has(init.method) ? 0 : DEFAULT_READ_TIMEOUT_MS);
+    const limit = timeout ?? defaultTimeout(init.method, init.body);
     const timer = limit > 0 ? setTimeout(() => { timedOut = true; controller.abort(); }, limit) : null;
     const forwardAbort = () => controller.abort();
     if (signal) {

@@ -1,0 +1,76 @@
+# promtool unit tests for alerts.yml:
+#   promtool test rules observability/alerts_test.yml
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 30s
+
+tests:
+  # 100 requests per minute with 10 percent failing: the ratio rule fires.
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_http_requests_total{job="stepanel"}'
+        values: '0+100x30'
+      - series: 'stepanel_http_errors_total{job="stepanel"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: StePanelHTTP5xxRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: StePanel HTTP error rate is elevated
+              description: More than five percent of StePanel requests returned 5xx responses for ten minutes.
+      - eval_time: 20m
+        alertname: StePanelHTTP5xxLowTraffic
+        exp_alerts: []
+
+  # Healthy high traffic (1 percent failing) does not fire.
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_http_requests_total{job="stepanel"}'
+        values: '0+100x30'
+      - series: 'stepanel_http_errors_total{job="stepanel"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: StePanelHTTP5xxRateHigh
+        exp_alerts: []
+
+  # The reviewer's case: about 10 requests per five minutes with one in five
+  # failing. The old clamped ratio computed ~0.67% and never fired; this is a
+  # 20% failure rate and the low-traffic rule fires.
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_http_requests_total{job="stepanel"}'
+        values: '0+2x30'
+      - series: 'stepanel_http_errors_total{job="stepanel"}'
+        values: '0 0 0 0 0 2 2 2 2 2 4 4 4 4 4 6 6 6 6 6 8 8 8 8 8 10 10 10 10 10 12'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: StePanelHTTP5xxLowTraffic
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: StePanel is returning server errors at low traffic
+              description: At least three StePanel requests returned 5xx responses in fifteen minutes while traffic was too low for the error-rate alert.
+      - eval_time: 25m
+        alertname: StePanelHTTP5xxRateHigh
+        exp_alerts: []
+
+  # No traffic at all: neither rule fires (no division-by-zero alert).
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_http_requests_total{job="stepanel"}'
+        values: '0x30'
+      - series: 'stepanel_http_errors_total{job="stepanel"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: StePanelHTTP5xxRateHigh
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: StePanelHTTP5xxLowTraffic
+        exp_alerts: []
