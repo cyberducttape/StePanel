@@ -431,7 +431,7 @@ func TestBackupManifestReportsWordPressQuiesce(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("WP_ACTION_LOG", logPath)
-	result, err := CreateSiteBackupContext(context.Background(), Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), WPCLI: wp}, AuthorizedSite{site: "account"}, false)
+	result, err := CreateSiteBackupContext(context.Background(), Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), WPCLI: wp, ControlPlaneDB: filepath.Join(root, "state", "control.db")}, AuthorizedSite{site: "account"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +471,7 @@ func TestBackupWordPressQuiesceUsesExitStatus(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("WP_ACTION_LOG", logPath)
-			result, err := CreateSiteBackupContext(context.Background(), Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), WPCLI: wp}, AuthorizedSite{site: "account"}, false)
+			result, err := CreateSiteBackupContext(context.Background(), Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), WPCLI: wp, ControlPlaneDB: filepath.Join(root, "state", "control.db")}, AuthorizedSite{site: "account"}, false)
 			if err != nil {
 				t.Fatal(err)
 			}

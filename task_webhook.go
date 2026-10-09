@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/safehttp"
@@ -26,16 +27,42 @@ type taskWebhookPayload struct {
 	ExitStatus string `json:"exit_status"`
 }
 
-// runTaskWebhook delivers a scheduled task completion notification. It runs
-// from the task unit's ExecStopPost as the site user with an empty
-// environment, and enforces the shared outbound policy on the connected
-// address, so a URL that was public when saved but now resolves to a private
-// or metadata address is refused. Redirects are not followed.
+// runTaskWebhook delivers a scheduled task completion notification. The task
+// unit's privileged ExecStopPost (stepanel-appctl task-notify) reads the URL
+// from a root-only file and runs this as the unprivileged panel user with an
+// empty environment, passing the URL as "-" and on stdin: a credential-bearing
+// URL never enters the tenant task's environment or any process's argv. It
+// enforces the shared outbound policy on the connected address, so a URL that
+// was public when saved but now resolves to a private or metadata address is
+// refused. Redirects are not followed.
 //
-// Usage: stepanel task-webhook URL SITE TASK RESULT EXIT_CODE EXIT_STATUS
-func runTaskWebhook(ctx context.Context, policy safehttp.Policy, args []string) error {
+// Usage: stepanel task-webhook URL|- SITE TASK RESULT EXIT_CODE EXIT_STATUS
+func runTaskWebhook(ctx context.Context, policy safehttp.Policy, args []string, stdin io.Reader) error {
+	args, err := taskWebhookArgs(args, stdin)
+	if err != nil {
+		return err
+	}
 	client := policy.Client(taskWebhookTimeout, 0, safehttp.TransportOptions{DialTimeout: taskWebhookTimeout})
 	return sendTaskWebhook(ctx, client, policy, args)
+}
+
+// maxTaskWebhookURL bounds the URL read from stdin.
+const maxTaskWebhookURL = 4096
+
+// taskWebhookArgs replaces a "-" URL argument with the first line of stdin.
+func taskWebhookArgs(args []string, stdin io.Reader) ([]string, error) {
+	if len(args) == 0 || args[0] != "-" {
+		return args, nil
+	}
+	data, err := io.ReadAll(io.LimitReader(stdin, maxTaskWebhookURL+2))
+	if err != nil {
+		return nil, fmt.Errorf("read task webhook URL: %w", err)
+	}
+	target := strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
+	if target == "" || len(target) > maxTaskWebhookURL || strings.ContainsAny(target, "\r\n") {
+		return nil, fmt.Errorf("task webhook URL on stdin is empty, too long, or not one line")
+	}
+	return append([]string{target}, args[1:]...), nil
 }
 
 // sendTaskWebhook posts the notification with client, which must enforce

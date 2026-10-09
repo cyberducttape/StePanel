@@ -60,6 +60,10 @@ type Broker struct {
 	logger        *log.Logger
 	host          hostOps
 	fencingDB     *sql.DB
+	// leaseWatchInterval and leaseWatchMargin drive the fencing watchdog
+	// for mutating requests; see watchFencing.
+	leaseWatchInterval time.Duration
+	leaseWatchMargin   time.Duration
 	// accountMutationMu serializes operations that can modify the host's
 	// account database (/etc/passwd, /etc/group, and related locks). The
 	// panel and worker use separate broker clients, so client-local locking
@@ -143,8 +147,22 @@ func newBrokerWithFencingDB(webRoot, recoveryRoot string, logger *log.Logger, ho
 		logger:        logger,
 		host:          host,
 		fencingDB:     fencingDB,
+
+		leaseWatchInterval: LeaseWatchInterval,
+		leaseWatchMargin:   LeaseWatchMargin,
 	}, nil
 }
+
+// LeaseWatchInterval and LeaseWatchMargin bound how long a privileged
+// operation can outlive the lease that admitted it. The watchdog re-checks
+// the request's fencing tokens every interval and cancels the operation once
+// a lease has less than margin left. Callers renew a lease every third of its
+// duration, so a live owner always has about two thirds of the lease left:
+// the panel's lease duration must stay well above 3/2*(margin+interval).
+const (
+	LeaseWatchInterval = 5 * time.Second
+	LeaseWatchMargin   = 20 * time.Second
+)
 
 // Execute handles an RPC request and returns the response.
 func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
@@ -165,9 +183,63 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 				return &Response{OK: false, Error: fmt.Sprintf("fencing token rejected: %v", err)}, nil
 			}
 		}
+		watchCtx, stop := b.watchFencing(ctx, req.Fencing)
+		resp, err := b.dispatch(watchCtx, req)
+		if lost := stop(); lost != nil {
+			return &Response{OK: false, Error: fmt.Sprintf("operation cancelled because its fencing lease was lost: %v", lost)}, nil
+		}
+		return resp, err
 	}
+	return b.dispatch(ctx, req)
+}
 
-	// Route to appropriate handler
+// watchFencing cancels a privileged operation whose admitting lease is lost
+// while it runs. The broker runs operations detached from the caller's
+// connection, so without this a crashed or partitioned owner's helper could
+// keep mutating after another owner acquired the resource. Helpers are
+// killed exactly as on a timeout, which their recovery journals already
+// handle. stop ends the watch and reports the lost lease, if any.
+func (b *Broker) watchFencing(parent context.Context, tokens []operations.FencingToken) (context.Context, func() error) {
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	var lost error
+	go func() {
+		defer close(finished)
+		ticker := time.NewTicker(b.leaseWatchInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				for _, token := range tokens {
+					err := operations.VerifyFencingTokenWithin(b.fencingDB, token, b.leaseWatchMargin)
+					if errors.Is(err, operations.ErrLeaseLost) {
+						lost = fmt.Errorf("lease %s generation %d", token.ResourceKey, token.Generation)
+						b.logger.Printf("fencing lease lost during execution; cancelling: %v", lost)
+						cancel()
+						return
+					}
+					if err != nil {
+						// A transient database error is not evidence that the
+						// lease moved; keep running and check again.
+						b.logger.Printf("fencing watchdog check failed: %v", err)
+					}
+				}
+			}
+		}
+	}()
+	return ctx, func() error {
+		close(done)
+		<-finished
+		cancel()
+		return lost
+	}
+}
+
+// dispatch routes a validated, admitted request to its handler.
+func (b *Broker) dispatch(ctx context.Context, req *Request) (*Response, error) {
 	switch req.RequestType {
 	case "health":
 		return &Response{OK: true}, nil

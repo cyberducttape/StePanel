@@ -114,6 +114,15 @@ func (lease Lease) Token() FencingToken {
 // live owner of the resource. This check is deliberately performed by the
 // privileged boundary immediately before it starts a host mutation.
 func VerifyFencingToken(db *sql.DB, token FencingToken) error {
+	return VerifyFencingTokenWithin(db, token, 0)
+}
+
+// VerifyFencingTokenWithin is VerifyFencingToken that also treats a lease
+// with less than margin remaining as lost. A live owner renews well before
+// that point, so a lease this close to expiry belongs to an owner that has
+// stopped renewing; acting before it expires means no other owner can have
+// acquired the resource yet.
+func VerifyFencingTokenWithin(db *sql.DB, token FencingToken, margin time.Duration) error {
 	if db == nil || token.ResourceKey == "" || token.OwnerID == "" || token.Generation <= 0 {
 		return ErrLeaseLost
 	}
@@ -121,7 +130,7 @@ func VerifyFencingToken(db *sql.DB, token FencingToken) error {
 	err := db.QueryRow(`
 		SELECT 1 FROM resource_locks
 		WHERE resource_key = ? AND owner_id = ? AND generation = ? AND lease_until > ?
-	`, token.ResourceKey, token.OwnerID, token.Generation, time.Now().UnixNano()).Scan(&present)
+	`, token.ResourceKey, token.OwnerID, token.Generation, time.Now().Add(margin).UnixNano()).Scan(&present)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrLeaseLost
 	}

@@ -962,6 +962,23 @@ if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   if command -v setsebool >/dev/null 2>&1; then setsebool -P httpd_can_network_connect 1; fi
 fi
 systemctl daemon-reload
+# Earlier builds loaded a task's notification webhook file into the tenant
+# task's environment and passed the URL on the command line. Rewrite existing
+# task units to the privileged task-notify step, which keeps the URL out of
+# tenant-readable environments and argv.
+task_units_migrated=0
+for task_unit in /etc/systemd/system/stepanel-task-*.service; do
+  [[ -f $task_unit && ! -L $task_unit ]] || continue
+  grep -q '^EnvironmentFile=-/var/lib/stepanel/tasks/' "$task_unit" || grep -q 'task-webhook "\${STEPANEL_TASK_WEBHOOK_URL}"' "$task_unit" || continue
+  task_unit_staged=$(mktemp /etc/systemd/system/.stepanel-task-migrate.XXXXXX)
+  sed -e '/^EnvironmentFile=-\/var\/lib\/stepanel\/tasks\//d' \
+      -e 's#^ExecStopPost=-/usr/bin/env -i /opt/stepanel/stepanel task-webhook "\${STEPANEL_TASK_WEBHOOK_URL}" \([a-z0-9_-]*\) \([A-Za-z0-9_-]*\) .*#ExecStopPost=-+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-notify \1 \2 ${SERVICE_RESULT} ${EXIT_CODE} ${EXIT_STATUS}#' \
+      "$task_unit" > "$task_unit_staged"
+  chmod 0644 "$task_unit_staged"; chown root:root "$task_unit_staged"
+  mv -f "$task_unit_staged" "$task_unit"
+  task_units_migrated=1
+done
+if (( task_units_migrated )); then systemctl daemon-reload; fi
 # An earlier build bind-mounted /var/www with nosymfollow. That also blocks the
 # symlinks Python virtualenvs and node_modules rely on, so retire it. Symlink
 # isolation for served content is enforced by the vhost helpers instead.

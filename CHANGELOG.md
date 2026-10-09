@@ -49,6 +49,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Privileged operations stop when their lease is lost**: the root broker
+  checked a request's fencing token only before starting it, then ran the
+  helper detached from the caller. A crashed or partitioned owner's helper
+  could keep mutating after another worker acquired the site. The broker now
+  re-checks the token every 5 seconds and kills the helper once the lease has
+  under 20 seconds left, before any other owner can acquire it.
+- **WordPress is not left in maintenance mode by a failed backup**: each
+  maintenance window a backup opens is recorded durably first. Deactivation
+  uses its own bounded context, so a cancelled backup still ends it; a failed
+  deactivation is reported in the backup error; and panel startup plus the
+  15-minute maintenance tick end any window whose backup was killed
+  (`wordpress.maintenance.recovered`).
+- **Task webhook URLs are kept from tenant code**: the URL, which may carry
+  a credential, was loaded into the tenant task's environment and passed on
+  a command line visible in `ps`. A privileged `task-notify` step now reads
+  it from the root-only file and hands it to the sender on stdin.
+  `install.sh` rewrites existing task units.
+
 - **Root broker no longer inherits the panel's secrets**: the broker unit
   loaded `/etc/ste-panel.env` as its environment, and every helper inherits
   it. `stepanel-appctl node-tool` runs the tenant's own build scripts as the

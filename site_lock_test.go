@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/operations"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	_ "modernc.org/sqlite"
 )
 
@@ -384,5 +385,15 @@ func TestRecoveredSiteLockCarriesFencingToken(t *testing.T) {
 		t.Fatalf("nil locker = (%v, %v), want an unlocked context", operations.FencingTokens(ctx), err)
 	} else {
 		unlock()
+	}
+}
+
+// A live owner renews every third of the lease, so its lease never has less
+// than about two thirds left. The broker's watchdog must never mistake that
+// for a lost lease, with room for a missed renewal tick.
+func TestLeaseTimeLeavesWatchdogHeadroom(t *testing.T) {
+	healthyMinimum := controlPlaneLeaseTime * 2 / 3
+	if need := 2 * (rootbroker.LeaseWatchMargin + rootbroker.LeaseWatchInterval); healthyMinimum < need {
+		t.Fatalf("lease time %s leaves %s for a live owner; the fencing watchdog needs at least %s", controlPlaneLeaseTime, healthyMinimum, need)
 	}
 }

@@ -240,8 +240,11 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		return result, err
 	}
 	defer func() {
-		if resumeErr := resume(); returnErr == nil && resumeErr != nil {
-			returnErr = fmt.Errorf("resume WordPress after backup: %w", resumeErr)
+		// A site left in maintenance mode is an outage, so the failure is
+		// reported even when the backup itself already failed. The durable
+		// maintenance record stays, and recoverWordPressMaintenance retries.
+		if resumeErr := resume(); resumeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("WordPress site %s is still in maintenance mode after the backup: %w", siteName, resumeErr))
 		}
 	}()
 	if err := ctx.Err(); err != nil {
@@ -445,10 +448,6 @@ func quiesceWordPressForBackup(parent context.Context, cfg Config, site, publicR
 		}
 		return false, noop, err
 	}
-	run := func(action string) error {
-		_, err := runWordPress(parent, cfg, rootbroker.WordPressRequest{Action: action, Site: site})
-		return err
-	}
 	status, err := runWordPress(parent, cfg, rootbroker.WordPressRequest{Action: "maintenance-status", Site: site})
 	if err != nil {
 		// A broken WordPress install must not block its own backup; the
@@ -457,13 +456,25 @@ func quiesceWordPressForBackup(parent context.Context, cfg Config, site, publicR
 		return false, noop, nil
 	}
 	if status.Active {
+		// Maintenance mode was already on and is not ours to turn off.
 		return true, noop, nil
 	}
-	if err := run("maintenance-activate"); err != nil {
+	// Record ownership durably before activating, so an interrupted backup
+	// can never leave the site down without a record to recover from.
+	if err := recordWordPressMaintenance(cfg, site); err != nil {
+		log.Printf("backup of %s is crash-consistent: cannot record WordPress maintenance ownership: %v", site, err)
+		return false, noop, nil
+	}
+	resume := func() error { return endWordPressMaintenance(parent, cfg, site) }
+	if _, err := runWordPress(parent, cfg, rootbroker.WordPressRequest{Action: "maintenance-activate", Site: site}); err != nil {
+		// Activation may have taken effect before the error; undo it.
+		if resumeErr := resume(); resumeErr != nil {
+			return false, noop, fmt.Errorf("WordPress maintenance activation failed and could not be undone: %w", errors.Join(err, resumeErr))
+		}
 		log.Printf("backup of %s is crash-consistent: %v", site, err)
 		return false, noop, nil
 	}
-	return true, func() error { return run("maintenance-deactivate") }, nil
+	return true, resume, nil
 }
 
 func addBackupTree(tw *tar.Writer, root, prefix string, maxEntries int, totalBytes *int64, manifest *BackupManifest) error {

@@ -153,7 +153,7 @@ func Main() {
 		return
 	}
 	if len(os.Args) >= 2 && os.Args[1] == "task-webhook" {
-		if err := runTaskWebhook(context.Background(), safehttp.Policy{}, os.Args[2:]); err != nil {
+		if err := runTaskWebhook(context.Background(), safehttp.Policy{}, os.Args[2:], os.Stdin); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -356,7 +356,7 @@ func Main() {
 	if hostname == "" {
 		hostname = "localhost"
 	}
-	dbLocks, err := operations.NewDBLocks(controlPlaneDB, fmt.Sprintf("stepanel-%s-%d-%d", hostname, os.Getpid(), time.Now().UnixNano()), 2*time.Minute)
+	dbLocks, err := operations.NewDBLocks(controlPlaneDB, fmt.Sprintf("stepanel-%s-%d-%d", hostname, os.Getpid(), time.Now().UnixNano()), controlPlaneLeaseTime)
 	if err != nil {
 		log.Fatalf("initialize durable operation locks: %v", err)
 	}
@@ -560,6 +560,7 @@ func Main() {
 			}
 		}
 		failures = append(failures, recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext)...)
+		failures = append(failures, recoverWordPressMaintenance(cfg, app.acquireSiteMutationLockContext, recoveredSiteLockWait)...)
 		if replayed, err := app.replaySpooledDeployments(); err != nil {
 			failures = append(failures, fmt.Errorf("replay spooled deployment history: %w", err))
 		} else if replayed > 0 {
@@ -640,6 +641,11 @@ func Main() {
 				app.runDueBackups()
 			case <-cleanupTicker.C:
 				auditOutbox.closePending(context.Background(), app.Config.AuditLog)
+				// Also covers a worker killed mid-backup while the panel kept
+				// running; a backup still holding the site lease is skipped.
+				if failures := recoverWordPressMaintenance(app.Config, app.acquireSiteMutationLockContext, 5*time.Second); len(failures) > 0 {
+					app.observeStateError(state.NewCleanupError("wordpress_maintenance_recovery", errors.Join(failures...), "WordPress maintenance recovery"))
+				}
 				app.Jobs.Cleanup(24 * time.Hour)
 				if err := CleanupImportStages(app.Config.ImportRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour); err != nil {
 					app.observeStateError(state.NewCleanupError("import_stage_cleanup", err, "import stage cleanup"))
@@ -1685,6 +1691,12 @@ func logJSON(r *http.Request, status int, duration time.Duration) {
 	requestID, _ := r.Context().Value(requestIDContextKey{}).(string)
 	log.Printf(`{"level":"info","request_id":%q,"method":%q,"path":%q,"status":%d,"duration_ms":%.3f}`, requestID, r.Method, r.URL.Path, status, float64(duration.Microseconds())/1000)
 }
+
+// controlPlaneLeaseTime is the duration of durable resource leases. Owners
+// renew every third of it; the root broker's fencing watchdog cancels an
+// operation whose lease has under rootbroker.LeaseWatchMargin left, so this
+// must stay well above that margin (see TestLeaseTimeLeavesWatchdogHeadroom).
+const controlPlaneLeaseTime = 2 * time.Minute
 
 type requestIDContextKey struct{}
 

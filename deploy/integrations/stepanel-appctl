@@ -18,7 +18,7 @@ case "$action" in
   # These are invoked from the task unit's ExecStartPre/ExecStopPost hooks.
   # They must not wait on the site lock while a task-delete/site-delete helper
   # holds that lock and synchronously asks systemd to stop the task unit.
-  task-start|task-result) ;;
+  task-start|task-result|task-notify) ;;
   *) exec 9>"/run/lock/stepanel/$lock_scope/$site.lock"; flock -x 9 ;;
 esac
 
@@ -535,16 +535,14 @@ RuntimeDirectoryPreserve=yes
 ExecStartPre=+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-start $site $name
 ExecStopPost=+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-result $site $name \${SERVICE_RESULT} \${EXIT_CODE} \${EXIT_STATUS}
 EnvironmentFile=-/etc/stepanel/environment/$site.env
-EnvironmentFile=-$notify_env
 UMask=0027
 EOF
     if [[ -n $webhook ]]; then
-      # Delivered by the panel binary rather than curl so the shared outbound
-      # policy (public destinations only, checked on the connected address,
-      # no redirects) applies at send time, not only when the URL was saved.
-      # env -i keeps the site's environment (proxies, resolver settings) out.
+      # The webhook URL may carry a credential, so it never enters the tenant
+      # task's environment: it stays in the root-only $notify_env, which the
+      # privileged task-notify step reads after the task has stopped.
       cat >> "/etc/systemd/system/$unit" <<EOF
-ExecStopPost=-/usr/bin/env -i /opt/stepanel/stepanel task-webhook "\${STEPANEL_TASK_WEBHOOK_URL}" $site $name "\${SERVICE_RESULT}" "\${EXIT_CODE}" "\${EXIT_STATUS}"
+ExecStopPost=-+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-notify $site $name \${SERVICE_RESULT} \${EXIT_CODE} \${EXIT_STATUS}
 EOF
     fi
     cat > "/etc/systemd/system/$timer" <<EOF
@@ -582,6 +580,21 @@ EOF
     name=$3; [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid task name' >&2; exit 1; }
     task_root=$(task_state_dir "$site"); install -d -m 0755 -o root -g root "$task_root"
     printf '%s\n' "$(date +%s)" > "$task_root/$name.started"; chmod 0600 "$task_root/$name.started" ;;
+  task-notify)
+    # Runs as root from the task unit's ExecStopPost. The URL is read from the
+    # root-only notification file and handed to the panel binary on stdin, as
+    # the unprivileged panel user, so it never appears in an environment or
+    # argv a tenant process can read. The panel binary enforces the outbound
+    # policy (public destinations only, no redirects) at send time.
+    (( $# == 6 )) || { echo 'usage: stepanel-appctl task-notify SITE NAME RESULT EXIT_CODE EXIT_STATUS' >&2; exit 64; }
+    name=$3; result=$4; exit_code=$5; exit_status=$6
+    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $result =~ ^[A-Za-z0-9_-]{1,32}$ && $exit_code =~ ^[A-Za-z0-9_-]{1,32}$ && $exit_status =~ ^[A-Za-z0-9_-]{1,32}$ ]] || { echo 'invalid task result' >&2; exit 1; }
+    notify_env="$(task_state_dir "$site")/$name.env"
+    [[ -f $notify_env && ! -L $notify_env ]] || exit 0
+    webhook=$(sed -n 's/^STEPANEL_TASK_WEBHOOK_URL=//p' "$notify_env" | head -n 1)
+    [[ -n $webhook ]] || exit 0
+    valid_task_webhook "$webhook" || { echo 'stored notification webhook is invalid' >&2; exit 1; }
+    printf '%s\n' "$webhook" | runuser -u stepanel -- env -i /opt/stepanel/stepanel task-webhook - "$site" "$name" "$result" "$exit_code" "$exit_status" ;;
   task-result)
     (( $# == 6 )) || { echo 'usage: stepanel-appctl task-result SITE NAME RESULT EXIT_CODE EXIT_STATUS' >&2; exit 64; }
     name=$3; result=$4; exit_code=$5; exit_status=$6

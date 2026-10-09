@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -99,7 +100,45 @@ func TestTaskWebhookReportsReceiverFailure(t *testing.T) {
 }
 
 func TestTaskWebhookRequiresAllArguments(t *testing.T) {
-	if err := runTaskWebhook(context.Background(), safehttp.Policy{}, []string{"https://hooks.example.com/"}); err == nil {
+	if err := runTaskWebhook(context.Background(), safehttp.Policy{}, []string{"https://hooks.example.com/"}, strings.NewReader("")); err == nil {
 		t.Fatal("missing arguments accepted")
+	}
+}
+
+func TestTaskWebhookReadsURLFromStdin(t *testing.T) {
+	args, err := taskWebhookArgs([]string{"-", "demo", "nightly", "success", "exited", "0"}, strings.NewReader("https://hooks.example/abc?token=secret\n"))
+	if err != nil || args[0] != "https://hooks.example/abc?token=secret" || len(args) != 6 {
+		t.Fatalf("args = %q, %v", args, err)
+	}
+	for name, input := range map[string]string{"empty": "", "two lines": "https://a.example\nhttps://b.example\n", "too long": "https://a.example/" + strings.Repeat("a", maxTaskWebhookURL)} {
+		if _, err := taskWebhookArgs([]string{"-", "demo", "nightly", "success", "exited", "0"}, strings.NewReader(input)); err == nil {
+			t.Errorf("%s stdin URL was accepted", name)
+		}
+	}
+	if args, err := taskWebhookArgs([]string{"https://a.example", "x"}, strings.NewReader("ignored")); err != nil || args[0] != "https://a.example" {
+		t.Fatalf("explicit URL args = %q, %v", args, err)
+	}
+}
+
+// A webhook URL can carry a credential. It must never be loaded into the
+// tenant task's environment or passed on any command line.
+func TestTaskUnitKeepsWebhookURLFromTenant(t *testing.T) {
+	helper, err := os.ReadFile("deploy/integrations/stepanel-appctl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(helper)
+	for _, forbidden := range []string{"EnvironmentFile=-$notify_env", "${STEPANEL_TASK_WEBHOOK_URL}"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("task unit still exposes the webhook URL: %s", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"ExecStopPost=-+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-notify",
+		`runuser -u stepanel -- env -i /opt/stepanel/stepanel task-webhook - "$site"`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("task webhook delivery is missing %q", required)
+		}
 	}
 }
