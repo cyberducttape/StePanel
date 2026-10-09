@@ -6,6 +6,8 @@ site=${1:-ci-sftp-smoke}
 helper=/usr/local/sbin/stepanel-sitectl
 command -v sshd >/dev/null || { echo 'sshd is required for SFTP access smoke' >&2; exit 77; }
 command -v sftp >/dev/null || { echo 'sftp client is required for SFTP access smoke' >&2; exit 77; }
+sshd_bin=$(readlink -f "$(command -v sshd)")
+[[ -x $sshd_bin ]] || { echo 'could not resolve an executable sshd path' >&2; exit 1; }
 
 tmp=$(mktemp -d /tmp/stepanel-sftp-smoke.XXXXXX)
 sshd_pid=
@@ -48,8 +50,8 @@ AllowUsers $site_user
 Subsystem sftp internal-sftp
 Include /etc/ssh/sshd_config.d/stepanel-$site_user.conf
 EOF
-sshd -t -f "$tmp/sshd_config"
-sshd -D -e -f "$tmp/sshd_config" >"$tmp/sshd.log" 2>&1 &
+"$sshd_bin" -t -f "$tmp/sshd_config"
+"$sshd_bin" -D -e -f "$tmp/sshd_config" >"$tmp/sshd.log" 2>&1 &
 sshd_pid=$!
 for _ in {1..20}; do
   if ssh-keyscan -T 1 -p "$port" 127.0.0.1 >/dev/null 2>&1; then break; fi

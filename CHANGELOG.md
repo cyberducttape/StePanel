@@ -34,6 +34,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   security floor from its complete package-specific test run instead of relying
   only on the repository-wide coverage profile; the generic target checker can
   now explicitly exclude such independently measured targets.
+  The SFTP smoke resolves `sshd` to an absolute path for RHEL-family launchers
+  that reject relative daemon invocation.
 
 - **FTPS site identity and revocation**: vsftpd now chroots each login to
   the site account's actual home directory, accepts only explicitly
