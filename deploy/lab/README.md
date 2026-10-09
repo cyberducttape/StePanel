@@ -52,6 +52,12 @@ backup, file restore, and termination, plus panel-kill/restart recovery for
 durable account suspension. The account drill uses the disposable
 `ci-suspension-recovery` account by default.
 
+On an installed host with FTPS activated, run
+`bash deploy/lab/ftps-access-smoke.sh` to prove encrypted upload/download and
+revocation under the actual site Unix account. It is intentionally separate
+from the default install smoke because it requires operator-supplied FTPS
+certificates and an activated vsftpd installation.
+
 ## Lab and test settings
 
 These variables exist for disposable labs and recovery tests. Never set them

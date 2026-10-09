@@ -415,6 +415,8 @@ func (b *Broker) handleSiteRequest(ctx context.Context, req *SiteRequest) (*Resp
 		return b.sitePrepare(ctx, req)
 	case "access":
 		return b.siteAccess(ctx, req)
+	case "ftp":
+		return b.siteFTP(ctx, req)
 	case "resources":
 		return b.siteResources(ctx, req)
 	case "quota":
@@ -692,6 +694,16 @@ func (b *Broker) siteAccess(ctx context.Context, req *SiteRequest) (*Response, e
 	}
 	output, err := b.host.RunSiteHelperInput(ctx, []byte(req.SSHKeys), "access", req.Site, boolArg(*req.SFTPEnabled), boolArg(*req.ShellEnabled))
 	return siteHelperResponse("site access", output, err)
+}
+
+func (b *Broker) siteFTP(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
+	if req.FTPEnabled == nil {
+		return &Response{OK: false, Error: "FTPS flag is required"}, nil
+	}
+	output, err := b.host.RunSiteHelperInput(ctx, []byte(req.FTPPassword), "ftp", req.Site, boolArg(*req.FTPEnabled))
+	return siteHelperResponse("site FTPS", output, err)
 }
 
 func (b *Broker) siteResources(ctx context.Context, req *SiteRequest) (*Response, error) {

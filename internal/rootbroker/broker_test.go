@@ -1024,8 +1024,10 @@ func TestBrokerSiteConfigurationRequestsUseTypedHelperContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	sftpEnabled, shellEnabled := true, false
+	ftpEnabled := true
 	cases := []*SiteRequest{
 		{Action: "access", Site: "testsite", SSHKeys: "ssh-ed25519 AAAA", SFTPEnabled: &sftpEnabled, ShellEnabled: &shellEnabled},
+		{Action: "ftp", Site: "testsite", FTPEnabled: &ftpEnabled, FTPPassword: "test-ftps-password-123"},
 		{Action: "resources", Site: "testsite", PHPWorkers: 8},
 		{Action: "quota", Site: "testsite", DiskMB: 10240, Inodes: 200000},
 		{Action: "quota-clear", Site: "testsite"},
@@ -1041,6 +1043,7 @@ func TestBrokerSiteConfigurationRequestsUseTypedHelperContract(t *testing.T) {
 	defer host.mu.Unlock()
 	want := [][]string{
 		{"access", "testsite", "1", "0"},
+		{"ftp", "testsite", "1"},
 		{"resources", "testsite", "8"},
 		{"quota", "testsite", "10240", "200000"},
 		{"quota-clear", "testsite"},

@@ -152,11 +152,13 @@ type Response struct {
 // --- Site Operations ---
 
 type SiteRequest struct {
-	Action            string `json:"action"` // create, delete, seal, prepare, access, resources, quota, quota-clear, runtime
+	Action            string `json:"action"` // create, delete, seal, prepare, access, ftp, resources, quota, quota-clear, runtime
 	Site              string `json:"site"`   // Validated: [a-z0-9_-]{1,32}
 	SSHKeys           string `json:"ssh_keys,omitempty"`
 	SFTPEnabled       *bool  `json:"sftp,omitempty"`
 	ShellEnabled      *bool  `json:"shell,omitempty"`
+	FTPEnabled        *bool  `json:"ftp,omitempty"`
+	FTPPassword       string `json:"ftp_password,omitempty"`
 	PHPWorkers        int    `json:"php_workers,omitempty"`
 	DiskMB            int    `json:"disk_mb,omitempty"`
 	Inodes            int    `json:"inodes,omitempty"`

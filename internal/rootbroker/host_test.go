@@ -210,6 +210,7 @@ func TestSiteHelperConfigActionsShareAccountMutationLock(t *testing.T) {
 	enabled := true
 	actions := map[string]*SiteRequest{
 		"access":      {Action: "access", SFTPEnabled: &enabled, ShellEnabled: &enabled},
+		"ftp":         {Action: "ftp", FTPEnabled: &enabled, FTPPassword: "test-ftps-password-123"},
 		"resources":   {Action: "resources", PHPWorkers: 4},
 		"quota":       {Action: "quota", DiskMB: 1024, Inodes: 100000},
 		"quota-clear": {Action: "quota-clear"},

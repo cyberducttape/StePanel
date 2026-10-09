@@ -552,14 +552,24 @@ write_enable=YES
 local_umask=022
 chroot_local_user=YES
 allow_writeable_chroot=YES
-user_sub_token=\$USER
-local_root=/var/www/sites/\$USER
+check_shell=NO
+userlist_enable=YES
+userlist_deny=NO
+userlist_file=/etc/vsftpd/stepanel.users
+secure_chroot_dir=/var/run/vsftpd/empty
 pasv_min_port=$FTP_PASSIVE_MIN
 pasv_max_port=$FTP_PASSIVE_MAX
 use_localtime=YES
 xferlog_enable=YES
 log_ftp_protocol=YES
 EOF
+  install -d -m 0755 -o root -g root /var/run/vsftpd /var/run/vsftpd/empty
+  if [[ ! -e /etc/vsftpd/stepanel.users ]]; then
+    install -m 0600 -o root -g root /dev/null /etc/vsftpd/stepanel.users
+  else
+    chown root:root /etc/vsftpd/stepanel.users
+    chmod 0600 /etc/vsftpd/stepanel.users
+  fi
   if [[ "$ACTIVATE_FTP" == "1" ]]; then
     printf 'ssl_enable=YES\nallow_anon_ssl=NO\nforce_local_data_ssl=YES\nforce_local_logins_ssl=YES\nssl_tlsv1=YES\nssl_sslv2=NO\nssl_sslv3=NO\nrsa_cert_file=%s\nrsa_private_key_file=%s\n' "$FTP_CERT_FILE" "$FTP_KEY_FILE" >> "$config"
   else

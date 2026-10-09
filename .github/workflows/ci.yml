@@ -171,10 +171,10 @@ jobs:
       - run: bash -n deploy/lab/task-safeguards-smoke.sh
       - run: bash -n deploy/lab/app-lifecycle-smoke.sh
       - run: bash -n deploy/lab/recovery-matrix-smoke.sh
-      - run: bash -n deploy/lab/sftp-access-smoke.sh deploy/lab/sitectl-acl-smoke.sh deploy/lab/python-dependencies-smoke.sh
+      - run: bash -n deploy/lab/sftp-access-smoke.sh deploy/lab/ftps-access-smoke.sh deploy/lab/sitectl-acl-smoke.sh deploy/lab/python-dependencies-smoke.sh
       - run: bash -n deploy/integrations/*
       - name: Lint shell scripts
-        run: shellcheck -S warning install.sh deploy/lab/run.sh deploy/lab/dbctl-lock-smoke.sh deploy/lab/task-safeguards-smoke.sh deploy/lab/app-lifecycle-smoke.sh deploy/lab/recovery-matrix-smoke.sh deploy/lab/sftp-access-smoke.sh deploy/lab/sitectl-acl-smoke.sh deploy/lab/python-dependencies-smoke.sh deploy/integrations/*
+        run: shellcheck -S warning install.sh deploy/lab/run.sh deploy/lab/dbctl-lock-smoke.sh deploy/lab/task-safeguards-smoke.sh deploy/lab/app-lifecycle-smoke.sh deploy/lab/recovery-matrix-smoke.sh deploy/lab/sftp-access-smoke.sh deploy/lab/ftps-access-smoke.sh deploy/lab/sitectl-acl-smoke.sh deploy/lab/python-dependencies-smoke.sh deploy/integrations/*
       - name: Verify clean Python dependency deployment
         run: bash deploy/lab/python-dependencies-smoke.sh
       - name: Lint release and smoke scripts

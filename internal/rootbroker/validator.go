@@ -509,6 +509,10 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 		if req.SFTPEnabled == nil || req.ShellEnabled == nil || len(req.SSHKeys) > 1<<20 || strings.ContainsAny(req.SSHKeys, "\x00\r") {
 			return errors.New("invalid SSH access request")
 		}
+	case "ftp":
+		if req.FTPEnabled == nil || strings.ContainsAny(req.FTPPassword, "\x00\r\n") || len(req.FTPPassword) > 128 || (*req.FTPEnabled && len(req.FTPPassword) < 12) || (!*req.FTPEnabled && req.FTPPassword != "") {
+			return errors.New("invalid FTPS request")
+		}
 	case "resources":
 		if req.PHPWorkers < 1 || req.PHPWorkers > 512 {
 			return fmt.Errorf("php_workers must be between 1 and 512")

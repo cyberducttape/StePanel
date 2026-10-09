@@ -28,6 +28,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **FTPS site identity and revocation**: vsftpd now chroots each login to
+  the site account's actual home directory, accepts only explicitly
+  provisioned site users, and no longer derives a site path from the hashed
+  Unix username. Root-broker FTPS provisioning changes the password and
+  allowlist atomically, and the disposable-host smoke proves encrypted
+  upload, download, login denial after revocation, and cleanup.
+
 - **SFTP, Python deployment, and site-permission hardening**: SFTP-only key
   staging now stays under the root-owned authorization directory and the
   generated forced-command policy is validated by `sshd`. Python app

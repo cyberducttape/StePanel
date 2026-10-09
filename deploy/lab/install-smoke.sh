@@ -216,6 +216,9 @@ getfacl -p "/var/www/sites/$root_site" | grep -Fq 'user:stepanel:rwx'
 /usr/local/sbin/stepanel-sitectl delete "$root_site"
 bash /work/deploy/lab/sftp-access-smoke.sh
 bash /work/deploy/lab/sitectl-acl-smoke.sh "$site"
+if [[ ${STEPANEL_RUN_FTPS_SMOKE:-0} == 1 ]]; then
+  bash /work/deploy/lab/ftps-access-smoke.sh
+fi
 
 /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.example.test
 /usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256
