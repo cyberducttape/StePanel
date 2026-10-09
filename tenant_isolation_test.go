@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -795,6 +796,33 @@ func TestRootBrokerNamespacePolicy(t *testing.T) {
 		}
 		if !bytes.Contains(unit, []byte("RestrictNamespaces=true\n")) {
 			t.Errorf("%s must prevent namespace creation in the root broker", path)
+		}
+	}
+}
+
+// The panel environment file holds every panel secret. The root broker must
+// not load it: helpers inherit the broker's environment, and appctl runs
+// tenant code (npm/yarn/pnpm builds, pip) as the site user.
+func TestRootBrokerDoesNotInheritPanelSecrets(t *testing.T) {
+	for _, path := range []string{"deploy/stepanel-root-broker.service", "deploy/lab/stepanel-root-broker.service"} {
+		unit, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(unit, []byte("EnvironmentFile=")) {
+			t.Errorf("%s loads an EnvironmentFile; the broker must not inherit panel secrets", path)
+		}
+		if !bytes.Contains(unit, []byte("-control-plane-db /var/lib/ste-panel/stepanel-control.db")) {
+			t.Errorf("%s must name the panel's control-plane database for fencing", path)
+		}
+	}
+	helper, err := os.ReadFile("deploy/integrations/stepanel-appctl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(helper), "\n") {
+		if strings.Contains(line, `runuser -u "$site_user"`) && !strings.Contains(line, "env -i") {
+			t.Errorf("site-user command does not clear the inherited environment: %s", strings.TrimSpace(line))
 		}
 	}
 }

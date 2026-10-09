@@ -247,6 +247,7 @@ func (a *App) ftpEndpoint(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := decodeJSON(w, r, 4096, &input); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 	input.Site = safeUser(strings.TrimSpace(input.Site))

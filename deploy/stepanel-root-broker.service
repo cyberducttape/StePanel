@@ -7,8 +7,10 @@ Before=stepanel.service stepanel-worker.service
 Type=simple
 User=root
 Group=stepanel
-EnvironmentFile=/etc/ste-panel.env
-ExecStart=/usr/local/sbin/stepanel-root -webroot /var/www -socket /run/stepanel-root-broker.sock -socket-group stepanel
+# No EnvironmentFile: /etc/ste-panel.env holds the panel's secrets, and every
+# helper (including tenant builds run as a site user) inherits this
+# environment. The broker reads only what it needs, by flag or file.
+ExecStart=/usr/local/sbin/stepanel-root -webroot /var/www -control-plane-db /var/lib/ste-panel/stepanel-control.db -socket /run/stepanel-root-broker.sock -socket-group stepanel
 Restart=on-failure
 RestartSec=1s
 TimeoutStopSec=2h5min

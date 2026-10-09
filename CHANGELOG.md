@@ -49,6 +49,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Root broker no longer inherits the panel's secrets**: the broker unit
+  loaded `/etc/ste-panel.env` as its environment, and every helper inherits
+  it. `stepanel-appctl node-tool` runs the tenant's own build scripts as the
+  site user, so tenant code could read the session secret, account, audit,
+  and backup keys, the admin TOTP secret, and the database admin URL. The
+  unit now passes only `-control-plane-db`, and every site-user command in
+  `stepanel-appctl` (npm/yarn/pnpm, Composer, pip) runs with a cleared
+  environment.
+- `POST /api/ftp` with an invalid JSON body now returns 400 instead of an
+  empty 200.
+
 - **Provider pagination and startup ordering**: Linode inventory and duplicate
   detection now follow bounded provider pages through one API client, and the
   server binds its listener before startup work is released.

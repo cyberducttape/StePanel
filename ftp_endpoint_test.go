@@ -81,3 +81,14 @@ func TestFTPSEnableRefusedWithoutAuditLedger(t *testing.T) {
 		t.Fatal("FTPS password was installed without a recorded intent")
 	}
 }
+
+func TestFTPSMutationRejectsInvalidJSON(t *testing.T) {
+	app := &App{Config: Config{AuditLog: filepath.Join(t.TempDir(), "audit.jsonl")}}
+	request := httptest.NewRequest(http.MethodPost, "/api/ftp", strings.NewReader(`{"site":`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	app.ftpEndpoint(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid JSON status = %d, want 400", response.Code)
+	}
+}
