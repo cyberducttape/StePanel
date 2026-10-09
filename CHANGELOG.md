@@ -38,6 +38,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   FTPS accepts valid passwords and installs an explicit per-account SSH
   password-authentication denial policy.
 
+- **Idempotent imported-site cleanup**: the tenant account ownership guard
+  still rejects an existing account mapped to another site, while allowing a
+  retry to remove an imported site whose account is already absent.
+
 - **Installation-smoke coverage**: disposable systemd hosts now include the
   OpenSSH server and client required by the real SFTP provisioning smoke on
   Debian/Ubuntu and RHEL-family images. CI also measures the session package's

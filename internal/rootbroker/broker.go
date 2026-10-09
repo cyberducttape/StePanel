@@ -1526,6 +1526,10 @@ func (execHostOps) EnsureSystemUser(ctx context.Context, username, home string) 
 func (execHostOps) ValidateSystemUser(_ context.Context, username, home string) error {
 	account, err := user.Lookup(username)
 	if err != nil {
+		var unknown user.UnknownUserError
+		if errors.As(err, &unknown) {
+			return nil
+		}
 		return fmt.Errorf("lookup existing system user: %w", err)
 	}
 	if account.HomeDir != home {
