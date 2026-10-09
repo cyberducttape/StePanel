@@ -103,7 +103,8 @@ if [[ $action == access ]]; then
   install -d -m 0700 -o root -g root "$ssh_key_root"
   install -d -m 0755 -o root -g root "$ssh_config_root"
   staged=$(mktemp "$ssh_key_root/.authorized_keys.XXXXXX")
-  cleanup_access() { rm -f "$staged"; }
+  forced=
+  cleanup_access() { rm -f "$staged" "${forced:-}"; }
   trap cleanup_access EXIT
   cat > "$staged"
   if [[ $sftp == 1 || $shell == 1 ]]; then
@@ -119,9 +120,16 @@ if [[ $action == access ]]; then
     : > "$staged"
   fi
   if [[ $sftp == 1 && $shell == 0 && -s $staged ]]; then
-    forced=$(mktemp "$site_root/.ssh/.forced_keys.XXXXXX")
+    # Keep root-generated authorization material outside the customer tree.
+    # The site root is intentionally writable by its account, so it is not a
+    # safe location for a privileged staging file.
+    forced=$(mktemp "$ssh_key_root/.forced_keys.XXXXXX")
     while IFS= read -r line; do printf 'restrict,command="internal-sftp" %s\n' "$line"; done < "$staged" > "$forced"
     chown root:root "$forced"; chmod 0644 "$forced"; mv -f "$forced" "$staged"
+    if ! ssh-keygen -lf "$staged" >/dev/null 2>&1; then
+      echo 'generated SFTP-only SSH policy failed host validation' >&2
+      exit 1
+    fi
   fi
   chown root:root "$staged"
   chmod 0644 "$staged"
@@ -253,13 +261,11 @@ if [[ $action == runtime ]]; then
   tmp=$(mktemp "$php_state/.runtime.XXXXXX")
   printf 'php_version=%q\nmemory_limit=%q\nmax_execution_time=%q\nupload_max_filesize=%q\npost_max_size=%q\nmax_input_vars=%q\nopcache_enabled=%q\ndisplay_errors=%q\nerror_reporting=%q\n' "$php_version" "$memory_limit" "$max_execution_time" "$upload_max_filesize" "$post_max_size" "$max_input_vars" "$opcache_enabled" "$display_errors" "$error_reporting" > "$tmp"
   chown root:root "$tmp"; chmod 0600 "$tmp"; mv -f "$tmp" "$profile"
-  action=seal
 elif [[ $action == resources ]]; then
   workers=$3
   [[ $workers =~ ^[0-9]+$ ]] && (( workers >= 1 && workers <= 512 )) || { echo 'invalid PHP worker limit' >&2; exit 1; }
   tmp=$(mktemp "$php_state/.resources.XXXXXX")
   printf 'php_max_children=%q\n' "$workers" > "$tmp"; chown root:root "$tmp"; chmod 0600 "$tmp"; mv -f "$tmp" "$php_state/resources.env"
-  action=seal
 elif [[ $action == quota ]]; then
   disk_mb=$3; inodes=$4
   [[ $disk_mb =~ ^[0-9]+$ && $inodes =~ ^[0-9]+$ ]] || { echo 'invalid filesystem quota' >&2; exit 1; }
@@ -288,17 +294,22 @@ php_max_children=5
 parse_config_file "$profile" || { echo 'failed to parse PHP runtime configuration' >&2; exit 1; }
 parse_config_file "$php_state/resources.env" || { echo 'failed to parse PHP resources configuration' >&2; exit 1; }
 
-command -v setfacl >/dev/null 2>&1 || { echo 'setfacl is required for site isolation' >&2; exit 1; }
-setfacl -R -m u:stepanel:rwX "$site_root"
-find "$site_root" -type d -exec setfacl -m d:u:stepanel:rwx {} +
-
 if [[ $action == seal ]]; then
   symlink=$(find -P "$site_root" -xdev -type l -print -quit)
   [[ -z $symlink ]] || { echo "site tree contains a symlink and cannot be sealed: $symlink" >&2; exit 1; }
-  chown -R "$site_user:$web_group" "$site_root"
-  find "$site_root" -type d -exec chmod 2750 {} +
+fi
+if [[ $action == prepare || $action == seal ]]; then
+  command -v setfacl >/dev/null 2>&1 || { echo 'setfacl is required for site isolation' >&2; exit 1; }
+  # ACLs are established when a tree is first staged/published. Their
+  # directory defaults cover files and directories created later, so routine
+  # runtime/resource changes do not rescan the whole site.
   setfacl -R -m u:stepanel:rwX "$site_root"
   find "$site_root" -type d -exec setfacl -m d:u:stepanel:rwx {} +
+fi
+
+if [[ $action == seal ]]; then
+  chown -R "$site_user:$web_group" "$site_root"
+  find "$site_root" -type d -exec chmod 2750 {} +
 fi
 
 pool_targets=()

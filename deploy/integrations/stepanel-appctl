@@ -311,29 +311,53 @@ EOF
     version=$3; root=$4; entry=$5; port=$6; workers=$7
     [[ $version =~ ^3\.(12|13)$ && $root == "/var/www/sites/$site/public" && $entry =~ ^[A-Za-z0-9_./:-]{1,160}$ && $port =~ ^[0-9]+$ && $workers =~ ^[0-9]+$ ]] || { echo 'invalid Python parameters' >&2; exit 1; }
     (( port >= 1024 && port <= 65535 && workers >= 1 && workers <= 64 )) || { echo 'invalid Python limits' >&2; exit 1; }
-    unit="stepanel-app-${site}-python.service"; venv="$root/.venv"; command -v "python$version" >/dev/null || { echo "python$version is not installed" >&2; exit 1; }
-    "python$version" -m venv "$venv"
-    # Transfer venv ownership to $site_user immediately (before any package operations)
-    chown -R "$site_user:$site_user" "$venv"
-    # Install Gunicorn as $site_user with pinned version and hash verification
+    unit="stepanel-app-${site}-python.service"; venv="$root/.venv"; lockfile=/usr/local/share/stepanel/python/gunicorn-23.0.0.requirements.txt
+    command -v "python$version" >/dev/null || { echo "python$version is not installed" >&2; exit 1; }
+    [[ -f $lockfile && ! -L $lockfile ]] || { echo 'Python dependency lockfile is unavailable' >&2; exit 1; }
+    venv_stage=; venv_backup=; venv_published=0
+    cleanup_python_stage() { [[ -z ${venv_stage:-} ]] || rm -rf -- "$venv_stage"; }
+    rollback_python_venv() {
+      if (( venv_published )); then
+        rm -rf -- "$venv"
+        if [[ -n ${venv_backup:-} && -d $venv_backup ]]; then mv -f "$venv_backup" "$venv"; fi
+      fi
+    }
+    # Build and verify a disposable environment first. A failed pip run never
+    # mutates the environment used by an existing service.
     if [[ ! -x "$venv/bin/gunicorn" ]]; then
-        # Create requirements file with hash for secure installation
-        tmp_req=$(mktemp "$venv/.requirements.XXXXXX")
-        cat > "$tmp_req" <<'REQS'
-gunicorn==23.0.0 --hash=sha256:73909ceba925b5c0f634a5b224ff0a3e42d143f0c8b5ef12f2e548dbe9213395
-REQS
-        # Install with hash verification enabled
-        runuser -u "$site_user" -- "$venv/bin/pip" install --quiet --require-hashes -r "$tmp_req" || {
+        venv_stage=$(mktemp -d "$root/.stepanel-venv.XXXXXX")
+        "python$version" -m venv "$venv_stage" || { cleanup_python_stage; exit 1; }
+        chown -R "$site_user:$site_user" "$venv_stage" || { cleanup_python_stage; exit 1; }
+        if ! runuser -u "$site_user" -- "$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"; then
             echo 'gunicorn could not be installed in the site virtualenv' >&2
-            rm -f "$tmp_req"
+            cleanup_python_stage
             exit 1
-        }
-        rm -f "$tmp_req"
+        fi
+        [[ -x "$venv_stage/bin/gunicorn" ]] || { cleanup_python_stage; echo 'gunicorn could not be installed in the site virtualenv' >&2; exit 1; }
+        if [[ -e $venv ]]; then
+            venv_backup=$(mktemp -d "$root/.stepanel-venv-old.XXXXXX")
+            rmdir "$venv_backup"
+            mv -f "$venv" "$venv_backup"
+        fi
+        mv -f "$venv_stage" "$venv"
+        venv_stage=
+        venv_published=1
     fi
     [[ -x "$venv/bin/gunicorn" ]] || { echo 'gunicorn could not be installed in the site virtualenv' >&2; exit 1; }
     # Track whether service was active before update
     was_active=0
     if systemctl is-active --quiet "$unit"; then was_active=1; fi
+    unit_path="/etc/systemd/system/$unit"; unit_backup=$(mktemp); unit_existed=0
+    if [[ -f $unit_path && ! -L $unit_path ]]; then cp -p "$unit_path" "$unit_backup"; unit_existed=1; fi
+    rollback_python_deployment() {
+      systemctl stop "$unit" 2>/dev/null || true
+      rollback_python_venv
+      systemd_lock
+      if (( unit_existed )); then mv -f "$unit_backup" "$unit_path"; else rm -f "$unit_path"; systemctl --no-reload disable "$unit" 2>/dev/null || true; fi
+      systemctl daemon-reload || true
+      systemd_unlock
+      if (( was_active )); then systemctl restart "$unit" 2>/dev/null || true; fi
+    }
     staged=$(mktemp "/etc/systemd/system/.stepanel-python.XXXXXX")
     cat > "$staged" <<EOF
 [Unit]
@@ -361,18 +385,23 @@ WantedBy=multi-user.target
 EOF
     chmod 0644 "$staged"; chown root:root "$staged"
     systemd_lock
-    mv -f "$staged" "/etc/systemd/system/$unit"
-    systemctl daemon-reload
+    if ! mv -f "$staged" "$unit_path" || ! systemctl daemon-reload; then
+      systemd_unlock
+      rollback_python_deployment
+      rm -f "$unit_backup"
+      exit 1
+    fi
     systemd_unlock
     # Distinguish first creation from configuration update
     if (( was_active )); then
-      systemctl restart "$unit" || exit 1
+      if ! systemctl restart "$unit"; then rollback_python_deployment; rm -f "$unit_backup"; exit 1; fi
     else
-      enable_units "$unit" || exit 1
-      systemctl start "$unit" || exit 1
+      if ! enable_units "$unit" || ! systemctl start "$unit"; then rollback_python_deployment; rm -f "$unit_backup"; exit 1; fi
     fi
     # Verify the service is active
-    systemctl is-active --quiet "$unit" || exit 1
+    if ! systemctl is-active --quiet "$unit"; then rollback_python_deployment; rm -f "$unit_backup"; exit 1; fi
+    rm -f "$unit_backup"
+    [[ -z ${venv_backup:-} ]] || rm -rf -- "$venv_backup"
     ;;
   node-tool)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl node-tool SITE ACTION PACKAGE_MANAGER ROOT' >&2; exit 64; }

@@ -28,6 +28,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **SFTP, Python deployment, and site-permission hardening**: SFTP-only key
+  staging now stays under the root-owned authorization directory and the
+  generated forced-command policy is validated by `sshd`. Python app
+  provisioning uses a complete hash-locked Gunicorn/packaging requirements
+  file and publishes a disposable virtualenv only after installation succeeds;
+  failed installs cannot publish a partial environment. Site ACLs and
+  ownership are applied during initial staging/sealing, with default ACLs for
+  newly-created content, while routine PHP runtime/resource changes avoid
+  recursive filesystem walks.
+
 - **Web identity and Caddy filesystem isolation**: the installer now persists
   one authoritative web-server group and PHP socket root for the root broker
   and site helper, including Caddy on Debian/Ubuntu and RHEL-family hosts.

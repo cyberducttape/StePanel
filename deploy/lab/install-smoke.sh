@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'install smoke must run as root' >&2; exit 1; }
 cd /work
+bash /work/deploy/lab/python-dependencies-smoke.sh
 
 if [[ ! -f /sys/fs/cgroup/cgroup.controllers && ! -d /sys/fs/cgroup/systemd ]]; then
   echo 'install smoke requires a systemd-compatible cgroup hierarchy; use a KVM/Cloud VM or CI runner' >&2
@@ -213,6 +214,8 @@ root_user=$(/usr/local/sbin/stepanel-sitectl prepare-root "$root_site" | tail -n
 [[ -d "/var/www/sites/$root_site/.php/sessions" && ! -e "/var/www/sites/$root_site/public" ]]
 getfacl -p "/var/www/sites/$root_site" | grep -Fq 'user:stepanel:rwx'
 /usr/local/sbin/stepanel-sitectl delete "$root_site"
+bash /work/deploy/lab/sftp-access-smoke.sh
+bash /work/deploy/lab/sitectl-acl-smoke.sh "$site"
 
 /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.example.test
 /usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256

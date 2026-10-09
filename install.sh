@@ -696,6 +696,7 @@ managed_targets=(
   /usr/local/sbin/stepanel-root
   "$APP_DIR/integrations/install-fail2ban.sh"
   /usr/local/sbin/stepanel-appctl
+  /usr/local/share/stepanel/python/gunicorn-23.0.0.requirements.txt
   /usr/local/sbin/stepanel-gitctl
   /usr/local/sbin/stepanel-proxyctl
   /usr/local/sbin/stepanel-sitectl
@@ -765,6 +766,8 @@ printf '%s\n' "$AUDIT_KEY" > "$INSTALL_TXN/audit.key"
 install -m 0600 -o root -g root "$INSTALL_TXN/audit.key" /etc/stepanel-audit.key
 install -m 0755 "$ROOT_DIR/deploy/integrations/install-fail2ban.sh" "$APP_DIR/integrations/install-fail2ban.sh"
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-appctl" /usr/local/sbin/stepanel-appctl
+install -d -m 0755 -o root -g root /usr/local/share/stepanel/python
+install -m 0644 -o root -g root "$ROOT_DIR/deploy/python/gunicorn-23.0.0.requirements.txt" /usr/local/share/stepanel/python/gunicorn-23.0.0.requirements.txt
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-gitctl" /usr/local/sbin/stepanel-gitctl
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-runnerctl" /usr/local/sbin/stepanel-runnerctl
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-nosymfollow" /usr/local/sbin/stepanel-nosymfollow
