@@ -370,7 +370,7 @@ User=$site_user
 Group=$site_user
 Slice=stepanel-site-$site.slice
 WorkingDirectory=$root
-ExecStart=$venv/bin/gunicorn --workers $workers --bind 127.0.0.1:$port $entry
+ExecStart=$venv/bin/python -m gunicorn --workers $workers --bind 127.0.0.1:$port $entry
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
@@ -512,7 +512,10 @@ User=$site_user
 Group=$site_user
 Slice=stepanel-site-$site.slice
 WorkingDirectory=$root
-ExecStart=$script
+# Run the script through bash rather than executing it: on SELinux hosts
+# systemd may not execute files labelled var_lib_t (the task directory), but
+# bash (bin_t) may read them.
+ExecStart=/bin/bash $script
 TimeoutStartSec=${timeout}s
 TimeoutStopSec=7s
 KillMode=control-group

@@ -142,3 +142,40 @@ func TestTaskUnitKeepsWebhookURLFromTenant(t *testing.T) {
 		}
 	}
 }
+
+// On SELinux hosts systemd may not execute files labelled var_lib_t (task
+// scripts) or web content (site virtualenvs). Generated units must start a
+// labelled interpreter that reads them instead.
+func TestGeneratedUnitsDoNotExecuteSiteOrStateFiles(t *testing.T) {
+	helper, err := os.ReadFile("deploy/integrations/stepanel-appctl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(helper)
+	for _, forbidden := range []string{"ExecStart=$script\n", "ExecStart=$venv/bin/gunicorn"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("generated unit executes a non-executable-labelled file directly: %q", forbidden)
+		}
+	}
+	for _, required := range []string{"ExecStart=/bin/bash $script\n", "ExecStart=$venv/bin/python -m gunicorn"} {
+		if !strings.Contains(text, required) {
+			t.Errorf("generated unit is missing %q", required)
+		}
+	}
+}
+
+// chmod on a directory with an ACL resets the mask to the group bits, which
+// removes the panel's write access. stepanel-sitectl must apply the panel ACL
+// after sealing ownership and modes.
+func TestSiteSealAppliesACLAfterChmod(t *testing.T) {
+	helper, err := os.ReadFile("deploy/integrations/stepanel-sitectl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(helper)
+	chmod := strings.Index(text, `find "$site_root" -type d -exec chmod 2750 {} +`)
+	acl := strings.Index(text, `setfacl -R -m u:stepanel:rwX "$site_root"`)
+	if chmod < 0 || acl < 0 || acl < chmod {
+		t.Fatalf("sitectl must chmod the site tree before applying the panel ACL (chmod at %d, setfacl at %d)", chmod, acl)
+	}
+}

@@ -410,6 +410,14 @@ if [[ $action == seal && -d $site_root/public ]]; then
   symlink=$(find -P "$site_root/public" -xdev -path "$site_root/public/node_modules" -prune -o -type l -print -quit)
   [[ -z $symlink ]] || { echo "site document root contains a symlink and cannot be sealed: $symlink" >&2; exit 1; }
 fi
+if [[ $action == seal ]]; then
+  chown -R "$site_user:$web_group" "$site_root"
+  find "$site_root" -type d -exec chmod 2750 {} +
+fi
+
+# Apply ACLs after any chmod: chmod on a directory with an ACL resets the ACL
+# mask to the group bits (r-x here), which would silently remove the panel's
+# write access and break release staging. setfacl -m recalculates the mask.
 if [[ $action == prepare || $action == seal ]]; then
   command -v setfacl >/dev/null 2>&1 || { echo 'setfacl is required for site isolation' >&2; exit 1; }
   # ACLs are established when a tree is first staged/published. Their
@@ -417,11 +425,6 @@ if [[ $action == prepare || $action == seal ]]; then
   # runtime/resource changes do not rescan the whole site.
   setfacl -R -m u:stepanel:rwX "$site_root"
   find "$site_root" -type d -exec setfacl -m d:u:stepanel:rwx {} +
-fi
-
-if [[ $action == seal ]]; then
-  chown -R "$site_user:$web_group" "$site_root"
-  find "$site_root" -type d -exec chmod 2750 {} +
 fi
 
 pool_targets=()
