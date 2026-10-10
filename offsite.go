@@ -66,13 +66,60 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	}
 	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(size))
 	defer cancel()
-	args := append([]string{"rclone", "copy", backupPath, destination}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Env = cloudCommandEnv()
-	if output, err := runBoundedCommand(ctx, cmd); err != nil {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return fmt.Errorf("create offsite upload identity: %w", err)
+	}
+	// Keep the temporary prefix beside, not beneath, the final prefix so
+	// provider-side moveto can promote it atomically as a directory.
+	temporary := destination + ".stepanel-upload-" + fmt.Sprintf("%x", nonce[:])
+	completed := false
+	defer func() {
+		if completed {
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cleanupCancel()
+		_, _ = runOffsiteRclone(cleanupCtx, "purge", temporary)
+	}()
+	copyArgs := append([]string{"copy", backupPath, temporary}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+	if output, err := runOffsiteRclone(ctx, copyArgs...); err != nil {
 		return fmt.Errorf("offsite upload failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	if output, err := runOffsiteRclone(ctx, "check", backupPath, temporary, "--one-way"); err != nil {
+		return fmt.Errorf("offsite upload verification failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if output, err := runOffsiteRclone(ctx, "moveto", temporary, destination); err != nil {
+		return fmt.Errorf("publish offsite backup failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	marker, err := os.CreateTemp("", "stepanel-offsite-complete-")
+	if err != nil {
+		return fmt.Errorf("create offsite completion marker: %w", err)
+	}
+	markerPath := marker.Name()
+	defer os.Remove(markerPath)
+	if _, err := marker.WriteString("STEPANEL_OFFSITE_COMPLETE_V1\n"); err != nil {
+		_ = marker.Close()
+		return fmt.Errorf("write offsite completion marker: %w", err)
+	}
+	if err := marker.Close(); err != nil {
+		return fmt.Errorf("close offsite completion marker: %w", err)
+	}
+	markerRemote, err := offsiteRemoteObject(destination, ".stepanel-complete")
+	if err != nil {
+		return err
+	}
+	if output, err := runOffsiteRclone(ctx, "copyto", markerPath, markerRemote, "--immutable"); err != nil {
+		return fmt.Errorf("publish offsite completion marker failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	completed = true
 	return nil
+}
+
+func runOffsiteRclone(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "rclone", args...)
+	cmd.Env = cloudCommandEnv()
+	return runBoundedCommand(ctx, cmd)
 }
 
 func offsiteBackupDirectorySize(root string) (int64, error) {
@@ -154,6 +201,15 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 	if err := downloadOffsiteObject(parent, remoteRoot, root, "manifest.json"); err != nil {
 		cleanup()
 		return "", func() {}, err
+	}
+	if err := downloadOffsiteObject(parent, remoteRoot, root, ".stepanel-complete"); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("offsite backup is not complete: %w", err)
+	}
+	markerData, err := os.ReadFile(filepath.Join(root, ".stepanel-complete"))
+	if err != nil || string(markerData) != "STEPANEL_OFFSITE_COMPLETE_V1\n" {
+		cleanup()
+		return "", func() {}, errors.New("offsite backup completion marker is invalid")
 	}
 	manifestPath := filepath.Join(root, "manifest.json")
 	manifestInfo, err := os.Stat(manifestPath)

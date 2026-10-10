@@ -76,6 +76,61 @@ func TestOffsiteBackupDirectorySizeMatchesPublishedBackupLayout(t *testing.T) {
 	}
 }
 
+func TestOffsiteUploadAndDownloadRoundTripPublishedBackup(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	importRoot := filepath.Join(root, "imports")
+	if err := os.MkdirAll(filepath.Join(webRoot, "sites", "account", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webRoot, "sites", "account", "public", "index.php"), []byte("<?php echo 'ok';"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fakeRemote := filepath.Join(root, "remote")
+	if err := os.Mkdir(fakeRemote, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fakeRclone := filepath.Join(root, "rclone")
+	script := `#!/bin/sh
+set -eu
+	remote() { case "$1" in *:*) printf '%s/%s' "$RCLONE_FAKE_ROOT" "${1#*:}";; *) printf '%s' "$1";; esac; }
+case "$1" in
+copy) src="$2"; dst=$(remote "$3"); mkdir -p "$dst"; cp -a "$src"/. "$dst"/ ;;
+check) exit 0 ;;
+moveto) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$(dirname "$dst")"; mv "$src" "$dst" ;;
+copyto) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
+purge) rm -rf "$(remote "$2")" ;;
+*) echo "unsupported fake rclone command" >&2; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(fakeRclone, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("RCLONE_FAKE_ROOT", fakeRemote)
+	cfg := Config{WebRoot: webRoot, BackupRoot: backupRoot, ImportRoot: importRoot, OffsiteTarget: "s3:bucket/stepanel"}
+	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err != nil {
+		t.Fatalf("offsite upload: %v", err)
+	}
+	remoteRoot := filepath.Join(fakeRemote, "bucket", "stepanel", "account", filepath.Base(backup.Path))
+	if _, err := os.Stat(filepath.Join(remoteRoot, ".stepanel-complete")); err != nil {
+		t.Fatalf("completion marker missing: %v", err)
+	}
+	restoredRoot, cleanup, err := downloadOffsiteBackupContext(t.Context(), cfg, "account", filepath.Base(backup.Path))
+	if err != nil {
+		t.Fatalf("offsite download: %v", err)
+	}
+	defer cleanup()
+	if _, err := VerifySiteBackupStrict(restoredRoot, ""); err != nil {
+		t.Fatalf("strict offsite backup verification: %v", err)
+	}
+}
+
 func TestValidBackupNameRejectsRemotePathTraversal(t *testing.T) {
 	for _, name := range []string{"20260906-120000.000000000-account", "backup_v2-01"} {
 		if !validBackupName(name) {

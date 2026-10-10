@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Offsite uploads now publish transactionally**: directory contents are
+  copied to a unique temporary remote prefix, checked before promotion, and
+  marked complete only after the final prefix is published. Restore requires
+  the completion marker and strict validation remains the final integrity gate.
 - **Offsite backup uploads now match the published backup layout**: the
   uploader transfers the backup directory contents with `rclone copy` to the
   site/backup destination expected by restore, validates the directory root,
