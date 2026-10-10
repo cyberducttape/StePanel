@@ -1801,8 +1801,7 @@ func (e *apiErrorWriter) Write(body []byte) (int, error) {
 		// Copy through the underlying writer without making this middleware a
 		// response-body sink. The API middleware only forwards responses whose
 		// handler selected their content type; error bodies are captured above.
-		written, err := io.Copy(e.w, bytes.NewReader(body))
-		return int(written), err
+		return e.w.Write(body)
 	}
 	if remaining := maxAPIErrorBody - e.body.Len(); remaining > 0 {
 		if len(body) > remaining {

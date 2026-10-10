@@ -8,6 +8,9 @@
 - **Cpmove and WPress upload responses bypass the generic API passthrough
   writer**: upload admission responses remain fixed and non-reflective,
   preventing request-body data from reaching the generic HTTP response sink.
+- **API response passthrough no longer uses a generic copy sink**: successful
+  response bytes are written directly to the selected response writer while
+  plain-text errors remain captured and normalized.
 
 All notable changes to StePanel are documented here.
 
