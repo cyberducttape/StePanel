@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **Application lifecycle smoke uses the production site workflow**: the
+  disposable Node-app test now creates its site through `/api/sites`, waits
+  for durable creation, and exercises application deployment with the
+  persisted Unix identity required by the root broker instead of constructing
+  an unsupported filesystem-only site.
 - **Builds, deployments, and staging restores are durable jobs**: Git
   deploys, signed Git webhooks, release pipelines, runner builds, staging
   creation, restore-to-staging (local and offsite), Composer install, Node

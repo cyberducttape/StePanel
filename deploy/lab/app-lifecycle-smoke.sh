@@ -27,10 +27,14 @@ manifest="$STEPANEL_DATA_DIR/apps/$site.json"
 work=$(mktemp -d)
 cookies="$work/cookies.txt"
 stub_runtime=0
+site_created=0
 
 cleanup() {
   local status=$?
   "$appctl" delete "$site" >/dev/null 2>&1 || true
+  if (( site_created )); then
+    /usr/local/sbin/stepanel-sitectl delete "$site" >/dev/null 2>&1 || true
+  fi
   rm -f -- "$manifest" "$manifest.bak" "$public/package.json" "$public/server.js"
   if (( stub_runtime )); then rm -rf -- "$nvm_dir"; fi
   rm -rf -- "$work"
@@ -47,7 +51,68 @@ diagnose() {
 trap cleanup EXIT
 trap diagnose ERR
 
-[[ -d $public ]] || { echo "app smoke site does not exist: $public" >&2; exit 1; }
+# Earlier lab drills log in with the same TOTP identity. Wait for the next
+# counter so replay protection does not reject this login.
+sleep $((31 - $(date +%s) % 30))
+totp=$(python3 - "$STEPANEL_ADMIN_TOTP_SECRET" <<'PY'
+import base64, hashlib, hmac, struct, sys, time
+
+secret = sys.argv[1].strip().upper()
+secret += "=" * ((8 - len(secret) % 8) % 8)
+key = base64.b32decode(secret)
+counter = int(time.time()) // 30
+digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+offset = digest[-1] & 0x0f
+code = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7fffffff) % 1000000
+print(f"{code:06d}")
+PY
+)
+curl --fail --silent --show-error --max-time 10 -c "$cookies" "$PANEL/login" >/dev/null
+curl --fail --silent --show-error --max-time 10 -L \
+  -b "$cookies" -c "$cookies" \
+  --data-urlencode "username=$STEPANEL_ADMIN_USERNAME" \
+  --data-urlencode "password=$STEPANEL_ADMIN_PASSWORD" \
+  --data-urlencode "totp=$totp" \
+  "$PANEL/login" >/dev/null
+session=$(awk '$6 == "stepanel_session" {print $7}' "$cookies")
+csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$cookies")
+[[ -n $session && -n $csrf ]] || { echo 'app lifecycle login did not issue session and CSRF cookies' >&2; exit 1; }
+cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
+
+# Create the disposable site through the durable site-creation workflow. This
+# is important: the workflow persists the immutable Unix identity that the
+# root broker requires for application service mutations. Preparing a
+# filesystem tree directly would test an unsupported legacy state.
+create_status=$(curl --silent --show-error --max-time 30 -o "$work/response" -w '%{http_code}' \
+  -H "Cookie: $cookie_header" -H "X-CSRF-Token: $csrf" \
+  -H 'Content-Type: application/json' \
+  --data "{\"site\":\"$site\",\"template\":\"php\"}" \
+  "$PANEL/api/sites")
+[[ $create_status == 202 ]] || { echo "site creation returned HTTP $create_status" >&2; exit 1; }
+create_job=$(python3 - "$work/response" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1])).get("job_id", ""))
+PY
+)
+[[ -n $create_job ]] || { echo 'site creation did not return a durable job' >&2; exit 1; }
+create_state=
+for _ in $(seq 1 180); do
+  job_response=$(curl --silent --show-error --max-time 10 \
+    -H "Cookie: $cookie_header" "$PANEL/api/jobs/$create_job" || true)
+  create_state=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("state", ""))' \
+    "$job_response" 2>/dev/null || true)
+  case $create_state in
+    completed) break ;;
+    failed|dead-letter|cancelled)
+      echo "site creation job ended in $create_state: $job_response" >&2
+      exit 1
+      ;;
+  esac
+  sleep 1
+done
+[[ $create_state == completed ]] || { echo "site creation job did not complete: $job_response" >&2; exit 1; }
+site_created=1
+[[ -d $public ]] || { echo "created site document root does not exist: $public" >&2; exit 1; }
 
 # The application must answer on $PORT. Use the installed Node runtime when the
 # lab has one; otherwise provide a stand-in nvm whose npm serves the site root,
@@ -78,34 +143,6 @@ EOF
   chmod 0755 "$nvm_dir/smoke-bin/npm"
 fi
 /usr/local/sbin/stepanel-sitectl seal "$site"
-
-# Earlier lab drills log in with the same TOTP identity. Wait for the next
-# counter so replay protection does not reject this login.
-sleep $((31 - $(date +%s) % 30))
-totp=$(python3 - "$STEPANEL_ADMIN_TOTP_SECRET" <<'PY'
-import base64, hashlib, hmac, struct, sys, time
-
-secret = sys.argv[1].strip().upper()
-secret += "=" * ((8 - len(secret) % 8) % 8)
-key = base64.b32decode(secret)
-counter = int(time.time()) // 30
-digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
-offset = digest[-1] & 0x0f
-code = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7fffffff) % 1000000
-print(f"{code:06d}")
-PY
-)
-curl --fail --silent --show-error --max-time 10 -c "$cookies" "$PANEL/login" >/dev/null
-curl --fail --silent --show-error --max-time 10 -L \
-  -b "$cookies" -c "$cookies" \
-  --data-urlencode "username=$STEPANEL_ADMIN_USERNAME" \
-  --data-urlencode "password=$STEPANEL_ADMIN_PASSWORD" \
-  --data-urlencode "totp=$totp" \
-  "$PANEL/login" >/dev/null
-session=$(awk '$6 == "stepanel_session" {print $7}' "$cookies")
-csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$cookies")
-[[ -n $session && -n $csrf ]] || { echo 'app lifecycle login did not issue session and CSRF cookies' >&2; exit 1; }
-cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
 # api METHOD PATH [JSON] prints the HTTP status; the body lands in $work/response.
 api() {

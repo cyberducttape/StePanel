@@ -257,15 +257,10 @@ bash /work/deploy/lab/deploy-recovery-smoke.sh
 # expiry, so isolate the app lifecycle drill on its own disposable site rather
 # than turning a valid post-crash contention response into a false failure.
 app_smoke_site=ci-app-smoke
-/usr/local/sbin/stepanel-sitectl prepare "$app_smoke_site"
-mkdir -p "/var/www/sites/$app_smoke_site/public"
-printf '%s\n' 'app lifecycle smoke' > "/var/www/sites/$app_smoke_site/public/index.html"
-/usr/local/sbin/stepanel-sitectl seal "$app_smoke_site"
 set +e
 APP_LIFECYCLE_SMOKE_SITE="$app_smoke_site" bash /work/deploy/lab/app-lifecycle-smoke.sh
 app_smoke_status=$?
 set -e
-/usr/local/sbin/stepanel-sitectl delete "$app_smoke_site"
 if (( app_smoke_status != 0 )); then
   exit "$app_smoke_status"
 fi
