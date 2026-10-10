@@ -716,7 +716,9 @@ func writeUploadErrorResponse(w http.ResponseWriter, r *http.Request, err error)
 		http.Error(w, "invalid upload request", rejection.status)
 	case errors.As(err, &capacity):
 		reason = uploadRejectCapacity
-		http.Error(w, capacity.Error(), http.StatusInsufficientStorage)
+		// Capacity details can contain filesystem paths. Keep them in logs and
+		// metrics, never in a browser-facing response body.
+		http.Error(w, "insufficient free space for upload", http.StatusInsufficientStorage)
 	case errors.Is(err, errUploadLengthRequired):
 		reason = uploadRejectLength
 		http.Error(w, "archive uploads require a Content-Length header", http.StatusLengthRequired)
