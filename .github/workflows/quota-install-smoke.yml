@@ -122,15 +122,20 @@ jobs:
           ssh_args=(-i "$vm_root/id_ed25519" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3)
           guest_ready=0
           for _ in $(seq 1 240); do
-            if timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --wait >/dev/null && test -e /run/stepanel-quota-ready'; then
-              guest_ready=1
-              break
-            fi
+            # Do not use `cloud-init status --wait` here.  It can hold the SSH
+            # connection for the full timeout on every iteration, turning a
+            # guest boot problem into an opaque 90-minute job timeout.  Poll
+            # the status non-blockingly so failures are diagnosed promptly and
+            # the bounded loop remains a real readiness deadline.
             cloud_init_status=$(timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --format json' 2>/dev/null || true)
             if grep -Eq '"(status|extended_status)"[[:space:]]*:[[:space:]]*"(error|degraded)"' <<< "$cloud_init_status"; then
               echo 'quota-enabled Ubuntu guest cloud-init failed' >&2
               timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo cloud-init status --long; sudo tail -n 120 /var/log/cloud-init-output.log' >&2 || true
               exit 1
+            fi
+            if grep -Eq '"status"[[:space:]]*:[[:space:]]*"done"' <<< "$cloud_init_status" && timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'test -e /run/stepanel-quota-ready'; then
+              guest_ready=1
+              break
             fi
             sleep 5
           done

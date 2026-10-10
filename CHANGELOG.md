@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- The quota-enabled Ubuntu installation smoke test now polls cloud-init
+  non-blockingly, enforces a bounded guest-readiness deadline, and reports
+  cloud-init diagnostics immediately instead of repeatedly waiting on SSH
+  connections until the workflow timeout.
+
 - The dashboard now shows customer site creation only to administrators and
   active tenant owners; member and suspended-account sessions see the same
   tenant-filtered inventory without a misleading mutation control.
