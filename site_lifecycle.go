@@ -293,7 +293,13 @@ func (h *terminationHost) RemoveProxies(ctx context.Context) error {
 }
 
 func (h *terminationHost) RemoveTasks(ctx context.Context) error {
-	return h.app.removeSiteTasks(ctx, h.access)
+	if err := h.app.removeSiteTasks(ctx, h.access); err != nil {
+		return err
+	}
+	if err := h.app.removeSiteBackupSchedule(ctx, h.site); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (h *terminationHost) RemoveServices(ctx context.Context) error {

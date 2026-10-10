@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -70,5 +71,28 @@ func TestBackupScheduleDeleteRollsBackWhenPersistenceFails(t *testing.T) {
 	}
 	if _, exists := store.items["demo"]; !exists {
 		t.Fatal("failed persistence removed the schedule from memory")
+	}
+}
+
+func TestTerminationRemovesBackupScheduleBeforeFutureSchedulerTick(t *testing.T) {
+	root := t.TempDir()
+	store, err := openBackupSchedules(filepath.Join(root, "schedules.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.items["demo"] = BackupSchedule{
+		Site: "demo", IntervalMinutes: 60, KeepLast: 7, Enabled: true,
+		NextRun: time.Now().UTC().Add(-time.Minute),
+	}
+	app := &App{Schedules: store, Jobs: NewJobs()}
+	if err := app.removeSiteBackupSchedule(context.Background(), "demo"); err != nil {
+		t.Fatalf("remove schedule during termination: %v", err)
+	}
+	app.runDueBackups()
+	if _, exists := store.items["demo"]; exists {
+		t.Fatal("terminated site's backup schedule survived the scheduler tick")
+	}
+	if _, err := openBackupSchedules(filepath.Join(root, "schedules.json")); err != nil {
+		t.Fatalf("schedule removal was not durable across restart: %v", err)
 	}
 }

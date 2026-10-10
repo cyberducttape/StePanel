@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -195,6 +196,28 @@ func (a *App) runDueBackups() {
 			TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", site, err.Error())
 		}
 	}
+}
+
+// removeSiteBackupSchedule is an idempotent lifecycle cleanup operation. It
+// is called from the journaled termination task-cleanup step so a deleted site
+// can never leave a scheduler entry that targets a future site with the same
+// name.
+func (a *App) removeSiteBackupSchedule(ctx context.Context, site string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if a.Schedules == nil {
+		return nil
+	}
+	a.Schedules.mu.Lock()
+	defer a.Schedules.mu.Unlock()
+	if _, exists := a.Schedules.items[site]; !exists {
+		return nil
+	}
+	if err := persistMapKeyChange(a.Schedules.items, site, (*BackupSchedule)(nil), a.Schedules.persistLocked); err != nil {
+		return fmt.Errorf("remove backup schedule state: %w", err)
+	}
+	return ctx.Err()
 }
 
 func (s *backupSchedules) recordResult(site string, started time.Time, resultErr error) {

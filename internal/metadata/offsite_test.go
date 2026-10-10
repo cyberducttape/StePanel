@@ -28,7 +28,7 @@ func TestOffsiteBackupSummaryTracksReplicationAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.TrackedBackups != 1 || summary.OldestUnreplicated == nil || !summary.OldestUnreplicated.Equal(created) {
+	if summary.TrackedBackups != 1 || summary.UnreplicatedBackups != 1 || summary.OldestUnreplicated == nil || !summary.OldestUnreplicated.Equal(created) {
 		t.Fatalf("pending summary = %+v", summary)
 	}
 	uploaded := time.Now().UTC().Truncate(time.Second)
@@ -43,7 +43,7 @@ func TestOffsiteBackupSummaryTracksReplicationAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.OldestUnreplicated != nil || summary.LastSuccessfulBackup == nil || !summary.LastSuccessfulBackup.Equal(uploaded) || summary.LastVerifiedRestore == nil || !summary.LastVerifiedRestore.Equal(restored) {
+	if summary.OldestUnreplicated != nil || summary.UnreplicatedBackups != 0 || summary.LastSuccessfulBackup == nil || !summary.LastSuccessfulBackup.Equal(uploaded) || summary.LastVerifiedRestore == nil || !summary.LastVerifiedRestore.Equal(restored) {
 		t.Fatalf("replicated summary = %+v", summary)
 	}
 	other, err := index.OffsiteSummary("s3:other")

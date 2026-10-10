@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Site termination now removes the site's durable backup schedule as part of
+  journaled task cleanup, preventing post-termination scheduler jobs or
+  schedule reuse after a site name is recreated. Operational health now
+  returns `503` and `ok: false` when required checks fail, production
+  readiness includes a root-broker probe, and offsite capability reporting
+  requires tracked upload and verified-restore evidence rather than only
+  remote object connectivity.
+
 - A failed duplicate site creation job no longer removes the tenant's
   ownership of a site that another job already created; retries with a new
   `Idempotency-Key` could previously orphan a live site from its account.

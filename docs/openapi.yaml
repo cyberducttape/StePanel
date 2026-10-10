@@ -22,6 +22,8 @@ paths:
       responses:
         '200':
           description: Operational health report
+        '503':
+          description: One or more operational checks are degraded
   /api/database:
     get:
       summary: Database engine and administration UI status

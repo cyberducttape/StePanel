@@ -396,8 +396,8 @@ func TestOffsiteCapabilityDistinguishesConfiguredFromRemoteVerified(t *testing.T
 	}
 	resetOffsiteProbeCache()
 	probeOffsiteRemote = func(string) error { return nil }
-	if capability := app.checkOffsiteBackupCapability(); capability.Mode != CapabilityRemote || capability.Available {
-		t.Fatalf("remotely verified capability = %#v", capability)
+	if capability := app.checkOffsiteBackupCapability(); capability.Mode != CapabilityDegraded || capability.Available || !strings.Contains(capability.Reason, "recoverability history is unavailable") {
+		t.Fatalf("remote-only connectivity capability = %#v", capability)
 	}
 }
 

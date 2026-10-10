@@ -91,26 +91,48 @@ func (a *App) operationalHealth(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	response := map[string]any{"ok": true, "operational": operational, "checks": checks, "time": time.Now().UTC()}
+	status := http.StatusOK
+	if !operational {
+		status = http.StatusServiceUnavailable
+	}
+	response := map[string]any{"ok": operational, "operational": operational, "checks": checks, "time": time.Now().UTC()}
 	if a.Config.OffsiteTarget != "" && a.BackupIndex != nil {
 		if summary, err := a.BackupIndex.OffsiteSummary(a.Config.OffsiteTarget); err == nil {
 			verified := offsiteCapability.Mode == CapabilityRemote
 			response["offsite_backup_status"] = map[string]any{
 				"configured": true, "authenticated": verified, "writable": verified, "readable": verified,
-				"last_remote_verification":   offsiteProbeCheckedAt(a.Config.OffsiteTarget),
-				"last_successful_backup":     summary.LastSuccessfulBackup,
-				"last_verified_restore":      summary.LastVerifiedRestore,
-				"oldest_unreplicated_backup": summary.OldestUnreplicated,
-				"tracked_backups":            summary.TrackedBackups,
-				"tracking_scope":             "backups created after offsite tracking was enabled; legacy backups are not inventoried",
+				"last_remote_verification":           offsiteProbeCheckedAt(a.Config.OffsiteTarget),
+				"last_successful_backup":             summary.LastSuccessfulBackup,
+				"last_successful_backup_age_seconds": offsiteAgeSeconds(summary.LastSuccessfulBackup),
+				"last_verified_restore":              summary.LastVerifiedRestore,
+				"last_verified_restore_age_seconds":  offsiteAgeSeconds(summary.LastVerifiedRestore),
+				"oldest_unreplicated_backup":         summary.OldestUnreplicated,
+				"oldest_unreplicated_age_seconds":    offsiteAgeSeconds(summary.OldestUnreplicated),
+				"unreplicated_backups":               summary.UnreplicatedBackups,
+				"tracked_backups":                    summary.TrackedBackups,
+				"tracking_scope":                     "backups created after offsite tracking was enabled; legacy backups are not inventoried",
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, status, response)
+}
+
+func offsiteAgeSeconds(at *time.Time) *int64 {
+	if at == nil {
+		return nil
+	}
+	age := int64(time.Since(*at).Seconds())
+	if age < 0 {
+		age = 0
+	}
+	return &age
 }
 
 func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 	checks := map[string]ReadinessCheck{}
+	if cfg.Production || strings.TrimSpace(os.Getenv("STEPANEL_ROOT_BROKER_SOCKET")) != "" || strings.TrimSpace(os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET")) != "" {
+		checks["root_broker"] = rootBrokerHealthCheck()
+	}
 	if err := AuditPersistenceError(); err != nil {
 		checks["audit_state"] = ReadinessCheck{Ready: false, Detail: err.Error()}
 	} else {

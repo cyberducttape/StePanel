@@ -525,28 +525,28 @@ func (a *App) checkOffsiteBackupCapability() Capability {
 		return newCapability(CapabilityLocal, fmt.Sprintf("rclone and target syntax are valid, but remote access was not verified: %v", err))
 	}
 	if a.BackupIndex == nil {
-		return newCapability(CapabilityRemote, "remote health object was written, read back, and deleted; backup history is unavailable")
+		return newCapability(CapabilityDegraded, "remote health object was written, read back, and deleted; backup recoverability history is unavailable")
 	}
 	summary, err := a.BackupIndex.OffsiteSummary(a.Config.OffsiteTarget)
 	if err != nil {
-		return newCapability(CapabilityRemote, "remote health object was written, read back, and deleted; backup history query failed")
+		return newCapability(CapabilityDegraded, "remote health object was written, read back, and deleted; backup history query failed")
 	}
 	detail := "remote health object write/read/delete verified"
 	if summary.LastSuccessfulBackup != nil {
 		detail += "; last successful backup " + time.Since(*summary.LastSuccessfulBackup).Round(time.Minute).String() + " ago"
 	} else {
-		detail += "; no successful backup recorded"
+		return newCapability(CapabilityDegraded, detail+"; no successful backup recorded")
 	}
 	if summary.LastVerifiedRestore != nil {
 		detail += "; last verified restore " + time.Since(*summary.LastVerifiedRestore).Round(time.Minute).String() + " ago"
 	} else {
-		detail += "; no offsite restore recorded"
+		return newCapability(CapabilityDegraded, detail+"; no offsite restore recorded")
 	}
 	if summary.OldestUnreplicated != nil {
 		detail += "; oldest tracked unreplicated backup " + time.Since(*summary.OldestUnreplicated).Round(time.Minute).String() + " ago"
-	} else {
-		detail += "; no tracked unreplicated backups"
+		return newCapability(CapabilityDegraded, detail+fmt.Sprintf("; %d tracked backup(s) await upload", summary.UnreplicatedBackups))
 	}
+	detail += "; no tracked unreplicated backups"
 	return newCapability(CapabilityRemote, detail)
 }
 

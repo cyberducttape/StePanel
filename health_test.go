@@ -60,6 +60,23 @@ func TestReadyzChecksPersistentCapacity(t *testing.T) {
 	}
 }
 
+func TestReadyzIncludesRootBrokerInProduction(t *testing.T) {
+	t.Setenv("STEPANEL_ROOT_BROKER_SOCKET", "")
+	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", "")
+	root := t.TempDir()
+	for _, path := range []string{filepath.Join(root, "imports"), filepath.Join(root, "backups"), filepath.Join(root, "sites")} {
+		if err := os.MkdirAll(path, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := &App{Config: Config{Production: true, ImportRoot: filepath.Join(root, "imports"), BackupRoot: filepath.Join(root, "backups"), JobState: filepath.Join(root, "jobs.json"), RecoveryRoot: filepath.Join(root, "sites", ".stepanel-recovery"), MinFreeBytes: 1}, Jobs: NewJobs()}
+	response := httptest.NewRecorder()
+	app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), `"root_broker":{"ready":false`) {
+		t.Fatalf("production readiness did not fail closed on broker health: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestReadyzRequiresFreshCompatibleExternalWorker(t *testing.T) {
 	root := t.TempDir()
 	imports, backups, sites := filepath.Join(root, "imports"), filepath.Join(root, "backups"), filepath.Join(root, "sites")
@@ -101,7 +118,7 @@ func TestOperationalHealthReportsMissingRequiredOffsiteBackup(t *testing.T) {
 	app := &App{Config: Config{ImportRoot: filepath.Join(root, "imports"), BackupRoot: filepath.Join(root, "backups"), JobState: filepath.Join(root, "jobs.json"), RecoveryRoot: filepath.Join(root, "sites", ".stepanel-recovery"), MinFreeBytes: 1, RequireOffsiteBackup: true}, Jobs: NewJobs()}
 	response := httptest.NewRecorder()
 	app.operationalHealth(response, httptest.NewRequest(http.MethodGet, "/api/health/operational", nil))
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "offsite_backup") || !strings.Contains(response.Body.String(), `"operational":false`) {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "offsite_backup") || !strings.Contains(response.Body.String(), `"ok":false`) || !strings.Contains(response.Body.String(), `"operational":false`) {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
@@ -121,7 +138,7 @@ func TestOperationalHealthDoesNotTreatConfiguredOffsiteTargetAsVerified(t *testi
 	app := &App{Config: Config{ImportRoot: filepath.Join(root, "imports"), BackupRoot: filepath.Join(root, "backups"), JobState: filepath.Join(root, "jobs.json"), RecoveryRoot: filepath.Join(root, "sites", ".stepanel-recovery"), MinFreeBytes: 1, RequireOffsiteBackup: true, OffsiteTarget: "s3:bucket/stepanel"}, Jobs: NewJobs()}
 	response := httptest.NewRecorder()
 	app.operationalHealth(response, httptest.NewRequest(http.MethodGet, "/api/health/operational", nil))
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"offsite_backup":{"ready":false`) || !strings.Contains(response.Body.String(), "locally_validated") {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), `"offsite_backup":{"ready":false`) || !strings.Contains(response.Body.String(), "locally_validated") {
 		t.Fatalf("offsite operational state = %d %s", response.Code, response.Body.String())
 	}
 }
@@ -147,7 +164,7 @@ func TestOperationalHealthReportsDurableDeadLetters(t *testing.T) {
 	app := &App{Config: Config{ImportRoot: filepath.Join(root, "imports"), BackupRoot: filepath.Join(root, "backups"), JobState: filepath.Join(root, "jobs.json"), RecoveryRoot: filepath.Join(root, "sites", ".stepanel-recovery"), MinFreeBytes: 1}, Jobs: jobs}
 	response := httptest.NewRecorder()
 	app.operationalHealth(response, httptest.NewRequest(http.MethodGet, "/api/health/operational", nil))
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "dead_letter_jobs") {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "dead_letter_jobs") || !strings.Contains(response.Body.String(), `"ok":false`) {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }

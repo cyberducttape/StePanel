@@ -109,6 +109,7 @@ type OffsiteBackupSummary struct {
 	LastVerifiedRestore  *time.Time `json:"last_verified_restore,omitempty"`
 	OldestUnreplicated   *time.Time `json:"oldest_unreplicated_backup,omitempty"`
 	TrackedBackups       int64      `json:"tracked_backups"`
+	UnreplicatedBackups  int64      `json:"unreplicated_backups"`
 }
 
 func offsiteTargetHash(target string) string {
@@ -178,7 +179,7 @@ func (idx *BackupIndex) OffsiteSummary(target string) (OffsiteBackupSummary, err
 	}
 	hash := offsiteTargetHash(target)
 	var uploaded, restored, pending sql.NullInt64
-	err := idx.db.QueryRow(`SELECT MAX(uploaded_at),MAX(restore_verified_at),MIN(CASE WHEN uploaded_at IS NULL THEN created_at END),COUNT(*) FROM offsite_backup_state WHERE target_hash=?`, hash).Scan(&uploaded, &restored, &pending, &s.TrackedBackups)
+	err := idx.db.QueryRow(`SELECT MAX(uploaded_at),MAX(restore_verified_at),MIN(CASE WHEN uploaded_at IS NULL THEN created_at END),COUNT(*),COALESCE(SUM(CASE WHEN uploaded_at IS NULL THEN 1 ELSE 0 END),0) FROM offsite_backup_state WHERE target_hash=?`, hash).Scan(&uploaded, &restored, &pending, &s.TrackedBackups, &s.UnreplicatedBackups)
 	if err != nil {
 		return s, err
 	}
