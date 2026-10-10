@@ -56,6 +56,26 @@ func TestOffsiteRemoteObjectRejectsPathAndOptionInjection(t *testing.T) {
 	}
 }
 
+func TestOffsiteBackupDirectorySizeMatchesPublishedBackupLayout(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte("manifest"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "backup.tar.gz"), []byte("archive"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	size, err := offsiteBackupDirectorySize(root)
+	if err != nil || size != 15 {
+		t.Fatalf("backup directory size = %d, err=%v; want 15", size, err)
+	}
+	if err := os.Symlink(filepath.Join(root, "manifest.json"), filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := offsiteBackupDirectorySize(root); err == nil {
+		t.Fatal("backup directory size followed a symlink")
+	}
+}
+
 func TestValidBackupNameRejectsRemotePathTraversal(t *testing.T) {
 	for _, name := range []string{"20260906-120000.000000000-account", "backup_v2-01"} {
 		if !validBackupName(name) {

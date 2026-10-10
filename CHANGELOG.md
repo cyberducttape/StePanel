@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Offsite backup uploads now match the published backup layout**: the
+  uploader transfers the backup directory contents with `rclone copy` to the
+  site/backup destination expected by restore, validates the directory root,
+  rejects symlinks, and applies a bounded aggregate size check.
 - **Offsite restore command arguments are now constrained at the trust
   boundary**: remote identities and object names reject traversal, control
   characters, and option-like values before filesystem paths or rclone

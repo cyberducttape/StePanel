@@ -41,23 +41,63 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	if err := validateOffsiteTarget(cfg.OffsiteTarget); err != nil {
 		return err
 	}
-	destination := strings.TrimRight(cfg.OffsiteTarget, "/") + "/" + result.Site + "/" + filepath.Base(result.Path)
 	info, err := os.Stat(result.Path)
 	if err != nil {
 		return fmt.Errorf("stat offsite backup: %w", err)
 	}
-	if !info.Mode().IsRegular() {
-		return errors.New("offsite backup is not a regular file")
+	if !info.IsDir() {
+		return errors.New("offsite backup must be a published directory")
 	}
-	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(info.Size()))
+	backupRoot, err := filepath.Abs(cfg.BackupRoot)
+	if err != nil {
+		return fmt.Errorf("resolve backup root: %w", err)
+	}
+	backupPath, err := filepath.Abs(result.Path)
+	if err != nil || filepath.Dir(backupPath) != backupRoot || !validBackupName(filepath.Base(backupPath)) {
+		return errors.New("offsite backup path is outside the configured backup root")
+	}
+	destination, err := buildOffsiteRemoteRoot(cfg.OffsiteTarget, result.Site, filepath.Base(backupPath))
+	if err != nil {
+		return err
+	}
+	size, err := offsiteBackupDirectorySize(backupPath)
+	if err != nil {
+		return fmt.Errorf("measure offsite backup directory: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(size))
 	defer cancel()
-	args := append([]string{"rclone", "copyto", result.Path, destination}, offsiteRcloneTransferArgs(0)...)
+	args := append([]string{"rclone", "copy", backupPath, destination}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Env = cloudCommandEnv()
 	if output, err := runBoundedCommand(ctx, cmd); err != nil {
 		return fmt.Errorf("offsite upload failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func offsiteBackupDirectorySize(root string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("backup contains symlink %s", filepath.Base(path))
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Size() < 0 || total > maxOffsiteObjectBytes-info.Size() {
+			return errors.New("offsite backup directory exceeds object size limit")
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
 }
 
 func (a *App) uploadOffsiteBackup(ctx context.Context, result BackupResult) error {
