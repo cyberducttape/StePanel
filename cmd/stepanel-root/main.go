@@ -24,6 +24,7 @@ import (
 func main() {
 	webRootFlag := flag.String("webroot", "/var/www", "Web root directory")
 	controlPlaneDBFlag := flag.String("control-plane-db", os.Getenv("STEPANEL_CONTROL_PLANE_DB"), "SQLite control-plane database used for fencing")
+	recoveryRootFlag := flag.String("recovery-root", os.Getenv("STEPANEL_RECOVERY_ROOT"), "durable recovery journal root")
 	socketFlag := flag.String("socket", "", "serve the broker on a Unix socket instead of stdin/stdout")
 	socketGroupFlag := flag.String("socket-group", "", "group allowed to access the Unix socket")
 	maxConcurrentFlag := flag.Int("max-concurrent", rootbroker.DefaultMaxConcurrent, "maximum privileged operations executed at once on the Unix socket")
@@ -34,6 +35,14 @@ func main() {
 	}
 	if *controlPlaneDBFlag == "" || !filepath.IsAbs(*controlPlaneDBFlag) {
 		log.Fatal("STEPANEL_CONTROL_PLANE_DB must be an absolute path")
+	}
+	if *recoveryRootFlag == "" {
+		// Standalone stdin/stdout use retains the historical root-owned
+		// location; the installed service receives STEPANEL_RECOVERY_ROOT.
+		*recoveryRootFlag = "/var/lib/stepanel/recovery"
+	}
+	if !filepath.IsAbs(*recoveryRootFlag) {
+		log.Fatal("STEPANEL_RECOVERY_ROOT must be an absolute path")
 	}
 
 	logger := log.New(os.Stderr, "[stepanel-root] ", log.LstdFlags)
@@ -47,7 +56,7 @@ func main() {
 		}
 		defer fencingDB.Close()
 	}
-	broker, err := rootbroker.NewBrokerWithFencingDB(*webRootFlag, "/var/lib/stepanel/recovery", fencingDB, logger)
+	broker, err := rootbroker.NewBrokerWithFencingDB(*webRootFlag, *recoveryRootFlag, fencingDB, logger)
 	if err != nil {
 		logger.Fatalf("failed to create broker: %v", err)
 	}

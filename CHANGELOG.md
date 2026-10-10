@@ -19,6 +19,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   endpoint returns `503` when an authoritative durable read fails instead of
   presenting a stale cached record; internal compatibility callers retain
   their existing in-memory recovery behavior.
+- **Root-broker journals use the configured recovery root**: the installed
+  broker now reads `STEPANEL_RECOVERY_ROOT` from the same environment as the
+  panel, while standalone broker invocations retain an explicit legacy
+  fallback.
 
 - **Privileged work now fails closed on fencing-database outages**: the root
   broker allows only a bounded grace period for transient lease-verification
