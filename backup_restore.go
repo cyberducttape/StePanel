@@ -861,13 +861,17 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	txn, err := BeginSiteTransactionWithSnapshot(cfg.RecoveryRoot, dest, "backup.restore-files", site, func(source, backupPath string) error {
-		return runTypedSiteMutation(ctx, cfg, rootbroker.SiteRequest{
-			Action:     "snapshot",
-			Site:       siteName,
-			BackupPath: backupPath,
-		})
-	})
+	snapshot := os.Rename
+	if cfg.Production || labDirectRootBrokerEnabled() {
+		snapshot = func(_, backupPath string) error {
+			return runTypedSiteMutation(ctx, cfg, rootbroker.SiteRequest{
+				Action:     "snapshot",
+				Site:       siteName,
+				BackupPath: backupPath,
+			})
+		}
+	}
+	txn, err := BeginSiteTransactionWithSnapshot(cfg.RecoveryRoot, dest, "backup.restore-files", site, snapshot)
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
