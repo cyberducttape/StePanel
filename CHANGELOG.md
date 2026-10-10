@@ -45,6 +45,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- **Capacity-ledger initialization no longer copies a mutex**: application
+  startup now transfers only the shared database handle, keeping `go vet`
+  clean while preserving cross-process reservations.
+
 - **Site termination no longer dead-letters during recovery**: the
   application helper now validates the persisted site Unix identity before
   deleting a site's units, while dispatching with the normalized argument
