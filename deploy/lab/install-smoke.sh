@@ -236,6 +236,10 @@ else
   trap 'rm -f "$sensitive_file" "$symlink_target" "$symlink_path"' EXIT
   caddy_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/.env || true)
   [[ $caddy_status == 308 || $caddy_status == 403 || $caddy_status == 404 ]] || { echo "Caddy served a sensitive file with HTTP $caddy_status" >&2; exit 1; }
+  view_root="/var/www/.stepanel-caddy-views/$site/public"
+  findmnt -no OPTIONS -T "$view_root" | tr ',' '\n' | grep -Fxq nosymfollow || { echo 'Caddy document root is not mounted with nosymfollow' >&2; exit 1; }
+  symlink_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/stepanel-outside-secret || true)
+  [[ $symlink_status == 308 || $symlink_status == 403 || $symlink_status == 404 ]] || { echo "Caddy followed a document-root symlink with HTTP $symlink_status" >&2; exit 1; }
   if /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.example.test 2>/dev/null; then
     echo 'Caddy vhost helper published a document root containing a symlink' >&2
     exit 1

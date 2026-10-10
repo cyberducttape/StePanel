@@ -44,6 +44,9 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	}
 	source := string(sourceBytes)
 	for _, required := range []string{
+		`mount -o remount,bind,nosymfollow`,
+		`x-systemd.requires-mounts-for=`,
+		`/var/www/.stepanel-caddy-views`,
 		`find -P "$public_root" -xdev -path "$public_root/node_modules" -prune -o -type l`,
 		`^/(node_modules(/.*)?|`,
 		`@stepanel_sensitive path_regexp`,
