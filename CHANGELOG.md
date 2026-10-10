@@ -1,8 +1,5 @@
 # Changelog
 
-- Durable restore retries now reconcile prior site journals under the site
-  mutation lease before creating a new generation.
-
 All notable changes to StePanel are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
@@ -10,6 +7,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Changed
+
+- Durable restore retries now reconcile prior site journals under the site
+  mutation lease before creating a new generation.
 
 - Hardened the off-site rclone runner's fixed executable construction and made
   account-suspension recovery smoke failures report the response that caused
