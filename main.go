@@ -73,7 +73,6 @@ type App struct {
 	gitActivationMu          sync.Mutex
 	webhookReplayCache       *WebhookReplayCache
 	siteOperations           operations.Locks
-	appLifecycleMu           sync.Mutex
 	dbLocks                  *operations.DBLocks
 	siteManager              siteauthority.Manager
 	// capacity holds free space promised to in-progress archive uploads.

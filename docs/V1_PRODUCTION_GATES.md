@@ -54,7 +54,9 @@ These items do not silently become release claims. They are tracked separately:
   services, and fail unless an application HTTP health probe succeeds. A
   rehearsal records the stronger `application` level only when that command
   exits successfully; without it, archive-level status continues to say that
-  database import and application startup were not proven.
+  database import and application startup were not proven. An archive-only
+  rehearsal is not sufficient evidence for production WordPress approval; the
+  release record must include a successful application-level proof.
 
 ### Test coverage ratchet
 

@@ -22,6 +22,12 @@
   service generation, and startup replays uncommitted activation journals.
 - Added regression coverage for startup replay restoring both the previous
   application runtime and manifest generation.
+- **Application lifecycle operations no longer use a process-wide mutex**:
+  site-scoped mutation locks remain the serialization boundary, allowing
+  unrelated applications to deploy or change state concurrently.
+- **Production recovery gates now require application-level proof for
+  WordPress approval**: archive-only rehearsals remain explicitly lower-level
+  evidence and cannot be used as production adoption evidence by themselves.
 
 All notable changes to StePanel are documented here.
 

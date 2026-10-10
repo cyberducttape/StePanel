@@ -82,8 +82,6 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		}
 		defer releaseUnlock()
 	}
-	a.appLifecycleMu.Lock()
-	defer a.appLifecycleMu.Unlock()
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
 		return
@@ -237,8 +235,6 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseUnlock()
-	a.appLifecycleMu.Lock()
-	defer a.appLifecycleMu.Unlock()
 	if parts[1] == "rollback" {
 		manifestPath := filepath.Join(a.Config.AppRoot, parts[0]+".json")
 		backup, err := os.ReadFile(manifestPath + ".bak")
