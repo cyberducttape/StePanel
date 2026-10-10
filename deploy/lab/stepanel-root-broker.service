@@ -7,7 +7,7 @@ Type=simple
 User=root
 Group=stepanel
 Environment=STEPANEL_LAB_ROOT_BROKER_HELPERS=1
-ExecStart=/usr/local/sbin/stepanel-root -webroot /var/www -control-plane-db /var/lib/ste-panel/stepanel-control.db -socket /run/stepanel-root-broker.sock -socket-group stepanel
+ExecStart=/usr/local/sbin/stepanel-root -webroot /var/www -recovery-root /var/www/sites/.stepanel-recovery -control-plane-db /var/lib/ste-panel/stepanel-control.db -socket /run/stepanel-root-broker.sock -socket-group stepanel
 Restart=on-failure
 RestartSec=1s
 UMask=0007
