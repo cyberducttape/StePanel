@@ -198,6 +198,12 @@ run_podman_as_site() {
   printf '[storage]\ndriver = "overlay"\ngraphroot = "%s"\nrunroot = "%s"\n[storage.options.overlay]\nmount_program = "%s"\n' \
     "$runner_home/storage" "/run/$runner_runtime/containers" "$fuse_overlayfs" \
     > "/run/$runner_runtime/config/containers/storage.conf"
+  [[ $(stat -c '%u:%g:%a' "/run/$runner_runtime/config/containers/storage.conf") == "$site_uid:$site_gid:600" ]] || {
+    echo 'runner storage configuration has unexpected ownership or mode' >&2
+    rm -rf -- "/run/$runner_runtime"
+    runner_runtime=
+    return 1
+  }
   # slirp4netns needs the TUN device for egress builds; offline builds get
   # only /dev/fuse under the closed device policy.
   local device_args=(--property='DeviceAllow=/dev/fuse rw')
@@ -228,6 +234,7 @@ run_podman_as_site() {
     --uid="$site_user" --gid="$site_user" --working-directory="$runner_home" \
     --setenv="HOME=$runner_home" --setenv="XDG_RUNTIME_DIR=/run/$runner_runtime" \
     --setenv="XDG_CONFIG_HOME=/run/$runner_runtime/config" \
+    --setenv="CONTAINERS_STORAGE_CONF=/run/$runner_runtime/config/containers/storage.conf" \
     --property=NoNewPrivileges=no --property=RestrictSUIDSGID=no \
     --property=Delegate=yes --property=PartOf=stepanel-root-broker.service \
     --property=PrivateTmp=yes --property=DevicePolicy=closed "${device_args[@]}" --property=ProtectHome=yes \

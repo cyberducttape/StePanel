@@ -93,6 +93,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   submissions are tested against the standard mutation timeout, and failed
   sandboxed builds now report their exit status, filesystem headroom, quota
   state, and staged-artifact ownership for disposable-host diagnosis.
+- **Rootless runner storage selection**: transient Podman units now receive an
+  explicit `CONTAINERS_STORAGE_CONF` path for the root-owned generated
+  configuration, and the configuration's ownership and mode are validated
+  before the container runtime starts.
 
 - **Rootless build runner works under SELinux, and through the broker**: on
   an SELinux-enforcing Rocky Linux 9 host the runner could not pull images,
