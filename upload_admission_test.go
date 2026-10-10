@@ -247,6 +247,35 @@ func TestCapacityReservationsCoordinateAcrossLedgerInstances(t *testing.T) {
 	secondHold.release()
 }
 
+func TestDurableCapacityReservationSupportsMultipleDevices(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := ledger.admitDurable(cfg, "multi-device", []deviceDemand{
+		{device: 11, path: cfg.ImportRoot, bytes: 1},
+		{device: 22, path: cfg.ImportRoot, bytes: 1},
+	}, true)
+	if err != nil {
+		t.Fatalf("multi-device reservation rejected: %v", err)
+	}
+	defer reservation.release()
+	var rows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM capacity_reservations WHERE reservation_id=?`, reservation.id).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 {
+		t.Fatalf("stored %d device rows for one reservation, want 2", rows)
+	}
+}
+
 func TestDurableCapacityReservationGrowsWithoutInMemoryLedger(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0

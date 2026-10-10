@@ -124,17 +124,72 @@ func newCapacityLedger(db *sql.DB) (*capacityLedger, error) {
 		return &capacityLedger{}, nil
 	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS capacity_reservations (
-		reservation_id TEXT PRIMARY KEY,
+		reservation_id TEXT NOT NULL,
 		device INTEGER NOT NULL,
 		bytes INTEGER NOT NULL,
 		workflow TEXT NOT NULL,
 		staging_path TEXT NOT NULL,
-		created_at INTEGER NOT NULL
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY(reservation_id, device)
 	);
 	CREATE INDEX IF NOT EXISTS capacity_reservations_device_idx ON capacity_reservations(device);`); err != nil {
 		return nil, fmt.Errorf("create capacity reservation ledger: %w", err)
 	}
+	if err := migrateCapacityReservationKey(db); err != nil {
+		return nil, err
+	}
 	return &capacityLedger{db: db}, nil
+}
+
+// migrateCapacityReservationKey upgrades the initial single-column primary
+// key. A reservation may span multiple filesystems, so each device row must be
+// addressable under the same reservation ID.
+func migrateCapacityReservationKey(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(capacity_reservations)`)
+	if err != nil {
+		return fmt.Errorf("inspect capacity reservation schema: %w", err)
+	}
+	defer rows.Close()
+	primaryKeyColumns := 0
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("read capacity reservation schema: %w", err)
+		}
+		if primaryKey > 0 {
+			primaryKeyColumns++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate capacity reservation schema: %w", err)
+	}
+	if primaryKeyColumns != 1 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin capacity reservation migration: %w", err)
+	}
+	defer tx.Rollback()
+	statements := []string{
+		`ALTER TABLE capacity_reservations RENAME TO capacity_reservations_legacy`,
+		`CREATE TABLE capacity_reservations (reservation_id TEXT NOT NULL, device INTEGER NOT NULL, bytes INTEGER NOT NULL, workflow TEXT NOT NULL, staging_path TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(reservation_id, device))`,
+		`INSERT INTO capacity_reservations(reservation_id,device,bytes,workflow,staging_path,created_at) SELECT reservation_id,device,bytes,workflow,staging_path,created_at FROM capacity_reservations_legacy`,
+		`DROP TABLE capacity_reservations_legacy`,
+		`CREATE INDEX IF NOT EXISTS capacity_reservations_device_idx ON capacity_reservations(device)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("migrate capacity reservation schema: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit capacity reservation migration: %w", err)
+	}
+	return nil
 }
 
 func capacitySQLBytes(value uint64) (int64, error) {
