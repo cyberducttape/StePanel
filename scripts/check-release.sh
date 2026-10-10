@@ -57,8 +57,12 @@ if ! grep -Fqx 'chown root:root /var/lib/stepanel/recovery' install.sh; then
   echo "install.sh does not restore root broker recovery storage ownership" >&2
   exit 1
 fi
-if ! grep -Fq -- '-recovery-root /var/lib/stepanel/recovery' deploy/stepanel-root-broker.service || grep -Fq -- '-recovery-root /var/www/sites/.stepanel-recovery' deploy/stepanel-root-broker.service; then
+if ! grep -Fq -- '-recovery-root /var/lib/stepanel/recovery' deploy/stepanel-root-broker.service || grep -Eq '(^|[[:space:]])-recovery-root /var/www/sites/\.stepanel-recovery' deploy/stepanel-root-broker.service; then
   echo "root broker service does not use the separate root-owned recovery root" >&2
+  exit 1
+fi
+if ! grep -Fq -- '-snapshot-recovery-root /var/www/sites/.stepanel-recovery' deploy/stepanel-root-broker.service; then
+  echo "root broker service does not declare the panel snapshot recovery root" >&2
   exit 1
 fi
 

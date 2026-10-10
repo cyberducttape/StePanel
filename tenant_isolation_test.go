@@ -810,8 +810,11 @@ func TestRootBrokerRecoveryRootIsPrivilegedOwned(t *testing.T) {
 		if !strings.Contains(text, "-recovery-root /var/lib/stepanel/recovery") {
 			t.Errorf("%s must use the root-owned recovery directory", path)
 		}
-		if strings.Contains(text, "-recovery-root /var/www/sites/.stepanel-recovery") {
+		if strings.Contains(text, " -recovery-root /var/www/sites/.stepanel-recovery") {
 			t.Errorf("%s must not use the panel-owned recovery workspace", path)
+		}
+		if !strings.Contains(text, "-snapshot-recovery-root /var/www/sites/.stepanel-recovery") {
+			t.Errorf("%s must declare the panel-owned snapshot workspace separately", path)
 		}
 	}
 	installer, err := os.ReadFile("install.sh")

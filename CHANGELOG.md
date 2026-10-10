@@ -7,6 +7,7 @@
 - Fixed multi-filesystem capacity reservations by migrating the ledger to a composite reservation/device key.
 - Centralized off-site rclone execution and revalidated application journal manifest paths before recovery writes or deletion.
 - Routed application rollback manifest resolution through the containment-checked path helper.
+- Separated the root broker's privileged journal root from the panel-owned site snapshot root, preserving safe restore transactions after journal-boundary hardening.
 
 - **User-level site hosting is now available**: active tenant owners can
   create durable blank PHP sites within their plan, with atomic site ownership

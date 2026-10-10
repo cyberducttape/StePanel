@@ -160,6 +160,41 @@ func TestBrokerSiteSnapshotRenamesOnlyIntoRecoveryRoot(t *testing.T) {
 	}
 }
 
+func TestBrokerSiteSnapshotCanUsePanelSnapshotRootSeparateFromJournalRoot(t *testing.T) {
+	webRoot := t.TempDir()
+	journalRoot := t.TempDir()
+	snapshotRoot := t.TempDir()
+	sitePublic := filepath.Join(webRoot, "sites", "demo", "public")
+	if err := os.MkdirAll(sitePublic, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sitePublic, "index.html"), []byte("before"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(snapshotRoot, "txn", "site-before")
+	if err := os.MkdirAll(filepath.Dir(backup), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newBrokerWithFencingDBAndSnapshotRoot(webRoot, journalRoot, snapshotRoot, log.New(io.Discard, "", 0), &fakeHost{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := broker.siteSnapshot(context.Background(), &SiteRequest{Action: "snapshot", Site: "demo", SnapshotSource: sitePublic, SnapshotDestination: backup})
+	if err != nil || !response.OK {
+		t.Fatalf("separate-root snapshot = %#v, %v", response, err)
+	}
+	if _, err := os.Stat(filepath.Join(backup, "index.html")); err != nil {
+		t.Fatalf("snapshot content missing: %v", err)
+	}
+	if _, err := os.Stat(sitePublic); !os.IsNotExist(err) {
+		t.Fatalf("live site still exists, stat error = %v", err)
+	}
+	outsideJournal := filepath.Join(journalRoot, "txn", "outside")
+	if response, err := broker.siteSnapshotRestore(context.Background(), &SiteRequest{Action: "snapshot-restore", Site: "demo", SnapshotSource: backup, SnapshotDestination: outsideJournal}); err != nil || response.OK {
+		t.Fatalf("snapshot restore to journal root = %#v, %v; want rejection", response, err)
+	}
+}
+
 func TestSiteLifecycleUsesSharedIdentityAndWebGroup(t *testing.T) {
 	webRoot := t.TempDir()
 	host := &fakeHost{webGroup: "apache"}

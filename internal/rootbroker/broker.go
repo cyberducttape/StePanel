@@ -45,21 +45,22 @@ const (
 // Broker is the root-privileged operations handler.
 // All operations are strongly-typed and validated before execution.
 type Broker struct {
-	webRoot       string
-	recoveryRoot  string
-	dbctlPath     string
-	certbotPath   string
-	systemctlPath string
-	appctlPath    string
-	vhostctlPath  string
-	proxyctlPath  string
-	runnerctlPath string
-	gitctlPath    string
-	gitKeyRoot    string
-	validator     *Validator
-	logger        *log.Logger
-	host          hostOps
-	fencingDB     *sql.DB
+	webRoot              string
+	recoveryRoot         string
+	snapshotRecoveryRoot string
+	dbctlPath            string
+	certbotPath          string
+	systemctlPath        string
+	appctlPath           string
+	vhostctlPath         string
+	proxyctlPath         string
+	runnerctlPath        string
+	gitctlPath           string
+	gitKeyRoot           string
+	validator            *Validator
+	logger               *log.Logger
+	host                 hostOps
+	fencingDB            *sql.DB
 	// leaseWatchInterval and leaseWatchMargin drive the fencing watchdog
 	// for mutating requests; see watchFencing.
 	leaseWatchInterval  time.Duration
@@ -108,6 +109,13 @@ func NewBrokerWithRecoveryRoot(webRoot, recoveryRoot string, logger *log.Logger)
 	return newBroker(webRoot, recoveryRoot, logger, execHostOps{})
 }
 
+// NewBrokerWithRecoveryRoots keeps privileged journals in recoveryRoot while
+// allowing site transaction snapshots to remain in the panel-owned workspace.
+// Both roots are fixed service configuration; requests cannot choose either.
+func NewBrokerWithRecoveryRoots(webRoot, recoveryRoot, snapshotRecoveryRoot string, logger *log.Logger) (*Broker, error) {
+	return newBrokerWithFencingDBAndSnapshotRoot(webRoot, recoveryRoot, snapshotRecoveryRoot, logger, execHostOps{}, nil)
+}
+
 // NewBrokerWithFencingDB creates a broker that verifies any fencing tokens
 // supplied by the unprivileged panel against the shared control-plane DB.
 // A nil database preserves the standalone/test broker behavior.
@@ -115,11 +123,21 @@ func NewBrokerWithFencingDB(webRoot, recoveryRoot string, fencingDB *sql.DB, log
 	return newBrokerWithFencingDB(webRoot, recoveryRoot, logger, execHostOps{}, fencingDB)
 }
 
+// NewBrokerWithFencingDBAndSnapshotRoot is used by the installed service when
+// journal ownership and panel transaction snapshots have separate boundaries.
+func NewBrokerWithFencingDBAndSnapshotRoot(webRoot, recoveryRoot, snapshotRecoveryRoot string, fencingDB *sql.DB, logger *log.Logger) (*Broker, error) {
+	return newBrokerWithFencingDBAndSnapshotRoot(webRoot, recoveryRoot, snapshotRecoveryRoot, logger, execHostOps{}, fencingDB)
+}
+
 func newBroker(webRoot, recoveryRoot string, logger *log.Logger, host hostOps) (*Broker, error) {
 	return newBrokerWithFencingDB(webRoot, recoveryRoot, logger, host, nil)
 }
 
 func newBrokerWithFencingDB(webRoot, recoveryRoot string, logger *log.Logger, host hostOps, fencingDB *sql.DB) (*Broker, error) {
+	return newBrokerWithFencingDBAndSnapshotRoot(webRoot, recoveryRoot, recoveryRoot, logger, host, fencingDB)
+}
+
+func newBrokerWithFencingDBAndSnapshotRoot(webRoot, recoveryRoot, snapshotRecoveryRoot string, logger *log.Logger, host hostOps, fencingDB *sql.DB) (*Broker, error) {
 	if webRoot == "" {
 		return nil, fmt.Errorf("web root is required")
 	}
@@ -132,22 +150,30 @@ func newBrokerWithFencingDB(webRoot, recoveryRoot string, logger *log.Logger, ho
 	if err := os.MkdirAll(recoveryRoot, 0700); err != nil {
 		return nil, fmt.Errorf("create durable recovery root %q: %w", recoveryRoot, err)
 	}
+	if strings.TrimSpace(snapshotRecoveryRoot) == "" {
+		return nil, errors.New("snapshot recovery root is required")
+	}
+	snapshotRecoveryRoot, err := filepath.Abs(snapshotRecoveryRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve snapshot recovery root: %w", err)
+	}
 	return &Broker{
-		webRoot:       webRoot,
-		recoveryRoot:  recoveryRoot,
-		dbctlPath:     "/usr/local/sbin/stepanel-dbctl",
-		certbotPath:   "/usr/local/sbin/stepanel-certbot",
-		systemctlPath: "/usr/bin/systemctl",
-		appctlPath:    "/usr/local/sbin/stepanel-appctl",
-		vhostctlPath:  "/usr/local/sbin/stepanel-vhostctl",
-		proxyctlPath:  "/usr/local/sbin/stepanel-proxyctl",
-		runnerctlPath: "/usr/local/sbin/stepanel-runnerctl",
-		gitctlPath:    "/usr/local/sbin/stepanel-gitctl",
-		gitKeyRoot:    "/etc/stepanel/git-keys",
-		validator:     NewValidator(webRoot),
-		logger:        logger,
-		host:          host,
-		fencingDB:     fencingDB,
+		webRoot:              webRoot,
+		recoveryRoot:         recoveryRoot,
+		snapshotRecoveryRoot: snapshotRecoveryRoot,
+		dbctlPath:            "/usr/local/sbin/stepanel-dbctl",
+		certbotPath:          "/usr/local/sbin/stepanel-certbot",
+		systemctlPath:        "/usr/bin/systemctl",
+		appctlPath:           "/usr/local/sbin/stepanel-appctl",
+		vhostctlPath:         "/usr/local/sbin/stepanel-vhostctl",
+		proxyctlPath:         "/usr/local/sbin/stepanel-proxyctl",
+		runnerctlPath:        "/usr/local/sbin/stepanel-runnerctl",
+		gitctlPath:           "/usr/local/sbin/stepanel-gitctl",
+		gitKeyRoot:           "/etc/stepanel/git-keys",
+		validator:            NewValidator(webRoot),
+		logger:               logger,
+		host:                 host,
+		fencingDB:            fencingDB,
 
 		leaseWatchInterval:  LeaseWatchInterval,
 		leaseWatchMargin:    LeaseWatchMargin,
@@ -598,7 +624,7 @@ func (b *Broker) validateSnapshotPaths(siteRoot, sourcePath, destinationPath str
 		return "", "", errors.New("invalid site recovery destination path")
 	}
 	public = filepath.Clean(public)
-	recovery := filepath.Clean(b.recoveryRoot)
+	recovery := filepath.Clean(b.snapshotRecoveryRoot)
 	sourceIsPublic := source == public
 	destinationIsPublic := destination == public
 	sourceInRecovery := pathWithin(recovery, source)

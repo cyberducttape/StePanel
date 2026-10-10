@@ -25,6 +25,7 @@ func main() {
 	webRootFlag := flag.String("webroot", "/var/www", "Web root directory")
 	controlPlaneDBFlag := flag.String("control-plane-db", os.Getenv("STEPANEL_CONTROL_PLANE_DB"), "SQLite control-plane database used for fencing")
 	recoveryRootFlag := flag.String("recovery-root", os.Getenv("STEPANEL_RECOVERY_ROOT"), "durable recovery journal root")
+	snapshotRecoveryRootFlag := flag.String("snapshot-recovery-root", os.Getenv("STEPANEL_SNAPSHOT_RECOVERY_ROOT"), "panel-owned site transaction snapshot root")
 	socketFlag := flag.String("socket", "", "serve the broker on a Unix socket instead of stdin/stdout")
 	socketGroupFlag := flag.String("socket-group", "", "group allowed to access the Unix socket")
 	maxConcurrentFlag := flag.Int("max-concurrent", rootbroker.DefaultMaxConcurrent, "maximum privileged operations executed at once on the Unix socket")
@@ -44,6 +45,12 @@ func main() {
 	if !filepath.IsAbs(*recoveryRootFlag) {
 		log.Fatal("STEPANEL_RECOVERY_ROOT must be an absolute path")
 	}
+	if *snapshotRecoveryRootFlag == "" {
+		*snapshotRecoveryRootFlag = "/var/www/sites/.stepanel-recovery"
+	}
+	if !filepath.IsAbs(*snapshotRecoveryRootFlag) {
+		log.Fatal("STEPANEL_SNAPSHOT_RECOVERY_ROOT must be an absolute path")
+	}
 
 	logger := log.New(os.Stderr, "[stepanel-root] ", log.LstdFlags)
 
@@ -56,7 +63,7 @@ func main() {
 		}
 		defer fencingDB.Close()
 	}
-	broker, err := rootbroker.NewBrokerWithFencingDB(*webRootFlag, *recoveryRootFlag, fencingDB, logger)
+	broker, err := rootbroker.NewBrokerWithFencingDBAndSnapshotRoot(*webRootFlag, *recoveryRootFlag, *snapshotRecoveryRootFlag, fencingDB, logger)
 	if err != nil {
 		logger.Fatalf("failed to create broker: %v", err)
 	}
