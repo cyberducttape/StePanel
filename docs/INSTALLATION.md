@@ -357,7 +357,8 @@ outbound-network policy.
 | `/var/lib/ste-panel/apps` | Managed Node application manifests |
 | `/var/lib/ste-panel/quarantine` | Recoverable malware quarantine |
 | `STEPANEL_CONTROL_PLANE_DB` (default `/var/lib/ste-panel/stepanel-control.db`) | Authoritative SQLite control-plane state; legacy JSON paths are import-only |
-| `/var/www/sites/.stepanel-recovery` | Journaled site rollback data |
+| `/var/www/sites/.stepanel-recovery` | Panel-owned site transaction workspace |
+| `/var/lib/stepanel/recovery` | Root-owned privileged broker recovery journals |
 | `/etc/ste-panel.env` | Runtime configuration |
 | `/etc/stepanel-audit.key` | Root-only HMAC key for audit verification |
 | `/etc/systemd/system/stepanel.service` | Panel service definition |

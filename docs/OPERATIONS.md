@@ -388,7 +388,8 @@ other control-plane state are persisted in `STEPANEL_CONTROL_PLANE_DB`. Legacy
 migration and are not the live source of truth. Back up the complete inventory
 in [`STATE.md`](STATE.md) and never publish secret-bearing artifacts. Site overwrites
 move the previous document root into a journaled transaction under
-`/var/www/sites/.stepanel-recovery`. On startup, StePanel marks interrupted jobs
+`/var/www/sites/.stepanel-recovery`. Privileged root-broker journals are stored
+separately under `/var/lib/stepanel/recovery` and must remain root-owned. On startup, StePanel marks interrupted jobs
 failed, removes databases recorded by uncommitted restore transactions, and
 then rolls back their site files. If any recovery step fails, readiness remains
 failed until the operator resolves the journal and restarts the service;

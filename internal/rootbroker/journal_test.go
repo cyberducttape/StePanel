@@ -152,6 +152,33 @@ func TestJournalPathsRejectEmptyOrUnsafeIDs(t *testing.T) {
 	}
 }
 
+func TestCreationJournalRejectsSymlinkedRecoveryRootAndJournal(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, "target")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "root")
+	if err := os.Symlink(target, root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadOrCreateCreationJournal(root, "job-1", "example", "admin"); err == nil {
+		t.Fatal("creation journal accepted a symlinked recovery root")
+	}
+
+	root = filepath.Join(parent, "real-root")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "site-creation-job-1.json")
+	if err := os.Symlink(filepath.Join(parent, "outside"), path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadOrCreateCreationJournal(root, "job-1", "example", "admin"); err == nil {
+		t.Fatal("creation journal followed a symlinked journal record")
+	}
+}
+
 func TestBrokerStreamsValidatedDumpPathWithoutEmbeddingDumpBytes(t *testing.T) {
 	webRoot := t.TempDir()
 	dumpPath := filepath.Join(webRoot, "dump.sql")

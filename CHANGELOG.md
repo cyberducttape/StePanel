@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Privileged root-broker journals now use the installer-created root-owned
+  recovery directory**: the service no longer shares the panel-owned site
+  recovery workspace, and journal loading rejects symlinked roots or records.
 - **Offsite uploads now publish transactionally**: directory contents are
   copied to a unique temporary remote prefix, checked before promotion, and
   marked complete only after the final prefix is published. Restore requires

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/state"
@@ -105,8 +106,13 @@ func loadOrCreateCreationJournal(recoveryRoot, jobID, site, actor string) (*crea
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(recoveryRoot, 0700); err != nil {
-		return nil, fmt.Errorf("prepare recovery root: %w", err)
+	if err := ensureBrokerRecoveryRoot(recoveryRoot); err != nil {
+		return nil, err
+	}
+	if info, statErr := os.Lstat(path); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("creation journal is a symlink")
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect creation journal: %w", statErr)
 	}
 	data, err := os.ReadFile(path)
 	if err == nil {
@@ -137,6 +143,38 @@ func loadOrCreateCreationJournal(recoveryRoot, jobID, site, actor string) (*crea
 		Completed: map[string]bool{},
 		path:      path,
 	}, nil
+}
+
+func ensureBrokerRecoveryRoot(root string) error {
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return fmt.Errorf("prepare recovery root: %w", err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return fmt.Errorf("inspect recovery root: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("broker recovery root must be a real directory")
+	}
+	if os.Geteuid() == 0 {
+		if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Uid != 0 {
+			return errors.New("broker recovery root must be owned by root")
+		}
+	}
+	if err := os.Chmod(root, 0700); err != nil {
+		return fmt.Errorf("restrict broker recovery root permissions: %w", err)
+	}
+	info, err = os.Lstat(root)
+	if err != nil {
+		return fmt.Errorf("reinspect recovery root: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("broker recovery root changed while being checked")
+	}
+	if info.Mode().Perm() != 0700 {
+		return fmt.Errorf("broker recovery root permissions are %o, want 700", info.Mode().Perm())
+	}
+	return nil
 }
 
 func (j *creationJournal) isComplete(step string) bool {
