@@ -12,6 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   symlinks created after route publication cannot escape the document root.
 - Exercise the live Caddy view mount and post-publication symlink request in
   the installation smoke gate.
+- Fence startup recovery's brokered site rollback with the recovered site's
+  durable mutation lease so readiness can return after an interrupted restore.
 - Add effective site and recovery-root ownership, traversal, and ACL diagnostics when the backup restore smoke gate fails.
 - Route live-site recovery snapshots through the root broker so worker service confinement cannot block atomic restore journaling.
 - Keep isolated unit workflow fixtures self-contained while production and lab restore paths use the brokered snapshot operation.

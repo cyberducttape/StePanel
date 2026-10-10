@@ -345,14 +345,14 @@ func RecoverSiteTransactions(root string, configuredRoots ...string) ([]string, 
 // site when it is not empty. A site-scoped pass leaves entries it cannot
 // attribute (unreadable journals) to the panel's startup recovery.
 func recoverSiteTransactions(root, site string, configuredRoots ...string) ([]string, error) {
-	return recoverSiteTransactionsWithRename(root, site, nil, configuredRoots...)
+	return recoverSiteTransactionsWithRename(root, site, nil, nil, configuredRoots...)
 }
 
 // recoverSiteTransactionsWithRename installs the privileged rename boundary
 // used by production startup recovery. Tests and local development retain a
 // direct rename callback, while native production recovery supplies the root
 // broker callback from startup_recovery.go.
-func recoverSiteTransactionsWithRename(root, site string, renameForSite func(string, string, string) error, configuredRoots ...string) ([]string, error) {
+func recoverSiteTransactionsWithRename(root, site string, renameForSite func(context.Context, string, string, string) error, lockSite siteLocker, configuredRoots ...string) ([]string, error) {
 	webRoot, mailRoot := recoveryConfiguredRoots(configuredRoots)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -380,11 +380,6 @@ func recoverSiteTransactionsWithRename(root, site string, renameForSite func(str
 			}
 			continue
 		}
-		if renameForSite != nil {
-			txn.rename = func(source, destination string) error {
-				return renameForSite(txn.Site, source, destination)
-			}
-		}
 		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot); err != nil {
 			if quarantineErr := quarantineRecoveryTransaction(root, dir, err); quarantineErr != nil {
 				failures = append(failures, fmt.Errorf("quarantine unsafe transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
@@ -406,8 +401,20 @@ func recoverSiteTransactionsWithRename(root, site string, renameForSite func(str
 			failures = append(failures, fmt.Errorf("recover transaction %s: database cleanup is incomplete", txn.ID))
 			continue
 		}
-		if err := txn.Rollback(); err != nil {
-			failures = append(failures, fmt.Errorf("recover transaction %s: %w", txn.ID, err))
+		recoveryCtx, unlock, lockErr := lockRecoveredSite(lockSite, txn.Site)
+		if lockErr != nil {
+			failures = append(failures, fmt.Errorf("recover transaction %s: lock site: %w", txn.ID, lockErr))
+			continue
+		}
+		if renameForSite != nil {
+			txn.rename = func(source, destination string) error {
+				return renameForSite(recoveryCtx, txn.Site, source, destination)
+			}
+		}
+		rollbackErr := txn.Rollback()
+		unlock()
+		if rollbackErr != nil {
+			failures = append(failures, fmt.Errorf("recover transaction %s: %w", txn.ID, rollbackErr))
 			continue
 		}
 		recovered = append(recovered, txn.ID)

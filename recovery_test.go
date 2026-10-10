@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/operations"
 )
 
 func TestDatabaseRecoveryJournalSurvivesProcessKill(t *testing.T) {
@@ -254,6 +256,47 @@ func TestRecoverSiteTransactionsRollsBackInterruptedSite(t *testing.T) {
 	}
 	if len(recovered) != 1 || recovered[0] != txn.ID {
 		t.Fatalf("recovered = %#v, want %q", recovered, txn.ID)
+	}
+	assertTestFile(t, filepath.Join(home, "index.html"), "old")
+}
+
+func TestRecoverSiteTransactionsPassesFencedLeaseToPrivilegedRename(t *testing.T) {
+	root := t.TempDir()
+	recovery := filepath.Join(root, ".stepanel-recovery")
+	webRoot := filepath.Join(root, "web")
+	home := filepath.Join(webRoot, "sites", "site", "public")
+	writeTestFile(t, filepath.Join(home, "index.html"), "old")
+	if _, err := BeginSiteTransaction(recovery, home, "test.restore", AuthorizedSite{site: "site"}); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(home, "index.html"), "partial")
+
+	wantToken := operations.FencingToken{ResourceKey: "site:site", OwnerID: "startup", Generation: 7}
+	lockCalls := 0
+	recovered, err := recoverSiteTransactionsWithRename(
+		recovery,
+		"",
+		func(ctx context.Context, site, source, destination string) error {
+			lockCalls++
+			tokens := operations.FencingTokens(ctx)
+			if len(tokens) != 1 || tokens[0] != wantToken {
+				t.Fatalf("rename for %s received fencing tokens %v, want %v", site, tokens, []operations.FencingToken{wantToken})
+			}
+			return os.Rename(source, destination)
+		},
+		func(ctx context.Context, site string) (context.Context, func(), error) {
+			if site != "site" {
+				t.Fatalf("locked site = %q, want site", site)
+			}
+			return operations.WithFencingTokens(ctx, wantToken), func() {}, nil
+		},
+		webRoot,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || lockCalls == 0 {
+		t.Fatalf("recovered=%v lockCalls=%d, want one recovered transaction and a fenced rename", recovered, lockCalls)
 	}
 	assertTestFile(t, filepath.Join(home, "index.html"), "old")
 }
