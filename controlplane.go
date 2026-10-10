@@ -276,6 +276,14 @@ CREATE INDEX IF NOT EXISTS jobs_owner_state_idx ON jobs(owner, state, started_at
         );`)
 		return err
 	}),
+	migration.NewMigration(13, "add immutable site Unix identities", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS site_identities (
+            site TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL
+        );`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

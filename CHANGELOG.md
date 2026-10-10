@@ -99,6 +99,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   install and runner drills opt into the legacy direct-helper shape with
   `STEPANEL_UNSAFE_LAB=1`; installed production broker operations always pass
   the persisted identity explicitly.
+- **Existing control-plane databases receive the identity schema on upgrade**:
+  migration 13 creates `site_identities` before startup backfills existing
+  site roots and checks for legacy collisions.
 
 - **Release-pipeline diagnostics and timeout certification**: durable job
   submissions are tested against the standard mutation timeout, and failed
