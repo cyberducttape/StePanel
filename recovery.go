@@ -30,7 +30,8 @@ type SiteTransaction struct {
 	UpdatedAt    time.Time         `json:"updated_at"`
 	Databases    []ManagedDatabase `json:"databases,omitempty"`
 
-	dir string
+	dir    string
+	rename func(string, string) error
 }
 
 type ManagedDatabase struct {
@@ -93,6 +94,7 @@ func beginSiteTransaction(root, home, kind string, access SiteCapability, snapsh
 		CreatedAt: now,
 		UpdatedAt: now,
 		dir:       dir,
+		rename:    snapshot,
 	}
 	if existing, statErr := os.Lstat(home); statErr == nil {
 		if existing.Mode()&os.ModeSymlink != 0 {
@@ -213,6 +215,10 @@ func validManagedDatabaseIdentifier(value string, max int) bool {
 }
 
 func (t *SiteTransaction) Rollback() error {
+	rename := t.rename
+	if rename == nil {
+		rename = os.Rename
+	}
 	if t.State == "committed" || t.State == "rolled-back" {
 		return nil
 	}
@@ -233,7 +239,7 @@ func (t *SiteTransaction) Rollback() error {
 		if _, existsErr := os.Lstat(failed); existsErr == nil {
 			failed = filepath.Join(t.dir, "failed-site-"+time.Now().UTC().Format("150405.000000000"))
 		}
-		if err := os.Rename(t.Home, failed); err != nil {
+		if err := rename(t.Home, failed); err != nil {
 			return fmt.Errorf("preserve failed site: %w", err)
 		}
 		t.FailedSite = failed
@@ -250,7 +256,7 @@ func (t *SiteTransaction) Rollback() error {
 		if err := os.MkdirAll(filepath.Dir(t.Home), 0750); err != nil {
 			return err
 		}
-		if err := os.Rename(t.Backup, t.Home); err != nil {
+		if err := rename(t.Backup, t.Home); err != nil {
 			return fmt.Errorf("restore previous site: %w", err)
 		}
 	}
@@ -339,6 +345,14 @@ func RecoverSiteTransactions(root string, configuredRoots ...string) ([]string, 
 // site when it is not empty. A site-scoped pass leaves entries it cannot
 // attribute (unreadable journals) to the panel's startup recovery.
 func recoverSiteTransactions(root, site string, configuredRoots ...string) ([]string, error) {
+	return recoverSiteTransactionsWithRename(root, site, nil, configuredRoots...)
+}
+
+// recoverSiteTransactionsWithRename installs the privileged rename boundary
+// used by production startup recovery. Tests and local development retain a
+// direct rename callback, while native production recovery supplies the root
+// broker callback from startup_recovery.go.
+func recoverSiteTransactionsWithRename(root, site string, renameForSite func(string, string, string) error, configuredRoots ...string) ([]string, error) {
 	webRoot, mailRoot := recoveryConfiguredRoots(configuredRoots)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -365,6 +379,11 @@ func recoverSiteTransactions(root, site string, configuredRoots ...string) ([]st
 				failures = append(failures, fmt.Errorf("quarantined invalid transaction %s: %w", entry.Name(), err))
 			}
 			continue
+		}
+		if renameForSite != nil {
+			txn.rename = func(source, destination string) error {
+				return renameForSite(txn.Site, source, destination)
+			}
 		}
 		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot); err != nil {
 			if quarantineErr := quarantineRecoveryTransaction(root, dir, err); quarantineErr != nil {

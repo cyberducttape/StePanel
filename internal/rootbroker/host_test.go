@@ -139,7 +139,7 @@ func TestBrokerSiteSnapshotRenamesOnlyIntoRecoveryRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response, err := broker.siteSnapshot(context.Background(), &SiteRequest{Action: "snapshot", Site: "demo", BackupPath: backup}); err != nil || !response.OK {
+	if response, err := broker.siteSnapshot(context.Background(), &SiteRequest{Action: "snapshot", Site: "demo", SnapshotSource: sitePublic, SnapshotDestination: backup}); err != nil || !response.OK {
 		t.Fatalf("siteSnapshot = %#v, %v", response, err)
 	}
 	if _, err := os.Stat(filepath.Join(backup, "index.html")); err != nil {
@@ -148,8 +148,14 @@ func TestBrokerSiteSnapshotRenamesOnlyIntoRecoveryRoot(t *testing.T) {
 	if _, err := os.Stat(sitePublic); !os.IsNotExist(err) {
 		t.Fatalf("live public tree still exists, stat error = %v", err)
 	}
+	if response, err := broker.siteSnapshotRestore(context.Background(), &SiteRequest{Action: "snapshot-restore", Site: "demo", SnapshotSource: backup, SnapshotDestination: sitePublic}); err != nil || !response.OK {
+		t.Fatalf("siteSnapshotRestore = %#v, %v", response, err)
+	}
+	if _, err := os.Stat(filepath.Join(sitePublic, "index.html")); err != nil {
+		t.Fatalf("restored content missing: %v", err)
+	}
 	outside := filepath.Join(t.TempDir(), "outside")
-	if response, err := broker.siteSnapshot(context.Background(), &SiteRequest{Action: "snapshot", Site: "demo", BackupPath: outside}); err != nil || response.OK {
+	if response, err := broker.siteSnapshot(context.Background(), &SiteRequest{Action: "snapshot", Site: "demo", SnapshotSource: sitePublic, SnapshotDestination: outside}); err != nil || response.OK {
 		t.Fatalf("outside snapshot = %#v, %v; want rejection", response, err)
 	}
 }

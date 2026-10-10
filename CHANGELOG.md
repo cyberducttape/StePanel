@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Route live-site recovery snapshots through the root broker so worker service confinement cannot block atomic restore journaling.
 - Keep isolated unit workflow fixtures self-contained while production and lab restore paths use the brokered snapshot operation.
 - Make the disposable lab root broker consume the same `/var/www/sites/.stepanel-recovery` journal root as the installed panel and worker.
+- Route interrupted restore rollback through the root broker as well as snapshot creation, so startup recovery cannot fail on worker filesystem confinement.
 - Route privileged site sealing through the root broker's persisted site identity so production app services receive the ownership and ACL setup required to start.
 - Make the restore recovery smoke report durable job failures and worker diagnostics before declaring an injected kill boundary missing.
 - Preserve explicit panel `rwx` access on each sealed site root so atomic restore snapshots can rename the public tree after ownership hardening.

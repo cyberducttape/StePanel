@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
@@ -44,7 +45,14 @@ func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lock
 			failures = append(failures, fmt.Errorf("audit database recovery %s: %w", id, err))
 		}
 	}
-	recovered, err := recoverSiteTransactions(cfg.RecoveryRoot, site, cfg.WebRoot, cfg.MailRoot)
+	recovered, err := recoverSiteTransactionsWithRename(cfg.RecoveryRoot, site, func(transactionSite, source, destination string) error {
+		return runTypedSiteMutation(context.Background(), cfg, rootbroker.SiteRequest{
+			Action:              "snapshot-restore",
+			Site:                transactionSite,
+			SnapshotSource:      source,
+			SnapshotDestination: destination,
+		})
+	}, cfg.WebRoot, cfg.MailRoot)
 	if err != nil {
 		failures = append(failures, err)
 		log.Printf("recover interrupted site transactions (continuing with isolated failures): %v", err)

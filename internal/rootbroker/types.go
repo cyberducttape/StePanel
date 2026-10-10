@@ -152,33 +152,34 @@ type Response struct {
 // --- Site Operations ---
 
 type SiteRequest struct {
-	Action            string `json:"action"`              // create, delete, seal, prepare, snapshot, access, ftp, resources, quota, quota-clear, runtime
-	Site              string `json:"site"`                // Validated: [a-z0-9_-]{1,32}
-	SiteUser          string `json:"site_user,omitempty"` // immutable account from the control-plane identity map
-	BackupPath        string `json:"backup_path,omitempty"`
-	SSHKeys           string `json:"ssh_keys,omitempty"`
-	SFTPEnabled       *bool  `json:"sftp,omitempty"`
-	ShellEnabled      *bool  `json:"shell,omitempty"`
-	FTPEnabled        *bool  `json:"ftp,omitempty"`
-	FTPPassword       string `json:"ftp_password,omitempty"`
-	PHPWorkers        int    `json:"php_workers,omitempty"`
-	DiskMB            int    `json:"disk_mb,omitempty"`
-	Inodes            int    `json:"inodes,omitempty"`
-	PHPVersion        string `json:"php_version,omitempty"`  // e.g. "8.2"
-	MemoryLimit       string `json:"memory_limit,omitempty"` // e.g. "256M"
-	UploadMaxFilesize string `json:"upload_max_filesize,omitempty"`
-	PostMaxSize       string `json:"post_max_size,omitempty"`
-	MaxInputVars      int    `json:"max_input_vars,omitempty"`
-	OPcache           bool   `json:"opcache,omitempty"`
-	ErrorReporting    string `json:"error_reporting,omitempty"`
-	MemoryMB          int    `json:"memory_mb,omitempty"`
-	ExecTimeout       int    `json:"exec_timeout,omitempty"`
-	UploadSize        int    `json:"upload_size,omitempty"`
-	PostSize          int    `json:"post_size,omitempty"`
-	InputTimeout      int    `json:"input_timeout,omitempty"`
-	OpcacheSize       int    `json:"opcache_size,omitempty"`
-	DisplayErrors     bool   `json:"display_errors,omitempty"`
-	ErrorLogging      bool   `json:"error_logging,omitempty"`
+	Action              string `json:"action"`              // create, delete, seal, prepare, snapshot, access, ftp, resources, quota, quota-clear, runtime
+	Site                string `json:"site"`                // Validated: [a-z0-9_-]{1,32}
+	SiteUser            string `json:"site_user,omitempty"` // immutable account from the control-plane identity map
+	SnapshotSource      string `json:"snapshot_source,omitempty"`
+	SnapshotDestination string `json:"snapshot_destination,omitempty"`
+	SSHKeys             string `json:"ssh_keys,omitempty"`
+	SFTPEnabled         *bool  `json:"sftp,omitempty"`
+	ShellEnabled        *bool  `json:"shell,omitempty"`
+	FTPEnabled          *bool  `json:"ftp,omitempty"`
+	FTPPassword         string `json:"ftp_password,omitempty"`
+	PHPWorkers          int    `json:"php_workers,omitempty"`
+	DiskMB              int    `json:"disk_mb,omitempty"`
+	Inodes              int    `json:"inodes,omitempty"`
+	PHPVersion          string `json:"php_version,omitempty"`  // e.g. "8.2"
+	MemoryLimit         string `json:"memory_limit,omitempty"` // e.g. "256M"
+	UploadMaxFilesize   string `json:"upload_max_filesize,omitempty"`
+	PostMaxSize         string `json:"post_max_size,omitempty"`
+	MaxInputVars        int    `json:"max_input_vars,omitempty"`
+	OPcache             bool   `json:"opcache,omitempty"`
+	ErrorReporting      string `json:"error_reporting,omitempty"`
+	MemoryMB            int    `json:"memory_mb,omitempty"`
+	ExecTimeout         int    `json:"exec_timeout,omitempty"`
+	UploadSize          int    `json:"upload_size,omitempty"`
+	PostSize            int    `json:"post_size,omitempty"`
+	InputTimeout        int    `json:"input_timeout,omitempty"`
+	OpcacheSize         int    `json:"opcache_size,omitempty"`
+	DisplayErrors       bool   `json:"display_errors,omitempty"`
+	ErrorLogging        bool   `json:"error_logging,omitempty"`
 }
 
 type SiteResponse struct {

@@ -863,11 +863,12 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	}
 	snapshot := os.Rename
 	if cfg.Production || labDirectRootBrokerEnabled() {
-		snapshot = func(_, backupPath string) error {
+		snapshot = func(source, backupPath string) error {
 			return runTypedSiteMutation(ctx, cfg, rootbroker.SiteRequest{
-				Action:     "snapshot",
-				Site:       siteName,
-				BackupPath: backupPath,
+				Action:              "snapshot",
+				Site:                siteName,
+				SnapshotSource:      source,
+				SnapshotDestination: backupPath,
 			})
 		}
 	}
