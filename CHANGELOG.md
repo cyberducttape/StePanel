@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **Privileged work now fails closed on fencing-database outages**: the root
+  broker allows only a bounded grace period for transient lease-verification
+  errors, then cancels the mutation when ownership cannot be established.
+- **Capacity reservations are shared across processes**: panel and worker
+  processes now coordinate filesystem reservations through the control-plane
+  SQLite database, keyed by filesystem identity, instead of maintaining
+  independent in-memory ledgers.
+- **Off-site backup retries reuse verified local archives**: a completed local
+  backup is persisted in the durable job before remote transfer, and retries
+  strictly revalidate that archive rather than rebuilding it.
+
 - **Application lifecycle smoke uses the production site workflow**: the
   disposable Node-app test now creates its site through `/api/sites`, waits
   for durable creation, and exercises application deployment with the

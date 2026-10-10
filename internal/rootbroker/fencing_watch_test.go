@@ -108,6 +108,22 @@ func TestBrokerKeepsOperationWithLiveLease(t *testing.T) {
 	}
 }
 
+func TestBrokerCancelsOperationWhenFencingDatabaseIsUnavailable(t *testing.T) {
+	broker, db, completed := fencedWordPressBroker(t, "5")
+	broker.fencingDBErrorGrace = 100 * time.Millisecond
+	go func() {
+		time.Sleep(60 * time.Millisecond)
+		_ = db.Close()
+	}()
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "wordpress", Fencing: demoLease, WordPress: &WordPressRequest{Action: "core-update", Site: "demo"}})
+	if err != nil || response.OK || !strings.Contains(response.Error, "fencing database unavailable") {
+		t.Fatalf("response = %#v, %v; want fail-closed fencing cancellation", response, err)
+	}
+	if _, err := os.Stat(completed); err == nil {
+		t.Fatal("helper completed while the fencing database was unavailable")
+	}
+}
+
 // Read-only database actions back administrator views and hold no lease;
 // every mutating database action must still be fenced.
 func TestDatabaseFencingDistinguishesReads(t *testing.T) {

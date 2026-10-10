@@ -208,6 +208,43 @@ func TestCapacityReservationsPreventDoubleAdmission(t *testing.T) {
 	second.release()
 }
 
+func TestCapacityReservationsCoordinateAcrossLedgerInstances(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	first, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	free, err := availableBytes(cfg.ImportRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand := []capacityDemand{{Path: cfg.ImportRoot, Bytes: free / 10 * 6}}
+	hold, err := first.reserve(cfg, "cross-process", cfg.ImportRoot, demand)
+	if err != nil {
+		t.Fatalf("first shared reservation rejected: %v", err)
+	}
+	defer hold.release()
+	if _, err := second.reserve(cfg, "cross-process", cfg.ImportRoot, demand); err == nil {
+		t.Fatal("second ledger admitted a reservation already held by another process")
+	}
+	hold.release()
+	secondHold, err := second.reserve(cfg, "cross-process", cfg.ImportRoot, demand)
+	if err != nil {
+		t.Fatalf("reservation after shared release rejected: %v", err)
+	}
+	secondHold.release()
+}
+
 func TestCapacityReservationConsumeReleasesWrittenBytes(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0

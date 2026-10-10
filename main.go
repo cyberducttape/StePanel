@@ -526,7 +526,11 @@ func Main() {
 		log.Fatalf("open backup schedules: %v", err)
 	}
 	bindState(schedules, "backup-schedules", &schedules.items, schedules.persistLocked)
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager}
+	capacity, err := newCapacityLedger(controlPlaneDB)
+	if err != nil {
+		log.Fatalf("initialize capacity ledger: %v", err)
+	}
+	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: *capacity}
 	app.startup.begin()
 	// Categorized state errors feed stepanel_state_errors_total and the logs.
 	jobs.SetStateErrorObserver(app.observeStateError)
@@ -1062,6 +1066,9 @@ type durableBackupRequest struct {
 	KeepLast         int       `json:"keep_last,omitempty"`
 	Actor            string    `json:"actor"`
 	StartedAt        time.Time `json:"started_at,omitempty"`
+	BackupPath       string    `json:"backup_path,omitempty"`
+	BackupSHA256     string    `json:"backup_sha256,omitempty"`
+	BackupBytes      int64     `json:"backup_bytes,omitempty"`
 }
 
 type durableCertificateRequest struct {
@@ -1173,17 +1180,44 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
-	result, err := createSiteBackupContext(operationCtx, a.Config, access, request.IncludeDatabases, &a.capacity)
-	if err != nil {
-		TelemetryAudit(a.Config.AuditLog, request.Actor, "site.backup.failed", request.Site, err.Error())
-		if request.Scheduled {
-			started := request.StartedAt
-			if started.IsZero() {
-				started = time.Now()
-			}
-			a.Schedules.recordResult(request.Site, started, err)
+	var result BackupResult
+	if request.BackupPath != "" {
+		root, rootErr := filepath.Abs(a.Config.BackupRoot)
+		candidate, pathErr := filepath.Abs(request.BackupPath)
+		if rootErr != nil || pathErr != nil || candidate == root || !strings.HasPrefix(candidate, root+string(filepath.Separator)) {
+			return nil, errors.New("persisted backup path is outside the backup root")
 		}
-		return nil, err
+		manifest, verifyErr := VerifySiteBackupStrict(candidate, a.Config.BackupSigningKey, a.Config.backupDecryptionKeys()...)
+		if verifyErr != nil || manifest.Site != request.Site || manifest.ArchiveSHA256 != request.BackupSHA256 || (request.BackupBytes > 0 && manifest.Bytes != request.BackupBytes) {
+			if verifyErr == nil {
+				verifyErr = errors.New("persisted backup metadata does not match the job")
+			}
+			return nil, fmt.Errorf("persisted backup is not reusable: %w", verifyErr)
+		}
+		result = BackupResult{Site: request.Site, Path: candidate, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != "", Encrypted: manifest.Encryption != ""}
+	} else {
+		result, err = createSiteBackupContext(operationCtx, a.Config, access, request.IncludeDatabases, &a.capacity)
+		if err != nil {
+			TelemetryAudit(a.Config.AuditLog, request.Actor, "site.backup.failed", request.Site, err.Error())
+			if request.Scheduled {
+				started := request.StartedAt
+				if started.IsZero() {
+					started = time.Now()
+				}
+				a.Schedules.recordResult(request.Site, started, err)
+			}
+			return nil, err
+		}
+		request.BackupPath, request.BackupSHA256, request.BackupBytes = result.Path, result.ArchiveSHA256, result.Bytes
+		if a.Jobs != nil && item.LeaseOwner != "" {
+			payload, marshalErr := json.Marshal(request)
+			if marshalErr != nil {
+				return nil, fmt.Errorf("encode reusable backup state: %w", marshalErr)
+			}
+			if updateErr := a.Jobs.UpdateClaimPayload(item.ID, item.LeaseOwner, payload); updateErr != nil {
+				return nil, fmt.Errorf("persist reusable backup state: %w", updateErr)
+			}
+		}
 	}
 	if err = a.uploadOffsiteBackup(operationCtx, result); err != nil {
 		TelemetryAudit(a.Config.AuditLog, request.Actor, "site.backup.offsite_failed", request.Site, err.Error())

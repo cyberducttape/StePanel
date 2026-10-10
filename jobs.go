@@ -623,6 +623,29 @@ func (j *Jobs) UpdateClaim(id, owner string, progress int) error {
 	return nil
 }
 
+// UpdateClaimPayload persists replay-safe workflow state while a durable job
+// is running. This is used when a workflow has completed an expensive local
+// phase and must retry only a later remote phase.
+func (j *Jobs) UpdateClaimPayload(id, owner string, payload []byte) error {
+	if j.db == nil || id == "" || owner == "" {
+		return errors.New("durable payload update requires a job ID and owner")
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	item, ok := j.items[id]
+	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
+		return errors.New("job lease is not held by this worker")
+	}
+	previous := append([]byte(nil), item.Payload...)
+	item.Payload = append([]byte(nil), payload...)
+	if err := j.persistDurableItemCAS(item, owner); err != nil {
+		item.Payload = previous
+		return err
+	}
+	j.publish(*item)
+	return nil
+}
+
 func (j *Jobs) RequestCancel(id string) error {
 	if j.db == nil || id == "" {
 		return errors.New("durable cancellation requires a job ID")

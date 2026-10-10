@@ -62,8 +62,9 @@ type Broker struct {
 	fencingDB     *sql.DB
 	// leaseWatchInterval and leaseWatchMargin drive the fencing watchdog
 	// for mutating requests; see watchFencing.
-	leaseWatchInterval time.Duration
-	leaseWatchMargin   time.Duration
+	leaseWatchInterval  time.Duration
+	leaseWatchMargin    time.Duration
+	fencingDBErrorGrace time.Duration
 	// accountMutationMu serializes operations that can modify the host's
 	// account database (/etc/passwd, /etc/group, and related locks). The
 	// panel and worker use separate broker clients, so client-local locking
@@ -148,8 +149,9 @@ func newBrokerWithFencingDB(webRoot, recoveryRoot string, logger *log.Logger, ho
 		host:          host,
 		fencingDB:     fencingDB,
 
-		leaseWatchInterval: LeaseWatchInterval,
-		leaseWatchMargin:   LeaseWatchMargin,
+		leaseWatchInterval:  LeaseWatchInterval,
+		leaseWatchMargin:    LeaseWatchMargin,
+		fencingDBErrorGrace: FencingDBErrorGrace,
 	}, nil
 }
 
@@ -162,6 +164,10 @@ func newBrokerWithFencingDB(webRoot, recoveryRoot string, logger *log.Logger, ho
 const (
 	LeaseWatchInterval = 5 * time.Second
 	LeaseWatchMargin   = 20 * time.Second
+	// FencingDBErrorGrace is the maximum bounded interval during which a
+	// transient control-plane outage may interrupt a running mutation. The
+	// broker fails closed after this interval because it cannot prove ownership.
+	FencingDBErrorGrace = 15 * time.Second
 )
 
 // Execute handles an RPC request and returns the response.
@@ -204,6 +210,7 @@ func (b *Broker) watchFencing(parent context.Context, tokens []operations.Fencin
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	var lost error
+	errorSince := make(map[string]time.Time)
 	go func() {
 		defer close(finished)
 		ticker := time.NewTicker(b.leaseWatchInterval)
@@ -215,6 +222,7 @@ func (b *Broker) watchFencing(parent context.Context, tokens []operations.Fencin
 			case <-ticker.C:
 				for _, token := range tokens {
 					err := operations.VerifyFencingTokenWithin(b.fencingDB, token, b.leaseWatchMargin)
+					key := fmt.Sprintf("%s/%s/%d", token.ResourceKey, token.OwnerID, token.Generation)
 					if errors.Is(err, operations.ErrLeaseLost) {
 						lost = fmt.Errorf("lease %s generation %d", token.ResourceKey, token.Generation)
 						b.logger.Printf("fencing lease lost during execution; cancelling: %v", lost)
@@ -222,10 +230,21 @@ func (b *Broker) watchFencing(parent context.Context, tokens []operations.Fencin
 						return
 					}
 					if err != nil {
-						// A transient database error is not evidence that the
-						// lease moved; keep running and check again.
-						b.logger.Printf("fencing watchdog check failed: %v", err)
+						started, ok := errorSince[key]
+						if !ok {
+							started = time.Now()
+							errorSince[key] = started
+						}
+						if time.Since(started) >= b.fencingDBErrorGrace {
+							lost = fmt.Errorf("fencing database unavailable for %s", b.fencingDBErrorGrace)
+							b.logger.Printf("fencing watchdog cannot verify lease; cancelling: %v: %v", lost, err)
+							cancel()
+							return
+						}
+						b.logger.Printf("fencing watchdog check failed; grace period remains: %v", err)
+						continue
 					}
+					delete(errorSince, key)
 				}
 			}
 		}

@@ -98,6 +98,15 @@ CREATE TABLE IF NOT EXISTS totp_replay (
     last_counter INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS capacity_reservations (
+    reservation_id TEXT PRIMARY KEY,
+    device INTEGER NOT NULL,
+    bytes INTEGER NOT NULL,
+    workflow TEXT NOT NULL,
+    staging_path TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS capacity_reservations_device_idx ON capacity_reservations(device);
 `
 
 type controlPlaneStateBinding struct {

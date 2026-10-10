@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -89,6 +90,7 @@ func filesystemDevice(path string) (uint64, error) {
 type capacityLedger struct {
 	mu   sync.Mutex
 	held map[uint64]uint64
+	db   *sql.DB
 }
 
 // capacityReservation is one upload's outstanding promise.
@@ -100,6 +102,7 @@ type capacityReservation struct {
 	stagingPath  string
 	stagingDev   uint64
 	consumedSize uint64
+	id           string
 
 	// An upload without Content-Length is admitted progressively: it holds
 	// demandsFor(admitted) and extends by step before the written size
@@ -109,6 +112,46 @@ type capacityReservation struct {
 	limit       uint64
 	step        uint64
 	demandsFor  func(uint64) []capacityDemand
+}
+
+func newCapacityLedger(db *sql.DB) (*capacityLedger, error) {
+	if db == nil {
+		return &capacityLedger{}, nil
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS capacity_reservations (
+		reservation_id TEXT PRIMARY KEY,
+		device INTEGER NOT NULL,
+		bytes INTEGER NOT NULL,
+		workflow TEXT NOT NULL,
+		staging_path TEXT NOT NULL,
+		created_at INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS capacity_reservations_device_idx ON capacity_reservations(device);`); err != nil {
+		return nil, fmt.Errorf("create capacity reservation ledger: %w", err)
+	}
+	return &capacityLedger{db: db}, nil
+}
+
+func capacitySQLBytes(value uint64) (int64, error) {
+	if value > uint64(^uint64(0)>>1) {
+		return 0, errors.New("capacity reservation exceeds SQLite integer range")
+	}
+	return int64(value), nil
+}
+
+func capacityReservationID() string {
+	return fmt.Sprintf("cap-%d", time.Now().UnixNano())
+}
+
+func (l *capacityLedger) durableHeld(tx *sql.Tx, device uint64) (uint64, error) {
+	var held sql.NullInt64
+	if err := tx.QueryRow(`SELECT SUM(bytes) FROM capacity_reservations WHERE device=?`, device).Scan(&held); err != nil {
+		return 0, err
+	}
+	if !held.Valid || held.Int64 < 0 {
+		return 0, nil
+	}
+	return uint64(held.Int64), nil
 }
 
 // progressiveUploadStep is how far ahead of the bytes written an upload of
@@ -153,6 +196,15 @@ func (r *capacityReservation) extendLocked(demands []capacityDemand) error {
 	for _, demand := range grouped {
 		l.held[demand.device] += demand.bytes
 		r.held[demand.device] += demand.bytes
+		if l.db != nil && r.id != "" {
+			bytes, convErr := capacitySQLBytes(demand.bytes)
+			if convErr != nil {
+				return convErr
+			}
+			if _, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, bytes, r.id, demand.device); dbErr != nil {
+				return fmt.Errorf("extend capacity reservation: %w", dbErr)
+			}
+		}
 	}
 	return nil
 }
@@ -189,6 +241,9 @@ func (l *capacityLedger) admit(cfg Config, workflow string, demands []capacityDe
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.db != nil {
+		return l.admitDurable(cfg, workflow, grouped, hold)
+	}
 	for _, demand := range grouped {
 		outstanding := l.held[demand.device]
 		if demand.bytes > ^uint64(0)-cfg.MinFreeBytes || demand.bytes+cfg.MinFreeBytes > ^uint64(0)-outstanding {
@@ -220,6 +275,56 @@ func (l *capacityLedger) admit(cfg Config, workflow string, demands []capacityDe
 	return reservation, nil
 }
 
+func (l *capacityLedger) admitDurable(cfg Config, workflow string, grouped []deviceDemand, hold bool) (*capacityReservation, error) {
+	tx, err := l.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin capacity reservation: %w", err)
+	}
+	defer tx.Rollback()
+	// This write takes SQLite's RESERVED lock before reading the ledger. That
+	// makes admission atomic across panel and worker processes.
+	if _, err := tx.Exec(`INSERT INTO state_blobs(name,payload,updated_at,revision) VALUES('capacity-ledger-lock',X'',unixepoch(),0) ON CONFLICT(name) DO UPDATE SET updated_at=excluded.updated_at`); err != nil {
+		return nil, fmt.Errorf("lock capacity ledger: %w", err)
+	}
+	for _, demand := range grouped {
+		outstanding, err := l.durableHeld(tx, demand.device)
+		if err != nil {
+			return nil, fmt.Errorf("read capacity reservations: %w", err)
+		}
+		if demand.bytes > ^uint64(0)-cfg.MinFreeBytes || demand.bytes+cfg.MinFreeBytes > ^uint64(0)-outstanding {
+			return nil, fmt.Errorf("%s capacity estimate overflow", workflow)
+		}
+		free, err := availableBytes(demand.path)
+		if err != nil {
+			return nil, fmt.Errorf("inspect %s capacity at %s: %w", workflow, demand.path, err)
+		}
+		if free < demand.bytes+cfg.MinFreeBytes+outstanding {
+			message := fmt.Sprintf("insufficient free space at %s: %d bytes available, %d required for this %s", demand.path, free, demand.bytes+cfg.MinFreeBytes, workflow)
+			if outstanding > 0 {
+				message += fmt.Sprintf(" plus %d reserved by in-progress workflows", outstanding)
+			}
+			return nil, &capacityError{message}
+		}
+	}
+	reservation := &capacityReservation{ledger: l, workflow: workflow, reserve: cfg.MinFreeBytes, held: map[uint64]uint64{}, id: capacityReservationID()}
+	if hold {
+		for _, demand := range grouped {
+			bytes, err := capacitySQLBytes(demand.bytes)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := tx.Exec(`INSERT INTO capacity_reservations(reservation_id,device,bytes,workflow,staging_path,created_at) VALUES(?,?,?,?,?,unixepoch())`, reservation.id, demand.device, bytes, workflow, demand.path); err != nil {
+				return nil, fmt.Errorf("persist capacity reservation: %w", err)
+			}
+			reservation.held[demand.device] = demand.bytes
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit capacity reservation: %w", err)
+	}
+	return reservation, nil
+}
+
 // consume records that the upload has written size bytes in total to its
 // staging filesystem, releasing that much of the hold, and verifies that
 // free space still covers every outstanding reservation plus the reserve.
@@ -237,6 +342,15 @@ func (r *capacityReservation) consume(size int64) error {
 		landed := min(written-r.consumedSize, r.held[r.stagingDev])
 		r.held[r.stagingDev] -= landed
 		l.held[r.stagingDev] -= landed
+		if l.db != nil && r.id != "" && landed > 0 {
+			if bytes, err := capacitySQLBytes(landed); err == nil {
+				if _, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=MAX(bytes-?,0) WHERE reservation_id=? AND device=?`, bytes, r.id, r.stagingDev); dbErr != nil {
+					return fmt.Errorf("update capacity reservation after write: %w", dbErr)
+				}
+			} else {
+				return err
+			}
+		}
 		r.consumedSize = written
 	}
 	if r.progressive {
@@ -270,8 +384,13 @@ func (r *capacityReservation) release() {
 	l := r.ledger
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.db != nil && r.id != "" {
+		_, _ = l.db.Exec(`DELETE FROM capacity_reservations WHERE reservation_id=?`, r.id)
+	}
 	for device, bytes := range r.held {
-		l.held[device] -= bytes
+		if l.held != nil {
+			l.held[device] -= bytes
+		}
 		delete(r.held, device)
 	}
 }
@@ -302,6 +421,15 @@ func (r *capacityReservation) grow(path string, bytes uint64) error {
 	}
 	l.held[device] += bytes
 	r.held[device] += bytes
+	if l.db != nil && r.id != "" {
+		sqlBytes, convErr := capacitySQLBytes(bytes)
+		if convErr != nil {
+			return convErr
+		}
+		if _, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, sqlBytes, r.id, device); dbErr != nil {
+			return fmt.Errorf("grow capacity reservation: %w", dbErr)
+		}
+	}
 	return nil
 }
 
@@ -313,6 +441,13 @@ func (l *capacityLedger) heldBytes(path string) uint64 {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.db != nil {
+		var held sql.NullInt64
+		if err := l.db.QueryRow(`SELECT SUM(bytes) FROM capacity_reservations WHERE device=?`, device).Scan(&held); err == nil && held.Valid && held.Int64 > 0 {
+			return uint64(held.Int64)
+		}
+		return 0
+	}
 	return l.held[device]
 }
 
