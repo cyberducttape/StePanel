@@ -219,6 +219,14 @@ func (t *SiteTransaction) Rollback() error {
 	if err != nil {
 		return fmt.Errorf("invalid recovery site path: %w", err)
 	}
+	homeParent, err := os.OpenRoot(filepath.Dir(home))
+	if err != nil {
+		return fmt.Errorf("open recovery site parent: %w", err)
+	}
+	defer homeParent.Close()
+	homeName := filepath.Base(home)
+	backup := filepath.Join(t.dir, "site-before")
+	mailBackup := filepath.Join(t.dir, "mail-before")
 	mailRoot := t.MailRoot
 	if mailRoot != "" {
 		mailRoot, err = validatedRecoveryPath(mailRoot)
@@ -234,8 +242,8 @@ func (t *SiteTransaction) Rollback() error {
 		return nil
 	}
 	if t.State == "rolling-back" && t.HadExisting {
-		_, backupErr := os.Lstat(t.Backup)
-		_, homeErr := os.Lstat(home)
+		_, backupErr := os.Lstat(backup)
+		_, homeErr := homeParent.Lstat(homeName)
 		if errors.Is(backupErr, os.ErrNotExist) && homeErr == nil {
 			t.State = "rolled-back"
 			return t.persist()
@@ -245,7 +253,7 @@ func (t *SiteTransaction) Rollback() error {
 	if err := t.persist(); err != nil {
 		return fmt.Errorf("record rollback start: %w", err)
 	}
-	if _, err := os.Lstat(home); err == nil {
+	if _, err := homeParent.Lstat(homeName); err == nil {
 		failed := filepath.Join(t.dir, "failed-site")
 		if _, existsErr := os.Lstat(failed); existsErr == nil {
 			failed = filepath.Join(t.dir, "failed-site-"+time.Now().UTC().Format("150405.000000000"))
@@ -261,13 +269,10 @@ func (t *SiteTransaction) Rollback() error {
 		return fmt.Errorf("inspect failed site: %w", err)
 	}
 	if t.HadExisting {
-		if _, err := os.Lstat(t.Backup); err != nil {
+		if _, err := os.Lstat(backup); err != nil {
 			return fmt.Errorf("recovery backup is unavailable: %w", err)
 		}
-		if err := os.MkdirAll(filepath.Dir(home), 0750); err != nil {
-			return err
-		}
-		if err := rename(t.Backup, home); err != nil {
+		if err := rename(backup, home); err != nil {
 			return fmt.Errorf("restore previous site: %w", err)
 		}
 	}
@@ -281,13 +286,13 @@ func (t *SiteTransaction) Rollback() error {
 			return fmt.Errorf("inspect failed mail tree: %w", err)
 		}
 		if t.MailExisting {
-			if _, err := os.Lstat(t.MailBackup); err != nil {
+			if _, err := os.Lstat(mailBackup); err != nil {
 				return fmt.Errorf("mail recovery backup is unavailable: %w", err)
 			}
 			if err := os.MkdirAll(filepath.Dir(mailRoot), 0750); err != nil {
 				return err
 			}
-			if err := os.Rename(t.MailBackup, mailRoot); err != nil {
+			if err := os.Rename(mailBackup, mailRoot); err != nil {
 				return fmt.Errorf("restore previous mail tree: %w", err)
 			}
 		}

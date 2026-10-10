@@ -11,6 +11,9 @@
 - **API response passthrough no longer uses a generic copy sink**: successful
   response bytes are written directly to the selected response writer while
   plain-text errors remain captured and normalized.
+- **Recovery rollback uses bounded filesystem roots**: site existence checks
+  now use Go's `os.Root`, and rollback derives journal backup paths from the
+  trusted transaction directory instead of using persisted path fields.
 
 All notable changes to StePanel are documented here.
 
