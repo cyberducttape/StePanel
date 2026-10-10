@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Termination dry-runs now query authoritative active jobs by site**: they no
+  longer rely on a 500-job recent window or claim that a future backup is an
+  already verified recovery artifact; unavailable durable state blocks readiness.
 - **Privileged root-broker journals now use the installer-created root-owned
   recovery directory**: the service no longer shares the panel-owned site
   recovery workspace, and journal loading rejects symlinked roots or records.

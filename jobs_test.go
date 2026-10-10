@@ -523,6 +523,46 @@ func TestDurableListReleasesSQLiteRowsBeforeRefreshingJobs(t *testing.T) {
 	}
 }
 
+func TestListActiveForSiteIsAuthoritativeAndUnbounded(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	jobs := newJobsWithDB(db, 1)
+	for i := 0; i < 501; i++ {
+		if _, err := jobs.Enqueue("site.operation", "site", fmt.Sprintf("operation-%d", i), nil, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := jobs.Enqueue("site.operation", "other-site", "other", nil, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jobs.Enqueue("site.operation", "other-site", "site", nil, 1); err != nil {
+		t.Fatal(err)
+	}
+	active, err := jobs.ListActiveForSite("site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 502 {
+		t.Fatalf("active site jobs = %d, want 502", len(active))
+	}
+	for _, job := range active {
+		if (job.User != "site" && job.OperationKey != "site") || (job.State != "queued" && job.State != "running") {
+			t.Fatalf("unexpected active job: %#v", job)
+		}
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jobs.ListActiveForSite("site"); err == nil {
+		t.Fatal("active job query succeeded after durable store closed")
+	}
+}
+
 func TestDurableLoaderUsesRelationalStateAfterLeaseTransitions(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

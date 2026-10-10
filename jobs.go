@@ -2091,6 +2091,54 @@ func (j *Jobs) List(limit int) []Job {
 	return items
 }
 
+// ListActiveForSite queries durable active jobs associated with one site. It
+// checks both the owner and operation key because older workflows used the
+// operation key as their site serialization field. It intentionally returns
+// an error instead of falling back to the in-memory cache: callers using this
+// method make destructive readiness decisions and must not rely on stale state
+// when SQLite is unavailable.
+func (j *Jobs) ListActiveForSite(site string) ([]Job, error) {
+	if j == nil || j.db == nil {
+		return nil, errors.New("durable job store is unavailable")
+	}
+	site = strings.TrimSpace(site)
+	if site == "" {
+		return nil, errors.New("site is required")
+	}
+	rows, err := j.db.Query(`SELECT id, `+durableJobColumns+` FROM jobs WHERE (owner = ? OR operation_key = ?) AND state IN ('queued', 'running') ORDER BY started_at ASC, id ASC`, site, site)
+	if err != nil {
+		return nil, fmt.Errorf("list active jobs for site %s: %w", site, err)
+	}
+	defer rows.Close()
+	items := make([]Job, 0)
+	for rows.Next() {
+		var id, state string
+		var data []byte
+		var leaseOwner sql.NullString
+		var leaseExpires, nextAttempt sql.NullInt64
+		var cancelRequested int
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+			return nil, fmt.Errorf("list active jobs for site %s: %w", site, err)
+		}
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+		if err != nil {
+			return nil, fmt.Errorf("decode active job %s: %w", id, err)
+		}
+		materializeJobOutput(&item)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list active jobs for site %s: %w", site, err)
+	}
+	j.mu.Lock()
+	for i := range items {
+		stored := items[i]
+		j.items[stored.ID] = &stored
+	}
+	j.mu.Unlock()
+	return items, nil
+}
+
 func (j *Jobs) Submit(id, user string, work func() (ImportResult, error)) error {
 	_, _, err := j.submitImport(id, user, "", work)
 	return err

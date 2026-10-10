@@ -55,11 +55,16 @@ func (a *App) buildTerminationPlan(site string) terminationPlan {
 	} else {
 		checks = append(checks, terminationPlanCheck{Name: "Managed database helper", Status: "pass", Detail: "configured helper will perform idempotent database cleanup"})
 	}
-	checks = append(checks, terminationPlanCheck{Name: "Verified backup", Status: "pass", Detail: "a final verified backup will be retained before destructive steps"})
+	checks = append(checks, terminationPlanCheck{Name: "Verified backup", Status: "warning", Detail: "no existing recovery artifact is asserted; execution will create and verify a final backup before destructive steps"})
 	if a.Jobs != nil {
-		for _, job := range a.Jobs.List(500) {
-			if job.OperationKey == site && job.State != "completed" && job.State != "failed" && job.State != "dead-letter" && job.Kind != "site.terminate" {
-				checks = append(checks, terminationPlanCheck{Name: "Conflicting jobs", Status: "blocker", Detail: fmt.Sprintf("job %s (%s) is %s", job.ID, job.Kind, job.State)})
+		jobs, err := a.Jobs.ListActiveForSite(site)
+		if err != nil {
+			checks = append(checks, terminationPlanCheck{Name: "Conflicting jobs", Status: "blocker", Detail: "durable job state is unavailable: " + err.Error()})
+		} else {
+			for _, job := range jobs {
+				if job.Kind != "site.terminate" {
+					checks = append(checks, terminationPlanCheck{Name: "Conflicting jobs", Status: "blocker", Detail: fmt.Sprintf("job %s (%s) is %s", job.ID, job.Kind, job.State)})
+				}
 			}
 		}
 	}
