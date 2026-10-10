@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Hardened native and lab installation paths so root-broker recovery journals use a root-owned `/var/lib/stepanel/recovery` directory, separate from the panel-owned workspace.
+
 - **User-level site hosting is now available**: active tenant owners can
   create durable blank PHP sites within their plan, with atomic site ownership
   assignment, post-creation plan-resource reconciliation, and tenant-filtered

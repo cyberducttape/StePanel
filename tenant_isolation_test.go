@@ -800,6 +800,29 @@ func TestRootBrokerNamespacePolicy(t *testing.T) {
 	}
 }
 
+func TestRootBrokerRecoveryRootIsPrivilegedOwned(t *testing.T) {
+	for _, path := range []string{"deploy/stepanel-root-broker.service", "deploy/lab/stepanel-root-broker.service"} {
+		unit, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(unit)
+		if !strings.Contains(text, "-recovery-root /var/lib/stepanel/recovery") {
+			t.Errorf("%s must use the root-owned recovery directory", path)
+		}
+		if strings.Contains(text, "-recovery-root /var/www/sites/.stepanel-recovery") {
+			t.Errorf("%s must not use the panel-owned recovery workspace", path)
+		}
+	}
+	installer, err := os.ReadFile("install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(installer), "install -d -m 0700 -o root -g root /var/lib/stepanel/recovery") {
+		t.Error("installer must create the root-owned recovery directory")
+	}
+}
+
 // The panel environment file holds every panel secret. The root broker must
 // not load it: helpers inherit the broker's environment, and appctl runs
 // tenant code (npm/yarn/pnpm builds, pip) as the site user.
