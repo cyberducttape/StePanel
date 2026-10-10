@@ -463,7 +463,11 @@ with those fixes on both distributions. The five-operation acceptance criteria
 remain open for multi-point failure injection, real disk-exhaustion, actual
 host power-loss, and broader workload and recovery-time evidence.
 
-**KVM certification run (2026-10-09):** a Rocky Linux 9 KVM guest with
+**KVM certification runs:** a 2026-10-10 Rocky Linux 9 KVM guest passed the
+installation and full 107-pass recovery matrix once; this run did not execute
+the separate abrupt-loss or ENOSPC phases. See
+[lab-results/2026-10-10-rocky9-kvm-full-matrix.md](./lab-results/2026-10-10-rocky9-kvm-full-matrix.md).
+The 2026-10-09 Rocky Linux 9 KVM guest with
 SELinux enforcing passed the install smoke, the bounded matrix (57 drills),
 and the full recovery matrix (105 drills) killing every supported journal
 boundary of cpmove activation, backup, restore, termination, and suspension.

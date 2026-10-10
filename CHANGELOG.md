@@ -12,6 +12,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `POST /api/sites` returns the original durable job instead of a false ownership
   conflict, with regression coverage for assignment and queue replay.
 
+- Recorded the 2026-10-10 Rocky Linux 9 KVM certification: the production-shaped
+  install and full 107-pass recovery matrix completed successfully once. The
+  separate power-loss, repeated-run, and non-backup ENOSPC gates remain open.
+
 - Recorded hosted installation smoke run `38076651823` passing on AlmaLinux 9
   and Rocky Linux 9; quota-enabled installation validation remains queued.
 
