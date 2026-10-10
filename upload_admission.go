@@ -145,14 +145,18 @@ func capacitySQLBytes(value uint64) (int64, error) {
 }
 
 func capacityReservationID() string {
+	sequence := atomic.AddUint64(&capacityReservationSequence, 1)
 	var entropy [16]byte
 	if _, err := rand.Read(entropy[:]); err == nil {
-		return "cap-" + hex.EncodeToString(entropy[:])
+		// Include process-local uniqueness even when two processes happen to
+		// receive the same entropy bytes (or a test/runtime replaces the random
+		// source). The sequence also makes collisions impossible within one
+		// process, while the PID separates independent service processes.
+		return fmt.Sprintf("cap-%s-%d-%d", hex.EncodeToString(entropy[:]), os.Getpid(), sequence)
 	}
 	// Entropy failure must not turn capacity admission into a reservation-ID
-	// collision. The process-local sequence covers concurrent callers while
-	// the timestamp keeps fallback IDs distinct across process starts.
-	sequence := atomic.AddUint64(&capacityReservationSequence, 1)
+	// collision. The process-local sequence and PID cover concurrent callers
+	// and independent process starts.
 	return fmt.Sprintf("cap-%d-%d", time.Now().UnixNano(), sequence)
 }
 
