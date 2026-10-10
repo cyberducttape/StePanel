@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Updated the README preview gallery to identify and display the Retro 80s
+  Neon screenshots.
+
 - Regenerated the documentation preview capture path to use the Retro 80s
   Neon appearance pack consistently across desktop, mobile, and customer views.
 - Made the disposable screenshot login submit the actual form in headless
