@@ -1342,8 +1342,9 @@
       : isAdministrator ? 'No managed sites yet. Create a site above, or migrate a cPanel backup.' : 'No sites are assigned to this account yet.';
   }
 
-  // Administrators create sites through a durable job; follow it until it
-  // finishes, then show the new site in the grid.
+  // Authorized administrators and tenant owners create sites through a
+  // durable job; follow it until it finishes, then show the new site in the
+  // grid. The API remains the authority for plan and role enforcement.
   const createForm = document.querySelector('#siteCreateForm');
   if (createForm) {
     const createStatus = createForm.querySelector('#siteCreateStatus');

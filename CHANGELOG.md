@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- The customer dashboard now exposes the existing plan-limited site creation
+  workflow to authorized tenant owners, keeping user-level hosting behavior
+  consistent between the API and the web interface.
+
 - Customer site-provisioning reservations are now idempotent: retrying a timed-out
   `POST /api/sites` returns the original durable job instead of a false ownership
   conflict, with regression coverage for assignment and queue replay.
