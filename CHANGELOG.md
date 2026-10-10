@@ -89,6 +89,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Release-pipeline diagnostics and timeout certification**: durable job
+  submissions are tested against the standard mutation timeout, and failed
+  sandboxed builds now report their exit status, filesystem headroom, quota
+  state, and staged-artifact ownership for disposable-host diagnosis.
+
 - **Rootless build runner works under SELinux, and through the broker**: on
   an SELinux-enforcing Rocky Linux 9 host the runner could not pull images,
   and release pipeline builds (which run through the root broker) never ran

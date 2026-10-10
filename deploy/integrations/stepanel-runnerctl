@@ -341,6 +341,12 @@ run_podman_as_site "$podman_bin" run --rm "${network_args[@]}" --userns keep-id 
 if (( build_status != 0 )); then
   # The build directory is discarded by the EXIT trap; the previous artifact
   # is untouched.
+  echo "sandboxed build exited with status $build_status" >&2
+  df -P -- "$site_root" "$runner_home" 2>&1 || true
+  if command -v quota >/dev/null 2>&1; then
+    quota -u "$site_user" 2>&1 || true
+  fi
+  stat -c 'build_artifact=%n mode=%a owner=%u:%g' -- "$build_artifact" 2>&1 || true
   exit "$build_status"
 fi
 # The build directory was relabelled for the container; restore the site
