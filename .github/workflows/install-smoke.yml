@@ -125,6 +125,7 @@ jobs:
           # hosts.
           timeout --foreground ${{ inputs.full_recovery_matrix && '170m' || '42m' }} docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
+            -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX_FULL=${{ inputs.full_recovery_matrix && '1' || '0' }} \
             stepanel-install /work/deploy/lab/install-smoke.sh \

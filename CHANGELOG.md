@@ -95,6 +95,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   and passes the stored identity from the root broker to the site, app, and
   container-runner helpers. Account names are never derived from site names in
   the production privileged path.
+- **Lab helper compatibility is explicitly non-production**: disposable
+  install and runner drills opt into the legacy direct-helper shape with
+  `STEPANEL_UNSAFE_LAB=1`; installed production broker operations always pass
+  the persisted identity explicitly.
 
 - **Release-pipeline diagnostics and timeout certification**: durable job
   submissions are tested against the standard mutation timeout, and failed

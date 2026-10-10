@@ -186,7 +186,7 @@ fi
 if has_phase install; then
   start=$SECONDS
   # The full recovery matrix runs about 100 drills; allow four hours.
-  if guest_job install 240 'env STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy STEPANEL_RUN_RECOVERY_MATRIX=1 STEPANEL_RUN_RECOVERY_MATRIX_FULL=1 bash /work/deploy/lab/install-smoke.sh'; then
+  if guest_job install 240 'env STEPANEL_UNSAFE_LAB=1 STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy STEPANEL_RUN_RECOVERY_MATRIX=1 STEPANEL_RUN_RECOVERY_MATRIX_FULL=1 bash /work/deploy/lab/install-smoke.sh'; then
     record install PASS $((SECONDS - start)) "$(grep -c 'smoke passed\|matrix passed' "$run_dir/install.log") smoke/matrix passes"
   else
     record install FAIL $((SECONDS - start)) "$(grep -E 'smoke failed|exited with status|unbound|error' "$run_dir/install.log" | tail -1)"
@@ -196,7 +196,7 @@ fi
 
 if has_phase runner; then
   start=$SECONDS
-  if guest_job runner 30 'env RUNNER_TEST_IMAGE=ghcr.io/containerd/busybox:1.36@sha256:907ca53d7e2947e849b839b1cd258c98fd3916c60f2e6e70c30edbf741ab6754 bash /work/deploy/lab/runner-perm-smoke.sh && bash /work/deploy/lab/release-pipeline-smoke.sh'; then
+  if guest_job runner 30 'env STEPANEL_UNSAFE_LAB=1 RUNNER_TEST_IMAGE=ghcr.io/containerd/busybox:1.36@sha256:907ca53d7e2947e849b839b1cd258c98fd3916c60f2e6e70c30edbf741ab6754 bash /work/deploy/lab/runner-perm-smoke.sh && env STEPANEL_UNSAFE_LAB=1 bash /work/deploy/lab/release-pipeline-smoke.sh'; then
     record runner PASS $((SECONDS - start)) 'rootless runner, failed-build retention, and release pipeline build-to-activation'
   else
     record runner FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/runner.log")"
