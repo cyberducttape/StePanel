@@ -1941,11 +1941,25 @@ func (j *Jobs) GetWithError(id string) (Job, bool, error) {
 }
 
 func (j *Jobs) Get(id string) (Job, bool) {
-	item, ok, err := j.GetWithError(id)
-	if err != nil {
+	if j.db != nil {
+		if item, ok, err := j.loadDurableJob(id); err == nil && ok {
+			materializeJobOutput(&item)
+			stored := item
+			j.mu.Lock()
+			j.items[id] = &stored
+			j.mu.Unlock()
+			return item, true
+		}
+	}
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	item, ok := j.items[id]
+	if !ok {
 		return Job{}, false
 	}
-	return item, ok
+	copy := *item
+	materializeJobOutput(&copy)
+	return copy, true
 }
 
 func materializeJobOutput(item *Job) {

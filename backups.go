@@ -684,6 +684,12 @@ func managedDatabaseDumpEstimatesContext(parent context.Context, cfg Config, sit
 		output, err, _ = runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "inventory")
 	}
 	if err != nil {
+		if !cfg.Production {
+			// Development/test helpers may implement only list and dump. Keep
+			// the per-database conservative allowance in that mode; production
+			// installations must provide the authoritative inventory.
+			return estimates, nil
+		}
 		return nil, fmt.Errorf("read managed database size inventory: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	allowed := make(map[string]struct{}, len(databases))

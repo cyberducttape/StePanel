@@ -15,6 +15,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **Development listeners default to loopback**: an unauthenticated process
   now binds `127.0.0.1:8080`, and startup refuses any non-loopback listener
   until administrator authentication is configured.
+- **Job status reads expose control-plane degradation**: the HTTP job-status
+  endpoint returns `503` when an authoritative durable read fails instead of
+  presenting a stale cached record; internal compatibility callers retain
+  their existing in-memory recovery behavior.
 
 - **Privileged work now fails closed on fencing-database outages**: the root
   broker allows only a bounded grace period for transient lease-verification
