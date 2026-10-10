@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Route privileged site sealing through the root broker's persisted site identity so production app services receive the ownership and ACL setup required to start.
+
 ### Changed
 
 - **Preserve durable worker panic stacks**: unexpected worker panics now retain

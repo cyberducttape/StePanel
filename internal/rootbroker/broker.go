@@ -730,12 +730,34 @@ func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, e
 }
 
 func (b *Broker) siteSeal(ctx context.Context, req *SiteRequest) (*Response, error) {
+	b.accountMutationMu.Lock()
+	defer b.accountMutationMu.Unlock()
+
 	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 
-	b.logger.Printf("sealing site: %s", req.Site)
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	b.logger.Printf("sealing site: %s user=%s", req.Site, siteUser)
+	// The site helper owns the complete filesystem and PHP-FPM sealing
+	// contract. In particular, it applies ownership and ACLs using the
+	// persisted site identity. Keep this in the broker so every production
+	// caller follows the same identity boundary.
+	output, err := b.host.RunSiteHelper(ctx, "seal", req.Site, siteUser)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("site sealing failed: %v", err)}, nil
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) == 0 {
+		return &Response{OK: false, Error: "site helper returned no identity"}, nil
+	}
+	if reported, want := strings.TrimSpace(lines[len(lines)-1]), siteUser; reported != want {
+		return &Response{OK: false, Error: fmt.Sprintf("site helper sealed account %q but the broker derives %q; refusing to continue with divergent site identity", reported, want)}, nil
+	}
 
 	// Set restrictive permissions on config files.
 	sitePublic := filepath.Join(siteRoot, "public")

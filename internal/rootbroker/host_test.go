@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -159,6 +161,43 @@ func TestSitePrepareRefusesDivergentHelperIdentity(t *testing.T) {
 	resp, err := broker.Execute(context.Background(), &Request{RequestType: "site", Site: &SiteRequest{Action: "prepare", Site: "demo"}})
 	if err != nil || resp.OK || !strings.Contains(resp.Error, "divergent site identity") {
 		t.Fatalf("prepare response = %#v, err = %v; want divergent identity refusal", resp, err)
+	}
+}
+
+func TestSiteSealUsesPersistedIdentityHelper(t *testing.T) {
+	webRoot := t.TempDir()
+	public := filepath.Join(webRoot, "sites", "demo", "public")
+	if err := os.MkdirAll(public, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(public, "index.php"), []byte("<?php"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	host := &fakeHost{}
+	broker, err := newBroker(webRoot, t.TempDir(), log.New(io.Discard, "", 0), host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const site = "demo"
+	want := siteidentity.UnixUser(site)
+	resp, err := broker.Execute(context.Background(), &Request{RequestType: "site", Site: &SiteRequest{Action: "seal", Site: site}})
+	if err != nil || !resp.OK {
+		t.Fatalf("seal response = %#v, err = %v", resp, err)
+	}
+	if len(host.helper) != 1 || strings.Join(host.helper[0], " ") != "seal "+site+" "+want {
+		t.Fatalf("site helper calls = %v, want seal delegated with persisted identity", host.helper)
+	}
+}
+
+func TestSiteSealRefusesDivergentHelperIdentity(t *testing.T) {
+	host := &fakeHost{helperUser: "sp-legacy-name"}
+	broker, err := newBroker(t.TempDir(), t.TempDir(), log.New(io.Discard, "", 0), host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := broker.Execute(context.Background(), &Request{RequestType: "site", Site: &SiteRequest{Action: "seal", Site: "demo"}})
+	if err != nil || resp.OK || !strings.Contains(resp.Error, "divergent site identity") {
+		t.Fatalf("seal response = %#v, err = %v; want divergent identity refusal", resp, err)
 	}
 }
 
