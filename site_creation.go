@@ -310,13 +310,34 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	if a.MetadataCache != nil {
 		a.MetadataCache.InvalidateSite(req.Site)
 	}
+	nextSteps := []string{
+		"Publish a route for the site with POST /api/sites/deploy",
+	}
+	if req.Actor != a.Auth.Username && a.Accounts != nil {
+		account, ok := a.Accounts.Get(req.Actor)
+		if !ok {
+			nextSteps = append(nextSteps, "Operator reconciliation is required: the customer account was not found after site creation")
+		} else {
+			pendingResources, resourceErr := a.ensurePlanResourcesContext(context.WithoutCancel(ctx), account)
+			if resourceErr != nil || len(pendingResources) > 0 {
+				reason := "resource enforcement is pending"
+				if resourceErr != nil {
+					reason = resourceErr.Error()
+				}
+				if _, suspendErr := a.setAccountSuspended(context.WithoutCancel(ctx), req.Actor, true); suspendErr != nil {
+					log.Printf("suspend account %s after site resource enforcement failure: %v", req.Actor, suspendErr)
+					nextSteps = append(nextSteps, "Operator reconciliation is required: plan resource enforcement failed and automatic account suspension failed")
+				} else {
+					RevocationAudit(a.Config.AuditLog, req.Actor, "hosting.account.suspended", req.Actor, "resource enforcement pending after customer site creation: "+reason)
+					nextSteps = append(nextSteps, "The account is suspended until its plan resource enforcement is applied and verified")
+				}
+			}
+		}
+	}
 	return json.Marshal(SiteCreationResult{
 		Site:       req.Site,
 		Template:   req.Template,
 		PublicRoot: canonical,
-		NextSteps: []string{
-			"Publish a route for the site with POST /api/sites/deploy",
-			"Assign the site to a customer account with PATCH /api/accounts/{username}",
-		},
+		NextSteps:  nextSteps,
 	})
 }
