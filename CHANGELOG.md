@@ -14,6 +14,9 @@
 - **Recovery rollback uses bounded filesystem roots**: site existence checks
   now use Go's `os.Root`, and rollback derives journal backup paths from the
   trusted transaction directory instead of using persisted path fields.
+- **Documented the API response-writer XSS boundary**: multipart uploads bypass
+  the generic writer, JSON responses use HTML-escaping encoding, and untyped
+  API bodies receive an octet-stream content type.
 
 All notable changes to StePanel are documented here.
 

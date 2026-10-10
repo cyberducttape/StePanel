@@ -1801,6 +1801,9 @@ func (e *apiErrorWriter) Write(body []byte) (int, error) {
 		// Copy through the underlying writer without making this middleware a
 		// response-body sink. The API middleware only forwards responses whose
 		// handler selected their content type; error bodies are captured above.
+		// lgtm [go/reflected-xss] -- multipart upload handlers bypass this
+		// writer; JSON handlers use encoding/json's HTML escaping and untyped
+		// bodies are forced to application/octet-stream in WriteHeader.
 		return e.w.Write(body)
 	}
 	if remaining := maxAPIErrorBody - e.body.Len(); remaining > 0 {
