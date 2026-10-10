@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Offsite transfers now use size-aware bounded deadlines**: upload and
+  restore transfers allow slow large objects more time, enforce connect and
+  no-progress stall limits, retry transient failures, and request periodic
+  rclone transfer statistics.
 - **Importer PHP configuration detection now uses a bounded token-aware scan**:
   comments and quoted text are ignored, multiline definitions are supported,
   ambiguous duplicate definitions fail closed, and configuration files are

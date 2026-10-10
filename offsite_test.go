@@ -20,6 +20,27 @@ func TestValidateOffsiteTarget(t *testing.T) {
 	}
 }
 
+func TestOffsiteTransferTimeoutScalesWithObjectSize(t *testing.T) {
+	if got := offsiteTransferTimeout(1); got != offsiteMinimumTimeout {
+		t.Fatalf("small transfer timeout = %s, want minimum %s", got, offsiteMinimumTimeout)
+	}
+	if got := offsiteTransferTimeout(10 << 30); got <= offsiteMinimumTimeout || got > offsiteMaximumTimeout {
+		t.Fatalf("large transfer timeout = %s, want scaled bounded timeout", got)
+	}
+	if got := offsiteTransferTimeout(1 << 60); got != offsiteMaximumTimeout {
+		t.Fatalf("oversized transfer timeout = %s, want maximum %s", got, offsiteMaximumTimeout)
+	}
+}
+
+func TestOffsiteRcloneTransferArgsIncludeStallAndRetryPolicy(t *testing.T) {
+	args := strings.Join(offsiteRcloneTransferArgs(maxOffsiteObjectBytes), " ")
+	for _, expected := range []string{"--timeout 30m0s", "--contimeout 5m0s", "--retries 3", "--low-level-retries 10", "--stats 1m", "--max-size 21474836480"} {
+		if !strings.Contains(args, expected) {
+			t.Errorf("rclone args %q do not contain %q", args, expected)
+		}
+	}
+}
+
 func TestValidBackupNameRejectsRemotePathTraversal(t *testing.T) {
 	for _, name := range []string{"20260906-120000.000000000-account", "backup_v2-01"} {
 		if !validBackupName(name) {

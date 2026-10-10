@@ -42,9 +42,17 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 		return err
 	}
 	destination := strings.TrimRight(cfg.OffsiteTarget, "/") + "/" + result.Site + "/" + filepath.Base(result.Path)
-	ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
+	info, err := os.Stat(result.Path)
+	if err != nil {
+		return fmt.Errorf("stat offsite backup: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("offsite backup is not a regular file")
+	}
+	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(info.Size()))
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "rclone", "copyto", result.Path, destination, "--immutable")
+	args := append([]string{"rclone", "copyto", result.Path, destination}, offsiteRcloneTransferArgs(0)...)
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Env = cloudCommandEnv()
 	if output, err := runBoundedCommand(ctx, cmd); err != nil {
 		return fmt.Errorf("offsite upload failed: %w: %s", err, strings.TrimSpace(string(output)))
@@ -132,9 +140,10 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 	// A signed backup must retain its signature. Unsigned backups do not have
 	// this object, so absence is allowed and strict backup verification enforces the
 	// configured signing policy.
-	ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
+	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxOffsiteObjectBytes))
 	signaturePath := filepath.Join(root, "manifest.sig")
-	cmd := exec.CommandContext(ctx, "rclone", "copyto", remoteRoot+"/manifest.sig", signaturePath, "--immutable", "--max-size", strconv.FormatInt(maxOffsiteObjectBytes, 10))
+	args := append([]string{"rclone", "copyto", remoteRoot + "/manifest.sig", signaturePath}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Env = cloudCommandEnv()
 	_, copyErr := runBoundedCommand(ctx, cmd)
 	cancel()
@@ -150,11 +159,12 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 }
 
 func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object string) error {
-	ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
+	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxOffsiteObjectBytes))
 	defer cancel()
 	remote := remoteRoot + "/" + object
 	local := filepath.Join(localRoot, object)
-	cmd := exec.CommandContext(ctx, "rclone", "copyto", remote, local, "--immutable", "--max-size", strconv.FormatInt(maxOffsiteObjectBytes, 10))
+	args := append([]string{"rclone", "copyto", remote, local}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Env = cloudCommandEnv()
 	output, err := runBoundedCommand(ctx, cmd)
 	if err != nil {
@@ -192,6 +202,39 @@ const maxOffsiteManifestBytes = 8 << 20
 // is intentionally explicit so a remote object cannot consume an unbounded
 // amount of restore-disk space.
 const maxOffsiteObjectBytes = 20 << 30
+
+const (
+	offsiteMinimumRate    = 1 << 20 // 1 MiB/s prevents a fixed wall-clock cutoff on slow links.
+	offsiteMinimumTimeout = 2 * time.Hour
+	offsiteMaximumTimeout = 7 * 24 * time.Hour
+	offsiteStallTimeout   = 30 * time.Minute
+	offsiteConnectTimeout = 5 * time.Minute
+)
+
+func offsiteTransferTimeout(size int64) time.Duration {
+	if size < 0 {
+		size = 0
+	}
+	transfer := time.Duration(size/offsiteMinimumRate) * time.Second
+	if size%offsiteMinimumRate != 0 {
+		transfer += time.Second
+	}
+	if transfer < offsiteMinimumTimeout {
+		return offsiteMinimumTimeout
+	}
+	if transfer > offsiteMaximumTimeout {
+		return offsiteMaximumTimeout
+	}
+	return transfer
+}
+
+func offsiteRcloneTransferArgs(maxSize int64) []string {
+	args := []string{"--immutable", "--timeout", offsiteStallTimeout.String(), "--contimeout", offsiteConnectTimeout.String(), "--retries", "3", "--low-level-retries", "10", "--retries-sleep", "30s", "--stats", "1m", "--stats-one-line"}
+	if maxSize > 0 {
+		args = append(args, "--max-size", strconv.FormatInt(maxSize, 10))
+	}
+	return args
+}
 
 type offsiteBackupReference struct {
 	Site   string
