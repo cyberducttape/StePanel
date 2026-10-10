@@ -113,6 +113,7 @@ node "$REPO_ROOT/scripts/capture-screenshots.js"
   printf 'version: %s\n' "$(git -C "$REPO_ROOT" describe --tags --match 'v*' --always --dirty 2>/dev/null || printf unknown)"
   printf 'captured_at_utc: %s\n' "$(date -u +%FT%TZ)"
   printf 'browser: Playwright %s\n' "${PLAYWRIGHT_CHANNEL:-chromium}"
+  printf 'theme: retro-neon (WayExpand-inspired)\n'
   printf 'data: synthetic sites, .example domains, backups, and one customer account seeded through the API\n'
   printf 'host: disposable development control plane; root helpers replaced by stand-ins (vhost helper writes route files only; application and site isolation helpers are no-ops)\n'
 } > "$OUT_DIR/metadata.txt"

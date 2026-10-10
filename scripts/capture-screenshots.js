@@ -28,6 +28,7 @@ const routes = [['northwind', 'northwind.example'], ['northwind', 'www.northwind
 const customer = { username: 'northwind-team', password: 'Northwind-Demo-Password-2026!', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', plan: 'professional', sites: ['northwind'] };
 const desktop = { width: 1440, height: 900 };
 const mobile = { width: 390, height: 844 };
+const retroNeonPreferences = { theme: 'retro-neon', dark: true, scale: 100 };
 
 function base32Decode(text) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -52,8 +53,14 @@ async function signIn(page, { username, password, code }) {
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password', { exact: true }).fill(password);
   if (code) await page.getByLabel('Authenticator code').fill(code);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.waitForURL((url) => !url.pathname.endsWith('/login'));
+  // Use the context request client so Playwright adopts the same session
+  // cookies as the browser page, while avoiding inconsistent native-form
+  // activation in headless browser environments.
+  const form = { username, password };
+  if (code) form.totp = code;
+  const response = await page.request.post(base + '/login', { form, maxRedirects: 0 });
+  if (response.status() !== 303) throw new Error(`login failed: HTTP ${response.status()}`);
+  await page.goto(base + '/');
 }
 
 // call sends an API request from the signed-in page with the dashboard's
@@ -136,6 +143,9 @@ async function capture(page, name) {
   const browser = await chromium.launch(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {});
   try {
     const context = await browser.newContext({ viewport: desktop, deviceScaleFactor: 2, colorScheme: 'dark' });
+    await context.addInitScript((preferences) => {
+      window.localStorage.setItem('stepanel.appearance.v1', JSON.stringify(preferences));
+    }, retroNeonPreferences);
     const page = await context.newPage();
 
     await page.goto(base + '/login');
@@ -164,12 +174,18 @@ async function capture(page, name) {
     await capture(page, 'activity');
 
     const phone = await browser.newContext({ viewport: mobile, deviceScaleFactor: 3, colorScheme: 'dark', isMobile: true, hasTouch: true });
+    await phone.addInitScript((preferences) => {
+      window.localStorage.setItem('stepanel.appearance.v1', JSON.stringify(preferences));
+    }, retroNeonPreferences);
     const phonePage = await phone.newPage();
     await signIn(phonePage, admin);
     await settle(phonePage);
     await capture(phonePage, 'operator-overview-mobile');
 
     const tenant = await browser.newContext({ viewport: desktop, deviceScaleFactor: 2, colorScheme: 'dark' });
+    await tenant.addInitScript((preferences) => {
+      window.localStorage.setItem('stepanel.appearance.v1', JSON.stringify(preferences));
+    }, retroNeonPreferences);
     const tenantPage = await tenant.newPage();
     await signIn(tenantPage, { username: customer.username, password: customer.password, code: totp(customer.totp) });
     await settle(tenantPage);
