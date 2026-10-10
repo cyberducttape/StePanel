@@ -197,6 +197,13 @@ func (a *App) probeAllCapabilities() map[string]Capability {
 	caps["site.lifecycle.create"] = a.checkSiteCreationCapability()
 	caps["site.lifecycle.delete"] = a.checkSiteDeletionCapability()
 	caps["site.lifecycle.suspend"] = newCapability(CapabilityUnsupported, "site suspension is not implemented; the current alternative is site termination")
+	caps["site.lifecycle.resume"] = newCapability(CapabilityUnsupported, "site resume is not implemented because site suspension is unavailable")
+
+	// Broker operation contract. These actions are intentionally not exposed as
+	// independent workflows: app rollback is panel-level activation-journal
+	// orchestration, and Git key verification is not an exposed operation.
+	caps["broker.app.rollback"] = newCapability(CapabilityUnsupported, "use the panel application rollback workflow; the broker supports apply for the selected manifest")
+	caps["broker.git.verify_key"] = newCapability(CapabilityUnsupported, "Git key verification is not exposed as an independent workflow")
 
 	// Database operations
 	caps["database.mysql.create"] = a.checkDatabaseCapability("mysql")
@@ -242,6 +249,7 @@ func (a *App) probeAllCapabilities() map[string]Capability {
 	}
 	caps["auth.api_tokens"] = newCapability(CapabilityAvailable, "")
 	caps["auth.scoped_tokens"] = newCapability(CapabilityAvailable, "")
+	caps["auth.legacy_token_notifications"] = newCapability(CapabilityUnsupported, "legacy-token notices are durably audited; configure an external notification pipeline")
 
 	// Deployment
 	caps["deployment.git"] = a.checkGitDeploymentCapability()

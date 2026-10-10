@@ -786,6 +786,7 @@ func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
 		"days_until_deadline": daysUntilDeadline,
 		"migration_status":    migrationStatus,
 		"phase":               2,
+		"notification_status": "audit_required_external_delivery",
 		"warning_message":     "Legacy API tokens with unlimited access were created before scope-based access control was introduced. Regenerate them with specific scopes to limit what they can do.",
 		"notification_sent":   false, // Phase 2: email notifications not yet implemented
 	})

@@ -28,6 +28,10 @@
 - **Production recovery gates now require application-level proof for
   WordPress approval**: archive-only rehearsals remain explicitly lower-level
   evidence and cannot be used as production adoption evidence by themselves.
+- **Unsupported workflow boundaries are now advertised explicitly**: broker
+  app rollback/Git key verification, site resume, and automatic legacy-token
+  email notifications report their actual unsupported or manual status through
+  `/api/capabilities` rather than appearing implicitly available.
 
 All notable changes to StePanel are documented here.
 

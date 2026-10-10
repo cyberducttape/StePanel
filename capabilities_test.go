@@ -252,6 +252,20 @@ func TestSuspendCapabilityIsUnsupported(t *testing.T) {
 	}
 }
 
+func TestUnsupportedWorkflowCapabilitiesAreExplicit(t *testing.T) {
+	app := &App{Config: Config{}}
+	caps := app.ProbeCapabilities().Capabilities
+	for _, name := range []string{"site.lifecycle.resume", "broker.app.rollback", "broker.git.verify_key", "auth.legacy_token_notifications"} {
+		capability, ok := caps[name]
+		if !ok {
+			t.Fatalf("missing capability %s", name)
+		}
+		if capability.Available || capability.Mode != CapabilityUnsupported || capability.Reason == "" {
+			t.Fatalf("capability %s = %#v, want explicit unsupported state", name, capability)
+		}
+	}
+}
+
 // TestDatabaseRestorationRequiresTheManagedHelper ensures the capability does
 // not claim an automated workflow on a host where the privileged DB adapter is
 // absent.
