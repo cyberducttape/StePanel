@@ -533,6 +533,8 @@ func (b *Broker) handleSiteRequest(ctx context.Context, req *SiteRequest) (*Resp
 		return b.siteSeal(ctx, req)
 	case "prepare":
 		return b.sitePrepare(ctx, req)
+	case "snapshot":
+		return b.siteSnapshot(ctx, req)
 	case "access":
 		return b.siteAccess(ctx, req)
 	case "ftp":
@@ -548,6 +550,36 @@ func (b *Broker) handleSiteRequest(ctx context.Context, req *SiteRequest) (*Resp
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown site action: %s", req.Action)}, nil
 	}
+}
+
+func (b *Broker) siteSnapshot(_ context.Context, req *SiteRequest) (*Response, error) {
+	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	source := filepath.Join(siteRoot, "public")
+	backup, err := filepath.Abs(req.BackupPath)
+	if err != nil || strings.TrimSpace(req.BackupPath) == "" {
+		return &Response{OK: false, Error: "invalid site recovery backup path"}, nil
+	}
+	rel, err := filepath.Rel(b.recoveryRoot, backup)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return &Response{OK: false, Error: "site recovery backup path is outside the configured recovery root"}, nil
+	}
+	if info, err := os.Lstat(source); err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("inspect site snapshot source: %v", err)}, nil
+	} else if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return &Response{OK: false, Error: "site snapshot source must be a directory"}, nil
+	}
+	if _, err := os.Lstat(backup); err == nil {
+		return &Response{OK: false, Error: "site snapshot destination already exists"}, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return &Response{OK: false, Error: fmt.Sprintf("inspect site snapshot destination: %v", err)}, nil
+	}
+	if err := os.Rename(source, backup); err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("snapshot existing site: %v", err)}, nil
+	}
+	return &Response{OK: true}, nil
 }
 
 func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, error) {

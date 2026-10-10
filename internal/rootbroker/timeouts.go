@@ -32,7 +32,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 	"site": {
 		// prepare and seal apply ownership and ACLs recursively over the
 		// whole site tree; delete removes it.
-		"create": timeoutBulk, "prepare": timeoutBulk, "seal": timeoutBulk, "delete": timeoutBulk,
+		"create": timeoutBulk, "prepare": timeoutBulk, "snapshot": timeoutBulk, "seal": timeoutBulk, "delete": timeoutBulk,
 		"access": timeoutConfig, "ftp": timeoutConfig, "resources": timeoutConfig, "quota": timeoutConfig, "quota-clear": timeoutConfig, "runtime": timeoutConfig,
 	},
 	"app": {

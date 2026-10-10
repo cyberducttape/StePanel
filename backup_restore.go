@@ -10,6 +10,7 @@ import (
 	"github.com/cyberducttape/StePanel/internal/backup"
 	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/recovery"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"io"
 	"log"
 	"net/http"
@@ -860,7 +861,13 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	txn, err := BeginSiteTransaction(cfg.RecoveryRoot, dest, "backup.restore-files", site)
+	txn, err := BeginSiteTransactionWithSnapshot(cfg.RecoveryRoot, dest, "backup.restore-files", site, func(source, backupPath string) error {
+		return runTypedSiteMutation(ctx, cfg, rootbroker.SiteRequest{
+			Action:     "snapshot",
+			Site:       siteName,
+			BackupPath: backupPath,
+		})
+	})
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}

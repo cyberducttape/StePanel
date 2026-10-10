@@ -121,6 +121,39 @@ func TestTemporaryWebRootDoesNotEnableTestBehavior(t *testing.T) {
 	}
 }
 
+func TestBrokerSiteSnapshotRenamesOnlyIntoRecoveryRoot(t *testing.T) {
+	webRoot := t.TempDir()
+	recoveryRoot := t.TempDir()
+	sitePublic := filepath.Join(webRoot, "sites", "demo", "public")
+	if err := os.MkdirAll(sitePublic, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sitePublic, "index.html"), []byte("live"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(recoveryRoot, "txn", "site-before")
+	if err := os.MkdirAll(filepath.Dir(backup), 0700); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newBroker(webRoot, recoveryRoot, log.New(io.Discard, "", 0), &fakeHost{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response, err := broker.siteSnapshot(context.Background(), &SiteRequest{Action: "snapshot", Site: "demo", BackupPath: backup}); err != nil || !response.OK {
+		t.Fatalf("siteSnapshot = %#v, %v", response, err)
+	}
+	if _, err := os.Stat(filepath.Join(backup, "index.html")); err != nil {
+		t.Fatalf("snapshot content missing: %v", err)
+	}
+	if _, err := os.Stat(sitePublic); !os.IsNotExist(err) {
+		t.Fatalf("live public tree still exists, stat error = %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if response, err := broker.siteSnapshot(context.Background(), &SiteRequest{Action: "snapshot", Site: "demo", BackupPath: outside}); err != nil || response.OK {
+		t.Fatalf("outside snapshot = %#v, %v; want rejection", response, err)
+	}
+}
+
 func TestSiteLifecycleUsesSharedIdentityAndWebGroup(t *testing.T) {
 	webRoot := t.TempDir()
 	host := &fakeHost{webGroup: "apache"}

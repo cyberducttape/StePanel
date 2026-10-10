@@ -40,6 +40,21 @@ type ManagedDatabase struct {
 }
 
 func BeginSiteTransaction(root, home, kind string, access SiteCapability) (*SiteTransaction, error) {
+	return beginSiteTransaction(root, home, kind, access, os.Rename)
+}
+
+// BeginSiteTransactionWithSnapshot is used when the live tree crosses a host
+// security boundary that the worker must not manipulate directly. The
+// callback receives the validated live path and journal backup path after the
+// transaction directory has been persisted.
+func BeginSiteTransactionWithSnapshot(root, home, kind string, access SiteCapability, snapshot func(string, string) error) (*SiteTransaction, error) {
+	if snapshot == nil {
+		return nil, errors.New("site snapshot callback is required")
+	}
+	return beginSiteTransaction(root, home, kind, access, snapshot)
+}
+
+func beginSiteTransaction(root, home, kind string, access SiteCapability, snapshot func(string, string) error) (*SiteTransaction, error) {
 	site := access.Site()
 	if safeUser(site) == "" {
 		return nil, errors.New("invalid recovery site")
@@ -94,7 +109,7 @@ func BeginSiteTransaction(root, home, kind string, access SiteCapability) (*Site
 		return nil, err
 	}
 	if txn.HadExisting {
-		if err := os.Rename(home, txn.Backup); err != nil {
+		if err := snapshot(home, txn.Backup); err != nil {
 			_ = os.RemoveAll(dir)
 			return nil, fmt.Errorf("snapshot existing site: %w", err)
 		}

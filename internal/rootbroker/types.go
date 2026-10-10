@@ -152,9 +152,10 @@ type Response struct {
 // --- Site Operations ---
 
 type SiteRequest struct {
-	Action            string `json:"action"`              // create, delete, seal, prepare, access, ftp, resources, quota, quota-clear, runtime
+	Action            string `json:"action"`              // create, delete, seal, prepare, snapshot, access, ftp, resources, quota, quota-clear, runtime
 	Site              string `json:"site"`                // Validated: [a-z0-9_-]{1,32}
 	SiteUser          string `json:"site_user,omitempty"` // immutable account from the control-plane identity map
+	BackupPath        string `json:"backup_path,omitempty"`
 	SSHKeys           string `json:"ssh_keys,omitempty"`
 	SFTPEnabled       *bool  `json:"sftp,omitempty"`
 	ShellEnabled      *bool  `json:"shell,omitempty"`
