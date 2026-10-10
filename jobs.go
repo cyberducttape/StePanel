@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -918,7 +919,7 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				defer stopLease()
 				defer func() {
 					if recovered := recover(); recovered != nil {
-						runErr = fmt.Errorf("worker panic: %v", recovered)
+						runErr = fmt.Errorf("worker panic: %v\n%s", recovered, debug.Stack())
 					}
 				}()
 				return handler(handlerCtx, item)
