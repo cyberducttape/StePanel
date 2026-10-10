@@ -100,9 +100,22 @@ func (a *App) sites(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
-	if !a.Auth.IsAdministrator(r) || !a.Auth.CSRF(r) {
-		http.Error(w, "administrator CSRF request required", http.StatusForbidden)
+	if !a.Auth.CSRF(r) {
+		http.Error(w, "CSRF request required", http.StatusForbidden)
 		return
+	}
+	admin := a.Auth.IsAdministrator(r)
+	actor := a.Auth.UsernameForRequest(r)
+	if !admin {
+		if a.Accounts == nil || !a.Auth.HasRequiredCustomerScope(r, "site:deploy") {
+			http.Error(w, "site creation is not permitted for this account", http.StatusForbidden)
+			return
+		}
+		account, ok := a.Accounts.Get(actor)
+		if !ok || accountRole(account) != "owner" || a.Accounts.TenantSuspended(actor) {
+			http.Error(w, "only an active tenant owner may create sites", http.StatusForbidden)
+			return
+		}
 	}
 	operationKey, err := requestOperationKey(r)
 	if err != nil {
@@ -140,13 +153,27 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site already exists", http.StatusConflict)
 		return
 	}
+	assigned := false
+	if !admin {
+		if _, err := a.Accounts.AssignSite(actor, input.Site); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		assigned = true
+	}
 	payload, err := json.Marshal(durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r)})
 	if err != nil {
+		if assigned {
+			_ = a.Accounts.UnassignSite(actor, input.Site)
+		}
 		http.Error(w, "could not encode site creation job", http.StatusInternalServerError)
 		return
 	}
 	job, _, err := a.Jobs.EnqueueIdempotent("site.create", input.Site, operationKey, payload, 3)
 	if err != nil {
+		if assigned {
+			_ = a.Accounts.UnassignSite(actor, input.Site)
+		}
 		http.Error(w, "could not persist site creation job", http.StatusInternalServerError)
 		return
 	}

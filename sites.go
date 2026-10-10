@@ -398,7 +398,20 @@ func managedAppsWithError(root string) ([]AppManifest, error) {
 	return apps, nil
 }
 
-func (a *App) siteList(w http.ResponseWriter, _ *http.Request) {
+func (a *App) siteList(w http.ResponseWriter, r *http.Request) {
+	if !a.Auth.IsAdministrator(r) {
+		if a.Accounts == nil {
+			http.Error(w, "shared-hosting accounts are unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		account, ok := a.Accounts.Get(a.Auth.UsernameForRequest(r))
+		if !ok || a.Accounts.TenantSuspended(account.Username) {
+			http.Error(w, "account is unavailable", http.StatusForbidden)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"sites": append([]string(nil), account.Sites...)})
+		return
+	}
 	entries, err := os.ReadDir(a.Config.VHostRoot)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		http.Error(w, "unable to inspect managed site routes", http.StatusInternalServerError)

@@ -139,6 +139,38 @@ func TestSiteCreationPublishesIsolatedBlankPHPSite(t *testing.T) {
 	}
 }
 
+func TestCustomerCanQueueSiteCreationWithinAssignedPlan(t *testing.T) {
+	f := newSiteCreationFixture(t, "")
+	accounts, err := OpenAccountStore(filepath.Join(f.root, "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.app.Accounts = accounts
+	f.app.Auth.Accounts = accounts
+	request := httptest.NewRequest(http.MethodPost, "/api/sites", strings.NewReader(`{"site":"customer-site","template":"php"}`))
+	request = request.WithContext(context.WithValue(request.Context(), apiTokenUsernameKey{}, "customer"))
+	response := httptest.NewRecorder()
+	f.app.siteCreate(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("customer site creation status = %d, body = %s", response.Code, response.Body.String())
+	}
+	account, ok := accounts.Get("customer")
+	if !ok || len(account.Sites) != 1 || account.Sites[0] != "customer-site" {
+		t.Fatalf("customer assignment = %#v, exists=%v", account, ok)
+	}
+	var queued map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &queued); err != nil || queued["job_id"] == "" {
+		t.Fatalf("queue response = %s, %v", response.Body, err)
+	}
+	job, ok := f.app.Jobs.Get(queued["job_id"])
+	if !ok || job.Kind != "site.create" || job.User != "customer-site" {
+		t.Fatalf("queued site job = %#v, exists=%v", job, ok)
+	}
+}
+
 // A failure after the helper prepared the site removes everything this job
 // created: the published tree, the account and site root (through the
 // helper's delete), and the staging tree.

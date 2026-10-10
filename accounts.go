@@ -714,6 +714,99 @@ func (s *AccountStore) Update(username, plan string, sites []string) (HostingAcc
 	return updated, nil
 }
 
+// AssignSite adds one previously unassigned site to a tenant without
+// replacing the owner's existing plan or assignments. The ownership check
+// and plan limit are performed under the same store lock as persistence so
+// concurrent customer provisioning cannot oversubscribe or cross-assign a
+// site.
+func (s *AccountStore) AssignSite(username, site string) (HostingAccount, error) {
+	username, site = safeUser(username), safeUser(site)
+	if username == "" || site == "" {
+		return HostingAccount{}, errors.New("account and site are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshFromDBLocked(); err != nil {
+		return HostingAccount{}, err
+	}
+	account, ok := s.accounts[username]
+	if !ok {
+		return HostingAccount{}, errors.New("account not found")
+	}
+	if accountRole(account) != "owner" {
+		return HostingAccount{}, errors.New("only a tenant owner may assign sites")
+	}
+	if account.Suspended {
+		return HostingAccount{}, errors.New("account is suspended")
+	}
+	for _, assigned := range account.Sites {
+		if assigned == site {
+			return HostingAccount{}, errors.New("site is already assigned to this account")
+		}
+	}
+	for otherUsername, other := range s.accounts {
+		if otherUsername == username {
+			continue
+		}
+		for _, assigned := range other.Sites {
+			if assigned == site {
+				return HostingAccount{}, fmt.Errorf("site %q is already assigned to account %q", site, otherUsername)
+			}
+		}
+	}
+	previous := account
+	account.Sites = append(append([]string(nil), account.Sites...), site)
+	if err := validateHostingAccount(account, true); err != nil {
+		return HostingAccount{}, err
+	}
+	s.accounts[username] = account
+	if err := s.persistLocked(); err != nil {
+		s.accounts[username] = previous
+		return HostingAccount{}, err
+	}
+	account.PasswordHash, account.TOTPSecret, account.RecoveryCodeHashes = "", "", nil
+	return account, nil
+}
+
+// UnassignSite removes a site from a tenant. It is intentionally separate
+// from RemoveLogin so failed provisioning can release a reservation without
+// deleting the customer identity.
+func (s *AccountStore) UnassignSite(username, site string) error {
+	username, site = safeUser(username), safeUser(site)
+	if username == "" || site == "" {
+		return errors.New("account and site are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshFromDBLocked(); err != nil {
+		return err
+	}
+	account, ok := s.accounts[username]
+	if !ok {
+		return errors.New("account not found")
+	}
+	previous := account
+	found := false
+	filtered := make([]string, 0, len(account.Sites))
+	for _, assigned := range account.Sites {
+		if assigned == site {
+			found = true
+			continue
+		}
+		filtered = append(filtered, assigned)
+	}
+	if !found {
+		return nil
+	}
+	account.Sites = filtered
+	s.accounts[username] = account
+	if err := s.persistLocked(); err != nil {
+		s.accounts[username] = previous
+		return err
+	}
+	return nil
+}
+
 func (s *AccountStore) List() []HostingAccount {
 	accounts, err := s.ListWithError()
 	if err != nil {

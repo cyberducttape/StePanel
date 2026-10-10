@@ -717,7 +717,7 @@ func Main() {
 	mux.Handle("/api/proxy", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.proxyList)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/proxy/test", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.proxyTest)), http.MethodPost))
 	mux.Handle("/api/proxy/", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.proxyManage)), http.MethodDelete))
-	mux.Handle("/api/sites", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.sites)), http.MethodGet, http.MethodHead, http.MethodPost))
+	mux.Handle("/api/sites", allowMethods(app.Auth.Require(http.HandlerFunc(app.sites)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/sites/overview", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteOverviewList)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/overview/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteOverviewResource)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/recovery/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteRecovery)), http.MethodGet, http.MethodHead))

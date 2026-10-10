@@ -465,17 +465,19 @@ paths:
         '202': {description: Certificate job queued}
   /api/sites:
     get:
-      summary: List managed PHP site routes
+      summary: List managed PHP site routes or the authenticated tenant's assigned sites
       responses:
         '200': {description: Managed site vhost names}
     post:
       summary: Create a site from a template
       description: >
-        Administrator only. Queues a durable site.create job that writes the
+        An administrator or active tenant owner may use this endpoint. It
+        queues a durable site.create job that writes the
         template into SiteManager staging, creates the site's system account
         and PHP-FPM pool through the root broker, activates the tree and seals
-        its ownership. A failed or interrupted creation removes everything it
-        created. Accepts an optional Idempotency-Key header.
+        its ownership. Tenant-owner requests assign the site to the account
+        under its plan before queueing. A failed or interrupted creation
+        removes everything it created. Accepts an optional Idempotency-Key header.
       requestBody:
         required: true
         content:
@@ -488,7 +490,7 @@ paths:
                 template: {type: string, enum: [php], default: php}
       responses:
         '202': {description: Creation job queued, with job_id and status_url}
-        '403': {description: Administrator CSRF request required}
+        '403': {description: Authentication, tenant authorization, or CSRF requirement failed}
         '409': {description: Site already exists}
         '422': {description: Invalid site name or unsupported template}
   /api/sites/overview:

@@ -38,6 +38,11 @@ This is a deliberate first boundary, not a claim of cPanel/Plesk parity.
   `_stepanel.<domain>`, and `POST /api/sites/domains/verify`; this is an
   ownership proof for the panel and is revalidated before route activation,
   not registrar, DNS-zone, DNSSEC, or ACME lifecycle management.
+- An active tenant owner can create a blank PHP site with `POST /api/sites`.
+  The request consumes one site from the account plan, persists ownership
+  before queueing the durable creation job, and returns `202` with a job URL.
+  Members and suspended accounts cannot create sites; administrators may still
+  create and assign sites through the administrator workflow.
 - Cloud, SSH, service, database administration, migration, application,
   certificate, security, and account-management APIs remain administrator-only;
   customer database lifecycle is limited to the customer-scoped database API.

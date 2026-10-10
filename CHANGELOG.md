@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **User-level site hosting is now available**: active tenant owners can
+  create durable blank PHP sites within their plan, with atomic site ownership
+  assignment and tenant-filtered `/api/sites` inventory; administrator site
+  provisioning remains supported.
 - **Termination dry-runs now query authoritative active jobs by site**: they no
   longer rely on a 500-job recent window or claim that a future backup is an
   already verified recovery artifact; unavailable durable state blocks readiness.

@@ -103,6 +103,37 @@ func TestAccountStoreOwnerOfSiteAndGetSites(t *testing.T) {
 	}
 }
 
+func TestAccountStoreAssignSiteEnforcesPlanAndUniqueOwnership(t *testing.T) {
+	store, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("alice", "a sufficiently long customer password", testTOTPSecret, "starter", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("bob", "another sufficiently long password", testTOTPSecret, "starter", []string{"bob-site"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AssignSite("alice", "alice-site"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AssignSite("alice", "alice-site"); err == nil {
+		t.Fatal("duplicate site assignment succeeded")
+	}
+	if _, err := store.AssignSite("alice", "bob-site"); err == nil {
+		t.Fatal("cross-tenant site assignment succeeded")
+	}
+	if _, err := store.AssignSite("alice", "alice-second"); err == nil {
+		t.Fatal("starter account exceeded its site limit")
+	}
+	if err := store.UnassignSite("alice", "alice-site"); err != nil {
+		t.Fatal(err)
+	}
+	if account, ok := store.Get("alice"); !ok || len(account.Sites) != 0 {
+		t.Fatalf("alice after unassignment = %#v, exists=%v", account, ok)
+	}
+}
+
 func TestAccountStoreMembersInheritOnlyTheirTenantSites(t *testing.T) {
 	store, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
 	if err != nil {
