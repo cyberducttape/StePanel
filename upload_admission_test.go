@@ -577,3 +577,14 @@ func TestInspectReleasesReservationAfterSuccessfulUpload(t *testing.T) {
 		t.Fatalf("completed upload kept %d reserved bytes", held)
 	}
 }
+
+func TestCapacityReservationIDsAreUniqueAcrossRapidAllocations(t *testing.T) {
+	seen := make(map[string]struct{}, 10000)
+	for i := 0; i < 10000; i++ {
+		id := capacityReservationID()
+		if _, exists := seen[id]; exists {
+			t.Fatalf("capacity reservation ID repeated: %q", id)
+		}
+		seen[id] = struct{}{}
+	}
+}

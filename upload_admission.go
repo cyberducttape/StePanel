@@ -1,7 +1,9 @@
 package stepanel
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -27,6 +30,8 @@ var errUploadLengthRequired = errors.New("archive uploads require a Content-Leng
 // bytes. A stalled client then releases its upload slot and capacity
 // reservation instead of holding them until the 60-minute upload ceiling.
 var uploadIdleTimeout = 2 * time.Minute
+
+var capacityReservationSequence uint64
 
 // capacityError reports that a filesystem cannot hold a workflow's demands
 // plus the STEPANEL_MIN_FREE_BYTES reserve.
@@ -140,7 +145,15 @@ func capacitySQLBytes(value uint64) (int64, error) {
 }
 
 func capacityReservationID() string {
-	return fmt.Sprintf("cap-%d", time.Now().UnixNano())
+	var entropy [16]byte
+	if _, err := rand.Read(entropy[:]); err == nil {
+		return "cap-" + hex.EncodeToString(entropy[:])
+	}
+	// Entropy failure must not turn capacity admission into a reservation-ID
+	// collision. The process-local sequence covers concurrent callers while
+	// the timestamp keeps fallback IDs distinct across process starts.
+	sequence := atomic.AddUint64(&capacityReservationSequence, 1)
+	return fmt.Sprintf("cap-%d-%d", time.Now().UnixNano(), sequence)
 }
 
 func (l *capacityLedger) durableHeld(tx *sql.Tx, device uint64) (uint64, error) {
