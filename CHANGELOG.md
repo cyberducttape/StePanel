@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **Application recovery manifest deletion now uses a no-follow directory
+  descriptor**: persisted site identities are validated as single components,
+  the canonical app-root path is rechecked, and recovery cannot unlink through
+  a substituted pathname outside the configured app root.
 - Durable restore retries now reconcile prior site journals under the site
   mutation lease before creating a new generation.
 

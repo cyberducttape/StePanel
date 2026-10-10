@@ -15,6 +15,7 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"golang.org/x/sys/unix"
 )
 
 type AppManifest struct {
@@ -207,8 +208,32 @@ func restoreAppActivation(cfg Config, ctx context.Context, journal *appActivatio
 	if journal.HadPrevious {
 		return writeAtomic(manifestPath, journal.Previous, 0600)
 	}
-	err = os.Remove(manifestPath)
-	if errors.Is(err, os.ErrNotExist) {
+	return removeAppManifest(cfg, journal.Site, manifestPath)
+}
+
+// removeAppManifest removes only the manifest for a validated site identity.
+// Opening the configured app directory without following symlinks and unlinking
+// by basename prevents a persisted journal from turning recovery into a
+// pathname-based delete outside the app root.
+func removeAppManifest(cfg Config, site, expectedPath string) error {
+	if safeUser(site) == "" {
+		return errors.New("application manifest site is invalid")
+	}
+	manifestPath, err := safePath(cfg.AppRoot, site+".json")
+	if err != nil || filepath.Clean(manifestPath) != filepath.Clean(expectedPath) {
+		return errors.New("application manifest path is invalid")
+	}
+	root, err := filepath.Abs(cfg.AppRoot)
+	if err != nil {
+		return err
+	}
+	dirFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(dirFD)
+	err = unix.Unlinkat(dirFD, site+".json", 0)
+	if errors.Is(err, unix.ENOENT) {
 		return nil
 	}
 	return err

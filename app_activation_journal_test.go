@@ -74,3 +74,34 @@ func TestRestoreAppActivationRejectsJournalPathOutsideAppRoot(t *testing.T) {
 		t.Fatalf("restoreAppActivation error = %v, want path rejection", err)
 	}
 }
+
+func TestRestoreAppActivationRemovesNewManifestByValidatedDirectoryEntry(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{AppRoot: filepath.Join(root, "apps"), AppCtl: filepath.Join(root, "appctl")}
+	if err := os.MkdirAll(cfg.AppRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	args := filepath.Join(root, "args")
+	if err := os.WriteFile(cfg.AppCtl, []byte("#!/bin/sh\necho \"$@\" >> '"+args+"'\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(cfg.AppRoot, "demo.json")
+	if err := os.WriteFile(manifestPath, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	journal := &appActivationJournal{
+		Site:         "demo",
+		ManifestPath: manifestPath,
+		HadPrevious:  false,
+	}
+	if err := restoreAppActivation(cfg, t.Context(), journal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Fatalf("manifest still exists after recovery: %v", err)
+	}
+	called, err := os.ReadFile(args)
+	if err != nil || !strings.Contains(string(called), "stop demo") {
+		t.Fatalf("stop args = %q, error = %v", called, err)
+	}
+}

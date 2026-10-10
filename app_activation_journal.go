@@ -113,7 +113,7 @@ func recoverAppActivationJournals(cfg Config) ([]string, error) {
 			if err := writeAtomic(journal.ManifestPath, journal.Previous, 0600); err != nil {
 				return recovered, fmt.Errorf("restore application %s manifest: %w", journal.Site, err)
 			}
-		} else if err := os.Remove(journal.ManifestPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		} else if err := removeAppManifest(cfg, journal.Site, journal.ManifestPath); err != nil {
 			return recovered, fmt.Errorf("remove interrupted application %s manifest: %w", journal.Site, err)
 		}
 		if err := journal.cleanup(); err != nil {
