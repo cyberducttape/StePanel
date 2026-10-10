@@ -87,15 +87,16 @@ type Manager interface {
 	CleanupOrphanedStaging(ctx context.Context, olderThan time.Duration) (int, error)
 	ActivateStagedReplacing(ctx context.Context, name, stagedRoot string) (string, error)
 	RollbackStagedActivation(ctx context.Context, name, previous string) error
-	ImportArchive(ctx context.Context, req *ImportRequest) (*Site, error)
 	Clone(ctx context.Context, req *CloneRequest) (*Site, error)
 	ActivateStaged(ctx context.Context, name, stagedRoot string) (*Site, error)
-	Restore(ctx context.Context, req *RestoreRequest) (*Site, error)
-	UpdateConfiguration(ctx context.Context, name string, req *UpdateRequest) error
 	Delete(ctx context.Context, name string) error
-	Suspend(ctx context.Context, name string, reason string) error
-	Resume(ctx context.Context, name string) error
 }
+
+// Compile-time contract: the authoritative manager surface contains only
+// operations implemented by this package. Durable import, restore, and
+// configuration workflows belong to their job orchestrators; suspension is
+// intentionally not exposed until a reversible privileged workflow exists.
+var _ Manager = (*DefaultManager)(nil)
 
 // Request types deliberately omit WebRoot — the manager owns the
 // configured root at construction and callers cannot redirect operations

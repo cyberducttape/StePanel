@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The site manager interface now exposes only implemented lifecycle
+  primitives**: durable import/restore/configuration jobs and unsupported
+  suspension workflows are no longer presented as manager capabilities.
 - **Offsite timeout calculation now saturates safely**: very large backup
   sizes cannot overflow `time.Duration` and accidentally receive the minimum
   deadline.
