@@ -568,6 +568,9 @@ func Main() {
 			}
 		}
 		failures = append(failures, recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext)...)
+		if _, err := recoverAppActivationJournals(cfg); err != nil {
+			failures = append(failures, fmt.Errorf("recover application activations: %w", err))
+		}
 		failures = append(failures, recoverWordPressMaintenance(cfg, app.acquireSiteMutationLockContext, recoveredSiteLockWait)...)
 		if replayed, err := app.replaySpooledDeployments(); err != nil {
 			failures = append(failures, fmt.Errorf("replay spooled deployment history: %w", err))

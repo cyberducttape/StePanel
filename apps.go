@@ -103,6 +103,13 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hadPrevious := previousErr == nil
+	var previousManifest *AppManifest
+	if hadPrevious {
+		var parsed AppManifest
+		if err := json.Unmarshal(previous, &parsed); err == nil && validAppManifest(a.Config, parsed, app.Site) {
+			previousManifest = &parsed
+		}
+	}
 	if hadPrevious {
 		if err := operationCtx.Err(); err != nil {
 			http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
@@ -125,27 +132,24 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	var outcome string
 	defer intent.Finish(&outcome, "application service was not applied; previous configuration kept")
+	journal, err := newAppActivationJournal(a.Config, app.Site, manifestPath, previous, previousManifest)
+	if err != nil {
+		http.Error(w, "unable to prepare app recovery journal", http.StatusInternalServerError)
+		return
+	}
+	if err := journal.setState("runtime_applying"); err != nil {
+		http.Error(w, "unable to persist app recovery journal", http.StatusInternalServerError)
+		return
+	}
 	app.State = "running"
 	data, err := json.MarshalIndent(app, "", "  ")
 	if err != nil {
 		http.Error(w, "unable to encode app manifest", 500)
 		return
 	}
-	if err := writeAtomic(manifestPath, append(data, '\n'), 0600); err != nil {
-		http.Error(w, "unable to save app manifest", 500)
-		return
-	}
 	if err := applyAppProcess(operationCtx, a.Config, app); err != nil {
 		log.Printf("app deploy %s: apply service configuration: %v", app.Site, err)
-		var rollbackErr error
-		if hadPrevious {
-			rollbackErr = writeAtomic(manifestPath, previous, 0600)
-		} else {
-			rollbackErr = os.Remove(manifestPath)
-			if errors.Is(rollbackErr, os.ErrNotExist) {
-				rollbackErr = nil
-			}
-		}
+		rollbackErr := restoreAppActivation(a.Config, operationCtx, journal)
 		if rollbackErr != nil {
 			outcome = deployment + "; helper failed and manifest rollback failed: " + rollbackErr.Error()
 			log.Printf("app deploy %s: restore previous manifest: %v", app.Site, rollbackErr)
@@ -155,6 +159,28 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "application service could not be applied; the previous configuration was kept", http.StatusServiceUnavailable)
 		return
 	}
+	if err := journal.setState("runtime_applied"); err != nil {
+		_ = restoreAppActivation(a.Config, operationCtx, journal)
+		http.Error(w, "application recovery state could not be persisted", http.StatusServiceUnavailable)
+		return
+	}
+	if err := writeAtomic(manifestPath, append(data, '\n'), 0600); err != nil {
+		rollbackErr := restoreAppActivation(a.Config, operationCtx, journal)
+		if rollbackErr != nil {
+			http.Error(w, "app manifest could not be saved and runtime recovery failed", http.StatusServiceUnavailable)
+			return
+		}
+		http.Error(w, "unable to save app manifest", 500)
+		return
+	}
+	if err := journal.setState("manifest_committed"); err != nil {
+		http.Error(w, "app recovery state could not be finalized", http.StatusServiceUnavailable)
+		return
+	}
+	if err := journal.cleanup(); err != nil {
+		http.Error(w, "app recovery journal could not be removed", http.StatusServiceUnavailable)
+		return
+	}
 	outcome = deployment
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
@@ -162,6 +188,29 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	a.invalidateAppsCache()
 	writeJSON(w, http.StatusAccepted, app)
+}
+
+func restoreAppActivation(cfg Config, ctx context.Context, journal *appActivationJournal) error {
+	if journal == nil {
+		return errors.New("application activation journal is missing")
+	}
+	var err error
+	if journal.HadPrevious && journal.RestoreManifest != nil {
+		err = restoreAppProcess(ctx, cfg, *journal.RestoreManifest)
+	} else if !journal.HadPrevious {
+		err = runAppLifecycle(ctx, cfg, "stop", journal.Site)
+	}
+	if err != nil {
+		return err
+	}
+	if journal.HadPrevious {
+		return writeAtomic(journal.ManifestPath, journal.Previous, 0600)
+	}
+	err = os.Remove(journal.ManifestPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func (a *App) appAction(w http.ResponseWriter, r *http.Request) {

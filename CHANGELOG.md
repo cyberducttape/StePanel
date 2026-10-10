@@ -17,6 +17,11 @@
 - **Documented the API response-writer XSS boundary**: multipart uploads bypass
   the generic writer, JSON responses use HTML-escaping encoding, and untyped
   API bodies receive an octet-stream content type.
+- **Application deployments now use a durable activation journal**: runtime
+  application precedes manifest publication, failed applies restore the prior
+  service generation, and startup replays uncommitted activation journals.
+- Added regression coverage for startup replay restoring both the previous
+  application runtime and manifest generation.
 
 All notable changes to StePanel are documented here.
 
