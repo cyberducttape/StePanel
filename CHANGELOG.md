@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Customer site owners and managers can now queue Git deployments for their
+  assigned sites; the route remains protected by tenant ownership and the
+  `deploy:write` scope instead of an administrator-only gate.
+
 - The quota-enabled Ubuntu installation smoke test now polls cloud-init
   non-blockingly, enforces a bounded guest-readiness deadline, and reports
   cloud-init diagnostics immediately instead of repeatedly waiting on SSH

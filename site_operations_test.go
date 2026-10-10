@@ -313,4 +313,10 @@ func TestSiteOperationsAreRouted(t *testing.T) {
 			t.Errorf("site operation %s is not routed", name)
 		}
 	}
+	if !strings.Contains(string(source), `app.Auth.Require(app.siteOperation("git.deploy"))`) {
+		t.Fatal("Git deployment must use the site-scoped customer authorization wrapper")
+	}
+	if strings.Contains(string(source), `app.Auth.RequireAdministrator(app.siteOperation("git.deploy"))`) {
+		t.Fatal("Git deployment must not be administrator-only")
+	}
 }

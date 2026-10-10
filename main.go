@@ -763,7 +763,10 @@ func Main() {
 	mux.Handle("/api/backup-schedules", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.backupSchedules)), http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete))
 	mux.Handle("/api/apps", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.appList)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/apps/deploy", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.appDeploy)), http.MethodPost))
-	mux.Handle("/api/sites/git-deploy", allowMethods(app.Auth.RequireAdministrator(app.siteOperation("git.deploy")), http.MethodPost))
+	// Git deployment is a site-scoped customer operation. The operation
+	// handler still enforces site ownership and the deploy:write scope before
+	// queueing, while administrators retain access to every managed site.
+	mux.Handle("/api/sites/git-deploy", allowMethods(app.Auth.Require(app.siteOperation("git.deploy")), http.MethodPost))
 	mux.Handle("/api/sites/git-key/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteGitKey)), http.MethodGet, http.MethodHead, http.MethodPost, http.MethodDelete))
 	// Webhook endpoint now includes site in path for per-site secret isolation.
 	// Old endpoint /api/sites/git-webhook supported global secret only and is deprecated.

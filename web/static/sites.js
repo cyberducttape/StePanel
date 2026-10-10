@@ -643,7 +643,7 @@
       keyOutput,
     );
 
-    if (ctx.isAdministrator) {
+    if (ctx.isAdministrator || ctx.can('deploy:write')) {
       const repoField = field({ label: 'Repository', name: 'repository', placeholder: 'git@github.com:org/repo.git or https://…', required: true });
       const refField = field({ label: 'Branch or tag', name: 'ref', value: 'main', placeholder: 'main' });
       const deployForm = el('form', {
