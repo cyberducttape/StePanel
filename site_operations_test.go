@@ -121,6 +121,19 @@ func TestSiteOperationQueuesAndReplaysAsTheRequester(t *testing.T) {
 	}
 }
 
+func TestSiteOperationAllowsAssignedCustomerGitDeployment(t *testing.T) {
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{"queued":true}`)
+	app.Accounts = &AccountStore{accounts: map[string]HostingAccount{
+		"customer": {Username: "customer", Plan: "starter", Sites: []string{"shop"}},
+	}}
+	app.Auth.Accounts = app.Accounts
+	response := httptest.NewRecorder()
+	app.siteOperation("test.echo")(response, tokenRequest(http.MethodPost, "/api/test/echo", `{"site":"shop"}`, "customer", "deploy:write"))
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("assigned customer operation status = %d %s, want 202", response.Code, response.Body.String())
+	}
+}
+
 func TestSiteOperationReplaysBrowserSessionIdentity(t *testing.T) {
 	app, seen := newSiteOperationFixture(t, http.StatusOK, "done")
 	payload, _ := json.Marshal(siteOperationPayload{Operation: "test.echo", Path: "/api/test/echo", Body: []byte(`{"site":"shop"}`), Site: "shop", Actor: "admin"})

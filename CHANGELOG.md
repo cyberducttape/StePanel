@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Added regression coverage proving an assigned customer with the
+  `deploy:write` scope can queue a site-scoped durable operation.
+
 - Updated customer workflow and feature documentation to describe the
   tenant-scoped durable Git deployment path and its database/build-script
   limitations.
