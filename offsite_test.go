@@ -41,6 +41,21 @@ func TestOffsiteRcloneTransferArgsIncludeStallAndRetryPolicy(t *testing.T) {
 	}
 }
 
+func TestOffsiteRemoteObjectRejectsPathAndOptionInjection(t *testing.T) {
+	root, err := buildOffsiteRemoteRoot("s3:bucket/stepanel", "account", "backup-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, object := range []string{"../manifest.json", "-P", "manifest.json\n--config=/tmp/evil"} {
+		if _, err := offsiteRemoteObject(root, object); err == nil {
+			t.Errorf("offsiteRemoteObject accepted unsafe object %q", object)
+		}
+	}
+	if _, err := buildOffsiteRemoteRoot("s3:bucket/stepanel", "../account", "backup-1"); err == nil {
+		t.Error("buildOffsiteRemoteRoot accepted unsafe site")
+	}
+}
+
 func TestValidBackupNameRejectsRemotePathTraversal(t *testing.T) {
 	for _, name := range []string{"20260906-120000.000000000-account", "backup_v2-01"} {
 		if !validBackupName(name) {

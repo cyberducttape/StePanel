@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Offsite restore command arguments are now constrained at the trust
+  boundary**: remote identities and object names reject traversal, control
+  characters, and option-like values before filesystem paths or rclone
+  commands are constructed.
 - **Backup staging cleanup now respects live stage ownership**: backup
   creation holds a filesystem lock for the stage lifetime, and cleanup skips
   locked stages before applying the age safeguard.

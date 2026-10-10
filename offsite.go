@@ -106,7 +106,11 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		return "", func() {}, err
 	}
 	cleanup := func() { _ = os.RemoveAll(root) }
-	remoteRoot := strings.TrimRight(cfg.OffsiteTarget, "/") + "/" + site + "/" + backupName
+	remoteRoot, err := buildOffsiteRemoteRoot(cfg.OffsiteTarget, site, backupName)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
 	if err := downloadOffsiteObject(parent, remoteRoot, root, "manifest.json"); err != nil {
 		cleanup()
 		return "", func() {}, err
@@ -141,12 +145,17 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 	// this object, so absence is allowed and strict backup verification enforces the
 	// configured signing policy.
 	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxOffsiteObjectBytes))
+	defer cancel()
 	signaturePath := filepath.Join(root, "manifest.sig")
-	args := append([]string{"rclone", "copyto", remoteRoot + "/manifest.sig", signaturePath}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+	remoteSignature, err := offsiteRemoteObject(remoteRoot, "manifest.sig")
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	args := append([]string{"rclone", "copyto", remoteSignature, signaturePath}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Env = cloudCommandEnv()
 	_, copyErr := runBoundedCommand(ctx, cmd)
-	cancel()
 	if copyErr == nil {
 		if info, statErr := os.Stat(signaturePath); statErr != nil || info.Size() > maxOffsiteObjectBytes {
 			copyErr = errors.New("downloaded offsite signature exceeds the object limit")
@@ -159,10 +168,19 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 }
 
 func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object string) error {
+	if !validOffsiteObjectName(object) {
+		return errors.New("invalid offsite object name")
+	}
 	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxOffsiteObjectBytes))
 	defer cancel()
-	remote := remoteRoot + "/" + object
-	local := filepath.Join(localRoot, object)
+	remote, err := offsiteRemoteObject(remoteRoot, object)
+	if err != nil {
+		return err
+	}
+	local, err := safePath(localRoot, object)
+	if err != nil {
+		return fmt.Errorf("invalid offsite local object path: %w", err)
+	}
 	args := append([]string{"rclone", "copyto", remote, local}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Env = cloudCommandEnv()
@@ -178,6 +196,32 @@ func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object
 		return fmt.Errorf("downloaded offsite backup object %s exceeds the %d-byte limit", object, maxOffsiteObjectBytes)
 	}
 	return nil
+}
+
+func buildOffsiteRemoteRoot(target, site, backupName string) (string, error) {
+	if err := validateOffsiteTarget(target); err != nil || safeUser(site) == "" || !validBackupName(backupName) {
+		return "", errors.New("invalid offsite remote identity")
+	}
+	return strings.TrimRight(target, "/") + "/" + site + "/" + backupName, nil
+}
+
+func validOffsiteObjectName(object string) bool {
+	if object == "" || strings.HasPrefix(object, "-") || strings.ContainsAny(object, "/\\\x00\r\n") {
+		return false
+	}
+	for _, r := range object {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._-", r)) {
+			return false
+		}
+	}
+	return true
+}
+
+func offsiteRemoteObject(root, object string) (string, error) {
+	if strings.ContainsAny(root, "\x00\r\n") || !validOffsiteObjectName(object) {
+		return "", errors.New("invalid offsite remote object")
+	}
+	return root + "/" + object, nil
 }
 
 func validBackupName(name string) bool {
