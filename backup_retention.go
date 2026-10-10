@@ -9,10 +9,35 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
 const maxBackupManifestBytes = 8 << 20
+const backupStageLockName = ".stepanel-stage.lock"
+
+func acquireBackupStageLock(stage string) (*os.File, error) {
+	lock, err := os.OpenFile(filepath.Join(stage, backupStageLockName), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	return lock, nil
+}
+
+func releaseBackupStageLock(lock *os.File) error {
+	if lock == nil {
+		return nil
+	}
+	err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	if closeErr := lock.Close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
 
 // CleanupBackupStages removes abandoned backup staging directories left by a
 // process crash. A completed backup is atomically renamed away from the
@@ -37,15 +62,38 @@ func CleanupBackupStages(root string, maxAge time.Duration) error {
 		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), ".backup-") {
 			continue
 		}
+		lockPath := filepath.Join(root, entry.Name(), backupStageLockName)
+		var ownedLock *os.File
+		lock, lockErr := os.OpenFile(lockPath, os.O_RDWR, 0600)
+		if lockErr == nil {
+			lockErr = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			if lockErr != nil {
+				_ = lock.Close()
+				if errors.Is(lockErr, syscall.EWOULDBLOCK) || errors.Is(lockErr, syscall.EAGAIN) {
+					continue // An active backup owns this stage.
+				}
+				return fmt.Errorf("inspect backup staging ownership %s: %w", entry.Name(), lockErr)
+			}
+			// The stage is not active. Keep the lock while removing it so a
+			// concurrently starting cleanup/backup cannot race this decision.
+			ownedLock = lock
+		} else if !errors.Is(lockErr, os.ErrNotExist) {
+			return fmt.Errorf("inspect backup staging ownership %s: %w", entry.Name(), lockErr)
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return fmt.Errorf("inspect backup staging directory %s: %w", entry.Name(), err)
 		}
 		if info.ModTime().After(cutoff) {
+			_ = releaseBackupStageLock(ownedLock)
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
-			return fmt.Errorf("remove abandoned backup staging directory %s: %w", entry.Name(), err)
+		removeErr := os.RemoveAll(filepath.Join(root, entry.Name()))
+		if releaseErr := releaseBackupStageLock(ownedLock); removeErr == nil {
+			removeErr = releaseErr
+		}
+		if removeErr != nil {
+			return fmt.Errorf("remove abandoned backup staging directory %s: %w", entry.Name(), removeErr)
 		}
 		removed = true
 	}

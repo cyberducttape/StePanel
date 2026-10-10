@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Backup staging cleanup now respects live stage ownership**: backup
+  creation holds a filesystem lock for the stage lifetime, and cleanup skips
+  locked stages before applying the age safeguard.
 - **Backup signature verification is now memory-bounded**: malformed
   `manifest.sig` files are limited to 4 KiB before decoding.
 - **Backup retention prefers durable manifest creation timestamps**: renamed

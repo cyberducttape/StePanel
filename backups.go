@@ -230,6 +230,11 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := os.Chmod(tempDir, 0700); err != nil {
 		return result, err
 	}
+	stageLock, err := acquireBackupStageLock(tempDir)
+	if err != nil {
+		return result, fmt.Errorf("lock backup staging directory: %w", err)
+	}
+	defer func() { _ = releaseBackupStageLock(stageLock) }()
 	reservation, err := reserveBackupCapacity(cfg, tempDir, includeDatabases, ledger, siteBytes)
 	if err != nil {
 		return result, err
@@ -425,6 +430,12 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	}
 	if err := publishStagedDirectory(tempDir, finalPath, cfg.BackupRoot); err != nil {
 		return result, fmt.Errorf("publish backup: %w", err)
+	}
+	if err := os.Remove(filepath.Join(finalPath, backupStageLockName)); err != nil {
+		return result, fmt.Errorf("remove backup staging lock after publish: %w", err)
+	}
+	if err := syncDirectory(finalPath); err != nil {
+		return result, fmt.Errorf("persist backup staging lock removal: %w", err)
 	}
 	result = BackupResult{Site: siteName, Path: finalPath, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: cfg.BackupSigningKey != "", Encrypted: manifest.Encryption != ""}
 	return result, nil

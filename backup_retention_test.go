@@ -40,6 +40,29 @@ func TestCleanupBackupStagesTreatsMissingRootAsNoOp(t *testing.T) {
 	}
 }
 
+func TestCleanupBackupStagesSkipsOwnedStage(t *testing.T) {
+	root := t.TempDir()
+	stage := filepath.Join(root, ".backup-owned")
+	if err := os.Mkdir(stage, 0700); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireBackupStageLock(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseBackupStageLock(lock)
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stage, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanupBackupStages(root, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stage); err != nil {
+		t.Fatalf("active backup stage was removed: %v", err)
+	}
+}
+
 func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
 	root := t.TempDir()
 	for _, item := range []struct{ name, site string }{{"20260101-000000.000000000-demo", "demo"}, {"20260102-000000.000000000-demo", "demo"}, {"20260103-000000.000000000-demo", "demo"}, {"20260101-000000.000000000-other", "other"}} {
