@@ -12,7 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   requiring canonical absolute recovery paths and replacing parser errors with
   fixed client-safe upload errors before response handling; capacity failures
   no longer reflect filesystem paths in upload responses, and the parser-error
-  branch no longer passes request state into response handling.
+  branch no longer passes request state into response handling. Archive
+  inspection/import failures also use fixed client-safe response messages.
 - Serve Caddy sites through persistent per-site `nosymfollow` bind views so
   symlinks created after route publication cannot escape the document root.
 - Exercise the live Caddy view mount and post-publication symlink request in

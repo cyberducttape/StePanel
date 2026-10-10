@@ -155,7 +155,7 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 	}
 	operationKey, err := requestOperationKey(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		http.Error(w, "invalid operation key", http.StatusUnprocessableEntity)
 		return
 	}
 	if !allReady(WPressPreflight(a.Config)) {

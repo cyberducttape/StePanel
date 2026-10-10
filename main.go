@@ -1019,18 +1019,18 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 	storedCloseErr := stored.Close()
 	if err != nil {
 		_ = os.Remove(archivePath)
-		http.Error(w, err.Error(), 422)
+		http.Error(w, "backup archive could not be inspected", http.StatusUnprocessableEntity)
 		return
 	}
 	if storedCloseErr != nil {
 		_ = os.Remove(archivePath)
-		http.Error(w, "could not finalize staged upload: "+storedCloseErr.Error(), http.StatusInternalServerError)
+		http.Error(w, "could not finalize staged upload", http.StatusInternalServerError)
 		return
 	}
 	// Whether databases will be restored is chosen at import; check them then.
 	if err := a.checkCPMoveCapacity(info.ExpandedBytes, info.DatabaseBytes, false); err != nil {
 		_ = os.Remove(archivePath)
-		http.Error(w, err.Error(), http.StatusInsufficientStorage)
+		http.Error(w, "insufficient free space for archive inspection", http.StatusInsufficientStorage)
 		return
 	}
 	if required, _, err := cpmoveRequiredFreeBytes(a.Config, written, info.ExpandedBytes); err == nil {
@@ -1423,7 +1423,7 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(cpmoveImportRequestBytes)
 	defer cleanupMultipartForm(r)
 	if err != nil {
-		http.Error(w, "invalid upload: "+err.Error(), 400)
+		http.Error(w, "invalid upload form", http.StatusBadRequest)
 		return
 	}
 	if r.FormValue("confirm") != "IMPORT" {
@@ -1443,7 +1443,7 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.checkCPMoveCapacity(upload.ExpandedBytes, upload.DatabaseBytes, databaseRestore); err != nil {
-		http.Error(w, err.Error(), http.StatusInsufficientStorage)
+		http.Error(w, "insufficient free space for archive restore", http.StatusInsufficientStorage)
 		return
 	}
 	user := safeUser(r.FormValue("username"))
