@@ -1882,7 +1882,7 @@ func normalizeAPIErrors(next http.Handler) http.Handler {
 		// their own admission writer. Do not route those responses through the
 		// generic passthrough writer, which would make static analysis treat the
 		// request body as potentially reflected into an HTTP response.
-		if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		if r.URL.Path == "/api/cpmove/inspect" || r.URL.Path == "/api/wpress/restore" {
 			next.ServeHTTP(w, r)
 			return
 		}

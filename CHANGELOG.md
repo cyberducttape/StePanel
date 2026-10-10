@@ -5,9 +5,9 @@
 - **Cpmove inspection responses no longer return archive-derived names or paths**:
   the browser receives only the import token, bounded size/feature metadata, and
   item counts, closing the reflected XSS path reported by CodeQL.
-- **Multipart upload responses bypass the generic API passthrough writer**:
-  upload admission responses remain fixed and non-reflective, preventing
-  request-body data from reaching the generic HTTP response sink.
+- **Cpmove and WPress upload responses bypass the generic API passthrough
+  writer**: upload admission responses remain fixed and non-reflective,
+  preventing request-body data from reaching the generic HTTP response sink.
 
 All notable changes to StePanel are documented here.
 
