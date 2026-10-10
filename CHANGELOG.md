@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Recorded hosted installation smoke run `38076651823` passing on AlmaLinux 9
+  and Rocky Linux 9; quota-enabled installation validation remains queued.
+
 - **Application recovery manifest deletion now uses a no-follow directory
   descriptor**: persisted site identities are validated as single components,
   the canonical app-root path is rechecked, and recovery cannot unlink through

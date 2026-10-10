@@ -438,8 +438,8 @@ matrix below.
 4. Terminate (hosted worker kill/restart during site-state removal passes; interruptions during backup and cleanup remain)
 5. Account suspension (hosted panel kill/restart after persistence passes; external helper and earlier-stage interruptions remain)
 
-**Evidence currently available:** hosted installation smoke run `36529280956`
-passes on both AlmaLinux 9 and Rocky Linux 9 for the default recovery drills
+**Evidence currently available:** hosted installation smoke run `38076651823`
+(superseding `36529280956`) passes on both AlmaLinux 9 and Rocky Linux 9 for the default recovery drills
 and an expanded alternate kill-boundary matrix covering cpmove import, backup
 verification, file-restore commit, termination, account suspension, and Git
 deployment activation. The deployment drill verifies that startup recovery

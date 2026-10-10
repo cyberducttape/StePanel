@@ -138,7 +138,7 @@ limited to non-production development installs.
 
 ### Gate 5: Failure Injection Testing (partial; Phase 7 remains open)
 
-**Status:** Partial. The 2026-10-09 KVM certification run passed the full 105-drill recovery matrix once on a SELinux-enforcing Rocky Linux 9 guest, plus abrupt guest kills and a real ENOSPC backup ([results](lab-results/2026-10-09-rocky9-kvm-certification.md)). Earlier, hosted recovery evidence passed on both disposable distributions for the default drills and the expanded alternate kill-boundary matrix covering cpmove, backup, file restore, termination, account suspension, and Git deploy. A Rocky Linux 9.8 VM passed the same installed-host drills plus abrupt QEMU-process kill/reboot and MariaDB service outage/restart checks; the full Phase 7 failure matrix remains open.
+**Status:** Partial. The 2026-10-09 KVM certification run passed the full 105-drill recovery matrix once on a SELinux-enforcing Rocky Linux 9 guest, plus abrupt guest kills and a real ENOSPC backup ([results](lab-results/2026-10-09-rocky9-kvm-certification.md)). The latest hosted installation smoke run `38076651823` also passed on both AlmaLinux 9 and Rocky Linux 9. Earlier, hosted recovery evidence passed on both disposable distributions for the default drills and the expanded alternate kill-boundary matrix covering cpmove, backup, file restore, termination, account suspension, and Git deploy. A Rocky Linux 9.8 VM passed the same installed-host drills plus abrupt QEMU-process kill/reboot and MariaDB service outage/restart checks; the full Phase 7 failure matrix remains open.
 
 - ✅ Phase 1: Failure Injection Framework (100%)
 - ✅ Phase 2: Durable Checkpoint System (100%)
