@@ -273,6 +273,41 @@ func TestDurableCapacityReservationGrowsWithoutInMemoryLedger(t *testing.T) {
 	}
 }
 
+func TestDurableCapacityReservationConsumesAndExtendsWithoutInMemoryLedger(t *testing.T) {
+	withProgressiveStep(t, 1000)
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demandsFor := func(bytes uint64) []capacityDemand {
+		return []capacityDemand{{Path: cfg.ImportRoot, Bytes: bytes}}
+	}
+	reservation, err := ledger.reserveProgressive(cfg, "streamed-upload", cfg.ImportRoot, 2500, demandsFor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.release()
+	if err := reservation.consume(600); err != nil {
+		t.Fatalf("durable consume failed: %v", err)
+	}
+	if got := ledger.heldBytes(cfg.ImportRoot); got != 1400 {
+		t.Fatalf("durable held bytes after consume and extension = %d, want 1400", got)
+	}
+	if err := reservation.consume(1000); err != nil {
+		t.Fatalf("durable progressive extension failed: %v", err)
+	}
+	if got := ledger.heldBytes(cfg.ImportRoot); got != 1000 {
+		t.Fatalf("durable held bytes after extension = %d, want 1000", got)
+	}
+}
+
 func TestCapacityReservationConsumeReleasesWrittenBytes(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0

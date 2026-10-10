@@ -184,6 +184,49 @@ func (r *capacityReservation) extendLocked(demands []capacityDemand) error {
 		return err
 	}
 	l := r.ledger
+	if l.db != nil {
+		tx, txErr := l.db.Begin()
+		if txErr != nil {
+			return fmt.Errorf("begin capacity extension: %w", txErr)
+		}
+		rollback := true
+		defer func() {
+			if rollback {
+				_ = tx.Rollback()
+			}
+		}()
+		if _, txErr = tx.Exec(`INSERT INTO state_blobs(name,payload,updated_at,revision) VALUES('capacity-ledger-lock',X'',unixepoch(),0) ON CONFLICT(name) DO UPDATE SET updated_at=excluded.updated_at`); txErr != nil {
+			return fmt.Errorf("lock capacity ledger extension: %w", txErr)
+		}
+		for _, demand := range grouped {
+			outstanding, readErr := l.durableHeld(tx, demand.device)
+			if readErr != nil {
+				return fmt.Errorf("read capacity before extension: %w", readErr)
+			}
+			free, statErr := availableBytes(demand.path)
+			if statErr != nil {
+				return fmt.Errorf("inspect %s capacity at %s: %w", r.workflow, demand.path, statErr)
+			}
+			if required := saturatingAdd(saturatingAdd(outstanding, demand.bytes), r.reserve); free < required {
+				return &capacityError{fmt.Sprintf("insufficient free space at %s to continue this %s: %d bytes available, %d more needed beyond %d already reserved", demand.path, r.workflow, free, demand.bytes, outstanding)}
+			}
+		}
+		for _, demand := range grouped {
+			bytes, convErr := capacitySQLBytes(demand.bytes)
+			if convErr != nil {
+				return convErr
+			}
+			if _, txErr = tx.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, bytes, r.id, demand.device); txErr != nil {
+				return fmt.Errorf("extend capacity reservation: %w", txErr)
+			}
+			r.held[demand.device] += demand.bytes
+		}
+		if txErr = tx.Commit(); txErr != nil {
+			return fmt.Errorf("commit capacity extension: %w", txErr)
+		}
+		rollback = false
+		return nil
+	}
 	for _, demand := range grouped {
 		free, err := availableBytes(demand.path)
 		if err != nil {
@@ -341,7 +384,9 @@ func (r *capacityReservation) consume(size int64) error {
 	if written > r.consumedSize {
 		landed := min(written-r.consumedSize, r.held[r.stagingDev])
 		r.held[r.stagingDev] -= landed
-		l.held[r.stagingDev] -= landed
+		if l.held != nil {
+			l.held[r.stagingDev] -= landed
+		}
 		if l.db != nil && r.id != "" && landed > 0 {
 			if bytes, err := capacitySQLBytes(landed); err == nil {
 				if _, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=MAX(bytes-?,0) WHERE reservation_id=? AND device=?`, bytes, r.id, r.stagingDev); dbErr != nil {
@@ -370,7 +415,18 @@ func (r *capacityReservation) consume(size int64) error {
 	if err != nil {
 		return fmt.Errorf("inspect %s capacity at %s: %w", r.workflow, r.stagingPath, err)
 	}
-	if required := saturatingAdd(l.held[r.stagingDev], r.reserve); free < required {
+	held := l.held[r.stagingDev]
+	if l.db != nil {
+		var durable sql.NullInt64
+		if err := l.db.QueryRow(`SELECT SUM(bytes) FROM capacity_reservations WHERE device=?`, r.stagingDev).Scan(&durable); err != nil {
+			return fmt.Errorf("read capacity after write: %w", err)
+		}
+		held = 0
+		if durable.Valid && durable.Int64 > 0 {
+			held = uint64(durable.Int64)
+		}
+	}
+	if required := saturatingAdd(held, r.reserve); free < required {
 		return &capacityError{fmt.Sprintf("free space at %s fell to %d bytes during this %s; %d are needed for in-progress uploads and the reserve", r.stagingPath, free, r.workflow, required)}
 	}
 	return nil
