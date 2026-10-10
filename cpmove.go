@@ -155,7 +155,7 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	// The filename is returned in the API inspection response. Escape it at
 	// the trust boundary so a hostile multipart filename cannot become markup
 	// if a client renders the response in a browser.
-	info := CPMoveInfo{Archive: html.EscapeString(header.Filename), ArchiveBytes: header.Size, User: userFromArchiveName(header.Filename)}
+	info := CPMoveInfo{Archive: html.EscapeString(header.Filename), ArchiveBytes: header.Size, User: html.EscapeString(userFromArchiveName(header.Filename))}
 	seen := map[string]bool{}
 	seenMail := map[string]bool{}
 	paths := archivesafe.NewPathSet()
@@ -191,7 +191,7 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 		entry := normalizeCPMovePath(h.Name)
 		name := entry.Path
 		if info.User == "" && entry.User != "" {
-			info.User = entry.User
+			info.User = html.EscapeString(entry.User)
 		}
 		parts := strings.Split(name, "/")
 		if len(parts) > 1 && parts[0] == "homedir" {
@@ -203,7 +203,7 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 				// The dumps bound the database server's data growth; the
 				// import admission check reserves for it.
 				info.DatabaseBytes += h.Size
-				db := strings.TrimSuffix(filepath.Base(name), ".sql")
+				db := html.EscapeString(strings.TrimSuffix(filepath.Base(name), ".sql"))
 				if !seen[db] {
 					info.Databases = append(info.Databases, db)
 					seen[db] = true
@@ -213,7 +213,7 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 		if strings.HasPrefix(name, "homedir/mail/") {
 			info.HasMail = true
 			if len(parts) >= 4 {
-				mailbox := parts[2] + "/" + parts[3]
+				mailbox := html.EscapeString(parts[2] + "/" + parts[3])
 				if !seenMail[mailbox] {
 					info.Mailboxes = append(info.Mailboxes, mailbox)
 					seenMail[mailbox] = true
