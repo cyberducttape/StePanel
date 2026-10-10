@@ -111,6 +111,7 @@ job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^"]*\)".*/\1/p')
 [[ -n $job_id ]] || { echo "backup request did not return a durable job: $response" >&2; exit 1; }
 
 killed=0
+restore_status=''
 for _ in $(seq 1 90); do
   current=$(systemctl show stepanel-worker.service -p MainPID --value)
   if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
@@ -194,9 +195,32 @@ for _ in $(seq 1 90); do
     wait_for_panel_ready
     break
   fi
+  # A restore can fail before reaching the injected boundary (for example
+  # because durable authorization or scheduling rejected it). Report that
+  # durable result immediately instead of misdiagnosing it as a missing
+  # process kill after 90 seconds.
+  restore_status=$(curl --fail --silent --show-error --max-time 10 \
+    -H "Cookie: $cookie_header" "$PANEL/api/jobs/$restore_job_id" || true)
+  restore_state=$(printf '%s' "$restore_status" | sed -n 's/.*"state":"\([^\"]*\)".*/\1/p')
+  case "$restore_state" in
+    completed)
+      echo "restore completed before injected kill boundary $RESTORE_KILL_AT: $restore_status" >&2
+      exit 1
+      ;;
+    failed|dead-letter|cancelled)
+      echo "restore job ended in $restore_state before injected kill boundary $RESTORE_KILL_AT: $restore_status" >&2
+      exit 1
+      ;;
+  esac
   sleep 1
 done
-(( killed )) || { echo 'worker PID never changed; injected restore process-kill boundary was not observed' >&2; exit 1; }
+if (( ! killed )); then
+  echo "worker PID never changed; injected restore process-kill boundary $RESTORE_KILL_AT was not observed" >&2
+  echo "last durable restore status: ${restore_status:-unavailable}" >&2
+  systemctl status stepanel-worker.service --no-pager >&2 || true
+  journalctl -u stepanel-worker.service -n 100 --no-pager >&2 || true
+  exit 1
+fi
 
 state=''
 status=''

@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - Route privileged site sealing through the root broker's persisted site identity so production app services receive the ownership and ACL setup required to start.
+- Make the restore recovery smoke report durable job failures and worker diagnostics before declaring an injected kill boundary missing.
 
 ### Changed
 
