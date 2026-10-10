@@ -1,5 +1,9 @@
 # Changelog
 
+- Hardened the off-site rclone runner's fixed executable construction and made
+  account-suspension recovery smoke failures report the response that caused
+  the failed gate.
+
 ## Unreleased
 
 - Hardened native and lab installation paths so root-broker recovery journals use a root-owned `/var/lib/stepanel/recovery` directory, separate from the panel-owned workspace.

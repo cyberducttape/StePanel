@@ -117,9 +117,19 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 }
 
 func runOffsiteRclone(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "rclone", args...)
+	// Keep the executable fixed and append operands after construction so
+	// provider-controlled paths remain distinct argument values.
+	cmd := exec.CommandContext(ctx, "rclone")
+	cmd.Args = append(cmd.Args, args...)
 	cmd.Env = cloudCommandEnv()
 	return runBoundedCommand(ctx, cmd)
+}
+
+func runOffsiteRcloneLimit(ctx context.Context, limit int, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "rclone")
+	cmd.Args = append(cmd.Args, args...)
+	cmd.Env = cloudCommandEnv()
+	return runBoundedCommandLimit(ctx, cmd, limit)
 }
 
 func offsiteBackupDirectorySize(root string) (int64, error) {
@@ -397,9 +407,7 @@ func listOffsiteBackupsContext(parent context.Context, cfg Config) ([]offsiteBac
 	// Only manifests are listed so a large repository stays well inside the
 	// output bound. A listing that reaches the bound is refused rather than
 	// silently sampling only the first backups in lexical order.
-	cmd := exec.CommandContext(ctx, "rclone", "lsf", strings.TrimRight(cfg.OffsiteTarget, "/"), "--recursive", "--files-only", "--include", "/*/*/manifest.json")
-	cmd.Env = cloudCommandEnv()
-	output, err := runBoundedCommandLimit(ctx, cmd, maxOffsiteListingBytes)
+	output, err := runOffsiteRcloneLimit(ctx, maxOffsiteListingBytes, "lsf", strings.TrimRight(cfg.OffsiteTarget, "/"), "--recursive", "--files-only", "--include", "/*/*/manifest.json")
 	if err != nil {
 		return nil, fmt.Errorf("list offsite backups failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}

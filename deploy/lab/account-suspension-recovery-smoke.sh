@@ -70,7 +70,7 @@ PY
 sleep $((31 - $(date +%s) % 30))
 login
 
-curl --fail --silent --show-error --max-time 30 \
+account_response=$(curl --fail --silent --show-error --max-time 30 \
   -H "Cookie: $COOKIE_HEADER" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
   -H 'Content-Type: application/json' \
@@ -85,7 +85,10 @@ print(json.dumps({
 }))
 PY
 )" \
-  "$PANEL/api/accounts" >/dev/null
+  "$PANEL/api/accounts") || {
+  echo "account creation failed: $account_response" >&2
+  exit 1
+}
 
 printf '%s\n' '[Service]' "Environment=STEPANEL_KILL_AT=$SUSPENSION_KILL_AT" > "$dropin"
 systemctl daemon-reload
@@ -97,7 +100,10 @@ for _ in $(seq 1 60); do
   fi
   sleep 1
 done
-curl --fail --silent --show-error --max-time 10 "$PANEL/readyz" >/dev/null
+ready_response=$(curl --fail --silent --show-error --max-time 10 "$PANEL/readyz") || {
+  echo "panel readiness failed after restart: $ready_response" >&2
+  exit 1
+}
 before=$(systemctl show stepanel.service -p MainPID --value)
 [[ "$before" =~ ^[1-9][0-9]*$ ]] || { echo "could not determine panel PID: $before" >&2; exit 1; }
 
@@ -138,7 +144,10 @@ for _ in $(seq 1 60); do
 done
 curl --fail --silent --show-error --max-time 10 "$PANEL/readyz" >/dev/null
 accounts=$(curl --fail --silent --show-error --max-time 10 \
-  -H "Cookie: $COOKIE_HEADER" "$PANEL/api/accounts")
+  -H "Cookie: $COOKIE_HEADER" "$PANEL/api/accounts") || {
+  echo 'account inventory failed after recovery' >&2
+  exit 1
+}
 # A kill after the suspension is persisted must leave the account suspended.
 # A kill before it is persisted happens before the request is acknowledged
 # (the administrator sees a failed request and retries); the account must be
