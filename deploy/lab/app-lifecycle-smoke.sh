@@ -142,7 +142,10 @@ EOF
   chmod 0644 "$nvm_dir/nvm.sh"
   chmod 0755 "$nvm_dir/smoke-bin/npm"
 fi
-/usr/local/sbin/stepanel-sitectl seal "$site"
+# The durable site-creation workflow already sealed this tree with its
+# persisted collision-safe Unix identity. Do not call the legacy two-argument
+# helper shape here: in unsafe lab mode it derives the retired truncated name
+# and would reassign ownership away from the account used by the app unit.
 
 # api METHOD PATH [JSON] prints the HTTP status; the body lands in $work/response.
 api() {

@@ -17,6 +17,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **Fix durable streamed-upload capacity accounting**: progressive growth and
   consumption now remain coordinated through the shared SQLite ledger instead
   of relying on an empty process-local hold map.
+- **Fix app lifecycle smoke identity handling**: the durable site-creation test
+  no longer re-seals with the retired derived account name after creating a
+  persisted collision-safe site identity.
 - **Database backup capacity is accounted for per dump**: each managed
   database reserves its inventory-based predicted dump size before execution,
   reconciles the reservation to the measured dump, and falls back to the
