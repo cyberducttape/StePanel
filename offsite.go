@@ -248,10 +248,8 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		cleanup()
 		return "", func() {}, err
 	}
-	args := append([]string{"rclone", "copyto", remoteSignature, signaturePath}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Env = cloudCommandEnv()
-	_, copyErr := runBoundedCommand(ctx, cmd)
+	copyArgs := append([]string{"copyto", remoteSignature, signaturePath}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+	_, copyErr := runOffsiteRclone(ctx, copyArgs...)
 	if copyErr == nil {
 		if info, statErr := os.Stat(signaturePath); statErr != nil || info.Size() > maxOffsiteObjectBytes {
 			copyErr = errors.New("downloaded offsite signature exceeds the object limit")
@@ -277,10 +275,8 @@ func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object
 	if err != nil {
 		return fmt.Errorf("invalid offsite local object path: %w", err)
 	}
-	args := append([]string{"rclone", "copyto", remote, local}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Env = cloudCommandEnv()
-	output, err := runBoundedCommand(ctx, cmd)
+	copyArgs := append([]string{"copyto", remote, local}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+	output, err := runOffsiteRclone(ctx, copyArgs...)
 	if err != nil {
 		return fmt.Errorf("download offsite backup object %s: %w: %s", object, err, strings.TrimSpace(string(output)))
 	}

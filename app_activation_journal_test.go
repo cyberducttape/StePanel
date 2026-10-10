@@ -58,3 +58,19 @@ func TestRecoverAppActivationJournalRestoresRuntimeAndManifest(t *testing.T) {
 		t.Fatalf("activation journal still exists: %v", err)
 	}
 }
+
+func TestRestoreAppActivationRejectsJournalPathOutsideAppRoot(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{AppRoot: filepath.Join(root, "apps"), AppCtl: filepath.Join(root, "appctl")}
+	if err := os.MkdirAll(cfg.AppRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	journal := &appActivationJournal{
+		Site:         "demo",
+		ManifestPath: filepath.Join(root, "outside", "manifest.json"),
+		HadPrevious:  false,
+	}
+	if err := restoreAppActivation(cfg, t.Context(), journal); err == nil || !strings.Contains(err.Error(), "invalid manifest path") {
+		t.Fatalf("restoreAppActivation error = %v, want path rejection", err)
+	}
+}

@@ -5,6 +5,7 @@
 - Hardened native and lab installation paths so root-broker recovery journals use a root-owned `/var/lib/stepanel/recovery` directory, separate from the panel-owned workspace.
 - Hardened durable capacity reservation IDs against cross-process and fallback-source collisions that could reject valid uploads.
 - Fixed multi-filesystem capacity reservations by migrating the ledger to a composite reservation/device key.
+- Centralized off-site rclone execution and revalidated application journal manifest paths before recovery writes or deletion.
 
 - **User-level site hosting is now available**: active tenant owners can
   create durable blank PHP sites within their plan, with atomic site ownership

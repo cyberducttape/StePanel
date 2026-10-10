@@ -192,7 +192,10 @@ func restoreAppActivation(cfg Config, ctx context.Context, journal *appActivatio
 	if journal == nil {
 		return errors.New("application activation journal is missing")
 	}
-	var err error
+	manifestPath, err := safePath(cfg.AppRoot, journal.Site+".json")
+	if err != nil || filepath.Clean(journal.ManifestPath) != filepath.Clean(manifestPath) {
+		return errors.New("application activation journal contains an invalid manifest path")
+	}
 	if journal.HadPrevious && journal.RestoreManifest != nil {
 		err = restoreAppProcess(ctx, cfg, *journal.RestoreManifest)
 	} else if !journal.HadPrevious {
@@ -202,9 +205,9 @@ func restoreAppActivation(cfg Config, ctx context.Context, journal *appActivatio
 		return err
 	}
 	if journal.HadPrevious {
-		return writeAtomic(journal.ManifestPath, journal.Previous, 0600)
+		return writeAtomic(manifestPath, journal.Previous, 0600)
 	}
-	err = os.Remove(journal.ManifestPath)
+	err = os.Remove(manifestPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
