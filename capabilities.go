@@ -512,26 +512,21 @@ func (a *App) checkFilesystemQuotasCapability() Capability {
 }
 
 func (a *App) checkOffsiteBackupCapability() Capability {
-	if a.Config.OffsiteTarget == "" {
-		return newCapability(CapabilityUnsupported, "STEPANEL_OFFSITE_TARGET not configured")
-	}
-	if err := validateOffsiteTarget(a.Config.OffsiteTarget); err != nil {
-		return newCapability(CapabilityConfigured, err.Error())
-	}
-	if err := cachedOffsiteRemoteProbe(a.Config.OffsiteTarget); err != nil {
-		if err == errOffsiteToolMissing {
-			return newCapability(CapabilityConfigured, "target syntax is valid but rclone is not found in PATH")
+	ready, reason := a.checkOffsiteTargetReadiness()
+	if !ready {
+		if a.Config.OffsiteTarget == "" {
+			return newCapability(CapabilityUnsupported, reason)
 		}
-		return newCapability(CapabilityLocal, fmt.Sprintf("rclone and target syntax are valid, but remote access was not verified: %v", err))
+		return newCapability(CapabilityLocal, reason)
 	}
 	if a.BackupIndex == nil {
-		return newCapability(CapabilityDegraded, "remote health object was written, read back, and deleted; backup recoverability history is unavailable")
+		return newCapability(CapabilityDegraded, reason+"; backup recoverability history is unavailable")
 	}
 	summary, err := a.BackupIndex.OffsiteSummary(a.Config.OffsiteTarget)
 	if err != nil {
-		return newCapability(CapabilityDegraded, "remote health object was written, read back, and deleted; backup history query failed")
+		return newCapability(CapabilityDegraded, reason+"; backup history query failed")
 	}
-	detail := "remote health object write/read/delete verified"
+	detail := reason
 	if summary.LastSuccessfulBackup != nil {
 		detail += "; last successful backup " + time.Since(*summary.LastSuccessfulBackup).Round(time.Minute).String() + " ago"
 	} else {
@@ -548,6 +543,27 @@ func (a *App) checkOffsiteBackupCapability() Capability {
 	}
 	detail += "; no tracked unreplicated backups"
 	return newCapability(CapabilityRemote, detail)
+}
+
+// checkOffsiteTargetReadiness verifies only that the configured destination is
+// reachable. It intentionally does not claim that a customer backup can be
+// recovered; that evidence belongs to checkOffsiteBackupCapability and the
+// operational health endpoint. A fresh installation has no backup history yet
+// and must still be able to become ready to accept its first site.
+func (a *App) checkOffsiteTargetReadiness() (bool, string) {
+	if a.Config.OffsiteTarget == "" {
+		return false, "STEPANEL_OFFSITE_TARGET not configured"
+	}
+	if err := validateOffsiteTarget(a.Config.OffsiteTarget); err != nil {
+		return false, err.Error()
+	}
+	if err := cachedOffsiteRemoteProbe(a.Config.OffsiteTarget); err != nil {
+		if err == errOffsiteToolMissing {
+			return false, "target syntax is valid but rclone is not found in PATH"
+		}
+		return false, fmt.Sprintf("rclone and target syntax are valid, but remote access was not verified: %v", err)
+	}
+	return true, "remote target write/read/delete verified; backup recoverability evidence is reported separately"
 }
 
 // checkBuildCapability reports on the sandboxed-build path end-to-end.

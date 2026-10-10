@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Fresh production installs now gate `/readyz` on offsite target reachability,
+  while retaining backup and verified-restore evidence as an operational
+  health requirement after installation.
+
 - Readiness probes now use a bounded lightweight SQLite query while full
   `quick_check` integrity verification runs in background maintenance and
   exposes its timestamp and result. Dead-letter jobs are retained until an

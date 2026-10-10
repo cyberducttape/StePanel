@@ -163,8 +163,9 @@ plane fails its integrity check, persistent job state has failed
 or the import, backup, or recovery filesystem is unavailable or below
 `STEPANEL_MIN_FREE_BYTES`; use it for traffic and post-upgrade checks.
 
-In production, `/readyz` also fails closed when the configured root broker is
-unavailable. The authenticated `/api/health/operational` endpoint returns
+In production, `/readyz` also fails closed when the configured root broker or
+required offsite target is unavailable. A fresh install can become ready before
+its first backup. The authenticated `/api/health/operational` endpoint returns
 `503` with `ok:false` when any operational check is degraded. Its offsite
 status includes the age of the latest uploaded backup, latest verified restore,
 and oldest unreplicated backup; remote object connectivity alone is not a

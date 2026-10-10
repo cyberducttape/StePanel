@@ -60,6 +60,30 @@ func TestReadyzChecksPersistentCapacity(t *testing.T) {
 	}
 }
 
+func TestReadyzAllowsFreshRequiredOffsiteInstallBeforeFirstBackup(t *testing.T) {
+	previousProbe := probeOffsiteRemote
+	probeOffsiteRemote = func(string) error { return nil }
+	t.Cleanup(func() { probeOffsiteRemote = previousProbe; resetOffsiteProbeCache() })
+	resetOffsiteProbeCache()
+	root := t.TempDir()
+	imports, backups, sites := filepath.Join(root, "imports"), filepath.Join(root, "backups"), filepath.Join(root, "sites")
+	for _, path := range []string{imports, backups, sites} {
+		if err := os.MkdirAll(path, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := &App{Config: Config{
+		ImportRoot: imports, BackupRoot: backups, JobState: filepath.Join(root, "jobs.json"),
+		RecoveryRoot: filepath.Join(sites, ".stepanel-recovery"), MinFreeBytes: 1,
+		RequireOffsiteBackup: true, OffsiteTarget: "s3:bucket/stepanel",
+	}, Jobs: NewJobs()}
+	response := httptest.NewRecorder()
+	app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "remote target write/read/delete verified") {
+		t.Fatalf("fresh required-offsite readiness status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestReadyzIncludesRootBrokerInProduction(t *testing.T) {
 	t.Setenv("STEPANEL_ROOT_BROKER_SOCKET", "")
 	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", "")

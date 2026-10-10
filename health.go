@@ -25,8 +25,8 @@ func (a *App) livez(w http.ResponseWriter, _ *http.Request) {
 func (a *App) readyz(w http.ResponseWriter, r *http.Request) {
 	checks := readinessChecks(a.Config, a.Jobs)
 	if a.Config.RequireOffsiteBackup {
-		capability := a.checkOffsiteBackupCapability()
-		checks["offsite_backup"] = ReadinessCheck{Ready: capability.Mode == CapabilityRemote, Detail: string(capability.Mode) + ": " + capability.Reason}
+		ready, reason := a.checkOffsiteTargetReadiness()
+		checks["offsite_backup"] = ReadinessCheck{Ready: ready, Detail: reason}
 	}
 	startupInProgress, startupError := a.startup.status()
 	if startupInProgress {

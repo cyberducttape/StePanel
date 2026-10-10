@@ -119,10 +119,13 @@ curl -fsS "$PANEL/metrics"              # Prometheus text format
 ```
 
 `/readyz` returns `503` when the control plane cannot safely serve requests or
-when production-required dependencies such as the root broker are unavailable—
+when production-required dependencies such as the root broker or configured
+offsite target are unavailable—
 for example, while startup recovery is running, persistent storage is
 unavailable, the SQLite integrity check fails, or session persistence is
-unavailable. The authenticated operational endpoint returns `503` and
+unavailable. A fresh install can become ready before its first backup; backup
+and restore history is evaluated by the authenticated operational endpoint,
+which returns `503` and
 `ok:false` whenever any operational check is degraded, including dead letters,
 capacity, backup, reconciliation, audit-outbox backlog, or broker health:
 
