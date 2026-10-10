@@ -80,6 +80,9 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, fmt.Errorf("acquire durable site lock: %w", lockErr)
 	}
 	defer releaseUnlock()
+	if err := a.reconcileInterruptedSiteWithLease(operationCtx, request.Site, a.siteManager); err != nil {
+		return nil, fmt.Errorf("reconcile interrupted backup restore: %w", err)
+	}
 	// Restoring replaces live site content: Class A. A retried job records a
 	// fresh intent for each attempt.
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, request.Actor, "backup."+request.Mode, request.Site, request.Backup)

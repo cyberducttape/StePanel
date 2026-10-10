@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/operations"
+	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
 func TestDatabaseRecoveryJournalSurvivesProcessKill(t *testing.T) {
@@ -89,6 +90,46 @@ func TestRecoverSiteTransactionAfterProcessDeath(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertTestFile(t, filepath.Join(home, "index.html"), "old")
+}
+
+func TestRestoreRetryReconcilesPriorSiteJournalBeforeNewGeneration(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("r", 32))
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	recoveryRoot := filepath.Join(webRoot, "sites", ".stepanel-recovery")
+	siteRoot := filepath.Join(webRoot, "sites", "retry-site")
+	if err := os.MkdirAll(filepath.Dir(siteRoot), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	txn, err := BeginSiteTransaction(recoveryRoot, filepath.Join(siteRoot, "public"), "cpmove.restore", AuthorizedSite{site: "retry-site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if txn.HadExisting {
+		t.Fatal("test transaction unexpectedly detected an existing site")
+	}
+	if err := os.MkdirAll(filepath.Join(siteRoot, "public"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(siteRoot, "public", "index.html"), "interrupted generation")
+	manager, err := siteauthority.NewDefaultManager(webRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{WebRoot: webRoot, RecoveryRoot: recoveryRoot, AuditLog: filepath.Join(root, "audit.jsonl")}}
+	if err := app.reconcileInterruptedSiteWithLease(context.Background(), "retry-site", manager); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := loadSiteTransaction(txn.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.State != "rolled-back" {
+		t.Fatalf("recovered transaction state = %q, want rolled-back", recovered.State)
+	}
+	if _, err := os.Stat(filepath.Join(siteRoot, "public")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("interrupted public tree still exists after reconciliation: %v", err)
+	}
 }
 
 func TestValidatedRecoveryPathRejectsNonCanonicalTraversal(t *testing.T) {

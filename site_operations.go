@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"time"
+
+	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
 // Long-running site operations (Git checkout and build, container builds,
@@ -259,15 +261,36 @@ func (a *App) recoverInterruptedSiteOperation(ctx context.Context, site string) 
 		return fmt.Errorf("%s; recovery could not lock the site: %w", siteOperationInterrupted, err)
 	}
 	defer unlock()
-	held := func(context.Context, string) (context.Context, func(), error) { return siteCtx, func() {}, nil }
 	manager := a.siteManager
 	if manager == nil {
 		if manager, err = newSiteManagerForConfig(a.Config); err != nil {
 			return fmt.Errorf("%s; recovery is unavailable: %w", siteOperationInterrupted, err)
 		}
 	}
-	if failures := recoverInterruptedState(a.Config, manager, held, site); len(failures) > 0 {
-		return fmt.Errorf("%s; recovery of the site is incomplete and is retried when the panel restarts: %w", siteOperationInterrupted, errors.Join(failures...))
+	if err := a.reconcileInterruptedSiteWithLease(siteCtx, site, manager); err != nil {
+		return fmt.Errorf("%s; recovery of the site is incomplete and is retried when the panel restarts: %w", siteOperationInterrupted, err)
 	}
 	return errors.New(siteOperationInterrupted)
+}
+
+// reconcileInterruptedSiteWithLease completes recovery journals left by an
+// earlier attempt while the caller holds the site's mutation lease. Durable
+// retries use this before creating a new journal; otherwise a retry can leave
+// two generations of site state and a later lifecycle operation can strand the
+// older journal permanently.
+func (a *App) reconcileInterruptedSiteWithLease(ctx context.Context, site string, manager siteauthority.Manager) error {
+	if manager == nil {
+		var err error
+		manager, err = newSiteManagerForConfig(a.Config)
+		if err != nil {
+			return err
+		}
+	}
+	held := func(context.Context, string) (context.Context, func(), error) {
+		return ctx, func() {}, nil
+	}
+	if failures := recoverInterruptedState(a.Config, manager, held, site); len(failures) > 0 {
+		return errors.Join(failures...)
+	}
+	return nil
 }

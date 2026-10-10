@@ -1136,6 +1136,9 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
+	if err := a.reconcileInterruptedSiteWithLease(operationCtx, request.User, a.siteManager); err != nil {
+		return nil, fmt.Errorf("reconcile interrupted cpmove restore: %w", err)
+	}
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, request.Actor, "cpmove.restore", request.User, request.Filename)
 	if err != nil {
 		return nil, err
@@ -1317,6 +1320,9 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	defer releaseUnlock()
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
+	}
+	if err := a.reconcileInterruptedSiteWithLease(operationCtx, request.Site, a.siteManager); err != nil {
+		return nil, fmt.Errorf("reconcile interrupted WordPress restore: %w", err)
 	}
 	// The staged archive is already on disk; extraction and the site staging
 	// tree each need about its size again.
