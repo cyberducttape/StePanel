@@ -45,14 +45,18 @@ func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lock
 			failures = append(failures, fmt.Errorf("audit database recovery %s: %w", id, err))
 		}
 	}
-	recovered, err := recoverSiteTransactionsWithRename(cfg.RecoveryRoot, site, func(transactionSite, source, destination string) error {
-		return runTypedSiteMutation(context.Background(), cfg, rootbroker.SiteRequest{
-			Action:              "snapshot-restore",
-			Site:                transactionSite,
-			SnapshotSource:      source,
-			SnapshotDestination: destination,
-		})
-	}, cfg.WebRoot, cfg.MailRoot)
+	var renameForSite func(string, string, string) error
+	if cfg.Production || labDirectRootBrokerEnabled() {
+		renameForSite = func(transactionSite, source, destination string) error {
+			return runTypedSiteMutation(context.Background(), cfg, rootbroker.SiteRequest{
+				Action:              "snapshot-restore",
+				Site:                transactionSite,
+				SnapshotSource:      source,
+				SnapshotDestination: destination,
+			})
+		}
+	}
+	recovered, err := recoverSiteTransactionsWithRename(cfg.RecoveryRoot, site, renameForSite, cfg.WebRoot, cfg.MailRoot)
 	if err != nil {
 		failures = append(failures, err)
 		log.Printf("recover interrupted site transactions (continuing with isolated failures): %v", err)
