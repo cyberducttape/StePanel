@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the installation smoke gate.
 - Fence startup recovery's brokered site rollback with the recovered site's
   durable mutation lease so readiness can return after an interrupted restore.
+- Keep the application lifecycle smoke aligned with persisted collision-safe
+  site identities during application deletion and cleanup.
 - Add effective site and recovery-root ownership, traversal, and ACL diagnostics when the backup restore smoke gate fails.
 - Route live-site recovery snapshots through the root broker so worker service confinement cannot block atomic restore journaling.
 - Keep isolated unit workflow fixtures self-contained while production and lab restore paths use the brokered snapshot operation.

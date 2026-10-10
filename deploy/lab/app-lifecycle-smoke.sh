@@ -28,10 +28,13 @@ work=$(mktemp -d)
 cookies="$work/cookies.txt"
 stub_runtime=0
 site_created=0
+site_user=
 
 cleanup() {
   local status=$?
-  "$appctl" delete "$site" >/dev/null 2>&1 || true
+  if [[ -n $site_user ]]; then
+    "$appctl" delete "$site" "$site_user" >/dev/null 2>&1 || true
+  fi
   if (( site_created )); then
     /usr/local/sbin/stepanel-sitectl delete "$site" >/dev/null 2>&1 || true
   fi
@@ -113,6 +116,8 @@ done
 [[ $create_state == completed ]] || { echo "site creation job did not complete: $job_response" >&2; exit 1; }
 site_created=1
 [[ -d $public ]] || { echo "created site document root does not exist: $public" >&2; exit 1; }
+site_user=$(getent passwd | awk -F: -v home="/var/www/sites/$site" '$6 == home { print $1; exit }')
+[[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || { echo 'site creation did not provision its persisted Unix account' >&2; exit 1; }
 
 # The application must answer on $PORT. Use the installed Node runtime when the
 # lab has one; otherwise provide a stand-in nvm whose npm serves the site root,
@@ -220,7 +225,7 @@ expect_status 202 POST /api/apps/deploy "$deploy_body"
 expect_app active enabled running
 
 # Once the unit is gone the helper must refuse lifecycle actions.
-"$appctl" delete "$site"
+"$appctl" delete "$site" "$site_user"
 [[ ! -e /etc/systemd/system/$unit ]] || { echo "application unit survived delete" >&2; exit 1; }
 if output=$("$appctl" start "$site" 2>&1); then
   echo 'start succeeded for an application without a unit' >&2
