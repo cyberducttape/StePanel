@@ -42,6 +42,39 @@ type CPMoveInfo struct {
 	Databases         []string `json:"databases"`
 }
 
+// CPMoveInspectionResponse contains only metadata needed by the import form.
+// Archive-derived names and paths remain server-side so they cannot become
+// browser-controlled markup through the inspection response.
+type CPMoveInspectionResponse struct {
+	UploadID          string `json:"upload_id,omitempty"`
+	ArchiveBytes      int64  `json:"archive_bytes"`
+	ExpandedBytes     int64  `json:"expanded_bytes"`
+	DatabaseBytes     int64  `json:"database_bytes"`
+	RequiredFreeBytes int64  `json:"required_free_bytes"`
+	Entries           int    `json:"entries"`
+	HasHome           bool   `json:"has_home"`
+	HasMySQL          bool   `json:"has_mysql"`
+	HasMail           bool   `json:"has_mail"`
+	DatabaseCount     int    `json:"database_count"`
+	MailboxCount      int    `json:"mailbox_count"`
+}
+
+func (info CPMoveInfo) response(uploadID string) CPMoveInspectionResponse {
+	return CPMoveInspectionResponse{
+		UploadID:          uploadID,
+		ArchiveBytes:      info.ArchiveBytes,
+		ExpandedBytes:     info.ExpandedBytes,
+		DatabaseBytes:     info.DatabaseBytes,
+		RequiredFreeBytes: info.RequiredFreeBytes,
+		Entries:           info.Entries,
+		HasHome:           info.HasHome,
+		HasMySQL:          info.HasMySQL,
+		HasMail:           info.HasMail,
+		DatabaseCount:     len(info.Databases),
+		MailboxCount:      len(info.Mailboxes),
+	}
+}
+
 const maxCPMoveExpandedBytes int64 = 80 << 30
 
 // randomSecret uses base64.RawURLEncoding, whose first character may be '-'

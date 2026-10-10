@@ -1050,7 +1050,7 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not persist upload", 500)
 		return
 	}
-	writeJSON(w, 200, info)
+	writeJSON(w, 200, info.response(uploadID))
 }
 
 type durableCPMoveRequest struct {

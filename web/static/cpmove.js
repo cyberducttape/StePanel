@@ -14,8 +14,8 @@
 
   const summary = (info) => [
     info.has_home ? 'website files found' : 'no website files detected',
-    `${(info.databases || []).length} database dump(s)`,
-    `${(info.mailboxes || []).length} mailbox(es)`,
+    `${info.database_count || 0} database dump(s)`,
+    `${info.mailbox_count || 0} mailbox(es)`,
   ].join(', ');
 
   file.addEventListener('change', async () => {
@@ -35,8 +35,7 @@
     try {
       const info = await StepanelAPI.request('/api/cpmove/inspect', { method: 'POST', body, signal: inspection.signal });
       uploadID = info.upload_id;
-      if (info.detected_user && !user.value) user.value = info.detected_user;
-      if ((info.databases || []).length > 0) database.checked = true;
+      if (info.database_count > 0) database.checked = true;
       status.textContent = `Ready: ${summary(info)}.`;
     } catch (error) {
       if (error.name !== 'AbortError') status.textContent = error.message;

@@ -596,6 +596,23 @@ func TestInspectReleasesReservationAfterSuccessfulUpload(t *testing.T) {
 	}
 }
 
+func TestInspectResponseDoesNotReflectArchiveMetadata(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	archive, err := os.ReadFile(makeTarGz(t, map[string]string{"cpmove-account/homedir/public_html/index.php": "ok"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: cfg, Auth: Auth{}, Metrics: NewMetrics()}
+	response := httptest.NewRecorder()
+	app.inspect(response, archiveUploadRequest(t, "/api/cpmove/inspect", "backup", "<script>alert(1)</script>.tar.gz", archive))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "<script>") || strings.Contains(response.Body.String(), "detected_user") {
+		t.Fatalf("inspection response reflected archive metadata: %s", response.Body.String())
+	}
+}
+
 func TestCapacityReservationIDsAreUniqueAcrossRapidAllocations(t *testing.T) {
 	seen := make(map[string]struct{}, 10000)
 	for i := 0; i < 10000; i++ {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Cpmove inspection responses no longer return archive-derived names or paths**:
+  the browser receives only the import token, bounded size/feature metadata, and
+  item counts, closing the reflected XSS path reported by CodeQL.
+
 All notable changes to StePanel are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
