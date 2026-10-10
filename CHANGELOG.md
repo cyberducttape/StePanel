@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Route privileged site sealing through the root broker's persisted site identity so production app services receive the ownership and ACL setup required to start.
 - Make the restore recovery smoke report durable job failures and worker diagnostics before declaring an injected kill boundary missing.
+- Preserve explicit panel `rwx` access on each sealed site root so atomic restore snapshots can rename the public tree after ownership hardening.
 
 ### Changed
 

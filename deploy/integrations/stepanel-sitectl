@@ -435,6 +435,10 @@ if [[ $action == prepare || $action == seal ]]; then
   # directory defaults cover files and directories created later, so routine
   # runtime/resource changes do not rescan the whole site.
   setfacl -R -m u:stepanel:rwX "$site_root"
+  # The site root itself is the parent used for atomic publication and
+  # recovery renames. Keep its panel access explicit even when an ACL mask was
+  # rewritten by a host-specific chmod implementation.
+  setfacl -m u:stepanel:rwx "$site_root"
   find "$site_root" -type d -exec setfacl -m d:u:stepanel:rwx {} +
 fi
 
