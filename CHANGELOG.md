@@ -31,8 +31,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - **Site termination no longer dead-letters during recovery**: the
   application helper now validates the persisted site Unix identity before
-  deleting a site's units, matching the root broker's three-argument delete
-  contract while retaining the explicitly lab-only legacy invocation.
+  deleting a site's units, while dispatching with the normalized argument
+  shape used by the helper and retaining the explicitly lab-only legacy
+  invocation.
 - **Signed Git webhook deployments were cut off after 30 seconds**: the
   webhook route ran the checkout inside the request on the ordinary API
   deadline. Deliveries are now queued, and the worker re-reads the site's

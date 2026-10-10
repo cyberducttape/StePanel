@@ -126,10 +126,10 @@ fi
 unit="stepanel-app-${site}.service"
 id "$site_user" >/dev/null 2>&1 || { echo 'isolated site user does not exist' >&2; exit 1; }
 # Deletion still requires the persisted identity even though the account is
-# not used to render units. This keeps the production broker and helper
-# contract consistent and prevents an unscoped legacy delete invocation.
+# not used to render units. Normalization removes it from positional
+# arguments after validating it, so the dispatch branch sees two arguments.
 if [[ $action == delete ]]; then
-  (( $# == 3 || (${STEPANEL_UNSAFE_LAB:-0} == 1 && $# == 2) )) || { echo 'usage: stepanel-appctl delete SITE SITE_USER' >&2; exit 64; }
+  (( $# == 2 )) || { echo 'usage: stepanel-appctl delete SITE SITE_USER' >&2; exit 64; }
   systemctl stop "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
   mapfile -t worker_units < <(systemctl list-unit-files --type=service --no-legend "stepanel-worker-$site-*.service" 2>/dev/null | awk '{print $1}')
   if (( ${#worker_units[@]} > 0 )); then systemctl stop "${worker_units[@]}" 2>/dev/null || true; fi
