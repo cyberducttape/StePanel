@@ -29,6 +29,16 @@ dropin="$dropin_dir/recovery-smoke.conf"
 work=''
 database_name=''
 database_user=''
+dump_restore_permissions() {
+  local site_root="/var/www/sites/$BACKUP_RECOVERY_SMOKE_SITE"
+  local recovery_root='/var/www/sites/.stepanel-recovery'
+  echo 'restore permission diagnostics:' >&2
+  id stepanel >&2 || true
+  stat -c '%A %a %U:%G %n' /var/www /var/www/sites "$site_root" "$site_root/public" "$recovery_root" >&2 || true
+  namei -l "$site_root/public" >&2 || true
+  namei -l "$recovery_root" >&2 || true
+  getfacl -p "$site_root" "$site_root/public" "$recovery_root" >&2 || true
+}
 mkdir -p "$dropin_dir"
 cleanup() {
   systemctl stop stepanel-worker.service >/dev/null 2>&1 || true
@@ -209,6 +219,7 @@ for _ in $(seq 1 90); do
       ;;
     failed|dead-letter|cancelled)
       echo "restore job ended in $restore_state before injected kill boundary $RESTORE_KILL_AT: $restore_status" >&2
+      dump_restore_permissions
       exit 1
       ;;
   esac
@@ -232,6 +243,7 @@ for _ in $(seq 1 240); do
     completed) break ;;
     failed|dead-letter|cancelled)
       echo "restore recovery job $restore_job_id ended in $state: $status" >&2
+      dump_restore_permissions
       exit 1
       ;;
   esac
