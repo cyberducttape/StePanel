@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Readiness probes now use a bounded lightweight SQLite query while full
+  `quick_check` integrity verification runs in background maintenance and
+  exposes its timestamp and result. Dead-letter jobs are retained until an
+  operator retries, acknowledges, or archives them. Backup manifests now
+  distinguish filesystem, logical-database, and application guarantees;
+  WordPress maintenance mode is recorded as web-request quiescence rather
+  than the stronger, unsupported `application-quiesced` claim.
+
 - Site termination now removes the site's durable backup schedule as part of
   journaled task cleanup, preventing post-termination scheduler jobs or
   schedule reuse after a site name is recreated. Operational health now

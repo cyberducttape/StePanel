@@ -463,7 +463,7 @@ func TestBackupManifestReportsWordPressQuiesce(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := readTestBackupManifest(t, result.Path)
-	if manifest.Consistency != "application-quiesced" || !manifest.ApplicationQuiesced {
+	if manifest.Consistency != "web-requests-quiesced" || manifest.ApplicationQuiesced || !manifest.WebRequestsQuiesced || manifest.ApplicationConsistency != "web-requests-quiesced" {
 		t.Fatalf("manifest consistency = %#v", manifest)
 	}
 	actions, err := os.ReadFile(logPath)
@@ -482,8 +482,8 @@ func TestBackupWordPressQuiesceUsesExitStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name, isActive, wantConsistency, wantActions string
 	}{
-		{"not active with message", "echo 'Maintenance mode is not active.'; exit 1", "application-quiesced", "activate\ndeactivate\n"},
-		{"already active", "exit 0", "application-quiesced", ""},
+		{"not active with message", "echo 'Maintenance mode is not active.'; exit 1", "web-requests-quiesced", "activate\ndeactivate\n"},
+		{"already active", "exit 0", "web-requests-quiesced", ""},
 		{"wp-cli broken", "echo 'Error: Error establishing a database connection. active'; exit 255", "crash-consistent / logical backup", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -503,7 +503,7 @@ func TestBackupWordPressQuiesceUsesExitStatus(t *testing.T) {
 				t.Fatal(err)
 			}
 			manifest := readTestBackupManifest(t, result.Path)
-			if manifest.Consistency != tc.wantConsistency || manifest.ApplicationQuiesced != (tc.wantConsistency == "application-quiesced") {
+			if manifest.Consistency != tc.wantConsistency || manifest.ApplicationQuiesced || manifest.WebRequestsQuiesced != (tc.wantConsistency == "web-requests-quiesced") {
 				t.Fatalf("manifest consistency = %q quiesced = %v, want %q", manifest.Consistency, manifest.ApplicationQuiesced, tc.wantConsistency)
 			}
 			actions, err := os.ReadFile(logPath)

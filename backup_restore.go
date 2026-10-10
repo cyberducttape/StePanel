@@ -427,7 +427,7 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "backup.verify", input.Site, input.Backup)
-	writeJSON(w, http.StatusOK, map[string]any{"verified": true, "backup": input.Backup, "site": manifest.Site, "consistency": manifest.Consistency, "archive_verified": manifest.ArchiveVerified, "database_dump_verified": manifest.DatabaseDumpVerified, "application_quiesced": manifest.ApplicationQuiesced, "filesystem_snapshot": manifest.FilesystemSnapshot, "manifest_signed": manifest.SignatureAlgorithm != ""})
+	writeJSON(w, http.StatusOK, map[string]any{"verified": true, "backup": input.Backup, "site": manifest.Site, "consistency": manifest.Consistency, "filesystem_consistency": manifest.FilesystemConsistency, "database_consistency": manifest.DatabaseConsistency, "application_consistency": manifest.ApplicationConsistency, "web_requests_quiesced": manifest.WebRequestsQuiesced, "archive_verified": manifest.ArchiveVerified, "database_dump_verified": manifest.DatabaseDumpVerified, "application_quiesced": manifest.ApplicationQuiesced, "filesystem_snapshot": manifest.FilesystemSnapshot, "manifest_signed": manifest.SignatureAlgorithm != ""})
 }
 
 func (a *App) backupRestoreToStaging(w http.ResponseWriter, r *http.Request) {

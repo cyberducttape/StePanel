@@ -96,6 +96,18 @@ func (a *App) operationalHealth(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusServiceUnavailable
 	}
 	response := map[string]any{"ok": operational, "operational": operational, "checks": checks, "time": time.Now().UTC()}
+	if a.Jobs != nil && a.Jobs.db != nil {
+		checkedAt, integrityErr, checked := a.Jobs.IntegrityStatus()
+		verification := map[string]any{"checked": checked}
+		if checked {
+			verification["checked_at"] = checkedAt
+			verification["ok"] = integrityErr == nil
+			if integrityErr != nil {
+				verification["error"] = integrityErr.Error()
+			}
+		}
+		response["integrity_verification"] = verification
+	}
 	if a.Config.OffsiteTarget != "" && a.BackupIndex != nil {
 		if summary, err := a.BackupIndex.OffsiteSummary(a.Config.OffsiteTarget); err == nil {
 			verified := offsiteCapability.Mode == CapabilityRemote
@@ -143,10 +155,10 @@ func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 	} else if err := jobs.PersistenceError(); err != nil {
 		checks["job_state"] = ReadinessCheck{Ready: false, Detail: err.Error()}
 	} else if jobs.db != nil {
-		if err := jobs.IntegrityCheck(); err != nil {
-			checks["control_plane_integrity"] = ReadinessCheck{Ready: false, Detail: err.Error()}
+		if err := jobs.LightweightReadiness(); err != nil {
+			checks["control_plane_integrity"] = ReadinessCheck{Ready: false, Detail: "control-plane readiness query failed: " + err.Error()}
 		} else {
-			checks["control_plane_integrity"] = ReadinessCheck{Ready: true}
+			checks["control_plane_integrity"] = ReadinessCheck{Ready: true, Detail: "control-plane readiness query succeeded"}
 		}
 		checks["job_state"] = ReadinessCheck{Ready: true}
 	} else {
@@ -199,6 +211,17 @@ func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 		checks["dead_letter_jobs"] = ReadinessCheck{Ready: false, Detail: fmt.Sprintf("%d durable jobs require operator review", stats.DeadLetter)}
 	} else {
 		checks["dead_letter_jobs"] = ReadinessCheck{Ready: true}
+	}
+	if jobs != nil && jobs.db != nil {
+		_, integrityErr, checked := jobs.IntegrityStatus()
+		switch {
+		case !checked:
+			checks["control_plane_integrity"] = ReadinessCheck{Ready: true, Detail: "full SQLite integrity verification is pending"}
+		case integrityErr != nil:
+			checks["control_plane_integrity"] = ReadinessCheck{Ready: false, Detail: integrityErr.Error()}
+		default:
+			checks["control_plane_integrity"] = ReadinessCheck{Ready: true, Detail: "latest full SQLite integrity verification succeeded"}
+		}
 	}
 	roots := map[string]string{
 		"backup_capacity":   cfg.BackupRoot,

@@ -327,15 +327,20 @@ above illustrates the request body. A backup is published only after every tar
 entry and its whole-archive checksum verify. Copy the complete timestamped
 directory to off-host or immutable storage and perform scheduled restore drills.
 Live file writes and nontransactional database tables are not quiesced, so use
-application maintenance mode or storage/database snapshots when a point-in-time
-consistent backup is required. Staging retention never deletes published
+storage/database snapshots or an independently verified recovery procedure
+when a point-in-time consistent backup is required. WordPress maintenance mode
+is recorded only as `web-requests-quiesced`; it does not stop cron, WP-CLI,
+PHP workers, or independent database writers. Staging retention never deletes published
 backups. A scheduled backup's `keep_last` policy prunes its oldest verified
 local copies only after a replacement succeeds; safety dumps made before
 database deletion remain under `.database-deletions` for explicit DBA review.
 
-Backups are classified explicitly as `crash-consistent / logical backup`:
-the archive and any logical database dump are verified, but the application is
-not quiesced and no filesystem snapshot is taken.
+Backups expose separate `filesystem_consistency`, `database_consistency`, and
+`application_consistency` fields. The normal classification is
+`crash-consistent / logical backup`: the archive and any logical database dump
+are verified, but no filesystem snapshot or application-wide write freeze is
+claimed. A WordPress maintenance-mode run is classified as
+`web-requests-quiesced`, not application-quiesced.
 `STEPANEL_BACKUP_ENCRYPTION_KEY` encrypts each new archive payload before
 publication (see [Rotating the backup encryption key](ENCRYPTION_KEYS.md#rotating-the-backup-encryption-key));
 the key is never placed in the manifest or offsite object, only its key id.

@@ -182,7 +182,10 @@ Shipped in v0.7.0 and earlier:
   Mail, DNS, registrar, billing, and other external-provider objects remain
   operator responsibilities and are not silently deleted.
 - Backup verification is available through the CLI and administrator API. Each
-  backup records `crash-consistent / logical backup` classification and can be
+  backup records separate filesystem, database, and application consistency
+  guarantees; the normal classification is `crash-consistent / logical backup`
+  and WordPress maintenance mode is reported as web-request quiescence, not an
+  application-wide write freeze. Backups can be
   authenticated with an external `STEPANEL_BACKUP_SIGNING_KEY`. Administrator
   files-only restore is available for verified files, and assigned customers
   can restore verified files into an isolated no-index staging route;

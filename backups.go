@@ -267,10 +267,15 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	gz := gzip.NewWriter(archive)
 	tw := tar.NewWriter(gz)
 	consistency := backup.ConsistencyCrashConsistent
+	applicationConsistency := backup.ApplicationConsistencyNotVerified
 	if quiesced {
-		consistency = backup.ConsistencyApplicationQuiesced
+		// WordPress maintenance mode controls ordinary web requests only. It
+		// does not stop cron, WP-CLI, PHP workers, or independent database
+		// writers, so it must not be advertised as application-quiesced.
+		consistency = backup.ConsistencyWebRequestsQuiesced
+		applicationConsistency = backup.ApplicationConsistencyWebQuiesced
 	}
-	manifest := BackupManifest{Version: 1, Site: siteName, CreatedAt: time.Now().UTC(), Archive: "backup.tar.gz", Databases: []string{}, Entries: []BackupEntry{}, Consistency: consistency, ApplicationQuiesced: quiesced}
+	manifest := BackupManifest{Version: 1, Site: siteName, CreatedAt: time.Now().UTC(), Archive: "backup.tar.gz", Databases: []string{}, Entries: []BackupEntry{}, Consistency: consistency, FilesystemConsistency: backup.FilesystemConsistencyCrashConsistent, DatabaseConsistency: backup.DatabaseConsistencyNotIncluded, ApplicationConsistency: applicationConsistency, WebRequestsQuiesced: quiesced}
 	var uncompressedBytes int64
 	closeArchive := func() error {
 		if err := tw.Close(); err != nil {
@@ -350,6 +355,9 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 				return result, abortArchive(err)
 			}
 			manifest.Databases = append(manifest.Databases, database)
+		}
+		if len(manifest.Databases) > 0 {
+			manifest.DatabaseConsistency = backup.DatabaseConsistencyLogicalDump
 		}
 	}
 	if err := ctx.Err(); err != nil {

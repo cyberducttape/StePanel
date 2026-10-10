@@ -8,7 +8,14 @@ const (
 	ConsistencyCrashConsistent     = "crash-consistent / logical backup"
 	ConsistencyDatabaseConsistent  = "database-consistent"
 	ConsistencyApplicationQuiesced = "application-quiesced"
+	ConsistencyWebRequestsQuiesced = "web-requests-quiesced"
 	ConsistencyFilesystemSnapshot  = "filesystem-snapshot"
+
+	FilesystemConsistencyCrashConsistent = "crash-consistent"
+	DatabaseConsistencyNotIncluded       = "not-included"
+	DatabaseConsistencyLogicalDump       = "logical-dump"
+	ApplicationConsistencyNotVerified    = "not-verified"
+	ApplicationConsistencyWebQuiesced    = "web-requests-quiesced"
 )
 
 type BackupEntry struct {
@@ -18,23 +25,27 @@ type BackupEntry struct {
 }
 
 type BackupManifest struct {
-	Version              int           `json:"version"`
-	Site                 string        `json:"site"`
-	CreatedAt            time.Time     `json:"created_at"`
-	VerifiedAt           time.Time     `json:"verified_at"`
-	Archive              string        `json:"archive"`
-	Encryption           string        `json:"encryption,omitempty"`
-	EncryptionKeyID      string        `json:"encryption_key_id,omitempty"`
-	ArchiveSHA256        string        `json:"archive_sha256"`
-	Bytes                int64         `json:"bytes"`
-	Databases            []string      `json:"databases"`
-	Entries              []BackupEntry `json:"entries"`
-	Consistency          string        `json:"consistency"`
-	ArchiveVerified      bool          `json:"archive_verified"`
-	DatabaseDumpVerified bool          `json:"database_dump_verified"`
-	ApplicationQuiesced  bool          `json:"application_quiesced"`
-	FilesystemSnapshot   bool          `json:"filesystem_snapshot"`
-	SignatureAlgorithm   string        `json:"signature_algorithm,omitempty"`
+	Version                int           `json:"version"`
+	Site                   string        `json:"site"`
+	CreatedAt              time.Time     `json:"created_at"`
+	VerifiedAt             time.Time     `json:"verified_at"`
+	Archive                string        `json:"archive"`
+	Encryption             string        `json:"encryption,omitempty"`
+	EncryptionKeyID        string        `json:"encryption_key_id,omitempty"`
+	ArchiveSHA256          string        `json:"archive_sha256"`
+	Bytes                  int64         `json:"bytes"`
+	Databases              []string      `json:"databases"`
+	Entries                []BackupEntry `json:"entries"`
+	Consistency            string        `json:"consistency"`
+	FilesystemConsistency  string        `json:"filesystem_consistency"`
+	DatabaseConsistency    string        `json:"database_consistency"`
+	ApplicationConsistency string        `json:"application_consistency"`
+	ArchiveVerified        bool          `json:"archive_verified"`
+	DatabaseDumpVerified   bool          `json:"database_dump_verified"`
+	ApplicationQuiesced    bool          `json:"application_quiesced"`
+	WebRequestsQuiesced    bool          `json:"web_requests_quiesced"`
+	FilesystemSnapshot     bool          `json:"filesystem_snapshot"`
+	SignatureAlgorithm     string        `json:"signature_algorithm,omitempty"`
 }
 
 type BackupResult struct {

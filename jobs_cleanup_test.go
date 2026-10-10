@@ -98,6 +98,29 @@ func TestJobsCleanupRemovesExpiredJobsDurably(t *testing.T) {
 	}
 }
 
+func TestJobsCleanupRetainsExpiredDeadLettersAcrossRestart(t *testing.T) {
+	j, db, _ := openCleanupTestJobs(t)
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	j.mu.Lock()
+	j.items["dead-letter"] = &Job{ID: "dead-letter", Kind: "restore", User: "owner-a", State: "dead-letter", StartedAt: old, FinishedAt: &old, Error: "operator review required"}
+	if err := j.persistLocked(); err != nil {
+		j.mu.Unlock()
+		t.Fatal(err)
+	}
+	j.mu.Unlock()
+
+	j.Cleanup(24 * time.Hour)
+	if ids := memoryJobIDs(j); strings.Join(ids, ",") != "dead-letter,fresh" {
+		t.Fatalf("in-memory jobs = %v, want [dead-letter fresh]", ids)
+	}
+	if ids := durableJobIDs(t, db); strings.Join(ids, ",") != "dead-letter,fresh" {
+		t.Fatalf("durable jobs = %v, want [dead-letter fresh]", ids)
+	}
+	if ids := reloadedJobIDs(t, db); strings.Join(ids, ",") != "dead-letter,fresh" {
+		t.Fatalf("reloaded jobs = %v, want [dead-letter fresh]", ids)
+	}
+}
+
 // assertCleanupFailureKeepsJob checks the invariant every injected failure
 // must preserve: memory and SQLite still agree that the expired job exists,
 // the failure is surfaced, and a later Cleanup can finish the removal.

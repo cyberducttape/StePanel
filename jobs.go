@@ -803,21 +803,62 @@ func (j *Jobs) QueueStats() (JobQueueStats, error) {
 	return stats, rows.Err()
 }
 
-// IntegrityCheck verifies the SQLite control plane before it is advertised as
-// ready. quick_check is bounded enough for frequent readiness probes while
-// still detecting structural corruption across the control-plane tables.
-func (j *Jobs) IntegrityCheck() error {
+// LightweightReadiness performs the cheap query used by frequent readiness
+// probes. Full SQLite integrity verification runs in the maintenance loop and
+// is exposed through IntegrityStatus instead of contending with every probe.
+func (j *Jobs) LightweightReadiness() error {
 	if j == nil || j.db == nil {
 		return errors.New("control-plane database is unavailable")
 	}
-	var result string
-	if err := j.db.QueryRow(`PRAGMA quick_check`).Scan(&result); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	var result int
+	if err := j.db.QueryRowContext(ctx, `SELECT 1`).Scan(&result); err != nil {
 		return err
 	}
-	if strings.TrimSpace(strings.ToLower(result)) != "ok" {
-		return fmt.Errorf("SQLite quick_check returned %q", result)
+	if result != 1 {
+		return fmt.Errorf("control-plane readiness query returned %d", result)
 	}
 	return nil
+}
+
+// VerifyIntegrity runs the expensive structural check outside the readiness
+// request path and records its latest result for operators.
+func (j *Jobs) VerifyIntegrity(ctx context.Context) error {
+	if j == nil || j.db == nil {
+		return errors.New("control-plane database is unavailable")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var result string
+	err := j.db.QueryRowContext(ctx, `PRAGMA quick_check`).Scan(&result)
+	if err == nil && strings.TrimSpace(strings.ToLower(result)) != "ok" {
+		err = fmt.Errorf("SQLite quick_check returned %q", result)
+	}
+	j.integrityMu.Lock()
+	j.integrityAt = time.Now().UTC()
+	j.integrityErr = err
+	j.integrityMu.Unlock()
+	return err
+}
+
+// IntegrityCheck is retained for explicit operator/doctor checks. Readiness
+// probes use LightweightReadiness instead.
+func (j *Jobs) IntegrityCheck() error {
+	return j.VerifyIntegrity(context.Background())
+}
+
+func (j *Jobs) IntegrityStatus() (checkedAt time.Time, err error, checked bool) {
+	if j == nil {
+		return time.Time{}, errors.New("job store is unavailable"), false
+	}
+	j.integrityMu.RLock()
+	defer j.integrityMu.RUnlock()
+	if j.integrityAt.IsZero() {
+		return time.Time{}, nil, false
+	}
+	return j.integrityAt, j.integrityErr, true
 }
 
 // RunWorker consumes the durable queue until ctx is cancelled. It is kept
@@ -1166,7 +1207,10 @@ type Jobs struct {
 	subscribers        map[chan JobEvent]struct{}
 	// stateErrors receives categorized persistence failures for metrics and
 	// operator visibility; nil in tests that do not observe them.
-	stateErrors func(state.StateError)
+	stateErrors  func(state.StateError)
+	integrityMu  sync.RWMutex
+	integrityAt  time.Time
+	integrityErr error
 }
 
 // SetStateErrorObserver reports durable persistence failures to fn.
@@ -2373,7 +2417,7 @@ func (j *Jobs) Cleanup(maxAge time.Duration) {
 	defer j.mu.Unlock()
 	removed := make(map[string]*Job)
 	for id, item := range j.items {
-		if item.FinishedAt != nil && item.FinishedAt.Before(cutoff) {
+		if item.FinishedAt != nil && item.FinishedAt.Before(cutoff) && item.State != "dead-letter" {
 			removed[id] = item
 		}
 	}
@@ -2409,7 +2453,7 @@ func (j *Jobs) persistCleanupLocked(removed map[string]*Job) error {
 	for id := range removed {
 		// Only finished rows are eligible; never delete a row another process
 		// has re-activated since this process loaded it.
-		if _, err := tx.Exec(`DELETE FROM jobs WHERE id = ? AND finished_at IS NOT NULL`, id); err != nil {
+		if _, err := tx.Exec(`DELETE FROM jobs WHERE id = ? AND finished_at IS NOT NULL AND state <> 'dead-letter'`, id); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("delete completed durable job %s: %w", id, err)
 		}

@@ -643,6 +643,9 @@ func Main() {
 		cleanupTicker := time.NewTicker(15 * time.Minute)
 		defer scheduleTicker.Stop()
 		defer cleanupTicker.Stop()
+		if err := app.Jobs.VerifyIntegrity(runCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("control-plane integrity verification failed: %v", err)
+		}
 		for {
 			select {
 			case <-runCtx.Done():
@@ -650,6 +653,9 @@ func Main() {
 			case <-scheduleTicker.C:
 				app.runDueBackups()
 			case <-cleanupTicker.C:
+				if err := app.Jobs.VerifyIntegrity(runCtx); err != nil {
+					log.Printf("control-plane integrity verification failed: %v", err)
+				}
 				auditOutbox.closePending(context.Background(), app.Config.AuditLog)
 				// Also covers a worker killed mid-backup while the panel kept
 				// running; a backup still holding the site lease is skipped.
