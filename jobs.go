@@ -1911,26 +1911,41 @@ func (j *Jobs) ActivePayloads(kind string) ([]json.RawMessage, error) {
 	return payloads, nil
 }
 
-func (j *Jobs) Get(id string) (Job, bool) {
+// GetWithError reads durable state authoritatively. A database read failure is
+// distinct from a missing job; callers serving an API status must report the
+// control plane as degraded instead of returning a stale in-memory snapshot.
+func (j *Jobs) GetWithError(id string) (Job, bool, error) {
 	if j.db != nil {
-		if item, ok, err := j.loadDurableJob(id); err == nil && ok {
+		item, ok, err := j.loadDurableJob(id)
+		if err != nil {
+			return Job{}, false, err
+		}
+		if ok {
 			materializeJobOutput(&item)
 			stored := item
 			j.mu.Lock()
 			j.items[id] = &stored
 			j.mu.Unlock()
-			return item, true
+			return item, true, nil
 		}
 	}
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 	item, ok := j.items[id]
 	if !ok {
-		return Job{}, false
+		return Job{}, false, nil
 	}
 	copy := *item
 	materializeJobOutput(&copy)
-	return copy, true
+	return copy, true, nil
+}
+
+func (j *Jobs) Get(id string) (Job, bool) {
+	item, ok, err := j.GetWithError(id)
+	if err != nil {
+		return Job{}, false
+	}
+	return item, ok
 }
 
 func materializeJobOutput(item *Job) {

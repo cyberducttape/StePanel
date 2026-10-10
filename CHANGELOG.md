@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **Database backup capacity is accounted for per dump**: each managed
+  database reserves its inventory-based predicted dump size before execution,
+  reconciles the reservation to the measured dump, and falls back to the
+  conservative allowance independently for databases without a size estimate.
+- **Development listeners default to loopback**: an unauthenticated process
+  now binds `127.0.0.1:8080`, and startup refuses any non-loopback listener
+  until administrator authentication is configured.
+
 - **Privileged work now fails closed on fencing-database outages**: the root
   broker allows only a bounded grace period for transient lease-verification
   errors, then cancels the mutation when ownership cannot be established.

@@ -433,6 +433,40 @@ func (r *capacityReservation) grow(path string, bytes uint64) error {
 	return nil
 }
 
+// shrink releases an overestimate after a staged object has been measured.
+// It is deliberately scoped to one reservation so another workflow's hold
+// cannot be released accidentally.
+func (r *capacityReservation) shrink(path string, bytes uint64) error {
+	if r == nil || bytes == 0 {
+		return nil
+	}
+	device, err := filesystemDevice(path)
+	if err != nil {
+		return fmt.Errorf("inspect %s capacity at %s: %w", r.workflow, path, err)
+	}
+	l := r.ledger
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	released := min(bytes, r.held[device])
+	if released == 0 {
+		return nil
+	}
+	if l.db != nil && r.id != "" {
+		sqlBytes, convErr := capacitySQLBytes(released)
+		if convErr != nil {
+			return convErr
+		}
+		if _, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=MAX(bytes-?,0) WHERE reservation_id=? AND device=?`, sqlBytes, r.id, device); dbErr != nil {
+			return fmt.Errorf("shrink capacity reservation: %w", dbErr)
+		}
+	}
+	r.held[device] -= released
+	if l.held != nil {
+		l.held[device] -= released
+	}
+	return nil
+}
+
 // heldBytes reports the bytes currently promised on path's filesystem.
 func (l *capacityLedger) heldBytes(path string) uint64 {
 	device, err := filesystemDevice(path)

@@ -297,6 +297,9 @@ func Main() {
 	if cfg.Production && !auth.Enabled {
 		log.Fatal("authentication must be configured in production")
 	}
+	if !auth.Enabled && !loopbackListenAddress(cfg.Listen) {
+		log.Fatal("authentication must be configured before listening on a non-loopback address")
+	}
 	auth.AuditLog = cfg.AuditLog
 	audit.SetDefault(audit.New(cfg.AuditLog))
 	// Wire the trusted-proxy CIDRs into auth. The prior code assigned a
@@ -1490,7 +1493,11 @@ func (a *App) jobStatus(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	job, ok := a.Jobs.Get(id)
+	job, ok, getErr := a.Jobs.GetWithError(id)
+	if getErr != nil {
+		http.Error(w, "job status is temporarily unavailable: control-plane database read failed", http.StatusServiceUnavailable)
+		return
+	}
 	if !ok {
 		http.NotFound(w, r)
 		return

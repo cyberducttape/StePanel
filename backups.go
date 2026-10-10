@@ -304,6 +304,10 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		if err != nil {
 			return result, abortArchive(err)
 		}
+		dumpEstimates, err := managedDatabaseDumpEstimatesContext(ctx, cfg, siteName, databases)
+		if err != nil {
+			return result, abortArchive(err)
+		}
 		for _, database := range databases {
 			if err := ctx.Err(); err != nil {
 				return result, abortArchive(err)
@@ -312,15 +316,24 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 				return result, abortArchive(errors.New("backup contains too many entries"))
 			}
 			dumpPath := filepath.Join(tempDir, database+".sql")
+			predicted := dumpEstimates[database]
+			if predicted == 0 {
+				predicted = backupDatabaseReservation
+			}
+			if err := reservation.grow(tempDir, predicted); err != nil {
+				return result, abortArchive(fmt.Errorf("reserve database dump %s: %w", database, err))
+			}
 			if err := dumpManagedDatabaseContext(ctx, cfg, database, dumpPath); err != nil {
 				return result, abortArchive(err)
 			}
 			if info, statErr := os.Stat(dumpPath); statErr == nil {
 				measured := uint64(info.Size())
-				if measured > backupDatabaseReservation {
-					if err := reservation.grow(tempDir, measured-backupDatabaseReservation); err != nil {
-						return result, abortArchive(err)
+				if measured > predicted {
+					if err := reservation.grow(tempDir, measured-predicted); err != nil {
+						return result, abortArchive(fmt.Errorf("adjust database dump %s capacity: %w", database, err))
 					}
+				} else if err := reservation.shrink(tempDir, predicted-measured); err != nil {
+					return result, abortArchive(fmt.Errorf("release database dump %s capacity: %w", database, err))
 				}
 			} else if statErr != nil {
 				return result, abortArchive(statErr)
@@ -427,9 +440,10 @@ func reserveBackupCapacity(cfg Config, stagingPath string, includeDatabases bool
 	if cfg.BackupEncryptionKey != "" {
 		estimate = saturatingAdd(estimate, uint64(siteBytes))
 	}
-	if includeDatabases {
-		estimate = saturatingAdd(estimate, backupDatabaseReservation)
-	}
+	// Database dumps are reserved individually immediately before each dump,
+	// using inventory estimates. Do not reserve one shared allowance here: it
+	// undercounts several smaller databases and permits aggregate overcommit.
+	_ = includeDatabases
 	return ledger.reserve(cfg, "backup", stagingPath, []capacityDemand{{Path: stagingPath, Bytes: estimate}})
 }
 
@@ -630,6 +644,67 @@ func managedDatabasesForSiteContext(parent context.Context, cfg Config, site str
 	}
 	sort.Strings(databases)
 	return databases, nil
+}
+
+// managedDatabaseDumpEstimatesContext returns an upper-bound planning size
+// for every database in a backup. The privileged inventory reports current
+// data/index bytes; a small allowance covers SQL text and dump overhead. A
+// database without a usable inventory row receives the conservative legacy
+// allowance, but that allowance is applied per database before its dump.
+func managedDatabaseDumpEstimatesContext(parent context.Context, cfg Config, site string, databases []string) (map[string]uint64, error) {
+	estimates := make(map[string]uint64, len(databases))
+	for _, database := range databases {
+		estimates[database] = backupDatabaseReservation
+	}
+	if len(databases) == 0 {
+		return estimates, nil
+	}
+	ctx, cancel := context.WithTimeout(parent, helperConfigMutationTimeout)
+	defer cancel()
+	var output []byte
+	var err error
+	if cfg.Production {
+		client, clientErr := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
+		if clientErr != nil {
+			return nil, fmt.Errorf("create database broker client: %w", clientErr)
+		}
+		response, executeErr := client.DBInventory(ctx)
+		if executeErr != nil {
+			return nil, fmt.Errorf("database inventory through root broker: %w", executeErr)
+		}
+		if !response.OK {
+			return nil, errors.New(response.Error)
+		}
+		var details rootbroker.DBResponse
+		if decodeErr := json.Unmarshal(response.Details, &details); decodeErr != nil {
+			return nil, fmt.Errorf("decode database inventory response: %w", decodeErr)
+		}
+		output = []byte(details.Output)
+	} else {
+		output, err, _ = runAllowlistedHelperOutput(ctx, cfg, nil, cfg.DBCtl, "inventory")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read managed database size inventory: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	allowed := make(map[string]struct{}, len(databases))
+	for _, database := range databases {
+		allowed[database] = struct{}{}
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 4 || fields[1] != site {
+			continue
+		}
+		if _, ok := allowed[fields[0]]; !ok {
+			continue
+		}
+		size, parseErr := strconv.ParseUint(fields[3], 10, 64)
+		if parseErr != nil {
+			continue
+		}
+		estimates[fields[0]] = saturatingAdd(size, 1<<20)
+	}
+	return estimates, nil
 }
 
 func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database string) (DatabaseSafetyBackup, error) {

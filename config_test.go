@@ -64,6 +64,26 @@ func TestLoadConfigDefaultsToCaddy(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDefaultsToLoopbackListener(t *testing.T) {
+	t.Setenv("STEPANEL_LISTEN", "")
+	if got := LoadConfig().Listen; got != "127.0.0.1:8080" {
+		t.Fatalf("default listener = %q, want loopback", got)
+	}
+}
+
+func TestLoopbackListenAddress(t *testing.T) {
+	for _, address := range []string{"127.0.0.1:8080", "[::1]:8080", "localhost:8080"} {
+		if !loopbackListenAddress(address) {
+			t.Errorf("%q was not recognized as loopback", address)
+		}
+	}
+	for _, address := range []string{":8080", "0.0.0.0:8080", "[::]:8080", "10.0.0.5:8080"} {
+		if loopbackListenAddress(address) {
+			t.Errorf("%q was incorrectly recognized as loopback", address)
+		}
+	}
+}
+
 func TestValidateConfigRejectsUnknownWebServer(t *testing.T) {
 	cfg := LoadConfig()
 	cfg.WebServer = "nginx"
