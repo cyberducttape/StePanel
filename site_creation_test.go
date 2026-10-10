@@ -197,6 +197,27 @@ func TestSiteCreationFailureRemovesPreparedSite(t *testing.T) {
 	}
 }
 
+func TestTerminalCustomerSiteCreationFailureReleasesAssignment(t *testing.T) {
+	f := newSiteCreationFixture(t, "seal")
+	accounts, err := OpenAccountStore(filepath.Join(f.root, "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", []string{"fresh-site"}); err != nil {
+		t.Fatal(err)
+	}
+	f.app.Accounts = accounts
+	f.app.Auth.Accounts = accounts
+	item := Job{ID: "create-fresh-site", Kind: "site.create", MaxAttempts: 1, StartedAt: time.Now().UTC()}
+	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "fresh-site", Template: "php", Actor: "customer", CustomerProvisioning: true})
+	if _, err := f.app.handleSiteCreation(context.Background(), item); err == nil {
+		t.Fatal("terminal site creation unexpectedly succeeded")
+	}
+	if account, ok := accounts.Get("customer"); !ok || len(account.Sites) != 0 {
+		t.Fatalf("customer assignment after terminal failure = %#v, exists=%v", account, ok)
+	}
+}
+
 func TestSiteCreationRefusesExistingSite(t *testing.T) {
 	f := newSiteCreationFixture(t, "")
 	existing := filepath.Join(f.webRoot, "sites", "taken", "public")

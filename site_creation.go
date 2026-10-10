@@ -77,9 +77,10 @@ func populateBlankPHPSite(_ context.Context, _ *App, _ string, staging string) e
 const siteCreationTransactionKind = "site.create"
 
 type durableSiteCreationRequest struct {
-	Site     string `json:"site"`
-	Template string `json:"template"`
-	Actor    string `json:"actor"`
+	Site                 string `json:"site"`
+	Template             string `json:"template"`
+	Actor                string `json:"actor"`
+	CustomerProvisioning bool   `json:"customer_provisioning,omitempty"`
 }
 
 // SiteCreationResult is the output of a completed site.create job.
@@ -161,7 +162,7 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		assigned = true
 	}
-	payload, err := json.Marshal(durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r)})
+	payload, err := json.Marshal(durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin})
 	if err != nil {
 		if assigned {
 			_ = a.Accounts.UnassignSite(actor, input.Site)
@@ -201,6 +202,16 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	if err := json.Unmarshal(item.Payload, &req); err != nil {
 		return nil, fmt.Errorf("decode site creation request: %w", err)
 	}
+	terminalAttempt := item.MaxAttempts > 0 && item.Attempts+1 >= item.MaxAttempts
+	creationCompleted := false
+	defer func() {
+		if creationCompleted || !terminalAttempt || !req.CustomerProvisioning || a.Accounts == nil {
+			return
+		}
+		if err := a.Accounts.UnassignSite(req.Actor, req.Site); err != nil {
+			log.Printf("release site creation reservation for %s/%s: %v", req.Actor, req.Site, err)
+		}
+	}()
 	if !validSiteName(req.Site) || safeUser(req.Site) != req.Site {
 		return nil, errors.New("invalid site name in site creation payload")
 	}
@@ -334,6 +345,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 			}
 		}
 	}
+	creationCompleted = true
 	return json.Marshal(SiteCreationResult{
 		Site:       req.Site,
 		Template:   req.Template,
