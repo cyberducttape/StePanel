@@ -81,33 +81,6 @@ disable_units() {
   systemd_unlock
 }
 
-# Dispatch actions that don't require site-user validation first
-if [[ $action == delete ]]; then
-  (( $# == 2 )) || { echo 'usage: stepanel-appctl delete SITE' >&2; exit 64; }
-  systemctl stop "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
-  mapfile -t worker_units < <(systemctl list-unit-files --type=service --no-legend "stepanel-worker-$site-*.service" 2>/dev/null | awk '{print $1}')
-  if (( ${#worker_units[@]} > 0 )); then systemctl stop "${worker_units[@]}" 2>/dev/null || true; fi
-  mapfile -t task_timer_units < <(systemctl list-unit-files --type=timer --no-legend "stepanel-task-$site-*.timer" 2>/dev/null | awk '{print $1}')
-  task_service_units=()
-  for timer_unit in "${task_timer_units[@]}"; do task_service_units+=("${timer_unit%.timer}.service"); done
-  if (( ${#task_timer_units[@]} > 0 )); then systemctl stop "${task_timer_units[@]}" "${task_service_units[@]}" 2>/dev/null || true; fi
-  systemd_lock
-  systemctl --no-reload disable "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
-  if (( ${#worker_units[@]} > 0 )); then
-    systemctl --no-reload disable "${worker_units[@]}" 2>/dev/null || true
-  fi
-  if (( ${#task_timer_units[@]} > 0 )); then
-    systemctl --no-reload disable "${task_timer_units[@]}" 2>/dev/null || true
-    for timer_unit in "${task_timer_units[@]}"; do rm -f "/etc/systemd/system/$timer_unit" "/etc/systemd/system/${timer_unit%.timer}.service"; done
-  fi
-  rm -f "/etc/systemd/system/stepanel-app-${site}.service" "/etc/systemd/system/stepanel-app-${site}-python.service"
-  for unit in "${worker_units[@]}"; do rm -f "/etc/systemd/system/$unit"; done
-  rm -rf "/var/lib/stepanel/tasks/$site"
-  systemctl daemon-reload
-  systemd_unlock
-  exit 0
-fi
-
 # Account operations use second parameter as account name, not site name
 if [[ $action == account-resource-apply ]]; then
   (( $# == 8 )) || { echo 'usage: stepanel-appctl account-resource-apply ACCOUNT CPU_PERCENT CPU_WEIGHT MEMORY_HIGH_MB MEMORY_MAX_MB IO_WEIGHT TASKS_MAX' >&2; exit 64; }
@@ -152,6 +125,34 @@ if [[ $action != account-resource-apply ]]; then
 fi
 unit="stepanel-app-${site}.service"
 id "$site_user" >/dev/null 2>&1 || { echo 'isolated site user does not exist' >&2; exit 1; }
+# Deletion still requires the persisted identity even though the account is
+# not used to render units. This keeps the production broker and helper
+# contract consistent and prevents an unscoped legacy delete invocation.
+if [[ $action == delete ]]; then
+  (( $# == 3 || (${STEPANEL_UNSAFE_LAB:-0} == 1 && $# == 2) )) || { echo 'usage: stepanel-appctl delete SITE SITE_USER' >&2; exit 64; }
+  systemctl stop "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
+  mapfile -t worker_units < <(systemctl list-unit-files --type=service --no-legend "stepanel-worker-$site-*.service" 2>/dev/null | awk '{print $1}')
+  if (( ${#worker_units[@]} > 0 )); then systemctl stop "${worker_units[@]}" 2>/dev/null || true; fi
+  mapfile -t task_timer_units < <(systemctl list-unit-files --type=timer --no-legend "stepanel-task-$site-*.timer" 2>/dev/null | awk '{print $1}')
+  task_service_units=()
+  for timer_unit in "${task_timer_units[@]}"; do task_service_units+=("${timer_unit%.timer}.service"); done
+  if (( ${#task_timer_units[@]} > 0 )); then systemctl stop "${task_timer_units[@]}" "${task_service_units[@]}" 2>/dev/null || true; fi
+  systemd_lock
+  systemctl --no-reload disable "stepanel-app-${site}.service" "stepanel-app-${site}-python.service" 2>/dev/null || true
+  if (( ${#worker_units[@]} > 0 )); then
+    systemctl --no-reload disable "${worker_units[@]}" 2>/dev/null || true
+  fi
+  if (( ${#task_timer_units[@]} > 0 )); then
+    systemctl --no-reload disable "${task_timer_units[@]}" 2>/dev/null || true
+    for timer_unit in "${task_timer_units[@]}"; do rm -f "/etc/systemd/system/$timer_unit" "/etc/systemd/system/${timer_unit%.timer}.service"; done
+  fi
+  rm -f "/etc/systemd/system/stepanel-app-${site}.service" "/etc/systemd/system/stepanel-app-${site}-python.service"
+  for unit in "${worker_units[@]}"; do rm -f "/etc/systemd/system/$unit"; done
+  rm -rf "/var/lib/stepanel/tasks/$site"
+  systemctl daemon-reload
+  systemd_unlock
+  exit 0
+fi
 case "$action" in
   apply)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl apply SITE VERSION ROOT PORT' >&2; exit 64; }
