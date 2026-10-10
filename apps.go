@@ -239,7 +239,11 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 	}
 	defer releaseUnlock()
 	if parts[1] == "rollback" {
-		manifestPath := filepath.Join(a.Config.AppRoot, parts[0]+".json")
+		manifestPath, err := safePath(a.Config.AppRoot, parts[0]+".json")
+		if err != nil {
+			http.Error(w, "invalid application manifest path", http.StatusUnprocessableEntity)
+			return
+		}
 		backup, err := os.ReadFile(manifestPath + ".bak")
 		if err != nil {
 			http.Error(w, "no previous app release is available", 409)

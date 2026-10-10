@@ -6,6 +6,7 @@
 - Hardened durable capacity reservation IDs against cross-process and fallback-source collisions that could reject valid uploads.
 - Fixed multi-filesystem capacity reservations by migrating the ledger to a composite reservation/device key.
 - Centralized off-site rclone execution and revalidated application journal manifest paths before recovery writes or deletion.
+- Routed application rollback manifest resolution through the containment-checked path helper.
 
 - **User-level site hosting is now available**: active tenant owners can
   create durable blank PHP sites within their plan, with atomic site ownership
