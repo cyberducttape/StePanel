@@ -409,6 +409,49 @@ func (r *capacityReservation) grow(path string, bytes uint64) error {
 	l := r.ledger
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.db != nil {
+		sqlBytes, convErr := capacitySQLBytes(bytes)
+		if convErr != nil {
+			return convErr
+		}
+		tx, txErr := l.db.Begin()
+		if txErr != nil {
+			return fmt.Errorf("begin capacity growth: %w", txErr)
+		}
+		rollback := true
+		defer func() {
+			if rollback {
+				_ = tx.Rollback()
+			}
+		}()
+		if _, txErr = tx.Exec(`INSERT INTO state_blobs(name,payload,updated_at,revision) VALUES('capacity-ledger-lock',X'',unixepoch(),0) ON CONFLICT(name) DO UPDATE SET updated_at=excluded.updated_at`); txErr != nil {
+			return fmt.Errorf("lock capacity ledger growth: %w", txErr)
+		}
+		var held sql.NullInt64
+		if txErr = tx.QueryRow(`SELECT SUM(bytes) FROM capacity_reservations WHERE device=?`, device).Scan(&held); txErr != nil {
+			return fmt.Errorf("read capacity before growth: %w", txErr)
+		}
+		outstanding := uint64(0)
+		if held.Valid && held.Int64 > 0 {
+			outstanding = uint64(held.Int64)
+		}
+		free, statErr := availableBytes(path)
+		if statErr != nil {
+			return fmt.Errorf("inspect %s capacity at %s: %w", r.workflow, path, statErr)
+		}
+		if free < saturatingAdd(saturatingAdd(outstanding, bytes), r.reserve) {
+			return &capacityError{fmt.Sprintf("insufficient free space at %s for an additional %d bytes needed by this %s", path, bytes, r.workflow)}
+		}
+		if _, txErr = tx.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, sqlBytes, r.id, device); txErr != nil {
+			return fmt.Errorf("grow capacity reservation: %w", txErr)
+		}
+		if txErr = tx.Commit(); txErr != nil {
+			return fmt.Errorf("commit capacity growth: %w", txErr)
+		}
+		rollback = false
+		r.held[device] += bytes
+		return nil
+	}
 	if bytes > ^uint64(0)-l.held[device] {
 		return fmt.Errorf("%s capacity estimate overflow", r.workflow)
 	}
@@ -421,15 +464,6 @@ func (r *capacityReservation) grow(path string, bytes uint64) error {
 	}
 	l.held[device] += bytes
 	r.held[device] += bytes
-	if l.db != nil && r.id != "" {
-		sqlBytes, convErr := capacitySQLBytes(bytes)
-		if convErr != nil {
-			return convErr
-		}
-		if _, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, sqlBytes, r.id, device); dbErr != nil {
-			return fmt.Errorf("grow capacity reservation: %w", dbErr)
-		}
-	}
 	return nil
 }
 

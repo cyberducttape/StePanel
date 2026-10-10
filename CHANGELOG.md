@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **Preserve durable worker panic stacks**: unexpected worker panics now retain
   their Go stack trace in the failed job error, making production recovery
   failures diagnosable instead of reducing them to an opaque panic message.
+- **Fix durable database-backup capacity growth**: per-dump reservations now
+  grow through the shared SQLite ledger instead of writing to an intentionally
+  empty process-local map, preventing worker panics during database backups.
 - **Database backup capacity is accounted for per dump**: each managed
   database reserves its inventory-based predicted dump size before execution,
   reconciles the reservation to the measured dump, and falls back to the

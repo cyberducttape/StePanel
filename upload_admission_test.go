@@ -245,6 +245,34 @@ func TestCapacityReservationsCoordinateAcrossLedgerInstances(t *testing.T) {
 	secondHold.release()
 }
 
+func TestDurableCapacityReservationGrowsWithoutInMemoryLedger(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := ledger.reserve(cfg, "database-backup", cfg.ImportRoot, []capacityDemand{{Path: cfg.ImportRoot, Bytes: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.release()
+	if ledger.held != nil {
+		t.Fatal("durable ledger unexpectedly populated the process-local hold map")
+	}
+	if err := reservation.grow(cfg.ImportRoot, 4096); err != nil {
+		t.Fatalf("durable reservation growth failed: %v", err)
+	}
+	if got := ledger.heldBytes(cfg.ImportRoot); got < 4097 {
+		t.Fatalf("durable held bytes = %d, want at least 4097", got)
+	}
+}
+
 func TestCapacityReservationConsumeReleasesWrittenBytes(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0
