@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cyberducttape/StePanel/internal/archivesafe"
 	h "github.com/cyberducttape/StePanel/internal/helper"
@@ -915,16 +916,31 @@ func (e *Executor) extractDatabaseInfo(configFile string) (dbName, dbUser string
 
 // updateConfiguration updates config files with correct credentials
 func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error {
+	_, err := e.updateConfigurationWithReport(job, configPath)
+	return err
+}
+
+// ConfigurationUpdateReport records which credential definitions were changed
+// and which were intentionally left alone. This distinction is important for
+// function-backed values such as getenv(), which cannot safely be replaced by
+// a literal without changing the configuration's meaning.
+type ConfigurationUpdateReport struct {
+	Updated []string
+	Skipped []string
+}
+
+func (e *Executor) updateConfigurationWithReport(job *ImportJob, configPath string) (ConfigurationUpdateReport, error) {
+	var report ConfigurationUpdateReport
 	// Validate config path is safe (no traversal, not absolute)
 	configFile, err := safeConfigPath(job.WebRoot, configPath)
 	if err != nil {
-		return fmt.Errorf("invalid config path: %w", err)
+		return report, fmt.Errorf("invalid config path: %w", err)
 	}
 
 	// Verify the file exists and is a regular file (not symlink/directory/etc)
 	file, info, err := h.OpenRegularNoFollow(configFile, nil)
 	if err != nil {
-		return fmt.Errorf("cannot access config file: %w", err)
+		return report, fmt.Errorf("cannot access config file: %w", err)
 	}
 	// Read the same no-follow descriptor that was validated above.
 	data, readErr := io.ReadAll(file)
@@ -933,7 +949,7 @@ func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error 
 		if readErr == nil {
 			readErr = closeErr
 		}
-		return fmt.Errorf("cannot read config file: %w", readErr)
+		return report, fmt.Errorf("cannot read config file: %w", readErr)
 	}
 
 	content := string(data)
@@ -955,48 +971,99 @@ func (e *Executor) updateConfiguration(job *ImportJob, configPath string) error 
 			for _, quote := range []string{"'", "\""} {
 				pattern := fmt.Sprintf("define(%s%s%s", quote, key, quote)
 				if strings.Contains(content, pattern) {
-					// Find and replace the value for this key
-					content = replaceDefineValue(content, key, quote, value)
-					modified = true
+					updated, changed, skipped, replaceErr := replaceDefineValue(content, key, quote, value)
+					if replaceErr != nil {
+						return report, fmt.Errorf("cannot update %s: %w", key, replaceErr)
+					}
+					if changed {
+						content = updated
+						modified = true
+						if !containsString(report.Updated, key) {
+							report.Updated = append(report.Updated, key)
+						}
+					} else if skipped && !containsString(report.Skipped, key) {
+						report.Skipped = append(report.Skipped, key)
+					}
 				}
 			}
 		}
 	}
 
 	if modified {
-		// Write atomically: create temp file, write, then rename
-		tempFile, err := os.CreateTemp(filepath.Dir(configFile), "."+filepath.Base(configFile)+".*")
-		if err != nil {
-			return fmt.Errorf("cannot create temp file: %w", err)
-		}
-		defer os.Remove(tempFile.Name())
-
-		// Write content to temp file
-		if _, err := tempFile.WriteString(content); err != nil {
-			tempFile.Close()
-			return fmt.Errorf("cannot write temp file: %w", err)
-		}
-
-		// Preserve original file permissions and ownership
-		if err := tempFile.Chmod(info.Mode()); err != nil {
-			tempFile.Close()
-			return fmt.Errorf("cannot set temp file permissions: %w", err)
-		}
-		tempFile.Close()
-
-		// Atomic rename
-		if err := os.Rename(tempFile.Name(), configFile); err != nil {
-			return fmt.Errorf("cannot replace config file: %w", err)
+		if err := durableReplaceConfig(configFile, []byte(content), info); err != nil {
+			return report, err
 		}
 	}
 
+	return report, nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+// durableReplaceConfig publishes a replacement only after its contents and
+// metadata are synced. The parent-directory sync makes the rename durable
+// across a sudden power loss, while preserving the original mode and owner.
+func durableReplaceConfig(configFile string, content []byte, info os.FileInfo) (retErr error) {
+	tempFile, err := os.CreateTemp(filepath.Dir(configFile), "."+filepath.Base(configFile)+".*")
+	if err != nil {
+		return fmt.Errorf("cannot create temp file: %w", err)
+	}
+	tempName := tempFile.Name()
+	defer os.Remove(tempName)
+
+	if _, err := tempFile.Write(content); err != nil {
+		_ = tempFile.Close()
+		return fmt.Errorf("cannot write temp file: %w", err)
+	}
+	if err := tempFile.Chmod(info.Mode().Perm()); err != nil {
+		_ = tempFile.Close()
+		return fmt.Errorf("cannot set temp file permissions: %w", err)
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		if err := tempFile.Chown(int(stat.Uid), int(stat.Gid)); err != nil {
+			_ = tempFile.Close()
+			return fmt.Errorf("cannot preserve config file ownership: %w", err)
+		}
+	}
+	if err := tempFile.Sync(); err != nil {
+		_ = tempFile.Close()
+		return fmt.Errorf("cannot sync temp config file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("cannot close temp config file: %w", err)
+	}
+	if err := os.Rename(tempName, configFile); err != nil {
+		return fmt.Errorf("cannot replace config file: %w", err)
+	}
+	if err := syncDirectory(filepath.Dir(configFile)); err != nil {
+		return fmt.Errorf("config replacement committed but parent directory sync failed: %w", err)
+	}
 	return nil
+}
+
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	err = directory.Sync()
+	if closeErr := directory.Close(); err == nil {
+		err = closeErr
+	}
+	return err
 }
 
 // replaceDefineValue replaces the value of a define() statement
 // Handles formats like: define('KEY', 'value') or define ( 'KEY', 'value' )
 // Does NOT replace if value comes from a function call (getenv, env, etc)
-func replaceDefineValue(content, key, quote, newValue string) string {
+func replaceDefineValue(content, key, quote, newValue string) (string, bool, bool, error) {
 	// Pattern: define (with optional spaces) ( KEY (with optional spaces) ,
 	// Use regex to be more flexible with whitespace
 	escapedQuote := regexp.QuoteMeta(quote)
@@ -1005,12 +1072,12 @@ func replaceDefineValue(content, key, quote, newValue string) string {
 
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return content
+		return content, false, false, err
 	}
 
 	matches := re.FindAllStringIndex(content, -1)
 	if len(matches) == 0 {
-		return content
+		return content, false, false, nil
 	}
 
 	// Process the last match (most likely the one we want to replace)
@@ -1031,12 +1098,12 @@ func replaceDefineValue(content, key, quote, newValue string) string {
 	if (idx+7 <= len(afterComma) && strings.HasPrefix(remainingContent, "getenv(")) ||
 		(idx+4 <= len(afterComma) && strings.HasPrefix(remainingContent, "env(")) {
 		// Value comes from function - don't replace
-		return content
+		return content, false, true, nil
 	}
 
 	// Find the opening quote
 	if idx >= len(afterComma) || (afterComma[idx] != '\'' && afterComma[idx] != '"') {
-		return content
+		return content, false, false, fmt.Errorf("%s has an unsupported value expression", key)
 	}
 
 	valueQuote := afterComma[idx : idx+1]
@@ -1055,12 +1122,51 @@ func replaceDefineValue(content, key, quote, newValue string) string {
 	}
 
 	if closeIdx >= len(afterComma) {
-		return content
+		return content, false, false, fmt.Errorf("%s has an unterminated string value", key)
 	}
 
-	// Replace the value
-	newContent := content[:matchEnd+idx] + valueQuote + newValue + valueQuote + afterComma[closeIdx+1:]
-	return newContent
+	encoded, err := encodePHPDoubleQuotedString(newValue)
+	if err != nil {
+		return content, false, false, fmt.Errorf("%s value cannot be encoded: %w", key, err)
+	}
+	newContent := content[:matchEnd+idx] + `"` + encoded + `"` + afterComma[closeIdx+1:]
+	return newContent, newContent != content, false, nil
+}
+
+// encodePHPDoubleQuotedString returns the body of a PHP double-quoted string.
+// Every interpolation or escape introducer is neutralized; invalid UTF-8 and
+// unsupported control bytes are rejected rather than emitted as PHP source.
+func encodePHPDoubleQuotedString(value string) (string, error) {
+	if !utf8.ValidString(value) {
+		return "", errors.New("invalid UTF-8")
+	}
+	var escaped strings.Builder
+	for _, r := range value {
+		switch r {
+		case '\\':
+			escaped.WriteString(`\\`)
+		case '"':
+			escaped.WriteString(`\"`)
+		case '$':
+			escaped.WriteString(`\$`)
+		case '`':
+			escaped.WriteString("\\`")
+		case '\n':
+			escaped.WriteString(`\n`)
+		case '\r':
+			escaped.WriteString(`\r`)
+		case '\t':
+			escaped.WriteString(`\t`)
+		case 0:
+			escaped.WriteString(`\x00`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				return "", fmt.Errorf("unsupported control character U+%04X", r)
+			}
+			escaped.WriteRune(r)
+		}
+	}
+	return escaped.String(), nil
 }
 
 // extractWordPressDefine extracts a WordPress define value

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Importer database credentials are now emitted as escaped PHP literals**:
+  quotes, backslashes, interpolation markers, control characters, and invalid
+  UTF-8 cannot produce malformed or executable configuration source.
+- **Importer configuration publication is crash-durable**: replacement files
+  preserve mode and ownership, sync their contents before rename, and sync the
+  parent directory after publication.
+- **Importer update reporting no longer treats skipped function-backed values
+  as changed**: `env()` and `getenv()` definitions are explicitly reported as
+  skipped, while malformed definitions fail closed.
 - **Cpmove inspection responses no longer return archive-derived names or paths**:
   the browser receives only the import token, bounded size/feature metadata, and
   item counts, closing the reflected XSS path reported by CodeQL.

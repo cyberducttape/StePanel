@@ -299,6 +299,75 @@ func TestConfigurationUpdateWritesDatabaseCredentials(t *testing.T) {
 	}
 }
 
+func TestConfigurationUpdateEscapesPHPDatabaseCredentials(t *testing.T) {
+	executor := &Executor{}
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "wp-config.php")
+	if err := os.WriteFile(configFile, []byte("<?php\ndefine('DB_PASSWORD', 'old-password');\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	job := &ImportJob{
+		WebRoot:          tmpDir,
+		DatabasePassword: "my'\"\\password\n$HOME`id`",
+	}
+	if err := executor.updateConfiguration(job, "wp-config.php"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "define('DB_PASSWORD', \"my'\\\"\\\\password\\n\\$HOME\\`id\\`\");"
+	if !strings.Contains(string(updated), want) {
+		t.Fatalf("escaped PHP credential missing: got %q, want substring %q", updated, want)
+	}
+
+	mode, err := os.Stat(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mode.Mode().Perm(); got != 0600 {
+		t.Fatalf("config mode changed during replacement: got %o", got)
+	}
+}
+
+func TestConfigurationUpdateReportsFunctionBackedValueAsSkipped(t *testing.T) {
+	executor := &Executor{}
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "wp-config.php")
+	content := "<?php\ndefine('DB_PASSWORD', getenv('DB_PASSWORD'));\n"
+	if err := os.WriteFile(configFile, []byte(content), 0640); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := executor.updateConfigurationWithReport(&ImportJob{
+		WebRoot:          tmpDir,
+		DatabasePassword: "secret",
+	}, "wp-config.php")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Updated) != 0 || len(report.Skipped) != 1 || report.Skipped[0] != "DB_PASSWORD" {
+		t.Fatalf("unexpected configuration update report: %+v", report)
+	}
+	updated, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(updated) != content {
+		t.Fatalf("function-backed configuration was rewritten: got %q", updated)
+	}
+}
+
+func TestReplaceDefineValueRejectsInvalidUTF8(t *testing.T) {
+	content := "define('DB_PASSWORD', 'old');"
+	invalid := string([]byte{'b', 'a', 'd', 0xff})
+	if _, changed, skipped, err := replaceDefineValue(content, "DB_PASSWORD", "'", invalid); err == nil || changed || skipped {
+		t.Fatalf("invalid UTF-8 result = changed %v, skipped %v, err %v", changed, skipped, err)
+	}
+}
+
 func TestSSRFProtection(t *testing.T) {
 	tests := []struct {
 		url   string
