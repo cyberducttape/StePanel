@@ -111,7 +111,10 @@ docker run --rm -p 8080:8080 \
   -e STEPANEL_ACCOUNT_KEY="$(openssl rand -hex 32)" \
   -e STEPANEL_ENVIRONMENT_KEY="$(openssl rand -hex 32)" \
   -e STEPANEL_BACKUP_SIGNING_KEY="$(openssl rand -hex 32)" \
+  -e STEPANEL_BACKUP_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  -e STEPANEL_REQUIRE_OFFSITE_BACKUP=1 \
   -e STEPANEL_OFFSITE_TARGET='s3:bucket/stepanel' \
+  -e STEPANEL_SKIP_QUOTA_CHECK=1 \
   -e RCLONE_CONFIG=/run/secrets/rclone.conf \
   -v "$PWD/rclone.conf:/run/secrets/rclone.conf:ro" \
   stepanel:local
@@ -119,7 +122,11 @@ docker run --rm -p 8080:8080 \
 
 The image can run with production safety settings and requires TOTP, an account key, an
 environment key, a backup signing key (each at least 32 machine-generated
-characters), and a working offsite rclone target. The generated keys above are
+characters), a backup encryption key, and a working offsite rclone target. The
+Docker example sets `STEPANEL_SKIP_QUOTA_CHECK=1` because ordinary container
+filesystems do not provide the native `/var/www` user-quota contract; this is
+evaluation/integration mode, not a substitute for the native production
+installer. The generated keys above are
 for a throwaway trial: for a real installation generate them once, store them in
 your secret manager, and back them up, because encrypted environment state and
 signed backups cannot be read without them. `STEPANEL_TLS_TERMINATED=1` means this container
@@ -140,20 +147,17 @@ curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${relea
 curl -fsSLO "https://github.com/cyberducttape/StePanel/releases/download/${release}/SHA256SUMS"
 grep "stepanel_${release#v}_linux_${arch}.tar.gz" SHA256SUMS | sha256sum -c -
 tar -xzf "stepanel_${release#v}_linux_${arch}.tar.gz"
-sudo ./install.sh --guided
+# Continue with the environment-variable installation command in
+# docs/INSTALLATION.md#build-and-install.
 ```
 
-> **Availability:** `--guided` is on `main` and ships in the first release
-> after v0.7.0. The v0.7.0 installer takes its settings from environment
-> variables instead; see the [installation guide](docs/INSTALLATION.md#build-and-install).
-
-The guided install asks seven questions (panel address, web server, database,
-administrator, authenticator app, offsite backup location, optional features),
-checks each answer as you go, generates every key, shows exactly what will
-change on the server, and installs only after you confirm. Before starting,
-install rclone and add a storage remote with `sudo rclone config`; the guide
-tests that remote before continuing. For unattended installs, see the
-[installation guide](docs/INSTALLATION.md).
+The v0.7.0 installer takes its settings from environment variables; use the
+complete [release installation example](docs/INSTALLATION.md#build-and-install)
+for the required keys, offsite target, and rclone configuration. The guided
+installer is available from `main` and is documented separately; do not pass
+`--guided` to the v0.7.0 release installer. Before starting, install rclone
+and add a storage remote with `sudo rclone config`; the installer tests that
+remote before continuing.
 
 The installer records the selected database engine/version, creates a restricted `stepanel` service account, writes the requested panel hostname into the selected webserver, and binds the control plane to `127.0.0.1:8090`. Caddy provisions HTTPS automatically; Apache installations must complete TLS termination before signing in.
 

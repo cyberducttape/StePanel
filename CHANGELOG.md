@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Corrected the Docker and release-installation quick starts: production
+  containers now show the backup-encryption and offsite requirements, clearly
+  identify the container quota bypass as evaluation-only, and no longer tell
+  v0.7.0 users to invoke the unreleased guided installer.
+
 - Fresh production installs now gate `/readyz` on offsite target reachability,
   while retaining backup and verified-restore evidence as an operational
   health requirement after installation.
