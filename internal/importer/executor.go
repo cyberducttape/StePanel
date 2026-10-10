@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -29,6 +28,7 @@ const (
 	maxIndividualFileSize    = 10 * 1024 * 1024 * 1024 // 10GB per file
 	maxDirectoriesInArchive  = 25000                   // Separate limit for directories
 	baselineExpandedEstimate = 256 * 1024 * 1024
+	maxConfigFileSize        = 1 * 1024 * 1024
 
 	// Require 20% free space buffer after import to prevent filesystem exhaustion
 	minFreeSpaceBuffer = 0.20
@@ -897,11 +897,11 @@ func databaseDumpSize(path string) (int64, error) {
 
 // extractDatabaseInfo extracts database name/user from config file
 func (e *Executor) extractDatabaseInfo(configFile string) (dbName, dbUser string) {
-	file, _, err := h.OpenRegularNoFollow(configFile, nil)
+	file, info, err := h.OpenRegularNoFollow(configFile, nil)
 	if err != nil {
 		return "", ""
 	}
-	data, readErr := io.ReadAll(file)
+	data, readErr := readConfigFile(file, info)
 	closeErr := file.Close()
 	if readErr != nil || closeErr != nil {
 		return "", ""
@@ -912,6 +912,20 @@ func (e *Executor) extractDatabaseInfo(configFile string) (dbName, dbUser string
 	dbUser = extractWordPressDefine(content, "DB_USER")
 
 	return dbName, dbUser
+}
+
+func readConfigFile(file *os.File, info os.FileInfo) ([]byte, error) {
+	if info.Size() > maxConfigFileSize {
+		return nil, fmt.Errorf("configuration file exceeds %d-byte limit", maxConfigFileSize)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxConfigFileSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxConfigFileSize {
+		return nil, fmt.Errorf("configuration file exceeds %d-byte limit", maxConfigFileSize)
+	}
+	return data, nil
 }
 
 // updateConfiguration updates config files with correct credentials
@@ -943,7 +957,7 @@ func (e *Executor) updateConfigurationWithReport(job *ImportJob, configPath stri
 		return report, fmt.Errorf("cannot access config file: %w", err)
 	}
 	// Read the same no-follow descriptor that was validated above.
-	data, readErr := io.ReadAll(file)
+	data, readErr := readConfigFile(file, info)
 	closeErr := file.Close()
 	if readErr != nil || closeErr != nil {
 		if readErr == nil {
@@ -966,25 +980,18 @@ func (e *Executor) updateConfigurationWithReport(job *ImportJob, configPath stri
 
 	for key, value := range updates {
 		if value != "" {
-			// Replace define('KEY', 'old_value') with define('KEY', 'new_value')
-			// This is a simple text replacement; a proper parser would be better
-			for _, quote := range []string{"'", "\""} {
-				pattern := fmt.Sprintf("define(%s%s%s", quote, key, quote)
-				if strings.Contains(content, pattern) {
-					updated, changed, skipped, replaceErr := replaceDefineValue(content, key, quote, value)
-					if replaceErr != nil {
-						return report, fmt.Errorf("cannot update %s: %w", key, replaceErr)
-					}
-					if changed {
-						content = updated
-						modified = true
-						if !containsString(report.Updated, key) {
-							report.Updated = append(report.Updated, key)
-						}
-					} else if skipped && !containsString(report.Skipped, key) {
-						report.Skipped = append(report.Skipped, key)
-					}
+			updated, changed, skipped, replaceErr := replaceDefineValue(content, key, "", value)
+			if replaceErr != nil {
+				return report, fmt.Errorf("cannot update %s: %w", key, replaceErr)
+			}
+			if changed {
+				content = updated
+				modified = true
+				if !containsString(report.Updated, key) {
+					report.Updated = append(report.Updated, key)
 				}
+			} else if skipped && !containsString(report.Skipped, key) {
+				report.Skipped = append(report.Skipped, key)
 			}
 		}
 	}
@@ -1060,77 +1067,182 @@ func syncDirectory(path string) error {
 	return err
 }
 
-// replaceDefineValue replaces the value of a define() statement
-// Handles formats like: define('KEY', 'value') or define ( 'KEY', 'value' )
-// Does NOT replace if value comes from a function call (getenv, env, etc)
-func replaceDefineValue(content, key, quote, newValue string) (string, bool, bool, error) {
-	// Pattern: define (with optional spaces) ( KEY (with optional spaces) ,
-	// Use regex to be more flexible with whitespace
-	escapedQuote := regexp.QuoteMeta(quote)
-	escapedKey := regexp.QuoteMeta(key)
-	pattern := fmt.Sprintf(`define\s*\(\s*%s%s%s\s*,`, escapedQuote, escapedKey, escapedQuote)
-
-	re, err := regexp.Compile(pattern)
-	if err != nil {
+// replaceDefineValue replaces the value of one unambiguous define() statement.
+// It scans PHP comments and strings instead of using regexes, so commented-out
+// and embedded text cannot become candidates. Multiple active definitions are
+// rejected because selecting one by position is not a safe interpretation of
+// PHP configuration semantics.
+func replaceDefineValue(content, key, _ string, newValue string) (string, bool, bool, error) {
+	definition, found, err := findPHPDefine(content, key)
+	if err != nil || !found {
 		return content, false, false, err
 	}
-
-	matches := re.FindAllStringIndex(content, -1)
-	if len(matches) == 0 {
-		return content, false, false, nil
-	}
-
-	// Process the last match (most likely the one we want to replace)
-	match := matches[len(matches)-1]
-	matchEnd := match[1]
-
-	afterComma := content[matchEnd:]
-
-	// Skip whitespace after comma
-	idx := 0
-	for idx < len(afterComma) && (afterComma[idx] == ' ' || afterComma[idx] == '\t' || afterComma[idx] == '\n') {
-		idx++
-	}
-
-	// Check if value comes from a function call - if so, don't replace
-	// Look for patterns like getenv(), env(), etc.
-	remainingContent := afterComma[idx:]
-	if (idx+7 <= len(afterComma) && strings.HasPrefix(remainingContent, "getenv(")) ||
-		(idx+4 <= len(afterComma) && strings.HasPrefix(remainingContent, "env(")) {
-		// Value comes from function - don't replace
+	if definition.skipped {
 		return content, false, true, nil
-	}
-
-	// Find the opening quote
-	if idx >= len(afterComma) || (afterComma[idx] != '\'' && afterComma[idx] != '"') {
-		return content, false, false, fmt.Errorf("%s has an unsupported value expression", key)
-	}
-
-	valueQuote := afterComma[idx : idx+1]
-
-	// Find closing quote (skip escaped quotes)
-	closeIdx := idx + 1
-	for closeIdx < len(afterComma) {
-		if afterComma[closeIdx] == '\\' && closeIdx+1 < len(afterComma) {
-			closeIdx += 2 // Skip escaped character
-			continue
-		}
-		if afterComma[closeIdx:closeIdx+1] == valueQuote {
-			break
-		}
-		closeIdx++
-	}
-
-	if closeIdx >= len(afterComma) {
-		return content, false, false, fmt.Errorf("%s has an unterminated string value", key)
 	}
 
 	encoded, err := encodePHPDoubleQuotedString(newValue)
 	if err != nil {
 		return content, false, false, fmt.Errorf("%s value cannot be encoded: %w", key, err)
 	}
-	newContent := content[:matchEnd+idx] + `"` + encoded + `"` + afterComma[closeIdx+1:]
+	newContent := content[:definition.valueStart] + `"` + encoded + `"` + content[definition.valueEnd:]
 	return newContent, newContent != content, false, nil
+}
+
+type phpDefine struct {
+	valueStart int
+	valueEnd   int
+	skipped    bool
+}
+
+func findPHPDefine(content, key string) (phpDefine, bool, error) {
+	var found phpDefine
+	count := 0
+	for i := 0; i < len(content); {
+		if content[i] == '\'' || content[i] == '"' {
+			var err error
+			i, err = skipPHPString(content, i)
+			if err != nil {
+				return phpDefine{}, false, err
+			}
+			continue
+		}
+		if content[i] == '/' && i+1 < len(content) && (content[i+1] == '/' || content[i+1] == '*') || content[i] == '#' {
+			var err error
+			i, err = skipPHPComment(content, i)
+			if err != nil {
+				return phpDefine{}, false, err
+			}
+			continue
+		}
+		if isPHPIdentifierAt(content, i, "define") {
+			definition, next, matched, err := parsePHPDefine(content, i+len("define"), key)
+			if err != nil {
+				return phpDefine{}, false, err
+			}
+			if matched {
+				count++
+				found = definition
+			}
+			i = next
+			continue
+		}
+		i++
+	}
+	if count > 1 {
+		return phpDefine{}, false, fmt.Errorf("%s has %d active definitions; refusing ambiguous replacement", key, count)
+	}
+	return found, count == 1, nil
+}
+
+func parsePHPDefine(content string, index int, key string) (phpDefine, int, bool, error) {
+	i, err := skipPHPTrivia(content, index)
+	if err != nil || i >= len(content) || content[i] != '(' {
+		return phpDefine{}, index, false, err
+	}
+	i, err = skipPHPTrivia(content, i+1)
+	if err != nil || i >= len(content) || (content[i] != '\'' && content[i] != '"') {
+		return phpDefine{}, i, false, err
+	}
+	keyEnd, err := findPHPStringEnd(content, i)
+	if err != nil {
+		return phpDefine{}, i, false, err
+	}
+	if unescapePHPKey(content[i+1:keyEnd]) != key {
+		return phpDefine{}, keyEnd + 1, false, nil
+	}
+	i, err = skipPHPTrivia(content, keyEnd+1)
+	if err != nil || i >= len(content) || content[i] != ',' {
+		return phpDefine{}, i, false, fmt.Errorf("%s define has no comma after key", key)
+	}
+	i, err = skipPHPTrivia(content, i+1)
+	if err != nil || i >= len(content) {
+		return phpDefine{}, i, false, fmt.Errorf("%s define has no value", key)
+	}
+	if strings.HasPrefix(content[i:], "getenv(") || strings.HasPrefix(content[i:], "env(") {
+		return phpDefine{skipped: true}, i + 1, true, nil
+	}
+	if content[i] != '\'' && content[i] != '"' {
+		return phpDefine{}, i, false, fmt.Errorf("%s has an unsupported value expression", key)
+	}
+	valueEnd, err := findPHPStringEnd(content, i)
+	if err != nil {
+		return phpDefine{}, i, false, fmt.Errorf("%s has an unterminated string value: %w", key, err)
+	}
+	return phpDefine{valueStart: i, valueEnd: valueEnd + 1}, valueEnd + 1, true, nil
+}
+
+func skipPHPTrivia(content string, index int) (int, error) {
+	for index < len(content) {
+		if content[index] == ' ' || content[index] == '\t' || content[index] == '\n' || content[index] == '\r' {
+			index++
+			continue
+		}
+		if (content[index] == '/' && index+1 < len(content) && (content[index+1] == '/' || content[index+1] == '*')) || content[index] == '#' {
+			var err error
+			index, err = skipPHPComment(content, index)
+			if err != nil {
+				return index, err
+			}
+			continue
+		}
+		break
+	}
+	return index, nil
+}
+
+func skipPHPComment(content string, index int) (int, error) {
+	if content[index] == '#' || (content[index] == '/' && index+1 < len(content) && content[index+1] == '/') {
+		if end := strings.IndexByte(content[index:], '\n'); end >= 0 {
+			return index + end + 1, nil
+		}
+		return len(content), nil
+	}
+	end := strings.Index(content[index+2:], "*/")
+	if end < 0 {
+		return len(content), errors.New("unterminated PHP block comment")
+	}
+	return index + end + 4, nil
+}
+
+func skipPHPString(content string, start int) (int, error) {
+	end, err := findPHPStringEnd(content, start)
+	if err != nil {
+		return len(content), err
+	}
+	return end + 1, nil
+}
+
+func findPHPStringEnd(content string, start int) (int, error) {
+	quote := content[start]
+	for i := start + 1; i < len(content); i++ {
+		if content[i] == '\\' {
+			i++
+			continue
+		}
+		if content[i] == quote {
+			return i, nil
+		}
+	}
+	return len(content), errors.New("unterminated PHP string")
+}
+
+func isPHPIdentifierAt(content string, index int, identifier string) bool {
+	if index+len(identifier) > len(content) || content[index:index+len(identifier)] != identifier {
+		return false
+	}
+	if index > 0 && (isPHPIdentifierChar(content[index-1])) {
+		return false
+	}
+	return index+len(identifier) == len(content) || !isPHPIdentifierChar(content[index+len(identifier)])
+}
+
+func isPHPIdentifierChar(value byte) bool {
+	return value == '_' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
+}
+
+func unescapePHPKey(value string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(value, `\'`, `'`), `\"`, `"`)
 }
 
 // encodePHPDoubleQuotedString returns the body of a PHP double-quoted string.
@@ -1172,6 +1284,14 @@ func encodePHPDoubleQuotedString(value string) (string, error) {
 // extractWordPressDefine extracts a WordPress define value
 // Handles: define('KEY', 'value') or define("KEY", "value")
 func extractWordPressDefine(content, key string) string {
+	definition, found, err := findPHPDefine(content, key)
+	if err != nil || !found || definition.skipped {
+		return ""
+	}
+	return unescapePHPKey(content[definition.valueStart+1 : definition.valueEnd-1])
+}
+
+func extractWordPressDefineLegacy(content, key string) string {
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		// Skip commented lines

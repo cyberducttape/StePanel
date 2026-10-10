@@ -170,6 +170,45 @@ func TestExtractWordPressDefine(t *testing.T) {
 	}
 }
 
+func TestExtractWordPressDefineIgnoresCommentsAndSupportsMultiline(t *testing.T) {
+	content := `<?php
+// define('DB_NAME', 'commented');
+/* define('DB_NAME', 'also-commented'); */
+define(
+    /* key */ 'DB_NAME',
+    "real_db"
+);
+`
+	if got := extractWordPressDefine(content, "DB_NAME"); got != "real_db" {
+		t.Fatalf("extractWordPressDefine returned %q", got)
+	}
+}
+
+func TestReplaceDefineValueRejectsAmbiguousDefinitions(t *testing.T) {
+	content := "define('DB_NAME', 'first');\ndefine('DB_NAME', 'second');\n"
+	if _, _, _, err := replaceDefineValue(content, "DB_NAME", "", "replacement"); err == nil {
+		t.Fatal("replaceDefineValue accepted multiple active definitions")
+	}
+}
+
+func TestConfigurationUpdateRejectsOversizedFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "wp-config.php")
+	content := make([]byte, maxConfigFileSize+1)
+	copy(content, []byte("<?php\n"))
+	if err := os.WriteFile(configFile, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := (&Executor{}).updateConfiguration(&ImportJob{
+		WebRoot:      tmpDir,
+		DatabaseName: "db",
+	}, "wp-config.php")
+	if err == nil || !strings.Contains(err.Error(), "configuration file exceeds") {
+		t.Fatalf("oversized config error = %v", err)
+	}
+}
+
 func TestArchiveEntryLimits(t *testing.T) {
 	job := &ImportJob{
 		ID:               "test-job",

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Importer PHP configuration detection now uses a bounded token-aware scan**:
+  comments and quoted text are ignored, multiline definitions are supported,
+  ambiguous duplicate definitions fail closed, and configuration files are
+  limited to 1 MiB before parsing.
 - **Importer database credentials are now emitted as escaped PHP literals**:
   quotes, backslashes, interpolation markers, control characters, and invalid
   UTF-8 cannot produce malformed or executable configuration source.
