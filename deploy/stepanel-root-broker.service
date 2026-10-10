@@ -7,11 +7,10 @@ Before=stepanel.service stepanel-worker.service
 Type=simple
 User=root
 Group=stepanel
-# The panel and broker consume the same recovery-root setting. This service is
-# root-only, so the panel's environment file is safe to read here; the broker
-# uses only STEPANEL_RECOVERY_ROOT and STEPANEL_CONTROL_PLANE_DB from it.
-EnvironmentFile=-/etc/ste-panel.env
-ExecStart=/usr/local/sbin/stepanel-root -webroot /var/www -control-plane-db /var/lib/ste-panel/stepanel-control.db -socket /run/stepanel-root-broker.sock -socket-group stepanel
+# Keep the broker isolated from the panel's secret-bearing environment file.
+# The native installer uses this same authoritative recovery root in
+# STEPANEL_RECOVERY_ROOT.
+ExecStart=/usr/local/sbin/stepanel-root -webroot /var/www -recovery-root /var/www/sites/.stepanel-recovery -control-plane-db /var/lib/ste-panel/stepanel-control.db -socket /run/stepanel-root-broker.sock -socket-group stepanel
 Restart=on-failure
 RestartSec=1s
 TimeoutStopSec=2h5min
