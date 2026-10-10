@@ -190,6 +190,19 @@ func TestInspectCPMoveHandlesTopLevelCPanelRoot(t *testing.T) {
 	}
 }
 
+func TestInspectCPMoveEscapesArchiveDisplayName(t *testing.T) {
+	archive := makeTarGz(t, map[string]string{"cpmove-account/homedir/public_html/index.php": "ok"})
+	file, header := openMultipartArchive(t, archive, "<script>alert(1)</script>.tar.gz")
+	defer file.Close()
+	info, err := InspectCPMove(file, header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(info.Archive, "<script>") || !strings.Contains(info.Archive, "&lt;script&gt;") {
+		t.Fatalf("archive display name was not escaped: %q", info.Archive)
+	}
+}
+
 func TestRestoreCPMoveHandlesTopLevelCPanelRoot(t *testing.T) {
 	root := t.TempDir()
 	archive := makeTarGz(t, map[string]string{

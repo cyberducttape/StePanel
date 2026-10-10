@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"mime/multipart"
@@ -151,7 +152,10 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
-	info := CPMoveInfo{Archive: header.Filename, ArchiveBytes: header.Size, User: userFromArchiveName(header.Filename)}
+	// The filename is returned in the API inspection response. Escape it at
+	// the trust boundary so a hostile multipart filename cannot become markup
+	// if a client renders the response in a browser.
+	info := CPMoveInfo{Archive: html.EscapeString(header.Filename), ArchiveBytes: header.Size, User: userFromArchiveName(header.Filename)}
 	seen := map[string]bool{}
 	seenMail := map[string]bool{}
 	paths := archivesafe.NewPathSet()
