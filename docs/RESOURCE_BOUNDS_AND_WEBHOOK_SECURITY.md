@@ -371,4 +371,4 @@ RUN echo "deb [snapshot=20240101T000000Z] http://snapshot.debian.org/debian bull
 - `git_deploy.go:174-176` - Raw error output
 - `stepanel-appctl:249-251` - Resource validation bounds
 - `Dockerfile` - Runtime package inventory and reproducibility
-- `docs/ROOT_HELPER_MODERNIZATION.md` - Overall helper hardening
+- `docs/ROOT_BROKER_INTEGRATION.md` - Typed root-broker boundary

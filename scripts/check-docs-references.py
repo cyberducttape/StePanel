@@ -27,10 +27,6 @@ SKIP_FILES = {"CHANGELOG.md"}
 ALLOWED = {
     ("VISION.md", "stepanel doctor"): "product vision: planned command",
     ("VISION.md", "stepanel site"): "product vision: planned command",
-    ("REFACTORING_PLAN.md", "cmd/stepanel/main.go"): "refactoring target layout",
-    ("REFACTORING_PLAN.md", "app.go"): "refactoring target layout",
-    ("REFACTORING_PLAN.md", "init.go"): "refactoring plan history",
-    ("ARCHITECTURE.md", "RegisterRoutes()"): "proposed package convention",
     ("CLAUDE.md", "internal/accounts/service.go"): "illustrative extraction example",
     ("CLAUDE.md", "internal/sites.Manager"): "type reference, not a file",
     ("docs/V1_PRODUCTION_GATES.md", "internal/operations/distributed_locks.go"): "documents its removal",
@@ -43,11 +39,8 @@ ALLOWED = {
     ("docs/ARCHIVE_IMPORTER.md", "define()"): "PHP function in a wp-config example",
     ("docs/ENCRYPTION_KEYS.md", "random()"): "names a weak key-generation method to avoid",
     ("docs/ENCRYPTION_KEYS.md", "rand()"): "names a weak key-generation method to avoid",
-    ("docs/HELPER_LAYER_COMPLETION_SUMMARY.md", "internal/rootbroker/operations.go"): "historical; recorded as merged into broker.go",
-    ("docs/HELPER_LAYER_COMPLETION_SUMMARY.md", "operations_test.go"): "historical; recorded as merged into broker_test.go",
     ("docs/PIP_INSTALL_CONSTRAINTS.md", "internal/helper/pip.go"): "unimplemented proposal, labelled as such",
     ("docs/PIP_INSTALL_CONSTRAINTS.md", "stepanel wheels"): "unimplemented proposal, labelled as such",
-    ("docs/ROOT_HELPER_MODERNIZATION.md", "cmd/stepanel-helper/main.go"): "historical roadmap, labelled as such",
 }
 # Shell variables used in documented client examples, not panel settings.
 CLIENT_VARIABLES = {"STEPANEL_TOKEN"}

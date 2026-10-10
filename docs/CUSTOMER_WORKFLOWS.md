@@ -2,6 +2,33 @@
 
 This guide describes self-service workflows available to customers in the shared-hosting beta.
 
+## Create a Site
+
+Account owners can create a blank PHP site within their plan. The site gets
+its own system account, PHP-FPM pool, and a placeholder page, and is assigned
+to your account before creation starts. Creation runs as a durable job; if it
+fails, nothing is left behind and the site no longer counts against your plan.
+
+```bash
+curl -X POST "https://panel.example.com/api/sites" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Idempotency-Key: create-mysite" \
+  -H "Content-Type: application/json" \
+  -d '{"site": "mysite", "template": "php"}'
+```
+
+The response is `202 Accepted` with a `job_id` and a `status_url` to follow.
+An API token needs the `site:deploy` scope.
+
+- Only the account **owner** of an active (not suspended) account can create
+  sites; members with other roles receive `403`.
+- A request that would exceed the plan's site limit, or uses a name that is
+  already taken, receives `409`.
+- Creating a site does not publish a domain. Connect a domain afterwards; it
+  must pass domain ownership verification before the route goes live.
+
+WordPress, Git, and Node site templates are not available yet.
+
 ## Restore-to-Staging: Test Before Going Live
 
 The restore-to-staging feature lets you safely test restoring your site from a backup **before applying the restore to your production site**. This is the safest way to verify your backups actually work.

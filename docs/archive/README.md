@@ -36,3 +36,10 @@ For current information:
 - `archive/ARCHIVE_IMPORT_LIFECYCLE.md` (archived) - v0.7.0-era archive import workflow (now uses transactional activation)
 - `PHASE*_*.md` - Detailed implementation plans from completed development phases
 - Other roadmaps and plans - Historical planning documents superseded by current roadmap
+
+Archived in the 2026-10-10 documentation sprint (completed or superseded work):
+
+- `ARCHITECTURE_REORGANIZATION_ROADMAP.md` - Former root `ARCHITECTURE.md`; proposed package layout that the tree did not adopt
+- `REFACTORING_PLAN.md` - Root-package conversion plan; Phase 1 shipped (`package stepanel`, `cmd/` binaries)
+- `HELPER_LAYER_COMPLETION_SUMMARY.md`, `HELPER_ARCHITECTURE.md`, `ROOT_HELPER_MODERNIZATION.md` - Helper-layer migration history; superseded by `../ROOT_BROKER_INTEGRATION.md` and `../SUDO_THREAT_MODEL.md`
+- `GATE5_HARDENING_STRATEGY.md`, `GATE5_INTEGRATION_GUIDE.md`, `GATE5_FAILURE_INJECTION_TESTING.md` - Gate 5 design and framework plans; implemented, with current status in `../V1_PRODUCTION_GATES.md` and `../REAL_HOST_FAILURE_MATRIX.md`

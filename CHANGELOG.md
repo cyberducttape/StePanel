@@ -1,18 +1,22 @@
 # Changelog
 
+All notable changes to StePanel are documented here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Changed
+
 - Hardened the off-site rclone runner's fixed executable construction and made
   account-suspension recovery smoke failures report the response that caused
   the failed gate.
-
-## Unreleased
-
 - Hardened native and lab installation paths so root-broker recovery journals use a root-owned `/var/lib/stepanel/recovery` directory, separate from the panel-owned workspace.
 - Hardened durable capacity reservation IDs against cross-process and fallback-source collisions that could reject valid uploads.
 - Fixed multi-filesystem capacity reservations by migrating the ledger to a composite reservation/device key.
 - Centralized off-site rclone execution and revalidated application journal manifest paths before recovery writes or deletion.
 - Routed application rollback manifest resolution through the containment-checked path helper.
 - Separated the root broker's privileged journal root from the panel-owned site snapshot root, preserving safe restore transactions after journal-boundary hardening.
-
 - **User-level site hosting is now available**: active tenant owners can
   create durable blank PHP sites within their plan, with atomic site ownership
   assignment, post-creation plan-resource reconciliation, and tenant-filtered
@@ -98,12 +102,6 @@
   app rollback/Git key verification, site resume, and automatic legacy-token
   email notifications report their actual unsupported or manual status through
   `/api/capabilities` rather than appearing implicitly available.
-
-All notable changes to StePanel are documented here.
-
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
-
-## [Unreleased]
 
 ### Fixed
 

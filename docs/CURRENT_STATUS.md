@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-02
+**Last Updated:** 2026-10-10
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -21,13 +21,36 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 | Gate | Requirement | Status | Blocker |
 |------|-------------|--------|---------|
 | **Gate 1** | One Lifecycle Authority | ✅ MET (revised 2026-10-02) | None for publication and removal; configuration updates are broker-executed |
-| **Gate 2** | Cross-Process Lock Enforcement | 🔄 PARTIAL (lock layer complete) | Full workflow interruption acceptance |
+| **Gate 2** | Cross-Process Lock Enforcement | ✅ MET (2026-10-02) | None; interrupted conflicting workflows are covered by `workflow_interruption_test.go` |
 | **Gate 3** | Capability Reporting | ✅ COMPLETE | None |
 | **Gate 4** | Automated Archive Database Restoration | ✅ COMPLETE | None |
-| **Gate 5** | Failure Recovery Testing | 🔄 PARTIAL | Multi-point failure coverage, real disk-exhaustion and host power-loss testing |
-| **Gate 2 extension** | Interrupted Workflow Acceptance | 🔄 OPEN | Full conflicting-workflow recovery evidence |
+| **Gate 5** | Failure Recovery Testing | 🔄 PARTIAL | Repeated (20–50×) real-host matrix, ENOSPC beyond backup, physical power loss |
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
+
+### Changes 2026-10-03 to 2026-10-10 (on `main`, unreleased)
+
+- **Tenant site creation:** an active tenant owner can create a blank PHP
+  site with `POST /api/sites` within their plan; ownership is assigned before
+  the durable job is queued, plan resources are reconciled afterwards, and a
+  terminally failed job releases the reservation. See
+  [SHARED_HOSTING.md](SHARED_HOSTING.md).
+- **KVM certification run (2026-10-09):** on a Rocky Linux 9 guest with
+  SELinux enforcing, the install smoke, the full 105-drill recovery matrix,
+  abrupt guest kills (idle and mid-backup), and a real ENOSPC backup on a
+  dedicated filesystem passed. The run found and fixed SELinux defects that
+  container CI could not see (scheduled tasks, Git deploys after sealing, the
+  rootless build runner). See
+  [lab-results/2026-10-09-rocky9-kvm-certification.md](lab-results/2026-10-09-rocky9-kvm-certification.md).
+- **Offsite backups** publish transactionally (temporary remote prefix,
+  checked before promotion, completion marker required for restore), with
+  size-aware deadlines and constrained restore arguments.
+- **Application activation** is journaled: a crash between runtime change
+  and manifest publication is rolled back to the prior generation at startup.
+- **Caddy** serves each site through a `nosymfollow` bind view, so symlinks
+  created after route publication cannot escape the document root.
+- **Root-broker journals** live in the root-owned `/var/lib/stepanel/recovery`,
+  separate from the panel-owned site snapshot root.
 
 ### Changes on 2026-10-02 (on `main`, unreleased)
 
@@ -74,11 +97,8 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
   direct helper execution for local workflows.
 - The reported CodeQL path and integer alerts are resolved; the hosted CodeQL
   scan for `635ea5f` reported zero open alerts. The local full race suite and
-  serial suite pass through `eb39e63`. Validation for the current documentation
-  commit `44a765b` is queued; the quota-enabled installation/ENOSPC VM gate and
-  the standard disposable-host matrix remain unverified until their current
-  hosted runs complete. These checks are release evidence, not claims that the
-  remaining production gates are closed.
+  serial suite pass through `eb39e63`. These checks are release evidence,
+  not claims that the remaining production gates are closed.
 
 ---
 
@@ -118,7 +138,7 @@ limited to non-production development installs.
 
 ### Gate 5: Failure Injection Testing (partial; Phase 7 remains open)
 
-**Status:** Partial; hosted recovery evidence passes on both disposable distributions for the default drills and the expanded alternate kill-boundary matrix covering cpmove, backup, file restore, termination, account suspension, and Git deploy. A Rocky Linux 9.8 VM passed the same installed-host drills plus abrupt QEMU-process kill/reboot and MariaDB service outage/restart checks; the full Phase 7 failure matrix remains open.
+**Status:** Partial. The 2026-10-09 KVM certification run passed the full 105-drill recovery matrix once on a SELinux-enforcing Rocky Linux 9 guest, plus abrupt guest kills and a real ENOSPC backup ([results](lab-results/2026-10-09-rocky9-kvm-certification.md)). Earlier, hosted recovery evidence passed on both disposable distributions for the default drills and the expanded alternate kill-boundary matrix covering cpmove, backup, file restore, termination, account suspension, and Git deploy. A Rocky Linux 9.8 VM passed the same installed-host drills plus abrupt QEMU-process kill/reboot and MariaDB service outage/restart checks; the full Phase 7 failure matrix remains open.
 
 - ✅ Phase 1: Failure Injection Framework (100%)
 - ✅ Phase 2: Durable Checkpoint System (100%)
@@ -126,7 +146,7 @@ limited to non-production development installs.
 - ✅ Phase 4: Broker Integration (100%)
 - ✅ Phase 5: Operation Journals (100%)
 - ✅ Phase 6: Workflow Integration Testing (100%)
-- 🔄 Phase 7: VM-Level Failure Testing (partial: Rocky 9.8 installed-host recovery, abrupt VM-process kill/reboot, and MariaDB outage checks; true host power loss and disk exhaustion remain untested)
+- 🔄 Phase 7: VM-Level Failure Testing (partial: full recovery matrix on a KVM guest, abrupt guest kill idle and mid-backup, real ENOSPC during backup, MariaDB outage; repetition, ENOSPC beyond backup, and physical power loss remain untested)
 
 **What it is:** Prove StePanel survives and recovers deterministically from real failures (SIGKILL, disk full, database offline) at operation boundaries.
 
@@ -208,15 +228,29 @@ account suspension, and Git deployment activation. A disposable Rocky Linux
 an abrupt QEMU-process kill/reboot and a MariaDB stop/start. These checks do
 not establish real host power-loss or disk-exhaustion safety.
 
-**Remaining Work:** Complete the Phase 7 failure matrix
-- Multi-point kill/restart coverage across each critical operation
-- Real ENOSPC during site publication/restore and recovery
-- Host power loss / unclean disk-cache loss, beyond killing the QEMU process
-- Managed-database outage during an operation and verified recovery
-- 100+ deterministic run verification
-- SLA measurement (< 5 seconds target)
+The 2026-10-09 KVM certification run
+([results](lab-results/2026-10-09-rocky9-kvm-certification.md)) then killed and
+recovered every supported journal boundary of cpmove activation, backup,
+restore, termination, and suspension on a SELinux-enforcing Rocky Linux 9
+guest (105 drills), survived an abrupt guest kill while idle and during a
+backup, and showed that a backup hitting real ENOSPC on a dedicated filesystem
+publishes nothing partial. It is a single run, and a QEMU `SIGKILL` is not
+physical power loss.
 
-**Next Action:** Extend the disposable-VM harness to exercise ENOSPC and database outages at operation boundaries, then complete repeatability and recovery-time measurements.
+**Remaining Work:** Complete the Phase 7 failure matrix
+([REAL_HOST_FAILURE_MATRIX.md](REAL_HOST_FAILURE_MATRIX.md))
+- Repeat the real-host matrix 20–50 times per operation/fault combination
+- Real ENOSPC during site publication, restore, and import (backup is covered)
+- Physical power loss / unclean disk-cache loss, beyond killing the QEMU process
+- Managed-database outage during an operation and verified recovery
+- Real-host drills for the `restore:provision` and `restore:provisioned`
+  boundaries (restore-to-staging database path)
+- Recovery-time measurement (< 5 minute success criterion)
+
+**Next Action:** Run the full recovery matrix on a KVM guest at
+`RECOVERY_MATRIX_REPEATS=20` (`local-kvm-certification.sh` currently runs it
+once), then extend the harness to ENOSPC beyond backup and managed-database
+outages at operation boundaries.
 
 ---
 
@@ -300,9 +334,9 @@ All workflows use **journaled staged activation** — operations are staged in a
 ## Roadmap to v1.0
 
 ### Immediate (Week 1-2)
-1. Extend VM tests to inject ENOSPC and managed-database outages during operations
-2. Add multi-point failure coverage and repeatability/recovery-time measurements
-3. Complete actual host power-loss validation before approving Gate 5 Phase 7
+1. Repeat the KVM recovery matrix 20–50 times and publish the results
+2. Extend VM tests to ENOSPC beyond backup and managed-database outages during operations
+3. Complete physical power-loss validation before approving Gate 5 Phase 7
 
 ### Short-term
 4. Publish the typed privileged-request model and retain the regression test
@@ -339,10 +373,9 @@ All workflows use **journaled staged activation** — operations are staged in a
 - [ROADMAP.md](./ROADMAP.md) — Product roadmap (v0.1 → v2.0)
 
 **Technical Details:**
-- [HELPER_LAYER_COMPLETION_SUMMARY.md](./HELPER_LAYER_COMPLETION_SUMMARY.md) — Helper layer detailed status
 - [ROOT_BROKER_INTEGRATION.md](./ROOT_BROKER_INTEGRATION.md) — Broker integration guide
-- [GATE5_HARDENING_STRATEGY.md](./GATE5_HARDENING_STRATEGY.md) — Durable checkpoint pattern guide
-- [GATE5_INTEGRATION_GUIDE.md](./GATE5_INTEGRATION_GUIDE.md) — Phase 4-6 integration details
+- [REAL_HOST_FAILURE_MATRIX.md](./REAL_HOST_FAILURE_MATRIX.md) — Real-host failure matrix and how to run it
+- [lab-results/](./lab-results/) — Dated recovery and certification evidence
 
 ---
 

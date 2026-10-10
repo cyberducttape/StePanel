@@ -2,8 +2,8 @@
 
 > Historical summary of the helper-layer foundation. File and line counts
 > describe that milestone; for the current broker see
-> [ROOT_BROKER_INTEGRATION.md](ROOT_BROKER_INTEGRATION.md) and
-> [CODE_ORGANIZATION.md](CODE_ORGANIZATION.md).
+> [ROOT_BROKER_INTEGRATION.md](../ROOT_BROKER_INTEGRATION.md) and
+> [CODE_ORGANIZATION.md](../CODE_ORGANIZATION.md).
 
 > This is a historical migration snapshot from 2026-09-26. Native production
 > installs now use the root-owned Unix-socket broker; the sudo/stdin diagrams

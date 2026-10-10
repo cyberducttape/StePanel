@@ -16,13 +16,13 @@
 - General-purpose database and database-user lifecycle (shipped in 0.6 for local single-host engines)
 - Customer-visible operation history and notification delivery
 - Site-centric inventory and constrained pre-built Git deployment/rollback
-  (available in `Unreleased` after 0.6.0)
+  (shipped in 0.7)
 - Customer-first hosting workspace with per-site domain connection and
-  verified-backup actions (available in `Unreleased` after 0.6.0); DNS
+  verified-backup actions (shipped in 0.7); DNS
   lifecycle and multi-host authorization remain future work.
 - Constrained shared-hosting customer accounts, durable assigned-site
   ownership, assigned-site plan limits, and customer-scoped site/backup/job
-  visibility (available in `Unreleased`); panel-session suspension and
+  visibility (shipped in 0.7); panel-session suspension and
   application/filesystem resource ceilings are shipped, while
   hosting-workload lifecycle and provider-specific quotas remain future work.
 
@@ -36,20 +36,32 @@
 - Durable SQLite control-plane state, leases, worker supervision, and recovery
   reconciliation (shipped in 0.7)
 
-## 0.7 — Stability and internal package boundaries
+## 0.7 — Stability and internal package boundaries (released 2026-09)
 
-The next milestone is an architecture/stability release, not a feature-count
-release. It should be supported by failure-injection, concurrency, restore,
-and installation evidence before the version is tagged.
+An architecture/stability release, not a feature-count release.
 
-- Extract authentication and durable job seams into `internal` packages while
-  preserving the current HTTP/API behavior.
-- Move migration and backup workflows behind interfaces that can be tested
-  without the full control-plane assembly.
-- Keep privileged helpers and external cloud/SSH adapters behind explicit
-  operation interfaces.
-- Publish a tagged binary release with checksums, SBOM, provenance, and known
-  limitations before calling the API stable.
+- Authentication and durable job seams extracted into `internal` packages
+  while preserving the HTTP/API behavior.
+- Privileged helpers and cloud/SSH adapters behind explicit operation
+  interfaces; the typed root broker that now carries every production helper
+  call landed on `main` after 0.7.0.
+- Tagged binary release with checksums, SBOM, provenance, and known
+  limitations.
+
+## Next release (on `main`, unreleased)
+
+The next release continues the 1.0 evidence work rather than widening scope.
+Changes already on `main` are listed under `[Unreleased]` in
+[CHANGELOG.md](../CHANGELOG.md) and under "New on `main`" in
+[FEATURES.md](./FEATURES.md); the main ones are guided installation, recovery
+status, the concurrent root broker, blank PHP site creation for
+administrators and tenant owners, and crash-recoverable application
+activation.
+
+- Repeat the real-host recovery matrix and extend ENOSPC and database-outage
+  drills ([REAL_HOST_FAILURE_MATRIX.md](./REAL_HOST_FAILURE_MATRIX.md)).
+- Continue moving migration and backup workflows behind interfaces that can be
+  tested without the full control-plane assembly.
 
 ## 1.0 — Production contract for operator-managed hosting
 
@@ -80,5 +92,7 @@ escalation tooling, and automated incident response are 2.0 work.
   restore-to-staging are already available with documented beta boundaries.
 
   The customer portal now includes a tenant-scoped account/usage view and
-  session security controls; the remaining shared-hosting work is the
-  multi-host and delegated-RBAC platform around that portal.
+  session security controls, owner/manager/developer/viewer roles, and
+  owner-initiated site creation; the remaining shared-hosting work is the
+  multi-host platform, support/reseller roles, and the provider lifecycle
+  around that portal.

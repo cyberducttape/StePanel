@@ -52,6 +52,25 @@ backup, file restore, and termination, plus panel-kill/restart recovery for
 durable account suspension. The account drill uses the disposable
 `ci-suspension-recovery` account by default.
 
+### KVM certification run
+
+`local-kvm-certification.sh` runs the install smoke, the full recovery
+matrix, the rootless build runner checks, abrupt whole-guest loss (idle and
+during a backup, via `abrupt-loss-backup-drill.sh`), and a real ENOSPC drill
+inside a disposable Rocky Linux 9 KVM guest with SELinux enforcing. It needs
+a usable `/dev/kvm`, QEMU, and a run directory on disk (not tmpfs); a full
+run takes about four hours. Nothing is installed on the workstation itself.
+
+```sh
+deploy/lab/local-kvm-certification.sh Rocky-9-GenericCloud.latest.x86_64.qcow2
+```
+
+`PHASES` selects a subset (`boot install runner abrupt-loss
+abrupt-loss-under-load enospc`), `KEEP_VM=1` leaves the guest running, and
+`RESUME=1` runs further phases against that guest. Results from the first run
+are in
+[`docs/lab-results/2026-10-09-rocky9-kvm-certification.md`](../../docs/lab-results/2026-10-09-rocky9-kvm-certification.md).
+
 On an installed host with FTPS activated, run
 `bash deploy/lab/ftps-access-smoke.sh` to prove encrypted upload/download and
 revocation under the actual site Unix account. It is intentionally separate

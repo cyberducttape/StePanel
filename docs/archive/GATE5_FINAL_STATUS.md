@@ -384,8 +384,8 @@ StePanel has completed Phase 6 of Gate 5 with:
 ## Related Documents
 
 - [GATE5_SUMMARY.md](GATE5_SUMMARY.md) - Architecture overview
-- [GATE5_HARDENING_STRATEGY.md](../GATE5_HARDENING_STRATEGY.md) - Hardening strategy
-- [GATE5_INTEGRATION_GUIDE.md](../GATE5_INTEGRATION_GUIDE.md) - Integration guide
+- [GATE5_HARDENING_STRATEGY.md](GATE5_HARDENING_STRATEGY.md) - Hardening strategy
+- [GATE5_INTEGRATION_GUIDE.md](GATE5_INTEGRATION_GUIDE.md) - Integration guide
 - [GATE5_PHASE4_5_COMPLETION.md](GATE5_PHASE4_5_COMPLETION.md) (archived) - Phases 4-5 summary
 - [GATE5_COMPLETION_ROADMAP.md](GATE5_COMPLETION_ROADMAP.md) - Phases 4-7 roadmap (archived)
 - [GATE5_PHASE7_VM_TESTING.md](GATE5_PHASE7_VM_TESTING.md) - Phase 7 plan

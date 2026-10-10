@@ -11,7 +11,7 @@ to administrators but not exposed as a tenant entitlement; **Experimental**
 means the interface may change; **Planned** means not implemented. Release-tag
 documentation must be read from the matching release tag, not from `main`.
 
-Documentation version: `main` (reviewed 2026-10-02)
+Documentation version: `main` (reviewed 2026-10-10)
 Release approval: use `V1_PRODUCTION_GATES.md`; this catalog is not a release gate.
 
 ## Available now
@@ -34,6 +34,21 @@ New on `main` since v0.7.0 (unreleased):
   parallel, health checks are never queued behind long operations.
 - **Outbound request policy**: imports and task webhooks can reach only
   public internet addresses.
+- **Blank PHP site creation** (Beta): `POST /api/sites` creates a site with
+  its own system account, PHP-FPM pool, and placeholder page as a durable
+  job that leaves nothing behind on failure. Administrators and active tenant
+  owners can use it; a tenant owner's site is assigned to their account and
+  counted against their plan before the job is queued, and a failed job
+  releases the reservation. WordPress, Git, and Node templates are planned.
+- **Transactional offsite backups**: uploads go to a temporary remote prefix,
+  are checked, and are promoted with a completion marker that restore
+  requires; transfers use size-aware deadlines and stall limits.
+- **Crash-recoverable application activation**: application deploys and
+  state changes are journaled, and startup restores the previous generation
+  if the panel dies mid-activation.
+- **Symlink-safe Caddy serving**: each site is served through a `nosymfollow`
+  bind view, so symlinks created after route publication cannot escape the
+  document root.
 
 Shipped in v0.7.0 and earlier:
 
@@ -180,8 +195,9 @@ Shipped in v0.7.0 and earlier:
   MFA/password/session controls, scoped automation tokens, verified activity,
   assigned-site viewing, tracked domain routes, databases, environment values,
   Redis allocations, SSH/deploy keys, PHP settings, workers, scheduled tasks,
-  logs, verified backup creation, restore-to-staging, and owner-managed
-  delegated team roles. File management, billing, and production promotion
+  logs, verified backup creation, restore-to-staging, owner-managed
+  delegated team roles, and owner-initiated blank PHP site creation within
+  the plan. File management, billing, and production promotion
   remain outside the beta customer boundary.
 - PITR/WAL or binlog management, replication orchestration, configuration
   mutation, and automatic failover remain operator-managed and deliberately
@@ -189,7 +205,7 @@ Shipped in v0.7.0 and earlier:
 
 ## Not yet production-complete for shared hosting
 
-StePanel is currently a single-administrator, single-host control plane. It is
+StePanel is currently a single-host control plane. It is
 not yet a cPanel/Plesk-equivalent multi-tenant hosting product. The following
 must be implemented before offering untrusted customer access:
 
@@ -212,9 +228,10 @@ must be implemented before offering untrusted customer access:
   manager, developer, and viewer roles are shipped for the customer tenant;
   scoped support and reseller roles remain unfinished.
 
-These are product and architecture work items, not safe one-file patches. The
-sequencing, acceptance gates, and operational prerequisites are tracked in
-[`PRODUCTION_GAP_ANALYSIS.md`](archive/PRODUCTION_GAP_ANALYSIS.md).
+These are product and architecture work items, not safe one-file patches. They
+belong to the 2.0 shared-hosting platform; see [ROADMAP.md](ROADMAP.md) and
+[PRODUCTION_READINESS.md](PRODUCTION_READINESS.md#after-10-shared-hosting-platform-20).
+The earlier [gap analysis](archive/PRODUCTION_GAP_ANALYSIS.md) is historical.
 
 Planned operations will be introduced behind explicit permissions and dry-run
 modes. The project will not silently mutate live web-server configuration.

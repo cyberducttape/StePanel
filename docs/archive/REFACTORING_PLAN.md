@@ -1,5 +1,7 @@
 # Go File Organization Refactoring - Proper Approach
 
+> **Archived 2026-10-10.** Phase 1 shipped: the root is `package stepanel` and the binaries live under `cmd/`. For the current layout see [CODE_ORGANIZATION.md](../CODE_ORGANIZATION.md).
+
 ## The Problem with Previous Attempt
 
 The previous attempt failed because:

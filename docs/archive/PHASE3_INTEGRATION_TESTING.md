@@ -325,7 +325,7 @@ Phase 4 will focus on:
 - [HELPER_LAYER_ROADMAP.md](HELPER_LAYER_ROADMAP.md) - Overall strategy
 - [ROOT_BROKER_INTEGRATION.md](../ROOT_BROKER_INTEGRATION.md) - Integration guide
 - [HELPER_LAYER_STATUS.md](HELPER_LAYER_STATUS.md) - Project status
-- [internal/rootbroker/integration_test.go](../internal/rootbroker/integration_test.go) - Test code
+- [internal/rootbroker/integration_test.go](../../internal/rootbroker/integration_test.go) - Test code
 
 ---
 

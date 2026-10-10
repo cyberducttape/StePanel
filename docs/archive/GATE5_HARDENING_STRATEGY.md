@@ -1,5 +1,7 @@
 # Gate 5: Production Hardening Strategy
 
+> **Archived 2026-10-10.** The durable-journal pattern described here is implemented. Current Gate 5 status and evidence: [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md#gate-5-failure-injection-testing) and [REAL_HOST_FAILURE_MATRIX.md](../REAL_HOST_FAILURE_MATRIX.md).
+
 **Status:** 🚀 In Progress  
 **Date:** 2026-09-26  
 **Goal:** Eliminate all half-states and prove deterministic recovery
@@ -316,9 +318,9 @@ All 5 critical operations need journals:
 ## Related Documentation
 
 - [GATE5_FAILURE_INJECTION_TESTING.md](GATE5_FAILURE_INJECTION_TESTING.md) - Framework details
-- [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md) - Gate 5 requirements
-- [site_lifecycle.go](../site_lifecycle.go) - Reference implementation (termination)
-- [site_creation_journal.go](../site_creation_journal.go) - Creation journal
+- [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md) - Gate 5 requirements
+- [site_lifecycle.go](../../site_lifecycle.go) - Reference implementation (termination)
+- [site_creation_journal.go](../../site_creation_journal.go) - Creation journal
 
 ---
 

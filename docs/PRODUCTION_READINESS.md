@@ -1,6 +1,6 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-10-03
+**Last Updated:** 2026-10-10
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 **👉 For overall project status, see [CURRENT_STATUS.md](./CURRENT_STATUS.md) — the single authoritative source for version, progress, and release gates.**
@@ -210,8 +210,9 @@ providing disaster-recovery material rather than an automatic standby.
 It is complete when:
 
 - every gate in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) has
-  recorded evidence (Gate 5 real-host ENOSPC and power-loss evidence is the
-  main open item);
+  recorded evidence (Gate 5 is the main open item: the full recovery matrix
+  has passed once on a KVM guest, but repeated runs, ENOSPC beyond backup,
+  and physical power-loss evidence remain);
 - the roadmap 1.0 items ship: stable API and migration policy, signed
   multi-platform releases, upgrade and rollback tooling, a full accessibility
   review, and a security review with a documented support policy; and

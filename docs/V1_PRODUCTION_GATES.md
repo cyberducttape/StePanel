@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-02
+**Last Updated:** 2026-10-10
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -33,8 +33,8 @@ evidence recorded in this document or a linked result artifact.
 | Fail-closed archive handling | ✅ Implemented | Unsafe paths, links, and unsupported objects abort staged import; importer safety tests pass. |
 | Preserve restrictive imported file modes | ✅ Implemented | TAR/ZIP extraction preserves ordinary permission bits and strips special bits; mode tests pass. |
 | Realistic disk admission and reservations | ✅ Done | Known `Content-Length` is admitted at the actual archive size; unknown-length streams reserve 256 MiB ahead of the bytes written up to the upload ceiling; cPanel database restores also reserve space on a local database data directory. |
-| VM crash testing: power loss, ENOSPC, DB outage, broker interruption, worker death | ⚠️ Partial | Repository and disposable-VM interruption tests exist; real ENOSPC and host power-loss evidence remain open. |
-| Repeated recovery scenarios | ⚠️ Partial | 114 repository-level SIGKILL repetitions are recorded; the VM failure matrix must repeat each scenario and publish results. |
+| VM crash testing: power loss, ENOSPC, DB outage, broker interruption, worker death | ⚠️ Partial | The [2026-10-09 KVM run](./lab-results/2026-10-09-rocky9-kvm-certification.md) passed abrupt guest kills (idle and mid-backup) and a real ENOSPC backup; ENOSPC beyond backup and physical power loss remain open. |
+| Repeated recovery scenarios | ⚠️ Partial | 114 repository-level SIGKILL repetitions are recorded and the full 105-drill matrix passed once on a KVM guest; the VM failure matrix must repeat each scenario and publish results. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
 | Release documentation reconciled with executable evidence | ⚠️ Open | Every checked claim must link to a current test result, hosted run, or reproducible artifact; stale claims must be downgraded or removed. |
 
@@ -463,6 +463,20 @@ with those fixes on both distributions. The five-operation acceptance criteria
 remain open for multi-point failure injection, real disk-exhaustion, actual
 host power-loss, and broader workload and recovery-time evidence.
 
+**KVM certification run (2026-10-09):** a Rocky Linux 9 KVM guest with
+SELinux enforcing passed the install smoke, the bounded matrix (57 drills),
+and the full recovery matrix (105 drills) killing every supported journal
+boundary of cpmove activation, backup, restore, termination, and suspension.
+Killing the QEMU process left the guest recoverable both idle (`/readyz` ready
+in 23 s including boot) and mid-backup (the job completed and the backup
+verified, with no staging left behind). A backup hitting real ENOSPC on a
+dedicated filesystem failed without publishing anything partial. The run also
+found and fixed five defects invisible to container CI. It is one run, a QEMU
+kill is not physical power loss, and ENOSPC was exercised only for backup;
+the `restore:provision`/`restore:provisioned` boundaries have no real-host
+drill yet. See
+[lab-results/2026-10-09-rocky9-kvm-certification.md](./lab-results/2026-10-09-rocky9-kvm-certification.md).
+
 The installed systemd units now enable a root-owned, peer-authorized Unix
 socket broker for host mutations. The panel and worker use
 `NoNewPrivileges=true`, `RestrictSUIDSGID=true`, `PrivateDevices=true`,
@@ -482,7 +496,7 @@ privileged broker and panel/worker services retain `PrivateDevices=true`.
 - [x] Multi-point process-kill/restart drills cover all 5 operations at repository level — `crash_drill_test.go` kills a child process with SIGKILL at every instrumented boundary of backup (4), file restore (4), termination (9), and account suspension (2), then runs the production startup recovery (`recoverUncleanShutdown`) or resumes the durable job and verifies the final state; deploy activation is covered by `TestReleaseActivationRecoversAfterProcessKill`. Hosted installed-host runs remain the evidence for real services
 - [x] No mysterious half-states discovered — the drills found two real leaks, both fixed: restore scratch trees under the import root and manager staging trees were never cleaned after a crash
 - [x] Recovery is deterministic at repository level — 114 consecutive SIGKILL drills (6 repetitions of all 19 kill points) recovered to the same verified state
-- [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM
+- [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM (partial: real ENOSPC during backup and abrupt QEMU kills pass on the 2026-10-09 KVM run; ENOSPC for publication/restore/import and physical power loss remain)
 - [ ] Repeat the real-host recovery matrix 20–50 times per operation/fault
   combination, with post-boot invariant evidence retained (see
   `docs/REAL_HOST_FAILURE_MATRIX.md`)
@@ -496,7 +510,7 @@ privileged broker and panel/worker services retain `PrivateDevices=true`.
 - [x] Gate 2: Cross-Process Locks - Lock layer enforced; interrupted-workflow acceptance covered by `workflow_interruption_test.go`
 - [x] Gate 3: Accurate Capabilities - No "available: true" for unimplemented
 - [x] Gate 4: Automated DB Restoration - Transactional end-to-end
-- [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; real ENOSPC and power-loss VM evidence remain)
+- [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; full matrix passed once on a KVM guest; repeated runs, ENOSPC beyond backup, and power-loss evidence remain)
 
 ### Testing
 - [x] Adversarial concurrency tests (5 scenarios) — the five conflicting lock pairs across two SQLite connections (`TestAdversarialMutationLockScenariosSerializeAcrossConnections`) and across OS processes (`TestDBLocksAcrossOSProcesses`); the real restore, termination, resource-update, and suspension entry points are proven to wait for a lock held by another process without mutating (`cross_process_workflow_test.go`); deploy and route updates are covered at the lock-key level

@@ -1,5 +1,7 @@
 # Gate 5: Failure Injection Testing Framework
 
+> **Archived 2026-10-10.** The framework is implemented; real-host results now live in [REAL_HOST_FAILURE_MATRIX.md](../REAL_HOST_FAILURE_MATRIX.md) and [lab-results/](../lab-results/). Current Gate 5 status: [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md#gate-5-failure-injection-testing).
+
 **Status:** 🚀 Framework Complete, Ready for Implementation  
 **Date:** 2026-09-26  
 **Purpose:** Prove StePanel survives and recovers deterministically from failures at every operation boundary
@@ -340,9 +342,9 @@ for i := 0; i < 5; i++ {
 
 ## Related Documents
 
-- [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md) - Gate 5 requirements
-- [internal/testing/failure_injection.go](../internal/testing/failure_injection.go) - Framework implementation
-- [internal/testing/workflow_tests.go](../internal/testing/workflow_tests.go) - Workflow test definitions
+- [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md) - Gate 5 requirements
+- [internal/testing/failure_injection.go](../../internal/testing/failure_injection.go) - Framework implementation
+- [internal/testing/workflow_tests.go](../../internal/testing/workflow_tests.go) - Workflow test definitions
 
 ---
 

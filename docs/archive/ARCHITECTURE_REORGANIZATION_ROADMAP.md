@@ -1,5 +1,7 @@
 # StePanel Architecture & Code Organization Roadmap
 
+> **Archived 2026-10-10.** Formerly the root `ARCHITECTURE.md`. The package names and coverage targets below were proposals and do not match the tree. For the current design see [ARCHITECTURE.md](../ARCHITECTURE.md) and [CODE_ORGANIZATION.md](../CODE_ORGANIZATION.md).
+
 ## Design Philosophy
 
 StePanel is built around a **privilege boundary**, not a monolith:

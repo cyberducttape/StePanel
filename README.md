@@ -54,7 +54,7 @@ constraints, off-site backups, and operational configuration, see the
 [integration guide](docs/INTEGRATIONS.md), [installation guide](docs/INSTALLATION.md),
 [operations runbook](docs/OPERATIONS.md), and [customer workflows](docs/CUSTOMER_WORKFLOWS.md).
 
-> **Status:** StePanel supports single-host operation with tenant-scoped account provisioning (TOTP MFA, assigned-site limits, delegated roles, scoped access, resource profiles, and a customer plan/usage panel). Tenants are separated in the control plane and by Unix user and cgroup on the host, but sites share one kernel and network, so StePanel is not a security boundary between hostile customers; see [what tenant isolation covers](SECURITY.md#what-tenant-isolation-does-and-does-not-mean). Multi-tenant production deployment is NOT RECOMMENDED yet: provider-wide audit segregation, HA datastore/failover, and cross-host durable job routing remain open platform requirements. See [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for detailed capability status. Administrators can inspect verified local restore dependencies through the authenticated `/api/capabilities` endpoint; remote backup access and each artifact's integrity are checked when an operation runs. Always run behind authenticated HTTPS and test restores against a disposable server before using production data.
+> **Status:** StePanel supports single-host operation with tenant-scoped account provisioning (TOTP MFA, assigned-site limits, plan-limited site creation by tenant owners, delegated roles, scoped access, resource profiles, and a customer plan/usage panel). Tenants are separated in the control plane and by Unix user and cgroup on the host, but sites share one kernel and network, so StePanel is not a security boundary between hostile customers; see [what tenant isolation covers](SECURITY.md#what-tenant-isolation-does-and-does-not-mean). Multi-tenant production deployment is NOT RECOMMENDED yet: provider-wide audit segregation, HA datastore/failover, and cross-host durable job routing remain open platform requirements. See [PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) for detailed capability status. Administrators can inspect verified local restore dependencies through the authenticated `/api/capabilities` endpoint; remote backup access and each artifact's integrity are checked when an operation runs. Always run behind authenticated HTTPS and test restores against a disposable server before using production data.
 
 ## Architecture at a glance
 
@@ -230,23 +230,29 @@ Read these to understand what StePanel is, does, and can do:
 - **[docs/FEATURES.md](docs/FEATURES.md)** — Authoritative capability matrix and feature status
 - **[docs/SECURITY.md](docs/SECURITY.md)** — Threat model, security boundaries, known limitations  
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — Medium-term direction and planned work
+- **[docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md)** — Where each 1.0 release gate stands today
+- **[docs/V1_PRODUCTION_GATES.md](docs/V1_PRODUCTION_GATES.md)** — Authoritative 1.0 release gates
 
 ### Getting Started
 
 - **[docs/INSTALLATION.md](docs/INSTALLATION.md)** — Installation, configuration, production setup
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — Running and managing StePanel
 - **[docs/SECRETS.md](docs/SECRETS.md)** — Backup, rotation, and disaster recovery procedures
+- **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** — Diagnosing failed jobs, services, and installs
 
 ### Workflows by Use Case
 
 - **[docs/CPMOVE_IMPORTS.md](docs/CPMOVE_IMPORTS.md)** — Migrate from cPanel
+- **[docs/WPRESS_IMPORTS.md](docs/WPRESS_IMPORTS.md)** — Restore WordPress `.wpress` archives
 - **[docs/ARCHIVE_IMPORTER.md](docs/ARCHIVE_IMPORTER.md)** — Import sites from other hosting providers
 - **[docs/GIT_DEPLOYMENTS.md](docs/GIT_DEPLOYMENTS.md)** — Deploy and roll back via Git
 - **[docs/CUSTOMER_WORKFLOWS.md](docs/CUSTOMER_WORKFLOWS.md)** — Multi-tenant operations and workflows
+- **[docs/SHARED_HOSTING.md](docs/SHARED_HOSTING.md)** — Customer accounts, plans, and the shared-hosting beta boundary
 
 ### Architecture & Design
 
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — System design and components
+- **[docs/CODE_ORGANIZATION.md](docs/CODE_ORGANIZATION.md)** — Where code lives: root package, `internal/` packages, binaries
 - **[docs/adr/](docs/adr/)** — Architecture Decision Records (immutable design history)
 - **[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)** — Detailed threat analysis and mitigations
 
@@ -258,7 +264,9 @@ Read these to understand what StePanel is, does, and can do:
 
 ### Evidence & Case Studies
 
-- **[docs/lab-results/2026-09-06-recovery-drills.md](docs/lab-results/2026-09-06-recovery-drills.md)** — Measured recovery RTO/RPO evidence
+- **[docs/lab-results/2026-10-09-rocky9-kvm-certification.md](docs/lab-results/2026-10-09-rocky9-kvm-certification.md)** — Full recovery matrix, abrupt guest loss, and ENOSPC on a SELinux-enforcing KVM guest
+- **[docs/REAL_HOST_FAILURE_MATRIX.md](docs/REAL_HOST_FAILURE_MATRIX.md)** — Which failure scenarios have real-host evidence
+- **[docs/lab-results/](docs/lab-results/)** — All dated recovery and certification results
 - **[docs/CASE_STUDY.md](docs/CASE_STUDY.md)** — Real-world backup and recovery example
 
 ### Integrations & Operations
@@ -319,9 +327,11 @@ and credential mapping.
 
 ## Roadmap
 
-The next product milestones are first-run setup, verified backups, safer
-upgrades, resource quotas, and multi-user roles. See the
-[roadmap](docs/ROADMAP.md) for the full plan.
+The road to 1.0 is about evidence, not new features: repeated real-host
+failure-recovery runs, upgrade and rollback tooling, a stable API policy, and
+a security review. [CURRENT_STATUS.md](docs/CURRENT_STATUS.md) tracks where
+each release gate stands; see the [roadmap](docs/ROADMAP.md) for the full
+plan.
 
 ## License
 
