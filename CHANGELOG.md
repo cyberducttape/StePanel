@@ -89,6 +89,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Production Readiness
 
+- **Site Unix identities are persisted and collision-safe**: production site
+  provisioning now allocates an immutable account in the control-plane
+  database, migrates existing site roots, fails closed on legacy collisions,
+  and passes the stored identity from the root broker to the site, app, and
+  container-runner helpers. Account names are never derived from site names in
+  the production privileged path.
+
 - **Release-pipeline diagnostics and timeout certification**: durable job
   submissions are tested against the standard mutation timeout, and failed
   sandboxed builds now report their exit status, filesystem headroom, quota

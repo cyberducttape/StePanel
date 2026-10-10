@@ -2,12 +2,26 @@
 set -Eeuo pipefail
 
 if [[ $EUID -ne 0 ]]; then echo 'must run as root' >&2; exit 1; fi
-(( $# == 2 || $# == 3 || $# == 4 || $# == 11 )) || { echo 'usage: stepanel-sitectl prepare|prepare-root|seal SITE | resources SITE PHP_WORKERS | ftp SITE ENABLE | quota SITE DISK_MB INODES | quota-clear SITE | runtime SITE VERSION MEMORY EXEC UPLOAD POST INPUT OPCACHE DISPLAY ERROR' >&2; exit 64; }
-
 action=$1
 site=$2
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
 [[ $action == prepare || $action == prepare-root || $action == seal || $action == delete || $action == runtime || $action == resources || $action == quota || $action == quota-clear || $action == access || $action == ftp ]] || { echo 'invalid action' >&2; exit 64; }
+
+# Production always supplies the persisted identity as argv[3]. The old
+# direct-helper shape is retained only for explicitly unsafe lab smoke
+# scripts; it is never accepted by the installed production broker path.
+legacy_shape=0
+case "$action:$#" in
+  prepare:2|prepare-root:2|seal:2|delete:2|access:4|ftp:3|runtime:11|resources:3|quota:4|quota-clear:2) legacy_shape=1 ;;
+esac
+if (( legacy_shape )); then
+  [[ ${STEPANEL_UNSAFE_LAB:-0} == 1 ]] || { echo 'persisted site Unix account is required' >&2; exit 1; }
+  hash=$(printf '%s' "$site" | sha256sum); hash=${hash%% *}
+  prefix=${site:0:18}; prefix=${prefix//_/-}
+  site_user="sp-${prefix}-${hash:0:8}"
+  set -- "$1" "$2" "$site_user" "${@:3}"
+fi
+(( $# == 3 || $# == 4 || $# == 5 || $# == 12 )) || { echo 'usage: stepanel-sitectl prepare|prepare-root|seal SITE SITE_USER | resources SITE SITE_USER PHP_WORKERS | ftp SITE SITE_USER ENABLE | quota SITE SITE_USER DISK_MB INODES | quota-clear SITE SITE_USER | runtime SITE SITE_USER VERSION MEMORY EXEC UPLOAD POST INPUT OPCACHE DISPLAY ERROR' >&2; exit 64; }
 
 web_group_config=/etc/ste-panel.env
 [[ -f $web_group_config && ! -L $web_group_config ]] || { echo 'authoritative web group configuration is unavailable' >&2; exit 1; }
@@ -21,17 +35,14 @@ if [[ ! -d $socket_root ]]; then
   install -d -m 0755 "$socket_root"
 fi
 
-hash=$(printf '%s' "$site" | sha256sum)
-hash=${hash%% *}
-prefix=${site:0:18}
-prefix=${prefix//_/-}
-site_user="sp-${prefix}-${hash:0:8}"
+site_user=$3
+[[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || { echo 'invalid persisted site Unix account' >&2; exit 1; }
 site_root="/var/www/sites/$site"
 public_root="$site_root/public"
 php_state="$site_root/.php"
 
 if [[ $action == delete ]]; then
-  [[ $# == 2 ]] || { echo 'usage: stepanel-sitectl delete SITE' >&2; exit 64; }
+  [[ $# == 3 ]] || { echo 'usage: stepanel-sitectl delete SITE SITE_USER' >&2; exit 64; }
   if id "$site_user" >/dev/null 2>&1; then
     existing_home=$(getent passwd "$site_user" | cut -d: -f6)
     [[ $existing_home == "$site_root" ]] || { echo "refusing site deletion: account $site_user belongs to a different site" >&2; exit 1; }
@@ -119,8 +130,8 @@ set_unknown_password() {
 }
 
 if [[ $action == access ]]; then
-  (( $# == 4 )) || { echo 'usage: stepanel-sitectl access SITE SFTP SHELL' >&2; exit 64; }
-  sftp=$3; shell=$4
+  (( $# == 5 )) || { echo 'usage: stepanel-sitectl access SITE SITE_USER SFTP SHELL' >&2; exit 64; }
+  sftp=$4; shell=$5
   [[ $sftp =~ ^[01]$ && $shell =~ ^[01]$ ]] || { echo 'invalid SSH access policy' >&2; exit 1; }
   ssh_key_root=/etc/stepanel/ssh/authorized_keys
   ssh_config_root=/etc/ssh/sshd_config.d
@@ -228,8 +239,8 @@ EOF
 fi
 
 if [[ $action == ftp ]]; then
-  (( $# == 3 )) || { echo 'usage: stepanel-sitectl ftp SITE ENABLE' >&2; exit 64; }
-  ftp_enabled=$3
+  (( $# == 4 )) || { echo 'usage: stepanel-sitectl ftp SITE SITE_USER ENABLE' >&2; exit 64; }
+  ftp_enabled=$4
   [[ $ftp_enabled =~ ^[01]$ ]] || { echo 'invalid FTPS policy' >&2; exit 1; }
   ftp_config=/etc/vsftpd.conf
   [[ -f $ftp_config ]] || ftp_config=/etc/vsftpd/vsftpd.conf
@@ -362,7 +373,7 @@ parse_config_file() {
 }
 
 if [[ $action == runtime ]]; then
-  php_version=$3; memory_limit=$4; max_execution_time=$5; upload_max_filesize=$6; post_max_size=$7; max_input_vars=$8; opcache_enabled=$9; display_errors=${10}; error_reporting=${11}
+  php_version=$4; memory_limit=$5; max_execution_time=$6; upload_max_filesize=$7; post_max_size=$8; max_input_vars=$9; opcache_enabled=${10}; display_errors=${11}; error_reporting=${12}
   error_pattern='^[A-Z0-9_~& |]{1,80}$'
   [[ $php_version =~ ^[0-9]+\.[0-9]+$ && $memory_limit =~ ^[1-9][0-9]{0,4}M$ && $max_execution_time =~ ^[1-9][0-9]{0,4}$ && $upload_max_filesize =~ ^[1-9][0-9]{0,4}M$ && $post_max_size =~ ^[1-9][0-9]{0,4}M$ && $max_input_vars =~ ^[1-9][0-9]{0,6}$ && $opcache_enabled =~ ^[01]$ && $display_errors =~ ^[01]$ && $error_reporting =~ $error_pattern ]] || { echo 'invalid PHP runtime profile' >&2; exit 1; }
   tmp=$(mktemp "$php_state/.runtime.XXXXXX")
@@ -372,12 +383,12 @@ if [[ $action == runtime ]]; then
   printf 'php_version=%s\nmemory_limit=%s\nmax_execution_time=%s\nupload_max_filesize=%s\npost_max_size=%s\nmax_input_vars=%s\nopcache_enabled=%s\ndisplay_errors=%s\nerror_reporting=%s\n' "$php_version" "$memory_limit" "$max_execution_time" "$upload_max_filesize" "$post_max_size" "$max_input_vars" "$opcache_enabled" "$display_errors" "$error_reporting" > "$tmp"
   chown root:root "$tmp"; chmod 0600 "$tmp"; mv -f "$tmp" "$profile"
 elif [[ $action == resources ]]; then
-  workers=$3
+  workers=$4
   [[ $workers =~ ^[0-9]+$ ]] && (( workers >= 1 && workers <= 512 )) || { echo 'invalid PHP worker limit' >&2; exit 1; }
   tmp=$(mktemp "$php_state/.resources.XXXXXX")
   printf 'php_max_children=%q\n' "$workers" > "$tmp"; chown root:root "$tmp"; chmod 0600 "$tmp"; mv -f "$tmp" "$php_state/resources.env"
 elif [[ $action == quota ]]; then
-  disk_mb=$3; inodes=$4
+  disk_mb=$4; inodes=$5
   [[ $disk_mb =~ ^[0-9]+$ && $inodes =~ ^[0-9]+$ ]] || { echo 'invalid filesystem quota' >&2; exit 1; }
   (( disk_mb >= 64 && disk_mb <= 1048576 && inodes >= 1000 && inodes <= 1000000000 )) || { echo 'filesystem quota out of range' >&2; exit 1; }
   command -v setquota >/dev/null 2>&1 || { echo 'setquota is required and filesystem quotas are not available' >&2; exit 1; }

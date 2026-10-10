@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS tenant_sites (
     updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS tenant_sites_user_idx ON tenant_sites(username);
+CREATE TABLE IF NOT EXISTS site_identities (
+    site TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL,

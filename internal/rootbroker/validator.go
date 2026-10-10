@@ -494,6 +494,9 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 	if err := v.ValidateSiteName(req.Site); err != nil {
 		return fmt.Errorf("invalid site name: %w", err)
 	}
+	if req.SiteUser != "" && !regexp.MustCompile(`^sp-[a-z0-9][a-z0-9-]{1,28}$`).MatchString(req.SiteUser) {
+		return errors.New("invalid persisted site Unix account")
+	}
 	if req.PHPWorkers > 0 {
 		if err := v.ValidateNumericRange("php_workers", req.PHPWorkers, 1, 256); err != nil {
 			return err

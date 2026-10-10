@@ -312,9 +312,17 @@ func (b *Broker) handleResourceRequest(ctx context.Context, req *ResourceRequest
 	case "apply-account":
 		args = []string{"account-resource-apply", req.Account, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.CPUWeight), strconv.Itoa(req.MemoryHighMB), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.IOWeight), strconv.Itoa(req.TasksMax)}
 	case "apply-site":
-		args = []string{"resource-apply", req.Site, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.CPUWeight), strconv.Itoa(req.MemoryHighMB), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.IOWeight), strconv.Itoa(req.TasksMax), req.Account}
+		siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site}, false)
+		if err != nil {
+			return &Response{OK: false, Error: err.Error()}, nil
+		}
+		args = []string{"resource-apply", req.Site, siteUser, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.CPUWeight), strconv.Itoa(req.MemoryHighMB), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.IOWeight), strconv.Itoa(req.TasksMax), req.Account}
 	case "status":
-		args = []string{"resource-status", req.Site}
+		siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site}, false)
+		if err != nil {
+			return &Response{OK: false, Error: err.Error()}, nil
+		}
+		args = []string{"resource-status", req.Site, siteUser}
 	default:
 		return &Response{OK: false, Error: "unsupported resource action"}, nil
 	}
@@ -334,7 +342,11 @@ func (b *Broker) handleEnvironmentRequest(ctx context.Context, req *EnvironmentR
 	if req == nil {
 		return &Response{OK: false, Error: "environment request is nil"}, nil
 	}
-	cmd := stepanelhelper.NewCommand(ctx, b.appctlPath, "env-apply", req.Site)
+	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site}, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	cmd := stepanelhelper.NewCommand(ctx, b.appctlPath, "env-apply", req.Site, siteUser)
 	cmd.Stdin = strings.NewReader(req.Content)
 	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
@@ -347,7 +359,11 @@ func (b *Broker) handleRunnerRequest(ctx context.Context, req *RunnerRequest) (*
 	if req == nil || req.Action != "build" {
 		return &Response{OK: false, Error: "runner request must specify build"}, nil
 	}
-	args := []string{"build", req.Site, req.Image, req.Root, req.Script, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.TasksMax), req.NetworkMode, strconv.FormatInt(req.MaxImageBytes, 10)}
+	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site, SiteUser: req.SiteUser}, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	args := []string{"build", req.Site, siteUser, req.Image, req.Root, req.Script, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.TasksMax), req.NetworkMode, strconv.FormatInt(req.MaxImageBytes, 10)}
 	cmd := stepanelhelper.NewCommand(ctx, b.runnerctlPath, args...)
 	output, err := stepanelhelper.RunCappedWithCleanup(ctx, cmd, maxBrokerCommandOutput, func() {
 		if cmd.Process != nil {
@@ -364,10 +380,14 @@ func (b *Broker) handleWorkerRequest(ctx context.Context, req *WorkerRequest) (*
 	if req == nil {
 		return &Response{OK: false, Error: "worker request is nil"}, nil
 	}
-	args := []string{"worker-" + req.Action, req.Site, req.Name}
+	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site}, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	args := []string{"worker-" + req.Action, req.Site, siteUser, req.Name}
 	switch req.Action {
 	case "apply":
-		args = []string{"worker-apply", req.Site, req.Name, req.Type, req.Root,
+		args = []string{"worker-apply", req.Site, siteUser, req.Name, req.Type, req.Root,
 			strconv.Itoa(req.Processes), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.Retries)}
 	case "delete", "start", "stop", "restart":
 	default:
@@ -407,18 +427,22 @@ func (b *Broker) handleTaskRequest(ctx context.Context, req *TaskRequest) (*Resp
 		return &Response{OK: false, Error: "invalid task operation"}, nil
 	}
 	var args []string
+	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site}, false)
+	if err != nil && req.Action != "kill" {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
 	switch req.Action {
 	case "kill":
 		unit := "stepanel-task-" + req.Site + "-" + req.Name + ".service"
 		args = []string{"kill", "--kill-who=all", "--signal=SIGTERM", unit}
 	case "delete", "history":
-		args = []string{req.Action, req.Site, req.Name}
+		args = []string{req.Action, req.Site, siteUser, req.Name}
 	case "apply":
 		enabled := "0"
 		if req.Enabled {
 			enabled = "1"
 		}
-		args = []string{"task-apply", req.Site, req.Name, req.Runtime, req.OnCalendar, enabled,
+		args = []string{"task-apply", req.Site, siteUser, req.Name, req.Runtime, req.OnCalendar, enabled,
 			strconv.Itoa(req.TimeoutSec), base64.StdEncoding.EncodeToString([]byte(req.Command)),
 			strconv.Itoa(req.MinIntervalSeconds), req.MissedRunPolicy, strconv.Itoa(req.CPUPercent),
 			strconv.Itoa(req.MemoryMB), strconv.Itoa(req.TasksMax), req.NotifyWebhook}
@@ -516,8 +540,11 @@ func (b *Broker) siteCreate(ctx context.Context, req *SiteRequest) (*Response, e
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 
-	// Generate site user
-	siteUser := siteidentity.UnixUser(req.Site)
+	// Allocate or retrieve the immutable identity before touching the host.
+	siteUser, err := b.resolveSiteUser(req, true)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
 
 	// Use site name as job ID for journaling. In real usage, this comes from
 	// the durable job system. Here we use the site name for simplicity.
@@ -628,7 +655,11 @@ func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, e
 	defer b.accountMutationMu.Unlock()
 
 	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
-		resp, err := b.runLabHelper(ctx, "/usr/local/sbin/stepanel-sitectl", "delete", req.Site)
+		siteUser, resolveErr := b.resolveSiteUser(req, false)
+		if resolveErr != nil {
+			return &Response{OK: false, Error: resolveErr.Error()}, nil
+		}
+		resp, err := b.runLabHelper(ctx, "/usr/local/sbin/stepanel-sitectl", "delete", req.Site, siteUser)
 		if err != nil || resp == nil || !resp.OK {
 			return resp, err
 		}
@@ -650,7 +681,10 @@ func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, e
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 
-	siteUser := siteidentity.UnixUser(req.Site)
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
 	if err := b.host.ValidateSystemUser(ctx, siteUser, siteRoot); err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("refusing to delete site with mismatched system account: %v", err)}, nil
 	}
@@ -705,18 +739,25 @@ func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, 
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 
-	b.logger.Printf("preparing site: %s", req.Site)
+	siteUser, err := b.resolveSiteUser(req, true)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	b.logger.Printf("preparing site: %s user=%s", req.Site, siteUser)
 	// stepanel-sitectl prepare-root is the single implementation of the
 	// site isolation contract: system account, site-root ownership and mode,
 	// the ACL that lets the panel publish into the root, the PHP state tree,
 	// and the PHP-FPM pool. It deliberately leaves the public tree to the
 	// site manager's staged activation.
-	output, err := b.host.RunSiteHelper(ctx, "prepare-root", req.Site)
+	output, err := b.host.RunSiteHelper(ctx, "prepare-root", req.Site, siteUser)
 	if err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("site isolation preparation failed: %v", err)}, nil
 	}
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if reported, want := strings.TrimSpace(lines[len(lines)-1]), siteidentity.UnixUser(req.Site); reported != want {
+	if len(lines) == 0 {
+		return &Response{OK: false, Error: "site helper returned no identity"}, nil
+	}
+	if reported, want := strings.TrimSpace(lines[len(lines)-1]), siteUser; reported != want {
 		return &Response{OK: false, Error: fmt.Sprintf("site helper prepared account %q but the broker derives %q; refusing to continue with divergent site identity", reported, want)}, nil
 	}
 	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
@@ -772,7 +813,11 @@ func (b *Broker) siteAccess(ctx context.Context, req *SiteRequest) (*Response, e
 	if req.SFTPEnabled == nil || req.ShellEnabled == nil {
 		return &Response{OK: false, Error: "SSH access flags are required"}, nil
 	}
-	output, err := b.host.RunSiteHelperInput(ctx, []byte(req.SSHKeys), "access", req.Site, boolArg(*req.SFTPEnabled), boolArg(*req.ShellEnabled))
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	output, err := b.host.RunSiteHelperInput(ctx, []byte(req.SSHKeys), "access", req.Site, siteUser, boolArg(*req.SFTPEnabled), boolArg(*req.ShellEnabled))
 	return siteHelperResponse("site access", output, err)
 }
 
@@ -782,39 +827,87 @@ func (b *Broker) siteFTP(ctx context.Context, req *SiteRequest) (*Response, erro
 	if req.FTPEnabled == nil {
 		return &Response{OK: false, Error: "FTPS flag is required"}, nil
 	}
-	output, err := b.host.RunSiteHelperInput(ctx, []byte(req.FTPPassword), "ftp", req.Site, boolArg(*req.FTPEnabled))
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	output, err := b.host.RunSiteHelperInput(ctx, []byte(req.FTPPassword), "ftp", req.Site, siteUser, boolArg(*req.FTPEnabled))
 	return siteHelperResponse("site FTPS", output, err)
 }
 
 func (b *Broker) siteResources(ctx context.Context, req *SiteRequest) (*Response, error) {
 	b.accountMutationMu.Lock()
 	defer b.accountMutationMu.Unlock()
-	output, err := b.host.RunSiteHelper(ctx, "resources", req.Site, strconv.Itoa(req.PHPWorkers))
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	output, err := b.host.RunSiteHelper(ctx, "resources", req.Site, siteUser, strconv.Itoa(req.PHPWorkers))
 	return siteHelperResponse("site resources", output, err)
 }
 
 func (b *Broker) siteQuota(ctx context.Context, req *SiteRequest) (*Response, error) {
 	b.accountMutationMu.Lock()
 	defer b.accountMutationMu.Unlock()
-	output, err := b.host.RunSiteHelper(ctx, "quota", req.Site, strconv.Itoa(req.DiskMB), strconv.Itoa(req.Inodes))
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	output, err := b.host.RunSiteHelper(ctx, "quota", req.Site, siteUser, strconv.Itoa(req.DiskMB), strconv.Itoa(req.Inodes))
 	return siteHelperResponse("site quota", output, err)
 }
 
 func (b *Broker) siteQuotaClear(ctx context.Context, req *SiteRequest) (*Response, error) {
 	b.accountMutationMu.Lock()
 	defer b.accountMutationMu.Unlock()
-	output, err := b.host.RunSiteHelper(ctx, "quota-clear", req.Site)
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	output, err := b.host.RunSiteHelper(ctx, "quota-clear", req.Site, siteUser)
 	return siteHelperResponse("site quota clear", output, err)
 }
 
 func (b *Broker) siteRuntime(ctx context.Context, req *SiteRequest) (*Response, error) {
 	b.accountMutationMu.Lock()
 	defer b.accountMutationMu.Unlock()
-	output, err := b.host.RunSiteHelper(ctx, "runtime", req.Site, req.PHPVersion,
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	output, err := b.host.RunSiteHelper(ctx, "runtime", req.Site, siteUser, req.PHPVersion,
 		req.MemoryLimit, strconv.Itoa(req.ExecTimeout), req.UploadMaxFilesize,
 		req.PostMaxSize, strconv.Itoa(req.MaxInputVars), boolArg(req.OPcache),
 		boolArg(req.DisplayErrors), req.ErrorReporting)
 	return siteHelperResponse("site runtime", output, err)
+}
+
+// resolveSiteUser is the broker-side identity authority. Production brokers
+// always use the root-owned control-plane mapping; they never derive an
+// account name from customer-controlled site text. The legacy fallback exists
+// only for standalone unit-test brokers that intentionally have no database.
+func (b *Broker) resolveSiteUser(req *SiteRequest, allocate bool) (string, error) {
+	if req == nil {
+		return "", errors.New("site request is nil")
+	}
+	if b.fencingDB == nil {
+		if req.SiteUser != "" {
+			return req.SiteUser, nil
+		}
+		return siteidentity.UnixUser(req.Site), nil
+	}
+	var username string
+	err := b.fencingDB.QueryRow(`SELECT username FROM site_identities WHERE site = ?`, req.Site).Scan(&username)
+	if errors.Is(err, sql.ErrNoRows) && allocate {
+		username, err = siteidentity.ResolveOrAllocate(b.fencingDB, req.Site)
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve persisted Unix account for site %q: %w", req.Site, err)
+	}
+	if req.SiteUser != "" && req.SiteUser != username {
+		return "", fmt.Errorf("site identity mismatch for %q: request %q, persisted %q", req.Site, req.SiteUser, username)
+	}
+	return username, nil
 }
 
 func boolArg(value bool) string {
@@ -858,16 +951,20 @@ func (b *Broker) handleAppRequest(ctx context.Context, req *AppRequest) (*Respon
 }
 
 func (b *Broker) runAppTooling(ctx context.Context, req *AppRequest) (*Response, error) {
+	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site, SiteUser: req.SiteUser}, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
 	var args []string
 	switch req.Action {
 	case "composer-install":
-		args = []string{"composer-install", req.Site, req.Root, boolArg(req.Development), boolArg(req.OptimizeAutoloader)}
+		args = []string{"composer-install", req.Site, siteUser, req.Root, boolArg(req.Development), boolArg(req.OptimizeAutoloader)}
 	case "node-tool":
-		args = []string{"node-tool", req.Site, req.ToolAction, req.PackageManager, req.Root}
+		args = []string{"node-tool", req.Site, siteUser, req.ToolAction, req.PackageManager, req.Root}
 	case "python-apply":
-		args = []string{"python-apply", req.Site, req.Version, req.Root, req.EntryPoint, strconv.Itoa(req.Port), strconv.Itoa(req.Workers)}
+		args = []string{"python-apply", req.Site, siteUser, req.Version, req.Root, req.EntryPoint, strconv.Itoa(req.Port), strconv.Itoa(req.Workers)}
 	case "python-start", "python-stop", "python-restart":
-		args = []string{req.Action, req.Site}
+		args = []string{req.Action, req.Site, siteUser}
 	default:
 		return &Response{OK: false, Error: "unknown application tooling action"}, nil
 	}
@@ -879,7 +976,11 @@ func (b *Broker) runAppTooling(ctx context.Context, req *AppRequest) (*Response,
 }
 
 func (b *Broker) runAppHelper(ctx context.Context, req *AppRequest) (*Response, error) {
-	args := []string{req.Action, req.Site}
+	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site, SiteUser: req.SiteUser}, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	args := []string{req.Action, req.Site, siteUser}
 	if req.Action == "apply" {
 		// The helper only accepts bare X.Y.Z versions; the validator permits a leading "v".
 		args = append(args, strings.TrimPrefix(req.Version, "v"), filepath.Clean(req.Root), strconv.Itoa(req.Port))

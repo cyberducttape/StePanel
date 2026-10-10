@@ -133,11 +133,24 @@ EOF
   exit 0
 fi
 
-# All other actions require a valid site user
+# All other actions require the persisted site user as argv[3]. Normalize it
+# out of the legacy action argument positions after retaining it in the
+# variable used to render every service and runuser invocation.
+site_user=
+if [[ $action != account-resource-apply ]]; then
+  if [[ ${3:-} =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]]; then
+    site_user=$3
+    set -- "$1" "$2" "${@:4}"
+  elif [[ ${STEPANEL_UNSAFE_LAB:-0} == 1 ]]; then
+    hash=$(printf '%s' "$site" | sha256sum); hash=${hash%% *}
+    prefix=${site:0:18}; prefix=${prefix//_/-}
+    site_user="sp-${prefix}-${hash:0:8}"
+  else
+    echo 'persisted site Unix account is required' >&2
+    exit 1
+  fi
+fi
 unit="stepanel-app-${site}.service"
-hash=$(printf '%s' "$site" | sha256sum); hash=${hash%% *}
-prefix=${site:0:18}; prefix=${prefix//_/-}
-site_user="sp-${prefix}-${hash:0:8}"
 id "$site_user" >/dev/null 2>&1 || { echo 'isolated site user does not exist' >&2; exit 1; }
 case "$action" in
   apply)
@@ -535,8 +548,8 @@ IPAddressDeny=169.254.0.0/16 fd00:ec2::254/128
 RuntimeDirectory=stepanel-task-$site-$name
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
-ExecStartPre=+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-start $site $name
-ExecStopPost=+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-result $site $name \${SERVICE_RESULT} \${EXIT_CODE} \${EXIT_STATUS}
+ExecStartPre=+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-start $site $site_user $name
+ExecStopPost=+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-result $site $site_user $name \${SERVICE_RESULT} \${EXIT_CODE} \${EXIT_STATUS}
 EnvironmentFile=-/etc/stepanel/environment/$site.env
 UMask=0027
 EOF
@@ -545,7 +558,7 @@ EOF
       # task's environment: it stays in the root-only $notify_env, which the
       # privileged task-notify step reads after the task has stopped.
       cat >> "/etc/systemd/system/$unit" <<EOF
-ExecStopPost=-+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-notify $site $name \${SERVICE_RESULT} \${EXIT_CODE} \${EXIT_STATUS}
+ExecStopPost=-+/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/stepanel-appctl task-notify $site $site_user $name \${SERVICE_RESULT} \${EXIT_CODE} \${EXIT_STATUS}
 EOF
     fi
     cat > "/etc/systemd/system/$timer" <<EOF

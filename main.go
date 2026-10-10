@@ -15,6 +15,7 @@ import (
 	"github.com/cyberducttape/StePanel/internal/recovery"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"github.com/cyberducttape/StePanel/internal/safehttp"
+	"github.com/cyberducttape/StePanel/internal/siteidentity"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"github.com/cyberducttape/StePanel/internal/state"
 	"github.com/cyberducttape/StePanel/internal/upload"
@@ -343,6 +344,9 @@ func Main() {
 		log.Fatalf("open control-plane database: %v", err)
 	}
 	defer controlPlaneDB.Close()
+	if err := siteidentity.MigrateExisting(controlPlaneDB, cfg.WebRoot); err != nil {
+		log.Fatalf("migrate site Unix identities: %v", err)
+	}
 	auditOutbox, err := newAuditOutboxStore(controlPlaneDB)
 	if err != nil {
 		log.Fatalf("initialize audit outbox: %v", err)

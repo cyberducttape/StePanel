@@ -2,7 +2,6 @@ package siteidentity
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -21,38 +20,19 @@ func TestUnixUserIsValidAccountName(t *testing.T) {
 	}
 }
 
-// TestUnixUserMatchesShellHelper runs the derivation lines extracted from the
-// installed shell helper so the two implementations cannot drift silently.
-func TestUnixUserMatchesShellHelper(t *testing.T) {
-	bash, err := exec.LookPath("bash")
-	if err != nil {
-		t.Skip("bash is unavailable")
-	}
-	if _, err := exec.LookPath("sha256sum"); err != nil {
-		t.Skip("sha256sum is unavailable")
-	}
+// TestShellHelperConsumesPersistedIdentity ensures the privileged helper no
+// longer derives an account from customer-controlled site text.
+func TestShellHelperConsumesPersistedIdentity(t *testing.T) {
 	helper, err := os.ReadFile(filepath.Join("..", "..", "deploy", "integrations", "stepanel-sitectl"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var derivation []string
-	for _, line := range strings.Split(string(helper), "\n") {
-		if strings.HasPrefix(line, "hash=") || strings.HasPrefix(line, "prefix=") || strings.HasPrefix(line, "site_user=") {
-			derivation = append(derivation, line)
-		}
+	source := string(helper)
+	if !strings.Contains(source, "site_user=$3") {
+		t.Fatal("site helper does not consume the persisted account argument")
 	}
-	if len(derivation) != 5 {
-		t.Fatalf("expected 5 site_user derivation lines in stepanel-sitectl, found %d: %q", len(derivation), derivation)
-	}
-	script := `site=$1` + "\n" + strings.Join(derivation, "\n") + "\nprintf '%s' \"$site_user\""
-	for _, site := range sites {
-		out, err := exec.Command(bash, "-c", script, "derive", site).Output()
-		if err != nil {
-			t.Fatalf("shell derivation for %q: %v", site, err)
-		}
-		if got, want := UnixUser(site), string(out); got != want {
-			t.Errorf("UnixUser(%q) = %q, shell helper derives %q", site, got, want)
-		}
+	if strings.Contains(source, "site_user=\"sp-${prefix}-") && !strings.Contains(source, "STEPANEL_UNSAFE_LAB") {
+		t.Fatal("site helper derives an account without an explicit unsafe-lab guard")
 	}
 }
 

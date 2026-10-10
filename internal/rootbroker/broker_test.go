@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/operations"
+	"github.com/cyberducttape/StePanel/internal/siteidentity"
 	"golang.org/x/crypto/ssh"
 	_ "modernc.org/sqlite"
 )
@@ -119,7 +120,7 @@ func TestBrokerWorkerApplyUsesConcreteHelperContract(t *testing.T) {
 	root := t.TempDir()
 	helper := filepath.Join(root, "appctl")
 	script := "#!/bin/sh\n" +
-		"[ \"$1\" = worker-apply ] && [ \"$2\" = demo ] && [ \"$3\" = queue ] && [ \"$4\" = laravel ] && [ \"$5\" = \"" + filepath.Join(root, "sites", "demo", "public") + "\" ] && [ \"$6\" = 2 ] && [ \"$7\" = 256 ] && [ \"$8\" = 3 ]\n"
+		"[ \"$1\" = worker-apply ] && [ \"$2\" = demo ] && [ \"$3\" = " + siteidentity.UnixUser("demo") + " ] && [ \"$4\" = queue ] && [ \"$5\" = laravel ] && [ \"$6\" = \"" + filepath.Join(root, "sites", "demo", "public") + "\" ] && [ \"$7\" = 2 ] && [ \"$8\" = 256 ] && [ \"$9\" = 3 ]\n"
 	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -146,12 +147,13 @@ func TestBrokerWorkerApplyUsesConcreteHelperContract(t *testing.T) {
 func TestBrokerAppToolingUsesConcreteHelperContract(t *testing.T) {
 	root := t.TempDir()
 	public := filepath.Join(root, "sites", "demo", "public")
+	user := siteidentity.UnixUser("demo")
 	helper := filepath.Join(root, "appctl")
 	script := "#!/bin/sh\ncase \"$1\" in\n" +
-		"composer-install) [ \"$2\" = demo ] && [ \"$3\" = \"" + public + "\" ] && [ \"$4\" = 1 ] && [ \"$5\" = 0 ] ;;\n" +
-		"node-tool) [ \"$2\" = demo ] && [ \"$3\" = build ] && [ \"$4\" = pnpm ] && [ \"$5\" = \"" + public + "\" ] ;;\n" +
-		"python-apply) [ \"$2\" = demo ] && [ \"$3\" = 3.12 ] && [ \"$4\" = \"" + public + "\" ] && [ \"$5\" = app:app ] && [ \"$6\" = 8000 ] && [ \"$7\" = 2 ] ;;\n" +
-		"python-start) [ \"$2\" = demo ] ;;\n*) exit 1 ;;\nesac\n"
+		"composer-install) [ \"$2\" = demo ] && [ \"$3\" = " + user + " ] && [ \"$4\" = \"" + public + "\" ] && [ \"$5\" = 1 ] && [ \"$6\" = 0 ] ;;\n" +
+		"node-tool) [ \"$2\" = demo ] && [ \"$3\" = " + user + " ] && [ \"$4\" = build ] && [ \"$5\" = pnpm ] && [ \"$6\" = \"" + public + "\" ] ;;\n" +
+		"python-apply) [ \"$2\" = demo ] && [ \"$3\" = " + user + " ] && [ \"$4\" = 3.12 ] && [ \"$5\" = \"" + public + "\" ] && [ \"$6\" = app:app ] && [ \"$7\" = 8000 ] && [ \"$8\" = 2 ] ;;\n" +
+		"python-start) [ \"$2\" = demo ] && [ \"$3\" = " + user + " ] ;;\n*) exit 1 ;;\nesac\n"
 	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +247,7 @@ func TestBrokerTaskApplyUsesFixedHelperAndTypedArguments(t *testing.T) {
 	if err := json.Unmarshal(response.Details, &details); err != nil || !details.Applied {
 		t.Fatalf("typed task apply details = %#v, error = %v", details, err)
 	}
-	want := "task-apply\ndemo\nnightly\nshell\ndaily\n1\n300\nZWNobyBoaQ==\n60\nrun_once\n100\n1024\n256\n\n"
+	want := "task-apply\ndemo\n" + siteidentity.UnixUser("demo") + "\nnightly\nshell\ndaily\n1\n300\nZWNobyBoaQ==\n60\nrun_once\n100\n1024\n256\n\n"
 	if details.Output != want {
 		t.Fatalf("helper arguments = %q, want %q", details.Output, want)
 	}
@@ -259,7 +261,7 @@ func TestBrokerTaskDeleteAndHistoryUseFixedHelper(t *testing.T) {
 				t.Fatal(err)
 			}
 			fakeAppctl := filepath.Join(t.TempDir(), "appctl")
-			script := "#!/bin/sh\n[ \"$#\" -eq 3 ] && [ \"$1\" = \"" + action + "\" ] && [ \"$2\" = demo ] && [ \"$3\" = nightly ] || exit 9\n"
+			script := "#!/bin/sh\n[ \"$#\" -eq 4 ] && [ \"$1\" = \"" + action + "\" ] && [ \"$2\" = demo ] && [ \"$3\" = " + siteidentity.UnixUser("demo") + " ] && [ \"$4\" = nightly ] || exit 9\n"
 			if action == "history" {
 				script += "printf '%s' '{\"enabled\":true}'\n"
 			}
@@ -589,7 +591,7 @@ func TestBrokerAppApply(t *testing.T) {
 	if err := json.Unmarshal(resp.Details, &details); err != nil || !details.Applied || details.Port != 3000 {
 		t.Fatalf("app apply details = %#v, error = %v", details, err)
 	}
-	want := "apply\ntestsite\n18.0.0\n" + root + "\n3000\n"
+	want := "apply\ntestsite\n" + siteidentity.UnixUser("testsite") + "\n18.0.0\n" + root + "\n3000\n"
 	if details.Output != want {
 		t.Fatalf("helper arguments = %q, want %q", details.Output, want)
 	}
@@ -603,7 +605,7 @@ func TestBrokerAppLifecycleUsesFixedHelper(t *testing.T) {
 				t.Fatal(err)
 			}
 			fakeAppctl := filepath.Join(t.TempDir(), "appctl")
-			script := "#!/bin/sh\n[ \"$#\" -eq 2 ] && [ \"$1\" = \"" + action + "\" ] && [ \"$2\" = demo ] || exit 9\n"
+			script := "#!/bin/sh\n[ \"$#\" -eq 3 ] && [ \"$1\" = \"" + action + "\" ] && [ \"$2\" = demo ] && [ \"$3\" = " + siteidentity.UnixUser("demo") + " ] || exit 9\n"
 			if err := os.WriteFile(fakeAppctl, []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}
@@ -874,8 +876,8 @@ func TestBrokerResourceActionsUseConcreteHelperContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "account-resource-apply acme 200 100 900 1000 100 128\n" +
-		"resource-apply demo 100 100 450 512 100 64 acme\n" +
-		"resource-status demo\n"
+		"resource-apply demo " + siteidentity.UnixUser("demo") + " 100 100 450 512 100 64 acme\n" +
+		"resource-status demo " + siteidentity.UnixUser("demo") + "\n"
 	if got := string(args); got != want {
 		t.Fatalf("resource helper args = %q, want %q", got, want)
 	}
@@ -984,6 +986,12 @@ func TestBrokerRunnerBuildUsesConcreteHelperContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	broker.runnerctlPath = helper
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n[ \"$1\" = build ] && [ \"$2\" = demo ] && [ \"$3\" = "+siteidentity.UnixUser("demo")+" ] && [ \"$4\" = "+image+" ] && [ \"$5\" = \""+public+"\" ] && [ \"$6\" = /var/lib/stepanel/apps/pipeline-123.sh ] && [ \"$7\" = 100 ] && [ \"$8\" = 512 ] && [ \"$9\" = 128 ] && [ \"${10}\" = none ] && [ \"${11}\" = 5368709120 ]\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	response, err := broker.Execute(context.Background(), &Request{RequestType: "runner", Runner: &RunnerRequest{
 		Action: "build", Site: "demo", Image: image, Root: public, Script: "/var/lib/ste-panel/apps/pipeline-123.sh", CPUPercent: 100, MemoryMB: 512, TasksMax: 128, NetworkMode: "none", MaxImageBytes: 5368709120,
 	}})
@@ -1042,12 +1050,12 @@ func TestBrokerSiteConfigurationRequestsUseTypedHelperContract(t *testing.T) {
 	host.mu.Lock()
 	defer host.mu.Unlock()
 	want := [][]string{
-		{"access", "testsite", "1", "0"},
-		{"ftp", "testsite", "1"},
-		{"resources", "testsite", "8"},
-		{"quota", "testsite", "10240", "200000"},
-		{"quota-clear", "testsite"},
-		{"runtime", "testsite", "8.2", "256M", "60", "64M", "64M", "1000", "1", "0", "E_ALL & ~E_DEPRECATED"},
+		{"access", "testsite", siteidentity.UnixUser("testsite"), "1", "0"},
+		{"ftp", "testsite", siteidentity.UnixUser("testsite"), "1"},
+		{"resources", "testsite", siteidentity.UnixUser("testsite"), "8"},
+		{"quota", "testsite", siteidentity.UnixUser("testsite"), "10240", "200000"},
+		{"quota-clear", "testsite", siteidentity.UnixUser("testsite")},
+		{"runtime", "testsite", siteidentity.UnixUser("testsite"), "8.2", "256M", "60", "64M", "64M", "1000", "1", "0", "E_ALL & ~E_DEPRECATED"},
 	}
 	if len(host.helper) != len(want) {
 		t.Fatalf("helper calls = %#v, want %#v", host.helper, want)

@@ -47,7 +47,7 @@ func (f *fakeHost) RunSiteHelper(_ context.Context, args ...string) (string, err
 	release := f.helperRelease
 	f.mu.Unlock()
 	if f.helperEntered != nil {
-		f.helperEntered <- args[len(args)-1]
+		f.helperEntered <- args[1]
 	}
 	if release != nil {
 		<-release
@@ -58,7 +58,7 @@ func (f *fakeHost) RunSiteHelper(_ context.Context, args ...string) (string, err
 	if f.helperUser != "" {
 		return f.helperUser + "\n", nil
 	}
-	return siteidentity.UnixUser(args[len(args)-1]) + "\n", nil
+	return args[2] + "\n", nil
 }
 
 func (f *fakeHost) RunSiteHelperInput(ctx context.Context, _ []byte, args ...string) (string, error) {
@@ -145,7 +145,7 @@ func TestSiteLifecycleUsesSharedIdentityAndWebGroup(t *testing.T) {
 	if len(host.chowns) != 1 || !strings.HasPrefix(host.chowns[0], want+":apache ") {
 		t.Fatalf("chowns = %v, want the created site root owned by the shared identity and detected web group", host.chowns)
 	}
-	if len(host.helper) != 1 || strings.Join(host.helper[0], " ") != "prepare-root "+site {
+	if len(host.helper) != 1 || strings.Join(host.helper[0], " ") != "prepare-root "+site+" "+want {
 		t.Fatalf("site helper calls = %v, want prepare delegated to prepare-root", host.helper)
 	}
 }

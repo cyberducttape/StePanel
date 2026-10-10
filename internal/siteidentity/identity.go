@@ -14,14 +14,10 @@ import (
 	"strings"
 )
 
-// UnixUser returns the system account that owns a site's files and runs its
-// PHP pool: "sp-" + the first 18 characters of the site name with "_"
-// replaced by "-" + "-" + the first 8 hex digits of sha256(site).
-//
-// This is a legacy deterministic name retained for compatibility. It is not
-// a uniqueness proof: only 32 bits are available after truncation. Callers
-// that allocate or remove accounts must verify the account's home directory
-// matches the requested site before reusing or deleting it.
+// UnixUser returns the legacy deterministic account name used to migrate
+// installations created before persisted site identities were introduced.
+// New sites must use ResolveOrAllocate, which persists an immutable, unique
+// mapping instead of treating this truncated digest as a uniqueness proof.
 func UnixUser(site string) string {
 	sum := sha256.Sum256([]byte(site))
 	prefix := site
