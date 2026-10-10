@@ -73,7 +73,7 @@ func TestComposedMiddlewareKeepsAuthoritativeSecurityHeaders(t *testing.T) {
 }
 
 func TestSecurityHeadersHSTSInProduction(t *testing.T) {
-	cfgProd := Config{Production: true, TLSCertFile: "/test.crt", TLSKeyFile: "/test.key"}
+	cfgProd := Config{Production: true, TLSCertFile: "/test.crt", TLSKeyFile: "/test.key", HSTSIncludeSubdomains: true, HSTSPreload: true}
 	middleware := securityHeadersMiddleware(cfgProd)
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

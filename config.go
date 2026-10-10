@@ -49,6 +49,8 @@ type Config struct {
 	CloudProvider                string
 	RequireOffsiteBackup         bool
 	TLSAlreadyTerminated         bool
+	HSTSIncludeSubdomains        bool
+	HSTSPreload                  bool
 	// TrustedProxyCIDRs is a comma-separated list of CIDRs (for example
 	// "127.0.0.1/32,::1/128,10.0.20.0/24") from which forwarded-identity
 	// headers are trusted. Any other peer is treated as a direct client
@@ -73,6 +75,7 @@ type Config struct {
 
 func LoadConfig() Config {
 	c := Config{WebServer: "caddy", Listen: "127.0.0.1:8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", TaskCtl: "/usr/local/sbin/stepanel-taskctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", RunnerAllowedRegistries: "docker.io,ghcr.io,quay.io", RunnerNetworkMode: "none", RunnerMaxImageBytes: defaultRunnerMaxImageBytes, MaxUpload: 20 << 30, MaxEntries: 1000000, MaxConcurrentJobs: 2, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, MinFreeBytes: 5 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200, RehearsalIntervalHours: 24}
+	c.HSTSIncludeSubdomains, c.HSTSPreload = true, true
 	c.RecoveryProofCommand = os.Getenv("STEPANEL_RECOVERY_PROOF_COMMAND")
 	if v := os.Getenv("STEPANEL_WEBSERVER"); v != "" {
 		c.WebServer = strings.ToLower(strings.TrimSpace(v))
@@ -252,6 +255,12 @@ func LoadConfig() Config {
 	if v := strings.TrimSpace(os.Getenv("STEPANEL_TLS_TERMINATED")); v == "1" {
 		c.TLSAlreadyTerminated = true
 	}
+	if v := strings.TrimSpace(os.Getenv("STEPANEL_HSTS_INCLUDE_SUBDOMAINS")); v != "" {
+		c.HSTSIncludeSubdomains = v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("STEPANEL_HSTS_PRELOAD")); v != "" {
+		c.HSTSPreload = v == "1"
+	}
 	c.TrustedProxyCIDRs = strings.TrimSpace(os.Getenv("STEPANEL_TRUSTED_PROXY_CIDRS"))
 	c.Production = os.Getenv("STEPANEL_ENV") == "production"
 	c.WorkerMode = strings.ToLower(strings.TrimSpace(os.Getenv("STEPANEL_WORKER_MODE")))
@@ -358,6 +367,11 @@ func ValidateConfig(c Config) error {
 	}
 	if c.Production && os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER") == "1" && os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") != "1" {
 		problems = append(problems, errors.New("STEPANEL_LAB_DIRECT_ROOT_BROKER=1 is restricted to the isolated install smoke environment"))
+	}
+	for name := range map[string]struct{}{"STEPANEL_HSTS_INCLUDE_SUBDOMAINS": {}, "STEPANEL_HSTS_PRELOAD": {}} {
+		if raw := os.Getenv(name); raw != "" && raw != "0" && raw != "1" {
+			problems = append(problems, fmt.Errorf("%s must be 0 or 1", name))
+		}
 	}
 	if c.RequireOffsiteBackup && c.OffsiteTarget == "" {
 		problems = append(problems, errors.New("STEPANEL_REQUIRE_OFFSITE_BACKUP=1 requires STEPANEL_OFFSITE_TARGET"))

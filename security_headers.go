@@ -34,9 +34,14 @@ func securityHeadersMiddleware(cfg Config) func(http.Handler) http.Handler {
 			// trusted reverse proxy does (STEPANEL_TLS_TERMINATED=1), which
 			// is the normal production deployment.
 			if cfg.Production && (cfg.TLSCertFile != "" || cfg.TLSAlreadyTerminated) {
-				// max-age=31536000 (1 year), include subdomains, preload list
-				w.Header().Set("Strict-Transport-Security",
-					"max-age=31536000; includeSubDomains; preload")
+				value := "max-age=31536000"
+				if cfg.HSTSIncludeSubdomains {
+					value += "; includeSubDomains"
+				}
+				if cfg.HSTSPreload {
+					value += "; preload"
+				}
+				w.Header().Set("Strict-Transport-Security", value)
 			}
 
 			// Content Security Policy: strict defaults, no inline scripts

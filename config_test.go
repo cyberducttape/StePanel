@@ -84,6 +84,19 @@ func TestLoopbackListenAddress(t *testing.T) {
 	}
 }
 
+func TestHSTSOptionsAreValidatedAndConfigurable(t *testing.T) {
+	t.Setenv("STEPANEL_HSTS_INCLUDE_SUBDOMAINS", "0")
+	t.Setenv("STEPANEL_HSTS_PRELOAD", "1")
+	cfg := LoadConfig()
+	if cfg.HSTSIncludeSubdomains || !cfg.HSTSPreload {
+		t.Fatalf("HSTS options = (%v, %v), want (false, true)", cfg.HSTSIncludeSubdomains, cfg.HSTSPreload)
+	}
+	t.Setenv("STEPANEL_HSTS_PRELOAD", "maybe")
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_HSTS_PRELOAD") {
+		t.Fatalf("invalid HSTS option was accepted: %v", err)
+	}
+}
+
 func TestValidateConfigRejectsUnknownWebServer(t *testing.T) {
 	cfg := LoadConfig()
 	cfg.WebServer = "nginx"

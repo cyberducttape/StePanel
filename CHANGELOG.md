@@ -23,6 +23,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   broker now receives the installer’s recovery root explicitly while keeping
   panel secrets out of the root-broker service environment; standalone broker
   invocations retain the environment/legacy fallback.
+- **HSTS scope is configurable**: `STEPANEL_HSTS_INCLUDE_SUBDOMAINS` and
+  `STEPANEL_HSTS_PRELOAD` default to `1`, while explicit `0` values allow
+  operators to match their domain and DNS boundaries.
 
 - **Privileged work now fails closed on fencing-database outages**: the root
   broker allows only a bounded grace period for transient lease-verification
