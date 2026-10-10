@@ -215,10 +215,15 @@ func offsiteTransferTimeout(size int64) time.Duration {
 	if size < 0 {
 		size = 0
 	}
-	transfer := time.Duration(size/offsiteMinimumRate) * time.Second
+	seconds := size / offsiteMinimumRate
 	if size%offsiteMinimumRate != 0 {
-		transfer += time.Second
+		seconds++
 	}
+	maxSeconds := int64(offsiteMaximumTimeout / time.Second)
+	if seconds >= maxSeconds {
+		return offsiteMaximumTimeout
+	}
+	transfer := time.Duration(seconds) * time.Second
 	if transfer < offsiteMinimumTimeout {
 		return offsiteMinimumTimeout
 	}

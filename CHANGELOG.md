@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Offsite timeout calculation now saturates safely**: very large backup
+  sizes cannot overflow `time.Duration` and accidentally receive the minimum
+  deadline.
 - **Offsite transfers now use size-aware bounded deadlines**: upload and
   restore transfers allow slow large objects more time, enforce connect and
   no-progress stall limits, retry transient failures, and request periodic
