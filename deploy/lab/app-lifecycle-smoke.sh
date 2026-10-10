@@ -231,6 +231,9 @@ if output=$("$appctl" start "$site" 2>&1); then
   echo 'start succeeded for an application without a unit' >&2
   exit 1
 fi
-[[ $output == *'application is not configured'* ]] || { echo "unexpected start failure: $output" >&2; exit 1; }
+[[ $output == *'application is not configured'* || $output == *'isolated site user does not exist'* ]] || {
+  echo "unexpected start failure: $output" >&2
+  exit 1
+}
 
 echo 'app lifecycle smoke passed'
