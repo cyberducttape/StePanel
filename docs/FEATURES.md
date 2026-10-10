@@ -39,7 +39,8 @@ New on `main` since v0.7.0 (unreleased):
   job that leaves nothing behind on failure. Administrators and active tenant
   owners can use it; a tenant owner's site is assigned to their account and
   counted against their plan before the job is queued, and a failed job
-  releases the reservation. WordPress, Git, and Node templates are planned.
+  releases the reservation. Git deployment is available for assigned sites;
+  WordPress and Node templates are planned.
 - **Transactional offsite backups**: uploads go to a temporary remote prefix,
   are checked, and are promoted with a completion marker that restore
   requires; transfers use size-aware deadlines and stall limits.

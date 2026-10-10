@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Updated customer workflow and feature documentation to describe the
+  tenant-scoped durable Git deployment path and its database/build-script
+  limitations.
+
 - Customer site owners and managers can now queue Git deployments for their
   assigned sites; the route remains protected by tenant ownership and the
   `deploy:write` scope instead of an administrator-only gate.

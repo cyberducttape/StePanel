@@ -27,7 +27,30 @@ An API token needs the `site:deploy` scope.
 - Creating a site does not publish a domain. Connect a domain afterwards; it
   must pass domain ownership verification before the route goes live.
 
-WordPress, Git, and Node site templates are not available yet.
+WordPress and Node site templates are not available yet. Existing sites can
+use the tenant-scoped Git deployment workflow described in
+[Git deployments](GIT_DEPLOYMENTS.md); the repository and ref are validated,
+the deployment runs as a durable job, and the site must have a configured
+deploy key or use a public repository allowed by the host policy.
+
+## Deploy from Git
+
+An account owner, manager, or API token with `deploy:write` can deploy an
+assigned site from Git. The operation is queued and returns a job ID, so a
+browser disconnect does not cancel the deployment.
+
+```bash
+curl -X POST "https://panel.example.com/api/sites/git-deploy" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "X-CSRF-Token: YOUR_CSRF_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"site":"mysite","repository":"https://github.com/example/mysite.git","ref":"main"}'
+```
+
+Follow the returned `status_url`. Git deployment replaces the site files but
+does not migrate databases or run repository-provided build scripts. Use the
+release-pipeline workflow when a separately allowlisted, sandboxed build is
+required.
 
 ## Restore-to-Staging: Test Before Going Live
 
