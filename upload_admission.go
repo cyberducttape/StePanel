@@ -784,7 +784,10 @@ func (a *App) stageArchiveUpload(w http.ResponseWriter, r *http.Request, workflo
 	reader, err := r.MultipartReader()
 	if err != nil {
 		reservation.release()
-		a.writeUploadError(w, r, err)
+		// Multipart parser errors can echo request-controlled headers and
+		// boundaries. Replace them with a fixed error before response handling
+		// so an attacker cannot reflect parser input into an API response.
+		a.writeUploadError(w, r, http.ErrNotMultipart)
 		return nil, nil, false
 	}
 	opts.FileField = "backup"

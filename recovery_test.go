@@ -91,6 +91,23 @@ func TestRecoverSiteTransactionAfterProcessDeath(t *testing.T) {
 	assertTestFile(t, filepath.Join(home, "index.html"), "old")
 }
 
+func TestValidatedRecoveryPathRejectsNonCanonicalTraversal(t *testing.T) {
+	root := t.TempDir()
+	valid := filepath.Join(root, "site", "public")
+	if got, err := validatedRecoveryPath(valid); err != nil || got != valid {
+		t.Fatalf("validatedRecoveryPath(%q) = %q, %v", valid, got, err)
+	}
+	for _, path := range []string{
+		root + "/site/../other/public",
+		root + "/site/public/..",
+		"relative/site/public",
+	} {
+		if _, err := validatedRecoveryPath(path); err == nil {
+			t.Fatalf("validatedRecoveryPath(%q) accepted unsafe path", path)
+		}
+	}
+}
+
 func TestRecoverSiteTransactionWithoutExistingSiteRemovesInterruptedSite(t *testing.T) {
 	root := t.TempDir()
 	recovery := filepath.Join(root, ".stepanel-recovery")

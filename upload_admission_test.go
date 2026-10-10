@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/upload"
 )
 
 func uploadTestConfig(t *testing.T) Config {
@@ -506,6 +508,22 @@ func TestWriteUploadErrorDoesNotReflectMultipartParserDetails(t *testing.T) {
 
 	if got := response.Body.String(); strings.Contains(got, "request-controlled") || strings.Contains(got, "<script>") || !strings.Contains(got, "invalid multipart upload") {
 		t.Fatalf("multipart parser detail was reflected: %q", got)
+	}
+}
+
+func TestStageArchiveUploadDoesNotReflectMultipartParserDetails(t *testing.T) {
+	root := t.TempDir()
+	app := &App{Config: uploadTestConfig(t), Metrics: NewMetrics()}
+	app.Config.ImportRoot = filepath.Join(root, "imports")
+	request := httptest.NewRequest(http.MethodPost, "/api/cpmove/inspect", strings.NewReader("request-controlled"))
+	request.Header.Set("Content-Type", "multipart/form-data")
+	response := httptest.NewRecorder()
+	_, reservation, ok := app.stageArchiveUpload(response, request, "cpmove inspect", upload.Options{})
+	if ok || reservation != nil {
+		t.Fatal("malformed multipart request was accepted")
+	}
+	if strings.Contains(response.Body.String(), "script") || strings.Contains(response.Body.String(), "request-controlled") {
+		t.Fatalf("multipart parser detail was reflected: %q", response.Body.String())
 	}
 }
 

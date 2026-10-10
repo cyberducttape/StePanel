@@ -67,7 +67,7 @@ func beginSiteTransaction(root, home, kind string, access SiteCapability, snapsh
 	if err != nil {
 		return nil, err
 	}
-	home, err = filepath.Abs(home)
+	home, err = validatedRecoveryPath(home)
 	if err != nil {
 		return nil, err
 	}
@@ -215,6 +215,17 @@ func validManagedDatabaseIdentifier(value string, max int) bool {
 }
 
 func (t *SiteTransaction) Rollback() error {
+	home, err := validatedRecoveryPath(t.Home)
+	if err != nil {
+		return fmt.Errorf("invalid recovery site path: %w", err)
+	}
+	mailRoot := t.MailRoot
+	if mailRoot != "" {
+		mailRoot, err = validatedRecoveryPath(mailRoot)
+		if err != nil {
+			return fmt.Errorf("invalid recovery mail path: %w", err)
+		}
+	}
 	rename := t.rename
 	if rename == nil {
 		rename = os.Rename
@@ -224,7 +235,7 @@ func (t *SiteTransaction) Rollback() error {
 	}
 	if t.State == "rolling-back" && t.HadExisting {
 		_, backupErr := os.Lstat(t.Backup)
-		_, homeErr := os.Lstat(t.Home)
+		_, homeErr := os.Lstat(home)
 		if errors.Is(backupErr, os.ErrNotExist) && homeErr == nil {
 			t.State = "rolled-back"
 			return t.persist()
@@ -234,12 +245,12 @@ func (t *SiteTransaction) Rollback() error {
 	if err := t.persist(); err != nil {
 		return fmt.Errorf("record rollback start: %w", err)
 	}
-	if _, err := os.Lstat(t.Home); err == nil {
+	if _, err := os.Lstat(home); err == nil {
 		failed := filepath.Join(t.dir, "failed-site")
 		if _, existsErr := os.Lstat(failed); existsErr == nil {
 			failed = filepath.Join(t.dir, "failed-site-"+time.Now().UTC().Format("150405.000000000"))
 		}
-		if err := rename(t.Home, failed); err != nil {
+		if err := rename(home, failed); err != nil {
 			return fmt.Errorf("preserve failed site: %w", err)
 		}
 		t.FailedSite = failed
@@ -253,17 +264,17 @@ func (t *SiteTransaction) Rollback() error {
 		if _, err := os.Lstat(t.Backup); err != nil {
 			return fmt.Errorf("recovery backup is unavailable: %w", err)
 		}
-		if err := os.MkdirAll(filepath.Dir(t.Home), 0750); err != nil {
+		if err := os.MkdirAll(filepath.Dir(home), 0750); err != nil {
 			return err
 		}
-		if err := rename(t.Backup, t.Home); err != nil {
+		if err := rename(t.Backup, home); err != nil {
 			return fmt.Errorf("restore previous site: %w", err)
 		}
 	}
-	if t.MailRoot != "" {
-		if _, err := os.Lstat(t.MailRoot); err == nil {
+	if mailRoot != "" {
+		if _, err := os.Lstat(mailRoot); err == nil {
 			failedMail := filepath.Join(t.dir, "failed-mail")
-			if renameErr := os.Rename(t.MailRoot, failedMail); renameErr != nil {
+			if renameErr := os.Rename(mailRoot, failedMail); renameErr != nil {
 				return fmt.Errorf("preserve failed mail tree: %w", renameErr)
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -273,10 +284,10 @@ func (t *SiteTransaction) Rollback() error {
 			if _, err := os.Lstat(t.MailBackup); err != nil {
 				return fmt.Errorf("mail recovery backup is unavailable: %w", err)
 			}
-			if err := os.MkdirAll(filepath.Dir(t.MailRoot), 0750); err != nil {
+			if err := os.MkdirAll(filepath.Dir(mailRoot), 0750); err != nil {
 				return err
 			}
-			if err := os.Rename(t.MailBackup, t.MailRoot); err != nil {
+			if err := os.Rename(t.MailBackup, mailRoot); err != nil {
 				return fmt.Errorf("restore previous mail tree: %w", err)
 			}
 		}
@@ -521,8 +532,11 @@ func loadSiteTransaction(dir string) (*SiteTransaction, error) {
 	if err != nil {
 		return nil, err
 	}
-	if txn.Version != 1 || txn.ID != filepath.Base(dir) || safeUser(txn.Site) == "" || !filepath.IsAbs(txn.Home) {
+	if txn.Version != 1 || txn.ID != filepath.Base(dir) || safeUser(txn.Site) == "" {
 		return nil, fmt.Errorf("invalid recovery transaction %s", filepath.Base(dir))
+	}
+	if txn.Home, err = validatedRecoveryPath(txn.Home); err != nil {
+		return nil, fmt.Errorf("invalid recovery transaction %s: unsafe site path", filepath.Base(dir))
 	}
 	for _, database := range txn.Databases {
 		if err := validateManagedDatabase(database); err != nil {
@@ -538,6 +552,21 @@ func loadSiteTransaction(dir string) (*SiteTransaction, error) {
 	}
 	txn.dir = dir
 	return &txn, nil
+}
+
+// validatedRecoveryPath accepts only an absolute, canonical path. Recovery
+// journals are persisted state and must not be allowed to smuggle traversal
+// components into filesystem operations. Production recovery additionally
+// binds this path to Config.WebRoot in validateRecoveredSitePaths.
+func validatedRecoveryPath(path string) (string, error) {
+	if path == "" || strings.IndexByte(path, 0) >= 0 || !filepath.IsAbs(path) {
+		return "", errors.New("recovery path must be absolute")
+	}
+	clean := filepath.Clean(path)
+	if clean != path || strings.Contains(path, ".."+string(os.PathSeparator)) || strings.HasSuffix(path, string(os.PathSeparator)+"..") {
+		return "", errors.New("recovery path is not canonical")
+	}
+	return clean, nil
 }
 
 func CleanupSiteTransactions(root string, maxAge time.Duration, configuredRoots ...string) error {
