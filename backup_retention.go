@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
+
+const maxBackupManifestBytes = 8 << 20
 
 // CleanupBackupStages removes abandoned backup staging directories left by a
 // process crash. A completed backup is atomically renamed away from the
@@ -61,7 +64,10 @@ func pruneSiteBackups(root string, site SiteCapability, keep int) error {
 	if err != nil {
 		return err
 	}
-	type candidate struct{ name, path string }
+	type candidate struct {
+		name, path string
+		createdAt  time.Time
+	}
 	items := []candidate{}
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Name()[0] == '.' {
@@ -71,18 +77,37 @@ func pruneSiteBackups(root string, site SiteCapability, keep int) error {
 		// Retention must still be able to remove stale artifacts when their
 		// archive is damaged; full manifest/archive validation belongs to the
 		// inventory and restore paths.
-		data, readErr := os.ReadFile(filepath.Join(path, "manifest.json"))
+		manifestFile, openErr := os.Open(filepath.Join(path, "manifest.json"))
+		var data []byte
+		var readErr error
+		if openErr == nil {
+			data, readErr = io.ReadAll(io.LimitReader(manifestFile, maxBackupManifestBytes+1))
+			if closeErr := manifestFile.Close(); readErr == nil {
+				readErr = closeErr
+			}
+			if readErr == nil && len(data) > maxBackupManifestBytes {
+				readErr = errors.New("backup manifest exceeds size limit")
+			}
+		} else {
+			readErr = openErr
+		}
 		var manifest struct {
-			Site string `json:"site"`
+			Site      string    `json:"site"`
+			CreatedAt time.Time `json:"created_at"`
 		}
 		if readErr == nil {
 			readErr = json.Unmarshal(data, &manifest)
 		}
 		if readErr == nil && manifest.Site == siteName {
-			items = append(items, candidate{entry.Name(), path})
+			items = append(items, candidate{name: entry.Name(), path: path, createdAt: manifest.CreatedAt})
 		}
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].name > items[j].name })
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].createdAt.IsZero() && !items[j].createdAt.IsZero() && !items[i].createdAt.Equal(items[j].createdAt) {
+			return items[i].createdAt.After(items[j].createdAt)
+		}
+		return items[i].name > items[j].name
+	})
 	if len(items) <= keep {
 		return syncDirectory(root)
 	}

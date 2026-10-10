@@ -65,3 +65,32 @@ func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
 		}
 	}
 }
+
+func TestPruneSiteBackupsUsesManifestCreationTime(t *testing.T) {
+	root := t.TempDir()
+	items := []struct {
+		name      string
+		createdAt time.Time
+	}{
+		{name: "renamed-new", createdAt: time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)},
+		{name: "renamed-old", createdAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	for _, item := range items {
+		dir := filepath.Join(root, item.name)
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeBackupManifest(dir, BackupManifest{Version: 1, Site: "demo", Archive: "backup.tar.gz", CreatedAt: item.createdAt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "renamed-new")); err != nil {
+		t.Fatalf("newest manifest backup was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "renamed-old")); !os.IsNotExist(err) {
+		t.Fatalf("oldest manifest backup remains: %v", err)
+	}
+}

@@ -1188,13 +1188,16 @@ func verifyBackupManifestSignature(root string, data []byte, manifest BackupMani
 	if err != nil {
 		return err
 	}
-	signature, readErr := io.ReadAll(signatureFile)
+	signature, readErr := io.ReadAll(io.LimitReader(signatureFile, 4096+1))
 	closeErr := signatureFile.Close()
 	if readErr == nil {
 		readErr = closeErr
 	}
 	if readErr != nil {
 		return readErr
+	}
+	if len(signature) > 4096 {
+		return errors.New("backup manifest signature exceeds limit")
 	}
 	if signingKey == "" {
 		return errors.New("backup manifest is signed but STEPANEL_BACKUP_SIGNING_KEY is unavailable")

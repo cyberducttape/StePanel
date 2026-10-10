@@ -398,6 +398,21 @@ func TestBackupManifestSignatureDoesNotFollowSymlink(t *testing.T) {
 	}
 }
 
+func TestBackupManifestSignatureRejectsOversizedMetadata(t *testing.T) {
+	root := t.TempDir()
+	manifest := BackupManifest{Version: 1, Site: "account", Archive: "backup.tar.gz"}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.sig"), []byte(strings.Repeat("a", 4097)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyBackupManifestSignature(root, data, manifest, "signing-key-that-is-long-enough"); err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("oversized signature error = %v", err)
+	}
+}
+
 func TestBackupManifestReportsLogicalConsistency(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "www", "sites", "account", "public", "index.html"), "logical")

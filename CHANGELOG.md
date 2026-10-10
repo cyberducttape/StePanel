@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Backup signature verification is now memory-bounded**: malformed
+  `manifest.sig` files are limited to 4 KiB before decoding.
+- **Backup retention prefers durable manifest creation timestamps**: renamed
+  or differently formatted backup directories no longer determine chronology
+  when valid timestamps are available, with name ordering retained as a
+  deterministic fallback.
 - **The site manager interface now exposes only implemented lifecycle
   primitives**: durable import/restore/configuration jobs and unsupported
   suspension workflows are no longer presented as manager capabilities.
