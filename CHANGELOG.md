@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Customer site-provisioning reservations are now idempotent: retrying a timed-out
+  `POST /api/sites` returns the original durable job instead of a false ownership
+  conflict, with regression coverage for assignment and queue replay.
+
 - Recorded hosted installation smoke run `38076651823` passing on AlmaLinux 9
   and Rocky Linux 9; quota-enabled installation validation remains queued.
 

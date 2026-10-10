@@ -720,28 +720,45 @@ func (s *AccountStore) Update(username, plan string, sites []string) (HostingAcc
 // concurrent customer provisioning cannot oversubscribe or cross-assign a
 // site.
 func (s *AccountStore) AssignSite(username, site string) (HostingAccount, error) {
+	account, _, err := s.ensureSiteAssigned(username, site, false)
+	return account, err
+}
+
+// EnsureSiteAssigned reserves a site for a tenant, treating an existing
+// reservation by that same tenant as an idempotent success. Retryable
+// provisioning requests reserve ownership before queueing their durable job,
+// so a client retry must not become a false ownership conflict.
+func (s *AccountStore) EnsureSiteAssigned(username, site string) (HostingAccount, bool, error) {
+	return s.ensureSiteAssigned(username, site, true)
+}
+
+func (s *AccountStore) ensureSiteAssigned(username, site string, idempotent bool) (HostingAccount, bool, error) {
 	username, site = safeUser(username), safeUser(site)
 	if username == "" || site == "" {
-		return HostingAccount{}, errors.New("account and site are required")
+		return HostingAccount{}, false, errors.New("account and site are required")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshFromDBLocked(); err != nil {
-		return HostingAccount{}, err
+		return HostingAccount{}, false, err
 	}
 	account, ok := s.accounts[username]
 	if !ok {
-		return HostingAccount{}, errors.New("account not found")
+		return HostingAccount{}, false, errors.New("account not found")
 	}
 	if accountRole(account) != "owner" {
-		return HostingAccount{}, errors.New("only a tenant owner may assign sites")
+		return HostingAccount{}, false, errors.New("only a tenant owner may assign sites")
 	}
 	if account.Suspended {
-		return HostingAccount{}, errors.New("account is suspended")
+		return HostingAccount{}, false, errors.New("account is suspended")
 	}
 	for _, assigned := range account.Sites {
 		if assigned == site {
-			return HostingAccount{}, errors.New("site is already assigned to this account")
+			if idempotent {
+				account.PasswordHash, account.TOTPSecret, account.RecoveryCodeHashes = "", "", nil
+				return account, false, nil
+			}
+			return HostingAccount{}, false, errors.New("site is already assigned to this account")
 		}
 	}
 	for otherUsername, other := range s.accounts {
@@ -750,22 +767,22 @@ func (s *AccountStore) AssignSite(username, site string) (HostingAccount, error)
 		}
 		for _, assigned := range other.Sites {
 			if assigned == site {
-				return HostingAccount{}, fmt.Errorf("site %q is already assigned to account %q", site, otherUsername)
+				return HostingAccount{}, false, fmt.Errorf("site %q is already assigned to account %q", site, otherUsername)
 			}
 		}
 	}
 	previous := account
 	account.Sites = append(append([]string(nil), account.Sites...), site)
 	if err := validateHostingAccount(account, true); err != nil {
-		return HostingAccount{}, err
+		return HostingAccount{}, false, err
 	}
 	s.accounts[username] = account
 	if err := s.persistLocked(); err != nil {
 		s.accounts[username] = previous
-		return HostingAccount{}, err
+		return HostingAccount{}, false, err
 	}
 	account.PasswordHash, account.TOTPSecret, account.RecoveryCodeHashes = "", "", nil
-	return account, nil
+	return account, true, nil
 }
 
 // UnassignSite removes a site from a tenant. It is intentionally separate

@@ -156,11 +156,12 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	assigned := false
 	if !admin {
-		if _, err := a.Accounts.AssignSite(actor, input.Site); err != nil {
+		if _, newlyAssigned, err := a.Accounts.EnsureSiteAssigned(actor, input.Site); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
+		} else {
+			assigned = newlyAssigned
 		}
-		assigned = true
 	}
 	payload, err := json.Marshal(durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin})
 	if err != nil {

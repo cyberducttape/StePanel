@@ -134,6 +134,25 @@ func TestAccountStoreAssignSiteEnforcesPlanAndUniqueOwnership(t *testing.T) {
 	}
 }
 
+func TestAccountStoreEnsureSiteAssignmentIsIdempotent(t *testing.T) {
+	store, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("alice", "a sufficiently long customer password", testTOTPSecret, "starter", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, newlyAssigned, err := store.EnsureSiteAssigned("alice", "alice-site"); err != nil || !newlyAssigned {
+		t.Fatalf("first reservation = newly=%v err=%v, want new reservation", newlyAssigned, err)
+	}
+	if _, newlyAssigned, err := store.EnsureSiteAssigned("alice", "alice-site"); err != nil || newlyAssigned {
+		t.Fatalf("retry reservation = newly=%v err=%v, want idempotent success", newlyAssigned, err)
+	}
+	if account, ok := store.Get("alice"); !ok || len(account.Sites) != 1 || account.Sites[0] != "alice-site" {
+		t.Fatalf("idempotent reservation changed ownership = %#v, exists=%v", account, ok)
+	}
+}
+
 func TestAccountStoreMembersInheritOnlyTheirTenantSites(t *testing.T) {
 	store, err := OpenAccountStore(filepath.Join(t.TempDir(), "accounts.json"))
 	if err != nil {

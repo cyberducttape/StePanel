@@ -171,6 +171,49 @@ func TestCustomerCanQueueSiteCreationWithinAssignedPlan(t *testing.T) {
 	}
 }
 
+func TestCustomerSiteCreationRetryReturnsExistingJob(t *testing.T) {
+	f := newSiteCreationFixture(t, "")
+	accounts, err := OpenAccountStore(filepath.Join(f.root, "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.app.Accounts = accounts
+	f.app.Auth.Accounts = accounts
+	first := httptest.NewRequest(http.MethodPost, "/api/sites", strings.NewReader(`{"site":"retry-site","template":"php"}`))
+	first.Header.Set("Idempotency-Key", "create-retry-1")
+	first = first.WithContext(context.WithValue(first.Context(), apiTokenUsernameKey{}, "customer"))
+	firstResponse := httptest.NewRecorder()
+	f.app.siteCreate(firstResponse, first)
+	if firstResponse.Code != http.StatusAccepted {
+		t.Fatalf("first create status = %d, body = %s", firstResponse.Code, firstResponse.Body.String())
+	}
+	var firstJob map[string]string
+	if err := json.Unmarshal(firstResponse.Body.Bytes(), &firstJob); err != nil {
+		t.Fatal(err)
+	}
+	second := httptest.NewRequest(http.MethodPost, "/api/sites", strings.NewReader(`{"site":"retry-site","template":"php"}`))
+	second.Header.Set("Idempotency-Key", "create-retry-1")
+	second = second.WithContext(context.WithValue(second.Context(), apiTokenUsernameKey{}, "customer"))
+	secondResponse := httptest.NewRecorder()
+	f.app.siteCreate(secondResponse, second)
+	if secondResponse.Code != http.StatusAccepted {
+		t.Fatalf("retry create status = %d, body = %s", secondResponse.Code, secondResponse.Body.String())
+	}
+	var secondJob map[string]string
+	if err := json.Unmarshal(secondResponse.Body.Bytes(), &secondJob); err != nil {
+		t.Fatal(err)
+	}
+	if firstJob["job_id"] == "" || secondJob["job_id"] != firstJob["job_id"] {
+		t.Fatalf("retry jobs = first=%q second=%q, want same job", firstJob["job_id"], secondJob["job_id"])
+	}
+	if account, ok := accounts.Get("customer"); !ok || len(account.Sites) != 1 || account.Sites[0] != "retry-site" {
+		t.Fatalf("retry changed ownership = %#v, exists=%v", account, ok)
+	}
+}
+
 // A failure after the helper prepared the site removes everything this job
 // created: the published tree, the account and site root (through the
 // helper's delete), and the staging tree.
