@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Polished the Appearance experience with descriptive theme cards, clearer
+  selected/focus states, responsive previews, and refined retro status/surface
+  styling inspired by the WayExpand color packs (Classic Green, Amber, White,
+  Retro Neon, Terminal Blue, Commodore 64, and classic Windows).
+
 - Corrected the Docker and release-installation quick starts: production
   containers now show the backup-encryption and offsite requirements, clearly
   identify the container quota bypass as evaluation-only, and no longer tell
