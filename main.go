@@ -886,6 +886,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		csrf = cookie.Value
 	}
 	isAdministrator := a.Auth.IsAdministrator(r)
+	canCreateSite := isAdministrator
 	servers := ServiceSummaries(a.Config)
 	jobs := a.Jobs.List(8)
 	var account HostingAccount
@@ -895,6 +896,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		jobs = filterAccountJobs(jobs, a.Accounts, a.Auth.UsernameForRequest(r))
 		if a.Accounts != nil {
 			account, _ = a.Accounts.Get(a.Auth.UsernameForRequest(r))
+			canCreateSite = accountRole(account) == "owner" && !account.Suspended
 			if sites, err := a.Accounts.GetSitesWithError(a.Auth.UsernameForRequest(r)); err == nil {
 				accountSiteCount = len(sites)
 			}
@@ -913,7 +915,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	if isAdministrator {
 		security = a.SecurityChecks()
 	}
-	if err := a.View.Execute(w, map[string]any{"Title": "StePanel", "Config": a.Config, "AssetVersion": a.AssetVersion, "CSRF": csrf, "AuthEnabled": a.Auth.Enabled, "Username": a.Auth.UsernameForRequest(r), "Now": time.Now(), "Servers": servers, "Healthy": healthy, "Alerts": alerts, "Security": security, "Jobs": jobs, "Capabilities": a.Capabilities(), "Database": a.DatabaseAdmin(), "IsAdministrator": isAdministrator, "Account": account, "AccountSiteCount": accountSiteCount}); err != nil {
+	if err := a.View.Execute(w, map[string]any{"Title": "StePanel", "Config": a.Config, "AssetVersion": a.AssetVersion, "CSRF": csrf, "AuthEnabled": a.Auth.Enabled, "Username": a.Auth.UsernameForRequest(r), "Now": time.Now(), "Servers": servers, "Healthy": healthy, "Alerts": alerts, "Security": security, "Jobs": jobs, "Capabilities": a.Capabilities(), "Database": a.DatabaseAdmin(), "IsAdministrator": isAdministrator, "CanCreateSite": canCreateSite, "Account": account, "AccountSiteCount": accountSiteCount}); err != nil {
 		log.Printf("dashboard render failed: %v", err)
 	}
 }

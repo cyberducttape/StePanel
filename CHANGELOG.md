@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- The dashboard now shows customer site creation only to administrators and
+  active tenant owners; member and suspended-account sessions see the same
+  tenant-filtered inventory without a misleading mutation control.
+
 - The customer dashboard now exposes the existing plan-limited site creation
   workflow to authorized tenant owners, keeping user-level hosting behavior
   consistent between the API and the web interface.
