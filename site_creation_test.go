@@ -261,6 +261,32 @@ func TestTerminalCustomerSiteCreationFailureReleasesAssignment(t *testing.T) {
 	}
 }
 
+// A second creation job for a site that another job already created fails,
+// but must not release the reservation that now belongs to the live site.
+func TestDuplicateCustomerSiteCreationKeepsAssignmentOfExistingSite(t *testing.T) {
+	f := newSiteCreationFixture(t, "")
+	accounts, err := OpenAccountStore(filepath.Join(f.root, "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", []string{"live-site"}); err != nil {
+		t.Fatal(err)
+	}
+	f.app.Accounts = accounts
+	f.app.Auth.Accounts = accounts
+	if err := os.MkdirAll(filepath.Join(f.webRoot, "sites", "live-site", "public"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	item := Job{ID: "create-live-site-again", Kind: "site.create", MaxAttempts: 1, StartedAt: time.Now().UTC()}
+	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "live-site", Template: "php", Actor: "customer", CustomerProvisioning: true})
+	if _, err := f.app.handleSiteCreation(context.Background(), item); err == nil {
+		t.Fatal("duplicate site creation unexpectedly succeeded")
+	}
+	if account, ok := accounts.Get("customer"); !ok || len(account.Sites) != 1 || account.Sites[0] != "live-site" {
+		t.Fatalf("customer assignment after duplicate creation failure = %#v, exists=%v", account, ok)
+	}
+}
+
 func TestSiteCreationRefusesExistingSite(t *testing.T) {
 	f := newSiteCreationFixture(t, "")
 	existing := filepath.Join(f.webRoot, "sites", "taken", "public")

@@ -45,18 +45,22 @@ type siteOperationRoute struct {
 	// site names the site the operation mutates. It owns the job, so
 	// operations on one site run one at a time.
 	site func(path string, body []byte) string
+	// scope is the customer scope the handler requires. It is checked before
+	// queueing so an unauthorized requester gets 403 rather than a job that
+	// can only fail; the handler checks it again when the job replays.
+	scope string
 }
 
 var siteOperationRoutes = map[string]siteOperationRoute{
-	"release.pipeline":          {handler: func(a *App) http.HandlerFunc { return a.releasePipeline }, site: siteFromBody},
-	"runner.build":              {handler: func(a *App) http.HandlerFunc { return a.runnerBuild }, site: siteFromBody},
-	"git.deploy":                {handler: func(a *App) http.HandlerFunc { return a.gitDeploy }, site: siteFromBody},
-	"composer.install":          {handler: func(a *App) http.HandlerFunc { return a.composer }, site: siteFromPath("/api/composer/")},
-	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, site: siteFromBody},
-	"python.deploy":             {handler: func(a *App) http.HandlerFunc { return a.pythonDeploy }, site: siteFromBody},
-	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, site: siteFromBody},
-	"backup.restore-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreToStaging }, site: siteFromBody},
-	"backup.offsite-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreOffsiteToStaging }, site: siteFromBody},
+	"release.pipeline":          {handler: func(a *App) http.HandlerFunc { return a.releasePipeline }, site: siteFromBody, scope: "site:deploy"},
+	"runner.build":              {handler: func(a *App) http.HandlerFunc { return a.runnerBuild }, site: siteFromBody, scope: "site:deploy"},
+	"git.deploy":                {handler: func(a *App) http.HandlerFunc { return a.gitDeploy }, site: siteFromBody, scope: "deploy:write"},
+	"composer.install":          {handler: func(a *App) http.HandlerFunc { return a.composer }, site: siteFromPath("/api/composer/"), scope: "site:deploy"},
+	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, site: siteFromBody, scope: "site:deploy"},
+	"python.deploy":             {handler: func(a *App) http.HandlerFunc { return a.pythonDeploy }, site: siteFromBody, scope: "deploy:write"},
+	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, site: siteFromBody, scope: "site:deploy"},
+	"backup.restore-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreToStaging }, site: siteFromBody, scope: "backup:restore"},
+	"backup.offsite-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreOffsiteToStaging }, site: siteFromBody, scope: "backup:restore"},
 }
 
 func siteFromBody(_ string, body []byte) string {
@@ -125,6 +129,9 @@ func (a *App) siteOperation(name string) http.HandlerFunc {
 			return
 		}
 		if _, ok := a.requireSiteAccess(w, r, site, "site is not assigned to this account", http.StatusForbidden); !ok {
+			return
+		}
+		if route.scope != "" && !a.requireCustomerScope(w, r, route.scope) {
 			return
 		}
 		scopes, _ := r.Context().Value(apiTokenScopesKey{}).([]string)

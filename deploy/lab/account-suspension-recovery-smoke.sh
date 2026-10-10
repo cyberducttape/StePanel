@@ -70,7 +70,7 @@ PY
 sleep $((31 - $(date +%s) % 30))
 login
 
-account_response=$(curl --fail --silent --show-error --max-time 30 \
+account_response=$(curl --fail-with-body --silent --show-error --max-time 30 \
   -H "Cookie: $COOKIE_HEADER" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
   -H 'Content-Type: application/json' \
@@ -100,7 +100,7 @@ for _ in $(seq 1 60); do
   fi
   sleep 1
 done
-ready_response=$(curl --fail --silent --show-error --max-time 10 "$PANEL/readyz") || {
+ready_response=$(curl --fail-with-body --silent --show-error --max-time 10 "$PANEL/readyz") || {
   echo "panel readiness failed after restart: $ready_response" >&2
   exit 1
 }

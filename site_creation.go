@@ -166,7 +166,7 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 	payload, err := json.Marshal(durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin})
 	if err != nil {
 		if assigned {
-			_ = a.Accounts.UnassignSite(actor, input.Site)
+			a.releaseSiteReservation(actor, input.Site)
 		}
 		http.Error(w, "could not encode site creation job", http.StatusInternalServerError)
 		return
@@ -174,12 +174,21 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 	job, _, err := a.Jobs.EnqueueIdempotent("site.create", input.Site, operationKey, payload, 3)
 	if err != nil {
 		if assigned {
-			_ = a.Accounts.UnassignSite(actor, input.Site)
+			a.releaseSiteReservation(actor, input.Site)
 		}
 		http.Error(w, "could not persist site creation job", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "site": input.Site, "template": input.Template, "status_url": "/api/jobs/" + job.ID})
+}
+
+// releaseSiteReservation undoes a tenant reservation made for a request that
+// could not queue its creation job. The client already receives an error; a
+// failed release leaves the plan slot held, so it is logged for the operator.
+func (a *App) releaseSiteReservation(actor, site string) {
+	if err := a.Accounts.UnassignSite(actor, site); err != nil {
+		log.Printf("release site creation reservation for %s/%s: %v", actor, site, err)
+	}
 }
 
 // siteExists reports whether the site's root directory exists. The public
@@ -207,6 +216,16 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	creationCompleted := false
 	defer func() {
 		if creationCompleted || !terminalAttempt || !req.CustomerProvisioning || a.Accounts == nil {
+			return
+		}
+		// Retries with a new Idempotency-Key reuse the tenant's reservation
+		// and can queue a second job for the same site. When that job fails
+		// because another job created the site, the reservation now belongs to
+		// a live site and must stay.
+		if exists, err := a.siteExists(req.Site); err != nil || exists {
+			if err != nil {
+				log.Printf("keep site creation reservation for %s/%s: inspect site: %v", req.Actor, req.Site, err)
+			}
 			return
 		}
 		if err := a.Accounts.UnassignSite(req.Actor, req.Site); err != nil {

@@ -134,6 +134,30 @@ func TestSiteOperationAllowsAssignedCustomerGitDeployment(t *testing.T) {
 	}
 }
 
+// A requester without the operation's scope is refused before a job is
+// queued, so a read-only token cannot fill the queue with jobs that fail.
+func TestSiteOperationRequiresScopeBeforeQueueing(t *testing.T) {
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	app.Accounts = &AccountStore{accounts: map[string]HostingAccount{
+		"customer": {Username: "customer", Plan: "starter", Sites: []string{"shop"}},
+	}}
+	app.Auth.Accounts = app.Accounts
+	body := `{"site":"shop","repository":"https://github.com/octocat/Hello-World.git","ref":"main"}`
+	denied := httptest.NewRecorder()
+	app.siteOperation("git.deploy")(denied, tokenRequest(http.MethodPost, "/api/sites/git-deploy", body, "customer", "site:read"))
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("read-only token status = %d %s, want 403", denied.Code, denied.Body.String())
+	}
+	if jobs := app.Jobs.List(10); len(jobs) != 0 {
+		t.Fatalf("read-only token queued %d jobs, want none", len(jobs))
+	}
+	allowed := httptest.NewRecorder()
+	app.siteOperation("git.deploy")(allowed, tokenRequest(http.MethodPost, "/api/sites/git-deploy", body, "customer", "deploy:write"))
+	if allowed.Code != http.StatusAccepted {
+		t.Fatalf("deploy token status = %d %s, want 202", allowed.Code, allowed.Body.String())
+	}
+}
+
 func TestSiteOperationReplaysBrowserSessionIdentity(t *testing.T) {
 	app, seen := newSiteOperationFixture(t, http.StatusOK, "done")
 	payload, _ := json.Marshal(siteOperationPayload{Operation: "test.echo", Path: "/api/test/echo", Body: []byte(`{"site":"shop"}`), Site: "shop", Actor: "admin"})

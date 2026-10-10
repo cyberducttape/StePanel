@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- A failed duplicate site creation job no longer removes the tenant's
+  ownership of a site that another job already created; retries with a new
+  `Idempotency-Key` could previously orphan a live site from its account.
+- Long-running site operations (Git deploy, release pipeline, builds,
+  Composer/Node/Python, staging) check the requester's customer scope before
+  queueing, so a read-only role or token receives `403` instead of a job that
+  can only fail.
+- Restored the dashboard site-creation form's accessible name and made the
+  account-suspension smoke print the HTTP error body it reports.
 - Added regression coverage proving an assigned customer with the
   `deploy:write` scope can queue a site-scoped durable operation.
 
