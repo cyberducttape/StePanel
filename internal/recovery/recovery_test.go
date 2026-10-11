@@ -136,6 +136,18 @@ func TestAssessVerified(t *testing.T) {
 	if !strings.Contains(s.LastPassed.LevelDescription, "not yet rehearsed") {
 		t.Fatalf("level description must state its limits: %q", s.LastPassed.LevelDescription)
 	}
+	if len(s.Checks) != 4 || s.Checks[0].Status != "pass" || s.Checks[1].Status != "not_tested" || s.Checks[2].Status != "not_tested" || s.Checks[3].Status != "pass" {
+		t.Fatalf("structured evidence = %+v", s.Checks)
+	}
+}
+
+func TestAssessApplicationProofMarksDatabaseAndApplicationChecks(t *testing.T) {
+	s := assessWith(func(in *Inputs) {
+		in.LatestPassed.Level = LevelApplication
+	})
+	if s.Checks[1].Status != "pass" || s.Checks[2].Status != "pass" {
+		t.Fatalf("application evidence = %+v", s.Checks)
+	}
 }
 
 func TestAssessRules(t *testing.T) {

@@ -83,6 +83,14 @@ type RehearsalStatus struct {
 	Error            string    `json:"error,omitempty"`
 }
 
+// EvidenceCheck is a reportable recovery claim. not_tested is deliberately
+// distinct from pass: archive validation must not imply application recovery.
+type EvidenceCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // pass, warning, not_tested
+	Detail string `json:"detail"`
+}
+
 // Status is the per-site recovery picture shown to operators.
 type Status struct {
 	Site       string     `json:"site"`
@@ -90,6 +98,7 @@ type Status struct {
 	Summary    string     `json:"summary"`
 	// Reasons lists every finding that lowered confidence, most severe first.
 	Reasons       []string         `json:"reasons"`
+	Checks        []EvidenceCheck  `json:"checks"`
 	LastBackup    *BackupStatus    `json:"last_backup,omitempty"`
 	Offsite       OffsiteStatus    `json:"offsite"`
 	LastRehearsal *RehearsalStatus `json:"last_rehearsal,omitempty"`
@@ -134,8 +143,14 @@ func humanAge(d time.Duration) string {
 // Assess derives the recovery status from the evidence.
 func Assess(in Inputs) Status {
 	s := Status{
-		Site:          in.Site,
-		Reasons:       []string{},
+		Site:    in.Site,
+		Reasons: []string{},
+		Checks: []EvidenceCheck{
+			{Name: "archive", Status: "not_tested", Detail: "No backup has been validated."},
+			{Name: "database", Status: "not_tested", Detail: "Database import has not been proven."},
+			{Name: "application", Status: "not_tested", Detail: "Application startup and HTTP health have not been proven."},
+			{Name: "offsite", Status: "not_tested", Detail: "Offsite durability is not configured."},
+		},
 		LastRehearsal: rehearsalStatus(in.LatestRehearsal),
 		LastPassed:    rehearsalStatus(in.LatestPassed),
 		EncryptionKey: "unproven",
@@ -161,6 +176,10 @@ func Assess(in Inputs) Status {
 		s.Reasons = append(s.Reasons, "No backup has been taken.")
 		return s
 	}
+	s.Checks[0] = EvidenceCheck{Name: "archive", Status: "pass", Detail: "A backup manifest and archive are present and validated."}
+	if !in.LatestBackup.Signed {
+		s.Checks[0] = EvidenceCheck{Name: "archive", Status: "warning", Detail: "A backup is present, but its manifest is unsigned."}
+	}
 	backupAge := in.Now.Sub(in.LatestBackup.CreatedAt)
 	integrity := "verified"
 	if !in.LatestBackup.Signed {
@@ -168,11 +187,20 @@ func Assess(in Inputs) Status {
 	}
 	s.LastBackup = &BackupStatus{Name: in.LatestBackup.Name, CreatedAt: in.LatestBackup.CreatedAt, AgeSeconds: int64(backupAge.Seconds()), Integrity: integrity, Encrypted: in.LatestBackup.Encrypted}
 	s.RecoveryPointAgeSeconds = int64(backupAge.Seconds())
+	if s.Offsite.State == "verified" {
+		s.Checks[3] = EvidenceCheck{Name: "offsite", Status: "pass", Detail: "The newest backup has a confirmed offsite copy."}
+	} else if s.Offsite.State == "pending" || s.Offsite.State == "untracked" {
+		s.Checks[3] = EvidenceCheck{Name: "offsite", Status: "warning", Detail: "The newest backup has no confirmed offsite copy."}
+	}
 
 	if in.LatestPassed != nil {
 		s.MeasuredRecoveryMS = in.LatestPassed.DurationMS
 		if in.LatestPassed.Encrypted {
 			s.EncryptionKey = "healthy"
+		}
+		if in.LatestPassed.Level == LevelApplication {
+			s.Checks[1] = EvidenceCheck{Name: "database", Status: "pass", Detail: "The application recovery proof imported and verified the restored database."}
+			s.Checks[2] = EvidenceCheck{Name: "application", Status: "pass", Detail: "The application recovery proof verified service activation and an HTTP response."}
 		}
 	}
 

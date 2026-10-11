@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Recovery status now exposes structured archive, database, application, and
+  offsite evidence checks so operators and the GUI can distinguish verified
+  claims from recovery steps that were not tested.
 - Added compact job-listing queries that omit completed result payloads from
   dashboard, API, and event-stream activity responses; full details remain
   available through the individual job endpoint. Administrator activity views
