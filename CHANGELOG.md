@@ -11,6 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Made required offsite readiness probes asynchronous and cached, so `/readyz`
   stays within normal container/orchestrator probe deadlines while still
   failing closed until the remote target has been verified.
+- Added a regression test proving `/readyz` stays responsive while an offsite
+  provider probe is still blocked.
 - Added per-object offsite restore limits for markers, manifests, checksums,
   signatures, and archives so small metadata cannot consume the archive-sized
   restore budget.

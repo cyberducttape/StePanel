@@ -92,6 +92,67 @@ func TestReadyzAllowsFreshRequiredOffsiteInstallBeforeFirstBackup(t *testing.T) 
 	}
 }
 
+func TestReadyzDoesNotBlockOnOffsiteProbe(t *testing.T) {
+	previousProbe := probeOffsiteRemote
+	probeStarted := make(chan struct{})
+	probeRelease := make(chan struct{})
+	probeOffsiteRemote = func(string) error {
+		close(probeStarted)
+		<-probeRelease
+		return nil
+	}
+	t.Cleanup(func() {
+		select {
+		case <-probeRelease:
+		default:
+			close(probeRelease)
+		}
+		probeOffsiteRemote = previousProbe
+		resetOffsiteProbeCache()
+	})
+	resetOffsiteProbeCache()
+	root := t.TempDir()
+	imports, backups, sites := filepath.Join(root, "imports"), filepath.Join(root, "backups"), filepath.Join(root, "sites")
+	for _, path := range []string{imports, backups, sites} {
+		if err := os.MkdirAll(path, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := &App{Config: Config{
+		ImportRoot: imports, BackupRoot: backups, JobState: filepath.Join(root, "jobs.json"),
+		RecoveryRoot: filepath.Join(sites, ".stepanel-recovery"), MinFreeBytes: 1,
+		RequireOffsiteBackup: true, OffsiteTarget: "s3:bucket/stepanel",
+	}, Jobs: NewJobs()}
+
+	started := time.Now()
+	response := httptest.NewRecorder()
+	app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("readyz blocked for %s on a remote probe", elapsed)
+	}
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "probe is in progress") {
+		t.Fatalf("pending offsite readiness = %d, body = %s", response.Code, response.Body.String())
+	}
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("offsite probe did not start asynchronously")
+	}
+	close(probeRelease)
+	deadline := time.Now().Add(time.Second)
+	for {
+		response = httptest.NewRecorder()
+		app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+		if response.Code == http.StatusOK {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("offsite readiness did not recover: status=%d body=%s", response.Code, response.Body.String())
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestReadyzIncludesRootBrokerInProduction(t *testing.T) {
 	t.Setenv("STEPANEL_ROOT_BROKER_SOCKET", "")
 	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", "")
