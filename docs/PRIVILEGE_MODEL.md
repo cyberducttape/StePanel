@@ -55,11 +55,12 @@ such as `--exec` or `--require`. `stepanel-appctl wp` then runs the fixed
 `wp-config.php` travels on stdin, never in argv. Composer and Node tooling use
 the same `runuser` path.
 
-## What is not finished
+## Schema-validated helper operations still in use
 
-Some privileged operations still use the schema-validated generic `helper`
-request instead of a dedicated typed request. They are as tightly validated,
-but their contract lives in the argument schema rather than a Go type:
+The broker uses dedicated typed requests for core privileged operations and a
+schema-validated `helper` request for the following narrower operations. They
+are tightly validated, but their contract lives in the argument schema rather
+than a Go type:
 
 | Helper | Generic actions still in use |
 |--------|------------------------------|
@@ -69,10 +70,9 @@ but their contract lives in the argument schema rather than a Go type:
 | `dbctl` | Per-site listing, reconcile, drop, diagnostics, sessions, settings, termination (dumps and restores use the typed `db` request and stream through files) |
 | `gitctl`, `runnerctl` | Repository clone, container build |
 
-Migration order before 1.0: the remaining database actions, then site
-access and runtime, then routes and proxies, then
-application lifecycle. When the last generic action has a typed request, the
-`helper` request type and `helper_schema.go` are removed.
+These operations remain candidates for future typed request contracts. Any
+change to the accepted helper action inventory must update the broker schema,
+this document, and its contract tests together.
 
 The broker is a single privileged process on one host. It does not protect
 against a compromised panel issuing valid requests for sites it manages;

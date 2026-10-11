@@ -51,5 +51,5 @@ ENV HOME=/opt/stepanel \
     STEPANEL_CONTROL_PLANE_DB=/var/lib/ste-panel/control-plane.db \
     STEPANEL_RECOVERY_ROOT=/var/www/sites/.stepanel-recovery
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD ["curl", "--fail", "--silent", "http://127.0.0.1:8080/livez"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD ["curl", "--fail", "--silent", "http://127.0.0.1:8080/readyz"]
 ENTRYPOINT ["/opt/stepanel/stepanel"]

@@ -2135,6 +2135,84 @@ func (j *Jobs) List(limit int) []Job {
 	return items
 }
 
+// ListForOwners returns the durable job history for the supplied site owners.
+// The owner predicate is applied inside SQLite before the limit, so one
+// tenant's busy neighbors cannot hide its older completed jobs. It never
+// falls back to the in-memory cache because callers use this for an
+// authorization-sensitive operational view.
+func (j *Jobs) ListForOwners(limit int, owners []string) ([]Job, error) {
+	if j == nil || j.db == nil {
+		return nil, errors.New("durable job store is unavailable")
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	clean := make([]string, 0, len(owners))
+	seen := make(map[string]struct{}, len(owners))
+	for _, owner := range owners {
+		owner = strings.TrimSpace(owner)
+		if owner == "" {
+			continue
+		}
+		if _, ok := seen[owner]; ok {
+			continue
+		}
+		seen[owner] = struct{}{}
+		clean = append(clean, owner)
+	}
+	if len(clean) == 0 {
+		return []Job{}, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(clean)), ",")
+	query := `SELECT id, ` + durableJobColumns + ` FROM jobs WHERE id IN (
+		SELECT id FROM (SELECT id FROM jobs WHERE owner IN (` + placeholders + `)
+			ORDER BY started_at DESC, id DESC LIMIT ?)
+		UNION
+		SELECT id FROM jobs WHERE owner IN (` + placeholders + `)
+			AND state IN ('queued', 'running')
+	) ORDER BY started_at DESC, id DESC`
+	args := make([]any, 0, len(clean)*2+1)
+	for _, owner := range clean {
+		args = append(args, owner)
+	}
+	args = append(args, limit)
+	for _, owner := range clean {
+		args = append(args, owner)
+	}
+	rows, err := j.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list jobs for owners: %w", err)
+	}
+	defer rows.Close()
+	items := make([]Job, 0, limit)
+	for rows.Next() {
+		var id, state string
+		var data []byte
+		var leaseOwner sql.NullString
+		var leaseExpires, nextAttempt sql.NullInt64
+		var cancelRequested int
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+			return nil, fmt.Errorf("scan jobs for owners: %w", err)
+		}
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
+		if err != nil {
+			continue
+		}
+		materializeJobOutput(&item)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate jobs for owners: %w", err)
+	}
+	j.mu.Lock()
+	for i := range items {
+		stored := items[i]
+		j.items[stored.ID] = &stored
+	}
+	j.mu.Unlock()
+	return items, nil
+}
+
 // ListActiveForSite queries durable active jobs associated with one site. It
 // checks both the owner and operation key because older workflows used the
 // operation key as their site serialization field. It intentionally returns

@@ -1147,17 +1147,22 @@ func syncDirectory(path string) error {
 }
 
 func readBackupManifest(root string) (BackupManifest, error) {
+	manifest, _, err := readBackupManifestData(root)
+	return manifest, err
+}
+
+func readBackupManifestData(root string) (BackupManifest, []byte, error) {
 	path, err := safePath(root, "manifest.json")
 	if err != nil {
-		return BackupManifest{}, err
+		return BackupManifest{}, nil, err
 	}
 	file, info, err := openRegularNoFollow(path, nil)
 	if err != nil {
-		return BackupManifest{}, err
+		return BackupManifest{}, nil, err
 	}
 	if !info.Mode().IsRegular() || info.Size() > 64<<20 {
 		_ = file.Close()
-		return BackupManifest{}, errors.New("backup manifest is not a bounded regular file")
+		return BackupManifest{}, nil, errors.New("backup manifest is not a bounded regular file")
 	}
 	data, readErr := io.ReadAll(file)
 	closeErr := file.Close()
@@ -1165,24 +1170,24 @@ func readBackupManifest(root string) (BackupManifest, error) {
 		readErr = closeErr
 	}
 	if readErr != nil {
-		return BackupManifest{}, readErr
+		return BackupManifest{}, nil, readErr
 	}
 	var manifest BackupManifest
 	if err := json.Unmarshal(data, &manifest); err != nil || manifest.Version != 1 || safeUser(manifest.Site) == "" || (manifest.Archive != "backup.tar.gz" && manifest.Archive != "backup.tar.gz.enc") || manifest.VerifiedAt.IsZero() || manifest.Bytes < 0 || len(manifest.ArchiveSHA256) != sha256.Size*2 {
-		return BackupManifest{}, errors.New("invalid backup manifest")
+		return BackupManifest{}, nil, errors.New("invalid backup manifest")
 	}
 	if _, err := hex.DecodeString(manifest.ArchiveSHA256); err != nil {
-		return BackupManifest{}, errors.New("invalid backup archive checksum")
+		return BackupManifest{}, nil, errors.New("invalid backup archive checksum")
 	}
 	archivePath, err := safePath(root, manifest.Archive)
 	if err != nil {
-		return BackupManifest{}, errors.New("backup archive path escapes backup root")
+		return BackupManifest{}, nil, errors.New("backup archive path escapes backup root")
 	}
 	archiveInfo, err := os.Stat(archivePath)
 	if err != nil || !archiveInfo.Mode().IsRegular() || archiveInfo.Size() != manifest.Bytes {
-		return BackupManifest{}, errors.New("backup archive is missing or does not match its manifest")
+		return BackupManifest{}, nil, errors.New("backup archive is missing or does not match its manifest")
 	}
-	return manifest, nil
+	return manifest, data, nil
 }
 
 func backupManifestSignature(data []byte, key string) string {
@@ -1249,7 +1254,7 @@ func VerifySiteBackupStrict(root string, signingKey string, encryptionKeys ...st
 }
 
 func verifySiteBackup(root string, allowCache bool, signingKey string, encryptionKeys ...string) (BackupManifest, error) {
-	manifest, err := readBackupManifest(root)
+	manifest, data, err := readBackupManifestData(root)
 	if err != nil {
 		return BackupManifest{}, err
 	}
@@ -1271,23 +1276,6 @@ func verifySiteBackup(root string, allowCache bool, signingKey string, encryptio
 			setBackupVerificationCache(archivePath, manifest.Consistency, manifest.ArchiveSHA256)
 		}
 	} else if err := VerifyBackupArchiveWithKey(archivePath, manifest, encryptionKeys); err != nil {
-		return BackupManifest{}, err
-	}
-	manifestPath, err := safePath(root, "manifest.json")
-	if err != nil {
-		return BackupManifest{}, err
-	}
-	manifestFile, _, err := openRegularNoFollow(manifestPath, nil)
-	if err != nil {
-		return BackupManifest{}, err
-	}
-	data, readErr := io.ReadAll(manifestFile)
-	closeErr := manifestFile.Close()
-	if readErr == nil {
-		readErr = closeErr
-	}
-	err = readErr
-	if err != nil {
 		return BackupManifest{}, err
 	}
 	if err := verifyBackupManifestSignature(root, data, manifest, signingKey); err != nil {

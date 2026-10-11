@@ -902,12 +902,21 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	accountSiteCount := 0
 	if !isAdministrator {
 		servers = nil
-		jobs = filterAccountJobs(jobs, a.Accounts, a.Auth.UsernameForRequest(r))
+		jobs = nil
 		if a.Accounts != nil {
-			account, _ = a.Accounts.Get(a.Auth.UsernameForRequest(r))
+			username := a.Auth.UsernameForRequest(r)
+			account, _ = a.Accounts.Get(username)
 			canCreateSite = accountRole(account) == "owner" && !account.Suspended
-			if sites, err := a.Accounts.GetSitesWithError(a.Auth.UsernameForRequest(r)); err == nil {
+			if sites, err := a.Accounts.GetSitesWithError(username); err == nil {
+				jobs, err = a.Jobs.ListForOwners(8, sites)
+				if err != nil {
+					log.Printf("dashboard job history unavailable: %v", err)
+					jobs = nil
+				}
 				accountSiteCount = len(sites)
+			} else {
+				log.Printf("dashboard site assignments unavailable: %v", err)
+				jobs = nil
 			}
 		}
 	}
@@ -1539,9 +1548,24 @@ func (a *App) jobStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, job)
 }
 func (a *App) jobList(w http.ResponseWriter, r *http.Request) {
-	jobs := a.Jobs.List(100)
-	if !a.Auth.IsAdministrator(r) {
-		jobs = filterAccountJobs(jobs, a.Accounts, a.Auth.UsernameForRequest(r))
+	var jobs []Job
+	if a.Auth.IsAdministrator(r) {
+		jobs = a.Jobs.List(100)
+	} else {
+		if a.Accounts == nil {
+			http.Error(w, "tenant ownership state is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		sites, err := a.Accounts.GetSitesWithError(a.Auth.UsernameForRequest(r))
+		if err != nil {
+			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		jobs, err = a.Jobs.ListForOwners(100, sites)
+		if err != nil {
+			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs, "time": time.Now().UTC()})
 }
@@ -1607,12 +1631,27 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 		return write(fmt.Sprintf("event: %s\ndata: %s\n\n", event, data))
 	}
 
+	var jobs []Job
+	if a.Auth.IsAdministrator(r) {
+		jobs = a.Jobs.List(100)
+	} else {
+		if a.Accounts == nil {
+			http.Error(w, "tenant ownership state is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		sites, err := a.Accounts.GetSitesWithError(a.Auth.UsernameForRequest(r))
+		if err != nil {
+			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		jobs, err = a.Jobs.ListForOwners(100, sites)
+		if err != nil {
+			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+	}
 	updates, unsubscribe := a.Jobs.Subscribe()
 	defer unsubscribe()
-	jobs := a.Jobs.List(100)
-	if !a.Auth.IsAdministrator(r) {
-		jobs = filterAccountJobs(jobs, a.Accounts, a.Auth.UsernameForRequest(r))
-	}
 	if !send("snapshot", map[string]any{"jobs": jobs, "time": time.Now().UTC()}) {
 		return
 	}

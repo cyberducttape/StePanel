@@ -378,26 +378,40 @@ func (s *Store) OwnerOfSite(site string) (string, bool) {
 }
 
 func (s *Store) GetSites(username string) []string {
+	sites, _ := s.GetSitesWithError(username)
+	return sites
+}
+
+// GetSitesWithError returns the durable tenant-site assignment without
+// silently converting a database failure into an empty assignment.
+func (s *Store) GetSitesWithError(username string) ([]string, error) {
 	if s.db != nil {
 		rows, err := s.db.Query(`SELECT site FROM tenant_sites WHERE username = ? ORDER BY site`, username)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("list sites for account %q: %w", username, err)
 		}
-		defer rows.Close()
 		var sites []string
 		for rows.Next() {
 			var site string
-			if rows.Scan(&site) == nil {
-				sites = append(sites, site)
+			if err := rows.Scan(&site); err != nil {
+				_ = rows.Close()
+				return nil, fmt.Errorf("scan site for account %q: %w", username, err)
 			}
+			sites = append(sites, site)
 		}
-		return sites
+		if err := rows.Close(); err != nil {
+			return nil, fmt.Errorf("close sites for account %q: %w", username, err)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate sites for account %q: %w", username, err)
+		}
+		return sites, nil
 	}
 	account, ok := s.Get(username)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	return append([]string(nil), account.Sites...)
+	return append([]string(nil), account.Sites...), nil
 }
 
 // SetSuspended changes the account lifecycle state atomically and persists it

@@ -523,6 +523,32 @@ func TestDurableListReleasesSQLiteRowsBeforeRefreshingJobs(t *testing.T) {
 	}
 }
 
+func TestListForOwnersAppliesLimitAfterOwnerFilter(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	jobs := newJobsWithDB(db, 1)
+	tenantJob, err := jobs.Enqueue("site.operation", "tenant-site", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 120; i++ {
+		if _, err := jobs.Enqueue("site.operation", "busy-site", fmt.Sprintf("busy-%d", i), nil, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listed, err := jobs.ListForOwners(1, []string{"tenant-site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].ID != tenantJob.ID {
+		t.Fatalf("tenant history = %#v, want only %q", listed, tenantJob.ID)
+	}
+}
+
 func TestListActiveForSiteIsAuthoritativeAndUnbounded(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Scoped tenant job history in the dashboard, API, and event-stream snapshot
+  before applying limits, and made durable read failures visible instead of
+  serving stale cached history.
+- Reused the exact bounded manifest bytes for backup signature verification,
+  aligned the Docker health check with `/readyz`, and corrected the broker
+  privilege-model documentation.
+
 - Hardened preview capture against zero-glyph browser output by preferring the
   installed Chrome channel and requiring visible dashboard text before saving.
 
