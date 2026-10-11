@@ -221,6 +221,7 @@ jobs:
           }
           trap cleanup EXIT
           docker run -d --name stepanel-container-smoke -p 18091:8080 \
+            -e STEPANEL_ENV=development \
             -e STEPANEL_TLS_TERMINATED=1 \
             -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_SKIP_QUOTA_CHECK=1 \

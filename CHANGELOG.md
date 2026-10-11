@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Made the brokerless production-container smoke fixture explicitly use the
+  development environment so readiness does not require a root broker that the
+  fixture does not provide.
 - Corrected the production-container smoke harness to disable host reconciliation
   when running the intentionally brokerless unsafe-lab container fixture.
 - Made required offsite readiness probes asynchronous and cached, so `/readyz`
