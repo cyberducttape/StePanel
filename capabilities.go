@@ -20,6 +20,7 @@ import (
 type CapabilityMode string
 
 var errOffsiteToolMissing = fmt.Errorf("rclone is not found in PATH")
+var errOffsiteProbePending = errors.New("offsite remote probe is in progress")
 
 var probeOffsiteRemote = func(target string) error {
 	rclone, err := exec.LookPath("rclone")
@@ -94,6 +95,7 @@ func probeOffsiteRemoteWithRunner(ctx context.Context, target, rclone string, ru
 type offsiteProbeResult struct {
 	checked time.Time
 	err     error
+	running bool
 }
 
 var offsiteProbeCache = struct {
@@ -103,20 +105,53 @@ var offsiteProbeCache = struct {
 
 func cachedOffsiteRemoteProbe(target string) error {
 	offsiteProbeCache.Lock()
-	defer offsiteProbeCache.Unlock()
 	if result, ok := offsiteProbeCache.results[target]; ok && time.Since(result.checked) < 30*time.Second {
+		offsiteProbeCache.Unlock()
 		return result.err
 	}
+	if result, ok := offsiteProbeCache.results[target]; ok && result.running {
+		offsiteProbeCache.Unlock()
+		return errOffsiteProbePending
+	}
+	offsiteProbeCache.Unlock()
 	err := probeOffsiteRemote(target)
+	offsiteProbeCache.Lock()
 	offsiteProbeCache.results[target] = offsiteProbeResult{checked: time.Now(), err: err}
+	offsiteProbeCache.Unlock()
 	return err
+}
+
+// scheduleOffsiteRemoteProbe keeps readiness probes inexpensive. A remote
+// probe may involve DNS, authentication, and a provider round trip; running
+// it inline would make /readyz exceed normal orchestrator probe deadlines and
+// could prevent a fresh container from ever becoming ready.
+func scheduleOffsiteRemoteProbe(target string) error {
+	offsiteProbeCache.Lock()
+	if result, ok := offsiteProbeCache.results[target]; ok && time.Since(result.checked) < 30*time.Second {
+		offsiteProbeCache.Unlock()
+		return result.err
+	}
+	if result, ok := offsiteProbeCache.results[target]; ok && result.running {
+		offsiteProbeCache.Unlock()
+		return errOffsiteProbePending
+	}
+	offsiteProbeCache.results[target] = offsiteProbeResult{running: true}
+	offsiteProbeCache.Unlock()
+
+	go func() {
+		err := probeOffsiteRemote(target)
+		offsiteProbeCache.Lock()
+		offsiteProbeCache.results[target] = offsiteProbeResult{checked: time.Now(), err: err}
+		offsiteProbeCache.Unlock()
+	}()
+	return errOffsiteProbePending
 }
 
 func offsiteProbeCheckedAt(target string) *time.Time {
 	offsiteProbeCache.Lock()
 	defer offsiteProbeCache.Unlock()
 	result, ok := offsiteProbeCache.results[target]
-	if !ok {
+	if !ok || result.checked.IsZero() {
 		return nil
 	}
 	t := result.checked
@@ -559,6 +594,28 @@ func (a *App) checkOffsiteTargetReadiness() (bool, string) {
 	}
 	if err := cachedOffsiteRemoteProbe(a.Config.OffsiteTarget); err != nil {
 		if err == errOffsiteToolMissing {
+			return false, "target syntax is valid but rclone is not found in PATH"
+		}
+		return false, fmt.Sprintf("rclone and target syntax are valid, but remote access was not verified: %v", err)
+	}
+	return true, "remote target write/read/delete verified; backup recoverability evidence is reported separately"
+}
+
+// checkOffsiteTargetReadinessAsync is used by HTTP readiness endpoints. It
+// starts the same cached probe without holding the request open while rclone
+// performs network I/O.
+func (a *App) checkOffsiteTargetReadinessAsync() (bool, string) {
+	if a.Config.OffsiteTarget == "" {
+		return false, "STEPANEL_OFFSITE_TARGET not configured"
+	}
+	if err := validateOffsiteTarget(a.Config.OffsiteTarget); err != nil {
+		return false, err.Error()
+	}
+	if err := scheduleOffsiteRemoteProbe(a.Config.OffsiteTarget); err != nil {
+		if errors.Is(err, errOffsiteProbePending) {
+			return false, "remote target probe is in progress; readiness will update when it completes"
+		}
+		if errors.Is(err, errOffsiteToolMissing) {
 			return false, "target syntax is valid but rclone is not found in PATH"
 		}
 		return false, fmt.Sprintf("rclone and target syntax are valid, but remote access was not verified: %v", err)

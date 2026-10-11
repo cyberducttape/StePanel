@@ -25,7 +25,7 @@ func (a *App) livez(w http.ResponseWriter, _ *http.Request) {
 func (a *App) readyz(w http.ResponseWriter, r *http.Request) {
 	checks := readinessChecks(a.Config, a.Jobs)
 	if a.Config.RequireOffsiteBackup {
-		ready, reason := a.checkOffsiteTargetReadiness()
+		ready, reason := a.checkOffsiteTargetReadinessAsync()
 		checks["offsite_backup"] = ReadinessCheck{Ready: ready, Detail: reason}
 	}
 	startupInProgress, startupError := a.startup.status()

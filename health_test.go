@@ -77,10 +77,18 @@ func TestReadyzAllowsFreshRequiredOffsiteInstallBeforeFirstBackup(t *testing.T) 
 		RecoveryRoot: filepath.Join(sites, ".stepanel-recovery"), MinFreeBytes: 1,
 		RequireOffsiteBackup: true, OffsiteTarget: "s3:bucket/stepanel",
 	}, Jobs: NewJobs()}
-	response := httptest.NewRecorder()
-	app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "remote target write/read/delete verified") {
-		t.Fatalf("fresh required-offsite readiness status = %d, body = %s", response.Code, response.Body.String())
+	var response *httptest.ResponseRecorder
+	deadline := time.Now().Add(time.Second)
+	for {
+		response = httptest.NewRecorder()
+		app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+		if response.Code == http.StatusOK && strings.Contains(response.Body.String(), "remote target write/read/delete verified") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("fresh required-offsite readiness status = %d, body = %s", response.Code, response.Body.String())
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
