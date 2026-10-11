@@ -2054,12 +2054,27 @@ func materializeJobOutput(item *Job) {
 	}
 }
 
+// stripJobOutput keeps activity-list responses focused on lifecycle state.
+// Detail callers use Get/GetWithError when they need the completed result.
+func stripJobOutput(item *Job) {
+	if item == nil {
+		return
+	}
+	item.Result = nil
+	item.WPress = nil
+	item.Certificate = nil
+	item.Backup = nil
+	item.Restore = nil
+	item.Cloud = nil
+	item.Output = nil
+}
+
 // List returns the limit most recent jobs plus a bounded active-job window,
 // newest first. Active jobs are included so clients can report active work
 // authoritatively even when it started before the recent window.
 // listDurable returns independently bounded recent and active windows in a
 // single query; it replaces an ID query followed by one lookup per job.
-func (j *Jobs) listDurable(limit int) ([]Job, error) {
+func (j *Jobs) listDurable(limit int, includeOutput bool) ([]Job, error) {
 	rows, err := j.db.Query(`SELECT id, `+durableJobColumns+` FROM jobs WHERE id IN (
 			SELECT id FROM (SELECT id FROM jobs ORDER BY started_at DESC, id DESC LIMIT ?)
 			UNION
@@ -2085,7 +2100,11 @@ func (j *Jobs) listDurable(limit int) ([]Job, error) {
 			// hiding every other job from the Job Center.
 			continue
 		}
-		materializeJobOutput(&item)
+		if includeOutput {
+			materializeJobOutput(&item)
+		} else {
+			stripJobOutput(&item)
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -2105,7 +2124,7 @@ func (j *Jobs) List(limit int) []Job {
 		limit = 50
 	}
 	if j.db != nil {
-		if items, err := j.listDurable(limit); err == nil {
+		if items, err := j.listDurable(limit, true); err == nil {
 			return items
 		}
 	}
@@ -2132,12 +2151,52 @@ func (j *Jobs) List(limit int) []Job {
 	return items
 }
 
+// ListSummaries returns activity rows without materializing completed result
+// payloads. Use Get or GetWithError for a full job detail record.
+func (j *Jobs) ListSummaries(limit int) []Job {
+	items, err := j.ListSummariesWithError(limit)
+	if err == nil {
+		return items
+	}
+	items = j.List(limit)
+	for i := range items {
+		stripJobOutput(&items[i])
+	}
+	return items
+}
+
+// ListSummariesWithError is the authoritative activity-list API for HTTP
+// callers. It never substitutes a stale in-memory cache for a failed durable
+// read.
+func (j *Jobs) ListSummariesWithError(limit int) ([]Job, error) {
+	if limit < 1 {
+		limit = 50
+	}
+	if j.db != nil {
+		return j.listDurable(limit, false)
+	}
+	items := j.List(limit)
+	for i := range items {
+		stripJobOutput(&items[i])
+	}
+	return items, nil
+}
+
 // ListForOwners returns the durable job history for the supplied site owners.
 // The owner predicate is applied inside SQLite before the limit, so one
 // tenant's busy neighbors cannot hide its older completed jobs. It never
 // falls back to the in-memory cache because callers use this for an
 // authorization-sensitive operational view.
 func (j *Jobs) ListForOwners(limit int, owners []string) ([]Job, error) {
+	return j.listForOwners(limit, owners, true)
+}
+
+// ListForOwnersSummaries is the compact tenant-scoped activity view.
+func (j *Jobs) ListForOwnersSummaries(limit int, owners []string) ([]Job, error) {
+	return j.listForOwners(limit, owners, false)
+}
+
+func (j *Jobs) listForOwners(limit int, owners []string, includeOutput bool) ([]Job, error) {
 	if j == nil || j.db == nil {
 		return nil, errors.New("durable job store is unavailable")
 	}
@@ -2196,7 +2255,11 @@ func (j *Jobs) ListForOwners(limit int, owners []string) ([]Job, error) {
 		if err != nil {
 			continue
 		}
-		materializeJobOutput(&item)
+		if includeOutput {
+			materializeJobOutput(&item)
+		} else {
+			stripJobOutput(&item)
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

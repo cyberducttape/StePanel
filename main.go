@@ -897,7 +897,11 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	isAdministrator := a.Auth.IsAdministrator(r)
 	canCreateSite := isAdministrator
 	servers := ServiceSummaries(a.Config)
-	jobs := a.Jobs.List(8)
+	jobs, jobsErr := a.Jobs.ListSummariesWithError(8)
+	if jobsErr != nil {
+		log.Printf("dashboard job history unavailable: %v", jobsErr)
+		jobs = nil
+	}
 	var account HostingAccount
 	accountSiteCount := 0
 	if !isAdministrator {
@@ -908,7 +912,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 			account, _ = a.Accounts.Get(username)
 			canCreateSite = accountRole(account) == "owner" && !account.Suspended
 			if sites, err := a.Accounts.GetSitesWithError(username); err == nil {
-				jobs, err = a.Jobs.ListForOwners(8, sites)
+				jobs, err = a.Jobs.ListForOwnersSummaries(8, sites)
 				if err != nil {
 					log.Printf("dashboard job history unavailable: %v", err)
 					jobs = nil
@@ -1550,7 +1554,12 @@ func (a *App) jobStatus(w http.ResponseWriter, r *http.Request) {
 func (a *App) jobList(w http.ResponseWriter, r *http.Request) {
 	var jobs []Job
 	if a.Auth.IsAdministrator(r) {
-		jobs = a.Jobs.List(100)
+		var err error
+		jobs, err = a.Jobs.ListSummariesWithError(100)
+		if err != nil {
+			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
 	} else {
 		if a.Accounts == nil {
 			http.Error(w, "tenant ownership state is unavailable", http.StatusServiceUnavailable)
@@ -1561,7 +1570,7 @@ func (a *App) jobList(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		jobs, err = a.Jobs.ListForOwners(100, sites)
+		jobs, err = a.Jobs.ListForOwnersSummaries(100, sites)
 		if err != nil {
 			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
 			return
@@ -1633,7 +1642,12 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 
 	var jobs []Job
 	if a.Auth.IsAdministrator(r) {
-		jobs = a.Jobs.List(100)
+		var err error
+		jobs, err = a.Jobs.ListSummariesWithError(100)
+		if err != nil {
+			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
 	} else {
 		if a.Accounts == nil {
 			http.Error(w, "tenant ownership state is unavailable", http.StatusServiceUnavailable)
@@ -1644,7 +1658,7 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		jobs, err = a.Jobs.ListForOwners(100, sites)
+		jobs, err = a.Jobs.ListForOwnersSummaries(100, sites)
 		if err != nil {
 			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
 			return

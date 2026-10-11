@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Added compact job-listing queries that omit completed result payloads from
+  dashboard, API, and event-stream activity responses; full details remain
+  available through the individual job endpoint. Administrator activity views
+  now report durable-store failures instead of silently showing stale cache.
 - Added owner/state/time indexes for durable job listings, bounded active-job
   materialization, and an oldest-queued-job-age Prometheus metric to make queue
   pressure visible without allowing activity responses to grow with backlog.
