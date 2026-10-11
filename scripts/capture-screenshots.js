@@ -121,6 +121,14 @@ async function show(page, selector) {
 async function settle(page) {
   await page.waitForLoadState('load');
   await page.waitForFunction(() => !/Loading/.test(document.body.innerText), null, { timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => {
+    const candidates = document.querySelectorAll('.hero h1, .metric strong, .workspace-nav a, .site-card h3');
+    return [...candidates].some((element) => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return element.textContent.trim() && box.width > 0 && box.height > 0 && style.visibility !== 'hidden';
+    });
+  }, null, { timeout: 15000 });
   await page.waitForTimeout(1200);
 }
 
@@ -173,7 +181,10 @@ async function capture(page, name) {
     await show(page, '#jobs');
     await capture(page, 'activity');
 
-    const phone = await browser.newContext({ viewport: mobile, deviceScaleFactor: 3, colorScheme: 'dark', isMobile: true, hasTouch: true });
+    // Use the responsive viewport without mobile device emulation. The
+    // latter can produce zero-size text in headless browser builds while the
+    // CSS breakpoint layout remains fully representative at this width.
+    const phone = await browser.newContext({ viewport: mobile, deviceScaleFactor: 3, colorScheme: 'dark' });
     await phone.addInitScript((preferences) => {
       window.localStorage.setItem('stepanel.appearance.v1', JSON.stringify(preferences));
     }, retroNeonPreferences);

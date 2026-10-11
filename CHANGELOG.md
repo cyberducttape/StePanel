@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Hardened preview capture against zero-glyph browser output by preferring the
+  installed Chrome channel and requiring visible dashboard text before saving.
+
 - Updated the README preview gallery to identify and display the Retro 80s
   Neon screenshots.
 

@@ -28,6 +28,13 @@ ADMIN_USER="operator"
 ADMIN_PASS="Demo-Operator-Password-2026!"
 PID=""
 
+# Prefer the system Chrome channel when it is available. Some minimal
+# Playwright Chromium builds can lay out text as zero-size glyphs, producing
+# attractive panels with an unreadable screenshot.
+if [[ -z "${PLAYWRIGHT_CHANNEL:-}" ]] && command -v google-chrome >/dev/null 2>&1; then
+  export PLAYWRIGHT_CHANNEL=chrome
+fi
+
 if [[ -e $DEMO_ROOT ]]; then
   echo "refusing to capture: $DEMO_ROOT already exists; remove it or set STEPANEL_SHOT_ROOT" >&2
   exit 1
