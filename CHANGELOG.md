@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Made the local KVM certification wrapper accept and validate
+  `RECOVERY_MATRIX_REPEATS` (1–50), record the requested repetitions, and scale
+  the install job deadline so the documented installed-host recovery soak is
+  not cut off by the former single-run timeout.
 - Made the brokerless production-container smoke fixture explicitly use the
   development environment so readiness does not require a root broker that the
   fixture does not provide.

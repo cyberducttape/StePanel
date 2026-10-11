@@ -14,6 +14,7 @@ set -Eeuo pipefail
 # the guest disks are several GiB.
 #
 # Environment: VM_MEMORY_MB (3072), VM_CPUS (4), SSH_PORT (2232),
+# RECOVERY_MATRIX_REPEATS (1; use 20–50 for the release soak),
 # PHASES (space-separated subset of: boot install runner abrupt-loss
 # abrupt-loss-under-load enospc), KEEP_VM=1 to leave the guest running,
 # RESUME=1 to run PHASES against the guest a previous KEEP_VM=1 run left in
@@ -28,6 +29,13 @@ memory=${VM_MEMORY_MB:-3072}
 cpus=${VM_CPUS:-4}
 port=${SSH_PORT:-2232}
 phases=${PHASES:-boot install runner abrupt-loss abrupt-loss-under-load enospc}
+matrix_repeats=${RECOVERY_MATRIX_REPEATS:-1}
+
+if [[ ! $matrix_repeats =~ ^[1-9][0-9]*$ ]] || (( matrix_repeats > 50 )); then
+  echo 'RECOVERY_MATRIX_REPEATS must be an integer from 1 through 50' >&2
+  exit 1
+fi
+install_timeout_minutes=$((60 + matrix_repeats * 180))
 
 [[ -f $image ]] || { echo "guest image $image not found" >&2; exit 1; }
 [[ -r /dev/kvm && -w /dev/kvm ]] || { echo '/dev/kvm is not usable by this user' >&2; exit 1; }
@@ -116,7 +124,7 @@ if [[ ${RESUME:-0} != 1 ]]; then
   printf 'image: %s\nimage_sha256: %s\n' "$image" "$(sha256sum "$image" | cut -d' ' -f1)"
   printf 'commit: %s\n' "$(git -C "$repo" rev-parse HEAD)"
   printf 'dirty: %s\n' "$(git -C "$repo" status --porcelain | wc -l)"
-  printf 'host_qemu: %s\nhost_kernel: %s\nguest_memory_mb: %s\nguest_cpus: %s\n' "$(qemu-system-x86_64 --version | head -1)" "$(uname -r)" "$memory" "$cpus"
+  printf 'host_qemu: %s\nhost_kernel: %s\nguest_memory_mb: %s\nguest_cpus: %s\nrecovery_matrix_repeats: %s\ninstall_timeout_minutes: %s\n' "$(qemu-system-x86_64 --version | head -1)" "$(uname -r)" "$memory" "$cpus" "$matrix_repeats" "$install_timeout_minutes"
   printf 'started_utc: %s\n' "$(date -u +%FT%TZ)"
 } > "$run_dir/environment.txt"
 
@@ -186,7 +194,7 @@ fi
 if has_phase install; then
   start=$SECONDS
   # The full recovery matrix runs about 100 drills; allow four hours.
-  if guest_job install 240 'env STEPANEL_UNSAFE_LAB=1 STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy STEPANEL_RUN_RECOVERY_MATRIX=1 STEPANEL_RUN_RECOVERY_MATRIX_FULL=1 bash /work/deploy/lab/install-smoke.sh'; then
+  if guest_job install "$install_timeout_minutes" "env RECOVERY_MATRIX_REPEATS=$matrix_repeats STEPANEL_UNSAFE_LAB=1 STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy STEPANEL_RUN_RECOVERY_MATRIX=1 STEPANEL_RUN_RECOVERY_MATRIX_FULL=1 bash /work/deploy/lab/install-smoke.sh"; then
     record install PASS $((SECONDS - start)) "$(grep -c 'smoke passed\|matrix passed' "$run_dir/install.log") smoke/matrix passes"
   else
     record install FAIL $((SECONDS - start)) "$(grep -E 'smoke failed|exited with status|unbound|error' "$run_dir/install.log" | tail -1)"
