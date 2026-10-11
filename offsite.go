@@ -208,11 +208,11 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		cleanup()
 		return "", func() {}, err
 	}
-	if err := downloadOffsiteObject(parent, remoteRoot, root, "manifest.json"); err != nil {
+	if err := downloadOffsiteObjectLimit(parent, remoteRoot, root, "manifest.json", maxOffsiteManifestBytes); err != nil {
 		cleanup()
 		return "", func() {}, err
 	}
-	if err := downloadOffsiteObject(parent, remoteRoot, root, ".stepanel-complete"); err != nil {
+	if err := downloadOffsiteObjectLimit(parent, remoteRoot, root, ".stepanel-complete", maxOffsiteMarkerBytes); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("offsite backup is not complete: %w", err)
 	}
@@ -241,16 +241,18 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		cleanup()
 		return "", func() {}, errors.New("downloaded offsite manifest declares an invalid archive")
 	}
-	for _, object := range []string{manifest.Archive, manifest.Archive + ".sha256"} {
-		if err := downloadOffsiteObject(parent, remoteRoot, root, object); err != nil {
-			cleanup()
-			return "", func() {}, err
-		}
+	if err := downloadOffsiteObjectLimit(parent, remoteRoot, root, manifest.Archive, maxOffsiteObjectBytes); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if err := downloadOffsiteObjectLimit(parent, remoteRoot, root, manifest.Archive+".sha256", maxOffsiteChecksumBytes); err != nil {
+		cleanup()
+		return "", func() {}, err
 	}
 	// A signed backup must retain its signature. Unsigned backups do not have
 	// this object, so absence is allowed and strict backup verification enforces the
 	// configured signing policy.
-	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxOffsiteObjectBytes))
+	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxOffsiteSignatureBytes))
 	defer cancel()
 	signaturePath := filepath.Join(root, "manifest.sig")
 	remoteSignature, err := offsiteRemoteObject(remoteRoot, "manifest.sig")
@@ -258,10 +260,10 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		cleanup()
 		return "", func() {}, err
 	}
-	copyArgs := append([]string{"copyto", remoteSignature, signaturePath}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+	copyArgs := append([]string{"copyto", remoteSignature, signaturePath}, offsiteRcloneTransferArgs(maxOffsiteSignatureBytes)...)
 	_, copyErr := runOffsiteRclone(ctx, copyArgs...)
 	if copyErr == nil {
-		if info, statErr := os.Stat(signaturePath); statErr != nil || info.Size() > maxOffsiteObjectBytes {
+		if info, statErr := os.Stat(signaturePath); statErr != nil || info.Size() > maxOffsiteSignatureBytes {
 			copyErr = errors.New("downloaded offsite signature exceeds the object limit")
 		}
 	}
@@ -272,10 +274,17 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 }
 
 func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object string) error {
+	return downloadOffsiteObjectLimit(parent, remoteRoot, localRoot, object, maxOffsiteObjectBytes)
+}
+
+func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, object string, maxBytes int64) error {
 	if !validOffsiteObjectName(object) {
 		return errors.New("invalid offsite object name")
 	}
-	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxOffsiteObjectBytes))
+	if maxBytes <= 0 {
+		return errors.New("offsite object size limit must be positive")
+	}
+	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxBytes))
 	defer cancel()
 	remote, err := offsiteRemoteObject(remoteRoot, object)
 	if err != nil {
@@ -285,7 +294,7 @@ func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object
 	if err != nil {
 		return fmt.Errorf("invalid offsite local object path: %w", err)
 	}
-	copyArgs := append([]string{"copyto", remote, local}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+	copyArgs := append([]string{"copyto", remote, local}, offsiteRcloneTransferArgs(maxBytes)...)
 	output, err := runOffsiteRclone(ctx, copyArgs...)
 	if err != nil {
 		return fmt.Errorf("download offsite backup object %s: %w: %s", object, err, strings.TrimSpace(string(output)))
@@ -294,8 +303,8 @@ func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object
 	if err != nil {
 		return fmt.Errorf("stat downloaded offsite backup object %s: %w", object, err)
 	}
-	if info.Size() > maxOffsiteObjectBytes {
-		return fmt.Errorf("downloaded offsite backup object %s exceeds the %d-byte limit", object, maxOffsiteObjectBytes)
+	if info.Size() > maxBytes {
+		return fmt.Errorf("downloaded offsite backup object %s exceeds the %d-byte limit", object, maxBytes)
 	}
 	return nil
 }
@@ -343,6 +352,9 @@ func validBackupName(name string) bool {
 const maxOffsiteListingBytes = 8 << 20
 
 const maxOffsiteManifestBytes = 8 << 20
+const maxOffsiteMarkerBytes = 1024
+const maxOffsiteChecksumBytes = 4096
+const maxOffsiteSignatureBytes = 4096
 
 // This admission limit applies before archive verification and extraction. It
 // is intentionally explicit so a remote object cannot consume an unbounded

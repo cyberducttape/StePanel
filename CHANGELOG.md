@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Added per-object offsite restore limits for markers, manifests, checksums,
+  signatures, and archives so small metadata cannot consume the archive-sized
+  restore budget.
 - Unified backup manifest limits across verification and retention, rejecting
   oversized metadata after a bounded read instead of allocating up to 64 MiB.
 - Administrator migration and archive job-status endpoints now read durable
