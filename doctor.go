@@ -479,7 +479,11 @@ func (a *App) migrationAnalysisStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, exists := a.Jobs.Get(jobID)
+	job, exists, err := a.Jobs.GetWithError(jobID)
+	if err != nil {
+		http.Error(w, "migration analysis is temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	if !exists {
 		http.Error(w, "job not found", http.StatusNotFound)
 		return

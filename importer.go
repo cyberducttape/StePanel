@@ -141,7 +141,11 @@ func (a *App) inspectArchiveStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, ok := a.Jobs.Get(jobID)
+	job, ok, err := a.Jobs.GetWithError(jobID)
+	if err != nil {
+		http.Error(w, "archive inspection status is temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	if !ok {
 		http.Error(w, "job not found", http.StatusNotFound)
 		return
@@ -267,7 +271,11 @@ func (a *App) archiveImportStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, ok := a.Jobs.Get(jobID)
+	job, ok, err := a.Jobs.GetWithError(jobID)
+	if err != nil {
+		http.Error(w, "archive import status is temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	if !ok {
 		http.Error(w, "job not found", http.StatusNotFound)
 		return
