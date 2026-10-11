@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Unified backup manifest limits across verification and retention, rejecting
+  oversized metadata after a bounded read instead of allocating up to 64 MiB.
 - Administrator migration and archive job-status endpoints now read durable
   state authoritatively and return service-unavailable when SQLite cannot be
   read, rather than presenting stale in-memory status.

@@ -370,6 +370,16 @@ func TestWriteBackupManifestDoesNotFollowManifestSymlink(t *testing.T) {
 	}
 }
 
+func TestReadBackupManifestRejectsOversizedMetadata(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), []byte(strings.Repeat("x", maxBackupManifestBytes+1)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := readBackupManifestData(root); err == nil || !strings.Contains(err.Error(), "bounded") {
+		t.Fatalf("oversized manifest error = %v", err)
+	}
+}
+
 func TestBackupManifestSignatureDoesNotFollowSymlink(t *testing.T) {
 	root := t.TempDir()
 	manifest := BackupManifest{

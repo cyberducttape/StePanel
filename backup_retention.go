@@ -13,7 +13,6 @@ import (
 	"time"
 )
 
-const maxBackupManifestBytes = 8 << 20
 const backupStageLockName = ".stepanel-stage.lock"
 
 func acquireBackupStageLock(stage string) (*os.File, error) {

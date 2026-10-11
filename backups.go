@@ -31,6 +31,11 @@ type BackupResult = backup.BackupResult
 
 const maxBackupBytes = backup.MaxBackupBytes
 
+// Backup manifests contain one bounded record per archived path. Keep the
+// verifier's memory contract aligned with retention and reject oversized
+// metadata before JSON decoding.
+const maxBackupManifestBytes = 8 << 20
+
 // backupVerificationCache stores recent verification results for backup listing
 // only. Restore and other trust-sensitive paths must use VerifySiteBackupStrict,
 // which never consults this cache.
@@ -1160,17 +1165,20 @@ func readBackupManifestData(root string) (BackupManifest, []byte, error) {
 	if err != nil {
 		return BackupManifest{}, nil, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > 64<<20 {
+	if !info.Mode().IsRegular() || info.Size() > maxBackupManifestBytes {
 		_ = file.Close()
 		return BackupManifest{}, nil, errors.New("backup manifest is not a bounded regular file")
 	}
-	data, readErr := io.ReadAll(file)
+	data, readErr := io.ReadAll(io.LimitReader(file, maxBackupManifestBytes+1))
 	closeErr := file.Close()
 	if readErr == nil {
 		readErr = closeErr
 	}
 	if readErr != nil {
 		return BackupManifest{}, nil, readErr
+	}
+	if len(data) > maxBackupManifestBytes {
+		return BackupManifest{}, nil, errors.New("backup manifest exceeds size limit")
 	}
 	var manifest BackupManifest
 	if err := json.Unmarshal(data, &manifest); err != nil || manifest.Version != 1 || safeUser(manifest.Site) == "" || (manifest.Archive != "backup.tar.gz" && manifest.Archive != "backup.tar.gz.enc") || manifest.VerifiedAt.IsZero() || manifest.Bytes < 0 || len(manifest.ArchiveSHA256) != sha256.Size*2 {
