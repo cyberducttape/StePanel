@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Fixed the Sites workspace layout, made navigation follow the visible section,
+  improved responsive site summaries, and regenerated the corresponding GUI
+  screenshots from the live interface.
 - Made the local KVM certification wrapper accept and validate
   `RECOVERY_MATRIX_REPEATS` (1–50), record the requested repetitions, and scale
   the install job deadline so the documented installed-host recovery soak is
