@@ -78,6 +78,9 @@ func TestGitReleaseMetricsExposeInventoryReadFailures(t *testing.T) {
 func TestJobMetricsExposeInventoryReadFailures(t *testing.T) {
 	var output strings.Builder
 	writeJobMetrics(&output, NewJobs())
+	if !strings.Contains(output.String(), "stepanel_jobs_oldest_queued_age_seconds 0") {
+		t.Fatalf("oldest queued age metric missing: %s", output.String())
+	}
 	if !strings.Contains(output.String(), "stepanel_jobs_inventory_errors 1") {
 		t.Fatalf("job inventory error metric missing: %s", output.String())
 	}

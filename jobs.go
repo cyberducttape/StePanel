@@ -770,37 +770,34 @@ func (j *Jobs) CancellationRequested(id string) bool {
 type DurableJobHandler func(context.Context, Job) ([]byte, error)
 
 type JobQueueStats struct {
-	Queued     int
-	Running    int
-	DeadLetter int
+	Queued         int
+	Running        int
+	DeadLetter     int
+	OldestQueuedAt time.Time
 }
+
+const maxListedActiveJobs = 100
 
 func (j *Jobs) QueueStats() (JobQueueStats, error) {
 	if j.db == nil {
 		return JobQueueStats{}, errors.New("queue statistics require the control-plane database")
 	}
 	var stats JobQueueStats
-	rows, err := j.db.Query(`SELECT state, COUNT(*) FROM jobs GROUP BY state`)
+	var oldest sql.NullInt64
+	err := j.db.QueryRow(`
+		SELECT
+			COALESCE(SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN state = 'dead-letter' THEN 1 ELSE 0 END), 0),
+			MIN(CASE WHEN state = 'queued' THEN started_at END)
+		FROM jobs`).Scan(&stats.Queued, &stats.Running, &stats.DeadLetter, &oldest)
 	if err != nil {
-		return stats, err
+		return JobQueueStats{}, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var state string
-		var count int
-		if err := rows.Scan(&state, &count); err != nil {
-			return stats, err
-		}
-		switch state {
-		case "queued":
-			stats.Queued = count
-		case "running":
-			stats.Running = count
-		case "dead-letter":
-			stats.DeadLetter = count
-		}
+	if oldest.Valid {
+		stats.OldestQueuedAt = time.Unix(0, oldest.Int64)
 	}
-	return stats, rows.Err()
+	return stats, nil
 }
 
 // LightweightReadiness performs the cheap query used by frequent readiness
@@ -2057,17 +2054,17 @@ func materializeJobOutput(item *Job) {
 	}
 }
 
-// List returns the limit most recent jobs plus every queued or running job,
-// newest first. Active jobs are always included so clients can report active
-// work authoritatively even when it started before the recent window.
-// listDurable returns the newest limit jobs plus every active job in a single
-// query; it replaces an ID query followed by one lookup per job.
+// List returns the limit most recent jobs plus a bounded active-job window,
+// newest first. Active jobs are included so clients can report active work
+// authoritatively even when it started before the recent window.
+// listDurable returns independently bounded recent and active windows in a
+// single query; it replaces an ID query followed by one lookup per job.
 func (j *Jobs) listDurable(limit int) ([]Job, error) {
 	rows, err := j.db.Query(`SELECT id, `+durableJobColumns+` FROM jobs WHERE id IN (
 			SELECT id FROM (SELECT id FROM jobs ORDER BY started_at DESC, id DESC LIMIT ?)
 			UNION
-			SELECT id FROM jobs WHERE state IN ('queued', 'running')
-		) ORDER BY started_at DESC, id DESC`, limit)
+			SELECT id FROM (SELECT id FROM jobs WHERE state IN ('queued', 'running') ORDER BY started_at ASC, id ASC LIMIT ?)
+		) ORDER BY started_at DESC, id DESC`, limit, maxListedActiveJobs)
 	if err != nil {
 		return nil, fmt.Errorf("list durable jobs: %w", err)
 	}
@@ -2168,10 +2165,10 @@ func (j *Jobs) ListForOwners(limit int, owners []string) ([]Job, error) {
 		SELECT id FROM (SELECT id FROM jobs WHERE owner IN (` + placeholders + `)
 			ORDER BY started_at DESC, id DESC LIMIT ?)
 		UNION
-		SELECT id FROM jobs WHERE owner IN (` + placeholders + `)
-			AND state IN ('queued', 'running')
+		SELECT id FROM (SELECT id FROM jobs WHERE owner IN (` + placeholders + `)
+			AND state IN ('queued', 'running') ORDER BY started_at ASC, id ASC LIMIT ?)
 	) ORDER BY started_at DESC, id DESC`
-	args := make([]any, 0, len(clean)*2+1)
+	args := make([]any, 0, len(clean)*2+2)
 	for _, owner := range clean {
 		args = append(args, owner)
 	}
@@ -2179,6 +2176,7 @@ func (j *Jobs) ListForOwners(limit int, owners []string) ([]Job, error) {
 	for _, owner := range clean {
 		args = append(args, owner)
 	}
+	args = append(args, maxListedActiveJobs)
 	rows, err := j.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs for owners: %w", err)

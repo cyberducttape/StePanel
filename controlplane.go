@@ -41,6 +41,8 @@ CREATE INDEX IF NOT EXISTS jobs_operation_idx ON jobs(kind, owner, operation_key
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_operation_unique_idx ON jobs(kind, owner, operation_key) WHERE operation_key <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_active_empty_operation_unique_idx ON jobs(kind, owner) WHERE operation_key = '' AND state IN ('queued', 'running');
 CREATE INDEX IF NOT EXISTS jobs_state_idx ON jobs(state, updated_at);
+CREATE INDEX IF NOT EXISTS jobs_owner_started_idx ON jobs(owner, started_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS jobs_owner_state_started_idx ON jobs(owner, state, started_at ASC, id ASC);
 CREATE TABLE IF NOT EXISTS accounts (
     username TEXT PRIMARY KEY,
     payload BLOB NOT NULL,

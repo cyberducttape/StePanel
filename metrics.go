@@ -239,6 +239,16 @@ func writeJobMetrics(w io.Writer, jobs *Jobs) {
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_jobs_dead_letter Jobs requiring operator review")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_jobs_dead_letter gauge")
 	_, _ = fmt.Fprintf(w, "stepanel_jobs_dead_letter %d\n", stats.DeadLetter)
+	oldestQueuedAge := 0.0
+	if !stats.OldestQueuedAt.IsZero() {
+		oldestQueuedAge = time.Since(stats.OldestQueuedAt).Seconds()
+		if oldestQueuedAge < 0 {
+			oldestQueuedAge = 0
+		}
+	}
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_jobs_oldest_queued_age_seconds Age of the oldest queued durable job")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_jobs_oldest_queued_age_seconds gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_jobs_oldest_queued_age_seconds %.0f\n", oldestQueuedAge)
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_jobs_inventory_errors Whether durable job inventory collection failed")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_jobs_inventory_errors gauge")
 	_, _ = fmt.Fprintf(w, "stepanel_jobs_inventory_errors %d\n", inventoryErrors)
