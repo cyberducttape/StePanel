@@ -1396,3 +1396,87 @@ textarea[aria-invalid="true"] {
 .recovery-facts dd { margin: 0; display: flex; flex-direction: column; gap: 2px; }
 .recovery-facts dd strong { color: var(--panel-text); font-size: 14px; }
 .recovery-facts dd small { color: var(--panel-muted); font-size: 11px; }
+
+/*
+  Layout and legibility refinements.
+  The Sites panel reuses .import-panel, a two-column grid, so its children
+  used to auto-flow into alternating columns: the site list sat in a narrow
+  left column beside empty space, and cards stretched to the height of the
+  open workspace. Place each child deliberately instead.
+*/
+.site-overview { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); align-items: start; row-gap: 22px; }
+.site-overview > .section-heading { grid-column: 1; }
+.site-overview > .import-copy { grid-column: 2; max-width: 64ch; }
+.site-overview > .site-create-form,
+.site-overview > #siteOverviewStatus,
+.site-overview > .site-overview-grid { grid-column: 1 / -1; }
+.site-overview > #siteOverviewStatus { max-width: none; margin-top: 0; }
+.site-overview-grid { margin-top: 0; align-items: start; align-content: start; }
+.site-overview > .site-detail { grid-column: 2; margin-top: 0; min-width: 0; }
+/* With a workspace open, the list becomes a narrow rail beside it. */
+.site-overview:has(> .site-detail:not([hidden])) > .site-overview-grid { grid-column: 1; grid-template-columns: minmax(0, 1fr); }
+
+/* Create a site: one compact row (name, starting point, action) rather than
+   a tall stacked form above the list. Subgrid lines labels and inputs up. */
+.site-overview > .site-create-form {
+  max-width: none;
+  margin-top: 0;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  column-gap: 14px;
+  row-gap: 5px;
+  padding: 18px 20px;
+  border: 1px solid var(--panel-line, #293544);
+  border-radius: 12px;
+}
+.site-create-form > h3 { grid-column: 1 / -1; margin: 0 0 8px; font-size: 15px; }
+.site-create-form > .field { grid-row: 2 / span 3; display: grid; grid-template-rows: subgrid; gap: 5px; margin: 0; }
+.site-create-form > .primary-action { grid-column: 3; grid-row: 3; align-self: stretch; white-space: nowrap; }
+.site-create-form > output { grid-column: 1 / -1; }
+.site-create-form > output:empty { display: none; }
+body[data-theme] .site-overview > .site-create-form { border-color: var(--appearance-line) !important; }
+
+/* Site cards: the backup line is its own fact, flagged when missing. */
+.site-card .site-card-backup { margin-top: 4px; }
+.site-card .site-card-backup.warning,
+body[data-theme] .site-card .site-card-backup.warning { color: var(--panel-warning, #f0b35a) !important; font-weight: 650; }
+
+/* Text values ("professional", "Unavailable") must fit their stat card. */
+.metric { min-width: 0; container-type: inline-size; }
+.metric strong.metric-text { font-size: clamp(20px, 11cqi, 36px); overflow-wrap: anywhere; }
+
+/* Keep the status dot beside its label when the label wraps. */
+#controlPlaneLabel { flex: 1 1 0; min-width: 0; line-height: 1.4; }
+
+/* Leave room so the floating Operations button never covers the last row. */
+.content { padding-bottom: 112px; }
+
+/* Selected workspace tab follows the active appearance instead of a fixed blue. */
+body[data-theme] .workspace-tablist { background: var(--appearance-bg) !important; border-color: var(--appearance-line) !important; }
+body[data-theme] .workspace-tab:hover { background: var(--appearance-raised) !important; color: var(--appearance-text) !important; }
+body[data-theme] .workspace-tab[aria-selected="true"] { background: var(--appearance-raised) !important; border-color: var(--appearance-accent) !important; color: var(--appearance-text) !important; }
+
+/* Animate only what changes; "all" also animated layout and colour shifts. */
+button { transition: background-color .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease, transform .2s ease, opacity .2s ease; }
+
+@media (max-width: 900px) {
+  .site-overview > *,
+  .site-overview > .section-heading,
+  .site-overview > .import-copy,
+  .site-overview > .site-detail,
+  .site-overview:has(> .site-detail:not([hidden])) > .site-overview-grid { grid-column: 1 / -1; }
+  .site-overview:has(> .site-detail:not([hidden])) > .site-overview-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+}
+@media (max-width: 720px) {
+  .site-overview > .site-create-form { grid-template-columns: minmax(0, 1fr); }
+  .site-create-form > .field { grid-row: auto; grid-template-rows: none; display: flex; }
+  .site-create-form > .primary-action { grid-column: 1; grid-row: auto; min-height: 44px; }
+  /* Two stats per row keeps the summary within one screen on phones. */
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .metric { min-height: 0; padding: 16px; }
+  .metric strong { font-size: clamp(22px, 14cqi, 32px); margin: 10px 0 6px; }
+  .metric-label { font-size: 10px; letter-spacing: .06em; }
+  .metric-note { font-size: 11px; }
+  .hero h1 { font-size: clamp(28px, 8.5vw, 38px); }
+  .hero .lede { font-size: 15px; line-height: 1.55; }
+  .content { padding-bottom: 96px; }
+}

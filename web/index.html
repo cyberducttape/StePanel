@@ -25,7 +25,7 @@
     <header class="topbar">
       <button type="button" class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="workspaceSidebar" aria-label="Open navigation"><span aria-hidden="true">☰</span></button>
       <a class="mobile-brand brand" href="/" aria-label="StePanel home"><span class="brand-mark">S</span><span>StePanel</span></a>
-      <div class="workspace-context"><span class="eyebrow">Hosting workspace</span><strong>{{ if .IsAdministrator }}Operator overview{{ else }}Your sites{{ end }}</strong></div>
+      <div class="workspace-context"><span class="eyebrow">Hosting workspace</span><strong id="workspaceContextTitle">{{ if .IsAdministrator }}Operator overview{{ else }}Your sites{{ end }}</strong></div>
       <div class="topbar-meta"><time datetime="{{ .Now.Format "2006-01-02" }}">{{ .Now.Format "02 Jan 2006" }}</time>{{ if .AuthEnabled }}<form action="/logout" method="post"><input type="hidden" name="csrf" value="{{ .CSRF }}"><button class="avatar" type="submit" aria-label="Sign out {{ .Username }}">{{ if .Username }}{{ .Username }}{{ else }}admin{{ end }} <span aria-hidden="true">↗</span></button></form>{{ end }}</div>
     </header>
     <button class="job-center-toggle" id="jobCenterToggle" type="button" aria-controls="jobCenter" aria-expanded="false">Operations <span id="jobCenterCount" aria-label="active operations">0</span></button>
@@ -42,8 +42,8 @@
       <section class="metrics customer-summary" aria-label="Hosting summary">
         <article class="metric"><span class="metric-label">Managed sites</span><strong id="siteCount">—</strong><span class="metric-note">Sites you can manage here</span></article>
         <article class="metric"><span class="metric-label">Domains connected</span><strong id="domainCount">—</strong><span class="metric-note">Managed web routes</span></article>
-        <article class="metric"><span class="metric-label">Latest verified backup</span><strong id="backupFreshness">—</strong><span class="metric-note">Private recovery point freshness</span></article>
-        <article class="metric"><span class="metric-label">{{ if .IsAdministrator }}Needs attention{{ else }}Your plan{{ end }}</span><strong>{{ if .IsAdministrator }}{{ .Alerts }}{{ else }}{{ .Account.Plan }}{{ end }}</strong><span class="metric-note {{ if .IsAdministrator }}warning{{ end }}">{{ if .IsAdministrator }}Platform checks requiring review{{ else }}Site access is limited to your assigned workspace{{ end }}</span></article>
+        <article class="metric"><span class="metric-label">Latest verified backup</span><strong class="metric-text" id="backupFreshness">—</strong><span class="metric-note">Private recovery point freshness</span></article>
+        <article class="metric"><span class="metric-label">{{ if .IsAdministrator }}Needs attention{{ else }}Your plan{{ end }}</span><strong{{ if not .IsAdministrator }} class="metric-text"{{ end }}>{{ if .IsAdministrator }}{{ .Alerts }}{{ else }}{{ .Account.Plan }}{{ end }}</strong><span class="metric-note {{ if .IsAdministrator }}warning{{ end }}">{{ if .IsAdministrator }}Platform checks requiring review{{ else }}Site access is limited to your assigned workspace{{ end }}</span></article>
       </section>
       {{ if not .IsAdministrator }}<section class="account-panel" id="account" aria-labelledby="account-heading">
         <div class="section-heading"><div><p class="eyebrow">Customer account</p><h2 id="account-heading">Your plan and access</h2></div><span class="account-status" id="accountStatus" role="status" aria-live="polite">Loading account details…</span></div>

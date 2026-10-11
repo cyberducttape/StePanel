@@ -91,5 +91,7 @@
       else delete element.dataset.state;
     },
     confirmDangerous,
+    // "1 site", "3 sites": counts in prose read better than "site(s)".
+    plural: (count, noun, pluralNoun = `${noun}s`) => `${count} ${count === 1 ? noun : pluralNoun}`,
   });
 })();

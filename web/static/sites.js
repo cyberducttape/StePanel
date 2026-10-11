@@ -155,6 +155,8 @@
 
   const badge = (text, kind = 'off') => el('span', { className: `badge badge-${kind}` }, [el('i', { 'aria-hidden': 'true' }), text]);
 
+  const plural = window.StepanelUI.plural;
+
   const formatAge = (value) => {
     if (!value) return 'Never';
     const age = Math.max(0, Date.now() - new Date(value).getTime());
@@ -336,7 +338,7 @@
     const backupValue = !backups.ok ? unavailable('Unavailable') : backup ? ctx.formatAge(backup.verified_at) : 'None yet';
     const backupNote = !backups.ok
       ? 'Backup API unavailable; retry to determine backup state.'
-      : backup ? `${backup.databases ? backup.databases.length : 0} database(s) included` : 'Create one from the Backups tab';
+      : backup ? `${plural(backup.databases ? backup.databases.length : 0, 'database')} included` : 'Create one from the Backups tab';
     const deploymentValue = !deploymentList.ok
       ? unavailable('Unavailable')
       : lastDeployment ? `${lastDeployment.stage} · ${lastDeployment.state}` : 'None recorded';
@@ -349,8 +351,8 @@
       : usageData ? `${usageData.files} files${usageData.complete ? '' : ' (partial scan)'}` : 'No usage data reported.';
 
     const stats = [
-      ['Status', statusBadge, apps.length ? `${apps.length} managed application(s)` : 'Site files only, or PHP served directly'],
-      ['Domains', routes.length ? routes.map((r) => r.domain).join(', ') : 'No domain connected', `${routes.length} route(s)`],
+      ['Status', statusBadge, apps.length ? plural(apps.length, 'managed application') : 'Site files only, or PHP served directly'],
+      ['Domains', routes.length ? routes.map((r) => r.domain).join(', ') : 'No domain connected', plural(routes.length, 'route')],
       ['PHP runtime', phpValue, phpNote],
       ['Last verified backup', backupValue, backupNote],
       ...(recoveryResult ? [[
@@ -1023,7 +1025,7 @@
               const details = await ctx.getJSON(`/api/tasks/${encodeURIComponent(site)}/${encodeURIComponent(task.name)}`);
               const executions = details.executions || [];
               output.textContent = executions.length
-                ? `${details.consecutive_failures || 0} consecutive failure(s); ${executions.map((run) => `${new Date(run.started_at * 1000).toLocaleString()} · ${run.result} (${run.duration_seconds}s)`).join('\n')}`
+                ? `${plural(details.consecutive_failures || 0, 'consecutive failure')}; ${executions.map((run) => `${new Date(run.started_at * 1000).toLocaleString()} · ${run.result} (${run.duration_seconds}s)`).join('\n')}`
                 : 'No recorded executions yet.';
             } catch (error) { output.textContent = error.message; }
           }),
@@ -1161,7 +1163,7 @@
           try {
             const result = await ctx.postJSON('/api/security/scan', { site, quarantine: false });
             const scan = result.scan || {};
-            scanOutput.textContent = `Heuristic review complete: ${(result.findings || []).length} finding(s), ${scan.large_files_skipped || 0} large file(s) skipped.`;
+            scanOutput.textContent = `Heuristic review complete: ${plural((result.findings || []).length, 'finding')}, ${plural(scan.large_files_skipped || 0, 'large file')} skipped.`;
           } catch (error) { scanOutput.textContent = error.message; }
         }),
       ]), scanOutput);
@@ -1322,12 +1324,15 @@
     for (const site of siteData.sites || []) {
       domains += (site.routes || []).length;
       const backup = latestBackup(backupData.backups, site.site);
-      const backupLabel = backupData.__error ? 'unavailable' : backup ? formatAge(backup.verified_at) : 'never';
+      const backupLabel = backupData.__error ? 'Backup status unavailable' : backup ? `Last backup ${formatAge(backup.verified_at).toLowerCase()}` : 'No backup yet';
       const running = (site.applications || []).some((app) => app.state === 'applied' || app.state === 'running');
+      const appCount = (site.applications || []).length;
+      const extraDomains = Math.max((site.routes || []).length - 1, 0);
       const card = el('article', { className: 'site-card' }, [
-        el('div', { className: 'section-heading' }, [el('h3', {}, site.site), (site.applications || []).length ? badge(running ? 'Running' : 'Needs attention', running ? 'ok' : 'warn') : null]),
-        el('code', {}, (site.routes || [])[0]?.domain || 'No domain route'),
-        el('p', {}, `${(site.applications || []).length} app · ${site.database_count || 0} database(s) · backup ${backupLabel}`),
+        el('div', { className: 'section-heading' }, [el('h3', {}, site.site), appCount ? badge(running ? 'Running' : 'Needs attention', running ? 'ok' : 'warn') : null]),
+        el('code', {}, (site.routes || [])[0]?.domain ? `${site.routes[0].domain}${extraDomains ? ` +${extraDomains} more` : ''}` : 'No domain connected'),
+        el('p', {}, `${plural(appCount, 'app')} · ${plural(site.database_count || 0, 'database')}`),
+        el('p', { className: backup && !backupData.__error ? 'site-card-backup' : 'site-card-backup warning' }, backupLabel),
         el('div', { className: 'site-actions' }, [button('Manage site →', () => openWorkspace(site.site))]),
       ]);
       grid.append(card);
@@ -1338,7 +1343,7 @@
     const latest = latestBackup(backupData.backups);
     setCount('#backupFreshness', backupData.__error ? 'Unavailable' : latest ? formatAge(latest.verified_at) : 'Never');
     gridStatus.textContent = siteData.sites && siteData.sites.length
-      ? `${siteData.sites.length} managed site(s). Select one to open its workspace.`
+      ? `${plural(siteData.sites.length, 'managed site')}. Select one to open its workspace.`
       : isAdministrator ? 'No managed sites yet. Create a site above, or migrate a cPanel backup.' : 'No sites are assigned to this account yet.';
   }
 

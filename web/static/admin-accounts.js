@@ -59,7 +59,7 @@
         return account;
       }));
       render(accounts);
-      if (status) status.textContent = `${accounts.length} customer account(s)`;
+      if (status) status.textContent = window.StepanelUI.plural(accounts.length, 'customer account');
     }
     catch (error) { if (status) status.textContent = error.message; inventory.textContent = 'Account inventory unavailable.'; }
   };

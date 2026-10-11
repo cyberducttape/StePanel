@@ -82,7 +82,7 @@
       }
       inventory.append(row);
     }
-    status.textContent = data.databases.length ? `${data.databases.length} managed database(s).` : 'No managed databases yet.';
+    status.textContent = data.databases.length ? `${window.StepanelUI.plural(data.databases.length, 'managed database')}.` : 'No managed databases yet.';
   };
 
   form.addEventListener('submit', async (event) => {

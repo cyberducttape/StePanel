@@ -14,8 +14,8 @@
 
   const summary = (info) => [
     info.has_home ? 'website files found' : 'no website files detected',
-    `${info.database_count || 0} database dump(s)`,
-    `${info.mailbox_count || 0} mailbox(es)`,
+    window.StepanelUI.plural(info.database_count || 0, 'database dump'),
+    window.StepanelUI.plural(info.mailbox_count || 0, 'mailbox', 'mailboxes'),
   ].join(', ');
 
   file.addEventListener('change', async () => {
@@ -55,7 +55,7 @@
       const job = await StepanelJobs.wait(data.job_id);
       if (job.state !== 'completed') throw new Error(job.error || 'Import failed');
       const value = job.result || {};
-      result.textContent = `Import completed: files ${value.files_restored ? 'restored' : 'not present'}, ${(value.databases_restored || []).length} database(s), ${(value.mailboxes_staged || []).length} mailbox(es).`;
+      result.textContent = `Import completed: files ${value.files_restored ? 'restored' : 'not present'}, ${window.StepanelUI.plural((value.databases_restored || []).length, 'database')}, ${window.StepanelUI.plural((value.mailboxes_staged || []).length, 'mailbox', 'mailboxes')} staged.`;
     } catch (error) {
       result.textContent = error.message;
     } finally {

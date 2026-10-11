@@ -68,6 +68,17 @@ test('navigation: Sites workspace is reachable', async ({ page }) => {
   await expect(page.locator('#sites')).toBeInViewport();
 });
 
+test('navigation highlight and topbar title follow the section in view', async ({ page }) => {
+  const title = page.locator('#workspaceContextTitle');
+  const overviewTitle = await title.textContent();
+  await page.locator('#sites').evaluate((node) => node.scrollIntoView({ block: 'start', behavior: 'instant' }));
+  await expect(page.getByRole('link', { name: 'Sites', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(title).toHaveText('Sites');
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await expect(page.getByRole('link', { name: 'Overview', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(title).toHaveText(overviewTitle);
+});
+
 test('site overview makes backup failures explicit', async ({ page }) => {
   // The disposable UI harness intentionally has no host sites. Provide a
   // minimal inventory fixture so this test can exercise the site workspace

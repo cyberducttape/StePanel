@@ -1,8 +1,8 @@
 StePanel UI screenshots
 
-commit: 50b07c7
-version: v0.7.0-1152-g50b07c7-dirty
-captured_at_utc: 2026-10-11T00:06:40Z
+commit: eb2ae83
+version: v0.7.0-1165-geb2ae83-dirty
+captured_at_utc: 2026-10-11T03:37:41Z
 browser: Playwright chrome
 theme: retro-neon (WayExpand-inspired)
 data: synthetic sites, .example domains, backups, and one customer account seeded through the API
