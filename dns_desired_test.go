@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,6 +26,48 @@ func TestDNSDesiredStateSurvivesTransitions(t *testing.T) {
 	}
 	if len(store.list("123")) != 0 {
 		t.Fatal("deleted DNS desired record remained")
+	}
+}
+
+func TestDNSDesiredResultRollsBackMemoryWhenPersistenceFails(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "dns.json")
+	store, err := OpenDNSDesiredStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := cloudDNSRequest{DomainID: "123", RecordID: "456", Type: "A", Name: "www", Target: "192.0.2.10", TTL: 300}
+	if err := store.markResult(request, "update", nil); err != nil {
+		t.Fatal(err)
+	}
+	key := dnsDesiredKey(request)
+	previous := store.values[key]
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.markResult(request, "update", errors.New("provider failed")); err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	if got := store.values[key]; got != previous {
+		t.Fatalf("in-memory record changed after failed persistence: %#v, want %#v", got, previous)
+	}
+	if err := store.markResult(request, "delete", nil); err == nil {
+		t.Fatal("expected delete persistence failure")
+	}
+	if got, ok := store.values[key]; !ok || got != previous {
+		t.Fatalf("delete was not rolled back: %#v, present=%v", got, ok)
+	}
+	newRequest := request
+	newRequest.RecordID = "789"
+	newKey := dnsDesiredKey(newRequest)
+	if err := store.markResult(newRequest, "create", nil); err == nil {
+		t.Fatal("expected create persistence failure")
+	}
+	if _, ok := store.values[newKey]; ok {
+		t.Fatal("failed create remained in memory")
 	}
 }
 

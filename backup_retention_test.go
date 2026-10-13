@@ -117,3 +117,27 @@ func TestPruneSiteBackupsUsesManifestCreationTime(t *testing.T) {
 		t.Fatalf("oldest manifest backup remains: %v", err)
 	}
 }
+
+func TestPruneSiteBackupsFailsClosedOnUnownedCorruptDirectory(t *testing.T) {
+	root := t.TempDir()
+	good := filepath.Join(root, "known-backup")
+	if err := os.Mkdir(good, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBackupManifest(good, BackupManifest{Version: 1, Site: "demo", Archive: "backup.tar.gz", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := filepath.Join(root, "damaged-backup")
+	if err := os.Mkdir(corrupt, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(corrupt, "manifest.json"), []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1); err == nil {
+		t.Fatal("retention silently ignored backup with unknown ownership")
+	}
+	if _, err := os.Stat(corrupt); err != nil {
+		t.Fatalf("uncertain artifact was deleted: %v", err)
+	}
+}

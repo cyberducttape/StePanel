@@ -3,6 +3,7 @@
   const api = () => window.StepanelAPI;
   const jobs = new Map();
   const waiters = new Map();
+  let waiterPoller;
   let stream;
   let reconnectTimer;
   // Reconnect delay grows on consecutive failures (rotation, 401, 429,
@@ -39,6 +40,7 @@
     const listeners = waiters.get(job.id) || [];
     listeners.forEach((resolve) => { if (terminal(job)) resolve(job); });
     if (terminal(job)) waiters.delete(job.id);
+    if (!waiters.size && waiterPoller) { clearInterval(waiterPoller); waiterPoller = undefined; }
   };
   const notify = (job) => {
     record(job);
@@ -97,6 +99,14 @@
     if (current && terminal(current)) { resolve(current); return; }
     waiters.set(id, [...(waiters.get(id) || []), resolve]);
     api().request(`/api/jobs/${encodeURIComponent(id)}`).then(notify).catch(() => {});
+    // SSE is best-effort and may be served by a different process than the
+    // worker. Re-read durable status at a bounded rate until a terminal event
+    // arrives; this also covers dropped events and stream reconnect windows.
+    if (!waiterPoller) waiterPoller = setInterval(() => {
+      [...waiters.keys()].forEach((jobID) => {
+        api().request(`/api/jobs/${encodeURIComponent(jobID)}`).then(notify).catch(() => {});
+      });
+    }, 10000);
   });
   const render = () => {
     const list = document.querySelector('#jobCenterList');

@@ -251,11 +251,11 @@ func (a *App) rehearseBackupArchive(operationCtx context.Context, request durabl
 	if free < a.Config.MinFreeBytes {
 		return backupRehearsalResult{}, fmt.Errorf("insufficient space to rehearse: %d bytes free, %d reserved", free, a.Config.MinFreeBytes)
 	}
-	stage, err := os.MkdirTemp(a.Config.ImportRoot, "backup-rehearsal-")
+	stage, stageLock, err := createImportStage(a.Config.ImportRoot, "backup-rehearsal-")
 	if err != nil {
 		return backupRehearsalResult{}, err
 	}
-	defer os.RemoveAll(stage)
+	defer removeImportStage(stage, stageLock)
 	archivePath, err := safePath(backupRoot, manifest.Archive)
 	if err != nil {
 		return backupRehearsalResult{}, err
@@ -568,12 +568,12 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "could not prepare restore staging", 500)
 		return
 	}
-	stage, e := os.MkdirTemp(a.Config.ImportRoot, "backup-restore-")
+	stage, stageLock, e := createImportStage(a.Config.ImportRoot, "backup-restore-")
 	if e != nil {
 		http.Error(w, "could not prepare restore staging", 500)
 		return
 	}
-	defer os.RemoveAll(stage)
+	defer removeImportStage(stage, stageLock)
 	archivePath, archiveErr := safePath(backup, manifest.Archive)
 	if archiveErr != nil {
 		http.Error(w, "invalid verified backup path", 422)
@@ -849,11 +849,11 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err := os.MkdirAll(cfg.ImportRoot, 0700); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("create restore staging root: %w", err)
 	}
-	stage, err := os.MkdirTemp(cfg.ImportRoot, "backup-files-restore-")
+	stage, stageLock, err := createImportStage(cfg.ImportRoot, "backup-files-restore-")
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	defer os.RemoveAll(stage)
+	defer removeImportStage(stage, stageLock)
 	archivePath, err := safePath(backup, manifest.Archive)
 	if err != nil {
 		return BackupRestoreResult{}, err
@@ -1015,11 +1015,11 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	if err := os.MkdirAll(cfg.ImportRoot, 0700); err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("create restore staging root: %w", err)
 	}
-	stage, err := os.MkdirTemp(cfg.ImportRoot, "backup-database-restore-")
+	stage, stageLock, err := createImportStage(cfg.ImportRoot, "backup-database-restore-")
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	defer os.RemoveAll(stage)
+	defer removeImportStage(stage, stageLock)
 	archivePath, err := safePath(backup, manifest.Archive)
 	if err != nil {
 		return BackupRestoreResult{}, err

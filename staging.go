@@ -336,11 +336,11 @@ func cloneManagedDatabaseToStagingContext(ctx context.Context, cfg Config, sourc
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	root, err := os.MkdirTemp(cfg.ImportRoot, "staging-db-")
+	root, stageLock, err := createImportStage(cfg.ImportRoot, "staging-db-")
 	if err != nil {
 		return false, err
 	}
-	defer os.RemoveAll(root)
+	defer removeImportStage(root, stageLock)
 	dump := filepath.Join(root, "database.sql")
 	if err := dumpManagedDatabaseContext(ctx, cfg, source, dump); err != nil {
 		return false, fmt.Errorf("dump source database: %w", err)

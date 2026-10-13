@@ -196,11 +196,11 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 	if err := os.MkdirAll(cfg.ImportRoot, 0700); err != nil {
 		return "", func() {}, fmt.Errorf("create offsite restore root: %w", err)
 	}
-	root, err := os.MkdirTemp(cfg.ImportRoot, "offsite-restore-")
+	root, stageLock, err := createImportStage(cfg.ImportRoot, "offsite-restore-")
 	if err != nil {
 		return "", func() {}, err
 	}
-	cleanup := func() { _ = os.RemoveAll(root) }
+	cleanup := func() { removeImportStage(root, stageLock) }
 	remoteRoot, err := buildOffsiteRemoteRoot(cfg.OffsiteTarget, site, backupName)
 	if err != nil {
 		cleanup()

@@ -248,11 +248,11 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if len(dbName) > 64 || len(dbUser) > 32 {
 		return WPressResult{}, errors.New("database name or user is too long")
 	}
-	stage, err := os.MkdirTemp(cfg.ImportRoot, "wpress-restore-")
+	stage, stageLock, err := createImportStage(cfg.ImportRoot, "wpress-restore-")
 	if err != nil {
 		return WPressResult{}, err
 	}
-	defer os.RemoveAll(stage)
+	defer removeImportStage(stage, stageLock)
 	if archiveInfo, err := os.Stat(archive); err != nil || !archiveInfo.Mode().IsRegular() || archiveInfo.Size() > cfg.MaxUpload && cfg.MaxUpload > 0 {
 		return WPressResult{}, errors.New("WPress archive is missing, not regular, or exceeds the configured upload limit")
 	}

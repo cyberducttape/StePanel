@@ -145,7 +145,13 @@ func pruneSiteBackups(root string, site SiteCapability, keep int) error {
 		if readErr == nil {
 			readErr = json.Unmarshal(data, &manifest)
 		}
-		if readErr == nil && manifest.Site == siteName {
+		if readErr != nil {
+			return fmt.Errorf("backup retention cannot establish ownership of %q: %w; operator review required", entry.Name(), readErr)
+		}
+		if safeUser(manifest.Site) == "" {
+			return fmt.Errorf("backup retention found incomplete ownership metadata in %q; operator review required", entry.Name())
+		}
+		if manifest.Site == siteName {
 			items = append(items, candidate{name: entry.Name(), path: path, createdAt: manifest.CreatedAt})
 		}
 	}

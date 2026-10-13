@@ -29,6 +29,38 @@ var temporaryImportStagePrefixes = []string{
 	"wpress-restore-",
 }
 
+// createImportStage gives a long-running import/restore exclusive ownership of
+// its scratch directory. Cleanup only removes stages whose ownership lock is
+// not held, so a slow transfer cannot be mistaken for abandoned work.
+func createImportStage(root, prefix string) (string, *os.File, error) {
+	path, err := os.MkdirTemp(root, prefix)
+	if err != nil {
+		return "", nil, err
+	}
+	lock, err := os.OpenFile(importStageLockPath(path), os.O_CREATE|os.O_RDWR, 0600)
+	if err == nil {
+		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	}
+	if err != nil {
+		if lock != nil {
+			_ = lock.Close()
+		}
+		_ = os.RemoveAll(path)
+		return "", nil, err
+	}
+	return path, lock, nil
+}
+
+func importStageLockPath(path string) string {
+	return filepath.Join(filepath.Dir(path), ".stepanel-stage-lock-"+filepath.Base(path))
+}
+
+func removeImportStage(path string, lock *os.File) {
+	_ = os.RemoveAll(path)
+	_ = releaseBackupStageLock(lock)
+	_ = os.Remove(importStageLockPath(path))
+}
+
 func isTemporaryImportStage(name string) bool {
 	for _, prefix := range temporaryImportStagePrefixes {
 		if rest, ok := strings.CutPrefix(name, prefix); ok && rest != "" && strings.Trim(rest, "0123456789") == "" {
@@ -57,6 +89,30 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 			return err
 		}
 		path := filepath.Join(root, entry.Name())
+		if strings.HasPrefix(entry.Name(), ".stepanel-stage-lock-") && !entry.IsDir() {
+			stage := filepath.Join(root, strings.TrimPrefix(entry.Name(), ".stepanel-stage-lock-"))
+			if _, err := os.Lstat(stage); errors.Is(err, os.ErrNotExist) {
+				lock, lockErr := os.OpenFile(path, os.O_RDWR, 0600)
+				if lockErr == nil {
+					lockErr = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+					if errors.Is(lockErr, syscall.EWOULDBLOCK) || errors.Is(lockErr, syscall.EAGAIN) {
+						_ = lock.Close()
+						continue
+					}
+					if lockErr != nil {
+						_ = lock.Close()
+						return lockErr
+					}
+					_ = releaseBackupStageLock(lock)
+				}
+				if lockErr == nil {
+					if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+						return err
+					}
+				}
+			}
+			continue
+		}
 		if !entry.IsDir() && strings.HasPrefix(entry.Name(), archiveSpoolPrefix) {
 			// A ZIP spool left by a crashed inspection or import.
 			if info.ModTime().Before(scratchCutoff) {
@@ -68,8 +124,28 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 		}
 		if entry.IsDir() && isTemporaryImportStage(entry.Name()) {
 			if info.ModTime().Before(scratchCutoff) {
+				lockPath := importStageLockPath(path)
+				lock, lockErr := os.OpenFile(lockPath, os.O_RDWR, 0600)
+				if lockErr == nil {
+					lockErr = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+					if errors.Is(lockErr, syscall.EWOULDBLOCK) || errors.Is(lockErr, syscall.EAGAIN) {
+						_ = lock.Close()
+						continue
+					}
+					if lockErr != nil {
+						_ = lock.Close()
+						return lockErr
+					}
+				} else if !errors.Is(lockErr, os.ErrNotExist) {
+					return lockErr
+				}
 				if err := os.RemoveAll(path); err != nil {
+					_ = releaseBackupStageLock(lock)
 					return err
+				}
+				_ = releaseBackupStageLock(lock)
+				if lock != nil {
+					_ = os.Remove(lockPath)
 				}
 			}
 			continue

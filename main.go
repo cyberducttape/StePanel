@@ -1650,29 +1650,23 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 		return write(fmt.Sprintf("event: %s\ndata: %s\n\n", event, data))
 	}
 
-	var jobs []Job
-	if a.Auth.IsAdministrator(r) {
-		var err error
-		jobs, err = a.Jobs.ListSummariesWithError(100)
-		if err != nil {
-			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
-			return
+	listVisibleJobs := func() ([]Job, error) {
+		if a.Auth.IsAdministrator(r) {
+			return a.Jobs.ListSummariesWithError(100)
 		}
-	} else {
 		if a.Accounts == nil {
-			http.Error(w, "tenant ownership state is unavailable", http.StatusServiceUnavailable)
-			return
+			return nil, errors.New("tenant ownership state is unavailable")
 		}
 		sites, err := a.Accounts.GetSitesWithError(a.Auth.UsernameForRequest(r))
 		if err != nil {
-			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
-			return
+			return nil, err
 		}
-		jobs, err = a.Jobs.ListForOwnersSummaries(100, sites)
-		if err != nil {
-			http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
-			return
-		}
+		return a.Jobs.ListForOwnersSummaries(100, sites)
+	}
+	jobs, err := listVisibleJobs()
+	if err != nil {
+		http.Error(w, "job history is temporarily unavailable", http.StatusServiceUnavailable)
+		return
 	}
 	updates, unsubscribe := a.Jobs.Subscribe()
 	defer unsubscribe()
@@ -1697,7 +1691,21 @@ func (a *App) jobEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-heartbeat.C:
-			if !a.Auth.StillAuthenticated(r) || !write(": keep-alive\n\n") {
+			if !a.Auth.StillAuthenticated(r) {
+				return
+			}
+			// Job mutations may be performed by the separately installed worker
+			// process, whose in-memory subscribers are unrelated to this panel.
+			// Reconcile an authorization-scoped durable snapshot on every heartbeat.
+			updated, err := listVisibleJobs()
+			if err != nil {
+				if !send("degraded", map[string]string{"error": "job history is temporarily unavailable"}) {
+					return
+				}
+			} else if !send("snapshot", map[string]any{"jobs": updated, "time": time.Now().UTC()}) {
+				return
+			}
+			if !write(": keep-alive\n\n") {
 				return
 			}
 		}

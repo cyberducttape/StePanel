@@ -58,7 +58,7 @@ func TestCleanupImportStagesRemovesOnlyExpiredRestoreStages(t *testing.T) {
 // Every scratch tree created under the import root must be one that
 // CleanupImportStages recognises, or a crash leaks it forever.
 func TestEveryImportRootTempDirIsCleaned(t *testing.T) {
-	pattern := regexp.MustCompile(`MkdirTemp\([a-zA-Z.]*ImportRoot, "([^"]+)"\)`)
+	pattern := regexp.MustCompile(`createImportStage.*?, "([^"]+)"`)
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -109,5 +109,24 @@ func TestCleanupImportStagesRemovesAbandonedScratchTreesOnly(t *testing.T) {
 	}
 	if err := CleanupImportStages(filepath.Join(root, "missing"), time.Hour); err != nil {
 		t.Fatalf("missing root: %v", err)
+	}
+}
+
+func TestCleanupImportStagesSkipsActiveLongRunningRestore(t *testing.T) {
+	root := t.TempDir()
+	stage, lock, err := createImportStage(root, "offsite-restore-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseBackupStageLock(lock)
+	old := time.Now().Add(-orphanedStagingMinAge - time.Hour)
+	if err := os.Chtimes(stage, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanupImportStages(root, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stage); err != nil {
+		t.Fatalf("active restore stage was removed: %v", err)
 	}
 }

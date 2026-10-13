@@ -19,6 +19,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Job event streams now reconcile authorization-scoped durable snapshots on
+  heartbeat, and long-running browser waits poll job status at a bounded rate,
+  so updates from a separately installed worker are not lost.
+- Import and restore scratch stages now hold ownership locks that prevent
+  age-based cleanup from deleting an active long-running operation.
+- DNS desired-state updates and deletes restore their previous in-memory value
+  when durable persistence fails.
+- Backup retention now reports unreadable or invalid ownership metadata for
+  operator review instead of silently excluding uncertain backup directories.
 - Linode snapshots are now verified against the backup ID returned by the
   create request, and reboot completion is tied to the corresponding provider
   event instead of requiring a transient instance status to be observed.

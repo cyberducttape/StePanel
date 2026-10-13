@@ -102,10 +102,18 @@ func (s *DNSDesiredStore) markResult(in cloudDNSRequest, action string, resultEr
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if action == "delete" && resultErr == nil {
+		previous, existed := s.values[key]
 		delete(s.values, key)
-		return s.persistLocked()
+		if err := s.persistLocked(); err != nil {
+			if existed {
+				s.values[key] = previous
+			}
+			return err
+		}
+		return nil
 	}
-	record, ok := s.values[key]
+	previous, existed := s.values[key]
+	record, ok := previous, existed
 	if !ok {
 		record = DNSDesiredRecord{Key: key, DomainID: in.DomainID, RecordID: in.RecordID, Type: strings.ToUpper(in.Type), Name: in.Name, Target: in.Target, TTL: in.TTL, Priority: in.Priority, Service: in.Service, Protocol: in.Protocol, Port: in.Port, Weight: in.Weight, Action: action}
 	}
@@ -117,7 +125,15 @@ func (s *DNSDesiredStore) markResult(in cloudDNSRequest, action string, resultEr
 	}
 	record.UpdatedAt = time.Now().UTC()
 	s.values[key] = record
-	return s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		if existed {
+			s.values[key] = previous
+		} else {
+			delete(s.values, key)
+		}
+		return err
+	}
+	return nil
 }
 
 // failOrphanedPending marks every stored pending record whose key is not in
