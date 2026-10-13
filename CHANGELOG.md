@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing and documentation
 
+- Clarified the actual installed-host runtime smoke matrix and the limits of
+  installer rollback versus post-upgrade snapshot recovery in the authoritative
+  production gates; untested OS/web/database combinations are not certified.
 - Extracted Linode request validation, typed wire payloads, and bounded
   pagination into `cloud_linode.go`, separating the provider contract and API
   transport from cloud-job and HTTP orchestration.

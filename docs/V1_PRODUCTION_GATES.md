@@ -56,9 +56,49 @@ published only as a certified envelope, never as targets.
 | Operational notifications | ⚠️ Implemented; delivery evidence required | Failed/dead-letter transitions enter a SQLite outbox atomically; signed HTTPS webhook and STARTTLS SMTP delivery retry independently, and `/api/health/operational` exposes undelivered and failed counts. Tests cover event creation, HMAC signatures, a verified STARTTLS SMTP session including auth and message delivery, redaction, and retry state. Still required: delivery against configured live SMTP/webhook endpoints and outage/retry evidence on an installed host, plus operator-facing alert routing/runbook validation. |
 | Capacity certification | ❌ Open | [CERTIFIED_ENVELOPE.md](./CERTIFIED_ENVELOPE.md) lists targets (500 sites, 2,000 domains, 100 accounts, 2 concurrent mutations), not measurements. A reproducible, published run must certify the envelope before any count is claimed. |
 | Upgrade and rollback | ⚠️ Partial | The N-1 upgrade smoke (`deploy/lab/upgrade-smoke.sh`, last passing run `37940877632` on 2026-10-09) upgrades the previous release, verifies the audit chain and control-plane state, and proves the installer transaction rolls a deliberately broken candidate back to the running version and its intact database. Remaining: a published list of supported upgrade paths, versioned state-migration evidence for each, a clean-install run, and a tested rollback recorded for the release candidate. |
+| Supported runtime matrix | ⚠️ Partial | The installer has package-manager paths for Debian-family and RHEL-family hosts and accepts Caddy, Apache, and OpenLiteSpeed, plus MariaDB/MySQL/PostgreSQL. That is implementation scope, not a certified support promise. The installed-host CI matrix currently exercises AlmaLinux 9 + Caddy + MariaDB and Rocky Linux 9 + Caddy + MariaDB; Debian/Ubuntu, Apache, OpenLiteSpeed, other database engines, PHP-version combinations, SELinux modes, and filesystem combinations must remain unclaimed until individually tested and recorded. Publish the exact supported combinations and evidence with the release. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private vulnerability reporting and the threat model. Remaining: an independent security review of the release candidate and a supported-version patch policy that applies after 1.0. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
 | Release documentation reconciled with executable evidence | ⚠️ Open | Every checked claim must link to a current test result, hosted run, or reproducible artifact; stale claims must be downgraded or removed. The release must also publish the supported OS/runtime matrix, upgrade runbooks, a disaster-recovery runbook, and the support/escalation path. |
+
+### Runtime support boundary (current evidence, not certification)
+
+The installer accepts more combinations than CI has validated. Do not infer
+support from package-manager detection, selectable web-server options, or a
+successful unit test. At this snapshot the installed-host smoke matrix covers
+only:
+
+| Distribution | Web server | Database | Evidence |
+|---|---|---|---|
+| AlmaLinux 9 | Caddy | MariaDB | `.github/workflows/install-smoke.yml` (`almalinux-9-caddy-mariadb`) |
+| Rocky Linux 9 | Caddy | MariaDB | `.github/workflows/install-smoke.yml` (`rocky-9-caddy-mariadb`) |
+
+This matrix is smoke coverage, not production certification. PHP runtime
+versions, Apache/OpenLiteSpeed, Debian/Ubuntu, MySQL/PostgreSQL, alternate
+filesystems, SELinux policy variants, and upgrade paths must be listed as
+untested unless a linked installed-host result says otherwise. Release notes
+must not describe those combinations as supported based solely on installer
+code paths.
+
+### Upgrade and rollback contract
+
+The installer transaction rollback covers a candidate that fails its
+post-install health check: it restores the previous binary/configuration and
+the byte-preserved control-plane database file set. This does not promise
+rollback after the candidate has successfully started and accepted writes.
+For a completed upgrade, the supported recovery path is to stop panel and
+worker, reinstall the prior release, and restore the matching pre-migration
+database snapshot as documented in [STATE.md](./STATE.md); writes made after
+the snapshot are lost. One-way data or encryption migrations may require this
+snapshot and cannot be reversed by reinstalling an older binary alone.
+
+Only explicitly tested source-to-target version paths may be advertised.
+Currently the N-1 lab fixture is v0.6.0 to the candidate; it is not evidence
+for every intermediate release, a clean-install certification, or a release
+candidate until those exact runs are recorded. Each release must record the
+source version, target version, schema versions, clean-install result,
+interrupted-upgrade behavior, installer rollback result, and snapshot-based
+post-upgrade recovery result.
 
 ### P1 — strongly recommended for 1.0
 
