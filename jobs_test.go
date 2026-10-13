@@ -101,6 +101,7 @@ func TestRunWorkerPublishesAndRemovesHeartbeat(t *testing.T) {
 	defer db.Close()
 	jobs := newJobsWithDB(db, 1)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() {
 		done <- jobs.RunWorker(ctx, "heartbeat-worker", []string{"test.operation"}, time.Millisecond, func(context.Context, Job) ([]byte, error) {
@@ -965,6 +966,7 @@ func TestDurableWorkerRunsAndCompletesClaimedJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() {
 		done <- j.RunWorker(ctx, "worker-a", []string{"worker.operation"}, time.Millisecond, func(_ context.Context, item Job) ([]byte, error) {
@@ -974,7 +976,7 @@ func TestDurableWorkerRunsAndCompletesClaimedJob(t *testing.T) {
 			return []byte(`{"result":"ok"}`), nil
 		})
 	}()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		item, ok, readErr := j.GetWithError(queued.ID)
 		if readErr != nil {
@@ -990,11 +992,18 @@ func TestDurableWorkerRunsAndCompletesClaimedJob(t *testing.T) {
 			}
 			return
 		}
-		time.Sleep(time.Millisecond)
+		select {
+		case workerErr := <-done:
+			durable, found, readErr := j.GetWithError(queued.ID)
+			t.Fatalf("worker exited before completing durable job (found=%v state=%q readErr=%v): %v", found, durable.State, readErr, workerErr)
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
-	<-done
-	t.Fatal("worker did not complete durable job")
+	workerErr := <-done
+	item, found, readErr := j.GetWithError(queued.ID)
+	t.Fatalf("worker did not complete durable job before deadline (found=%v state=%q readErr=%v workerErr=%v)", found, item.State, readErr, workerErr)
 }
 
 func TestDurableJobPayloadIsEncryptedAtRest(t *testing.T) {

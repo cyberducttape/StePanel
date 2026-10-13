@@ -41,6 +41,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   in flight.
 - Added browser-context regression tests for cross-process job completion and
   stale snapshot/event ordering.
+- Made the durable-worker race test report early worker exits and durable state,
+  with a scheduling-tolerant deadline instead of a 10-second CI flake window.
 
 - Map-backed route, worker, task, domain-claim, DNS, environment, and schedule
   transitions now use the shared rollback-on-write-failure path, preserving a
