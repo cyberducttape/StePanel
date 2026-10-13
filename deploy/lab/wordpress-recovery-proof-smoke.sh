@@ -41,9 +41,21 @@ site_prepared=0
 wp_cli_site=''
 database_created=0
 route_created=0
+route_file="/etc/caddy/stepanel.d/site-${site}-${domain//./_}.caddy"
 
 cleanup() {
   local status=$?
+  if (( status != 0 && route_created )) && [[ ${STEPANEL_WEBSERVER:-caddy} == caddy ]]; then
+    echo "Caddy recovery-proof route before cleanup: $route_file" >&2
+    if [[ -f $route_file && ! -L $route_file ]]; then
+      sed -n '1,160p' "$route_file" >&2
+    fi
+    if command -v jq >/dev/null 2>&1; then
+      caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile --pretty 2>/dev/null \
+        | jq -c '[.apps.http.servers[]?.routes[]? | {hosts: [.match[]?.host[]?], handlers: [.handle[]?.handler]}] | .[]' \
+        | head -80 >&2 || true
+    fi
+  fi
   if (( route_created )); then
     if [[ ${STEPANEL_WEBSERVER:-caddy} == caddy ]]; then
       /usr/local/sbin/stepanel-vhostctl delete "site-${site}-${domain//./_}.caddy" >/dev/null 2>&1 || true

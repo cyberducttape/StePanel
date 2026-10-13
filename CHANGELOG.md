@@ -25,6 +25,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Probe the exact published WordPress post by its database ID and retain the
   response status, headers, and bounded body in failure diagnostics, making
   installed-host HTTP proof failures actionable instead of an opaque 404.
+- Capture the generated Caddy site route and adapted host/handler map before
+  cleanup when the installed WordPress probe fails, to distinguish a missing
+  Caddy route from a PHP or application response.
+- Reconcile the production-gate runtime table with the six current installed
+  host jobs, recording the three passing Apache/MariaDB WordPress proofs and
+  the unresolved Caddy HTTP probe failures without calling smoke coverage
+  certification.
 
 ### Testing and documentation
 

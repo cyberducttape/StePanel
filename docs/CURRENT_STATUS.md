@@ -42,6 +42,13 @@ exercise every ENOSPC boundary. Gate 5 remains open; see the
 | **Gate 4** | Automated Archive Database Restoration | ✅ COMPLETE | None |
 | **Gate 5** | Failure Recovery Testing | 🔄 PARTIAL | 20–50× repeated matrix (two consecutive full Rocky KVM runs now recorded), ENOSPC beyond backup/file restore, physical power loss |
 
+On 2026-10-13 the installed-host WordPress recovery proof passed on Apache +
+MariaDB for Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9. The corresponding
+Caddy + MariaDB legs failed the HTTP application probe on all three systems;
+diagnostic output is being improved and Caddy is not considered verified.
+These are smoke results, not production certification. See the exact job links
+and full runtime boundary in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
+
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
 ### Changes 2026-10-03 to 2026-10-10 (on `main`, unreleased)
