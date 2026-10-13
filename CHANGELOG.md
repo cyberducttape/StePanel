@@ -8,9 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
-- Route Caddy document-root requests through an existing PHP `index.php` while
-  preserving query strings, so database-backed WordPress home requests reach
-  the application instead of falling through to a static 404.
+- Route Caddy document-root requests through a root-verified PHP `index.php`,
+  preserving query strings without relying on Caddy's file matcher for its
+  nosymfollow view mount.
 - Require SQLite to confirm exactly one reservation row was changed during
   capacity growth, progressive extension, and shrink; missing durable rows now
   fail closed without advancing process-local reservation state.
