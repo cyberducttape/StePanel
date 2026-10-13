@@ -14,6 +14,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   release gate remains open: two repetitions do not meet the 20–50-run target,
   and physical power-loss and additional ENOSPC scenarios remain untested.
 
+### Fixed
+
+- Linode inventory pagination now verifies page sequence, page and total
+  record counts, and rejects incomplete responses or results requiring more
+  than 1,000 pages instead of silently returning partial inventory. Contract
+  tests cover multi-page aggregation and malformed/truncated provider replies.
+
 ### Security
 
 - WordPress recovery proofs now validate HTTPS certificates and hostnames,

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -618,6 +619,24 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 	if token == "" {
 		return nil, errors.New("STEPANEL_LINODE_TOKEN is not configured")
 	}
+	return linodeAPIRequestWithClient(ctx, method, path, payload, token, &http.Client{Timeout: 30 * time.Second})
+}
+
+func linodeResponseInt(value map[string]any, field string) (int, error) {
+	raw, ok := value[field].(float64)
+	if !ok || math.IsNaN(raw) || math.IsInf(raw, 0) || raw < 0 || raw > math.MaxInt32 || math.Trunc(raw) != raw {
+		return 0, fmt.Errorf("Linode API list response has an invalid %s", field)
+	}
+	return int(raw), nil
+}
+
+func linodeAPIRequestWithClient(ctx context.Context, method, path string, payload any, token string, client *http.Client) (any, error) {
+	if token == "" {
+		return nil, errors.New("STEPANEL_LINODE_TOKEN is not configured")
+	}
+	if client == nil {
+		return nil, errors.New("Linode API client is required")
+	}
 	const maxCloudResponseBytes = 8 << 20
 	requestPage := func(page int) (map[string]any, error) {
 		var reader io.Reader
@@ -641,7 +660,7 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
-		res, err := (&http.Client{Timeout: 30 * time.Second}).Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
+		res, err := client.Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
 		if err != nil {
 			return nil, err
 		}
@@ -669,25 +688,64 @@ func linodeAPIRequest(ctx context.Context, method, path string, payload any) (an
 	if err != nil || method != http.MethodGet || value == nil {
 		return value, err
 	}
-	pages, _ := value["pages"].(float64)
-	if pages < 2 {
-		return value, nil
+	firstPage, err := linodeResponseInt(value, "page")
+	if err != nil || firstPage != 1 {
+		return nil, errors.New("Linode API list response has an invalid first page")
+	}
+	pageCount, err := linodeResponseInt(value, "pages")
+	if err != nil || pageCount < 1 {
+		return nil, errors.New("Linode API list response has an invalid page count")
+	}
+	if pageCount > 1000 {
+		return nil, fmt.Errorf("Linode API list response requires %d pages; refusing incomplete inventory above the 1000-page safety limit", pageCount)
 	}
 	data, ok := value["data"].([]any)
 	if !ok {
-		return value, nil
+		return nil, errors.New("Linode API list response has invalid data")
 	}
-	for page := 2; page <= int(pages) && page <= 1000; page++ {
+	pageResults, err := linodeResponseInt(value, "results")
+	if err != nil || pageResults != len(data) {
+		return nil, errors.New("Linode API list response has an inconsistent result count")
+	}
+	totalResults, err := linodeResponseInt(value, "total_results")
+	if err != nil || totalResults < len(data) {
+		return nil, errors.New("Linode API list response has an invalid total result count")
+	}
+	for page := 2; page <= pageCount; page++ {
 		next, err := requestPage(page)
 		if err != nil {
 			return nil, err
 		}
 		if next == nil {
-			break
+			return nil, fmt.Errorf("Linode API returned an empty response for page %d of %d", page, int(pageCount))
 		}
-		if items, ok := next["data"].([]any); ok {
-			data = append(data, items...)
+		reportedPage, err := linodeResponseInt(next, "page")
+		if err != nil || reportedPage != page {
+			return nil, fmt.Errorf("Linode API returned the wrong page for request %d", page)
 		}
+		nextPageCount, err := linodeResponseInt(next, "pages")
+		if err != nil || nextPageCount != pageCount {
+			return nil, fmt.Errorf("Linode API page %d reported an inconsistent page count", page)
+		}
+		items, ok := next["data"].([]any)
+		if !ok {
+			return nil, fmt.Errorf("Linode API page %d has invalid data", page)
+		}
+		nextResults, err := linodeResponseInt(next, "results")
+		if err != nil || nextResults != len(items) {
+			return nil, fmt.Errorf("Linode API page %d has an inconsistent result count", page)
+		}
+		nextTotal, err := linodeResponseInt(next, "total_results")
+		if err != nil || nextTotal != totalResults {
+			return nil, fmt.Errorf("Linode API page %d reported an inconsistent total result count", page)
+		}
+		data = append(data, items...)
+	}
+	if totalResults != len(data) {
+		return nil, fmt.Errorf("Linode API pagination returned %d records; response advertised %d", len(data), totalResults)
+	}
+	if pageCount == 1 {
+		return value, nil
 	}
 	value["data"] = data
 	value["results"] = float64(len(data))

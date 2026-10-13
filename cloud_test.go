@@ -1,9 +1,122 @@
 package stepanel
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
+
+type cloudRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f cloudRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func linodeTestClient(server *httptest.Server) *http.Client {
+	target, _ := url.Parse(server.URL)
+	return &http.Client{Transport: cloudRoundTripper(func(request *http.Request) (*http.Response, error) {
+		request = request.Clone(request.Context())
+		requestURL := *request.URL
+		requestURL.Scheme = target.Scheme
+		requestURL.Host = target.Host
+		request.URL = &requestURL
+		request.Host = target.Host
+		return http.DefaultTransport.RoundTrip(request)
+	})}
+}
+
+func TestLinodeAPIRequestAggregatesEveryPage(t *testing.T) {
+	requestedPages := make([]string, 0, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v4/domains/123/records" {
+			t.Errorf("request path = %q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer test-token" {
+			t.Errorf("authorization header = %q", request.Header.Get("Authorization"))
+		}
+		page := request.URL.Query().Get("page")
+		if page == "" {
+			page = "1"
+		}
+		requestedPages = append(requestedPages, page)
+		id := 1
+		if _, err := fmt.Sscanf(page, "%d", &id); err != nil || id < 1 || id > 3 {
+			t.Errorf("unexpected page query %q", page)
+			response.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(response, `{"page":%d,"pages":3,"results":1,"total_results":3,"data":[{"id":%d}]}`, id, id)
+	}))
+	defer server.Close()
+
+	value, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("response type = %T, want map", value)
+	}
+	data, ok := root["data"].([]any)
+	if !ok || len(data) != 3 {
+		t.Fatalf("aggregated data = %#v, want three records", root["data"])
+	}
+	if got := root["results"]; got != float64(3) {
+		t.Fatalf("aggregated results = %#v, want 3", got)
+	}
+	if strings.Join(requestedPages, ",") != "1,2,3" {
+		t.Fatalf("requested pages = %v, want [1 2 3]", requestedPages)
+	}
+}
+
+func TestLinodeAPIRequestRejectsIncompletePagination(t *testing.T) {
+	t.Run("page limit", func(t *testing.T) {
+		calls := 0
+		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			calls++
+			_, _ = response.Write([]byte(`{"page":1,"pages":1001,"total_results":1001,"data":[{"id":1}]}`))
+		}))
+		defer server.Close()
+		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
+		if err == nil || !strings.Contains(err.Error(), "refusing incomplete inventory") {
+			t.Fatalf("request error = %v, want explicit page-limit failure", err)
+		}
+		if calls != 1 {
+			t.Fatalf("requests made = %d, want 1", calls)
+		}
+	})
+
+	t.Run("missing page", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			if request.URL.Query().Get("page") == "2" {
+				response.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_, _ = response.Write([]byte(`{"page":1,"pages":2,"results":1,"total_results":2,"data":[{"id":1}]}`))
+		}))
+		defer server.Close()
+		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
+		if err == nil || !strings.Contains(err.Error(), "empty response for page 2") {
+			t.Fatalf("request error = %v, want explicit missing-page failure", err)
+		}
+	})
+
+	t.Run("advertised total mismatch", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			_, _ = response.Write([]byte(`{"page":1,"pages":1,"results":1,"total_results":2,"data":[{"id":1}]}`))
+		}))
+		defer server.Close()
+		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
+		if err == nil || !strings.Contains(err.Error(), "advertised 2") {
+			t.Fatalf("request error = %v, want total-results mismatch", err)
+		}
+	})
+}
 
 func TestCloudCommandEnvKeepsRcloneConfigButFiltersPanelSecrets(t *testing.T) {
 	t.Setenv("RCLONE_CONFIG", "/run/secrets/rclone.conf")
