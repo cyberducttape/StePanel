@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"regexp"
@@ -51,9 +52,11 @@ func cloudDNSRecordValid(in cloudDNSRequest) bool {
 	}
 	switch typ {
 	case "A":
-		return net.ParseIP(in.Target) != nil && strings.Count(in.Target, ".") == 3
+		address, err := netip.ParseAddr(in.Target)
+		return err == nil && address.Is4()
 	case "AAAA":
-		return net.ParseIP(in.Target) != nil
+		address, err := netip.ParseAddr(in.Target)
+		return err == nil && address.Is6() && !address.Is4In6()
 	case "CNAME", "NS":
 		return dnsNamePattern.MatchString(strings.TrimSuffix(in.Target, "."))
 	case "MX":

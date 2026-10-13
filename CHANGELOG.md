@@ -19,6 +19,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Linode snapshots are now verified against the backup ID returned by the
+  create request, and reboot completion is tied to the corresponding provider
+  event instead of requiring a transient instance status to be observed.
+- Linode DNS A and AAAA records now require the correct IP address family,
+  including rejection of IPv4-mapped IPv6 addresses for both record types.
+- Documented the Linode account-event permission required to verify reboot
+  completion before reporting the cloud job successful.
 - AWS EBS snapshot jobs now parse the top-level `SnapshotId`, persist it in
   the durable job payload before waiting, and wait for that exact snapshot;
   OpenStack backup jobs now treat successful `server backup create --wait` as

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -910,10 +911,15 @@ func executeLinodeInstanceAction(ctx context.Context, action, id, snapshotLabel 
 			return fmt.Errorf("read current Linode snapshot before replacement: %w", err)
 		}
 		previousSnapshotID := linodeCurrentSnapshotID(before)
-		if _, err := request(ctx, method, path, payload); err != nil {
+		created, err := request(ctx, method, path, payload)
+		if err != nil {
 			return fmt.Errorf("Linode snapshot request outcome may be ambiguous; reconcile instance %s before retrying: %w", id, err)
 		}
-		return waitLinodeSnapshot(ctx, id, strings.TrimSpace(snapshotLabel), previousSnapshotID, request, interval)
+		snapshotID := linodeBackupID(created)
+		if snapshotID == "" {
+			return fmt.Errorf("Linode accepted snapshot request for instance %s without returning a backup ID; reconcile provider state before retrying", id)
+		}
+		return waitLinodeSnapshot(ctx, id, strings.TrimSpace(snapshotLabel), previousSnapshotID, snapshotID, request, interval)
 	}
 	// Avoid dispatching a duplicate desired-state operation when the instance
 	// already satisfies it. Reboot is intentionally never treated this way.
@@ -928,6 +934,18 @@ func executeLinodeInstanceAction(ctx context.Context, action, id, snapshotLabel 
 	want := map[string]string{"start": "running", "stop": "offline"}[action]
 	if action != "reboot" && linodeStatusMatches(action, initialStatus) {
 		return nil
+	}
+	if action == "reboot" {
+		// The provider may complete a reboot between instance-state polls. Capture
+		// the event cursor before dispatch and correlate completion to the new event.
+		eventCursor, err := linodeRebootEventCursor(ctx, request)
+		if err != nil {
+			return fmt.Errorf("read Linode event cursor before reboot: %w", err)
+		}
+		if _, err := request(ctx, method, path, payload); err != nil {
+			return fmt.Errorf("Linode %s request outcome may be ambiguous; reconcile instance %s before retrying: %w", action, id, err)
+		}
+		return waitLinodeRebootEvent(ctx, id, eventCursor, request, interval)
 	}
 	if _, err := request(ctx, method, path, payload); err != nil {
 		return fmt.Errorf("Linode %s request outcome may be ambiguous; reconcile instance %s before retrying: %w", action, id, err)
@@ -1007,7 +1025,25 @@ func linodeCurrentSnapshotID(value any) string {
 	}
 }
 
-func waitLinodeSnapshot(ctx context.Context, id, label, previousSnapshotID string, request cloudAPIRequestFunc, interval time.Duration) error {
+func linodeBackupID(value any) string {
+	backup, ok := value.(map[string]any)
+	if !ok {
+		return ""
+	}
+	switch id := backup["id"].(type) {
+	case string:
+		return strings.TrimSpace(id)
+	case float64:
+		if id > 0 && id <= math.MaxInt64 && id == math.Trunc(id) {
+			return strconv.FormatInt(int64(id), 10)
+		}
+	case json.Number:
+		return id.String()
+	}
+	return ""
+}
+
+func waitLinodeSnapshot(ctx context.Context, id, label, previousSnapshotID, expectedSnapshotID string, request cloudAPIRequestFunc, interval time.Duration) error {
 	path, err := linodeBackupsPath(id)
 	if err != nil {
 		return err
@@ -1022,9 +1058,19 @@ func waitLinodeSnapshot(ctx context.Context, id, label, previousSnapshotID strin
 			return errors.New("Linode backups response has an unexpected shape")
 		}
 		snapshot, _ := root["snapshot"].(map[string]any)
+		if inProgress, ok := snapshot["in_progress"].(map[string]any); ok && linodeBackupID(inProgress) == expectedSnapshotID {
+			status, _ := inProgress["status"].(string)
+			switch strings.ToLower(status) {
+			case "failed", "useraborted":
+				return fmt.Errorf("Linode snapshot %s entered terminal status %q", expectedSnapshotID, status)
+			}
+		}
 		if current, ok := snapshot["current"].(map[string]any); ok {
-			currentID := linodeCurrentSnapshotID(root)
-			if backupLabel, _ := current["label"].(string); backupLabel == label && (previousSnapshotID == "" || currentID != previousSnapshotID) {
+			currentID := linodeBackupID(current)
+			if currentID == expectedSnapshotID && currentID != previousSnapshotID {
+				if backupLabel, _ := current["label"].(string); backupLabel != label {
+					return fmt.Errorf("Linode snapshot %s returned unexpected label %q", expectedSnapshotID, backupLabel)
+				}
 				status, _ := current["status"].(string)
 				switch strings.ToLower(status) {
 				case "successful":
@@ -1035,7 +1081,85 @@ func waitLinodeSnapshot(ctx context.Context, id, label, previousSnapshotID strin
 			}
 		}
 		if err := waitCloudPoll(ctx, interval); err != nil {
-			return fmt.Errorf("Linode snapshot %q did not reach successful state; reconcile provider state before retrying: %w", label, err)
+			return fmt.Errorf("Linode snapshot %s did not reach successful state; reconcile provider state before retrying: %w", expectedSnapshotID, err)
+		}
+	}
+}
+
+func linodeRebootEventCursor(ctx context.Context, request cloudAPIRequestFunc) (int64, error) {
+	value, err := request(ctx, http.MethodGet, "/account/events", nil)
+	if err != nil {
+		return 0, err
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		return 0, errors.New("Linode events response has an unexpected shape")
+	}
+	events, ok := root["data"].([]any)
+	if !ok {
+		return 0, errors.New("Linode events response omitted event data")
+	}
+	var cursor int64
+	for _, item := range events {
+		event, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if id := linodeEventID(event["id"]); id > cursor {
+			cursor = id
+		}
+	}
+	return cursor, nil
+}
+
+func linodeEventID(value any) int64 {
+	switch id := value.(type) {
+	case float64:
+		if id > 0 && id <= math.MaxInt64 && id == math.Trunc(id) {
+			return int64(id)
+		}
+	case json.Number:
+		parsed, _ := id.Int64()
+		return parsed
+	case string:
+		parsed, _ := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+		return parsed
+	}
+	return 0
+}
+
+func waitLinodeRebootEvent(ctx context.Context, linodeID string, eventCursor int64, request cloudAPIRequestFunc, interval time.Duration) error {
+	for {
+		value, err := request(ctx, http.MethodGet, "/account/events", nil)
+		if err != nil {
+			return fmt.Errorf("read Linode reboot event: %w", err)
+		}
+		root, ok := value.(map[string]any)
+		if !ok {
+			return errors.New("Linode events response has an unexpected shape")
+		}
+		events, ok := root["data"].([]any)
+		if !ok {
+			return errors.New("Linode events response omitted event data")
+		}
+		for _, item := range events {
+			event, ok := item.(map[string]any)
+			if !ok || event["action"] != "linode_reboot" || linodeEventID(event["id"]) <= eventCursor {
+				continue
+			}
+			entity, _ := event["entity"].(map[string]any)
+			if entity["type"] != "linode" || linodeBackupID(entity) != linodeID {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(fmt.Sprint(event["status"]))) {
+			case "finished":
+				return nil
+			case "failed":
+				return fmt.Errorf("Linode reboot event failed for instance %s", linodeID)
+			}
+		}
+		if err := waitCloudPoll(ctx, interval); err != nil {
+			return fmt.Errorf("Linode reboot event for instance %s did not finish; reconcile provider state before retrying: %w", linodeID, err)
 		}
 	}
 }

@@ -29,6 +29,13 @@ mutation adapter is Linode-only at `/api/cloud/dns`. The administrator
 reports when no provider is configured. Zone desired-state reconciliation,
 DNSSEC, and DNS-01 provider orchestration are not simulated.
 
+Linode reboot actions also verify the operation through the account event API.
+The configured personal access token therefore needs the Linode read/write
+scope and permission to list account events (`linodes:read_write` and
+`events:read_only` for OAuth scopes). StePanel checks event access before it
+dispatches a reboot, so an insufficiently scoped token cannot trigger a reboot
+that StePanel then cannot verify.
+
 Mail installation is deliberately optional and operator-managed. Core StePanel
 does not provide mailbox lifecycle, aliases, quotas, DKIM/SPF/DMARC, queue
 management, webmail, or customer mail controls. Use an external mail provider

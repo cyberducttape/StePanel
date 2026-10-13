@@ -264,25 +264,47 @@ func TestLinodeInstanceActionsWaitForRemoteConvergence(t *testing.T) {
 			t.Fatalf("already-running start dispatched %d mutations", posts)
 		}
 	})
-	t.Run("reboot requires observed transition", func(t *testing.T) {
-		statuses := []string{"running", "rebooting", "running"}
-		calls, posts := 0, 0
-		request := func(_ context.Context, method, _ string, _ any) (any, error) {
+	t.Run("reboot waits for its correlated provider event", func(t *testing.T) {
+		calls, posts, stateReads, eventReads := 0, 0, 0, 0
+		request := func(_ context.Context, method, path string, _ any) (any, error) {
 			if method == http.MethodPost {
+				if path != "/linode/instances/123/reboot" {
+					t.Fatalf("reboot path = %q", path)
+				}
 				posts++
 				return nil, nil
 			}
-			status := statuses[min(calls, len(statuses)-1)]
+			if path == "/linode/instances/123" {
+				stateReads++
+				return map[string]any{"status": "running"}, nil
+			}
+			if path != "/account/events" {
+				t.Fatalf("reboot verification path = %q, want provider events", path)
+			}
 			calls++
-			return map[string]any{"status": status}, nil
+			eventReads++
+			if eventReads == 1 {
+				return map[string]any{"data": []any{map[string]any{"id": float64(10), "action": "linode_reboot", "status": "finished", "entity": map[string]any{"id": float64(123), "type": "linode"}}}}, nil
+			}
+			if eventReads == 2 {
+				return map[string]any{"data": []any{
+					map[string]any{"id": float64(10), "action": "linode_reboot", "status": "finished", "entity": map[string]any{"id": float64(123), "type": "linode"}},
+					map[string]any{"id": float64(11), "action": "linode_reboot", "status": "finished", "entity": map[string]any{"id": float64(999), "type": "linode"}},
+					map[string]any{"id": float64(12), "action": "linode_reboot", "status": "started", "entity": map[string]any{"id": float64(123), "type": "linode"}},
+				}}, nil
+			}
+			return map[string]any{"data": []any{map[string]any{
+				"id": float64(12), "action": "linode_reboot", "status": "finished",
+				"entity": map[string]any{"id": float64(123), "type": "linode"},
+			}}}, nil
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		if err := executeLinodeInstanceAction(ctx, "reboot", "123", "", false, request, 0); err != nil {
 			t.Fatal(err)
 		}
-		if posts != 1 || calls != 3 {
-			t.Fatalf("reboot dispatches=%d state reads=%d; want 1 and 3", posts, calls)
+		if posts != 1 || calls != 3 || stateReads != 1 || eventReads != 3 {
+			t.Fatalf("reboot dispatches=%d event reads=%d initial reads=%d; want 1, 3, 1", posts, eventReads, stateReads)
 		}
 	})
 }
@@ -290,8 +312,11 @@ func TestLinodeInstanceActionsWaitForRemoteConvergence(t *testing.T) {
 func TestLinodeSnapshotWaitDoesNotAcceptReplacedSnapshotWithSameLabel(t *testing.T) {
 	responses := []map[string]any{
 		{"snapshot": map[string]any{"current": map[string]any{"id": float64(7), "label": "nightly", "status": "successful"}}},
-		nil, // POST acceptance
-		{"snapshot": map[string]any{"current": map[string]any{"id": float64(7), "label": "nightly", "status": "successful"}}},
+		{"id": float64(8), "type": "snapshot", "label": "nightly", "status": "running"}, // POST returns the created backup ID
+		{"snapshot": map[string]any{
+			"current":     map[string]any{"id": float64(7), "label": "nightly", "status": "successful"},
+			"in_progress": map[string]any{"id": float64(8), "label": "nightly", "status": "running"},
+		}},
 		{"snapshot": map[string]any{"current": map[string]any{"id": float64(8), "label": "nightly", "status": "successful"}}},
 	}
 	calls := 0
@@ -645,7 +670,7 @@ func TestCloudDNSRecordValidation(t *testing.T) {
 			t.Errorf("valid record rejected: %#v", record)
 		}
 	}
-	invalid := []cloudDNSRequest{{Type: "A", Name: "@", Target: "example.com", TTL: 300}, {Type: "A", Name: "@", Target: "192.0.2.1", TTL: 10}, {Type: "MX", Name: "@", Target: "10 mail.example.com", TTL: 300}, {Type: "MX", Name: "@", Target: "mail.example.com", TTL: 300, Priority: 256}, {Type: "SRV", Service: "_https", Protocol: "tcp", Target: "service.example.com", TTL: 300, Port: 70000}, {Type: "TXT", Name: "@", Target: "safe\nvalue", TTL: 300}}
+	invalid := []cloudDNSRequest{{Type: "A", Name: "@", Target: "example.com", TTL: 300}, {Type: "A", Name: "@", Target: "192.0.2.1", TTL: 10}, {Type: "A", Name: "@", Target: "2001:db8::1", TTL: 300}, {Type: "A", Name: "@", Target: "::ffff:192.0.2.1", TTL: 300}, {Type: "AAAA", Name: "@", Target: "192.0.2.10", TTL: 300}, {Type: "AAAA", Name: "@", Target: "::ffff:192.0.2.1", TTL: 300}, {Type: "MX", Name: "@", Target: "10 mail.example.com", TTL: 300}, {Type: "MX", Name: "@", Target: "mail.example.com", TTL: 300, Priority: 256}, {Type: "SRV", Service: "_https", Protocol: "tcp", Target: "service.example.com", TTL: 300, Port: 70000}, {Type: "TXT", Name: "@", Target: "safe\nvalue", TTL: 300}}
 	for _, record := range invalid {
 		if cloudDNSRecordValid(record) {
 			t.Errorf("invalid record accepted: %#v", record)
