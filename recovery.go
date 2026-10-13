@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -103,11 +102,23 @@ func (t *SiteTransaction) MarkRouteApplied(name string) error {
 func (t *SiteTransaction) cleanupRoutes(ctx context.Context, cfg Config) error {
 	for len(t.Routes) > 0 {
 		route := t.Routes[0]
-		if err := runVhostMutation(ctx, cfg, "delete", route.Name); err != nil {
-			if route.Applied {
-				return fmt.Errorf("remove route %s: %w", route.Name, err)
+		if !route.Applied {
+			path, pathErr := safePath(cfg.VHostRoot, route.Name)
+			if pathErr != nil {
+				return fmt.Errorf("inspect pending route %s: %w", route.Name, pathErr)
 			}
-			log.Printf("remove pending route %s (it may never have been published): %v", route.Name, err)
+			if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+				t.Routes = t.Routes[1:]
+				if err := t.persist(); err != nil {
+					return fmt.Errorf("record absent pending route cleanup: %w", err)
+				}
+				continue
+			} else if statErr != nil {
+				return fmt.Errorf("inspect pending route %s: %w", route.Name, statErr)
+			}
+		}
+		if err := runVhostMutation(ctx, cfg, "delete", route.Name); err != nil {
+			return fmt.Errorf("remove route %s: %w", route.Name, err)
 		}
 		t.Routes = t.Routes[1:]
 		if err := t.persist(); err != nil {

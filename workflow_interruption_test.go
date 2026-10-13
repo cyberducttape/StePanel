@@ -38,6 +38,8 @@ func newInterruptionFixture(t *testing.T) interruptionFixture {
 	root := t.TempDir()
 	cfg := Config{
 		WebRoot:      filepath.Join(root, "www"),
+		VHostRoot:    filepath.Join(root, "vhosts"),
+		WebServer:    "apache",
 		BackupRoot:   filepath.Join(root, "backups"),
 		ImportRoot:   filepath.Join(root, "imports"),
 		RecoveryRoot: filepath.Join(root, "recovery"),

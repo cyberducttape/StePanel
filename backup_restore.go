@@ -629,6 +629,12 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 	defer func() {
 		if !committed {
 			var compensationErrors []error
+			routeCleanupCtx, cancelRouteCleanup := context.WithTimeout(context.WithoutCancel(operationCtx), helperConfigMutationTimeout)
+			if routeErr := txn.cleanupRoutes(routeCleanupCtx, a.Config); routeErr != nil {
+				log.Printf("staging route cleanup failed for %s: %v", input.Site, routeErr)
+				compensationErrors = append(compensationErrors, fmt.Errorf("route cleanup: %w", routeErr))
+			}
+			cancelRouteCleanup()
 			if rollbackErr := txn.Rollback(); rollbackErr != nil {
 				log.Printf("backup staging rollback failed for transaction %s: %v", txn.ID, rollbackErr)
 				compensationErrors = append(compensationErrors, fmt.Errorf("restore journal rollback: %w", rollbackErr))
@@ -692,8 +698,17 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			return
 		}
 	}
+	routeName := siteVHostConfigName(a.Config.WebServer, input.Site, input.Domain)
+	if e = txn.TrackRoute(routeName); e != nil {
+		http.Error(w, "could not journal staging route", 503)
+		return
+	}
 	if e = runVhostMutation(operationCtx, a.Config, "apply", input.Site, input.Domain); e != nil {
 		http.Error(w, "could not activate restored staging route", 502)
+		return
+	}
+	if e = txn.MarkRouteApplied(routeName); e != nil {
+		http.Error(w, "could not record activated staging route", 503)
 		return
 	}
 	if e = txn.Commit(); e != nil {

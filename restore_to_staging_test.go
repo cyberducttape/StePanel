@@ -215,6 +215,74 @@ func TestRestoreToStagingRouteFailureLeavesNoHalfSite(t *testing.T) {
 	}
 }
 
+func TestRestoreToStagingCommitFailureRemovesPublishedRoute(t *testing.T) {
+	f := newInterruptionFixture(t)
+	f.writeSite(t, versionOne)
+	backup := f.backup(t)
+	f.writeSite(t, versionTwo)
+	app, vhostLog := stagingRestoreApp(t, f, false)
+	t.Setenv("STEPANEL_FAIL_AT", "backup:commit")
+
+	response := postStagingRestore(t, app, `{"site":"example-staging","backup":"`+backup+`","domain":"staging.example.org"}`)
+	if response.Code == http.StatusAccepted {
+		t.Fatal("staging restore with an injected commit failure reported success")
+	}
+	calls, err := os.ReadFile(vhostLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCalls := "apply example-staging staging.example.org\ndelete site-example-staging-staging_example_org.conf\n"
+	if string(calls) != wantCalls {
+		t.Fatalf("vhost calls = %q, want route publication then journaled deletion %q", calls, wantCalls)
+	}
+	if got := app.recovery.get(); got != nil {
+		t.Fatalf("successful route compensation left recovery intervention: %v", got)
+	}
+	f.assertSite(t, versionTwo)
+}
+
+func TestRestoreToStagingRouteCleanupFailurePersistsIntervention(t *testing.T) {
+	f := newInterruptionFixture(t)
+	f.writeSite(t, versionOne)
+	backup := f.backup(t)
+	f.writeSite(t, versionTwo)
+	app, _ := stagingRestoreApp(t, f, false)
+	vhostctl := filepath.Join(f.root, "failing-route-delete")
+	logPath := filepath.Join(f.root, "vhost-failure.log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"" + logPath + "\"\ncase \"$1\" in\n" +
+		"apply) exit 0 ;;\n" +
+		"delete) exit 1 ;;\n" +
+		"*) exit 64 ;;\nesac\n"
+	if err := os.WriteFile(vhostctl, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	app.Config.VHostCtl = vhostctl
+	t.Setenv("STEPANEL_FAIL_AT", "backup:commit")
+
+	response := postStagingRestore(t, app, `{"site":"example-staging","backup":"`+backup+`","domain":"staging.example.org"}`)
+	if response.Code == http.StatusAccepted {
+		t.Fatal("staging restore with a failed route cleanup reported success")
+	}
+	if got := app.recovery.get(); got == nil || !strings.Contains(got.Error(), "route cleanup") {
+		t.Fatalf("recovery state = %v, want failed route cleanup", got)
+	}
+	entries, err := os.ReadDir(f.cfg.RecoveryRoot)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("recovery journal entries = %d, err=%v; want one retained transaction", len(entries), err)
+	}
+	txn, err := loadSiteTransaction(filepath.Join(f.cfg.RecoveryRoot, entries[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if txn.RecoveryRequired == "" || len(txn.Routes) != 1 || !txn.Routes[0].Applied {
+		t.Fatalf("route recovery journal = %+v; want unresolved applied route", txn)
+	}
+	if _, err := RecoverSiteTransactions(f.cfg.RecoveryRoot, f.cfg.WebRoot, f.cfg.MailRoot); err == nil || !strings.Contains(err.Error(), "requires operator intervention") {
+		t.Fatalf("startup recovery error = %v, want durable route intervention", err)
+	}
+	f.assertSite(t, versionTwo)
+}
+
 func TestRestoreToStagingCleanupFailureRequiresIntervention(t *testing.T) {
 	f := newInterruptionFixture(t)
 	f.writeSite(t, versionOne)

@@ -17,8 +17,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   startup reconciliation. Create the recovery journal before the staging
   account mutation; persist failed compensation so startup and retention keep
   the intervention visible, and provide an audited stopped-services resolution
-  command after an operator verifies host state. Handler-level fault injection
-  verifies the production site remains unchanged.
+  command after an operator verifies host state. Journal staging vhost changes
+  before publication and remove them before filesystem rollback; commit-failure
+  tests cover both successful route cleanup and a retained intervention when
+  route deletion fails. Handler-level fault injection verifies the production
+  site remains unchanged.
 - Make long workspace sidebar jumps land immediately while retaining smooth
   transitions between nearby sections, so deep destinations are responsive.
 - Verify database-backed WordPress recovery over both Apache and Caddy with
