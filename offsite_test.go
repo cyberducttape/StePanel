@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,23 @@ func TestValidateOffsiteTarget(t *testing.T) {
 		if err := validateOffsiteTarget(target); target != "" && err == nil {
 			t.Errorf("invalid target %q accepted", target)
 		}
+	}
+}
+
+func TestRunOffsiteRclonePreservesArgumentBoundaries(t *testing.T) {
+	root := t.TempDir()
+	fakeRclone := filepath.Join(root, "rclone")
+	if err := os.WriteFile(fakeRclone, []byte("#!/bin/sh\nprintf '<%s>\\n' \"$@\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	argument := "s3:bucket/backup;touch /tmp/stepanel-argv-injection"
+	output, err := runOffsiteRclone(context.Background(), "lsf", argument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(output), "<lsf>\n<"+argument+">\n"; got != want {
+		t.Fatalf("rclone argv output = %q, want %q", got, want)
 	}
 }
 

@@ -117,17 +117,15 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 }
 
 func runOffsiteRclone(ctx context.Context, args ...string) ([]byte, error) {
-	// Keep the executable fixed and append operands after construction so
-	// provider-controlled paths remain distinct argument values.
-	cmd := exec.CommandContext(ctx, "rclone")
-	cmd.Args = append(cmd.Args, args...)
+	// Pass the executable and each operand as separate argv entries. Never
+	// construct a shell command from provider paths or persisted metadata.
+	cmd := exec.CommandContext(ctx, "rclone", args...)
 	cmd.Env = cloudCommandEnv()
 	return runBoundedCommand(ctx, cmd)
 }
 
 func runOffsiteRcloneLimit(ctx context.Context, limit int, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "rclone")
-	cmd.Args = append(cmd.Args, args...)
+	cmd := exec.CommandContext(ctx, "rclone", args...)
 	cmd.Env = cloudCommandEnv()
 	return runBoundedCommandLimit(ctx, cmd, limit)
 }
@@ -278,7 +276,7 @@ func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object
 }
 
 func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, object string, maxBytes int64) error {
-	if !validOffsiteObjectName(object) {
+	if !validOffsiteObjectName(object) || !filepath.IsLocal(object) {
 		return errors.New("invalid offsite object name")
 	}
 	if maxBytes <= 0 {
@@ -299,9 +297,12 @@ func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, o
 	if err != nil {
 		return fmt.Errorf("download offsite backup object %s: %w: %s", object, err, strings.TrimSpace(string(output)))
 	}
-	info, err := os.Stat(local)
+	info, err := os.Lstat(local)
 	if err != nil {
 		return fmt.Errorf("stat downloaded offsite backup object %s: %w", object, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("downloaded offsite backup object %s is not a regular file", object)
 	}
 	if info.Size() > maxBytes {
 		return fmt.Errorf("downloaded offsite backup object %s exceeds the %d-byte limit", object, maxBytes)

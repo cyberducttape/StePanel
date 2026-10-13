@@ -16,6 +16,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Off-site rclone calls now pass arguments directly to the fixed executable
+  without mutating a command string; downloaded object names must be local
+  path components, and the resulting files are checked with `Lstat` as regular
+  files before use.
 - Cloud mutation jobs now wait for provider-side instance/snapshot convergence
   (Linode state polling, AWS CLI waiters, and OpenStack server-status polling);
   reboot actions require an observed transition out of the pre-request healthy
