@@ -50,6 +50,11 @@ func TestDNSDesiredLegacyStateReloadAcceptsCurrentDNSContract(t *testing.T) {
 			Weight: input.Weight, Action: "update", State: "applied",
 		}
 	}
+	legacySRVKey := "123/legacy-ignored-srv-name"
+	records[legacySRVKey] = DNSDesiredRecord{
+		Key: legacySRVKey, DomainID: "123", Type: "SRV", Name: "legacy-owner",
+		Target: "service.example.com", TTL: 300, Action: "update", State: "applied",
+	}
 	data, err := json.Marshal(records)
 	if err != nil {
 		t.Fatal(err)
@@ -61,8 +66,8 @@ func TestDNSDesiredLegacyStateReloadAcceptsCurrentDNSContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload valid legacy DNS schema: %v", err)
 	}
-	if got := store.list("123"); len(got) != len(inputs) {
-		t.Fatalf("reloaded %d DNS records, want %d", len(got), len(inputs))
+	if got := store.list("123"); len(got) != len(inputs)+1 {
+		t.Fatalf("reloaded %d DNS records, want %d including the legacy ignored SRV name", len(got), len(inputs)+1)
 	}
 }
 
