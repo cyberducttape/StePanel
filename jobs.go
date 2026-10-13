@@ -375,29 +375,113 @@ func (j *Jobs) RequeueExpired() (int, error) {
 	}
 	now := time.Now().UTC()
 	j.mu.Lock()
-	defer j.mu.Unlock()
-	changed := 0
-	previous := make(map[*Job]Job)
+	tx, err := j.db.Begin()
+	if err != nil {
+		j.mu.Unlock()
+		return 0, err
+	}
+	rows, err := tx.Query(`SELECT id, COALESCE(lease_owner,''), payload FROM jobs WHERE kind='cloud.action' AND state='running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`, now.UnixNano())
+	if err != nil {
+		_ = tx.Rollback()
+		j.mu.Unlock()
+		return 0, err
+	}
+	type cloudExpired struct {
+		id, owner string
+		persisted persistedJob
+	}
+	var uncertain []cloudExpired
+	for rows.Next() {
+		var record cloudExpired
+		var raw []byte
+		if err := rows.Scan(&record.id, &record.owner, &raw); err != nil {
+			_ = rows.Close()
+			_ = tx.Rollback()
+			j.mu.Unlock()
+			return 0, err
+		}
+		if err := json.Unmarshal(raw, &record.persisted); err != nil {
+			_ = rows.Close()
+			_ = tx.Rollback()
+			j.mu.Unlock()
+			return 0, fmt.Errorf("decode expired cloud job %s: %w", record.id, err)
+		}
+		uncertain = append(uncertain, record)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		_ = tx.Rollback()
+		j.mu.Unlock()
+		return 0, err
+	}
+	_ = rows.Close()
+	finished := now
+	const uncertainError = "worker lease expired during cloud action; provider outcome is unknown; reconcile remote state before retrying"
+	for i := range uncertain {
+		record := &uncertain[i]
+		record.persisted.Job.State = "dead-letter"
+		record.persisted.Job.Error = uncertainError
+		record.persisted.Job.LeaseOwner = ""
+		record.persisted.Job.LeaseExpires = nil
+		record.persisted.Job.FinishedAt = &finished
+		raw, err := json.Marshal(&record.persisted)
+		if err != nil {
+			_ = tx.Rollback()
+			j.mu.Unlock()
+			return 0, err
+		}
+		result, err := tx.Exec(`UPDATE jobs SET state='dead-letter', finished_at=?, payload=?, lease_owner=NULL, lease_expires_at=NULL, next_attempt_at=NULL, updated_at=unixepoch() WHERE id=? AND state='running' AND lease_owner=? AND lease_expires_at <= ?`, finished.UnixNano(), raw, record.id, record.owner, now.UnixNano())
+		if err != nil {
+			_ = tx.Rollback()
+			j.mu.Unlock()
+			return 0, err
+		}
+		if count, _ := result.RowsAffected(); count == 0 {
+			record.id = ""
+		}
+	}
+	result, err := tx.Exec(`UPDATE jobs SET state='queued', lease_owner=NULL, lease_expires_at=NULL, updated_at=unixepoch() WHERE state='running' AND kind<>'cloud.action' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`, now.UnixNano())
+	if err != nil {
+		_ = tx.Rollback()
+		j.mu.Unlock()
+		return 0, err
+	}
+	requeued, _ := result.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		j.mu.Unlock()
+		return 0, err
+	}
+	changed := int(requeued)
+	var published []Job
 	for _, item := range j.items {
-		if item != nil && item.State == "running" && item.LeaseExpires != nil && now.After(*item.LeaseExpires) {
-			previous[item] = *item
+		if item != nil && item.State == "running" && item.Kind != "cloud.action" && item.LeaseExpires != nil && !item.LeaseExpires.After(now) {
 			item.State = "queued"
 			item.LeaseOwner = ""
 			item.LeaseExpires = nil
-			changed++
+			published = append(published, *item)
 		}
 	}
-	// Requeue against the database as well; another process may have claimed
-	// jobs that this process did not load into its local map.
-	result, err := j.db.Exec(`UPDATE jobs SET state='queued', lease_owner=NULL, lease_expires_at=NULL, updated_at=unixepoch() WHERE state='running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`, now.UnixNano())
-	if err != nil {
-		for item, state := range previous {
-			*item = state
+	for _, record := range uncertain {
+		if record.id == "" {
+			continue
 		}
-		return 0, err
+		changed++
+		if item := j.items[record.id]; item != nil {
+			item.State = "dead-letter"
+			item.Error = uncertainError
+			item.LeaseOwner = ""
+			item.LeaseExpires = nil
+			item.FinishedAt = &finished
+			published = append(published, *item)
+		} else {
+			job := record.persisted.Job
+			job.Payload = nil
+			published = append(published, job)
+		}
 	}
-	if count, err := result.RowsAffected(); err == nil && int(count) > changed {
-		changed = int(count)
+	j.mu.Unlock()
+	for _, item := range published {
+		j.publish(item)
 	}
 	return changed, nil
 }

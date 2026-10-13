@@ -93,6 +93,9 @@ func TestCloudActionsAreNewAttemptsUnlessCallerRetriesWithKey(t *testing.T) {
 	if retry.ID != exactRetry.ID {
 		t.Fatalf("exact retry jobs differ: %q and %q", retry.ID, exactRetry.ID)
 	}
+	if retry.MaxAttempts != 1 {
+		t.Fatalf("cloud mutation max attempts = %d, want 1 to prevent ambiguous automatic replay", retry.MaxAttempts)
+	}
 }
 
 func TestReconcileFailsLegacyPendingDNSWithoutDurableJob(t *testing.T) {

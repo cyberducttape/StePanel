@@ -16,6 +16,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Cloud mutation jobs now wait for provider-side instance/snapshot convergence
+  (Linode state polling, AWS CLI waiters, and OpenStack server-status polling)
+  instead of treating request acceptance as completion. Cloud side effects are
+  not automatically retried after failure or an expired worker lease; uncertain
+  outcomes are dead-lettered with explicit operator reconciliation guidance.
 - Site-operation submissions without an `Idempotency-Key` now always create a
   distinct durable job instead of coalescing unrelated operations for the
   same site. Explicit keys bind to the complete request payload and conflicting

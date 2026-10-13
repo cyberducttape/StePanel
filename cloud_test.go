@@ -223,6 +223,88 @@ func TestLinodeSnapshotRequestMatchesProviderContract(t *testing.T) {
 	}
 }
 
+func TestLinodeInstanceActionsWaitForRemoteConvergence(t *testing.T) {
+	t.Run("start waits through transitional state", func(t *testing.T) {
+		statuses := []string{"offline", "booting", "running"}
+		calls, boots := 0, 0
+		request := func(_ context.Context, method, path string, _ any) (any, error) {
+			if method == http.MethodPost {
+				if path != "/linode/instances/123/boot" {
+					t.Fatalf("mutation path = %q", path)
+				}
+				boots++
+				return nil, nil
+			}
+			status := statuses[min(calls, len(statuses)-1)]
+			calls++
+			return map[string]any{"status": status}, nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := executeLinodeInstanceAction(ctx, "start", "123", "", false, request, 0); err != nil {
+			t.Fatal(err)
+		}
+		if boots != 1 || calls != 3 {
+			t.Fatalf("boot dispatches=%d state reads=%d; want 1 and 3", boots, calls)
+		}
+	})
+	t.Run("already running start is a no-op", func(t *testing.T) {
+		posts := 0
+		request := func(_ context.Context, method, _ string, _ any) (any, error) {
+			if method == http.MethodPost {
+				posts++
+			}
+			return map[string]any{"status": "running"}, nil
+		}
+		if err := executeLinodeInstanceAction(context.Background(), "start", "123", "", false, request, 0); err != nil {
+			t.Fatal(err)
+		}
+		if posts != 0 {
+			t.Fatalf("already-running start dispatched %d mutations", posts)
+		}
+	})
+	t.Run("reboot requires observed transition", func(t *testing.T) {
+		statuses := []string{"running", "rebooting", "running"}
+		calls, posts := 0, 0
+		request := func(_ context.Context, method, _ string, _ any) (any, error) {
+			if method == http.MethodPost {
+				posts++
+				return nil, nil
+			}
+			status := statuses[min(calls, len(statuses)-1)]
+			calls++
+			return map[string]any{"status": status}, nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := executeLinodeInstanceAction(ctx, "reboot", "123", "", false, request, 0); err != nil {
+			t.Fatal(err)
+		}
+		if posts != 1 || calls != 3 {
+			t.Fatalf("reboot dispatches=%d state reads=%d; want 1 and 3", posts, calls)
+		}
+	})
+}
+
+func TestOpenStackWaitRequiresDesiredState(t *testing.T) {
+	statuses := []string{"BUILD", "ACTIVE"}
+	reads := 0
+	err := waitOpenStackServerState(context.Background(), "start", "server-id", 0, func(_ context.Context, id string) (string, error) {
+		if id != "server-id" {
+			t.Fatalf("server ID = %q", id)
+		}
+		status := statuses[min(reads, len(statuses)-1)]
+		reads++
+		return status, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reads != 2 {
+		t.Fatalf("status reads = %d, want 2", reads)
+	}
+}
+
 func TestLinodeDNSRecordPayloadUsesTypedMXAndSRVFields(t *testing.T) {
 	mx := cloudDNSRequest{Type: "mx", Name: "@", Target: "mail.example.com", TTL: 2419200, Priority: 10}
 	if !cloudDNSRecordValid(mx) {

@@ -700,6 +700,42 @@ func TestDurableLoaderUsesRelationalStateAfterLeaseTransitions(t *testing.T) {
 	}
 }
 
+func TestExpiredCloudActionBecomesDeadLetterForReconciliation(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	producer := newJobsWithDB(db, 1)
+	queued, err := producer.Enqueue("cloud.action", "instance-123", "", []byte(`{"action":"reboot"}`), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := newJobsWithDB(db, 1)
+	claimed, ok, err := worker.ClaimNext("worker-a", "cloud.action")
+	if err != nil || !ok || claimed.ID != queued.ID {
+		t.Fatalf("claim = %#v, %v, %v", claimed, ok, err)
+	}
+	if _, err := db.Exec(`UPDATE jobs SET lease_expires_at=? WHERE id=?`, time.Now().UTC().Add(-time.Minute).UnixNano(), queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	count, err := worker.RequeueExpired()
+	if err != nil || count != 1 {
+		t.Fatalf("expired jobs changed = %d, err = %v", count, err)
+	}
+	restarted := newJobsWithDB(db, 1)
+	if err := restarted.load(); err != nil {
+		t.Fatal(err)
+	}
+	got, exists := restarted.Get(queued.ID)
+	if !exists || got.State != "dead-letter" || !strings.Contains(got.Error, "outcome is unknown") {
+		t.Fatalf("expired cloud action = %#v; want dead-letter with reconciliation warning", got)
+	}
+	if _, ok, err := restarted.ClaimNext("worker-b", "cloud.action"); err != nil || ok {
+		t.Fatalf("uncertain cloud action was claimable again: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestDurableWorkerRunsAndCompletesClaimedJob(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

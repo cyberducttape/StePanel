@@ -33,6 +33,7 @@ type CloudActionResult struct {
 	Provider    string    `json:"provider"`
 	Action      string    `json:"action"`
 	ID          string    `json:"id"`
+	RemoteState string    `json:"remote_state,omitempty"`
 	CompletedAt time.Time `json:"completed_at"`
 }
 
@@ -108,7 +109,10 @@ func (a *App) enqueueCloudJob(request durableCloudRequest, suppliedKey string) (
 		owner = request.LB.NodeBalancerID
 	}
 	operationKey := cloudOperationKey(request, suppliedKey, time.Now().UTC())
-	job, _, err := a.Jobs.EnqueueIdempotent("cloud.action", owner, operationKey, payload, 3)
+	// Provider mutations can have an ambiguous outcome when a worker or network
+	// fails after dispatch. Never replay them automatically; leave the attempt
+	// visible for reconciliation by an operator or a new explicit request.
+	job, _, err := a.Jobs.EnqueueIdempotent("cloud.action", owner, operationKey, payload, 1)
 	return job, err
 }
 
@@ -147,7 +151,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 	var err error
 	switch request.Operation {
 	case "instance":
-		workerCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		workerCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 		if request.Provider == "aws" {
 			switch {
@@ -161,7 +165,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		} else {
 			err = executeCloudAction(workerCtx, request.Provider, request.Action, request.ID, request.SnapshotLabel, request.ConfirmSnapshotReplacement)
 		}
-		result = CloudActionResult{Provider: request.Provider, Action: request.Action, ID: request.ID, CompletedAt: time.Now().UTC()}
+		result = CloudActionResult{Provider: request.Provider, Action: request.Action, ID: request.ID, RemoteState: "converged", CompletedAt: time.Now().UTC()}
 	case "ssh":
 		workerCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
@@ -922,7 +926,14 @@ func executeAWSInstanceAction(ctx context.Context, action string, request AWSIns
 	if err != nil {
 		return err
 	}
-	return runCloudCLI(ctx, "aws", "AWS", args...)
+	if err := runCloudCLI(ctx, "aws", "AWS", args...); err != nil {
+		return err
+	}
+	waiter := map[string]string{"start": "instance-running", "stop": "instance-stopped", "reboot": "instance-status-ok"}[action]
+	if waiter == "" {
+		return fmt.Errorf("unsupported AWS instance action: %s", action)
+	}
+	return runCloudCLI(ctx, "aws", "AWS", "ec2", "wait", waiter, "--instance-ids", request.InstanceID)
 }
 
 func executeAWSVolumeSnapshot(ctx context.Context, request AWSVolumeSnapshot) error {
@@ -930,7 +941,19 @@ func executeAWSVolumeSnapshot(ctx context.Context, request AWSVolumeSnapshot) er
 	if err != nil {
 		return err
 	}
-	return runCloudCLI(ctx, "aws", "AWS", args...)
+	out, err := runCloudCLIOutput(ctx, "aws", "AWS", args...)
+	if err != nil {
+		return err
+	}
+	var response struct {
+		Snapshot struct {
+			ID string `json:"SnapshotId"`
+		} `json:"Snapshot"`
+	}
+	if err := json.Unmarshal(out, &response); err != nil || !cloudIDPattern.MatchString(response.Snapshot.ID) {
+		return errors.New("AWS accepted snapshot request but returned no valid snapshot ID; reconcile provider state before retrying")
+	}
+	return runCloudCLI(ctx, "aws", "AWS", "ec2", "wait", "snapshot-completed", "--snapshot-ids", response.Snapshot.ID)
 }
 
 func linodeBackupsPath(linodeID string) (string, error) {
@@ -968,12 +991,7 @@ func linodeInstanceActionRequest(action, linodeID, snapshotLabel string, confirm
 func executeCloudAction(ctx context.Context, provider, action, id, snapshotLabel string, confirmSnapshotReplacement bool) error {
 	switch provider {
 	case "linode":
-		method, path, payload, err := linodeInstanceActionRequest(action, id, snapshotLabel, confirmSnapshotReplacement)
-		if err != nil {
-			return err
-		}
-		_, err = linodeAPIRequest(ctx, method, path, payload)
-		return err
+		return executeLinodeInstanceAction(ctx, action, id, snapshotLabel, confirmSnapshotReplacement, linodeAPIRequest, time.Second)
 	case "aws":
 		if action == "snapshot" {
 			return executeAWSVolumeSnapshot(ctx, AWSVolumeSnapshot{VolumeID: id})
@@ -997,23 +1015,193 @@ func executeCloudAction(ctx context.Context, provider, action, id, snapshotLabel
 			return fmt.Errorf("unsupported OpenStack instance action %q", action)
 		}
 		args = append(args, id, "-f", "json")
-		return runCloudCLI(ctx, "openstack", "OpenStack", args...)
+		if err := runCloudCLI(ctx, "openstack", "OpenStack", args...); err != nil {
+			return err
+		}
+		return waitOpenStackServerState(ctx, action, id, time.Second, func(waitCtx context.Context, serverID string) (string, error) {
+			out, err := runCloudCLIOutput(waitCtx, "openstack", "OpenStack", "server", "show", serverID, "-f", "value", "-c", "status")
+			return strings.TrimSpace(string(out)), err
+		})
 	default:
 		return errors.New("unsupported cloud provider")
 	}
 }
 
+type cloudAPIRequestFunc func(context.Context, string, string, any) (any, error)
+
+func executeLinodeInstanceAction(ctx context.Context, action, id, snapshotLabel string, confirmSnapshotReplacement bool, request cloudAPIRequestFunc, interval time.Duration) error {
+	if request == nil {
+		return errors.New("Linode API request function is required")
+	}
+	method, path, payload, err := linodeInstanceActionRequest(action, id, snapshotLabel, confirmSnapshotReplacement)
+	if err != nil {
+		return err
+	}
+	if action == "snapshot" {
+		if _, err := request(ctx, method, path, payload); err != nil {
+			return err
+		}
+		return waitLinodeSnapshot(ctx, id, strings.TrimSpace(snapshotLabel), request, interval)
+	}
+	// Avoid dispatching a duplicate desired-state operation when the instance
+	// already satisfies it. Reboot is intentionally never treated this way.
+	initial, err := request(ctx, http.MethodGet, "/linode/instances/"+id, nil)
+	if err != nil {
+		return fmt.Errorf("read Linode instance state before %s: %w", action, err)
+	}
+	initialStatus, err := linodeInstanceStatus(initial)
+	if err != nil {
+		return err
+	}
+	want := map[string]string{"start": "running", "stop": "offline"}[action]
+	if action != "reboot" && linodeStatusMatches(action, initialStatus) {
+		return nil
+	}
+	if _, err := request(ctx, method, path, payload); err != nil {
+		return fmt.Errorf("Linode %s request outcome may be ambiguous; reconcile instance %s before retrying: %w", action, id, err)
+	}
+	return waitLinodeInstance(ctx, id, action, want, initialStatus, request, interval)
+}
+
+func linodeInstanceStatus(value any) (string, error) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return "", errors.New("Linode instance response has an unexpected shape")
+	}
+	status, ok := object["status"].(string)
+	if !ok || strings.TrimSpace(status) == "" {
+		return "", errors.New("Linode instance response omitted status")
+	}
+	return strings.ToLower(strings.TrimSpace(status)), nil
+}
+
+func linodeStatusMatches(action, status string) bool {
+	switch action {
+	case "start":
+		return status == "running"
+	case "stop":
+		return status == "offline" || status == "stopped"
+	default:
+		return false
+	}
+}
+
+func waitLinodeInstance(ctx context.Context, id, action, want, initial string, request cloudAPIRequestFunc, interval time.Duration) error {
+	observedTransition := action != "reboot" || initial != "running"
+	for {
+		value, err := request(ctx, http.MethodGet, "/linode/instances/"+id, nil)
+		if err != nil {
+			return fmt.Errorf("read Linode instance state while waiting for %s: %w", action, err)
+		}
+		status, err := linodeInstanceStatus(value)
+		if err != nil {
+			return err
+		}
+		if status != initial {
+			observedTransition = true
+		}
+		if action == "reboot" {
+			if status != "running" {
+				observedTransition = true
+			}
+			if status == "running" && observedTransition {
+				return nil
+			}
+		} else if status == want {
+			return nil
+		}
+		if err := waitCloudPoll(ctx, interval); err != nil {
+			return fmt.Errorf("Linode %s did not converge to %s; reconcile provider state before retrying: %w", action, want, err)
+		}
+	}
+}
+
+func waitLinodeSnapshot(ctx context.Context, id, label string, request cloudAPIRequestFunc, interval time.Duration) error {
+	path, err := linodeBackupsPath(id)
+	if err != nil {
+		return err
+	}
+	for {
+		value, err := request(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return fmt.Errorf("read Linode snapshot state: %w", err)
+		}
+		root, ok := value.(map[string]any)
+		if !ok {
+			return errors.New("Linode backups response has an unexpected shape")
+		}
+		snapshot, _ := root["snapshot"].(map[string]any)
+		if current, ok := snapshot["current"].(map[string]any); ok {
+			if backupLabel, _ := current["label"].(string); backupLabel == label {
+				status, _ := current["status"].(string)
+				switch strings.ToLower(status) {
+				case "successful":
+					return nil
+				case "failed", "useraborted":
+					return fmt.Errorf("Linode snapshot entered terminal status %q", status)
+				}
+			}
+		}
+		if err := waitCloudPoll(ctx, interval); err != nil {
+			return fmt.Errorf("Linode snapshot %q did not reach successful state; reconcile provider state before retrying: %w", label, err)
+		}
+	}
+}
+
+func waitCloudPoll(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func waitOpenStackServerState(ctx context.Context, action, id string, interval time.Duration, read func(context.Context, string) (string, error)) error {
+	want := map[string]string{"start": "ACTIVE", "stop": "SHUTOFF", "reboot": "ACTIVE"}[action]
+	if want == "" {
+		return fmt.Errorf("unsupported OpenStack instance action %q", action)
+	}
+	for {
+		status, err := read(ctx, id)
+		if err != nil {
+			return fmt.Errorf("read OpenStack server state: %w", err)
+		}
+		if strings.EqualFold(strings.TrimSpace(status), want) {
+			return nil
+		}
+		if err := waitCloudPoll(ctx, interval); err != nil {
+			return fmt.Errorf("OpenStack %s did not converge to %s; reconcile provider state before retrying: %w", action, want, err)
+		}
+	}
+}
+
 func runCloudCLI(ctx context.Context, command, provider string, args ...string) error {
+	_, err := runCloudCLIOutput(ctx, command, provider, args...)
+	return err
+}
+
+func runCloudCLIOutput(ctx context.Context, command, provider string, args ...string) ([]byte, error) {
 	if _, err := exec.LookPath(command); err != nil {
-		return fmt.Errorf("%s CLI is not installed", provider)
+		return nil, fmt.Errorf("%s CLI is not installed", provider)
 	}
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Env = cloudCommandEnv()
 	out, err := runBoundedCommand(ctx, cmd)
 	if err != nil {
-		return fmt.Errorf("%s action failed: %w: %s", provider, err, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("%s action failed: %w: %s", provider, err, strings.TrimSpace(string(out)))
 	}
-	return nil
+	return out, nil
 }
 
 // Cloud CLIs need provider credentials and region settings, but should not
