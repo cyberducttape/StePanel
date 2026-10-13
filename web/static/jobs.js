@@ -2,6 +2,8 @@
   'use strict';
   const api = () => window.StepanelAPI;
   const jobs = new Map();
+  const jobRevisions = new Map();
+  let updateRevision = 0;
   const waiters = new Map();
   const waitStarted = new Map();
   const waitFailures = new Map();
@@ -42,6 +44,7 @@
   };
   const record = (job) => {
     jobs.set(job.id, job);
+    jobRevisions.set(job.id, ++updateRevision);
     const listeners = waiters.get(job.id) || [];
     listeners.forEach(({ resolve }) => { if (terminal(job)) resolve(job); });
     if (terminal(job)) {
@@ -59,11 +62,24 @@
   // active job), so it replaces the local map instead of being merged into it;
   // jobs pruned on the server disappear here too. Only jobs someone is still
   // waiting on are kept until their own status request settles.
-  const replaceAll = (list) => {
+  const replaceAll = (list, preserveUpdatesAfter = null) => {
     const previous = new Map(jobs);
     jobs.clear();
-    for (const [id, job] of previous) if (waiters.has(id)) jobs.set(id, job);
-    list.forEach(record);
+    const preservedRevisions = new Map();
+    for (const [id, job] of previous) {
+      const changedDuringRequest = preserveUpdatesAfter !== null && (jobRevisions.get(id) || 0) > preserveUpdatesAfter;
+      if (waiters.has(id) || changedDuringRequest) {
+        jobs.set(id, job);
+        preservedRevisions.set(id, jobRevisions.get(id) || 0);
+      }
+    }
+    jobRevisions.clear();
+    for (const [id, revision] of preservedRevisions) jobRevisions.set(id, revision);
+    list.forEach((job) => {
+      const current = jobs.get(job.id);
+      const changedDuringRequest = preserveUpdatesAfter !== null && current && (jobRevisions.get(job.id) || 0) > preserveUpdatesAfter;
+      if (!changedDuringRequest) record(job);
+    });
     render();
   };
   const load = async () => {
@@ -92,7 +108,10 @@
     // durable job row from another process. Periodically reconcile the feed
     // from the authoritative API; failed reads leave the last known view in
     // place and the next interval retries.
-    load().catch(() => {});
+    const requestedAtRevision = updateRevision;
+    api().request('/api/jobs')
+      .then((data) => replaceAll(data.jobs || [], requestedAtRevision))
+      .catch(() => {});
   };
   const cancel = async (id) => {
     await api().request(`/api/jobs/${encodeURIComponent(id)}`, { method: 'POST' });
