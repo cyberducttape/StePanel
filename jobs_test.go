@@ -924,9 +924,13 @@ func TestDurableWorkerRunsAndCompletesClaimedJob(t *testing.T) {
 			return []byte(`{"result":"ok"}`), nil
 		})
 	}()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if item, ok := j.Get(queued.ID); ok && item.State == "completed" {
+		item, ok, readErr := j.GetWithError(queued.ID)
+		if readErr != nil {
+			t.Fatalf("read durable worker result: %v", readErr)
+		}
+		if ok && item.State == "completed" {
 			if string(item.Output) != `{"result":"ok"}` {
 				t.Fatalf("worker output = %s", item.Output)
 			}

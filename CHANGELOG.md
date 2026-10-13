@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing and documentation
 
+- Durable worker completion tests now allow for slow race-instrumented CI
+  scheduling and verify completion through the authoritative SQLite read API.
 - Recorded the 2026-10-13 repository production-gate run for `b29856f`:
   coverage thresholds, full race suite, recovery drills, control-plane smoke
   benchmarks, mixed HTTP/job load, and documentation/artifact checks passed.
