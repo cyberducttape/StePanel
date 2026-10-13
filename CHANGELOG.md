@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Keep local capacity-reservation counters synchronized with SQLite commit
+  results, and fail explicitly if a consumed reservation row is missing.
 - Treat a successful SQLite job lookup miss as authoritative and evict stale
   process-local cache entries rather than returning a job pruned by another
   process.

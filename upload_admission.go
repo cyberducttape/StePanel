@@ -426,12 +426,17 @@ func (r *capacityReservation) extendLocked(demands []capacityDemand) error {
 			if _, txErr = tx.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, bytes, r.id, demand.device); txErr != nil {
 				return fmt.Errorf("extend capacity reservation: %w", txErr)
 			}
-			r.held[demand.device] += demand.bytes
 		}
 		if txErr = tx.Commit(); txErr != nil {
 			return fmt.Errorf("commit capacity extension: %w", txErr)
 		}
 		rollback = false
+		// Keep the in-process view behind the same commit point as the durable
+		// ledger. A failed commit must not leave phantom held capacity in this
+		// reservation object.
+		for _, demand := range grouped {
+			r.held[demand.device] += demand.bytes
+		}
 		return nil
 	}
 	for _, demand := range grouped {
@@ -590,18 +595,28 @@ func (r *capacityReservation) consume(size int64) error {
 	written := uint64(size)
 	if written > r.consumedSize {
 		landed := min(written-r.consumedSize, r.held[r.stagingDev])
+		if l.db != nil && r.id != "" && landed > 0 {
+			bytes, err := capacitySQLBytes(landed)
+			if err != nil {
+				return err
+			}
+			result, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=MAX(bytes-?,0) WHERE reservation_id=? AND device=?`, bytes, r.id, r.stagingDev)
+			if dbErr != nil {
+				return fmt.Errorf("update capacity reservation after write: %w", dbErr)
+			}
+			changed, rowsErr := result.RowsAffected()
+			if rowsErr != nil {
+				return fmt.Errorf("read capacity reservation update result: %w", rowsErr)
+			}
+			if changed != 1 {
+				return fmt.Errorf("update capacity reservation after write: expected one durable row, changed %d", changed)
+			}
+		}
+		// Reflect consumed bytes locally only after SQLite accepted the same
+		// transition. On a persistence error, a retry sees the unchanged hold.
 		r.held[r.stagingDev] -= landed
 		if l.held != nil {
 			l.held[r.stagingDev] -= landed
-		}
-		if l.db != nil && r.id != "" && landed > 0 {
-			if bytes, err := capacitySQLBytes(landed); err == nil {
-				if _, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=MAX(bytes-?,0) WHERE reservation_id=? AND device=?`, bytes, r.id, r.stagingDev); dbErr != nil {
-					return fmt.Errorf("update capacity reservation after write: %w", dbErr)
-				}
-			} else {
-				return err
-			}
 		}
 		r.consumedSize = written
 	}

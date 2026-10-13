@@ -461,6 +461,106 @@ func TestDurableCapacityReservationConsumesAndExtendsWithoutInMemoryLedger(t *te
 	}
 }
 
+func TestDurableCapacityConsumeDoesNotAdvanceLocalStateBeforeSQLite(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := ledger.reserve(cfg, "streamed-upload", cfg.ImportRoot, []capacityDemand{{Path: cfg.ImportRoot, Bytes: 1000}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.release()
+	if _, err := db.Exec(`CREATE TRIGGER reject_capacity_consume BEFORE UPDATE ON capacity_reservations BEGIN SELECT RAISE(ABORT, 'injected reservation update failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := reservation.consume(400); err == nil {
+		t.Fatal("consume succeeded despite durable reservation update failure")
+	}
+	device, err := filesystemDevice(cfg.ImportRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reservation.held[device] != 1000 || reservation.consumedSize != 0 {
+		t.Fatalf("local reservation advanced despite failed SQLite update: held=%d consumed=%d", reservation.held[device], reservation.consumedSize)
+	}
+	if held := ledger.heldBytes(cfg.ImportRoot); held != 1000 {
+		t.Fatalf("durable reservation after failed update = %d, want 1000", held)
+	}
+	if _, err := db.Exec(`DROP TRIGGER reject_capacity_consume`); err != nil {
+		t.Fatal(err)
+	}
+	if err := reservation.consume(400); err != nil {
+		t.Fatalf("consume retry after SQLite recovery: %v", err)
+	}
+	if reservation.held[device] != 600 || reservation.consumedSize != 400 {
+		t.Fatalf("local reservation after durable retry: held=%d consumed=%d, want 600/400", reservation.held[device], reservation.consumedSize)
+	}
+	if held := ledger.heldBytes(cfg.ImportRoot); held != 600 {
+		t.Fatalf("durable reservation after retry = %d, want 600", held)
+	}
+}
+
+func TestDurableCapacityExtensionCommitFailureDoesNotAdvanceLocalHold(t *testing.T) {
+	withProgressiveStep(t, 1000)
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demandsFor := func(bytes uint64) []capacityDemand {
+		return []capacityDemand{{Path: cfg.ImportRoot, Bytes: bytes}}
+	}
+	reservation, err := ledger.reserveProgressive(cfg, "streamed-upload", cfg.ImportRoot, 2500, demandsFor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.release()
+	if _, err := db.Exec(`CREATE TABLE capacity_commit_parent (id INTEGER PRIMARY KEY);
+CREATE TABLE capacity_commit_guard (parent_id INTEGER, FOREIGN KEY(parent_id) REFERENCES capacity_commit_parent(id) DEFERRABLE INITIALLY DEFERRED);
+CREATE TRIGGER reject_capacity_extension AFTER UPDATE ON capacity_reservations WHEN NEW.bytes > OLD.bytes BEGIN INSERT INTO capacity_commit_guard(parent_id) VALUES(999); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := reservation.consume(600); err == nil {
+		t.Fatal("progressive extension committed despite deferred constraint failure")
+	}
+	device, err := filesystemDevice(cfg.ImportRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reservation.held[device] != 400 || reservation.consumedSize != 600 || reservation.admitted != 1000 {
+		t.Fatalf("local state after failed extension commit: held=%d consumed=%d admitted=%d, want 400/600/1000", reservation.held[device], reservation.consumedSize, reservation.admitted)
+	}
+	if held := ledger.heldBytes(cfg.ImportRoot); held != 400 {
+		t.Fatalf("durable reservation after failed extension commit = %d, want 400", held)
+	}
+	if _, err := db.Exec(`DROP TRIGGER reject_capacity_extension; DROP TABLE capacity_commit_guard; DROP TABLE capacity_commit_parent`); err != nil {
+		t.Fatal(err)
+	}
+	if err := reservation.consume(600); err != nil {
+		t.Fatalf("extension retry after commit failure: %v", err)
+	}
+	if reservation.held[device] != 1400 || reservation.admitted != 2000 {
+		t.Fatalf("local state after successful extension retry: held=%d admitted=%d, want 1400/2000", reservation.held[device], reservation.admitted)
+	}
+	if held := ledger.heldBytes(cfg.ImportRoot); held != 1400 {
+		t.Fatalf("durable reservation after successful retry = %d, want 1400", held)
+	}
+}
+
 func TestCapacityReservationConsumeReleasesWrittenBytes(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0
