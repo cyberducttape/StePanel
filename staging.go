@@ -168,15 +168,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if input.Environment && a.Environments != nil {
-			a.Environments.mu.Lock()
-			if previousEnvironmentExists {
-				a.Environments.values[input.Site] = previousEnvironment
-			} else {
-				delete(a.Environments.values, input.Site)
-			}
-			err := a.Environments.persistLocked()
-			a.Environments.mu.Unlock()
-			if err != nil {
+			if err := a.Environments.replaceSiteValues(input.Site, previousEnvironment, previousEnvironmentExists); err != nil {
 				log.Printf("staging environment rollback failed for %s: %v", input.Site, err)
 			}
 		}
@@ -276,11 +268,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		a.Environments.mu.RUnlock()
-		a.Environments.mu.Lock()
-		a.Environments.values[input.Site] = copied
-		err = a.Environments.persistLocked()
-		a.Environments.mu.Unlock()
-		if err != nil {
+		if err = a.Environments.replaceSiteValues(input.Site, copied, true); err != nil {
 			http.Error(w, "could not persist staging environment", 503)
 			return
 		}

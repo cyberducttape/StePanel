@@ -58,6 +58,51 @@ func TestEnvironmentStoreEncryptWithoutKeyReturnsError(t *testing.T) {
 	}
 }
 
+func TestEnvironmentStoreReplaceSiteValuesRollsBackMemoryOnPersistenceFailure(t *testing.T) {
+	tests := []struct {
+		name     string
+		initial  map[string]map[string]environmentValue
+		values   map[string]environmentValue
+		exists   bool
+		wantSite bool
+		want     map[string]environmentValue
+	}{
+		{
+			name: "replace", initial: map[string]map[string]environmentValue{"demo": {"OLD": {Value: "durable"}}},
+			values: map[string]environmentValue{"NEW": {Value: "uncommitted"}}, exists: true,
+			wantSite: true, want: map[string]environmentValue{"OLD": {Value: "durable"}},
+		},
+		{
+			name: "insert", initial: map[string]map[string]environmentValue{},
+			values: map[string]environmentValue{"NEW": {Value: "uncommitted"}}, exists: true,
+		},
+		{
+			name: "delete", initial: map[string]map[string]environmentValue{"demo": {"OLD": {Value: "durable"}}},
+			wantSite: true, want: map[string]environmentValue{"OLD": {Value: "durable"}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			blockedParent := filepath.Join(root, "not-a-directory")
+			if err := os.WriteFile(blockedParent, []byte("block"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			store := &EnvironmentStore{
+				path:   filepath.Join(blockedParent, "environment.json"),
+				values: test.initial,
+			}
+			if err := store.replaceSiteValues("demo", test.values, test.exists); err == nil {
+				t.Fatal("replaceSiteValues succeeded despite an unwritable state path")
+			}
+			got, exists := store.values["demo"]
+			if exists != test.wantSite || !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("in-memory site after failed persistence = (%#v, %v), want (%#v, %v)", got, exists, test.want, test.wantSite)
+			}
+		})
+	}
+}
+
 func TestMergeEnvironmentUpdatePreservesRedactedSecrets(t *testing.T) {
 	current := map[string]environmentValue{
 		"DB_PASSWORD": {Value: "secret123", Secret: true},

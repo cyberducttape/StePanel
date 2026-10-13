@@ -359,6 +359,23 @@ func cloneEnvironmentValues(values map[string]environmentValue) map[string]envir
 	return copy
 }
 
+// replaceSiteValues publishes one site's environment state only if its durable
+// representation is persisted. On failure, restore the last in-memory state so
+// callers never observe an uncommitted desired-state change.
+func (s *EnvironmentStore) replaceSiteValues(site string, values map[string]environmentValue, exists bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.values == nil {
+		s.values = make(map[string]map[string]environmentValue)
+	}
+	var next *map[string]environmentValue
+	if exists {
+		copy := cloneEnvironmentValues(values)
+		next = &copy
+	}
+	return persistMapKeyChange(s.values, site, next, s.persistLocked)
+}
+
 func (a *App) removeEnvironment(ctx context.Context, access SiteCapability) error {
 	return a.removeEnvironmentLocked(ctx, access.Site())
 }
