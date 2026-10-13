@@ -286,6 +286,39 @@ func TestLinodeInstanceActionsWaitForRemoteConvergence(t *testing.T) {
 	})
 }
 
+func TestLinodeSnapshotWaitDoesNotAcceptReplacedSnapshotWithSameLabel(t *testing.T) {
+	responses := []map[string]any{
+		{"snapshot": map[string]any{"current": map[string]any{"id": float64(7), "label": "nightly", "status": "successful"}}},
+		nil, // POST acceptance
+		{"snapshot": map[string]any{"current": map[string]any{"id": float64(7), "label": "nightly", "status": "successful"}}},
+		{"snapshot": map[string]any{"current": map[string]any{"id": float64(8), "label": "nightly", "status": "successful"}}},
+	}
+	calls := 0
+	request := func(_ context.Context, method, path string, _ any) (any, error) {
+		if path != "/linode/instances/123/backups" {
+			t.Fatalf("backup path = %q", path)
+		}
+		wantMethod := http.MethodGet
+		if calls == 1 {
+			wantMethod = http.MethodPost
+		}
+		if method != wantMethod {
+			t.Fatalf("request %d method = %s, want %s", calls, method, wantMethod)
+		}
+		response := responses[calls]
+		calls++
+		return response, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := executeLinodeInstanceAction(ctx, "snapshot", "123", "nightly", true, request, 0); err != nil {
+		t.Fatal(err)
+	}
+	if calls != len(responses) {
+		t.Fatalf("provider requests = %d, want %d", calls, len(responses))
+	}
+}
+
 func TestOpenStackWaitRequiresDesiredState(t *testing.T) {
 	statuses := []string{"BUILD", "ACTIVE"}
 	reads := 0

@@ -1076,10 +1076,19 @@ func executeLinodeInstanceAction(ctx context.Context, action, id, snapshotLabel 
 		return err
 	}
 	if action == "snapshot" {
-		if _, err := request(ctx, method, path, payload); err != nil {
+		backupsPath, err := linodeBackupsPath(id)
+		if err != nil {
 			return err
 		}
-		return waitLinodeSnapshot(ctx, id, strings.TrimSpace(snapshotLabel), request, interval)
+		before, err := request(ctx, http.MethodGet, backupsPath, nil)
+		if err != nil {
+			return fmt.Errorf("read current Linode snapshot before replacement: %w", err)
+		}
+		previousSnapshotID := linodeCurrentSnapshotID(before)
+		if _, err := request(ctx, method, path, payload); err != nil {
+			return fmt.Errorf("Linode snapshot request outcome may be ambiguous; reconcile instance %s before retrying: %w", id, err)
+		}
+		return waitLinodeSnapshot(ctx, id, strings.TrimSpace(snapshotLabel), previousSnapshotID, request, interval)
 	}
 	// Avoid dispatching a duplicate desired-state operation when the instance
 	// already satisfies it. Reboot is intentionally never treated this way.
@@ -1154,7 +1163,26 @@ func waitLinodeInstance(ctx context.Context, id, action, want, initial string, r
 	}
 }
 
-func waitLinodeSnapshot(ctx context.Context, id, label string, request cloudAPIRequestFunc, interval time.Duration) error {
+func linodeCurrentSnapshotID(value any) string {
+	root, ok := value.(map[string]any)
+	if !ok {
+		return ""
+	}
+	snapshot, _ := root["snapshot"].(map[string]any)
+	current, _ := snapshot["current"].(map[string]any)
+	switch id := current["id"].(type) {
+	case string:
+		return strings.TrimSpace(id)
+	case float64:
+		return strconv.FormatInt(int64(id), 10)
+	case json.Number:
+		return id.String()
+	default:
+		return ""
+	}
+}
+
+func waitLinodeSnapshot(ctx context.Context, id, label, previousSnapshotID string, request cloudAPIRequestFunc, interval time.Duration) error {
 	path, err := linodeBackupsPath(id)
 	if err != nil {
 		return err
@@ -1170,7 +1198,8 @@ func waitLinodeSnapshot(ctx context.Context, id, label string, request cloudAPIR
 		}
 		snapshot, _ := root["snapshot"].(map[string]any)
 		if current, ok := snapshot["current"].(map[string]any); ok {
-			if backupLabel, _ := current["label"].(string); backupLabel == label {
+			currentID := linodeCurrentSnapshotID(root)
+			if backupLabel, _ := current["label"].(string); backupLabel == label && (previousSnapshotID == "" || currentID != previousSnapshotID) {
 				status, _ := current["status"].(string)
 				switch strings.ToLower(status) {
 				case "successful":

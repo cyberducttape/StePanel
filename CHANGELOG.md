@@ -20,9 +20,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   (Linode state polling, AWS CLI waiters, and OpenStack server-status polling);
   reboot actions require an observed transition out of the pre-request healthy
   state. They no longer treat request acceptance or an already-healthy server
-  as proof of completion. Cloud side effects are
-  not automatically retried after failure or an expired worker lease; uncertain
-  outcomes are dead-lettered with explicit operator reconciliation guidance.
+  as proof of completion. Linode snapshot completion must identify a new
+  snapshot rather than an older snapshot with a reused label. Cloud side
+  effects are not automatically retried after failure or an expired worker
+  lease; uncertain outcomes are dead-lettered with explicit operator
+  reconciliation guidance.
 - Site-operation submissions without an `Idempotency-Key` now always create a
   distinct durable job instead of coalescing unrelated operations for the
   same site. Explicit keys bind to the complete request payload and conflicting
