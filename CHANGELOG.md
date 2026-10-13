@@ -29,6 +29,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Application deploy, rollback, start, stop, and restart now share a durable
+  activation journal that records both prior and target generations. Failed
+  changes restore runtime, manifest, and rollback sidecar together; startup
+  compensates uncommitted work or reconciles committed work forward. Invalid
+  existing manifests are no longer overwritten, and successful compensation
+  removes its journal so it cannot revert a later deployment.
 - Offsite transfer deadlines no longer assume a minimum bandwidth. Operators
   can configure a total deadline with `STEPANEL_OFFSITE_TRANSFER_TIMEOUT`,
   while rclone's inactivity timeout remains a separate stalled-I/O safeguard.

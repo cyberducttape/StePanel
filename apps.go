@@ -91,33 +91,24 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to create app state directory", 500)
 		return
 	}
-	manifestPath, err := safePath(a.Config.AppRoot, app.Site+".json")
-	if err != nil {
-		http.Error(w, "invalid app manifest path", 422)
-		return
-	}
-	previous, previousErr := os.ReadFile(manifestPath)
-	if previousErr != nil && !os.IsNotExist(previousErr) {
+	previous, hadPrevious, previousErr := readAppStateFile(a.Config, app.Site, ".json")
+	if previousErr != nil {
 		http.Error(w, "unable to read existing app manifest", 500)
 		return
 	}
-	hadPrevious := previousErr == nil
 	var previousManifest *AppManifest
 	if hadPrevious {
 		var parsed AppManifest
-		if err := json.Unmarshal(previous, &parsed); err == nil && validAppManifest(a.Config, parsed, app.Site) {
-			previousManifest = &parsed
+		if err := json.Unmarshal(previous, &parsed); err != nil || !validAppManifest(a.Config, parsed, app.Site) {
+			http.Error(w, "existing app manifest is invalid; refusing to replace unmanaged runtime state", http.StatusConflict)
+			return
 		}
+		previousManifest = &parsed
 	}
-	if hadPrevious {
-		if err := operationCtx.Err(); err != nil {
-			http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
-			return
-		}
-		if err := writeAtomic(manifestPath+".bak", previous, 0600); err != nil {
-			http.Error(w, "unable to save app rollback state", 500)
-			return
-		}
+	previousBackup, hadPreviousBackup, backupReadErr := readAppStateFile(a.Config, app.Site, ".json.bak")
+	if backupReadErr != nil {
+		http.Error(w, "unable to read existing app rollback state", 500)
+		return
 	}
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
@@ -131,60 +122,24 @@ func (a *App) appDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	var outcome string
 	defer intent.Finish(&outcome, "application service was not applied; previous configuration kept")
-	journal, err := newAppActivationJournal(a.Config, app.Site, manifestPath, previous, previousManifest)
-	if err != nil {
-		http.Error(w, "unable to prepare app recovery journal", http.StatusInternalServerError)
-		return
-	}
-	if err := journal.setState("runtime_applying"); err != nil {
-		http.Error(w, "unable to persist app recovery journal", http.StatusInternalServerError)
-		return
-	}
 	app.State = "running"
-	data, err := json.MarshalIndent(app, "", "  ")
+	cleanupPending, err := activateAppManifest(operationCtx, a.Config, app, previous, previousManifest, previousBackup, hadPreviousBackup)
 	if err != nil {
-		http.Error(w, "unable to encode app manifest", 500)
-		return
-	}
-	if err := applyAppProcess(operationCtx, a.Config, app); err != nil {
-		log.Printf("app deploy %s: apply service configuration: %v", app.Site, err)
-		rollbackErr := restoreAppActivation(a.Config, operationCtx, journal)
-		if rollbackErr != nil {
-			outcome = deployment + "; helper failed and manifest rollback failed: " + rollbackErr.Error()
-			log.Printf("app deploy %s: restore previous manifest: %v", app.Site, rollbackErr)
-			http.Error(w, "app helper failed and manifest rollback failed: "+rollbackErr.Error(), http.StatusServiceUnavailable)
+		var activationErr *appActivationFailure
+		if errors.As(err, &activationErr) && activationErr.RecoveryErr != nil {
+			outcome = deployment + "; rollback incomplete: " + activationErr.RecoveryErr.Error()
+			log.Printf("app deploy %s: activation failed and recovery is pending: %v", app.Site, err)
+			http.Error(w, "application activation failed and rollback is incomplete; operator recovery is required", http.StatusServiceUnavailable)
 			return
 		}
-		http.Error(w, "application service could not be applied; the previous configuration was kept", http.StatusServiceUnavailable)
+		log.Printf("app deploy %s: activation failed; previous generation restored: %v", app.Site, err)
+		http.Error(w, "application service could not be applied; the previous configuration was restored", http.StatusBadGateway)
 		return
 	}
-	if err := journal.setState("runtime_applied"); err != nil {
-		_ = restoreAppActivation(a.Config, operationCtx, journal)
-		http.Error(w, "application recovery state could not be persisted", http.StatusServiceUnavailable)
-		return
-	}
-	if err := writeAtomic(manifestPath, append(data, '\n'), 0600); err != nil {
-		rollbackErr := restoreAppActivation(a.Config, operationCtx, journal)
-		if rollbackErr != nil {
-			http.Error(w, "app manifest could not be saved and runtime recovery failed", http.StatusServiceUnavailable)
-			return
-		}
-		http.Error(w, "unable to save app manifest", 500)
-		return
-	}
-	if err := journal.setState("manifest_committed"); err != nil {
-		http.Error(w, "app recovery state could not be finalized", http.StatusServiceUnavailable)
-		return
-	}
-	if err := journal.cleanup(); err != nil {
-		http.Error(w, "app recovery journal could not be removed", http.StatusServiceUnavailable)
-		return
+	if cleanupPending {
+		log.Printf("app deploy %s: committed activation journal cleanup is pending startup recovery", app.Site)
 	}
 	outcome = deployment
-	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "app deployment cancelled because the mutation lock was lost", http.StatusConflict)
-		return
-	}
 	a.invalidateAppsCache()
 	writeJSON(w, http.StatusAccepted, app)
 }
@@ -206,9 +161,160 @@ func restoreAppActivation(cfg Config, ctx context.Context, journal *appActivatio
 		return err
 	}
 	if journal.HadPrevious {
-		return writeAtomic(manifestPath, journal.Previous, 0600)
+		if err := writeAtomic(manifestPath, journal.Previous, 0600); err != nil {
+			return err
+		}
+	} else if err := removeAppManifest(cfg, journal.Site, manifestPath); err != nil {
+		return err
 	}
-	return removeAppManifest(cfg, journal.Site, manifestPath)
+	if journal.Version >= 2 {
+		if err := restoreAppBackup(cfg, journal.Site, journal.PreviousBackup, journal.HadPreviousBackup); err != nil {
+			return err
+		}
+	}
+	return journal.cleanup()
+}
+
+type appActivationFailure struct {
+	Cause       error
+	RecoveryErr error
+}
+
+func (e *appActivationFailure) Error() string {
+	if e.RecoveryErr != nil {
+		return fmt.Sprintf("activation failed: %v; recovery failed: %v", e.Cause, e.RecoveryErr)
+	}
+	return fmt.Sprintf("activation failed and previous state was restored: %v", e.Cause)
+}
+
+func (e *appActivationFailure) Unwrap() error { return e.Cause }
+
+// activateAppManifest journals both runtime activation and manifest/rollback
+// metadata publication. The committed state is durable before journal cleanup,
+// so startup can distinguish a completed activation from work to compensate.
+func activateAppManifest(ctx context.Context, cfg Config, target AppManifest, previous []byte, previousManifest *AppManifest, previousBackup []byte, hadPreviousBackup bool) (bool, error) {
+	manifestPath, err := safePath(cfg.AppRoot, target.Site+".json")
+	if err != nil {
+		return false, err
+	}
+	target.State = "running"
+	data, err := json.MarshalIndent(target, "", "  ")
+	if err != nil {
+		return false, err
+	}
+	targetBytes := append(data, '\n')
+	journal, err := newAppActivationJournalWithBackup(cfg, target.Site, manifestPath, previous, previousManifest, previousBackup, hadPreviousBackup)
+	if err != nil {
+		return false, err
+	}
+	if err := journal.setTarget(targetBytes, previous, previousManifest != nil); err != nil {
+		return false, err
+	}
+	if err := journal.setState("runtime_applying"); err != nil {
+		return false, err
+	}
+	compensate := func(cause error) (bool, error) {
+		recoveryErr := restoreAppActivation(cfg, ctx, journal)
+		return false, &appActivationFailure{Cause: cause, RecoveryErr: recoveryErr}
+	}
+	if err := ctx.Err(); err != nil {
+		return compensate(err)
+	}
+	if err := applyAppProcess(ctx, cfg, target); err != nil {
+		return compensate(err)
+	}
+	if err := journal.setState("runtime_applied"); err != nil {
+		return compensate(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return compensate(err)
+	}
+	backupPath, err := safePath(cfg.AppRoot, target.Site+".json.bak")
+	if err != nil {
+		return compensate(err)
+	}
+	if previousManifest != nil {
+		if err := writeAtomic(backupPath, previous, 0600); err != nil {
+			return compensate(err)
+		}
+	} else if err := removeAppBackup(cfg, target.Site); err != nil {
+		return compensate(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return compensate(err)
+	}
+	if err := writeAtomic(manifestPath, targetBytes, 0600); err != nil {
+		return compensate(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return compensate(err)
+	}
+	if err := journal.setState("committed"); err != nil {
+		return compensate(err)
+	}
+	if err := journal.cleanup(); err != nil {
+		return true, nil
+	}
+	return false, nil
+}
+
+const maxAppStateFileBytes = 1 << 20
+
+func readAppStateFile(cfg Config, site, suffix string) ([]byte, bool, error) {
+	if safeUser(site) == "" || (suffix != ".json" && suffix != ".json.bak") {
+		return nil, false, errors.New("invalid application state path")
+	}
+	path, err := safePath(cfg.AppRoot, site+suffix)
+	if err != nil {
+		return nil, false, err
+	}
+	f, _, err := openRegularNoFollow(path, nil)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(f, maxAppStateFileBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, false, readErr
+	}
+	if closeErr != nil {
+		return nil, false, closeErr
+	}
+	if len(data) > maxAppStateFileBytes {
+		return nil, false, errors.New("application state file exceeds size limit")
+	}
+	return data, true, nil
+}
+
+func restoreAppBackup(cfg Config, site string, previous []byte, existed bool) error {
+	if safeUser(site) == "" {
+		return errors.New("application rollback site is invalid")
+	}
+	path, err := safePath(cfg.AppRoot, site+".json.bak")
+	if err != nil {
+		return err
+	}
+	if existed {
+		return writeAtomic(path, previous, 0600)
+	}
+	return removeAppBackup(cfg, site)
+}
+
+func removeAppBackup(cfg Config, site string) error {
+	if safeUser(site) == "" {
+		return errors.New("application rollback site is invalid")
+	}
+	path, err := safePath(cfg.AppRoot, site+".json.bak")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // removeAppManifest removes only the manifest for a validated site identity.
@@ -264,13 +370,8 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 	}
 	defer releaseUnlock()
 	if parts[1] == "rollback" {
-		manifestPath, err := safePath(a.Config.AppRoot, parts[0]+".json")
-		if err != nil {
-			http.Error(w, "invalid application manifest path", http.StatusUnprocessableEntity)
-			return
-		}
-		backup, err := os.ReadFile(manifestPath + ".bak")
-		if err != nil {
+		backup, hadBackup, err := readAppStateFile(a.Config, parts[0], ".json.bak")
+		if err != nil || !hadBackup {
 			http.Error(w, "no previous app release is available", 409)
 			return
 		}
@@ -279,8 +380,8 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid previous app release", 500)
 			return
 		}
-		current, err := os.ReadFile(manifestPath)
-		if err != nil {
+		current, hadCurrent, err := readAppStateFile(a.Config, parts[0], ".json")
+		if err != nil || !hadCurrent {
 			http.Error(w, "current app manifest is unavailable", 500)
 			return
 		}
@@ -291,39 +392,19 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 		}
 		// Applying a release always leaves the service enabled and running.
 		previous.State = "running"
-		restored, err := json.MarshalIndent(previous, "", "  ")
-		if err != nil {
-			http.Error(w, "unable to encode previous app release", 500)
-			return
-		}
-		restored = append(restored, '\n')
-		if err := applyAppProcess(operationCtx, a.Config, previous); err != nil {
-			log.Printf("app rollback %s: apply previous release: %v", parts[0], err)
-			http.Error(w, "rollback failed", 502)
-			return
-		}
-		if err := operationCtx.Err(); err != nil {
-			http.Error(w, "app rollback cancelled because the mutation lock was lost", http.StatusConflict)
-			return
-		}
-		if err := writeAtomic(manifestPath+".bak", current, 0600); err != nil {
-			restoreErr := restoreAppProcess(operationCtx, a.Config, currentManifest)
-			if restoreErr != nil {
-				http.Error(w, fmt.Sprintf("rollback state could not be persisted and the previous process configuration could not be restored: %v", restoreErr), http.StatusServiceUnavailable)
-				return
+		cleanupPending, activationErr := activateAppManifest(operationCtx, a.Config, previous, current, &currentManifest, backup, hadBackup)
+		if activationErr != nil {
+			log.Printf("app rollback %s: %v", parts[0], activationErr)
+			var rollbackErr *appActivationFailure
+			if errors.As(activationErr, &rollbackErr) && rollbackErr.RecoveryErr != nil {
+				http.Error(w, "app rollback failed and recovery is incomplete; operator intervention is required", http.StatusServiceUnavailable)
+			} else {
+				http.Error(w, "app rollback failed; previous runtime and manifests were restored", http.StatusBadGateway)
 			}
-			http.Error(w, "rollback state could not be persisted; the previous process configuration was restored", http.StatusInternalServerError)
 			return
 		}
-		if err := writeAtomic(manifestPath, restored, 0600); err != nil {
-			backupRestoreErr := writeAtomic(manifestPath+".bak", backup, 0600)
-			restoreErr := restoreAppProcess(operationCtx, a.Config, currentManifest)
-			if backupRestoreErr != nil || restoreErr != nil {
-				http.Error(w, fmt.Sprintf("rollback manifest failed and recovery was incomplete (manifest backup: %v; process configuration: %v)", backupRestoreErr, restoreErr), http.StatusServiceUnavailable)
-				return
-			}
-			http.Error(w, "rollback manifest could not be persisted; the previous process configuration was restored", http.StatusInternalServerError)
-			return
+		if cleanupPending {
+			log.Printf("app rollback %s: committed activation journal cleanup is pending startup recovery", parts[0])
 		}
 	} else if status, message, err := a.runAppStateAction(operationCtx, parts[0], parts[1]); err != nil {
 		log.Printf("app %s %s: %v", parts[1], parts[0], err)
@@ -332,10 +413,6 @@ func (a *App) appAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.invalidateAppsCache()
-	if err := operationCtx.Err(); err != nil {
-		http.Error(w, "app action cancelled because the mutation lock was lost", http.StatusConflict)
-		return
-	}
 	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "app."+parts[1], parts[0], "systemd action")
 	writeJSON(w, http.StatusAccepted, map[string]string{"site": parts[0], "action": parts[1]})
 }
@@ -372,30 +449,13 @@ func restoreAppProcess(ctx context.Context, cfg Config, manifest AppManifest) er
 	return nil
 }
 
-// runAppStateAction starts, stops or restarts a deployed application and
-// records the resulting state in its manifest. The manifest is written first
-// and restored if the action fails, so it never claims a state the service was
-// not put into. On failure it returns the HTTP status and message to report.
+// runAppStateAction starts, stops or restarts a deployed application. A
+// durable activation journal keeps the runtime and manifest generation
+// recoverable if the process exits between the service action and state write.
 func (a *App) runAppStateAction(ctx context.Context, site, action string) (int, string, error) {
-	manifestPath, err := safePath(a.Config.AppRoot, site+".json")
-	if err != nil {
-		return http.StatusInternalServerError, "app manifest path is invalid", err
-	}
-	manifestFile, _, err := openRegularNoFollow(manifestPath, nil)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return http.StatusConflict, "application is not deployed", err
-		}
-		return http.StatusInternalServerError, "current app manifest is unavailable", err
-	}
-	current, readErr := io.ReadAll(manifestFile)
-	closeErr := manifestFile.Close()
-	if readErr == nil {
-		readErr = closeErr
-	}
-	err = readErr
-	if errors.Is(err, os.ErrNotExist) {
-		return http.StatusConflict, "application is not deployed", err
+	current, exists, err := readAppStateFile(a.Config, site, ".json")
+	if errors.Is(err, os.ErrNotExist) || (err == nil && !exists) {
+		return http.StatusConflict, "application is not deployed", os.ErrNotExist
 	}
 	if err != nil {
 		return http.StatusInternalServerError, "current app manifest is unavailable", err
@@ -405,7 +465,12 @@ func (a *App) runAppStateAction(ctx context.Context, site, action string) (int, 
 		return http.StatusInternalServerError, "current app manifest is invalid", err
 	}
 	if !validAppManifest(a.Config, manifest, site) {
-		return http.StatusInternalServerError, "current app manifest is invalid", fmt.Errorf("manifest %s failed validation", manifestPath)
+		return http.StatusInternalServerError, "current app manifest is invalid", errors.New("manifest failed validation")
+	}
+	previousManifest := manifest
+	previousBackup, hadPreviousBackup, err := readAppStateFile(a.Config, site, ".json.bak")
+	if err != nil {
+		return http.StatusInternalServerError, "app rollback state is unavailable", err
 	}
 	manifest.State = "running"
 	if action == "stop" {
@@ -415,16 +480,64 @@ func (a *App) runAppStateAction(ctx context.Context, site, action string) (int, 
 	if err != nil {
 		return http.StatusInternalServerError, "unable to encode app manifest", err
 	}
-	if err := writeAtomic(manifestPath, append(data, '\n'), 0600); err != nil {
-		return http.StatusInternalServerError, "unable to save app manifest", err
-	}
-	if err := runAppLifecycle(ctx, a.Config, action, site); err != nil {
-		if restoreErr := writeAtomic(manifestPath, current, 0600); restoreErr != nil {
-			return http.StatusServiceUnavailable, "app action failed and the app manifest could not be restored", errors.Join(err, restoreErr)
+	cleanupPending, transitionErr := applyAppStateTransition(ctx, a.Config, manifest, current, &previousManifest, previousBackup, hadPreviousBackup, append(data, '\n'), action)
+	if transitionErr != nil {
+		var activationErr *appActivationFailure
+		if errors.As(transitionErr, &activationErr) && activationErr.RecoveryErr != nil {
+			return http.StatusServiceUnavailable, "app action failed and recovery is incomplete; operator intervention is required", transitionErr
 		}
-		return http.StatusBadGateway, "app action failed", err
+		return http.StatusBadGateway, "app action failed; prior runtime and state were restored", transitionErr
+	}
+	if cleanupPending {
+		log.Printf("app action %s %s: committed activation journal cleanup is pending startup recovery", action, site)
 	}
 	return 0, "", nil
+}
+
+func applyAppStateTransition(ctx context.Context, cfg Config, target AppManifest, previous []byte, previousManifest *AppManifest, previousBackup []byte, hadPreviousBackup bool, targetBytes []byte, action string) (bool, error) {
+	manifestPath, err := safePath(cfg.AppRoot, target.Site+".json")
+	if err != nil {
+		return false, err
+	}
+	journal, err := newAppActivationJournalWithBackup(cfg, target.Site, manifestPath, previous, previousManifest, previousBackup, hadPreviousBackup)
+	if err != nil {
+		return false, err
+	}
+	if err := journal.setTarget(targetBytes, previousBackup, hadPreviousBackup); err != nil {
+		return false, err
+	}
+	if err := journal.setState("runtime_applying"); err != nil {
+		return false, err
+	}
+	compensate := func(cause error) (bool, error) {
+		recoveryErr := restoreAppActivation(cfg, ctx, journal)
+		return false, &appActivationFailure{Cause: cause, RecoveryErr: recoveryErr}
+	}
+	if err := ctx.Err(); err != nil {
+		return compensate(err)
+	}
+	if err := runAppLifecycle(ctx, cfg, action, target.Site); err != nil {
+		return compensate(err)
+	}
+	if err := journal.setState("runtime_applied"); err != nil {
+		return compensate(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return compensate(err)
+	}
+	if err := writeAtomic(manifestPath, targetBytes, 0600); err != nil {
+		return compensate(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return compensate(err)
+	}
+	if err := journal.setState("committed"); err != nil {
+		return compensate(err)
+	}
+	if err := journal.cleanup(); err != nil {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (a *App) invalidateAppsCache() {

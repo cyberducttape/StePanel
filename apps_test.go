@@ -53,7 +53,7 @@ func TestAppDeployRestoresManifestWhenHelperFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	helper := filepath.Join(root, "appctl")
-	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 1\n"), 0755); err != nil {
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n[ \"$1\" = apply ] && [ \"$3\" = 22.1.0 ] && exit 1\nexit 0\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	appRoot := filepath.Join(root, "apps")
@@ -61,8 +61,17 @@ func TestAppDeployRestoresManifestWhenHelperFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifestPath := filepath.Join(appRoot, "demo.json")
-	original := []byte("previous manifest\n")
+	previous := AppManifest{Site: "demo", Domain: "old.example.test", Version: "22.0.0", Port: 3000, Root: filepath.Join(webRoot, "sites", "demo", "public"), State: "running"}
+	originalJSON, err := json.MarshalIndent(previous, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := append(originalJSON, '\n')
 	if err := os.WriteFile(manifestPath, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldRollback := []byte(`{"site":"demo","domain":"older.example.test"}`)
+	if err := os.WriteFile(manifestPath+".bak", oldRollback, 0600); err != nil {
 		t.Fatal(err)
 	}
 	a := &App{Config: Config{WebRoot: webRoot, AppRoot: appRoot, AppCtl: helper}, Auth: Auth{}}
@@ -70,12 +79,59 @@ func TestAppDeployRestoresManifestWhenHelperFails(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/apps/deploy", strings.NewReader(body))
 	response := httptest.NewRecorder()
 	a.appDeploy(response, request)
-	if response.Code != http.StatusServiceUnavailable {
+	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 	data, err := os.ReadFile(manifestPath)
 	if err != nil || string(data) != string(original) {
 		t.Fatalf("manifest = %q, error = %v", data, err)
+	}
+	if data, err := os.ReadFile(manifestPath + ".bak"); err != nil || string(data) != string(oldRollback) {
+		t.Fatalf("rollback manifest = %q, error = %v", data, err)
+	}
+	entries, err := os.ReadDir(appRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".activation-") {
+			t.Fatalf("successful compensation left journal %q", entry.Name())
+		}
+	}
+}
+
+func TestAppDeployRefusesCorruptExistingManifest(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "web")
+	if err := os.MkdirAll(filepath.Join(webRoot, "sites", "demo", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(root, "helper-ran")
+	helper := filepath.Join(root, "appctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	appRoot := filepath.Join(root, "apps")
+	if err := os.MkdirAll(appRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(appRoot, "demo.json")
+	corrupt := []byte("not a valid app manifest\n")
+	if err := os.WriteFile(manifestPath, corrupt, 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{Config: Config{WebRoot: webRoot, AppRoot: appRoot, AppCtl: helper}, Auth: Auth{}}
+	body := `{"site":"demo","domain":"demo.example.test","node_version":"v22.1.0","port":3000}`
+	response := httptest.NewRecorder()
+	a.appDeploy(response, httptest.NewRequest(http.MethodPost, "/api/apps/deploy", strings.NewReader(body)))
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s; want refusal to overwrite corrupt state", response.Code, response.Body.String())
+	}
+	if data, err := os.ReadFile(manifestPath); err != nil || string(data) != string(corrupt) {
+		t.Fatalf("corrupt manifest changed: %q, error = %v", data, err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("app helper ran while rejecting corrupt state (stat error %v)", err)
 	}
 }
 
@@ -199,11 +255,38 @@ func TestAppStateActionRestoresManifestWhenHelperFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, _, err := a.runAppStateAction(context.Background(), "demo", "stop")
-	if err == nil || status != http.StatusBadGateway {
-		t.Fatalf("status = %d, err = %v, want 502 failure", status, err)
+	if err == nil || status != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, err = %v, want 503 while recovery remains pending", status, err)
 	}
 	if data, err := os.ReadFile(manifestPath); err != nil || string(data) != string(original) {
 		t.Fatalf("manifest = %q, error = %v, want original", data, err)
+	}
+}
+
+func TestAppStateActionFailureCompensatesAndCleansJournal(t *testing.T) {
+	a, manifestPath, _ := newAppStateFixture(t, 0)
+	original, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.Config.AppCtl, []byte("#!/bin/sh\n[ \"$1\" = stop ] && exit 1\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	status, _, err := a.runAppStateAction(context.Background(), "demo", "stop")
+	if err == nil || status != http.StatusBadGateway {
+		t.Fatalf("status = %d, err = %v, want compensated 502", status, err)
+	}
+	if got, err := os.ReadFile(manifestPath); err != nil || string(got) != string(original) {
+		t.Fatalf("manifest after compensation = %q, error = %v", got, err)
+	}
+	entries, err := os.ReadDir(a.Config.AppRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".activation-") {
+			t.Fatalf("successful compensation left journal %q", entry.Name())
+		}
 	}
 }
 
