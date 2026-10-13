@@ -610,11 +610,12 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "could not create lifecycle staging tree", 503)
 		return
 	}
+	var txn *SiteTransaction
 	managerActivated := false
 	defer func() {
 		if !managerActivated {
 			if discardErr := a.discardSiteStaging(context.Background(), managerStage); discardErr != nil {
-				a.markStagingRestoreRecoveryRequired("staging_restore_files", discardErr, "staging filesystem cleanup failed; startup reconciliation is required")
+				a.markStagingRestoreRecoveryRequired("staging_restore_files", discardErr, "staging filesystem cleanup failed; startup reconciliation is required", txn)
 			}
 		}
 	}()
@@ -631,7 +632,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "could not apply restore indexing protection", 503)
 		return
 	}
-	txn, e := beginManagedSiteTransaction(operationCtx, a.Config, dest, "backup.restore-to-staging", access)
+	txn, e = beginManagedSiteTransaction(operationCtx, a.Config, dest, "backup.restore-to-staging", access)
 	if e != nil {
 		http.Error(w, "could not journal restore", 503)
 		return
@@ -665,7 +666,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 				}
 			}
 			if len(compensationErrors) > 0 {
-				a.markStagingRestoreRecoveryRequired("staging_restore_compensation", errors.Join(compensationErrors...), "staging restore compensation is incomplete; startup reconciliation is required")
+				a.markStagingRestoreRecoveryRequired("staging_restore_compensation", errors.Join(compensationErrors...), "staging restore compensation is incomplete; startup reconciliation is required", txn)
 			}
 		}
 	}()
@@ -717,10 +718,21 @@ func (a *App) cleanupStagingRestoreDatabase(database, username string) error {
 	return nil
 }
 
-func (a *App) markStagingRestoreRecoveryRequired(operation string, err error, message string) {
+func (a *App) markStagingRestoreRecoveryRequired(operation string, err error, message string, transactions ...*SiteTransaction) {
 	stateErr := state.NewCleanupError(operation, err, message)
 	a.observeStateError(stateErr)
 	a.recovery.set(stateErr)
+	for _, txn := range transactions {
+		if txn == nil {
+			continue
+		}
+		if persistErr := txn.MarkRecoveryRequired(stateErr); persistErr != nil {
+			combined := state.NewCleanupError(operation, errors.Join(stateErr, persistErr), message+"; durable intervention journal could not be updated")
+			a.observeStateError(combined)
+			a.recovery.set(combined)
+		}
+		break
+	}
 }
 
 func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {

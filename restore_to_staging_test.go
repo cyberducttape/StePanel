@@ -244,6 +244,26 @@ func TestRestoreToStagingCleanupFailureRequiresIntervention(t *testing.T) {
 	if recoveryState == nil || !strings.Contains(recoveryState.Error(), "staging_restore_compensation") {
 		t.Fatalf("recovery state = %v, want failed staging compensation recorded", recoveryState)
 	}
+	entries, err := os.ReadDir(f.cfg.RecoveryRoot)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("recovery journal entries = %d, err=%v; want one retained transaction", len(entries), err)
+	}
+	txn, err := loadSiteTransaction(filepath.Join(f.cfg.RecoveryRoot, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("load failed-compensation journal: %v", err)
+	}
+	if !strings.Contains(txn.RecoveryRequired, "site teardown") {
+		t.Fatalf("durable intervention = %q, want site teardown failure", txn.RecoveryRequired)
+	}
+	if _, err := RecoverSiteTransactions(f.cfg.RecoveryRoot, f.cfg.WebRoot, f.cfg.MailRoot); err == nil || !strings.Contains(err.Error(), "requires operator intervention") {
+		t.Fatalf("restart recovery scan error = %v, want retained intervention", err)
+	}
+	if err := CleanupSiteTransactions(f.cfg.RecoveryRoot, time.Nanosecond, f.cfg.WebRoot, f.cfg.MailRoot); err != nil {
+		t.Fatalf("cleanup recovery journals: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.cfg.RecoveryRoot, entries[0].Name(), "transaction.json")); err != nil {
+		t.Fatalf("cleanup removed unresolved intervention journal: %v", err)
+	}
 	readiness := httptest.NewRecorder()
 	app.operationalHealth(readiness, httptest.NewRequest(http.MethodGet, "/api/health/operational", nil))
 	if readiness.Code != http.StatusServiceUnavailable {

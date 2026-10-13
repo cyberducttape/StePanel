@@ -17,21 +17,24 @@ import (
 )
 
 type SiteTransaction struct {
-	Version      int               `json:"version"`
-	ID           string            `json:"id"`
-	Kind         string            `json:"kind"`
-	Site         string            `json:"site"`
-	Home         string            `json:"home"`
-	Backup       string            `json:"backup"`
-	FailedSite   string            `json:"failed_site,omitempty"`
-	MailRoot     string            `json:"mail_root,omitempty"`
-	MailBackup   string            `json:"mail_backup,omitempty"`
-	MailExisting bool              `json:"mail_existing,omitempty"`
-	HadExisting  bool              `json:"had_existing"`
-	State        string            `json:"state"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
-	Databases    []ManagedDatabase `json:"databases,omitempty"`
+	Version      int    `json:"version"`
+	ID           string `json:"id"`
+	Kind         string `json:"kind"`
+	Site         string `json:"site"`
+	Home         string `json:"home"`
+	Backup       string `json:"backup"`
+	FailedSite   string `json:"failed_site,omitempty"`
+	MailRoot     string `json:"mail_root,omitempty"`
+	MailBackup   string `json:"mail_backup,omitempty"`
+	MailExisting bool   `json:"mail_existing,omitempty"`
+	HadExisting  bool   `json:"had_existing"`
+	State        string `json:"state"`
+	// RecoveryRequired keeps a journal durable when compensation could not be
+	// verified, even if its filesystem transaction reached a terminal state.
+	RecoveryRequired string            `json:"recovery_required,omitempty"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
+	Databases        []ManagedDatabase `json:"databases,omitempty"`
 	// Routes are web server routes the transaction publishes. Recovery and
 	// rollback remove them before the site they point at.
 	Routes []TrackedRoute `json:"routes,omitempty"`
@@ -264,6 +267,28 @@ func (t *SiteTransaction) TrackDatabase(database ManagedDatabase) error {
 	if err := t.persist(); err != nil {
 		t.Databases = t.Databases[:len(t.Databases)-1]
 		return err
+	}
+	return nil
+}
+
+// MarkRecoveryRequired durably records that compensation did not converge.
+// Keep the transaction journal until an operator has reconciled the host.
+func (t *SiteTransaction) MarkRecoveryRequired(cause error) error {
+	if cause == nil {
+		return errors.New("recovery intervention requires a cause")
+	}
+	detail := strings.TrimSpace(cause.Error())
+	if detail == "" {
+		return errors.New("recovery intervention cause is empty")
+	}
+	if len(detail) > 4096 {
+		detail = detail[:4096]
+	}
+	previous := t.RecoveryRequired
+	t.RecoveryRequired = detail
+	if err := t.persist(); err != nil {
+		t.RecoveryRequired = previous
+		return fmt.Errorf("persist recovery intervention: %w", err)
 	}
 	return nil
 }
@@ -527,6 +552,10 @@ func recoverSiteTransactionsWithRename(root, site string, renameForSite func(con
 		if site != "" && txn.Site != site {
 			continue
 		}
+		if txn.RecoveryRequired != "" {
+			failures = append(failures, fmt.Errorf("transaction %s requires operator intervention: %s", txn.ID, txn.RecoveryRequired))
+			continue
+		}
 		if txn.State == "committed" || txn.State == "rolled-back" {
 			continue
 		}
@@ -602,7 +631,7 @@ func recoverTransactionDatabases(cfg Config, root string, lockSite siteLocker, s
 			}
 			continue
 		}
-		if txn.State == "committed" || txn.State == "rolled-back" || len(txn.Databases) == 0 && len(txn.Routes) == 0 || (site != "" && txn.Site != site) {
+		if txn.RecoveryRequired != "" || txn.State == "committed" || txn.State == "rolled-back" || len(txn.Databases) == 0 && len(txn.Routes) == 0 || (site != "" && txn.Site != site) {
 			continue
 		}
 		siteCtx, unlock, lockErr := lockRecoveredSite(lockSite, txn.Site)
@@ -725,7 +754,7 @@ func CleanupSiteTransactions(root string, maxAge time.Duration, configuredRoots 
 		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot); err != nil {
 			return err
 		}
-		if (txn.State == "committed" || txn.State == "rolled-back") && txn.UpdatedAt.Before(cutoff) {
+		if txn.RecoveryRequired == "" && (txn.State == "committed" || txn.State == "rolled-back") && txn.UpdatedAt.Before(cutoff) {
 			if err := os.RemoveAll(dir); err != nil {
 				return err
 			}

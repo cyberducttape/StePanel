@@ -16,8 +16,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   database, journal, or filesystem compensation degrades readiness until
   startup reconciliation. Exercise route-activation failure followed by
   failed site teardown through the actual restore handler, verifying that
-  operational health becomes unavailable while the production site stays
-  unchanged.
+  operational health becomes unavailable, a durable intervention marker
+  survives the startup recovery scan and retention cleanup, and the production
+  site stays unchanged.
 - Make long workspace sidebar jumps land immediately while retaining smooth
   transitions between nearby sections, so deep destinations are responsive.
 - Verify database-backed WordPress recovery over both Apache and Caddy with
