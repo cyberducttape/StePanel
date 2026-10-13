@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Treat a successful SQLite job lookup miss as authoritative and evict stale
+  process-local cache entries rather than returning a job pruned by another
+  process.
+- Record the WordPress proof post's persisted status and URL settings, and
+  probe both the front-controller route and direct `index.php` route when
+  diagnosing Caddy application-probe failures.
+- Configure the installed WordPress proof with the scheme actually served by
+  its vhost, so Caddy is exercised directly over HTTPS instead of relying on
+  an HTTP-to-HTTPS redirect from an HTTP-configured WordPress site.
 - Ensure the root-owned OpenSSH runtime directory exists with safe ownership
   and permissions before validating StePanel-managed SSH/SFTP and FTPS policy.
   This allows fresh installations to provision access before the SSH daemon

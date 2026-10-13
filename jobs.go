@@ -2222,6 +2222,13 @@ func (j *Jobs) GetWithError(id string) (Job, bool, error) {
 			j.mu.Unlock()
 			return item, true, nil
 		}
+		// A successful durable miss is authoritative too. Another process may
+		// have pruned or archived the row since this process populated its
+		// cache; returning that cached copy would resurrect deleted job state.
+		j.mu.Lock()
+		delete(j.items, id)
+		j.mu.Unlock()
+		return Job{}, false, nil
 	}
 	j.mu.RLock()
 	defer j.mu.RUnlock()

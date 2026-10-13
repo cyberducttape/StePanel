@@ -336,6 +336,40 @@ func TestDurableIdempotencyKeyIsBoundToPayload(t *testing.T) {
 	}
 }
 
+func TestDurableJobReadDoesNotResurrectRowDeletedByAnotherProcess(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control.db")
+	writer, err := OpenDurableJobs(path, "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	reader, err := OpenDurableJobs(path, "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	item, err := writer.Enqueue("site.backup", "site-a", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached, found, err := reader.GetWithError(item.ID); err != nil || !found || cached.ID != item.ID {
+		t.Fatalf("initial cross-process read = %#v, found=%v, err=%v", cached, found, err)
+	}
+	if _, ok := reader.items[item.ID]; !ok {
+		t.Fatal("initial durable read did not populate the local cache")
+	}
+	if _, err := writer.db.Exec(`DELETE FROM jobs WHERE id = ?`, item.ID); err != nil {
+		t.Fatalf("prune job from writer process: %v", err)
+	}
+	if got, found, err := reader.GetWithError(item.ID); err != nil || found {
+		t.Fatalf("authoritative missing job = %#v, found=%v, err=%v; want not found", got, found, err)
+	}
+	if _, ok := reader.items[item.ID]; ok {
+		t.Fatal("authoritative durable miss left a stale job in the process-local cache")
+	}
+}
+
 func TestDurableIdempotencyExpiryIsTimestampBasedAndRestartSafe(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

@@ -154,8 +154,13 @@ chmod 0600 "$public_root/wp-config.php" 2>/dev/null || true
 runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" config create \
   --dbname="$database" --dbuser="$database_user" --dbpass="$database_password" \
   --dbhost=localhost --skip-check --force
+application_scheme=http
+if [[ ${STEPANEL_WEBSERVER:-caddy} == caddy ]]; then
+  application_scheme=https
+fi
+application_url="$application_scheme://$domain"
 runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" core install \
-  --url="http://$domain" --title='StePanel Recovery Proof Fixture' \
+  --url="$application_url" --title='StePanel Recovery Proof Fixture' \
   --admin_user=ciwpadmin --admin_password="$admin_password" \
   --admin_email=ci-wp-proof@example.test --skip-email
 runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" option update blogdescription \
@@ -164,17 +169,36 @@ origin_post_id=$(runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_r
   --post_title='StePanel recovery origin probe' \
   --post_content='STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' --post_status=publish --porcelain)
 [[ $origin_post_id =~ ^[1-9][0-9]*$ ]] || { echo "WP-CLI returned an invalid recovery probe post ID: $origin_post_id" >&2; exit 1; }
+origin_post_status=$(runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" post get "$origin_post_id" --field=post_status)
+[[ $origin_post_status == publish ]] || { echo "WordPress recovery probe post has status $origin_post_status, want publish" >&2; exit 1; }
+printf 'WordPress recovery probe post %s is %s; home=%s siteurl=%s\n' \
+  "$origin_post_id" "$origin_post_status" \
+  "$(runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" option get home)" \
+  "$(runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" option get siteurl)"
 
 /usr/local/sbin/stepanel-sitectl seal "$site" "$site_user"
 /usr/local/sbin/stepanel-vhostctl apply "$site" "$domain"
 route_created=1
 origin_body="$work/origin-response.html"
 origin_headers="$work/origin-response.headers"
+origin_curl_resolve=(--resolve "$domain:80:127.0.0.1")
+if [[ $application_scheme == https ]]; then
+  origin_curl_resolve=(--resolve "$domain:443:127.0.0.1")
+fi
 origin_status=$(curl --silent --show-error --location --max-time 30 \
-  --resolve "$domain:80:127.0.0.1" --resolve "$domain:443:127.0.0.1" \
+  "${origin_curl_resolve[@]}" \
   --dump-header "$origin_headers" --output "$origin_body" --write-out '%{http_code}' \
-  "http://$domain/?p=$origin_post_id" || true)
+  "$application_url/?p=$origin_post_id" || true)
 if [[ $origin_status != 200 ]] || ! grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' "$origin_body"; then
+  direct_body="$work/direct-index-response.html"
+  direct_headers="$work/direct-index-response.headers"
+  direct_status=$(curl --silent --show-error --location --max-time 30 \
+    "${origin_curl_resolve[@]}" \
+    --dump-header "$direct_headers" --output "$direct_body" --write-out '%{http_code}' \
+    "$application_url/index.php?p=$origin_post_id" || true)
+  echo "direct index.php recovery probe: HTTP ${direct_status:-unknown}" >&2
+  [[ ! -f $direct_headers ]] || sed -n '1,40p' "$direct_headers" >&2
+  [[ ! -f $direct_body ]] || sed -n '1,80p' "$direct_body" >&2
   echo "database-backed WordPress post probe failed (HTTP ${origin_status:-unknown}, post $origin_post_id)" >&2
   [[ ! -f $origin_headers ]] || sed -n '1,40p' "$origin_headers" >&2
   [[ ! -f $origin_body ]] || sed -n '1,120p' "$origin_body" >&2

@@ -48,9 +48,13 @@ Caddy + MariaDB legs failed the HTTP application probe on all three systems.
 The failure was caused by FastCGI receiving the Caddy-only bind-view path rather
 than the canonical path allowed to the per-site PHP-FPM account; Caddy can read
 the view, but PHP-FPM cannot. The Caddy helper now supplies the canonical
-FastCGI root while retaining the isolated Caddy view. Installed-host
-verification is pending, so Caddy remains unverified. These are smoke results,
-not production certification. See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
+FastCGI root while retaining the isolated Caddy view. A subsequent installed
+rerun confirmed `/wp-login.php` returns HTTP 200, but the database-backed
+`/?p=4` probe still returns 404 on all three Caddy hosts. The proof now aligns
+WordPress's configured URL scheme with the Caddy HTTPS vhost and records direct
+`index.php` results to isolate front-controller routing. Caddy remains
+unverified. These are smoke results, not production certification. See
+[V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
