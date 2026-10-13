@@ -703,13 +703,12 @@ func linodeAPIRequestWithClient(ctx context.Context, method, path string, payloa
 	if !ok {
 		return nil, errors.New("Linode API list response has invalid data")
 	}
-	pageResults, err := linodeResponseInt(value, "results")
-	if err != nil || pageResults != len(data) {
-		return nil, errors.New("Linode API list response has an inconsistent result count")
-	}
-	totalResults, err := linodeResponseInt(value, "total_results")
+	totalResults, err := linodeResponseInt(value, "results")
 	if err != nil || totalResults < len(data) {
 		return nil, errors.New("Linode API list response has an invalid total result count")
+	}
+	if pageCount == 1 && totalResults != len(data) {
+		return nil, errors.New("Linode API single-page result count does not match its data")
 	}
 	for page := 2; page <= pageCount; page++ {
 		next, err := requestPage(page)
@@ -731,11 +730,7 @@ func linodeAPIRequestWithClient(ctx context.Context, method, path string, payloa
 		if !ok {
 			return nil, fmt.Errorf("Linode API page %d has invalid data", page)
 		}
-		nextResults, err := linodeResponseInt(next, "results")
-		if err != nil || nextResults != len(items) {
-			return nil, fmt.Errorf("Linode API page %d has an inconsistent result count", page)
-		}
-		nextTotal, err := linodeResponseInt(next, "total_results")
+		nextTotal, err := linodeResponseInt(next, "results")
 		if err != nil || nextTotal != totalResults {
 			return nil, fmt.Errorf("Linode API page %d reported an inconsistent total result count", page)
 		}

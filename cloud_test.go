@@ -50,7 +50,7 @@ func TestLinodeAPIRequestAggregatesEveryPage(t *testing.T) {
 			return
 		}
 		response.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(response, `{"page":%d,"pages":3,"results":1,"total_results":3,"data":[{"id":%d}]}`, id, id)
+		_, _ = fmt.Fprintf(response, `{"page":%d,"pages":3,"results":3,"data":[{"id":%d}]}`, id, id)
 	}))
 	defer server.Close()
 
@@ -79,7 +79,7 @@ func TestLinodeAPIRequestRejectsIncompletePagination(t *testing.T) {
 		calls := 0
 		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 			calls++
-			_, _ = response.Write([]byte(`{"page":1,"pages":1001,"total_results":1001,"data":[{"id":1}]}`))
+			_, _ = response.Write([]byte(`{"page":1,"pages":1001,"results":1001,"data":[{"id":1}]}`))
 		}))
 		defer server.Close()
 		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
@@ -97,7 +97,7 @@ func TestLinodeAPIRequestRejectsIncompletePagination(t *testing.T) {
 				response.WriteHeader(http.StatusNoContent)
 				return
 			}
-			_, _ = response.Write([]byte(`{"page":1,"pages":2,"results":1,"total_results":2,"data":[{"id":1}]}`))
+			_, _ = response.Write([]byte(`{"page":1,"pages":2,"results":2,"data":[{"id":1}]}`))
 		}))
 		defer server.Close()
 		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
@@ -108,11 +108,11 @@ func TestLinodeAPIRequestRejectsIncompletePagination(t *testing.T) {
 
 	t.Run("advertised total mismatch", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-			_, _ = response.Write([]byte(`{"page":1,"pages":1,"results":1,"total_results":2,"data":[{"id":1}]}`))
+			_, _ = response.Write([]byte(`{"page":1,"pages":1,"results":2,"data":[{"id":1}]}`))
 		}))
 		defer server.Close()
 		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
-		if err == nil || !strings.Contains(err.Error(), "advertised 2") {
+		if err == nil || !strings.Contains(err.Error(), "single-page result count") {
 			t.Fatalf("request error = %v, want total-results mismatch", err)
 		}
 	})
