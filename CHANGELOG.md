@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing and documentation
 
+- Extracted Linode request validation, typed wire payloads, and bounded
+  pagination into `cloud_linode.go`, separating the provider contract and API
+  transport from cloud-job and HTTP orchestration.
 - Recorded a successful two-iteration full recovery matrix on the disposable
   Rocky Linux 9 KVM host, including the extended cpmove, backup, restore,
   termination, suspension, and deployment interruption checkpoints. The
