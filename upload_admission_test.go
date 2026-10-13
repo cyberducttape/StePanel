@@ -506,6 +506,15 @@ func TestDurableCapacityConsumeDoesNotAdvanceLocalStateBeforeSQLite(t *testing.T
 	if held := ledger.heldBytes(cfg.ImportRoot); held != 600 {
 		t.Fatalf("durable reservation after retry = %d, want 600", held)
 	}
+	if _, err := db.Exec(`DELETE FROM capacity_reservations WHERE reservation_id=? AND device=?`, reservation.id, device); err != nil {
+		t.Fatal(err)
+	}
+	if err := reservation.consume(500); err == nil {
+		t.Fatal("consume advanced after its durable reservation row disappeared")
+	}
+	if reservation.held[device] != 600 || reservation.consumedSize != 400 {
+		t.Fatalf("local state advanced after durable reservation disappeared: held=%d consumed=%d, want 600/400", reservation.held[device], reservation.consumedSize)
+	}
 }
 
 func TestDurableCapacityExtensionCommitFailureDoesNotAdvanceLocalHold(t *testing.T) {
