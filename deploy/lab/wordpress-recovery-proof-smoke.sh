@@ -54,6 +54,28 @@ cleanup() {
     if [[ -f $route_file && ! -L $route_file ]]; then
       sed -n '1,160p' "$route_file" >&2
     fi
+    echo 'Caddy runtime identity and document-root access:' >&2
+    id caddy >&2 || true
+    systemctl show caddy.service -p User -p Group -p SupplementaryGroups >&2 || true
+    for path in "/var/www/.stepanel-caddy-views/$site" "/var/www/.stepanel-caddy-views/$site/public" "$public_root/index.php"; do
+      if [[ -e $path && ! -L $path ]]; then
+        stat -c '%A %U:%G %n' "$path" >&2 || true
+        getfacl -cp "$path" >&2 || true
+      fi
+    done
+    if command -v runuser >/dev/null 2>&1; then
+      runuser -u caddy -- test -r "$public_root/index.php" \
+        && echo 'Caddy account can read the canonical index.php path' >&2 \
+        || echo 'Caddy account cannot read the canonical index.php path' >&2
+      for path in /index.php /wp-login.php; do
+        probe_body="$work/caddy-probe-${path##*/}.html"
+        probe_status=$(curl --silent --show-error --max-time 10 \
+          --resolve "$domain:443:127.0.0.1" --output "$probe_body" --write-out '%{http_code}' \
+          "https://$domain$path" || true)
+        echo "Caddy direct HTTPS $path: HTTP ${probe_status:-unknown}" >&2
+        [[ ! -f $probe_body ]] || sed -n '1,40p' "$probe_body" >&2
+      done
+    fi
     echo 'Caddy adapted host/handler routes:' >&2
     if adapted_caddy=$(caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile --pretty 2>&1); then
       if command -v jq >/dev/null 2>&1; then

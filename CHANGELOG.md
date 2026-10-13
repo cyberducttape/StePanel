@@ -30,6 +30,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   Caddy route from a PHP or application response.
 - Include the active Caddyfile imports and preserve adapter errors in those
   failure diagnostics so host-matcher omissions are visible.
+- Report the Caddy service identity, ACLs, and direct PHP endpoint responses
+  on recovery-proof failure to separate route matching from document-root
+  permissions and PHP-FPM execution.
 - Reconcile the production-gate runtime table with the six current installed
   host jobs, recording the three passing Apache/MariaDB WordPress proofs and
   the unresolved Caddy HTTP probe failures without calling smoke coverage
