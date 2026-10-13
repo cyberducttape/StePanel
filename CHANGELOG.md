@@ -19,6 +19,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   with site-account ownership, so the real installed-host WordPress proof can
   execute as the site user without making its root temporary workspace
   (including session cookies) traversable to tenants.
+- Use a `.localhost` hostname for the installed WordPress recovery proof so
+  Caddy serves its HTTPS redirect with its trusted local CA instead of trying
+  public ACME issuance for the reserved `.test` domain.
 
 ### Testing and documentation
 

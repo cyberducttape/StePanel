@@ -23,7 +23,9 @@ done
 : "${STEPANEL_ADMIN_PASSWORD:=ci-install-only-password}"
 : "${STEPANEL_ADMIN_TOTP_SECRET:=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP}"
 : "${WORDPRESS_PROOF_SMOKE_SITE:=ci-wp-proof}"
-: "${WORDPRESS_PROOF_SMOKE_DOMAIN:=ci-wp-proof.example.test}"
+# Caddy cannot obtain a public certificate for .example.test. Use .localhost
+# so its installed local CA serves the HTTPS redirect with a trusted cert.
+: "${WORDPRESS_PROOF_SMOKE_DOMAIN:=ci-wp-proof.localhost}"
 
 site=$WORDPRESS_PROOF_SMOKE_SITE
 domain=$WORDPRESS_PROOF_SMOKE_DOMAIN
