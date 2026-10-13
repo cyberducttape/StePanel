@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Make long workspace sidebar jumps land immediately while retaining smooth
   transitions between nearby sections, so deep destinations are responsive.
+- Verify database-backed WordPress recovery over both Apache and Caddy with
+  MariaDB on Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9; record each smoke job.
 - Route Caddy document-root requests through a root-verified PHP `index.php`,
   preserving query strings without relying on Caddy's file matcher for its
   nosymfollow view mount or ambiguous slash-prefixed rewrite matcher syntax.

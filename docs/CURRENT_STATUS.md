@@ -42,19 +42,13 @@ exercise every ENOSPC boundary. Gate 5 remains open; see the
 | **Gate 4** | Automated Archive Database Restoration | ✅ COMPLETE | None |
 | **Gate 5** | Failure Recovery Testing | 🔄 PARTIAL | 20–50× repeated matrix (two consecutive full Rocky KVM runs now recorded), ENOSPC beyond backup/file restore, physical power loss |
 
-On 2026-10-13 the installed-host WordPress recovery proof passed on Apache +
-MariaDB for Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9. The corresponding
-Caddy + MariaDB legs failed the HTTP application probe on all three systems.
-The failure was caused by FastCGI receiving the Caddy-only bind-view path rather
-than the canonical path allowed to the per-site PHP-FPM account; Caddy can read
-the view, but PHP-FPM cannot. The Caddy helper now supplies the canonical
-FastCGI root while retaining the isolated Caddy view. A subsequent installed
-rerun confirmed `/wp-login.php` returns HTTP 200, but the database-backed
-`/?p=4` probe still returns 404 on all three Caddy hosts. The proof now aligns
-WordPress's configured URL scheme with the Caddy HTTPS vhost and records direct
-`index.php` results to isolate front-controller routing. Caddy remains
-unverified. These are smoke results, not production certification. See
-[V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
+On 2026-10-13 the installed-host WordPress recovery proof passed on Apache and
+Caddy with MariaDB for Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9. The Caddy
+results include the database-backed published-post HTTP probe after the
+canonical FastCGI root and explicit front-controller routing fixes. See the
+six linked job results in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
+These are single-run smoke results for the named combinations, not repeated
+recovery evidence, a broader runtime certification, or production approval.
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
