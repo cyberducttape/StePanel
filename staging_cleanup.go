@@ -2,9 +2,7 @@ package stepanel
 
 import "time"
 
-// orphanedStagingMinAge is how long a staging tree must be untouched before
-// cleanup treats it as abandoned. It exceeds the longest operation timeout
-// (helper.BackupRestoreTimeout, 120 minutes), so a tree still in use by a
-// live operation, including one in an external worker process, is never
-// removed.
+// orphanedStagingMinAge is a secondary safeguard for legacy or unowned scratch
+// trees. Current restore/import stages are protected by cross-process advisory
+// ownership locks; age alone is not evidence that a stage is abandoned.
 const orphanedStagingMinAge = 3 * time.Hour

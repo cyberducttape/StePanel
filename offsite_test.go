@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateOffsiteTarget(t *testing.T) {
@@ -38,15 +39,20 @@ func TestRunOffsiteRclonePreservesArgumentBoundaries(t *testing.T) {
 	}
 }
 
-func TestOffsiteTransferTimeoutScalesWithObjectSize(t *testing.T) {
-	if got := offsiteTransferTimeout(1); got != offsiteMinimumTimeout {
-		t.Fatalf("small transfer timeout = %s, want minimum %s", got, offsiteMinimumTimeout)
+func TestOffsiteTransferTimeoutIsOperatorConfigurableAndNotSizeDerived(t *testing.T) {
+	t.Setenv("STEPANEL_OFFSITE_TRANSFER_TIMEOUT", "12h")
+	got, err := offsiteTransferTimeout()
+	if err != nil || got != 12*time.Hour {
+		t.Fatalf("configured transfer deadline = %s, %v; want 12h", got, err)
 	}
-	if got := offsiteTransferTimeout(10 << 30); got <= offsiteMinimumTimeout || got > offsiteMaximumTimeout {
-		t.Fatalf("large transfer timeout = %s, want scaled bounded timeout", got)
+	t.Setenv("STEPANEL_OFFSITE_TRANSFER_TIMEOUT", "31d")
+	if _, err := offsiteTransferTimeout(); err == nil {
+		t.Fatal("accepted transfer deadline above the supported maximum")
 	}
-	if got := offsiteTransferTimeout(1 << 60); got != offsiteMaximumTimeout {
-		t.Fatalf("oversized transfer timeout = %s, want maximum %s", got, offsiteMaximumTimeout)
+	t.Setenv("STEPANEL_OFFSITE_TRANSFER_TIMEOUT", "")
+	got, err = offsiteTransferTimeout()
+	if err != nil || got != offsiteDefaultTransferDeadline {
+		t.Fatalf("default transfer deadline = %s, %v; want %s", got, err, offsiteDefaultTransferDeadline)
 	}
 }
 

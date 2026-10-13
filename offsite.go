@@ -60,11 +60,14 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	if err != nil {
 		return err
 	}
-	size, err := offsiteBackupDirectorySize(backupPath)
-	if err != nil {
+	if _, err := offsiteBackupDirectorySize(backupPath); err != nil {
 		return fmt.Errorf("measure offsite backup directory: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(size))
+	deadline, err := offsiteTransferTimeout()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(parent, deadline)
 	defer cancel()
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -193,6 +196,12 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 	if cfg.OffsiteTarget == "" {
 		return "", func() {}, errors.New("offsite backup target is not configured")
 	}
+	deadline, err := offsiteTransferTimeout()
+	if err != nil {
+		return "", func() {}, err
+	}
+	transferCtx, cancelTransfer := context.WithTimeout(parent, deadline)
+	defer cancelTransfer()
 	if err := os.MkdirAll(cfg.ImportRoot, 0700); err != nil {
 		return "", func() {}, fmt.Errorf("create offsite restore root: %w", err)
 	}
@@ -206,11 +215,11 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		cleanup()
 		return "", func() {}, err
 	}
-	if err := downloadOffsiteObjectLimit(parent, remoteRoot, root, "manifest.json", maxOffsiteManifestBytes); err != nil {
+	if err := downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, "manifest.json", maxOffsiteManifestBytes); err != nil {
 		cleanup()
 		return "", func() {}, err
 	}
-	if err := downloadOffsiteObjectLimit(parent, remoteRoot, root, ".stepanel-complete", maxOffsiteMarkerBytes); err != nil {
+	if err := downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, ".stepanel-complete", maxOffsiteMarkerBytes); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("offsite backup is not complete: %w", err)
 	}
@@ -239,18 +248,18 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		cleanup()
 		return "", func() {}, errors.New("downloaded offsite manifest declares an invalid archive")
 	}
-	if err := downloadOffsiteObjectLimit(parent, remoteRoot, root, manifest.Archive, maxOffsiteObjectBytes); err != nil {
+	if err := downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, manifest.Archive, maxOffsiteObjectBytes); err != nil {
 		cleanup()
 		return "", func() {}, err
 	}
-	if err := downloadOffsiteObjectLimit(parent, remoteRoot, root, manifest.Archive+".sha256", maxOffsiteChecksumBytes); err != nil {
+	if err := downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, manifest.Archive+".sha256", maxOffsiteChecksumBytes); err != nil {
 		cleanup()
 		return "", func() {}, err
 	}
 	// A signed backup must retain its signature. Unsigned backups do not have
 	// this object, so absence is allowed and strict backup verification enforces the
 	// configured signing policy.
-	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxOffsiteSignatureBytes))
+	ctx, cancel := context.WithTimeout(transferCtx, deadline)
 	defer cancel()
 	signaturePath := filepath.Join(root, "manifest.sig")
 	remoteSignature, err := offsiteRemoteObject(remoteRoot, "manifest.sig")
@@ -282,7 +291,11 @@ func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, o
 	if maxBytes <= 0 {
 		return errors.New("offsite object size limit must be positive")
 	}
-	ctx, cancel := context.WithTimeout(parent, offsiteTransferTimeout(maxBytes))
+	deadline, err := offsiteTransferTimeout()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(parent, deadline)
 	defer cancel()
 	remote, err := offsiteRemoteObject(remoteRoot, object)
 	if err != nil {
@@ -363,33 +376,25 @@ const maxOffsiteSignatureBytes = 4096
 const maxOffsiteObjectBytes = 20 << 30
 
 const (
-	offsiteMinimumRate    = 1 << 20 // 1 MiB/s prevents a fixed wall-clock cutoff on slow links.
-	offsiteMinimumTimeout = 2 * time.Hour
-	offsiteMaximumTimeout = 7 * 24 * time.Hour
-	offsiteStallTimeout   = 30 * time.Minute
-	offsiteConnectTimeout = 5 * time.Minute
+	offsiteDefaultTransferDeadline = 7 * 24 * time.Hour
+	offsiteMinimumTransferDeadline = time.Minute
+	offsiteMaximumTransferDeadline = 30 * 24 * time.Hour
+	offsiteStallTimeout            = 30 * time.Minute
+	offsiteConnectTimeout          = 5 * time.Minute
 )
 
-func offsiteTransferTimeout(size int64) time.Duration {
-	if size < 0 {
-		size = 0
+// offsiteTransferTimeout is an operator-selected total cap, not an assumed
+// minimum throughput. Rclone's --timeout separately cancels stalled I/O.
+func offsiteTransferTimeout() (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv("STEPANEL_OFFSITE_TRANSFER_TIMEOUT"))
+	if raw == "" {
+		return offsiteDefaultTransferDeadline, nil
 	}
-	seconds := size / offsiteMinimumRate
-	if size%offsiteMinimumRate != 0 {
-		seconds++
+	deadline, err := time.ParseDuration(raw)
+	if err != nil || deadline < offsiteMinimumTransferDeadline || deadline > offsiteMaximumTransferDeadline {
+		return 0, fmt.Errorf("STEPANEL_OFFSITE_TRANSFER_TIMEOUT must be between 1m and 720h")
 	}
-	maxSeconds := int64(offsiteMaximumTimeout / time.Second)
-	if seconds >= maxSeconds {
-		return offsiteMaximumTimeout
-	}
-	transfer := time.Duration(seconds) * time.Second
-	if transfer < offsiteMinimumTimeout {
-		return offsiteMinimumTimeout
-	}
-	if transfer > offsiteMaximumTimeout {
-		return offsiteMaximumTimeout
-	}
-	return transfer
+	return deadline, nil
 }
 
 func offsiteRcloneTransferArgs(maxSize int64) []string {

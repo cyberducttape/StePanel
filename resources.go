@@ -175,6 +175,17 @@ func (a *App) ensurePlanResourcesContext(ctx context.Context, account HostingAcc
 		a.Resources.mu.Lock()
 		a.Resources.values[profile.Site] = profile
 		err = a.Resources.persistLocked()
+		if err != nil {
+			// The durable desired profile is still pending. Keep memory aligned
+			// with that record; host application is reconciled independently.
+			profile.State = "pending"
+			if profile.hasFilesystemQuota() {
+				profile.FilesystemQuotaState = "apply-pending"
+			} else {
+				profile.FilesystemQuotaState = "none"
+			}
+			a.Resources.values[profile.Site] = profile
+		}
 		a.Resources.mu.Unlock()
 		if err != nil {
 			pending = append(pending, profile.Site)

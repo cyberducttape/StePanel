@@ -1398,6 +1398,10 @@ type Jobs struct {
 	integrityErr error
 }
 
+// Durable startup retains every recovery-critical active/dead-letter job and
+// only a bounded recent terminal window. Historical listings remain SQL-backed.
+const durableTerminalJobCacheLimit = 500
+
 // SetStateErrorObserver reports durable persistence failures to fn.
 func (j *Jobs) SetStateErrorObserver(fn func(state.StateError)) {
 	j.mu.Lock()
@@ -1733,7 +1737,7 @@ func newJobsWithDB(db *sql.DB, limits ...int) *Jobs {
 
 func (j *Jobs) load() error {
 	if j.db != nil {
-		rows, err := j.db.Query(`SELECT state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested FROM jobs ORDER BY started_at, id`)
+		rows, err := j.db.Query(`SELECT state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested FROM jobs WHERE state IN ('queued','running','dead-letter') OR id IN (SELECT id FROM jobs WHERE state IN ('completed','failed','cancelled') ORDER BY finished_at DESC, id DESC LIMIT ?) ORDER BY started_at, id`, durableTerminalJobCacheLimit)
 		if err != nil {
 			return fmt.Errorf("read durable job state: %w", err)
 		}
@@ -2800,6 +2804,21 @@ func (j *Jobs) Wait(ctx context.Context) error {
 // Cleanup retries them instead of leaving rows that would resurface on restart.
 func (j *Jobs) Cleanup(maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
+	if j.db != nil {
+		removed, err := j.cleanupDurableJobs(cutoff, 500)
+		j.mu.Lock()
+		defer j.mu.Unlock()
+		if err != nil {
+			j.observePersistFailureLocked("persist_job_cleanup", err)
+			log.Printf("persist job cleanup: %v", err)
+			return
+		}
+		for _, id := range removed {
+			delete(j.items, id) // invalidate cache entries changed by another process
+		}
+		j.persistErr = nil
+		return
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	removed := make(map[string]*Job)
@@ -2823,6 +2842,63 @@ func (j *Jobs) Cleanup(maxAge time.Duration) {
 		return
 	}
 	j.persistErr = nil
+}
+
+// cleanupDurableJobs selects and deletes a bounded batch from authoritative
+// SQLite state. The conditional delete rechecks terminal state and age so a
+// row changed by another process is never removed from a stale cache snapshot.
+func (j *Jobs) cleanupDurableJobs(cutoff time.Time, batch int) ([]string, error) {
+	if batch <= 0 || batch > 500 {
+		return nil, errors.New("durable job cleanup batch must be between 1 and 500")
+	}
+	tx, err := j.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin durable job cleanup: %w", err)
+	}
+	rows, err := tx.Query(`SELECT id FROM jobs WHERE finished_at IS NOT NULL AND finished_at < ? AND state IN ('completed','failed','cancelled') ORDER BY finished_at, id LIMIT ?`, cutoff.UnixNano(), batch)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("select expired durable jobs: %w", err)
+	}
+	ids := make([]string, 0, batch)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("select expired durable jobs: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("select expired durable jobs: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("close expired durable job query: %w", err)
+	}
+	removed := make([]string, 0, len(ids))
+	for _, id := range ids {
+		result, err := tx.Exec(`DELETE FROM jobs WHERE id = ? AND finished_at IS NOT NULL AND finished_at < ? AND state IN ('completed','failed','cancelled')`, id, cutoff.UnixNano())
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("delete completed durable job %s: %w", id, err)
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("confirm deletion of durable job %s: %w", id, err)
+		}
+		if count > 0 {
+			removed = append(removed, id)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit durable job cleanup: %w", err)
+	}
+	return removed, nil
 }
 
 // persistCleanupLocked durably removes the given finished jobs. With SQLite all

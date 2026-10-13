@@ -302,6 +302,7 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_RUNNERCTL` | Absolute helper path | Rootless Podman build-runner helper; defaults to `/usr/local/sbin/stepanel-runnerctl` |
 | `STEPANEL_INSTALL_SECURITY` | `0` or `1` | Install ClamAV and the PHP malware guard |
 | `STEPANEL_OFFSITE_TARGET` | rclone destination | Offsite copy target, required for production installs, for example `s3:bucket/stepanel` |
+| `STEPANEL_OFFSITE_TRANSFER_TIMEOUT` | Go duration, default `168h` | Maximum total time for one offsite transfer workflow; configurable from `1m` through `720h`. Rclone's separate 30-minute I/O timeout detects stalled transfers. |
 | `STEPANEL_REQUIRE_OFFSITE_BACKUP` | `0` or `1` | Reject production startup unless an offsite target is configured |
 | `STEPANEL_CLOUD_PROVIDER` | `linode`, `aws`, or `openstack` | Optional provider for cloud inventory and lifecycle actions |
 | `STEPANEL_SSH_SERVERS` | comma-separated SSH aliases | Optional strict-host-key inventory and allowlisted actions |

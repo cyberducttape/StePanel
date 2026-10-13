@@ -373,6 +373,9 @@ func ValidateConfig(c Config) error {
 	if err := validateOffsiteTarget(c.OffsiteTarget); err != nil {
 		problems = append(problems, err)
 	}
+	if _, err := offsiteTransferTimeout(); err != nil {
+		problems = append(problems, err)
+	}
 	if c.CloudProvider != "" && c.CloudProvider != "linode" && c.CloudProvider != "aws" && c.CloudProvider != "openstack" {
 		problems = append(problems, errors.New("STEPANEL_CLOUD_PROVIDER must be linode, aws, or openstack"))
 	}

@@ -3,6 +3,7 @@ package stepanel
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -95,6 +96,71 @@ func TestJobsCleanupRemovesExpiredJobsDurably(t *testing.T) {
 	// A restart after the commit must not resurrect the removed job.
 	if ids := reloadedJobIDs(t, db); strings.Join(ids, ",") != "fresh" {
 		t.Fatalf("reloaded jobs = %v, want [fresh]", ids)
+	}
+}
+
+func TestJobsCleanupUsesDurableRowsBeyondLocalCacheAndBatches(t *testing.T) {
+	jobs, db, _ := openCleanupTestJobs(t)
+	worker := newJobsWithDB(db, 1) // Simulates the separately installed worker process.
+	old := time.Now().UTC().Add(-72 * time.Hour)
+	worker.mu.Lock()
+	for i := 0; i < 501; i++ {
+		id := fmt.Sprintf("external-%03d", i)
+		worker.items[id] = &Job{ID: id, Kind: "backup", User: "site", State: "completed", StartedAt: old, FinishedAt: &old}
+	}
+	if err := worker.persistLocked(); err != nil {
+		worker.mu.Unlock()
+		t.Fatal(err)
+	}
+	worker.mu.Unlock()
+
+	// This panel instance has not loaded the worker's newly completed rows.
+	if _, exists := jobs.items["external-500"]; exists {
+		t.Fatal("test setup unexpectedly populated the panel cache")
+	}
+	jobs.Cleanup(24 * time.Hour)
+	if got := len(durableJobIDs(t, db)); got != 3 {
+		t.Fatalf("first bounded cleanup left %d rows, want fresh plus two expired batch remainder", got)
+	}
+	if _, cached := jobs.items["external-000"]; cached {
+		t.Fatal("cleanup failed to invalidate deleted worker job from panel cache")
+	}
+	jobs.Cleanup(24 * time.Hour)
+	if ids := durableJobIDs(t, db); strings.Join(ids, ",") != "fresh" {
+		t.Fatalf("second cleanup rows = %v, want [fresh]", ids)
+	}
+}
+
+func TestDurableJobStartupCacheBoundsTerminalHistory(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seed := newJobsWithDB(db, 1)
+	old := time.Now().UTC().Add(-365 * 24 * time.Hour)
+	seed.mu.Lock()
+	for i := 0; i < durableTerminalJobCacheLimit+20; i++ {
+		id := fmt.Sprintf("history-%04d", i)
+		seed.items[id] = &Job{ID: id, Kind: "backup", User: "site", State: "completed", StartedAt: old, FinishedAt: &old}
+	}
+	seed.items["active"] = &Job{ID: "active", Kind: "restore", User: "site", State: "queued", StartedAt: time.Now().UTC()}
+	seed.items["review"] = &Job{ID: "review", Kind: "restore", User: "site", State: "dead-letter", StartedAt: old, FinishedAt: &old}
+	if err := seed.persistLocked(); err != nil {
+		seed.mu.Unlock()
+		t.Fatal(err)
+	}
+	seed.mu.Unlock()
+
+	reloaded := newJobsWithDB(db, 1)
+	if err := reloaded.load(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(reloaded.items), durableTerminalJobCacheLimit+2; got != want {
+		t.Fatalf("startup cache has %d jobs, want %d (bounded terminal history plus active and dead-letter)", got, want)
+	}
+	if reloaded.items["active"] == nil || reloaded.items["review"] == nil {
+		t.Fatal("startup cache omitted recovery-critical active/dead-letter jobs")
 	}
 }
 

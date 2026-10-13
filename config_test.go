@@ -15,6 +15,17 @@ func TestValidateConfigRejectsCollidingStateFiles(t *testing.T) {
 	}
 }
 
+func TestValidateConfigChecksOffsiteTransferDeadline(t *testing.T) {
+	t.Setenv("STEPANEL_OFFSITE_TRANSFER_TIMEOUT", "bad-duration")
+	if err := ValidateConfig(LoadConfig()); err == nil || !strings.Contains(err.Error(), "STEPANEL_OFFSITE_TRANSFER_TIMEOUT") {
+		t.Fatalf("expected invalid offsite transfer deadline error, got %v", err)
+	}
+	t.Setenv("STEPANEL_OFFSITE_TRANSFER_TIMEOUT", "12h")
+	if err := ValidateConfig(LoadConfig()); err != nil {
+		t.Fatalf("valid offsite transfer deadline rejected: %v", err)
+	}
+}
+
 func TestValidateConfigRejectsNonRegularCredentialFile(t *testing.T) {
 	cfg := LoadConfig()
 	cfg.DBPasswordFile = t.TempDir()

@@ -3,7 +3,11 @@
   const api = () => window.StepanelAPI;
   const jobs = new Map();
   const waiters = new Map();
+  const waitStarted = new Map();
+  const waitFailures = new Map();
   let waiterPoller;
+  const maxWaitDuration = 6 * 60 * 60 * 1000;
+  const maxWaitRequestFailures = 5;
   let stream;
   let reconnectTimer;
   // Reconnect delay grows on consecutive failures (rotation, 401, 429,
@@ -38,8 +42,12 @@
   const record = (job) => {
     jobs.set(job.id, job);
     const listeners = waiters.get(job.id) || [];
-    listeners.forEach((resolve) => { if (terminal(job)) resolve(job); });
-    if (terminal(job)) waiters.delete(job.id);
+    listeners.forEach(({ resolve }) => { if (terminal(job)) resolve(job); });
+    if (terminal(job)) {
+      waiters.delete(job.id);
+      waitStarted.delete(job.id);
+      waitFailures.delete(job.id);
+    }
     if (!waiters.size && waiterPoller) { clearInterval(waiterPoller); waiterPoller = undefined; }
   };
   const notify = (job) => {
@@ -94,17 +102,40 @@
       status.textContent = `Cancellation failed: ${error.message || 'request was not accepted'}`;
     });
   };
-  const wait = (id) => new Promise((resolve) => {
+  const failWait = (id, error) => {
+    const listeners = waiters.get(id) || [];
+    listeners.forEach(({ reject }) => reject(error));
+    waiters.delete(id);
+    waitStarted.delete(id);
+    waitFailures.delete(id);
+    if (!waiters.size && waiterPoller) { clearInterval(waiterPoller); waiterPoller = undefined; }
+  };
+  const readWaitStatus = (id) => api().request(`/api/jobs/${encodeURIComponent(id)}`)
+    .then(notify)
+    .then(() => waitFailures.delete(id))
+    .catch((error) => {
+      const failures = (waitFailures.get(id) || 0) + 1;
+      waitFailures.set(id, failures);
+      if (failures >= maxWaitRequestFailures) {
+        failWait(id, new Error(`Unable to confirm operation status after ${failures} attempts. Check Operations and retry when the API is available. (${error.message || 'request failed'})`));
+      }
+    });
+  const wait = (id) => new Promise((resolve, reject) => {
     const current = jobs.get(id);
     if (current && terminal(current)) { resolve(current); return; }
-    waiters.set(id, [...(waiters.get(id) || []), resolve]);
-    api().request(`/api/jobs/${encodeURIComponent(id)}`).then(notify).catch(() => {});
+    waiters.set(id, [...(waiters.get(id) || []), { resolve, reject }]);
+    if (!waitStarted.has(id)) waitStarted.set(id, Date.now());
+    readWaitStatus(id);
     // SSE is best-effort and may be served by a different process than the
     // worker. Re-read durable status at a bounded rate until a terminal event
     // arrives; this also covers dropped events and stream reconnect windows.
     if (!waiterPoller) waiterPoller = setInterval(() => {
       [...waiters.keys()].forEach((jobID) => {
-        api().request(`/api/jobs/${encodeURIComponent(jobID)}`).then(notify).catch(() => {});
+        if (Date.now() - waitStarted.get(jobID) >= maxWaitDuration) {
+          failWait(jobID, new Error('Stopped waiting after six hours. The operation may still be running; check its status in Operations.'));
+          return;
+        }
+        readWaitStatus(jobID);
       });
     }, 10000);
   });

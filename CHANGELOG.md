@@ -19,6 +19,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Offsite transfer deadlines no longer assume a minimum bandwidth. Operators
+  can configure a total deadline with `STEPANEL_OFFSITE_TRANSFER_TIMEOUT`,
+  while rclone's inactivity timeout remains a separate stalled-I/O safeguard.
+- Resource-plan state remains pending in memory when host application succeeds
+  but persisting the applied result fails; host state is reconciled separately.
+- Job cleanup now selects bounded batches from authoritative SQLite state and
+  invalidates stale panel cache entries. Startup caches all active and
+  dead-letter jobs plus only the newest 500 terminal records.
+- Job waiters now surface repeated status API failures and stop waiting after
+  six hours with guidance to check the durable operation in Operations.
 - Job event streams now reconcile authorization-scoped durable snapshots on
   heartbeat, and long-running browser waits poll job status at a bounded rate,
   so updates from a separately installed worker are not lost.

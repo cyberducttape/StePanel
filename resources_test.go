@@ -66,6 +66,29 @@ func TestEnsurePlanResourcesPersistsEnforcedEnvelopeAsPendingOnHelperFailure(t *
 	}
 }
 
+func TestEnsurePlanResourcesRestoresPendingMemoryWhenAppliedStateCannotPersist(t *testing.T) {
+	dir := t.TempDir()
+	resourcePath := filepath.Join(dir, "resources.json")
+	store, err := OpenResourceStore(resourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(dir, "helper")
+	script := "#!/bin/sh\nif [ \"$1\" = resource-apply ]; then rm -f '" + resourcePath + "'; mkdir '" + resourcePath + "'; fi\nexit 0\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Resources: store, Config: Config{AppCtl: helper, SiteCtl: helper}}
+	pending, err := app.ensurePlanResources(HostingAccount{Username: "customer", Plan: "starter", Sites: []string{"demo"}})
+	if err != nil || len(pending) != 1 || pending[0] != "demo" {
+		t.Fatalf("pending=%v err=%v, want profile pending after applied-state persistence failure", pending, err)
+	}
+	profile := store.values["demo"]
+	if profile.State != "pending" || profile.FilesystemQuotaState != "apply-pending" {
+		t.Fatalf("in-memory state = %#v, want durable pending profile", profile)
+	}
+}
+
 func TestEnsurePlanResourcesSkipsEmptyAccount(t *testing.T) {
 	store, err := OpenResourceStore(filepath.Join(t.TempDir(), "resources.json"))
 	if err != nil {
