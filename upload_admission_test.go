@@ -570,6 +570,70 @@ CREATE TRIGGER reject_capacity_extension AFTER UPDATE ON capacity_reservations W
 	}
 }
 
+func TestDurableCapacityMutationsRejectMissingReservationRows(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*capacityReservation, Config) error
+	}{
+		{
+			name: "grow",
+			mutate: func(reservation *capacityReservation, cfg Config) error {
+				return reservation.grow(cfg.ImportRoot, 100)
+			},
+		},
+		{
+			name: "extend",
+			mutate: func(reservation *capacityReservation, cfg Config) error {
+				reservation.ledger.mu.Lock()
+				defer reservation.ledger.mu.Unlock()
+				return reservation.extendLocked([]capacityDemand{{Path: cfg.ImportRoot, Bytes: 100}})
+			},
+		},
+		{
+			name: "shrink",
+			mutate: func(reservation *capacityReservation, cfg Config) error {
+				return reservation.shrink(cfg.ImportRoot, 100)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := uploadTestConfig(t)
+			cfg.MinFreeBytes = 0
+			db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			ledger, err := newCapacityLedger(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reservation, err := ledger.reserve(cfg, "test", cfg.ImportRoot, []capacityDemand{{Path: cfg.ImportRoot, Bytes: 1000}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reservation.release()
+			device, err := filesystemDevice(cfg.ImportRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`DELETE FROM capacity_reservations WHERE reservation_id=? AND device=?`, reservation.id, device); err != nil {
+				t.Fatal(err)
+			}
+			if err := test.mutate(reservation, cfg); err == nil {
+				t.Fatal("mutation succeeded after its durable reservation row disappeared")
+			}
+			if reservation.held[device] != 1000 || reservation.consumedSize != 0 {
+				t.Fatalf("local reservation changed after failed durable mutation: held=%d consumed=%d", reservation.held[device], reservation.consumedSize)
+			}
+			if got := ledger.heldBytes(cfg.ImportRoot); got != 0 {
+				t.Fatalf("durable hold after external deletion = %d, want 0", got)
+			}
+		})
+	}
+}
+
 func TestCapacityReservationConsumeReleasesWrittenBytes(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0

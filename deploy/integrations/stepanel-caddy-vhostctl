@@ -155,6 +155,18 @@ EOF
           printf '\tredir %s %s %s\n' "$source" "$destination" "$code"
         done
       fi
+      # Route only the document root to the PHP front controller, and only
+      # when that controller exists. This avoids a directory match falling
+      # through to file_server for database-backed WordPress home requests;
+      # rewrite preserves the original query string and static-only roots are
+      # unaffected.
+      cat <<'EOF'
+	@stepanel_php_root {
+		path /
+		file /index.php
+	}
+	rewrite @stepanel_php_root /index.php
+EOF
       # Caddy reads through the root-owned nosymfollow bind view, but the
       # per-site PHP-FPM account and open_basedir use the canonical site path.
       # Pass that canonical path to FastCGI instead of the Caddy-only view.

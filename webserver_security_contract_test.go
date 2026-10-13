@@ -68,6 +68,16 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 
 func TestCaddyFastCGIUsesCanonicalSiteRoot(t *testing.T) {
 	source := string(mustReadTestFile(t, "deploy/integrations/stepanel-caddy-vhostctl"))
+	for _, required := range []string{
+		`@stepanel_php_root {`,
+		`path /`,
+		`file /index.php`,
+		`rewrite @stepanel_php_root /index.php`,
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("Caddy vhost is missing guarded PHP front-controller routing %q", required)
+		}
+	}
 	if !strings.Contains(source, `"$domain" "$view_root_path"`) {
 		t.Fatal("Caddy must continue serving through the isolated nosymfollow view")
 	}

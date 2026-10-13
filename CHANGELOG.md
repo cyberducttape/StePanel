@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Route Caddy document-root requests through an existing PHP `index.php` while
+  preserving query strings, so database-backed WordPress home requests reach
+  the application instead of falling through to a static 404.
+- Require SQLite to confirm exactly one reservation row was changed during
+  capacity growth, progressive extension, and shrink; missing durable rows now
+  fail closed without advancing process-local reservation state.
 - Keep local capacity-reservation counters synchronized with SQLite commit
   results, and fail explicitly if a consumed reservation row is missing; fault
   injection covers failed writes, failed commits, missing rows, and retries.

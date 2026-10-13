@@ -334,6 +334,17 @@ func capacitySQLBytes(value uint64) (int64, error) {
 	return int64(value), nil
 }
 
+func requireCapacityReservationRow(result sql.Result, operation string) error {
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read %s reservation update result: %w", operation, err)
+	}
+	if changed != 1 {
+		return fmt.Errorf("%s reservation update: expected one durable row, changed %d", operation, changed)
+	}
+	return nil
+}
+
 func capacityReservationID() string {
 	sequence := atomic.AddUint64(&capacityReservationSequence, 1)
 	var entropy [16]byte
@@ -423,8 +434,12 @@ func (r *capacityReservation) extendLocked(demands []capacityDemand) error {
 			if convErr != nil {
 				return convErr
 			}
-			if _, txErr = tx.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, bytes, r.id, demand.device); txErr != nil {
+			var result sql.Result
+			if result, txErr = tx.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, bytes, r.id, demand.device); txErr != nil {
 				return fmt.Errorf("extend capacity reservation: %w", txErr)
+			}
+			if txErr = requireCapacityReservationRow(result, "extend capacity"); txErr != nil {
+				return txErr
 			}
 		}
 		if txErr = tx.Commit(); txErr != nil {
@@ -720,8 +735,12 @@ func (r *capacityReservation) grow(path string, bytes uint64) error {
 		if free < saturatingAdd(saturatingAdd(outstanding, bytes), r.reserve) {
 			return &capacityError{fmt.Sprintf("insufficient free space at %s for an additional %d bytes needed by this %s", path, bytes, r.workflow)}
 		}
-		if _, txErr = tx.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, sqlBytes, r.id, device); txErr != nil {
-			return fmt.Errorf("grow capacity reservation: %w", txErr)
+		result, updateErr := tx.Exec(`UPDATE capacity_reservations SET bytes=bytes+? WHERE reservation_id=? AND device=?`, sqlBytes, r.id, device)
+		if updateErr != nil {
+			return fmt.Errorf("grow capacity reservation: %w", updateErr)
+		}
+		if err := requireCapacityReservationRow(result, "grow capacity"); err != nil {
+			return err
 		}
 		if txErr = tx.Commit(); txErr != nil {
 			return fmt.Errorf("commit capacity growth: %w", txErr)
@@ -768,8 +787,12 @@ func (r *capacityReservation) shrink(path string, bytes uint64) error {
 		if convErr != nil {
 			return convErr
 		}
-		if _, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=MAX(bytes-?,0) WHERE reservation_id=? AND device=?`, sqlBytes, r.id, device); dbErr != nil {
+		result, dbErr := l.db.Exec(`UPDATE capacity_reservations SET bytes=MAX(bytes-?,0) WHERE reservation_id=? AND device=?`, sqlBytes, r.id, device)
+		if dbErr != nil {
 			return fmt.Errorf("shrink capacity reservation: %w", dbErr)
+		}
+		if err := requireCapacityReservationRow(result, "shrink capacity"); err != nil {
+			return err
 		}
 	}
 	r.held[device] -= released
