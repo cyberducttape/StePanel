@@ -105,6 +105,9 @@ func (a *App) operationalHealth(w http.ResponseWriter, r *http.Request) {
 	default:
 		checks["startup_reconciliation"] = ReadinessCheck{Ready: true}
 	}
+	if recoveryErr := a.recovery.get(); recoveryErr != nil {
+		checks["recovery_state"] = ReadinessCheck{Ready: false, Detail: recoveryErr.Error()}
+	}
 	operational := true
 	for _, check := range checks {
 		if !check.Ready {

@@ -7,9 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cyberducttape/StePanel/internal/backup"
-	"github.com/cyberducttape/StePanel/internal/domainname"
-	"github.com/cyberducttape/StePanel/internal/recovery"
 	"io"
 	"log"
 	"net/http"
@@ -18,6 +15,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/backup"
+	"github.com/cyberducttape/StePanel/internal/domainname"
+	"github.com/cyberducttape/StePanel/internal/recovery"
+	"github.com/cyberducttape/StePanel/internal/state"
 )
 
 // Type aliases for backward compatibility
@@ -651,7 +653,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 				log.Printf("staging site cleanup failed for %s: %v", input.Site, deleteErr)
 			}
 			if createdDatabase {
-				if cleanupErr := cleanupStagingRestoreDatabase(a.Config, input.TargetDatabase, input.TargetUser); cleanupErr != nil {
+				if cleanupErr := a.cleanupStagingRestoreDatabase(input.TargetDatabase, input.TargetUser); cleanupErr != nil {
 					log.Printf("staging database cleanup failed for %s: %v", input.TargetDatabase, cleanupErr)
 				}
 			}
@@ -695,11 +697,17 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 // cleanupStagingRestoreDatabase compensates a failed staged restore using an
 // independent bounded context. The import request may already be canceled or
 // timed out, but its newly provisioned database still needs to be removed.
-func cleanupStagingRestoreDatabase(cfg Config, database, username string) error {
+func (a *App) cleanupStagingRestoreDatabase(database, username string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	_, err := runDatabaseHelperContext(ctx, cfg, time.Minute, "", "drop-managed", database, username)
-	return err
+	_, err := runDatabaseHelperContext(ctx, a.Config, time.Minute, "", "drop-managed", database, username)
+	if err != nil {
+		stateErr := state.NewCleanupError("staging_restore_database", err, "staging database compensation failed; startup reconciliation is required")
+		a.observeStateError(stateErr)
+		a.recovery.set(stateErr)
+		return fmt.Errorf("staging database compensation failed: %w", err)
+	}
+	return nil
 }
 
 func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {

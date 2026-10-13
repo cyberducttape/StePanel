@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -63,7 +64,8 @@ func TestCanceledStagingDatabaseRestoreStillRunsCompensation(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("staged database restore did not stop after cancellation")
 	}
-	if err := cleanupStagingRestoreDatabase(Config{DBCtl: helper}, "staging_db", "staging_user"); err != nil {
+	app := &App{Config: Config{DBCtl: helper}}
+	if err := app.cleanupStagingRestoreDatabase("staging_db", "staging_user"); err != nil {
 		t.Fatalf("cleanupStagingRestoreDatabase: %v", err)
 	}
 	got, err := os.ReadFile(argsPath)
@@ -72,6 +74,36 @@ func TestCanceledStagingDatabaseRestoreStillRunsCompensation(t *testing.T) {
 	}
 	if strings.TrimSpace(string(got)) != "drop-managed\nstaging_db\nstaging_user" {
 		t.Fatalf("cleanup helper arguments = %q", got)
+	}
+}
+
+func TestFailedStagingDatabaseCompensationMarksRecoveryRequired(t *testing.T) {
+	helper := filepath.Join(t.TempDir(), "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{DBCtl: helper}}
+	if err := app.cleanupStagingRestoreDatabase("staging_db", "staging_user"); err == nil {
+		t.Fatal("database compensation failure was not returned")
+	}
+	if got := app.recovery.get(); got == nil || !strings.Contains(got.Error(), "staging_restore_database") {
+		t.Fatalf("recovery state = %v, want staged database intervention", got)
+	}
+	response := httptest.NewRecorder()
+	app.operationalHealth(response, httptest.NewRequest(http.MethodGet, "/api/health/operational", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("operational health status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode operational health: %v", err)
+	}
+	var checks map[string]ReadinessCheck
+	if err := json.Unmarshal(body["checks"], &checks); err != nil {
+		t.Fatalf("decode operational checks: %v", err)
+	}
+	if check := checks["recovery_state"]; check.Ready || !strings.Contains(check.Detail, "staging_restore_database") {
+		t.Fatalf("recovery health check = %+v, want an actionable failed check", check)
 	}
 }
 
