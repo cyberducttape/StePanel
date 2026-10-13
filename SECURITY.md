@@ -7,7 +7,35 @@ state, and every configured helper as security-sensitive infrastructure.
 
 ## Supported versions
 
-Until the first stable release, security fixes are applied to the `main` branch. Production operators should pin a reviewed commit rather than track an unreviewed branch.
+Until the first stable release, StePanel is an operator beta: security fixes
+are applied to `main`, and there is no guaranteed response or patch SLA.
+Operators should pin a reviewed release/commit and maintain an independent
+recovery path; the project does not recommend customer production workloads
+while the v1.0 gates remain open.
+
+After v1.0, the support window is:
+
+- The latest stable minor release is fully supported.
+- The immediately preceding minor release receives security fixes for 12
+  months after the latest minor is published. Older releases are unsupported;
+  upgrade to a supported release before requesting a backport.
+- Patch releases are the supported delivery mechanism. A security fix may
+  require a coordinated configuration, credential-rotation, or data-recovery
+  action documented in the advisory.
+- We aim to acknowledge private reports within three business days, complete
+  initial triage within five business days, and publish a mitigation or patch
+  for a confirmed critical issue within 72 hours where technically feasible.
+  High-severity fixes target the next patch release, normally within 14 days.
+  These are response objectives, not a service-level guarantee; active
+  exploitation may change the disclosure and release schedule.
+- End-of-support dates will be announced in release notes at least six months
+  ahead when practicable. Security fixes are not guaranteed for unsupported
+  versions.
+
+For beta reports, we will make a best-effort fix on `main`, but the stable
+release response objectives above do not apply. A fix is not considered
+released merely because it has been merged; users must install the fixed,
+verified release or apply the advisory's mitigation.
 
 ## Reporting a vulnerability
 
@@ -19,6 +47,16 @@ Do not open a public issue for a suspected vulnerability. Contact the repository
 - any suggested mitigation.
 
 Please allow time for investigation and a coordinated fix before public disclosure.
+Do not include live credentials or customer data in reports. If a report
+involves exposed credentials, revoke/rotate them immediately using the
+deployment's credential procedures while coordinating disclosure.
+
+Security advisories should identify affected versions, severity and impact,
+prerequisites, fixed versions, available mitigations, upgrade steps, and any
+required secret rotation or recovery action. When a public advisory is issued,
+the corresponding fix and release notes should be available at the same time
+unless withholding implementation details is necessary to protect users who
+have not yet had a reasonable opportunity to update.
 
 ## Threat model
 

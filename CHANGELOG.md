@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   coverage thresholds, full race suite, recovery drills, control-plane smoke
   benchmarks, mixed HTTP/job load, and documentation/artifact checks passed.
   The evidence explicitly does not claim host-level certification or capacity.
+- Defined beta and stable-release vulnerability support windows, severity
+  response objectives, end-of-support notice, and advisory contents in the
+  security policy. Independent release-candidate review remains an open gate.
 - Clarified the actual installed-host runtime smoke matrix and the limits of
   installer rollback versus post-upgrade snapshot recovery in the authoritative
   production gates; untested OS/web/database combinations are not certified.
