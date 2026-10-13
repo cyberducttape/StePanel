@@ -584,6 +584,53 @@ func TestDurableQueueClaimRetryAndDeadLetter(t *testing.T) {
 	}
 }
 
+func TestDurableJobCleanupRetainsDeadLettersAcrossRestart(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	queued, err := jobs.Enqueue("test.operation", "site", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, ok, err := jobs.ClaimNext("worker-a", "test.operation")
+	if err != nil || !ok || claimed.ID != queued.ID {
+		t.Fatalf("claim = %#v, %v, %v", claimed, ok, err)
+	}
+	if err := jobs.FailClaim(claimed.ID, "worker-a", "needs operator reconciliation"); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	if err := db.QueryRow(`SELECT state FROM jobs WHERE id=?`, queued.ID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "dead-letter" {
+		t.Fatalf("job state = %q, want dead-letter", state)
+	}
+	old := time.Now().UTC().Add(-48 * time.Hour).UnixNano()
+	if _, err := db.Exec(`UPDATE jobs SET finished_at=? WHERE id=?`, old, queued.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	jobs.Cleanup(24 * time.Hour)
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE id=? AND state='dead-letter'`, queued.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expired dead-letter row count = %d, want 1", count)
+	}
+	restarted := newJobsWithDB(db, 1)
+	if err := restarted.load(); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok, err := restarted.GetWithError(queued.ID); err != nil || !ok || got.State != "dead-letter" {
+		t.Fatalf("dead-letter after restart = %#v, found=%v, err=%v", got, ok, err)
+	}
+}
+
 func TestDurableWorkerReclaimsExpiredClaimOnStartup(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

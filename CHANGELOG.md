@@ -35,6 +35,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   records as authoritative after a durable SQLite read failure. Support bundles
   now mark job history unavailable explicitly instead of exporting an empty or
   stale list as current state.
+- Added a durable cleanup/restart regression check ensuring aged dead-letter
+  jobs remain available for operator reconciliation.
 - Application deploy, rollback, start, stop, and restart now share a durable
   activation journal that records both prior and target generations. Failed
   changes restore runtime, manifest, and rollback sidecar together; startup
