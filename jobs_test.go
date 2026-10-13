@@ -1237,10 +1237,16 @@ func TestDurableClaimTransitionRestoresMemoryOnPersistenceFailure(t *testing.T) 
 	if err := jobs.finishClaim(item.ID, "worker-a", func(job *Job) { job.State = "completed" }); err == nil {
 		t.Fatal("finishClaim unexpectedly succeeded after database close")
 	}
-	got, ok := jobs.Get(item.ID)
-	if !ok || got.State != "running" || got.LeaseOwner != "worker-a" {
-		t.Fatalf("job after failed claim transition = %#v, found = %v", got, ok)
+	if _, ok, err := jobs.GetWithError(item.ID); ok || err == nil {
+		t.Fatalf("durable lookup after database failure = found %v, err %v; want unavailable", ok, err)
 	}
+	jobs.mu.RLock()
+	got := jobs.items[item.ID]
+	if got == nil || got.State != "running" || got.LeaseOwner != "worker-a" {
+		jobs.mu.RUnlock()
+		t.Fatalf("local rollback state after failed transition = %#v", got)
+	}
+	jobs.mu.RUnlock()
 }
 
 // TestDurableListAlwaysIncludesActiveJobsOutsideTheRecentWindow keeps the
