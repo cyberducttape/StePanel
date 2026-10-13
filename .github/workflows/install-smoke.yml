@@ -28,10 +28,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: ubuntu-24.04-caddy-mariadb
+            image: ubuntu:24.04
+            db: mariadb
+            web: caddy
+          - name: ubuntu-24.04-apache-mariadb
+            image: ubuntu:24.04
+            db: mariadb
+            web: apache
+          - name: almalinux-9-apache-mariadb
+            image: almalinux:9
+            db: mariadb
+            web: apache
           - name: almalinux-9-caddy-mariadb
             image: almalinux:9
             db: mariadb
             web: caddy
+          - name: rocky-9-apache-mariadb
+            image: rockylinux:9
+            db: mariadb
+            web: apache
           - name: rocky-9-caddy-mariadb
             image: rockylinux:9
             db: mariadb
