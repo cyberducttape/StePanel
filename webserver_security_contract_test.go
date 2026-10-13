@@ -69,7 +69,7 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 func TestCaddyFastCGIUsesCanonicalSiteRoot(t *testing.T) {
 	source := string(mustReadTestFile(t, "deploy/integrations/stepanel-caddy-vhostctl"))
 	if !strings.Contains(source, `if [[ -f "$public_root/index.php" && ! -L "$public_root/index.php" ]]`) ||
-		!strings.Contains(source, `printf '\trewrite / /index.php\n'`) {
+		!strings.Contains(source, `@stepanel_php_root path /\n\trewrite @stepanel_php_root /index.php\n`) {
 		t.Fatal("Caddy must route / to an existing, non-symlink PHP front controller while preserving query strings")
 	}
 	if !strings.Contains(source, `"$domain" "$view_root_path"`) {

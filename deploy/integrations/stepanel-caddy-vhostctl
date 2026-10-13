@@ -161,7 +161,7 @@ EOF
       # the helper verifies the file as root so this does not depend on Caddy's
       # view-mount file matcher. A path-only rewrite preserves the query string.
       if [[ -f "$public_root/index.php" && ! -L "$public_root/index.php" ]]; then
-        printf '\trewrite / /index.php\n'
+	printf '\t@stepanel_php_root path /\n\trewrite @stepanel_php_root /index.php\n'
       fi
       # Caddy reads through the root-owned nosymfollow bind view, but the
       # per-site PHP-FPM account and open_basedir use the canonical site path.

@@ -10,7 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Route Caddy document-root requests through a root-verified PHP `index.php`,
   preserving query strings without relying on Caddy's file matcher for its
-  nosymfollow view mount.
+  nosymfollow view mount or ambiguous slash-prefixed rewrite matcher syntax.
 - Require SQLite to confirm exactly one reservation row was changed during
   capacity growth, progressive extension, and shrink; missing durable rows now
   fail closed without advancing process-local reservation state.
