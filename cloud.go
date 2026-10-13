@@ -174,8 +174,11 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 			request.AWSInstance = &AWSInstanceAction{InstanceID: request.ID}
 		}
 	}
-	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
-		return nil, context.Canceled
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
+		return nil, err
 	}
 	var result CloudActionResult
 	var err error

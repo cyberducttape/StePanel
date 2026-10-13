@@ -941,18 +941,44 @@ func (j *Jobs) RequeueDeadLetter(id string) error {
 	return nil
 }
 
-// CancellationRequested lets a worker handler stop at a safe checkpoint.
-func (j *Jobs) CancellationRequested(id string) bool {
+// CancellationRequestedWithError reads the authoritative cancellation bit.
+// A successfully missing durable row is no longer runnable; database errors
+// remain errors so workers do not misreport an outage as operator cancellation.
+func (j *Jobs) CancellationRequestedWithError(id string) (bool, error) {
 	if j.db != nil {
 		var requested int
-		if err := j.db.QueryRow(`SELECT cancel_requested FROM jobs WHERE id = ?`, id).Scan(&requested); err == nil {
-			return requested != 0
+		err := j.db.QueryRow(`SELECT cancel_requested FROM jobs WHERE id = ?`, id).Scan(&requested)
+		if errors.Is(err, sql.ErrNoRows) {
+			return true, nil
 		}
+		if err != nil {
+			return false, fmt.Errorf("read durable job cancellation state: %w", err)
+		}
+		return requested != 0, nil
 	}
 	j.mu.RLock()
 	defer j.mu.RUnlock()
 	item, ok := j.items[id]
-	return ok && item != nil && item.Cancel
+	return ok && item != nil && item.Cancel, nil
+}
+
+// CancellationRequested lets legacy callers fail closed at a safe checkpoint.
+// Production handlers use CheckNotCancelled so a database outage is recorded
+// as an unavailable state, not as an explicit cancellation.
+func (j *Jobs) CancellationRequested(id string) bool {
+	requested, err := j.CancellationRequestedWithError(id)
+	return err != nil || requested
+}
+
+func (j *Jobs) CheckNotCancelled(id string) error {
+	requested, err := j.CancellationRequestedWithError(id)
+	if err != nil {
+		return fmt.Errorf("verify durable job cancellation state: %w", err)
+	}
+	if requested {
+		return context.Canceled
+	}
+	return nil
 }
 
 type DurableJobHandler func(context.Context, Job) ([]byte, error)
@@ -1123,12 +1149,25 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 			heartbeat.mu.Lock()
 			heartbeat.currentJobs[item.ID] = true
 			heartbeat.mu.Unlock()
-			if j.CancellationRequested(item.ID) {
+			cancelRequested, cancelErr := j.CancellationRequestedWithError(item.ID)
+			if cancelErr != nil {
+				heartbeat.mu.Lock()
+				delete(heartbeat.currentJobs, item.ID)
+				heartbeat.mu.Unlock()
+				return fmt.Errorf("verify cancellation state for job %s: %w", item.ID, cancelErr)
+			}
+			if cancelRequested {
 				if err := j.finishClaim(item.ID, owner, func(job *Job) {
 					job.State = "cancelled"
 					now := time.Now().UTC()
 					job.FinishedAt = &now
 				}); err != nil {
+					if errors.Is(err, errJobLeaseNotHeld) {
+						heartbeat.mu.Lock()
+						delete(heartbeat.currentJobs, item.ID)
+						heartbeat.mu.Unlock()
+						continue
+					}
 					heartbeat.mu.Lock()
 					delete(heartbeat.currentJobs, item.ID)
 					heartbeat.mu.Unlock()

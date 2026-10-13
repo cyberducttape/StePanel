@@ -60,7 +60,20 @@ func (f recoveryFixture) rehearse(t *testing.T, ctx context.Context, request dur
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = f.app.handleBackupRehearsalJob(ctx, Job{ID: "rehearsal-" + request.Backup, Payload: payload})
+	var item Job
+	for _, candidate := range f.app.Jobs.List(100) {
+		if candidate.Kind == "backup.rehearsal" && candidate.User == request.Site && string(candidate.Payload) == string(payload) {
+			item = candidate
+			break
+		}
+	}
+	if item.ID == "" {
+		item, err = f.app.Jobs.Enqueue("backup.rehearsal", request.Site, "", payload, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err = f.app.handleBackupRehearsalJob(ctx, item)
 	return err
 }
 

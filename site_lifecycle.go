@@ -169,8 +169,8 @@ func (a *App) handleSiteTermination(ctx context.Context, item Job) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	if a.Jobs.CancellationRequested(item.ID) {
-		return nil, context.Canceled
+	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
+		return nil, err
 	}
 	operationCtx, release, err := a.acquireSiteMutationLockContext(ctx, request.Site)
 	if err != nil {

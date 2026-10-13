@@ -322,8 +322,11 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 		return nil, fmt.Errorf("archive import authorization: %w", err)
 	}
 
-	if ctx.Err() != nil || a.Jobs.CancellationRequested(job.ID) {
-		return nil, context.Canceled
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := a.Jobs.CheckNotCancelled(job.ID); err != nil {
+		return nil, err
 	}
 
 	operationCtx, releaseSite, lockErr := a.acquireSiteMutationLockContext(ctx, req.SiteName)

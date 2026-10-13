@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Treat a successful SQLite job lookup miss as authoritative and evict stale
   process-local cache entries rather than returning a job pruned by another
   process.
+- Make durable worker cancellation checks use SQLite as authority: missing jobs
+  stop safely, while database errors remain explicit failures instead of being
+  misreported as operator cancellation or answered from stale cache.
 - Record the WordPress proof post's persisted status and URL settings, and
   probe both the front-controller route and direct `index.php` route when
   diagnosing Caddy application-probe failures.

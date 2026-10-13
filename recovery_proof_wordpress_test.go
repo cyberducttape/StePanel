@@ -448,7 +448,11 @@ func TestRehearsalRecordsWhyWordPressProofWasSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, err := f.app.handleBackupRehearsalJob(context.Background(), Job{ID: "rehearsal-wp", Payload: payload})
+	item, err := f.app.Jobs.Enqueue("backup.rehearsal", "account", "", payload, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := f.app.handleBackupRehearsalJob(context.Background(), item)
 	if err != nil {
 		t.Fatal(err)
 	}

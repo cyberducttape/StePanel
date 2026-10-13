@@ -1149,8 +1149,11 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := verifyCPMoveUpload(upload); err != nil {
 		return nil, err
 	}
-	if a.Jobs.CancellationRequested(item.ID) {
-		return nil, errors.New("cpmove restore cancelled before execution")
+	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, errors.New("cpmove restore cancelled before execution")
+		}
+		return nil, err
 	}
 	removeUpload := false
 	defer func() {
@@ -1211,8 +1214,11 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
-		return nil, context.Canceled
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
+		return nil, err
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.Site)
 	if lockErr != nil {
@@ -1335,8 +1341,11 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
-		return nil, context.Canceled
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
+		return nil, err
 	}
 	if err := verifyWPressUpload(request.TempPath, request.Size, request.SHA256); err != nil {
 		return nil, err

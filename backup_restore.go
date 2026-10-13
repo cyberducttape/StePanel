@@ -76,8 +76,11 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
-		return nil, context.Canceled
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
+		return nil, err
 	}
 	operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, request.Site)
 	if lockErr != nil {
@@ -167,8 +170,11 @@ func (a *App) handleBackupRehearsalJob(ctx context.Context, item Job) ([]byte, e
 	if _, err := a.authorizeDurableSiteJob(request.Site, request.Actor, request.Scheduled); err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil || a.Jobs.CancellationRequested(item.ID) {
-		return nil, context.Canceled
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := a.Jobs.CheckNotCancelled(item.ID); err != nil {
+		return nil, err
 	}
 	trigger := recovery.TriggerManual
 	if request.Scheduled {

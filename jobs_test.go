@@ -370,6 +370,59 @@ func TestDurableJobReadDoesNotResurrectRowDeletedByAnotherProcess(t *testing.T) 
 	}
 }
 
+func TestDurableCancellationFailsClosedWhenDatabaseCannotConfirmState(t *testing.T) {
+	jobs, err := OpenDurableJobs(filepath.Join(t.TempDir(), "control.db"), "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := jobs.Enqueue("site.backup", "site-a", "", nil, 1)
+	if err != nil {
+		_ = jobs.Close()
+		t.Fatal(err)
+	}
+	if cached, ok := jobs.items[item.ID]; !ok || cached.Cancel {
+		_ = jobs.Close()
+		t.Fatalf("precondition: cached job = %#v, exists=%v", cached, ok)
+	}
+	if err := jobs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jobs.CancellationRequestedWithError(item.ID); err == nil {
+		t.Fatal("durable cancellation lookup hid its database error")
+	}
+	if err := jobs.CheckNotCancelled(item.ID); err == nil {
+		t.Fatal("worker checkpoint continued when durable cancellation state was unavailable")
+	}
+	if !jobs.CancellationRequested(item.ID) {
+		t.Fatal("worker continued using cached state after durable cancellation lookup failed")
+	}
+}
+
+func TestDurableCancellationTreatsMissingRowAsNoLongerRunnable(t *testing.T) {
+	jobs, err := OpenDurableJobs(filepath.Join(t.TempDir(), "control.db"), "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer jobs.Close()
+	item, err := jobs.Enqueue("site.backup", "site-a", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jobs.db.Exec(`DELETE FROM jobs WHERE id = ?`, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	requested, err := jobs.CancellationRequestedWithError(item.ID)
+	if err != nil || !requested {
+		t.Fatalf("missing durable job cancellation state = requested %v, err %v; want safely stopped", requested, err)
+	}
+	if err := jobs.CheckNotCancelled(item.ID); !errors.Is(err, context.Canceled) {
+		t.Fatalf("checkpoint error for missing job = %v, want context.Canceled", err)
+	}
+	if !jobs.CancellationRequested(item.ID) {
+		t.Fatal("worker treated a durably missing job as runnable based on cached state")
+	}
+}
+
 func TestDurableIdempotencyExpiryIsTimestampBasedAndRestartSafe(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {
