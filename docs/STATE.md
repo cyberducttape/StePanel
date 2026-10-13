@@ -57,9 +57,11 @@ delete evidence needed for recovery. Each workflow must document its commit
 point and recovery action. Site transactions persist a `recovery_required`
 reason when compensation cannot be verified. Startup recovery reports those
 journals as degraded and retention never prunes them; an operator must
-reconcile the host and preserve the journal as evidence. Repository tests
-exercise these contracts, but they do not replace installed-host interruption
-and power-loss evidence required by
+reconcile the host, preserve the journal as evidence, and explicitly resolve
+the intervention using the stopped-services CLI procedure in
+[`OPERATIONS.md`](OPERATIONS.md#resolving-a-retained-recovery-intervention).
+Repository tests exercise these contracts, but they do not replace
+installed-host interruption and power-loss evidence required by
 [`V1_PRODUCTION_GATES.md`](V1_PRODUCTION_GATES.md).
 
 ## Pre-migration snapshots

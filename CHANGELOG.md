@@ -14,11 +14,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   context so request cancellation cannot suppress cleanup of the staged DB;
   regression coverage cancels during an active SQL import, and failed
   database, journal, or filesystem compensation degrades readiness until
-  startup reconciliation. Exercise route-activation failure followed by
-  failed site teardown through the actual restore handler, verifying that
-  operational health becomes unavailable, a durable intervention marker
-  survives the startup recovery scan and retention cleanup, and the production
-  site stays unchanged.
+  startup reconciliation. Create the recovery journal before the staging
+  account mutation; persist failed compensation so startup and retention keep
+  the intervention visible, and provide an audited stopped-services resolution
+  command after an operator verifies host state. Handler-level fault injection
+  verifies the production site remains unchanged.
 - Make long workspace sidebar jumps land immediately while retaining smooth
   transitions between nearby sections, so deep destinations are responsive.
 - Verify database-backed WordPress recovery over both Apache and Caddy with

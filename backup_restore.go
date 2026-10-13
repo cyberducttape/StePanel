@@ -619,19 +619,6 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			}
 		}
 	}()
-	if e = siteHelperContext(operationCtx, a.Config, "prepare", input.Site); e != nil {
-		http.Error(w, "could not prepare isolated staging site", 502)
-		return
-	}
-	marker, markerErr := safePath(a.Config.WebRoot, "sites", input.Site, ".stepanel-staging-noindex")
-	if markerErr != nil {
-		http.Error(w, "invalid staging marker path", 422)
-		return
-	}
-	if e = writeAtomic(marker, []byte("managed restore staging noindex\n"), 0600); e != nil {
-		http.Error(w, "could not apply restore indexing protection", 503)
-		return
-	}
 	txn, e = beginManagedSiteTransaction(operationCtx, a.Config, dest, "backup.restore-to-staging", access)
 	if e != nil {
 		http.Error(w, "could not journal restore", 503)
@@ -670,6 +657,19 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			}
 		}
 	}()
+	if e = siteHelperContext(operationCtx, a.Config, "prepare", input.Site); e != nil {
+		http.Error(w, "could not prepare isolated staging site", 502)
+		return
+	}
+	marker, markerErr := safePath(a.Config.WebRoot, "sites", input.Site, ".stepanel-staging-noindex")
+	if markerErr != nil {
+		http.Error(w, "invalid staging marker path", 422)
+		return
+	}
+	if e = writeAtomic(marker, []byte("managed restore staging noindex\n"), 0600); e != nil {
+		http.Error(w, "could not apply restore indexing protection", 503)
+		return
+	}
 	if e = copyTreeContext(operationCtx, source, managerStage); e != nil {
 		http.Error(w, "could not restore site files", 502)
 		return

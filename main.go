@@ -219,6 +219,35 @@ func Main() {
 		}
 		return
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "resolve-recovery" {
+		if len(os.Args) != 4 || os.Args[3] != "--confirm-host-reconciled" {
+			log.Fatal("usage: stepanel resolve-recovery TRANSACTION_ID --confirm-host-reconciled (stop panel and worker first)")
+		}
+		cfg := LoadConfig()
+		panelLock, err := acquireProcessLock(cfg.JobState + ".lock")
+		if err != nil {
+			log.Fatal("stop StePanel before resolving a recovery intervention: ", err)
+		}
+		defer panelLock.Close()
+		workerLock, err := acquireProcessLock(cfg.JobState + ".lock.worker")
+		if err != nil {
+			log.Fatal("stop stepanel-worker before resolving a recovery intervention: ", err)
+		}
+		defer workerLock.Close()
+		transaction, err := loadRecoveryIntervention(cfg.RecoveryRoot, os.Args[2])
+		if err != nil {
+			log.Fatal(err)
+		}
+		detail := fmt.Sprintf("operator confirmed host reconciliation for site %s with --confirm-host-reconciled", transaction.Site)
+		if err := SecurityAuditRequired(cfg.AuditLog, "local-operator", "recovery.intervention-resolution-attempted", transaction.ID, detail); err != nil {
+			log.Fatal("record recovery intervention resolution attempt: ", err)
+		}
+		if err := resolveRecoveryIntervention(cfg.RecoveryRoot, os.Args[2]); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Fprintln(os.Stdout, "recovery intervention cleared:", os.Args[2])
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "backup-control-plane" {
 		if err := backupControlPlane(LoadConfig().ControlPlaneDB, os.Args[2]); err != nil {
 			log.Fatal(err)

@@ -717,6 +717,47 @@ func loadSiteTransaction(dir string) (*SiteTransaction, error) {
 	return &txn, nil
 }
 
+func loadRecoveryIntervention(root, id string) (*SiteTransaction, error) {
+	if id == "" || filepath.Base(id) != id || strings.Trim(id, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != "" {
+		return nil, errors.New("invalid recovery transaction ID")
+	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve recovery root: %w", err)
+	}
+	dir := filepath.Join(root, id)
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return nil, fmt.Errorf("inspect recovery transaction: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("recovery transaction is not a real directory")
+	}
+	txn, err := loadSiteTransaction(dir)
+	if err != nil {
+		return nil, err
+	}
+	if txn.RecoveryRequired == "" {
+		return nil, errors.New("recovery transaction has no pending operator intervention")
+	}
+	return txn, nil
+}
+
+// resolveRecoveryIntervention clears a journal's operator marker only after an
+// explicit out-of-band host reconciliation. The CLI caller holds both panel
+// and worker process locks and records the resolution attempt in the audit log.
+func resolveRecoveryIntervention(root, id string) error {
+	txn, err := loadRecoveryIntervention(root, id)
+	if err != nil {
+		return err
+	}
+	txn.RecoveryRequired = ""
+	if err := txn.persist(); err != nil {
+		return fmt.Errorf("clear recovery intervention: %w", err)
+	}
+	return nil
+}
+
 // validatedRecoveryPath accepts only an absolute, canonical path. Recovery
 // journals are persisted state and must not be allowed to smuggle traversal
 // components into filesystem operations. Production recovery additionally

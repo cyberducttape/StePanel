@@ -92,6 +92,37 @@ func TestRecoverSiteTransactionAfterProcessDeath(t *testing.T) {
 	assertTestFile(t, filepath.Join(home, "index.html"), "old")
 }
 
+func TestResolveRecoveryInterventionRequiresExistingMarkerAndAllowsReconciliation(t *testing.T) {
+	root := t.TempDir()
+	recoveryRoot := filepath.Join(root, "recovery")
+	txn, err := BeginSiteTransaction(recoveryRoot, filepath.Join(root, "site", "public"), "test.restore", AuthorizedSite{site: "site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := txn.MarkRecoveryRequired(errors.New("site teardown failed")); err != nil {
+		t.Fatal(err)
+	}
+	if err := resolveRecoveryIntervention(recoveryRoot, txn.ID); err != nil {
+		t.Fatalf("resolve recovery intervention: %v", err)
+	}
+	loaded, err := loadSiteTransaction(txn.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.RecoveryRequired != "" {
+		t.Fatalf("recovery marker remains after resolution: %q", loaded.RecoveryRequired)
+	}
+	if _, err := RecoverSiteTransactions(recoveryRoot); err != nil {
+		t.Fatalf("startup reconciliation after explicit resolution: %v", err)
+	}
+	if err := resolveRecoveryIntervention(recoveryRoot, "../outside"); err == nil {
+		t.Fatal("recovery resolution accepted a traversal transaction ID")
+	}
+	if err := resolveRecoveryIntervention(recoveryRoot, txn.ID); err == nil {
+		t.Fatal("recovery resolution accepted a transaction without an intervention")
+	}
+}
+
 func TestRestoreRetryReconcilesPriorSiteJournalBeforeNewGeneration(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("r", 32))
 	root := t.TempDir()

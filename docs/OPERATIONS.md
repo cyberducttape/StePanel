@@ -519,3 +519,29 @@ the corresponding root-owned snippet.
 ## Recovery
 
 If an import fails, preserve the timestamped staging directory, inspect the service logs, and restore from the pre-import snapshot. Do not repeatedly retry against a live destination without identifying the failure mode.
+
+### Resolving a retained recovery intervention
+
+If startup finds a site journal with `recovery_required`, it keeps readiness
+degraded and will not prune or automatically replay that journal. Inspect the
+journal and host state first; reconcile the site tree, database, service
+identity, PHP-FPM pool, and webserver route as applicable. The command below
+only acknowledges that operator reconciliation—it does not repair host state.
+Use it only after verifying the affected resources, and keep the journal for
+incident evidence.
+
+Stop both processes, then run the audited resolution command as the configured
+StePanel service account (or root):
+
+```sh
+sudo systemctl stop stepanel-worker.service stepanel.service
+sudo bash -c 'set -a; . /etc/ste-panel.env; set +a; exec /opt/stepanel/stepanel resolve-recovery TRANSACTION_ID --confirm-host-reconciled'
+sudo systemctl start stepanel.service stepanel-worker.service
+```
+
+Replace `TRANSACTION_ID` with the ID shown in the retained recovery journal.
+The command refuses to run while either process lock is held, requires the
+explicit confirmation flag, and records `recovery.intervention-resolution-attempted`
+in the required audit log before clearing the marker. Startup reconciliation
+then processes any remaining nonterminal transaction state. If it fails,
+readiness remains degraded; do not remove the journal to silence the alert.
