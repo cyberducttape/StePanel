@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-12
+**Last Updated:** 2026-10-13
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -126,6 +126,9 @@ ratchet from the current 47.5% baseline, not a production-quality claim by
 itself. It must increase as root-package handlers are extracted and tested;
 the release process must not lower it to accommodate a regression. Coverage is
 supplemental evidence and does not replace the failure-recovery matrix below.
+The current local repository-gate run is recorded in
+[2026-10-13-repository-production-gate.md](./lab-results/2026-10-13-repository-production-gate.md);
+it passed but does not close the installed-host release gates.
 
 ---
 

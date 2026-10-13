@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing and documentation
 
+- Recorded the 2026-10-13 repository production-gate run for `b29856f`:
+  coverage thresholds, full race suite, recovery drills, control-plane smoke
+  benchmarks, mixed HTTP/job load, and documentation/artifact checks passed.
+  The evidence explicitly does not claim host-level certification or capacity.
 - Clarified the actual installed-host runtime smoke matrix and the limits of
   installer rollback versus post-upgrade snapshot recovery in the authoritative
   production gates; untested OS/web/database combinations are not certified.
