@@ -34,8 +34,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Site-operation submissions without an `Idempotency-Key` now always create a
   distinct durable job instead of coalescing unrelated operations for the
   same site. Explicit keys bind to the complete request payload and conflicting
-  reuse returns HTTP 409. Cloud actions likewise create a fresh attempt unless
-  the caller supplies an exact, UTC-day-bounded retry key.
+  reuse returns HTTP 409. Regression coverage verifies Git deployment and
+  Composer installation are both admitted for one site. Cloud actions
+  likewise create a fresh attempt unless the caller supplies an exact,
+  UTC-day-bounded retry key.
 - Corrected Linode backup handling to use per-instance backup inventory and
   removed the unsupported snapshot deletion route. Snapshot creation now sends
   the required label and requires explicit confirmation that the provider may

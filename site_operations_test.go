@@ -95,6 +95,33 @@ func claimSiteOperation(t *testing.T, app *App) Job {
 	return item
 }
 
+func TestDifferentSiteOperationsWithoutIdempotencyKeyAreBothQueued(t *testing.T) {
+	app, _ := newSiteOperationFixture(t, http.StatusOK, `{}`)
+	requests := []siteOperationPayload{
+		{Operation: "git.deploy", Path: "/api/sites/git-deploy", Site: "shop", Actor: "admin"},
+		{Operation: "composer.install", Path: "/api/composer/shop/install", Site: "shop", Actor: "admin"},
+	}
+	jobIDs := make(map[string]bool, len(requests))
+	for _, payload := range requests {
+		response := httptest.NewRecorder()
+		app.enqueueSiteOperation(response, httptest.NewRequest(http.MethodPost, payload.Path, nil), payload)
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("%s admission status = %d: %s", payload.Operation, response.Code, response.Body.String())
+		}
+		var result map[string]string
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatalf("decode %s admission: %v", payload.Operation, err)
+		}
+		if result["operation"] != payload.Operation || result["job_id"] == "" || jobIDs[result["job_id"]] {
+			t.Fatalf("%s received incorrect or reused admission: %#v", payload.Operation, result)
+		}
+		jobIDs[result["job_id"]] = true
+	}
+	if jobs := app.Jobs.List(10); len(jobs) != 2 {
+		t.Fatalf("queued jobs = %d, want both distinct operations", len(jobs))
+	}
+}
+
 // A long operation is queued instead of run in the request, then replayed by
 // the worker as the original requester with the original body.
 func TestSiteOperationQueuesAndReplaysAsTheRequester(t *testing.T) {
