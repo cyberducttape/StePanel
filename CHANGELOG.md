@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   and permissions before validating StePanel-managed SSH/SFTP and FTPS policy.
   This allows fresh installations to provision access before the SSH daemon
   has created `/run/sshd`, while refusing symlink or ownership/mode mismatches.
+- Reload the system SSH service after policy changes only when it is active;
+  configurations are still validated on hosts where a separate or temporary
+  `sshd` will own the next session.
 
 ### Testing and documentation
 

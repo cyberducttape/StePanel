@@ -142,6 +142,13 @@ ensure_sshd_runtime_dir() {
     return 1
   }
 }
+reload_sshd_if_running() {
+  if systemctl is-active --quiet sshd; then
+    systemctl reload sshd
+  elif systemctl is-active --quiet ssh; then
+    systemctl reload ssh
+  fi
+}
 
 if [[ $action == access ]]; then
   (( $# == 5 )) || { echo 'usage: stepanel-sitectl access SITE SITE_USER SFTP SHELL' >&2; exit 64; }
@@ -198,7 +205,7 @@ if [[ $action == access ]]; then
     if (( config_existed )); then mv -f "$config_backup" "$ssh_config"; else rm -f "$ssh_config"; fi
     usermod --shell "$old_shell" "$site_user" 2>/dev/null || true
     usermod --password "$old_shadow" "$site_user" 2>/dev/null || true
-    systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
+    reload_sshd_if_running 2>/dev/null || true
     rm -f "$key_backup" "$config_backup"
   }
   if [[ $shell == 1 ]]; then
@@ -231,7 +238,7 @@ EOF
       echo 'sshd rejected the StePanel access policy' >&2
       exit 1
     fi
-    if ! (systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null); then
+    if ! reload_sshd_if_running 2>/dev/null; then
       restore_access
       echo 'could not reload sshd after applying access policy' >&2
       exit 1
@@ -243,7 +250,7 @@ EOF
     rm -f "$authorized_keys" "$ssh_config" "$staged"
     if (( key_existed || config_existed )); then
       ensure_sshd_runtime_dir || { restore_access; exit 1; }
-      if ! (command -v sshd >/dev/null 2>&1 && sshd -t && (systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null)); then
+      if ! (command -v sshd >/dev/null 2>&1 && sshd -t && reload_sshd_if_running); then
         restore_access
         echo 'could not reload sshd after revoking access policy' >&2
         exit 1
@@ -288,7 +295,7 @@ if [[ $action == ftp ]]; then
       cp -p "$list_backup" "$ftp_userlist" 2>/dev/null || true
       [[ -z $old_shadow ]] || usermod --password "$old_shadow" "$site_user" 2>/dev/null || true
       if (( config_existed )); then cp -p "$config_backup" "$ftp_ssh_config" 2>/dev/null || true; else rm -f "$ftp_ssh_config"; fi
-      systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
+      reload_sshd_if_running 2>/dev/null || true
     fi
     rm -f "$list_backup" "$config_backup" "${list_staged:-}" "${ssh_staged:-}"
   }
@@ -312,7 +319,7 @@ if [[ $action == ftp ]]; then
     rm -f "$ftp_ssh_config"
   fi
   sshd -t || { echo 'sshd rejected the FTPS SSH password isolation policy' >&2; exit 1; }
-  systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || { echo 'could not reload sshd after FTPS policy change' >&2; exit 1; }
+  reload_sshd_if_running 2>/dev/null || { echo 'could not reload sshd after FTPS policy change' >&2; exit 1; }
   chown root:root "$list_staged"; chmod 0600 "$list_staged"
   mv -f "$list_staged" "$ftp_userlist" || { echo 'could not publish the FTPS user allowlist' >&2; exit 1; }
   list_staged=
