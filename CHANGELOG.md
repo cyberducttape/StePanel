@@ -27,6 +27,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   replace the existing manual snapshot. MX/SRV DNS records and NodeBalancer
   nodes now serialize their documented type-specific fields; DNS create
   reconciliation includes TTL and those fields.
+- Linode inventory pagination now has cumulative 32 MiB, 100-page, 50,000-item,
+  and two-minute budgets in addition to the per-page response cap. Active job
+  payloads are decoded in one bounded SQL pass, and DNS pending-state reads are
+  indexed and scoped to the requested domain instead of loading every cloud
+  action.
 - Linode inventory pagination now validates the provider's documented
   `results` total, page sequence, and consistent page metadata. It rejects
   incomplete responses or results requiring more than 1,000 pages instead of

@@ -335,6 +335,48 @@ func TestDurableIdempotencyKeyIsBoundToPayload(t *testing.T) {
 	}
 }
 
+func TestActivePayloadQueriesAreSinglePassAndOwnerScoped(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	for _, job := range []struct {
+		owner   string
+		payload string
+	}{{"123", `{"operation":"dns","domain_id":"123"}`}, {"123", `{"operation":"dns","domain_id":"123","record_id":"2"}`}, {"456", `{"operation":"dns","domain_id":"456"}`}, {"instance-1", `{"operation":"instance"}`}} {
+		if _, err := jobs.Enqueue("cloud.action", job.owner, "", []byte(job.payload), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := jobs.ActivePayloads("cloud.action")
+	if err != nil || len(all) != 4 {
+		t.Fatalf("all active payloads = %d, err=%v; want 4", len(all), err)
+	}
+	for _, payload := range all {
+		if !json.Valid(payload) {
+			t.Fatalf("active payload is not valid JSON: %q", payload)
+		}
+	}
+	domain, err := jobs.ActivePayloadsForOwner("cloud.action", "123")
+	if err != nil || len(domain) != 2 {
+		t.Fatalf("owner-scoped payloads = %d, err=%v; want 2", len(domain), err)
+	}
+	for _, payload := range domain {
+		var decoded map[string]string
+		if err := json.Unmarshal(payload, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded["domain_id"] != "123" {
+			t.Fatalf("owner-scoped query returned unrelated payload: %s", payload)
+		}
+	}
+	if _, err := jobs.activePayloads(`kind = ?`, []any{"cloud.action"}, 3); err == nil || !strings.Contains(err.Error(), "3-job safety limit") {
+		t.Fatalf("over-limit payload query error = %v, want explicit bounded-query failure", err)
+	}
+}
+
 func TestDurableQueueClaimRetryAndDeadLetter(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

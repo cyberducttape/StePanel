@@ -1892,6 +1892,11 @@ func (j *Jobs) loadDurableJob(id string) (Job, bool, error) {
 // durableJobColumns are the columns decodeDurableJob consumes, in order.
 const durableJobColumns = `state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested`
 
+const (
+	maxActivePayloads      = 10_000
+	maxOwnerActivePayloads = 500
+)
+
 func (j *Jobs) decodeDurableJob(state string, data []byte, leaseOwner sql.NullString, leaseExpires, nextAttempt sql.NullInt64, cancelRequested int) (Job, error) {
 	var persisted persistedJob
 	if err := json.Unmarshal(data, &persisted); err != nil {
@@ -1920,39 +1925,57 @@ func (j *Jobs) decodeDurableJob(state string, data []byte, leaseOwner sql.NullSt
 	return item, nil
 }
 
-// ActivePayloads returns the decrypted payloads of every queued or running
-// job of kind. It reads durable storage directly so startup reconciliation
-// sees all live work, not only the most recent page of jobs.
+// ActivePayloads returns decrypted payloads of queued or running jobs of kind
+// in one SQL pass. It fails rather than exceeding the reconciliation limit.
 func (j *Jobs) ActivePayloads(kind string) ([]json.RawMessage, error) {
 	if j.db == nil {
 		// Durable jobs only exist with a control-plane database.
 		return nil, nil
 	}
-	rows, err := j.db.Query(`SELECT id FROM jobs WHERE kind = ? AND state IN ('queued', 'running')`, kind)
+	return j.activePayloads(`kind = ?`, []any{kind}, maxActivePayloads)
+}
+
+// ActivePayloadsForOwner reads only active jobs owned by one resource. Cloud
+// DNS uses the domain ID as owner, so a domain's pending view does not need to
+// decrypt and decode unrelated cloud operations.
+func (j *Jobs) ActivePayloadsForOwner(kind, owner string) ([]json.RawMessage, error) {
+	if j.db == nil {
+		return nil, nil
+	}
+	if strings.TrimSpace(kind) == "" || strings.TrimSpace(owner) == "" {
+		return nil, errors.New("active job query requires a kind and owner")
+	}
+	return j.activePayloads(`kind = ? AND owner = ?`, []any{kind, owner}, maxOwnerActivePayloads)
+}
+
+func (j *Jobs) activePayloads(predicate string, args []any, limit int) ([]json.RawMessage, error) {
+	queryArgs := append(append([]any(nil), args...), limit+1)
+	rows, err := j.db.Query(`SELECT id, `+durableJobColumns+` FROM jobs WHERE `+predicate+` AND state IN ('queued', 'running') ORDER BY started_at ASC, id ASC LIMIT ?`, queryArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("list active %s jobs: %w", kind, err)
+		return nil, fmt.Errorf("list active jobs: %w", err)
 	}
-	var ids []string
+	defer rows.Close()
+	payloads := make([]json.RawMessage, 0)
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, fmt.Errorf("list active %s jobs: %w", kind, err)
+		var id, state string
+		var data []byte
+		var leaseOwner sql.NullString
+		var leaseExpires, nextAttempt sql.NullInt64
+		var cancelRequested int
+		if err := rows.Scan(&id, &state, &data, &leaseOwner, &leaseExpires, &nextAttempt, &cancelRequested); err != nil {
+			return nil, fmt.Errorf("list active jobs: %w", err)
 		}
-		ids = append(ids, id)
-	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return nil, fmt.Errorf("list active %s jobs: %w", kind, err)
-	}
-	payloads := make([]json.RawMessage, 0, len(ids))
-	for _, id := range ids {
-		item, ok, err := j.loadDurableJob(id)
+		if len(payloads) == limit {
+			return nil, fmt.Errorf("active job payload query exceeds its %d-job safety limit", limit)
+		}
+		item, err := j.decodeDurableJob(state, data, leaseOwner, leaseExpires, nextAttempt, cancelRequested)
 		if err != nil {
 			return nil, fmt.Errorf("load active job %s: %w", id, err)
 		}
-		if ok {
-			payloads = append(payloads, item.Payload)
-		}
+		payloads = append(payloads, item.Payload)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list active jobs: %w", err)
 	}
 	return payloads, nil
 }

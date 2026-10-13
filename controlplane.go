@@ -342,6 +342,11 @@ CREATE INDEX IF NOT EXISTS jobs_owner_state_idx ON jobs(owner, state, started_at
 		_, err := tx.Exec(`DROP INDEX IF EXISTS jobs_active_empty_operation_unique_idx`)
 		return err
 	}),
+	migration.NewMigration(16, "index active job payload lookups", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS jobs_kind_state_idx ON jobs(kind, state);
+CREATE INDEX IF NOT EXISTS jobs_kind_owner_state_idx ON jobs(kind, owner, state);`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

@@ -81,11 +81,11 @@ func TestLinodeAPIRequestRejectsIncompletePagination(t *testing.T) {
 		calls := 0
 		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 			calls++
-			_, _ = response.Write([]byte(`{"page":1,"pages":1001,"results":1001,"data":[{"id":1}]}`))
+			_, _ = fmt.Fprintf(response, `{"page":1,"pages":%d,"results":%d,"data":[{"id":1}]}`, maxCloudPaginationPages+1, maxCloudPaginationPages+1)
 		}))
 		defer server.Close()
 		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
-		if err == nil || !strings.Contains(err.Error(), "refusing incomplete inventory") {
+		if err == nil || !strings.Contains(err.Error(), "page safety limit") {
 			t.Fatalf("request error = %v, want explicit page-limit failure", err)
 		}
 		if calls != 1 {
@@ -116,6 +116,58 @@ func TestLinodeAPIRequestRejectsIncompletePagination(t *testing.T) {
 		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
 		if err == nil || !strings.Contains(err.Error(), "single-page result count") {
 			t.Fatalf("request error = %v, want total-results mismatch", err)
+		}
+	})
+	t.Run("aggregate response budget", func(t *testing.T) {
+		calls := 0
+		largeValue := strings.Repeat("x", 7<<20)
+		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			calls++
+			page := request.URL.Query().Get("page")
+			if page == "" {
+				page = "1"
+			}
+			var number int
+			if _, err := fmt.Sscanf(page, "%d", &number); err != nil {
+				t.Errorf("parse page %q: %v", page, err)
+			}
+			_, _ = fmt.Fprintf(response, `{"page":%d,"pages":5,"results":5,"data":[{"large":"%s"}]}`, number, largeValue)
+		}))
+		defer server.Close()
+		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
+		if err == nil || !strings.Contains(err.Error(), "aggregate response limit") {
+			t.Fatalf("request error = %v, want aggregate byte-budget failure", err)
+		}
+		if calls != 5 {
+			t.Fatalf("provider pages fetched = %d, want stop at page 5 budget breach", calls)
+		}
+	})
+	t.Run("item budget", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			_, _ = fmt.Fprintf(response, `{"page":1,"pages":2,"results":%d,"data":[{"id":1}]}`, maxCloudPaginationItems+1)
+		}))
+		defer server.Close()
+		_, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server))
+		if err == nil || !strings.Contains(err.Error(), "item safety limit") {
+			t.Fatalf("request error = %v, want item-budget failure", err)
+		}
+	})
+	t.Run("time budget", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			if request.URL.Query().Get("page") == "2" {
+				<-request.Context().Done()
+				return
+			}
+			_, _ = response.Write([]byte(`{"page":1,"pages":2,"results":2,"data":[{"id":1}]}`))
+		}))
+		defer server.Close()
+		started := time.Now()
+		_, err := linodeAPIRequestWithClientBudget(context.Background(), http.MethodGet, "/domains/123/records", nil, "test-token", linodeTestClient(server), 20*time.Millisecond)
+		if err == nil {
+			t.Fatal("pagination exceeded its time budget without failing")
+		}
+		if time.Since(started) > time.Second {
+			t.Fatalf("time budget took too long to enforce: %s", time.Since(started))
 		}
 	})
 }

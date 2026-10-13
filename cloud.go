@@ -50,6 +50,14 @@ type cloudDNSRequest struct {
 	Weight   int    `json:"weight,omitempty"`
 }
 
+const (
+	maxCloudResponseBytes      int64         = 8 << 20
+	maxCloudPaginationBytes    int64         = 32 << 20
+	maxCloudPaginationPages                  = 100
+	maxCloudPaginationItems                  = 50_000
+	maxCloudPaginationDuration time.Duration = 2 * time.Minute
+)
+
 type cloudLBRequest struct {
 	NodeBalancerID string `json:"nodebalancer_id"`
 	ConfigID       string `json:"config_id"`
@@ -675,7 +683,7 @@ func (a *App) dnsDesiredView(domainID string) ([]DNSDesiredRecord, error) {
 		records[record.Key] = record
 	}
 	if a.Jobs != nil {
-		payloads, err := a.Jobs.ActivePayloads("cloud.action")
+		payloads, err := a.Jobs.ActivePayloadsForOwner("cloud.action", domainID)
 		if err != nil {
 			return nil, err
 		}
@@ -745,13 +753,26 @@ func linodeResponseInt(value map[string]any, field string) (int, error) {
 }
 
 func linodeAPIRequestWithClient(ctx context.Context, method, path string, payload any, token string, client *http.Client) (any, error) {
+	return linodeAPIRequestWithClientBudget(ctx, method, path, payload, token, client, maxCloudPaginationDuration)
+}
+
+func linodeAPIRequestWithClientBudget(ctx context.Context, method, path string, payload any, token string, client *http.Client, paginationBudget time.Duration) (any, error) {
 	if token == "" {
 		return nil, errors.New("STEPANEL_LINODE_TOKEN is not configured")
 	}
 	if client == nil {
 		return nil, errors.New("Linode API client is required")
 	}
-	const maxCloudResponseBytes = 8 << 20
+	if paginationBudget <= 0 {
+		return nil, errors.New("Linode API pagination budget must be positive")
+	}
+	started := time.Now()
+	if method == http.MethodGet {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, paginationBudget)
+		defer cancel()
+	}
+	var aggregateResponseBytes int64
 	requestPage := func(page int) (map[string]any, error) {
 		var reader io.Reader
 		if payload != nil {
@@ -792,6 +813,10 @@ func linodeAPIRequestWithClient(ctx context.Context, method, path string, payloa
 		if int64(len(data)) > maxCloudResponseBytes {
 			return nil, errors.New("Linode API response exceeds the 8 MiB limit")
 		}
+		aggregateResponseBytes += int64(len(data))
+		if method == http.MethodGet && aggregateResponseBytes > maxCloudPaginationBytes {
+			return nil, fmt.Errorf("Linode API pagination exceeded the %d MiB aggregate response limit", maxCloudPaginationBytes>>20)
+		}
 		var value map[string]any
 		if err := json.Unmarshal(data, &value); err != nil {
 			return nil, err
@@ -815,8 +840,8 @@ func linodeAPIRequestWithClient(ctx context.Context, method, path string, payloa
 	if err != nil || pageCount < 1 {
 		return nil, errors.New("Linode API list response has an invalid page count")
 	}
-	if pageCount > 1000 {
-		return nil, fmt.Errorf("Linode API list response requires %d pages; refusing incomplete inventory above the 1000-page safety limit", pageCount)
+	if pageCount > maxCloudPaginationPages {
+		return nil, fmt.Errorf("Linode API list response requires %d pages; refusing inventory above the %d-page safety limit", pageCount, maxCloudPaginationPages)
 	}
 	data, ok := value["data"].([]any)
 	if !ok {
@@ -826,10 +851,16 @@ func linodeAPIRequestWithClient(ctx context.Context, method, path string, payloa
 	if err != nil || totalResults < len(data) {
 		return nil, errors.New("Linode API list response has an invalid total result count")
 	}
+	if totalResults > maxCloudPaginationItems {
+		return nil, fmt.Errorf("Linode API list response advertises %d records; refusing inventory above the %d-item safety limit", totalResults, maxCloudPaginationItems)
+	}
 	if pageCount == 1 && totalResults != len(data) {
 		return nil, errors.New("Linode API single-page result count does not match its data")
 	}
 	for page := 2; page <= pageCount; page++ {
+		if time.Since(started) >= paginationBudget {
+			return nil, fmt.Errorf("Linode API pagination exceeded its %s time budget", paginationBudget)
+		}
 		next, err := requestPage(page)
 		if err != nil {
 			return nil, err
