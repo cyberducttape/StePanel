@@ -88,7 +88,19 @@
   window.addEventListener('hashchange', () => setActive(window.location.hash));
   // Selecting a section should close the drawer instead of leaving it open
   // behind the content it just scrolled to.
-  links.forEach((link) => link.addEventListener('click', () => {
+  links.forEach((link) => link.addEventListener('click', (event) => {
+    const target = document.querySelector(link.getAttribute('href'));
+    if (target) {
+      // A native smooth-scroll across the full dashboard can take several
+      // seconds, leaving a deep-linked workspace looking unresponsive. Keep
+      // the polish for nearby sections, but make long sidebar jumps direct.
+      const distance = Math.abs(target.getBoundingClientRect().top);
+      if (distance > window.innerHeight * 1.5) {
+        event.preventDefault();
+        history.pushState(null, '', link.getAttribute('href'));
+        target.scrollIntoView({ behavior: 'instant', block: 'start' });
+      }
+    }
     // Hold the clicked section while smooth scrolling passes over others.
     spyLockedUntil = Date.now() + 1200;
     setActive(link.getAttribute('href'));

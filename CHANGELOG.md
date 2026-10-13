@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Make long workspace sidebar jumps land immediately while retaining smooth
+  transitions between nearby sections, so deep destinations are responsive.
 - Route Caddy document-root requests through a root-verified PHP `index.php`,
   preserving query strings without relying on Caddy's file matcher for its
   nosymfollow view mount or ambiguous slash-prefixed rewrite matcher syntax.
