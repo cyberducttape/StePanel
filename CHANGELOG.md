@@ -38,6 +38,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A confirmed Linode DNS mutation remains a successful job if local desired
   state cannot be persisted; the durable result and audit log now carry an
   explicit reconciliation warning instead of inviting a duplicate mutation.
+- Linode DNS validation now rejects malformed owner labels, misplaced
+  wildcards, and unsupported wildcard NS records; it accepts the documented
+  Null MX representation and requires SRV owner names to be omitted. Legacy
+  desired-state loading accepts empty Null MX and SRV names and remains
+  tolerant of ignored SRV name values written by older releases.
 - Cloud job owners now include provider and resource type so equal numeric IDs
   for instances, DNS domains, and NodeBalancers do not block each other;
   startup migrates existing owners and pending DNS views retain old jobs.

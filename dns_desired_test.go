@@ -36,6 +36,7 @@ func TestDNSDesiredLegacyStateReloadAcceptsCurrentDNSContract(t *testing.T) {
 		{DomainID: "123", Type: "AAAA", Name: "v6", Target: "2001:db8::10", TTL: 1209600},
 		{DomainID: "123", Type: "CNAME", Name: "www", Target: "example.com", TTL: 300},
 		{DomainID: "123", Type: "MX", Name: "@", Target: "mail.example.com", TTL: 604800, Priority: 10},
+		{DomainID: "123", Type: "MX", Name: "", Target: "", TTL: 300, Priority: 0},
 		{DomainID: "123", Type: "NS", Name: "@", Target: "ns1.example.com", TTL: 1209600},
 		{DomainID: "123", Type: "SRV", Name: "", Target: "service.example.com", TTL: 2419200, Priority: 10, Service: "https", Protocol: "tcp", Port: 443, Weight: 5},
 		{DomainID: "123", Type: "TXT", Name: "@", Target: "v=spf1 include:example.com", TTL: 300},

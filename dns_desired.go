@@ -59,8 +59,11 @@ func OpenDNSDesiredStore(path string) (*DNSDesiredStore, error) {
 		if record.Action != "delete" {
 			recordType := strings.ToUpper(record.Type)
 			validName := dnsNamePattern.MatchString(record.Name)
-			if recordType == "SRV" {
-				validName = validLinodeDNSName(recordType, record.Name)
+			if (recordType == "SRV" && record.Name == "") || (recordType == "MX" && record.Name == "" && record.Target == "") {
+				// SRV's owner is represented by service/protocol, and legacy
+				// JSON may contain the provider's empty name or an older ignored
+				// name value. Null MX also requires an empty name and target.
+				validName = true
 			}
 			validRecord = dnsTypePattern.MatchString(recordType) && validName && record.TTL >= 30 && record.TTL <= 2419200
 		}

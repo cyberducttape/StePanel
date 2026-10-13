@@ -512,13 +512,41 @@ func TestLinodeDNSRecordIDValidationIsImmediateAndOptionalOnlyForCreate(t *testi
 }
 
 func TestLinodeDNSRecordNameUsesProviderLengthLimit(t *testing.T) {
-	valid := cloudDNSRequest{Type: "A", Name: strings.Repeat("a", 100), Target: "192.0.2.1", TTL: 300}
+	valid := cloudDNSRequest{Type: "A", Name: strings.Repeat("a", 63) + "." + strings.Repeat("b", 36), Target: "192.0.2.1", TTL: 300}
 	if !cloudDNSRecordValid(valid) {
 		t.Fatal("provider-maximum 100-character record name rejected")
 	}
-	valid.Name += "a"
+	valid.Name += "b"
 	if cloudDNSRecordValid(valid) {
 		t.Fatal("provider-invalid 101-character record name accepted")
+	}
+}
+
+func TestLinodeDNSRecordNamesAndNullMXMatchProviderContract(t *testing.T) {
+	tests := []struct {
+		name string
+		in   cloudDNSRequest
+		want bool
+	}{
+		{"null MX", cloudDNSRequest{Type: "MX", TTL: 300}, true},
+		{"null MX requires zero priority", cloudDNSRequest{Type: "MX", TTL: 300, Priority: 10}, false},
+		{"null MX requires both fields empty", cloudDNSRequest{Type: "MX", Name: "mail", TTL: 300}, false},
+		{"ordinary MX requires a name", cloudDNSRequest{Type: "MX", Target: "mail.example.com", TTL: 300}, false},
+		{"wildcard MX subdomain", cloudDNSRequest{Type: "MX", Name: "*.mail", Target: "mail.example.com", TTL: 300, Priority: 10}, true},
+		{"wildcard MX target", cloudDNSRequest{Type: "MX", Name: "mail", Target: "*.example.com", TTL: 300, Priority: 10}, true},
+		{"wildcard NS rejected", cloudDNSRequest{Type: "NS", Name: "*", Target: "ns1.example.com", TTL: 300}, false},
+		{"empty DNS label rejected", cloudDNSRequest{Type: "CNAME", Name: "www..example", Target: "origin.example.com", TTL: 300}, false},
+		{"leading hyphen rejected", cloudDNSRequest{Type: "A", Name: "-www", Target: "192.0.2.1", TTL: 300}, false},
+		{"wildcard only first label", cloudDNSRequest{Type: "CNAME", Name: "www.*.example", Target: "origin.example.com", TTL: 300}, false},
+		{"SRV owner name omitted", cloudDNSRequest{Type: "SRV", Service: "https", Protocol: "tcp", Target: "backend.example.com", TTL: 300, Port: 443}, true},
+		{"SRV name is unused and rejected", cloudDNSRequest{Type: "SRV", Name: "ignored", Service: "https", Protocol: "tcp", Target: "backend.example.com", TTL: 300, Port: 443}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := cloudDNSRecordValid(test.in); got != test.want {
+				t.Errorf("cloudDNSRecordValid(%#v) = %v, want %v", test.in, got, test.want)
+			}
+		})
 	}
 }
 

@@ -124,6 +124,9 @@ records use separate `service`, `protocol`, `target`, `port`, `priority`, and
 `weight` fields. NodeBalancer node creation uses separate IP `address` and
 `port` inputs, which StePanel combines into the provider's address-with-port
 representation; a node `label` and weight from 1 through 255 are required.
+DNS validation follows Linode's owner-label constraints, rejects wildcard NS
+records, and supports Null MX only with empty `name` and `target` and priority
+zero. SRV requests omit `name`; `service` and `protocol` define the owner.
 
 ## Health and observability
 

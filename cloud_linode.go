@@ -22,10 +22,10 @@ import (
 // Linode-specific request validation and wire payloads live here so the
 // provider's contract is auditable independently of cloud job orchestration.
 var (
-	dnsTypePattern          = regexp.MustCompile(`^(A|AAAA|CNAME|MX|TXT|NS|SRV)$`)
-	dnsNamePattern          = regexp.MustCompile(`^[A-Za-z0-9_.*@-]{1,253}$`)
-	linodeRecordNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.*@-]{1,100}$`)
-	linodeNodeLabelPattern  = regexp.MustCompile(`^[A-Za-z0-9-_.]{3,32}$`)
+	dnsTypePattern = regexp.MustCompile(`^(A|AAAA|CNAME|MX|TXT|NS|SRV)$`)
+	// dnsNamePattern remains for validating records written by older releases.
+	dnsNamePattern         = regexp.MustCompile(`^[A-Za-z0-9_.*@-]{1,253}$`)
+	linodeNodeLabelPattern = regexp.MustCompile(`^[A-Za-z0-9-_.]{3,32}$`)
 )
 
 func validLinodeNodeRequest(request cloudLBRequest) bool {
@@ -48,7 +48,10 @@ func linodeNodePayload(request cloudLBRequest) (linodeNodeCreatePayload, error) 
 
 func cloudDNSRecordValid(in cloudDNSRequest) bool {
 	typ := strings.ToUpper(in.Type)
-	if !dnsTypePattern.MatchString(typ) || !validLinodeDNSName(typ, in.Name) || len(in.Target) == 0 || len(in.Target) > 512 || !validLinodeTTL(in.TTL) {
+	if !dnsTypePattern.MatchString(typ) || !validLinodeDNSName(typ, in.Name) || len(in.Target) > 512 || !validLinodeTTL(in.TTL) {
+		return false
+	}
+	if in.Target == "" && typ != "MX" {
 		return false
 	}
 	switch typ {
@@ -59,11 +62,14 @@ func cloudDNSRecordValid(in cloudDNSRequest) bool {
 		address, err := netip.ParseAddr(in.Target)
 		return err == nil && address.Is6() && !address.Is4In6()
 	case "CNAME", "NS":
-		return dnsNamePattern.MatchString(strings.TrimSuffix(in.Target, "."))
+		return validLinodeDomainTarget(in.Target, false)
 	case "MX":
-		return in.Priority >= 0 && in.Priority <= 255 && validLinodeDNSName("NS", in.Target)
+		if in.Target == "" {
+			return in.Name == "" && in.Priority == 0
+		}
+		return in.Name != "" && in.Priority >= 0 && in.Priority <= 255 && validLinodeMXName(in.Name) && validLinodeDomainTarget(in.Target, true)
 	case "SRV":
-		return in.Priority >= 0 && in.Priority <= 255 && in.Weight >= 0 && in.Weight <= 65535 && in.Port >= 0 && in.Port <= 65535 && validDNSServiceLabel(in.Service) && validDNSServiceLabel(in.Protocol) && validLinodeDNSName("NS", in.Target)
+		return in.Priority >= 0 && in.Priority <= 255 && in.Weight >= 0 && in.Weight <= 65535 && in.Port >= 0 && in.Port <= 65535 && validDNSServiceLabel(in.Service) && validDNSServiceLabel(in.Protocol) && validLinodeDomainTarget(in.Target, false)
 	case "TXT":
 		for _, r := range in.Target {
 			if r < 0x20 || r == 0x7f {
@@ -87,9 +93,92 @@ func validLinodeTTL(ttl int) bool {
 
 func validLinodeDNSName(recordType, name string) bool {
 	if strings.EqualFold(recordType, "SRV") {
-		return name == "" || linodeRecordNamePattern.MatchString(name)
+		// Linode ignores name for SRV records; service is the owner prefix.
+		return name == ""
 	}
-	return linodeRecordNamePattern.MatchString(name)
+	if strings.EqualFold(recordType, "MX") {
+		return name == "" || validLinodeMXName(name)
+	}
+	if strings.EqualFold(recordType, "NS") && strings.TrimSpace(name) == "*" {
+		return false
+	}
+	return validLinodeOwnerName(name, strings.EqualFold(recordType, "TXT"))
+}
+
+func validLinodeMXName(name string) bool {
+	if name == "@" {
+		return true
+	}
+	labels := strings.Split(name, ".")
+	if labels[0] == "*" {
+		labels = labels[1:]
+		if len(labels) == 0 {
+			return true
+		}
+	}
+	if len(labels) == 0 {
+		return false
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) >= 64 || !validDNSLabel(label, false) {
+			return false
+		}
+	}
+	return len(name) <= 100
+}
+
+func validLinodeOwnerName(name string, allowUnderscore bool) bool {
+	if name == "@" {
+		return true
+	}
+	if len(name) == 0 || len(name) > 100 {
+		return false
+	}
+	labels := strings.Split(name, ".")
+	for i, label := range labels {
+		if label == "*" {
+			if i != 0 {
+				return false
+			}
+			continue
+		}
+		if len(label) == 0 || len(label) > 63 || !validDNSLabel(label, allowUnderscore) {
+			return false
+		}
+	}
+	return true
+}
+
+func validDNSLabel(label string, allowUnderscore bool) bool {
+	if label == "" || label[0] == '-' || label[len(label)-1] == '-' {
+		return false
+	}
+	for _, r := range label {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || (allowUnderscore && r == '_') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validLinodeDomainTarget(target string, allowLeadingWildcard bool) bool {
+	if strings.HasSuffix(target, ".") {
+		target = strings.TrimSuffix(target, ".")
+	}
+	if len(target) == 0 || len(target) >= 254 {
+		return false
+	}
+	labels := strings.Split(target, ".")
+	for i, label := range labels {
+		if label == "*" && allowLeadingWildcard && i == 0 {
+			continue
+		}
+		if len(label) == 0 || len(label) >= 64 || !validDNSLabel(label, false) {
+			return false
+		}
+	}
+	return true
 }
 
 func validDNSServiceLabel(value string) bool {
