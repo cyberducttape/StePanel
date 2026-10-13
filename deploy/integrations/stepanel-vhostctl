@@ -143,7 +143,16 @@ EOF
     name=$2
     [[ $name =~ ^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.conf$ ]] || { echo 'invalid site route name' >&2; exit 1; }
     path="$config_root/$name"
-    [[ -f $path ]] || { echo 'site route not found' >&2; exit 1; }
+    [[ ! -L $path ]] || { echo 'site route is unsafe' >&2; exit 1; }
+    if [[ ! -e $path ]]; then
+      # A previous delete may have removed the config before the journal
+      # recorded completion. Validate and reload on replay so Apache's active
+      # vhost set converges before the cleanup is acknowledged.
+      apache_test || { echo 'Apache configuration is invalid after route deletion' >&2; exit 1; }
+      apache_reload || { echo 'could not reload Apache after route deletion' >&2; exit 1; }
+      exit 0
+    fi
+    [[ -f $path ]] || { echo 'site route is not a regular file' >&2; exit 1; }
     domain=$(awk 'tolower($1) == "servername" { print tolower($2); exit }' "$path")
     [[ $domain =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'managed route has an invalid ServerName' >&2; exit 1; }
     domain_in_use "$domain" "$path" && { echo 'another Apache vhost still serves this domain; remove its TLS or external vhost first' >&2; exit 1; }

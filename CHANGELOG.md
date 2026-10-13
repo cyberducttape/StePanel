@@ -20,8 +20,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   command after an operator verifies host state. Journal staging vhost changes
   before publication and remove them before filesystem rollback; commit-failure
   tests cover both successful route cleanup and a retained intervention when
-  route deletion fails. Handler-level fault injection verifies the production
-  site remains unchanged.
+  route deletion fails. Apache and Caddy route deletion is replay-safe when a
+  prior attempt removed the config file but crashed before journal commit;
+  helpers validate and reload the server before acknowledging an absent route.
+  The installed WordPress proof now deletes its route twice on both supported
+  webservers to exercise that replay contract. Handler-level fault injection
+  verifies the production site remains unchanged.
 - Make long workspace sidebar jumps land immediately while retaining smooth
   transitions between nearby sections, so deep destinations are responsive.
 - Verify database-backed WordPress recovery over both Apache and Caddy with

@@ -298,3 +298,15 @@ for name in ("archive", "database", "application"):
 assert data.get("measured_recovery_ms", 0) > 0, "application recovery duration was not recorded"
 print(f"installed WordPress recovery proof passed: backup={expected_backup}, rto_ms={data['measured_recovery_ms']}")
 PY
+
+# Exercise the helper's crash-replay contract on the installed webserver:
+# delete the route once, then repeat after the include file is already gone.
+if [[ ${STEPANEL_WEBSERVER:-caddy} == caddy ]]; then
+  route_name="site-${site}-${domain//./_}.caddy"
+else
+  route_name="site-${site}-${domain//./_}.conf"
+fi
+/usr/local/sbin/stepanel-vhostctl delete "$route_name"
+route_created=0
+/usr/local/sbin/stepanel-vhostctl delete "$route_name"
+echo 'installed vhost deletion replay passed with the route file already absent'

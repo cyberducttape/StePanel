@@ -57,7 +57,16 @@ if [[ $action == delete ]]; then
   name=$2
   [[ $name =~ ^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.caddy$ ]] || { echo 'invalid site route name' >&2; exit 1; }
   path="$root/$name"
-  [[ -f $path && ! -L $path ]] || { echo 'site route not found or unsafe' >&2; exit 1; }
+  [[ ! -L $path ]] || { echo 'site route is unsafe' >&2; exit 1; }
+  if [[ ! -e $path ]]; then
+    # A previous delete may have removed the include file before the caller
+    # durably recorded route cleanup. Revalidate and reload so replay also
+    # reconciles Caddy's in-memory configuration before succeeding.
+    caddy validate --config /etc/caddy/Caddyfile >/dev/null || { echo 'Caddy configuration is invalid after route deletion' >&2; exit 1; }
+    systemctl reload "$service" || { echo 'could not reload Caddy after route deletion' >&2; exit 1; }
+    exit 0
+  fi
+  [[ -f $path ]] || { echo 'site route is not a regular file' >&2; exit 1; }
   view=$(awk '$1 == "root" && $2 == "*" { print $3; exit }' "$path")
   [[ $view =~ ^/var/www/\.stepanel-caddy-views/[a-z0-9_-]{1,32}/public$ ]] || { echo 'managed route does not use an isolated Caddy view' >&2; exit 1; }
   site=${view#"$view_root/"}; site=${site%/public}
