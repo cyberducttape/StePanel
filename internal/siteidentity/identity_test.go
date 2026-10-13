@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -43,7 +44,7 @@ func TestWebGroupFromEnvSupportsCaddyAndDistributionGroups(t *testing.T) {
 			if err := os.WriteFile(path, []byte("STEPANEL_WEB_GROUP=\""+group+"\"\nSTEPANEL_PHP_SOCKET_ROOT=\"/run/php\"\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			got, err := WebGroupFromEnv(path, func(name string) bool { return name == group })
+			got, err := webGroupFromEnv(path, func(name string) bool { return name == group }, func(os.FileInfo) bool { return true })
 			if err != nil || got != group {
 				t.Fatalf("WebGroupFromEnv() = %q, %v; want %q", got, err, group)
 			}
@@ -69,9 +70,41 @@ func TestWebGroupFromEnvFailsClosed(t *testing.T) {
 			if err := os.Chmod(path, tc.mode); err != nil {
 				t.Fatal(err)
 			}
-			if got, err := WebGroupFromEnv(path, func(string) bool { return false }); err == nil || got != "" {
+			if got, err := webGroupFromEnv(path, func(string) bool { return false }, func(os.FileInfo) bool { return true }); err == nil || got != "" {
 				t.Fatalf("WebGroupFromEnv() = %q, %v; want a fail-closed error", got, err)
 			}
 		})
+	}
+}
+
+type fakeIdentityFileInfo struct {
+	os.FileInfo
+	sys any
+}
+
+func (f fakeIdentityFileInfo) Sys() any { return f.sys }
+
+func TestFileOwnedByRootRequiresRootUID(t *testing.T) {
+	if !fileOwnedByRoot(fakeIdentityFileInfo{sys: &syscall.Stat_t{Uid: 0}}) {
+		t.Fatal("root-owned configuration was rejected")
+	}
+	if fileOwnedByRoot(fakeIdentityFileInfo{sys: &syscall.Stat_t{Uid: 1000}}) {
+		t.Fatal("unprivileged-owned configuration was trusted")
+	}
+	if fileOwnedByRoot(fakeIdentityFileInfo{}) {
+		t.Fatal("configuration without Unix ownership metadata was trusted")
+	}
+}
+
+func TestWebGroupFromEnvRejectsUnprivilegedOwnedFile(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("test process is root, so its temporary file is root-owned")
+	}
+	path := filepath.Join(t.TempDir(), "ste-panel.env")
+	if err := os.WriteFile(path, []byte("STEPANEL_WEB_GROUP=\"caddy\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := WebGroupFromEnv(path, func(name string) bool { return name == "caddy" }); err == nil || got != "" || !strings.Contains(err.Error(), "owned by root") {
+		t.Fatalf("WebGroupFromEnv() = %q, %v; want unprivileged owner rejected", got, err)
 	}
 }

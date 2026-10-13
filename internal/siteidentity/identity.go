@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"syscall"
 )
 
 // UnixUser returns the legacy deterministic account name used to migrate
@@ -35,6 +36,10 @@ var webGroupLine = regexp.MustCompile(`^STEPANEL_WEB_GROUP="([a-z_][a-z0-9_-]*)"
 // than independently guessing from whichever distribution groups happen to
 // exist on the host.
 func WebGroupFromEnv(path string, groupExists func(name string) bool) (string, error) {
+	return webGroupFromEnv(path, groupExists, fileOwnedByRoot)
+}
+
+func webGroupFromEnv(path string, groupExists func(name string) bool, trustedOwner func(os.FileInfo) bool) (string, error) {
 	if path == "" {
 		return "", errors.New("web group configuration path is empty")
 	}
@@ -44,6 +49,9 @@ func WebGroupFromEnv(path string, groupExists func(name string) bool) (string, e
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return "", errors.New("web group configuration must be a regular file")
+	}
+	if trustedOwner == nil || !trustedOwner(info) {
+		return "", errors.New("web group configuration must be owned by root")
 	}
 	if info.Mode().Perm()&0o077 != 0 {
 		return "", errors.New("web group configuration must not be group or world accessible")
@@ -70,4 +78,9 @@ func WebGroupFromEnv(path string, groupExists func(name string) bool) (string, e
 		return "", fmt.Errorf("configured web group %q does not exist", group)
 	}
 	return group, nil
+}
+
+func fileOwnedByRoot(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Uid == 0
 }
