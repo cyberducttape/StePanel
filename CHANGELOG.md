@@ -39,6 +39,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   even when its process-local SSE events cannot reach the panel. Snapshot
   refreshes preserve entries updated by newer SSE events while the request is
   in flight.
+- Added browser-context regression tests for cross-process job completion and
+  stale snapshot/event ordering.
 
 - Map-backed route, worker, task, domain-claim, DNS, environment, and schedule
   transitions now use the shared rollback-on-write-failure path, preserving a
