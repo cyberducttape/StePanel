@@ -149,7 +149,7 @@ func (a *App) ensurePlanResourcesContext(ctx context.Context, account HostingAcc
 		profiles = append(profiles, profile)
 	}
 	err := a.Resources.persistLocked()
-	if err != nil {
+	if err != nil && !errors.Is(err, errControlPlaneStateRefreshed) {
 		for _, profile := range profiles {
 			delete(a.Resources.values, profile.Site)
 		}
@@ -173,19 +173,7 @@ func (a *App) ensurePlanResourcesContext(ctx context.Context, account HostingAcc
 			profile.FilesystemQuotaState = "none"
 		}
 		a.Resources.mu.Lock()
-		a.Resources.values[profile.Site] = profile
-		err = a.Resources.persistLocked()
-		if err != nil {
-			// The durable desired profile is still pending. Keep memory aligned
-			// with that record; host application is reconciled independently.
-			profile.State = "pending"
-			if profile.hasFilesystemQuota() {
-				profile.FilesystemQuotaState = "apply-pending"
-			} else {
-				profile.FilesystemQuotaState = "none"
-			}
-			a.Resources.values[profile.Site] = profile
-		}
+		err = a.Resources.saveProfileLocked(profile)
 		a.Resources.mu.Unlock()
 		if err != nil {
 			pending = append(pending, profile.Site)
@@ -252,11 +240,13 @@ func (a *App) reconcileAccountResourcePlan(ctx context.Context, previous, accoun
 		changed = append(changed, profile)
 	}
 	if err := a.Resources.persistLocked(); err != nil {
-		for _, site := range append(append([]string{}, previous.Sites...), account.Sites...) {
-			if previousExists[site] {
-				a.Resources.values[site] = previousValues[site]
-			} else {
-				delete(a.Resources.values, site)
+		if !errors.Is(err, errControlPlaneStateRefreshed) {
+			for _, site := range append(append([]string{}, previous.Sites...), account.Sites...) {
+				if previousExists[site] {
+					a.Resources.values[site] = previousValues[site]
+				} else {
+					delete(a.Resources.values, site)
+				}
 			}
 		}
 		a.Resources.mu.Unlock()
@@ -294,12 +284,7 @@ func (a *App) reconcileAccountResourcePlan(ctx context.Context, previous, accoun
 		}
 		profile.AppliedAt = time.Now().UTC()
 		a.Resources.mu.Lock()
-		a.Resources.values[profile.Site] = profile
-		if err := a.Resources.persistLocked(); err != nil {
-			a.Resources.values[profile.Site] = func() ResourceProfile {
-				profile.State = "pending"
-				return profile
-			}()
+		if err := a.Resources.saveProfileLocked(profile); err != nil {
 			pending = append(pending, profile.Site)
 		}
 		a.Resources.mu.Unlock()
@@ -371,6 +356,16 @@ func (s *ResourceStore) persistLocked() error {
 	}
 	return writeAtomic(s.path, append(d, '\n'), 0600)
 }
+
+// saveProfileLocked applies one profile transition with rollback-on-failure.
+// The persistence helper also preserves a newer SQLite snapshot after a CAS
+// conflict instead of restoring this process's stale prior value. Caller must
+// hold s.mu.
+func (s *ResourceStore) saveProfileLocked(profile ResourceProfile) error {
+	next := profile
+	return persistMapKeyChange(s.values, profile.Site, &next, s.persistLocked)
+}
+
 func normalizeResourceProfile(p ResourceProfile) ResourceProfile {
 	if p.CPUWeight == 0 {
 		p.CPUWeight = 100
@@ -582,15 +577,7 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.Resources.mu.Lock()
-	a.Resources.values[site] = p
-	e := a.Resources.persistLocked()
-	if e != nil {
-		if hadPrevious {
-			a.Resources.values[site] = previous
-		} else {
-			delete(a.Resources.values, site)
-		}
-	}
+	e := a.Resources.saveProfileLocked(p)
 	a.Resources.mu.Unlock()
 	if e != nil {
 		http.Error(w, "could not persist desired resource profile", 503)
@@ -613,21 +600,7 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 	}
 	p.AppliedAt = time.Now().UTC()
 	a.Resources.mu.Lock()
-	a.Resources.values[site] = p
-	e = a.Resources.persistLocked()
-	if e != nil {
-		// The pending desired profile was already durable before host
-		// mutation. Preserve that state in memory so reconciliation can retry
-		// the observation update after a transient persistence failure.
-		p.State = "pending"
-		p.FilesystemQuotaState = func() string {
-			if p.hasFilesystemQuota() {
-				return "apply-pending"
-			}
-			return "none"
-		}()
-		a.Resources.values[site] = p
-	}
+	e = a.Resources.saveProfileLocked(p)
 	a.Resources.mu.Unlock()
 	if e != nil {
 		http.Error(w, "resource profile applied but state update failed", 503)
@@ -731,16 +704,9 @@ func (a *App) reconcileResourceProfiles(ctx context.Context) (reconciled []strin
 		}
 		p.AppliedAt = time.Now().UTC()
 		a.Resources.mu.Lock()
-		a.Resources.values[p.Site] = p
-		err = a.Resources.persistLocked()
+		err = a.Resources.saveProfileLocked(p)
 		if err != nil {
-			p.State = "pending"
-			if p.hasFilesystemQuota() {
-				p.FilesystemQuotaState = "apply-pending"
-			} else {
-				p.FilesystemQuotaState = "none"
-			}
-			a.Resources.values[p.Site] = p
+			failed[p.Site] = "state persistence failed"
 		}
 		a.Resources.mu.Unlock()
 		if err != nil {
@@ -758,8 +724,7 @@ func (a *App) reconcileResourceProfiles(ctx context.Context) (reconciled []strin
 			if saveErr := func() error {
 				a.Resources.mu.Lock()
 				defer a.Resources.mu.Unlock()
-				a.Resources.values[p.Site] = p
-				return a.Resources.persistLocked()
+				return a.Resources.saveProfileLocked(p)
 			}(); saveErr != nil {
 				failed[p.Site] = saveErr.Error()
 			} else {

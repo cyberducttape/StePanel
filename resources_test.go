@@ -133,3 +133,53 @@ func TestReconcileAccountResourcePlanRollsBackMemoryOnPersistFailure(t *testing.
 		t.Fatalf("resource profile changed after failed persistence: got %#v want %#v", got, original)
 	}
 }
+
+func TestResourceProfileSaveKeepsRefreshedPeerStateAfterCASConflict(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "control-plane.db")
+	firstDB, err := openControlPlaneDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstDB.Close()
+	secondDB, err := openControlPlaneDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondDB.Close()
+
+	first := &ResourceStore{values: map[string]ResourceProfile{}}
+	if found, err := bindControlPlaneState(first, firstDB, "resource-cas", &first.values); err != nil || found {
+		t.Fatalf("first resource state binding = found %v err %v", found, err)
+	}
+	original := ResourceProfile{Site: "demo", CPUPercent: 100, MemoryMB: 512, State: "pending"}
+	first.values[original.Site] = original
+	if err := first.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+
+	second := &ResourceStore{values: map[string]ResourceProfile{}}
+	if found, err := bindControlPlaneState(second, secondDB, "resource-cas", &second.values); err != nil || !found {
+		t.Fatalf("second resource state binding = found %v err %v", found, err)
+	}
+
+	committed := original
+	committed.State = "applied"
+	first.mu.Lock()
+	err = first.saveProfileLocked(committed)
+	first.mu.Unlock()
+	if err != nil {
+		t.Fatalf("first resource profile save: %v", err)
+	}
+
+	stale := original
+	stale.CPUPercent = 400
+	second.mu.Lock()
+	err = second.saveProfileLocked(stale)
+	second.mu.Unlock()
+	if err == nil {
+		t.Fatal("conflicting stale resource profile write unexpectedly succeeded")
+	}
+	if got := second.values["demo"]; got != committed {
+		t.Fatalf("stale resource cache = %#v, want refreshed durable peer value %#v", got, committed)
+	}
+}

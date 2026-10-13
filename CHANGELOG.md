@@ -34,6 +34,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Resource-profile transitions now use rollback-on-persistence-failure and
+  preserve refreshed SQLite peer state after conflicting updates, keeping the
+  in-memory cache aligned with the durable desired profile.
 - Staging-clone environment changes now publish to memory only after durable
   persistence; failed replacement, insertion, or deletion preserves the last
   persisted value for consistent reconciliation.
