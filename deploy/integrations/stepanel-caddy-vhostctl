@@ -155,7 +155,10 @@ EOF
           printf '\tredir %s %s %s\n' "$source" "$destination" "$code"
         done
       fi
-      printf '\tphp_fastcgi unix/%s\n\tfile_server {\n\t\thide %s/.env %s/.env.* %s/.git %s/.git/* %s/.svn %s/.svn/* %s/.hg %s/.hg/* %s/.htpasswd %s/.htaccess\n\t}\n}\n' "$socket" "$view_root_path/.env" "$view_root_path/.env.*" "$view_root_path/.git" "$view_root_path/.git/*" "$view_root_path/.svn" "$view_root_path/.svn/*" "$view_root_path/.hg" "$view_root_path/.hg/*" "$view_root_path/.htpasswd" "$view_root_path/.htaccess"
+      # Caddy reads through the root-owned nosymfollow bind view, but the
+      # per-site PHP-FPM account and open_basedir use the canonical site path.
+      # Pass that canonical path to FastCGI instead of the Caddy-only view.
+      printf '\tphp_fastcgi unix/%s {\n\t\troot %s\n\t}\n\tfile_server {\n\t\thide %s/.env %s/.env.* %s/.git %s/.git/* %s/.svn %s/.svn/* %s/.hg %s/.hg/* %s/.htpasswd %s/.htaccess\n\t}\n}\n' "$socket" "$public_root" "$view_root_path/.env" "$view_root_path/.env.*" "$view_root_path/.git" "$view_root_path/.git/*" "$view_root_path/.svn" "$view_root_path/.svn/*" "$view_root_path/.hg" "$view_root_path/.hg/*" "$view_root_path/.htpasswd" "$view_root_path/.htaccess"
     } > "$staged"
     chmod 0644 "$staged"
     chown root:root "$staged"

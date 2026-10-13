@@ -66,6 +66,19 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	}
 }
 
+func TestCaddyFastCGIUsesCanonicalSiteRoot(t *testing.T) {
+	source := string(mustReadTestFile(t, "deploy/integrations/stepanel-caddy-vhostctl"))
+	if !strings.Contains(source, `"$domain" "$view_root_path"`) {
+		t.Fatal("Caddy must continue serving through the isolated nosymfollow view")
+	}
+	if !strings.Contains(source, `php_fastcgi unix/%s {\n\t\troot %s\n\t}`) {
+		t.Fatal("Caddy FastCGI must send the canonical site root to the per-site PHP-FPM pool")
+	}
+	if !strings.Contains(source, `"$socket" "$public_root" "$view_root_path/.env"`) {
+		t.Fatal("Caddy FastCGI root must match PHP-FPM's canonical site path, while static file hides stay on the view")
+	}
+}
+
 func TestSiteHelperUsesAuthoritativeWebIdentityAndRejectsSymlinks(t *testing.T) {
 	sourceBytes, err := os.ReadFile("deploy/integrations/stepanel-sitectl")
 	if err != nil {

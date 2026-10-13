@@ -44,10 +44,13 @@ exercise every ENOSPC boundary. Gate 5 remains open; see the
 
 On 2026-10-13 the installed-host WordPress recovery proof passed on Apache +
 MariaDB for Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9. The corresponding
-Caddy + MariaDB legs failed the HTTP application probe on all three systems;
-diagnostic output is being improved and Caddy is not considered verified.
-These are smoke results, not production certification. See the exact job links
-and full runtime boundary in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
+Caddy + MariaDB legs failed the HTTP application probe on all three systems.
+The failure was caused by FastCGI receiving the Caddy-only bind-view path rather
+than the canonical path allowed to the per-site PHP-FPM account; Caddy can read
+the view, but PHP-FPM cannot. The Caddy helper now supplies the canonical
+FastCGI root while retaining the isolated Caddy view. Installed-host
+verification is pending, so Caddy remains unverified. These are smoke results,
+not production certification. See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 

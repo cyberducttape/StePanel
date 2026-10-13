@@ -33,6 +33,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Report the Caddy service identity, ACLs, and direct PHP endpoint responses
   on recovery-proof failure to separate route matching from document-root
   permissions and PHP-FPM execution.
+- Keep Caddy's symlink-resistant bind view for static serving while explicitly
+  passing the canonical site document root to PHP-FPM, matching its account
+  permissions and `open_basedir` boundary.
 - Reconcile the production-gate runtime table with the six current installed
   host jobs, recording the three passing Apache/MariaDB WordPress proofs and
   the unresolved Caddy HTTP probe failures without calling smoke coverage
