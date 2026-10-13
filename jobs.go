@@ -2372,13 +2372,22 @@ func (j *Jobs) listDurable(limit int, includeOutput bool) ([]Job, error) {
 }
 
 func (j *Jobs) List(limit int) []Job {
+	items, err := j.ListWithError(limit)
+	if err != nil {
+		return nil
+	}
+	return items
+}
+
+// ListWithError returns durable job state when SQLite is configured. It does
+// not substitute the process-local cache after a database error: cached jobs
+// may be stale because another process owns job execution.
+func (j *Jobs) ListWithError(limit int) ([]Job, error) {
 	if limit < 1 {
 		limit = 50
 	}
 	if j.db != nil {
-		if items, err := j.listDurable(limit, true); err == nil {
-			return items
-		}
+		return j.listDurable(limit, true)
 	}
 	j.mu.RLock()
 	items := make([]Job, 0, len(j.items))
@@ -2400,19 +2409,15 @@ func (j *Jobs) List(limit int) []Job {
 		}
 		items = kept
 	}
-	return items
+	return items, nil
 }
 
 // ListSummaries returns activity rows without materializing completed result
 // payloads. Use Get or GetWithError for a full job detail record.
 func (j *Jobs) ListSummaries(limit int) []Job {
 	items, err := j.ListSummariesWithError(limit)
-	if err == nil {
-		return items
-	}
-	items = j.List(limit)
-	for i := range items {
-		stripJobOutput(&items[i])
+	if err != nil {
+		return nil
 	}
 	return items
 }
@@ -2427,7 +2432,10 @@ func (j *Jobs) ListSummariesWithError(limit int) ([]Job, error) {
 	if j.db != nil {
 		return j.listDurable(limit, false)
 	}
-	items := j.List(limit)
+	items, err := j.ListWithError(limit)
+	if err != nil {
+		return nil, err
+	}
 	for i := range items {
 		stripJobOutput(&items[i])
 	}

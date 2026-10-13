@@ -157,12 +157,22 @@ func writeSupportBundle(out io.Writer, a *App) error {
 	}
 
 	jobs := make([]supportBundleJob, 0)
+	jobListing := map[string]any{"available": true}
 	if a.Jobs != nil {
-		for _, item := range a.Jobs.List(100) {
-			jobs = append(jobs, supportBundleJob{ID: item.ID, Kind: item.Kind, Owner: item.User, State: item.State, Progress: item.Progress, Attempts: item.Attempts, CreatedAt: item.StartedAt, FinishedAt: item.FinishedAt})
+		items, err := a.Jobs.ListWithError(100)
+		if err != nil {
+			jobListing = map[string]any{"available": false, "error": "durable job history could not be read"}
+			logSupportBundleError(fmt.Errorf("read jobs for support bundle: %w", err))
+		} else {
+			for _, item := range items {
+				jobs = append(jobs, supportBundleJob{ID: item.ID, Kind: item.Kind, Owner: item.User, State: item.State, Progress: item.Progress, Attempts: item.Attempts, CreatedAt: item.StartedAt, FinishedAt: item.FinishedAt})
+			}
 		}
 	}
 	if err := writeJSON("jobs.json", map[string]any{"jobs": jobs}); err != nil {
+		return closeArchive(err)
+	}
+	if err := writeJSON("job-list-status.json", jobListing); err != nil {
 		return closeArchive(err)
 	}
 	return closeArchive(nil)

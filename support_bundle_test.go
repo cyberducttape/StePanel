@@ -3,7 +3,9 @@ package stepanel
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -27,7 +29,7 @@ func TestSupportBundleIsRedactedAndContainsOperationalEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read support bundle: %v", err)
 	}
-	want := map[string]bool{"README.txt": false, "metadata.json": false, "configuration.json": false, "readiness.json": false, "operational-readiness.json": false, "production-readiness.json": false, "metrics.txt": false, "jobs.json": false}
+	want := map[string]bool{"README.txt": false, "metadata.json": false, "configuration.json": false, "readiness.json": false, "operational-readiness.json": false, "production-readiness.json": false, "metrics.txt": false, "jobs.json": false, "job-list-status.json": false}
 	for _, entry := range archive.File {
 		if _, ok := want[entry.Name]; !ok {
 			t.Errorf("unexpected support bundle entry %q", entry.Name)
@@ -55,4 +57,52 @@ func TestSupportBundleIsRedactedAndContainsOperationalEvidence(t *testing.T) {
 			t.Errorf("support bundle is missing %s", name)
 		}
 	}
+}
+
+func TestSupportBundleMarksDurableJobHistoryUnavailable(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := newJobsWithDB(db, 1)
+	if _, err := jobs.Enqueue("support.test", "site", "", nil, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jobs.ListWithError(10); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := writeSupportBundle(&output, &App{Jobs: jobs}); err != nil {
+		t.Fatalf("write support bundle: %v", err)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range archive.File {
+		if entry.Name != "job-list-status.json" {
+			continue
+		}
+		reader, err := entry.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var status struct {
+			Available bool `json:"available"`
+		}
+		decodeErr := json.NewDecoder(reader).Decode(&status)
+		_ = reader.Close()
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if status.Available {
+			t.Fatal("support bundle reported stale cached jobs as authoritative")
+		}
+		return
+	}
+	t.Fatal("support bundle omitted job-list-status.json")
 }

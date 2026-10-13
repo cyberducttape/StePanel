@@ -736,6 +736,33 @@ func TestDurableListReleasesSQLiteRowsBeforeRefreshingJobs(t *testing.T) {
 	}
 }
 
+func TestDurableJobListNeverFallsBackToStaleCache(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := newJobsWithDB(db, 1)
+	queued, err := jobs.Enqueue("list.operation", "site", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed := jobs.List(10); len(listed) != 1 || listed[0].ID != queued.ID {
+		t.Fatalf("initial durable list = %#v", listed)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jobs.ListWithError(10); err == nil {
+		t.Fatal("durable list concealed SQLite failure")
+	}
+	if listed := jobs.List(10); listed != nil {
+		t.Fatalf("compatibility list returned stale cached jobs: %#v", listed)
+	}
+	if listed := jobs.ListSummaries(10); listed != nil {
+		t.Fatalf("summary list returned stale cached jobs: %#v", listed)
+	}
+}
+
 func TestListForOwnersAppliesLimitAfterOwnerFilter(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {
