@@ -367,6 +367,20 @@ func TestCloudRebootWaitRequiresObservedTransition(t *testing.T) {
 	}
 }
 
+func TestOpenStackSnapshotWaitsForProviderCompletion(t *testing.T) {
+	args, err := openStackInstanceActionArgs("snapshot", "server-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"server", "backup", "create", "--name", "stepanel-server-123", "--wait", "server-123", "-f", "json"}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("OpenStack snapshot arguments = %v, want %v", args, want)
+	}
+	if _, err := openStackInstanceActionArgs("snapshot", "--malicious"); err == nil {
+		t.Fatal("OpenStack snapshot accepted an invalid resource ID")
+	}
+}
+
 func TestLinodeDNSRecordPayloadUsesTypedMXAndSRVFields(t *testing.T) {
 	mx := cloudDNSRequest{Type: "mx", Name: "@", Target: "mail.example.com", TTL: 2419200, Priority: 10}
 	if !cloudDNSRecordValid(mx) {

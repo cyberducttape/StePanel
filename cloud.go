@@ -1044,24 +1044,33 @@ func executeCloudAction(ctx context.Context, provider, action, id, snapshotLabel
 				return readOpenStackServerState(waitCtx, id)
 			})
 		}
-		args := []string{"server"}
-		switch action {
-		case "start":
-			args = append(args, "start")
-		case "stop":
-			args = append(args, "stop")
-		case "snapshot":
-			args = append(args, "backup", "create", "--name", "stepanel-"+id)
-		default:
-			return fmt.Errorf("unsupported OpenStack instance action %q", action)
+		args, err := openStackInstanceActionArgs(action, id)
+		if err != nil {
+			return err
 		}
-		args = append(args, id, "-f", "json")
 		if err := runCloudCLI(ctx, "openstack", "OpenStack", args...); err != nil {
 			return err
 		}
 		return waitOpenStackServerState(ctx, action, id, time.Second, readOpenStackServerState)
 	default:
 		return errors.New("unsupported cloud provider")
+	}
+}
+
+func openStackInstanceActionArgs(action, id string) ([]string, error) {
+	if !cloudIDPattern.MatchString(id) {
+		return nil, fmt.Errorf("invalid instance ID format: %s", id)
+	}
+	switch action {
+	case "start":
+		return []string{"server", "start", id, "-f", "json"}, nil
+	case "stop":
+		return []string{"server", "stop", id, "-f", "json"}, nil
+	case "snapshot":
+		// OpenStack returns after accepting a backup unless --wait is supplied.
+		return []string{"server", "backup", "create", "--name", "stepanel-" + id, "--wait", id, "-f", "json"}, nil
+	default:
+		return nil, fmt.Errorf("unsupported OpenStack instance action %q", action)
 	}
 }
 

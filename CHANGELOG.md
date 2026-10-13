@@ -20,6 +20,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   without mutating a command string; downloaded object names must be local
   path components, and the resulting files are checked with `Lstat` as regular
   files before use.
+- OpenStack server backup actions now use the CLI's documented `--wait` mode,
+  so command acceptance is not recorded as completed backup creation.
 - Cloud mutation jobs now wait for provider-side instance/snapshot convergence
   (Linode state polling, AWS CLI waiters, and OpenStack server-status polling);
   reboot actions require an observed transition out of the pre-request healthy
