@@ -34,6 +34,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Reconcile the activity feed from the durable job API every 30 seconds while
+  the page is visible, so updates made by the separate worker process appear
+  even when its process-local SSE events cannot reach the panel.
+
 - Map-backed route, worker, task, domain-claim, DNS, environment, and schedule
   transitions now use the shared rollback-on-write-failure path, preserving a
   refreshed SQLite peer snapshot instead of restoring stale cached values.

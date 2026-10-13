@@ -10,6 +10,7 @@
   const maxWaitRequestFailures = 5;
   let stream;
   let reconnectTimer;
+  const snapshotPollInterval = 30000;
   // Reconnect delay grows on consecutive failures (rotation, 401, 429,
   // restarts) and resets once a snapshot arrives; jitter keeps many open
   // dashboards from reconnecting in lockstep.
@@ -84,6 +85,14 @@
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, reconnectDelay());
     };
+  };
+  const refreshSnapshot = () => {
+    if (document.visibilityState === 'hidden') return;
+    // SSE events are process-local, while the installed worker may update the
+    // durable job row from another process. Periodically reconcile the feed
+    // from the authoritative API; failed reads leave the last known view in
+    // place and the next interval retries.
+    load().catch(() => {});
   };
   const cancel = async (id) => {
     await api().request(`/api/jobs/${encodeURIComponent(id)}`, { method: 'POST' });
@@ -221,6 +230,8 @@
   const init = async () => {
     try { await load(); } catch (_) { /* the page can still render its server snapshot */ }
     connect();
+    setInterval(refreshSnapshot, snapshotPollInterval);
+    document.addEventListener('visibilitychange', refreshSnapshot);
     const toggle = document.querySelector('#jobCenterToggle');
     const drawer = document.querySelector('#jobCenter');
     // The drawer is non-modal, so focus is not trapped; opening moves focus
