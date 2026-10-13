@@ -10,6 +10,26 @@ import (
 	"testing"
 )
 
+func TestCleanupStagingRestoreDatabaseRunsBoundedCompensation(t *testing.T) {
+	root := t.TempDir()
+	argsPath := filepath.Join(root, "database-cleanup.args")
+	helper := filepath.Join(root, "dbctl")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsPath + "\"\n"
+	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupStagingRestoreDatabase(Config{DBCtl: helper}, "staging_db", "staging_user"); err != nil {
+		t.Fatalf("cleanupStagingRestoreDatabase: %v", err)
+	}
+	got, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read cleanup helper arguments: %v", err)
+	}
+	if strings.TrimSpace(string(got)) != "drop-managed\nstaging_db\nstaging_user" {
+		t.Fatalf("cleanup helper arguments = %q", got)
+	}
+}
+
 // stagingRestoreApp builds an App with fake helpers. The vhost helper records
 // its arguments and fails when failVhost is set, standing in for a route that
 // cannot be activated.

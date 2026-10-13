@@ -651,7 +651,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 				log.Printf("staging site cleanup failed for %s: %v", input.Site, deleteErr)
 			}
 			if createdDatabase {
-				if _, cleanupErr := runDatabaseHelperContext(operationCtx, a.Config, time.Minute, "", "drop-managed", input.TargetDatabase, input.TargetUser); cleanupErr != nil {
+				if cleanupErr := cleanupStagingRestoreDatabase(a.Config, input.TargetDatabase, input.TargetUser); cleanupErr != nil {
 					log.Printf("staging database cleanup failed for %s: %v", input.TargetDatabase, cleanupErr)
 				}
 			}
@@ -690,6 +690,16 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 	committed = true
 	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "backup.restore-to-staging", input.Site, input.Backup)
 	writeJSON(w, 202, map[string]any{"site": input.Site, "domain": input.Domain, "backup": input.Backup, "source_site": manifest.Site, "files_restored": true, "databases_restored": hasDatabase, "database": input.TargetDatabase, "restore_mode": "staging", "consistency": manifest.Consistency, "created_at": time.Now().UTC()})
+}
+
+// cleanupStagingRestoreDatabase compensates a failed staged restore using an
+// independent bounded context. The import request may already be canceled or
+// timed out, but its newly provisioned database still needs to be removed.
+func cleanupStagingRestoreDatabase(cfg Config, database, username string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	_, err := runDatabaseHelperContext(ctx, cfg, time.Minute, "", "drop-managed", database, username)
+	return err
 }
 
 func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {
