@@ -15,6 +15,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Reload the system SSH service after policy changes only when it is active;
   configurations are still validated on hosts where a separate or temporary
   `sshd` will own the next session.
+- Stage the pinned WP-CLI fixture in the test site's private runtime directory
+  with site-account ownership, so the real installed-host WordPress proof can
+  execute as the site user without making its root temporary workspace
+  (including session cookies) traversable to tenants.
 
 ### Testing and documentation
 

@@ -36,6 +36,7 @@ public_root="$site_root/public"
 work=$(mktemp -d /tmp/stepanel-wordpress-proof.XXXXXX)
 site_user=''
 site_prepared=0
+wp_cli_site=''
 database_created=0
 route_created=0
 
@@ -51,6 +52,7 @@ cleanup() {
   if (( database_created )); then
     /usr/local/sbin/stepanel-dbctl cleanup-wordpress "$database" "$database_user" >/dev/null 2>&1 || true
   fi
+  [[ -z $wp_cli_site ]] || rm -f -- "$wp_cli_site"
   if (( site_prepared )) && [[ -n $site_user ]]; then
     /usr/local/sbin/stepanel-sitectl delete "$site" "$site_user" >/dev/null 2>&1 || true
   fi
@@ -89,6 +91,12 @@ if [[ -z $site_user ]]; then
   prefix=${prefix//_/-}
   site_user="sp-${prefix}-${digest:0:8}"
 fi
+wp_cli_site="$site_root/.php/wp-cli-smoke.phar"
+install -o "$site_user" -g "$site_user" -m 0600 -- "$wp_cli" "$wp_cli_site"
+[[ $(stat -c '%U:%G:%a' -- "$wp_cli_site") == "$site_user:$site_user:600" ]] || {
+  echo 'WP-CLI fixture is not private and owned by the site account' >&2
+  exit 1
+}
 
 printf '%s\n' "$database_password" | \
   /usr/local/sbin/stepanel-dbctl restore-wordpress "$database" "$database_user" "$site"
@@ -97,16 +105,16 @@ database_created=1
 tar -xzf "$wordpress_archive" --strip-components=1 -C "$public_root"
 chown -R "$site_user:$site_user" "$public_root"
 chmod 0600 "$public_root/wp-config.php" 2>/dev/null || true
-runuser -u "$site_user" -- php "$wp_cli" --path="$public_root" config create \
+runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" config create \
   --dbname="$database" --dbuser="$database_user" --dbpass="$database_password" \
   --dbhost=localhost --skip-check --force
-runuser -u "$site_user" -- php "$wp_cli" --path="$public_root" core install \
+runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" core install \
   --url="http://$domain" --title='StePanel Recovery Proof Fixture' \
   --admin_user=ciwpadmin --admin_password="$admin_password" \
   --admin_email=ci-wp-proof@example.test --skip-email
-runuser -u "$site_user" -- php "$wp_cli" --path="$public_root" option update blogdescription \
+runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" option update blogdescription \
   'Database-backed installed-host recovery fixture'
-runuser -u "$site_user" -- php "$wp_cli" --path="$public_root" post create \
+runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" post create \
   --post_title='StePanel recovery origin probe' \
   --post_content='STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' --post_status=publish --porcelain >/dev/null
 
