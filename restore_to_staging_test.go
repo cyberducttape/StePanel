@@ -214,3 +214,40 @@ func TestRestoreToStagingRouteFailureLeavesNoHalfSite(t *testing.T) {
 		t.Fatalf("retry after failed staging restore = %d %s", again.Code, again.Body.String())
 	}
 }
+
+func TestRestoreToStagingCleanupFailureRequiresIntervention(t *testing.T) {
+	f := newInterruptionFixture(t)
+	f.writeSite(t, versionOne)
+	backup := f.backup(t)
+	f.writeSite(t, versionTwo)
+	app, _ := stagingRestoreApp(t, f, true)
+
+	// The route activation fails first, then the site helper refuses to remove
+	// the staging identity. Exercise the actual handler's compensation defer:
+	// a failed request must not leave the control plane reporting healthy when
+	// host cleanup could not be verified.
+	sitectl := filepath.Join(f.root, "failing-sitectl")
+	script := "#!/bin/sh\ncase \"$1\" in\n" +
+		"prepare-root) exit 0 ;;\n" +
+		"delete) exit 1 ;;\n" +
+		"*) exit 0 ;;\nesac\n"
+	if err := os.WriteFile(sitectl, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	app.Config.SiteCtl = sitectl
+
+	response := postStagingRestore(t, app, `{"site":"example-staging","backup":"`+backup+`","domain":"staging.example.org"}`)
+	if response.Code == http.StatusAccepted {
+		t.Fatal("staging restore with failed cleanup reported success")
+	}
+	recoveryState := app.recovery.get()
+	if recoveryState == nil || !strings.Contains(recoveryState.Error(), "staging_restore_compensation") {
+		t.Fatalf("recovery state = %v, want failed staging compensation recorded", recoveryState)
+	}
+	readiness := httptest.NewRecorder()
+	app.operationalHealth(readiness, httptest.NewRequest(http.MethodGet, "/api/health/operational", nil))
+	if readiness.Code != http.StatusServiceUnavailable {
+		t.Fatalf("operational health = %d, want %d after failed compensation", readiness.Code, http.StatusServiceUnavailable)
+	}
+	f.assertSite(t, versionTwo)
+}
