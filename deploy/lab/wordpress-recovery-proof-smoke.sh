@@ -116,19 +116,26 @@ runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" core install
   --admin_email=ci-wp-proof@example.test --skip-email
 runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" option update blogdescription \
   'Database-backed installed-host recovery fixture'
-runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" post create \
+origin_post_id=$(runuser -u "$site_user" -- php "$wp_cli_site" --path="$public_root" post create \
   --post_title='StePanel recovery origin probe' \
-  --post_content='STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' --post_status=publish --porcelain >/dev/null
+  --post_content='STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' --post_status=publish --porcelain)
+[[ $origin_post_id =~ ^[1-9][0-9]*$ ]] || { echo "WP-CLI returned an invalid recovery probe post ID: $origin_post_id" >&2; exit 1; }
 
 /usr/local/sbin/stepanel-sitectl seal "$site" "$site_user"
 /usr/local/sbin/stepanel-vhostctl apply "$site" "$domain"
 route_created=1
-origin=$(curl --fail --silent --show-error --location --max-time 30 \
-  --resolve "$domain:80:127.0.0.1" --resolve "$domain:443:127.0.0.1" "http://$domain/")
-grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' <<<"$origin" || {
-  echo 'the freshly installed WordPress site did not render its database-backed probe post' >&2
+origin_body="$work/origin-response.html"
+origin_headers="$work/origin-response.headers"
+origin_status=$(curl --silent --show-error --location --max-time 30 \
+  --resolve "$domain:80:127.0.0.1" --resolve "$domain:443:127.0.0.1" \
+  --dump-header "$origin_headers" --output "$origin_body" --write-out '%{http_code}' \
+  "http://$domain/?p=$origin_post_id" || true)
+if [[ $origin_status != 200 ]] || ! grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' "$origin_body"; then
+  echo "database-backed WordPress post probe failed (HTTP ${origin_status:-unknown}, post $origin_post_id)" >&2
+  [[ ! -f $origin_headers ]] || sed -n '1,40p' "$origin_headers" >&2
+  [[ ! -f $origin_body ]] || sed -n '1,120p' "$origin_body" >&2
   exit 1
-}
+fi
 
 sleep $((31 - $(date +%s) % 30))
 totp=$(python3 - "$STEPANEL_ADMIN_TOTP_SECRET" <<'PY'

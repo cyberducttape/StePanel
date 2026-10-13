@@ -22,6 +22,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Use a `.localhost` hostname for the installed WordPress recovery proof so
   Caddy serves its HTTPS redirect with its trusted local CA instead of trying
   public ACME issuance for the reserved `.test` domain.
+- Probe the exact published WordPress post by its database ID and retain the
+  response status, headers, and bounded body in failure diagnostics, making
+  installed-host HTTP proof failures actionable instead of an opaque 404.
 
 ### Testing and documentation
 
