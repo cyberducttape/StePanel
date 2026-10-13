@@ -9,6 +9,52 @@ import (
 	"testing"
 )
 
+func TestRemoveAppBackupUsesConfinedDirectoryDescriptor(t *testing.T) {
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "apps")
+	if err := os.Mkdir(appRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(appRoot, "demo.json.bak")
+	if err := os.WriteFile(backup, []byte("old manifest"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeAppBackup(Config{AppRoot: appRoot}, "demo"); err != nil {
+		t.Fatalf("remove backup: %v", err)
+	}
+	if _, err := os.Lstat(backup); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("backup after removal: err=%v, want not-exist", err)
+	}
+	if err := removeAppBackup(Config{AppRoot: appRoot}, "demo"); err != nil {
+		t.Fatalf("remove absent backup should be idempotent: %v", err)
+	}
+	if err := removeAppBackup(Config{AppRoot: appRoot}, "../outside"); err == nil {
+		t.Fatal("path traversal site name was accepted")
+	}
+	if err := removeAppBackup(Config{}, "demo"); err == nil {
+		t.Fatal("empty app root was accepted")
+	}
+
+	external := filepath.Join(root, "external")
+	if err := os.Mkdir(external, 0700); err != nil {
+		t.Fatal(err)
+	}
+	externalBackup := filepath.Join(external, "demo.json.bak")
+	if err := os.WriteFile(externalBackup, []byte("must survive"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	linkedRoot := filepath.Join(root, "apps-link")
+	if err := os.Symlink(external, linkedRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeAppBackup(Config{AppRoot: linkedRoot}, "demo"); err == nil {
+		t.Fatal("symlinked app root was followed")
+	}
+	if data, err := os.ReadFile(externalBackup); err != nil || string(data) != "must survive" {
+		t.Fatalf("external backup changed: data=%q err=%v", data, err)
+	}
+}
+
 func TestRecoverAppActivationJournalRestoresRuntimeAndManifest(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{WebRoot: filepath.Join(root, "web"), AppRoot: filepath.Join(root, "apps"), AppCtl: filepath.Join(root, "appctl")}

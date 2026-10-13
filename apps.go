@@ -304,17 +304,23 @@ func restoreAppBackup(cfg Config, site string, previous []byte, existed bool) er
 }
 
 func removeAppBackup(cfg Config, site string) error {
-	if safeUser(site) == "" {
+	if strings.TrimSpace(cfg.AppRoot) == "" || safeUser(site) == "" {
 		return errors.New("application rollback site is invalid")
 	}
-	path, err := safePath(cfg.AppRoot, site+".json.bak")
+	root, err := filepath.Abs(cfg.AppRoot)
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	dirFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
 		return err
 	}
-	return nil
+	defer unix.Close(dirFD)
+	err = unix.Unlinkat(dirFD, site+".json.bak", 0)
+	if errors.Is(err, unix.ENOENT) {
+		return nil
+	}
+	return err
 }
 
 // removeAppManifest removes only the manifest for a validated site identity.

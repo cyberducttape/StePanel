@@ -31,6 +31,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Application rollback removes backup manifests relative to a no-follow app-root
+  directory descriptor, preventing a path-based delete from escaping the
+  configured manifest directory.
 - Job lookup/list compatibility APIs no longer present cached process-local
   records as authoritative after a durable SQLite read failure. Support bundles
   now mark job history unavailable explicitly instead of exporting an empty or
