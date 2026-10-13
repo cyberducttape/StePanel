@@ -28,6 +28,7 @@ type CloudActionResult struct {
 	Provider    string    `json:"provider"`
 	Action      string    `json:"action"`
 	ID          string    `json:"id"`
+	SnapshotID  string    `json:"snapshot_id,omitempty"`
 	RemoteState string    `json:"remote_state,omitempty"`
 	CompletedAt time.Time `json:"completed_at"`
 }
@@ -73,7 +74,8 @@ type AWSInstanceAction struct {
 }
 
 type AWSVolumeSnapshot struct {
-	VolumeID string `json:"volume_id"`
+	VolumeID   string `json:"volume_id"`
+	SnapshotID string `json:"snapshot_id,omitempty"`
 }
 
 type durableCloudRequest struct {
@@ -153,14 +155,22 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 			case request.AWSInstance != nil:
 				err = executeAWSInstanceAction(workerCtx, request.Action, *request.AWSInstance)
 			case request.AWSVolume != nil:
-				err = executeAWSVolumeSnapshot(workerCtx, *request.AWSVolume)
+				var snapshotID string
+				snapshotID, err = executeAWSVolumeSnapshot(workerCtx, *request.AWSVolume, func(id string) error {
+					return persistAWSSnapshotID(a.Jobs, item, &request, id)
+				})
+				result.SnapshotID = snapshotID
 			default:
 				err = errors.New("AWS cloud job is missing a typed resource request")
 			}
 		} else {
 			err = executeCloudAction(workerCtx, request.Provider, request.Action, request.ID, request.SnapshotLabel, request.ConfirmSnapshotReplacement)
 		}
-		result = CloudActionResult{Provider: request.Provider, Action: request.Action, ID: request.ID, RemoteState: "converged", CompletedAt: time.Now().UTC()}
+		result.Provider = request.Provider
+		result.Action = request.Action
+		result.ID = request.ID
+		result.RemoteState = "converged"
+		result.CompletedAt = time.Now().UTC()
 	case "ssh":
 		workerCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
@@ -277,6 +287,18 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, err
 	}
 	return output, nil
+}
+
+func persistAWSSnapshotID(jobs *Jobs, item Job, request *durableCloudRequest, snapshotID string) error {
+	if jobs == nil || request == nil || request.AWSVolume == nil || !awsSnapshotIDPattern.MatchString(snapshotID) {
+		return errors.New("AWS snapshot checkpoint requires a valid snapshot ID and typed durable job")
+	}
+	request.AWSVolume.SnapshotID = snapshotID
+	checkpoint, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	return jobs.UpdateClaimPayload(item.ID, item.LeaseOwner, checkpoint)
 }
 
 func (a *App) cloudInventory(w http.ResponseWriter, _ *http.Request) {
@@ -702,24 +724,71 @@ func awsInstanceHealth(ctx context.Context, instanceID string) (string, error) {
 	return fields[0] + "\t" + fields[1], nil
 }
 
-func executeAWSVolumeSnapshot(ctx context.Context, request AWSVolumeSnapshot) error {
-	args, err := awsVolumeSnapshotArgs(request)
-	if err != nil {
-		return err
-	}
-	out, err := runCloudCLIOutput(ctx, "aws", "AWS", args...)
-	if err != nil {
-		return err
-	}
+func awsSnapshotID(output []byte) (string, error) {
 	var response struct {
-		Snapshot struct {
-			ID string `json:"SnapshotId"`
-		} `json:"Snapshot"`
+		SnapshotID string `json:"SnapshotId"`
 	}
-	if err := json.Unmarshal(out, &response); err != nil || !cloudIDPattern.MatchString(response.Snapshot.ID) {
-		return errors.New("AWS accepted snapshot request but returned no valid snapshot ID; reconcile provider state before retrying")
+	if err := json.Unmarshal(output, &response); err != nil {
+		return "", fmt.Errorf("decode AWS snapshot response: %w", err)
 	}
-	return runCloudCLI(ctx, "aws", "AWS", "ec2", "wait", "snapshot-completed", "--snapshot-ids", response.Snapshot.ID)
+	if !awsSnapshotIDPattern.MatchString(response.SnapshotID) {
+		return "", errors.New("AWS accepted snapshot request but returned no valid top-level SnapshotId")
+	}
+	return response.SnapshotID, nil
+}
+
+var awsSnapshotIDPattern = regexp.MustCompile(`^snap-[0-9a-f]{8,}$`)
+
+func awsSnapshotWaitArgs(snapshotID string) ([]string, error) {
+	if !awsSnapshotIDPattern.MatchString(snapshotID) {
+		return nil, errors.New("invalid AWS snapshot ID")
+	}
+	return []string{"ec2", "wait", "snapshot-completed", "--snapshot-ids", snapshotID}, nil
+}
+
+type awsSnapshotCreateFunc func(context.Context, AWSVolumeSnapshot) ([]byte, error)
+type awsSnapshotWaitFunc func(context.Context, string) error
+type awsSnapshotCheckpointFunc func(string) error
+
+func executeAWSVolumeSnapshot(ctx context.Context, request AWSVolumeSnapshot, checkpoint awsSnapshotCheckpointFunc) (string, error) {
+	return executeAWSVolumeSnapshotWith(ctx, request,
+		func(createCtx context.Context, createRequest AWSVolumeSnapshot) ([]byte, error) {
+			args, err := awsVolumeSnapshotArgs(createRequest)
+			if err != nil {
+				return nil, err
+			}
+			return runCloudCLIOutput(createCtx, "aws", "AWS", args...)
+		},
+		func(waitCtx context.Context, snapshotID string) error {
+			args, err := awsSnapshotWaitArgs(snapshotID)
+			if err != nil {
+				return err
+			}
+			return runCloudCLI(waitCtx, "aws", "AWS", args...)
+		}, checkpoint)
+}
+
+func executeAWSVolumeSnapshotWith(ctx context.Context, request AWSVolumeSnapshot, create awsSnapshotCreateFunc, wait awsSnapshotWaitFunc, checkpoint awsSnapshotCheckpointFunc) (string, error) {
+	snapshotID := request.SnapshotID
+	if snapshotID == "" {
+		output, err := create(ctx, request)
+		if err != nil {
+			return "", err
+		}
+		snapshotID, err = awsSnapshotID(output)
+		if err != nil {
+			return "", fmt.Errorf("AWS snapshot outcome may be ambiguous; reconcile volume %s before retrying: %w", request.VolumeID, err)
+		}
+		if checkpoint != nil {
+			if err := checkpoint(snapshotID); err != nil {
+				return "", fmt.Errorf("AWS snapshot %s was accepted but its reconciliation checkpoint could not be persisted; reconcile before retrying: %w", snapshotID, err)
+			}
+		}
+	}
+	if err := wait(ctx, snapshotID); err != nil {
+		return snapshotID, fmt.Errorf("wait for AWS snapshot %s: %w", snapshotID, err)
+	}
+	return snapshotID, nil
 }
 
 func linodeBackupsPath(linodeID string) (string, error) {
@@ -760,37 +829,48 @@ func executeCloudAction(ctx context.Context, provider, action, id, snapshotLabel
 		return executeLinodeInstanceAction(ctx, action, id, snapshotLabel, confirmSnapshotReplacement, linodeAPIRequest, time.Second)
 	case "aws":
 		if action == "snapshot" {
-			return executeAWSVolumeSnapshot(ctx, AWSVolumeSnapshot{VolumeID: id})
+			_, err := executeAWSVolumeSnapshot(ctx, AWSVolumeSnapshot{VolumeID: id}, nil)
+			return err
 		}
 		return executeAWSInstanceAction(ctx, action, AWSInstanceAction{InstanceID: id})
 	case "openstack":
-		if !cloudIDPattern.MatchString(id) {
-			return fmt.Errorf("invalid instance ID format: %s", id)
-		}
-		if action == "reboot" {
-			before, err := readOpenStackServerState(ctx, id)
-			if err != nil {
-				return fmt.Errorf("read OpenStack server state before reboot: %w", err)
-			}
-			args := []string{"server", "reboot", "--hard", id, "-f", "json"}
-			if err := runCloudCLI(ctx, "openstack", "OpenStack", args...); err != nil {
-				return err
-			}
-			return waitCloudState(ctx, before, "ACTIVE", time.Second, func(waitCtx context.Context) (string, error) {
-				return readOpenStackServerState(waitCtx, id)
-			})
-		}
-		args, err := openStackInstanceActionArgs(action, id)
-		if err != nil {
-			return err
-		}
-		if err := runCloudCLI(ctx, "openstack", "OpenStack", args...); err != nil {
-			return err
-		}
-		return waitOpenStackServerState(ctx, action, id, time.Second, readOpenStackServerState)
+		return executeOpenStackInstanceAction(ctx, action, id, func(runCtx context.Context, args ...string) error {
+			return runCloudCLI(runCtx, "openstack", "OpenStack", args...)
+		}, readOpenStackServerState, time.Second)
 	default:
 		return errors.New("unsupported cloud provider")
 	}
+}
+
+func executeOpenStackInstanceAction(ctx context.Context, action, id string, run func(context.Context, ...string) error, read func(context.Context, string) (string, error), interval time.Duration) error {
+	if !cloudIDPattern.MatchString(id) {
+		return fmt.Errorf("invalid instance ID format: %s", id)
+	}
+	if action == "reboot" {
+		before, err := read(ctx, id)
+		if err != nil {
+			return fmt.Errorf("read OpenStack server state before reboot: %w", err)
+		}
+		if err := run(ctx, "server", "reboot", "--hard", id, "-f", "json"); err != nil {
+			return err
+		}
+		return waitCloudState(ctx, before, "ACTIVE", interval, func(waitCtx context.Context) (string, error) {
+			return read(waitCtx, id)
+		})
+	}
+	args, err := openStackInstanceActionArgs(action, id)
+	if err != nil {
+		return err
+	}
+	if err := run(ctx, args...); err != nil {
+		return err
+	}
+	if action == "snapshot" {
+		// server backup create --wait returns only after the image operation
+		// completes. A server-state waiter does not apply to this action.
+		return nil
+	}
+	return waitOpenStackServerState(ctx, action, id, interval, read)
 }
 
 func openStackInstanceActionArgs(action, id string) ([]string, error) {

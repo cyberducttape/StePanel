@@ -19,6 +19,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- AWS EBS snapshot jobs now parse the top-level `SnapshotId`, persist it in
+  the durable job payload before waiting, and wait for that exact snapshot;
+  OpenStack backup jobs now treat successful `server backup create --wait` as
+  completion instead of passing `snapshot` to the instance-state waiter.
 - Off-site rclone calls now pass arguments directly to the fixed executable
   without mutating a command string; downloaded object names must be local
   path components, and the resulting files are checked with `Lstat` as regular

@@ -3,6 +3,7 @@ package stepanel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -381,6 +382,26 @@ func TestOpenStackSnapshotWaitsForProviderCompletion(t *testing.T) {
 	}
 }
 
+func TestOpenStackSnapshotDoesNotEnterServerStateWaiter(t *testing.T) {
+	called := false
+	err := executeOpenStackInstanceAction(context.Background(), "snapshot", "server-123",
+		func(_ context.Context, args ...string) error {
+			called = true
+			want := []string{"server", "backup", "create", "--name", "stepanel-server-123", "--wait", "server-123", "-f", "json"}
+			if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+				t.Fatalf("OpenStack snapshot command = %v, want %v", args, want)
+			}
+			return nil
+		},
+		func(context.Context, string) (string, error) {
+			t.Fatal("snapshot must not poll server ACTIVE/SHUTOFF status")
+			return "", nil
+		}, 0)
+	if err != nil || !called {
+		t.Fatalf("OpenStack snapshot completion err=%v dispatched=%v", err, called)
+	}
+}
+
 func TestLinodeDNSRecordPayloadUsesTypedMXAndSRVFields(t *testing.T) {
 	toMap := func(payload any) map[string]any {
 		t.Helper()
@@ -519,6 +540,101 @@ func TestAWSActionArgsUseTypedResourceFlags(t *testing.T) {
 	want := []string{"ec2", "create-snapshot", "--volume-id", "vol-0123456789abcdef0", "--output", "json"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("snapshot args = %v, want %v", got, want)
+	}
+}
+
+func TestAWSSnapshotIDUsesTopLevelResponseAndWaitsForThatID(t *testing.T) {
+	const snapshotID = "snap-0123456789abcdef0"
+	gotID, err := awsSnapshotID([]byte(`{"VolumeId":"vol-0123456789abcdef0","State":"pending","SnapshotId":"` + snapshotID + `"}`))
+	if err != nil || gotID != snapshotID {
+		t.Fatalf("AWS SnapshotId = %q, %v; want %q", gotID, err, snapshotID)
+	}
+	if _, err := awsSnapshotID([]byte(`{"Snapshot":{"SnapshotId":"` + snapshotID + `"}}`)); err == nil {
+		t.Fatal("nested SnapshotId response was accepted")
+	}
+	args, err := awsSnapshotWaitArgs(snapshotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"ec2", "wait", "snapshot-completed", "--snapshot-ids", snapshotID}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("snapshot waiter args = %v, want %v", args, want)
+	}
+}
+
+func TestAWSVolumeSnapshotPersistsIDBeforeWaitingAndCanResume(t *testing.T) {
+	const snapshotID = "snap-0123456789abcdef0"
+	created, checkpointed, waited := 0, false, false
+	request := AWSVolumeSnapshot{VolumeID: "vol-0123456789abcdef0"}
+	id, err := executeAWSVolumeSnapshotWith(context.Background(), request,
+		func(context.Context, AWSVolumeSnapshot) ([]byte, error) {
+			created++
+			return []byte(`{"SnapshotId":"` + snapshotID + `"}`), nil
+		},
+		func(_ context.Context, got string) error {
+			if got != snapshotID || !checkpointed {
+				t.Fatalf("wait got snapshot %q before checkpoint=%v", got, checkpointed)
+			}
+			waited = true
+			return nil
+		},
+		func(got string) error {
+			if got != snapshotID {
+				t.Fatalf("checkpoint ID = %q", got)
+			}
+			checkpointed = true
+			return nil
+		})
+	if err != nil || id != snapshotID || created != 1 || !checkpointed || !waited {
+		t.Fatalf("snapshot outcome id=%q err=%v create=%d checkpoint=%v wait=%v", id, err, created, checkpointed, waited)
+	}
+	request.SnapshotID = snapshotID
+	created = 0
+	id, err = executeAWSVolumeSnapshotWith(context.Background(), request,
+		func(context.Context, AWSVolumeSnapshot) ([]byte, error) {
+			created++
+			return nil, errors.New("must not create a second snapshot")
+		},
+		func(_ context.Context, got string) error {
+			if got != snapshotID {
+				t.Fatalf("resume waited for %q, want %q", got, snapshotID)
+			}
+			return nil
+		}, nil)
+	if err != nil || id != snapshotID || created != 0 {
+		t.Fatalf("resume outcome id=%q err=%v create=%d", id, err, created)
+	}
+}
+
+func TestAWSSnapshotCheckpointIsDurableJobPayload(t *testing.T) {
+	app, _ := newDNSTestApp(t)
+	request := durableCloudRequest{
+		Operation: "instance", Provider: "aws", Action: "snapshot",
+		ID: "vol-0123456789abcdef0", Actor: "admin",
+		AWSVolume: &AWSVolumeSnapshot{VolumeID: "vol-0123456789abcdef0"},
+	}
+	job, err := app.enqueueCloudJob(request, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, ok, err := app.Jobs.Claim(job.ID, "snapshot-worker")
+	if err != nil || !ok {
+		t.Fatalf("claim = %v, %v", ok, err)
+	}
+	const snapshotID = "snap-0123456789abcdef0"
+	if err := persistAWSSnapshotID(app.Jobs, claimed, &request, snapshotID); err != nil {
+		t.Fatal(err)
+	}
+	stored, found, err := app.Jobs.GetWithError(job.ID)
+	if err != nil || !found {
+		t.Fatalf("reload checkpointed job: found=%v err=%v", found, err)
+	}
+	var restored durableCloudRequest
+	if err := json.Unmarshal(stored.Payload, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.AWSVolume == nil || restored.AWSVolume.SnapshotID != snapshotID {
+		t.Fatalf("durable AWS snapshot checkpoint = %#v", restored.AWSVolume)
 	}
 }
 
