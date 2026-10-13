@@ -382,19 +382,31 @@ func TestOpenStackSnapshotWaitsForProviderCompletion(t *testing.T) {
 }
 
 func TestLinodeDNSRecordPayloadUsesTypedMXAndSRVFields(t *testing.T) {
+	toMap := func(payload any) map[string]any {
+		t.Helper()
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result map[string]any
+		if err := json.Unmarshal(data, &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
 	mx := cloudDNSRequest{Type: "mx", Name: "@", Target: "mail.example.com", TTL: 2419200, Priority: 10}
 	if !cloudDNSRecordValid(mx) {
 		t.Fatal("valid Linode MX record rejected")
 	}
-	if got := linodeDNSRecordPayload(mx); got["target"] != "mail.example.com" || got["priority"] != 10 || got["ttl_sec"] != 2419200 {
+	if got := toMap(linodeDNSRecordPayload(mx)); got["target"] != "mail.example.com" || got["priority"] != float64(10) || got["ttl_sec"] != float64(2419200) || got["name"] != "@" {
 		t.Fatalf("MX payload = %#v", got)
 	}
 	srv := cloudDNSRequest{Type: "SRV", Service: "https", Protocol: "tcp", Target: "service.example.com", TTL: 3600, Priority: 5, Weight: 20, Port: 443}
 	if !cloudDNSRecordValid(srv) {
 		t.Fatal("valid Linode SRV record rejected")
 	}
-	got := linodeDNSRecordPayload(srv)
-	if got["target"] != "service.example.com" || got["service"] != "https" || got["protocol"] != "tcp" || got["priority"] != 5 || got["weight"] != 20 || got["port"] != 443 {
+	got := toMap(linodeDNSRecordPayload(srv))
+	if got["target"] != "service.example.com" || got["service"] != "https" || got["protocol"] != "tcp" || got["priority"] != float64(5) || got["weight"] != float64(20) || got["port"] != float64(443) {
 		t.Fatalf("SRV payload = %#v", got)
 	}
 	if _, exists := got["name"]; exists {
@@ -439,11 +451,19 @@ func TestLinodeNodePayloadCombinesAddressAndPort(t *testing.T) {
 		if err != nil {
 			t.Fatalf("payload for %s: %v", test.address, err)
 		}
-		if payload["address"] != test.want || payload["label"] != "backend-1" || payload["weight"] != 255 {
-			t.Errorf("node payload = %#v, want address %q, label, and weight", payload, test.want)
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if _, exists := payload["port"]; exists {
-			t.Errorf("node payload has unsupported separate port field: %#v", payload)
+		var got map[string]any
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["address"] != test.want || got["label"] != "backend-1" || got["weight"] != float64(255) {
+			t.Errorf("node payload = %#v, want address %q, label, and weight", got, test.want)
+		}
+		if _, exists := got["port"]; exists {
+			t.Errorf("node payload has unsupported separate port field: %#v", got)
 		}
 	}
 	if _, err := linodeNodePayload(cloudLBRequest{Address: "192.0.2.10", Port: 80, Label: "x", Weight: 1}); err == nil {
@@ -524,5 +544,18 @@ func TestDNSRecordExists(t *testing.T) {
 	}
 	if dnsRecordExists(value, cloudDNSRequest{Type: "a", Name: "www.example.com", Target: "192.0.2.10", TTL: 3600}) {
 		t.Fatal("same DNS record with a different TTL was incorrectly treated as already configured")
+	}
+	srv := map[string]any{"data": []any{map[string]any{
+		"type": "SRV", "name": "", "service": "_https.", "protocol": "_tcp",
+		"target": "service.example.com.", "ttl_sec": float64(3600),
+		"priority": float64(5), "weight": float64(20), "port": float64(443),
+	}}}
+	desired := cloudDNSRequest{Type: "SRV", Service: "https", Protocol: "tcp", Target: "service.example.com", TTL: 3600, Priority: 5, Weight: 20, Port: 443}
+	if !dnsRecordExists(srv, desired) {
+		t.Fatal("provider-canonicalized SRV record was not recognized")
+	}
+	desired.Priority++
+	if dnsRecordExists(srv, desired) {
+		t.Fatal("SRV record with a different priority was incorrectly treated as configured")
 	}
 }

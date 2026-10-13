@@ -543,16 +543,18 @@ func validLinodeNodeRequest(request cloudLBRequest) bool {
 	return net.ParseIP(request.Address) != nil && request.Port >= 1 && request.Port <= 65535 && request.Weight >= 1 && request.Weight <= 255 && linodeNodeLabelPattern.MatchString(request.Label)
 }
 
-func linodeNodePayload(request cloudLBRequest) (map[string]any, error) {
+type linodeNodeCreatePayload struct {
+	Address string `json:"address"`
+	Label   string `json:"label"`
+	Weight  int    `json:"weight"`
+}
+
+func linodeNodePayload(request cloudLBRequest) (linodeNodeCreatePayload, error) {
 	if !validLinodeNodeRequest(request) {
-		return nil, errors.New("invalid NodeBalancer node address, port, weight, or label")
+		return linodeNodeCreatePayload{}, errors.New("invalid NodeBalancer node address, port, weight, or label")
 	}
 	ip := net.ParseIP(request.Address)
-	return map[string]any{
-		"address": net.JoinHostPort(ip.String(), strconv.Itoa(request.Port)),
-		"label":   request.Label,
-		"weight":  request.Weight,
-	}, nil
+	return linodeNodeCreatePayload{Address: net.JoinHostPort(ip.String(), strconv.Itoa(request.Port)), Label: request.Label, Weight: request.Weight}, nil
 }
 
 func cloudDNSRecordValid(in cloudDNSRequest) bool {
@@ -611,22 +613,41 @@ func validDNSServiceLabel(value string) bool {
 	return true
 }
 
-func linodeDNSRecordPayload(in cloudDNSRequest) map[string]any {
-	payload := map[string]any{"type": strings.ToUpper(in.Type), "target": in.Target, "ttl_sec": in.TTL}
-	if !strings.EqualFold(in.Type, "SRV") {
-		payload["name"] = in.Name
-	}
+type linodeDNSRecordBasePayload struct {
+	Type   string `json:"type"`
+	Target string `json:"target"`
+	TTL    int    `json:"ttl_sec"`
+}
+
+type linodeDNSNamedRecordPayload struct {
+	linodeDNSRecordBasePayload
+	Name string `json:"name"`
+}
+
+type linodeDNSMXRecordPayload struct {
+	linodeDNSNamedRecordPayload
+	Priority int `json:"priority"`
+}
+
+type linodeDNSSRVRecordPayload struct {
+	linodeDNSRecordBasePayload
+	Service  string `json:"service"`
+	Protocol string `json:"protocol"`
+	Port     int    `json:"port"`
+	Priority int    `json:"priority"`
+	Weight   int    `json:"weight"`
+}
+
+func linodeDNSRecordPayload(in cloudDNSRequest) any {
+	base := linodeDNSRecordBasePayload{Type: strings.ToUpper(in.Type), Target: in.Target, TTL: in.TTL}
 	switch strings.ToUpper(in.Type) {
 	case "MX":
-		payload["priority"] = in.Priority
+		return linodeDNSMXRecordPayload{linodeDNSNamedRecordPayload{base, in.Name}, in.Priority}
 	case "SRV":
-		payload["service"] = in.Service
-		payload["protocol"] = in.Protocol
-		payload["port"] = in.Port
-		payload["priority"] = in.Priority
-		payload["weight"] = in.Weight
+		return linodeDNSSRVRecordPayload{base, in.Service, in.Protocol, in.Port, in.Priority, in.Weight}
+	default:
+		return linodeDNSNamedRecordPayload{base, in.Name}
 	}
-	return payload
 }
 
 func validLinodeSnapshotLabel(label string) bool {
@@ -733,11 +754,18 @@ func dnsRecordExists(value any, in cloudDNSRequest) bool {
 		weight, _ := record["weight"].(float64)
 		service, _ := record["service"].(string)
 		protocol, _ := record["protocol"].(string)
-		if strings.EqualFold(typ, in.Type) && strings.EqualFold(strings.TrimSuffix(name, "."), strings.TrimSuffix(in.Name, ".")) && strings.EqualFold(strings.TrimSuffix(target, "."), strings.TrimSuffix(in.Target, ".")) && int(ttl) == in.TTL && int(priority) == in.Priority && int(port) == in.Port && int(weight) == in.Weight && strings.EqualFold(service, in.Service) && strings.EqualFold(protocol, in.Protocol) {
+		nameMatches := strings.EqualFold(strings.TrimSuffix(name, "."), strings.TrimSuffix(in.Name, "."))
+		serviceMatches := strings.EqualFold(normalizeLinodeServiceLabel(service), normalizeLinodeServiceLabel(in.Service))
+		protocolMatches := strings.EqualFold(normalizeLinodeServiceLabel(protocol), normalizeLinodeServiceLabel(in.Protocol))
+		if strings.EqualFold(typ, in.Type) && (strings.EqualFold(in.Type, "SRV") || nameMatches) && strings.EqualFold(strings.TrimSuffix(target, "."), strings.TrimSuffix(in.Target, ".")) && int(ttl) == in.TTL && int(priority) == in.Priority && int(port) == in.Port && int(weight) == in.Weight && serviceMatches && protocolMatches {
 			return true
 		}
 	}
 	return false
+}
+
+func normalizeLinodeServiceLabel(value string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(value), "_"), ".")
 }
 
 func linodeAPIRequest(ctx context.Context, method, path string, payload any) (any, error) {

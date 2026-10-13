@@ -42,8 +42,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   removed the unsupported snapshot deletion route. Snapshot creation now sends
   the required label and requires explicit confirmation that the provider may
   replace the existing manual snapshot. MX/SRV DNS records and NodeBalancer
-  nodes now serialize their documented type-specific fields; DNS create
-  reconciliation includes TTL and those fields.
+  nodes use typed provider payloads for their documented type-specific fields;
+  DNS create reconciliation includes TTL and those fields and recognizes
+  Linode's canonicalized SRV service and protocol labels.
 - Linode inventory pagination now has cumulative 32 MiB, 100-page, 50,000-item,
   and two-minute budgets in addition to the per-page response cap. Active job
   payloads are decoded in one bounded SQL pass, and DNS pending-state reads are
