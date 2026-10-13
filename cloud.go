@@ -3,8 +3,6 @@ package stepanel
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,6 +43,11 @@ type cloudDNSRequest struct {
 	Name     string `json:"name,omitempty"`
 	Target   string `json:"target,omitempty"`
 	TTL      int    `json:"ttl,omitempty"`
+	Priority int    `json:"priority,omitempty"`
+	Service  string `json:"service,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	Weight   int    `json:"weight,omitempty"`
 }
 
 type cloudLBRequest struct {
@@ -70,19 +73,21 @@ type AWSVolumeSnapshot struct {
 }
 
 type durableCloudRequest struct {
-	Operation   string             `json:"operation"`
-	Provider    string             `json:"provider"`
-	Action      string             `json:"action"`
-	ID          string             `json:"id"`
-	AWSInstance *AWSInstanceAction `json:"aws_instance,omitempty"`
-	AWSVolume   *AWSVolumeSnapshot `json:"aws_volume,omitempty"`
-	Service     string             `json:"service,omitempty"`
-	DNS         cloudDNSRequest    `json:"dns,omitempty"`
-	LB          cloudLBRequest     `json:"load_balancer,omitempty"`
-	Actor       string             `json:"actor"`
+	Operation                  string             `json:"operation"`
+	Provider                   string             `json:"provider"`
+	Action                     string             `json:"action"`
+	ID                         string             `json:"id"`
+	AWSInstance                *AWSInstanceAction `json:"aws_instance,omitempty"`
+	AWSVolume                  *AWSVolumeSnapshot `json:"aws_volume,omitempty"`
+	Service                    string             `json:"service,omitempty"`
+	DNS                        cloudDNSRequest    `json:"dns,omitempty"`
+	LB                         cloudLBRequest     `json:"load_balancer,omitempty"`
+	SnapshotLabel              string             `json:"snapshot_label,omitempty"`
+	ConfirmSnapshotReplacement bool               `json:"confirm_snapshot_replacement,omitempty"`
+	Actor                      string             `json:"actor"`
 }
 
-func (a *App) enqueueCloudJob(request durableCloudRequest) (Job, error) {
+func (a *App) enqueueCloudJob(request durableCloudRequest, suppliedKey string) (Job, error) {
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return Job{}, err
@@ -94,19 +99,19 @@ func (a *App) enqueueCloudJob(request durableCloudRequest) (Job, error) {
 	if owner == "" {
 		owner = request.LB.NodeBalancerID
 	}
-	// Exclude the actor from the idempotency identity: a retried operator
-	// request must converge on the same provider mutation regardless of which
-	// authenticated process re-submits it.
-	identity := request
-	identity.Actor = ""
-	identityPayload, err := json.Marshal(identity)
-	if err != nil {
-		return Job{}, err
-	}
-	hash := sha256.Sum256(identityPayload)
-	operationKey := request.Operation + ":" + request.Action + ":" + owner + ":" + hex.EncodeToString(hash[:8])
+	operationKey := cloudOperationKey(request, suppliedKey, time.Now().UTC())
 	job, _, err := a.Jobs.EnqueueIdempotent("cloud.action", owner, operationKey, payload, 3)
 	return job, err
+}
+
+// cloudOperationKey scopes an optional request idempotency key to one action
+// and a UTC day. Retried submissions converge for at most 24 hours, while a
+// later deliberate action can never be permanently hidden by old job history.
+func cloudOperationKey(request durableCloudRequest, suppliedKey string, now time.Time) string {
+	if suppliedKey == "" {
+		return ""
+	}
+	return request.Operation + ":" + request.Action + ":" + now.UTC().Format("20060102") + ":" + suppliedKey
 }
 
 func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
@@ -146,7 +151,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 				err = errors.New("AWS cloud job is missing a typed resource request")
 			}
 		} else {
-			err = executeCloudAction(workerCtx, request.Provider, request.Action, request.ID)
+			err = executeCloudAction(workerCtx, request.Provider, request.Action, request.ID, request.SnapshotLabel, request.ConfirmSnapshotReplacement)
 		}
 		result = CloudActionResult{Provider: request.Provider, Action: request.Action, ID: request.ID, CompletedAt: time.Now().UTC()}
 	case "ssh":
@@ -188,7 +193,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 					path += "/" + request.DNS.RecordID
 					method = http.MethodPut
 				}
-				body = map[string]any{"type": request.DNS.Type, "name": request.DNS.Name, "target": request.DNS.Target, "ttl_sec": request.DNS.TTL}
+				body = linodeDNSRecordPayload(request.DNS)
 			}
 		}
 		if !alreadyPresent {
@@ -202,7 +207,7 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 		if !cloudNumericID.MatchString(request.LB.NodeBalancerID) || !cloudNumericID.MatchString(request.LB.ConfigID) || (request.LB.Action == "remove" && !cloudNumericID.MatchString(request.LB.NodeID)) {
 			return nil, fmt.Errorf("invalid nodebalancer, config, or node ID format")
 		}
-		if request.LB.Action == "add" && (net.ParseIP(request.LB.Address) == nil || request.LB.Port < 1 || request.LB.Port > 65535 || request.LB.Weight < 1 || request.LB.Weight > 100) {
+		if request.LB.Action == "add" && !validLinodeNodeRequest(request.LB) {
 			return nil, fmt.Errorf("invalid backend address, port, or weight")
 		}
 		var path, method string
@@ -215,18 +220,13 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 			// lgtm[go/request-forgery]: All IDs are validated against cloudNumericID regex above
 			path = "/nodebalancers/" + request.LB.NodeBalancerID + "/configs/" + request.LB.ConfigID + "/nodes"
 			method = http.MethodPost
-			body = map[string]any{"address": request.LB.Address, "label": request.LB.Label, "port": request.LB.Port, "weight": request.LB.Weight}
+			body, err = linodeNodePayload(request.LB)
+			if err != nil {
+				return nil, err
+			}
 		}
 		_, err = linodeAPIRequest(ctx, method, path, body)
 		result = CloudActionResult{Provider: "linode", Action: "loadbalancer." + request.LB.Action, ID: request.LB.NodeBalancerID, CompletedAt: time.Now().UTC()}
-	case "snapshot.delete":
-		// Validate snapshot ID to prevent SSRF attacks
-		if !cloudNumericID.MatchString(request.ID) {
-			return nil, fmt.Errorf("invalid snapshot ID format")
-		}
-		// lgtm[go/request-forgery]: ID is validated against cloudNumericID regex above
-		_, err = linodeAPIRequest(ctx, http.MethodDelete, "/account/linode/backups/"+request.ID, nil)
-		result = CloudActionResult{Provider: "linode", Action: "snapshot.delete", ID: request.ID, CompletedAt: time.Now().UTC()}
 	default:
 		return nil, fmt.Errorf("unsupported cloud job operation %q", request.Operation)
 	}
@@ -305,11 +305,13 @@ func (a *App) cloudAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Provider   string `json:"provider"`
-		Action     string `json:"action"`
-		ID         string `json:"id"`
-		InstanceID string `json:"instance_id"`
-		VolumeID   string `json:"volume_id"`
+		Provider                   string `json:"provider"`
+		Action                     string `json:"action"`
+		ID                         string `json:"id"`
+		InstanceID                 string `json:"instance_id"`
+		VolumeID                   string `json:"volume_id"`
+		SnapshotLabel              string `json:"snapshot_label"`
+		ConfirmSnapshotReplacement bool   `json:"confirm_snapshot_replacement"`
 	}
 	if err := decodeJSON(w, r, 4096, &in); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -329,6 +331,10 @@ func (a *App) cloudAction(w http.ResponseWriter, r *http.Request) {
 	}
 	request := durableCloudRequest{Operation: "instance", Provider: in.Provider, Action: in.Action, Actor: a.Auth.UsernameForRequest(r)}
 	if in.Provider == "aws" {
+		if in.SnapshotLabel != "" || in.ConfirmSnapshotReplacement {
+			http.Error(w, "snapshot_label is only supported for Linode snapshots", http.StatusUnprocessableEntity)
+			return
+		}
 		if in.Action == "snapshot" {
 			if !cloudIDPattern.MatchString(in.VolumeID) || in.ID != "" || in.InstanceID != "" {
 				http.Error(w, "AWS snapshots require a valid volume_id", http.StatusUnprocessableEntity)
@@ -350,9 +356,33 @@ func (a *App) cloudAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		request.ID = in.ID
+		if in.Provider == "linode" {
+			if in.Action == "snapshot" && (!validLinodeSnapshotLabel(in.SnapshotLabel) || !in.ConfirmSnapshotReplacement) {
+				http.Error(w, "Linode snapshot actions require a valid snapshot_label and confirm_snapshot_replacement=true because the provider may replace the current manual snapshot", http.StatusUnprocessableEntity)
+				return
+			}
+			if in.Action != "snapshot" && (in.SnapshotLabel != "" || in.ConfirmSnapshotReplacement) {
+				http.Error(w, "snapshot replacement confirmation only applies to Linode snapshot actions", http.StatusUnprocessableEntity)
+				return
+			}
+			request.SnapshotLabel = strings.TrimSpace(in.SnapshotLabel)
+			request.ConfirmSnapshotReplacement = in.ConfirmSnapshotReplacement
+		} else if in.SnapshotLabel != "" || in.ConfirmSnapshotReplacement {
+			http.Error(w, "snapshot_label is only supported for Linode snapshots", http.StatusUnprocessableEntity)
+			return
+		}
 	}
-	job, err := a.enqueueCloudJob(request)
+	operationKey, err := requestOperationKey(r)
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	job, err := a.enqueueCloudJob(request, operationKey)
+	if err != nil {
+		if errors.Is(err, ErrIdempotencyConflict) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "could not persist cloud job", http.StatusInternalServerError)
 		return
 	}
@@ -444,12 +474,21 @@ func (a *App) cloudLoadBalancer(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid node_id", 422)
 			return
 		}
-	} else if net.ParseIP(in.Address) == nil || in.Port < 1 || in.Port > 65535 || in.Weight < 1 || in.Weight > 100 {
+	} else if !validLinodeNodeRequest(in) {
 		http.Error(w, "invalid backend address, port, or weight", 422)
 		return
 	}
-	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "loadbalancer", Provider: "linode", Action: in.Action, ID: in.NodeBalancerID, LB: in, Actor: a.Auth.UsernameForRequest(r)})
+	operationKey, err := requestOperationKey(r)
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "loadbalancer", Provider: "linode", Action: in.Action, ID: in.NodeBalancerID, LB: in, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
+	if err != nil {
+		if errors.Is(err, ErrIdempotencyConflict) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "could not persist load balancer job", 500)
 		return
 	}
@@ -461,39 +500,52 @@ func (a *App) cloudSnapshots(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Linode snapshot integration requires STEPANEL_CLOUD_PROVIDER=linode", 422)
 		return
 	}
-	if r.Method == http.MethodGet {
-		value, err := linodeAPIRequest(r.Context(), http.MethodGet, "/account/linode/backups", nil)
-		if err != nil {
-			http.Error(w, err.Error(), 503)
-			return
-		}
-		writeJSON(w, 200, value)
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if r.Method != http.MethodDelete || !a.Auth.CSRF(r) {
-		http.Error(w, "invalid request", 403)
+	linodeID := r.URL.Query().Get("linode_id")
+	if !cloudNumericID.MatchString(linodeID) {
+		http.Error(w, "invalid linode_id", 422)
 		return
 	}
-	id := r.URL.Query().Get("id")
-	if !cloudNumericID.MatchString(id) {
-		http.Error(w, "invalid snapshot id", 422)
-		return
-	}
-	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "snapshot.delete", Provider: "linode", Action: "snapshot.delete", ID: id, Actor: a.Auth.UsernameForRequest(r)})
+	path, err := linodeBackupsPath(linodeID)
 	if err != nil {
-		http.Error(w, "could not persist snapshot job", 500)
+		http.Error(w, "invalid linode_id", 422)
 		return
 	}
-	writeJSON(w, 202, map[string]string{"job_id": job.ID, "status_url": "/api/jobs/" + job.ID})
+	value, err := linodeAPIRequest(r.Context(), http.MethodGet, path, nil)
+	if err != nil {
+		http.Error(w, err.Error(), 503)
+		return
+	}
+	writeJSON(w, 200, value)
 }
 
 var cloudNumericID = regexp.MustCompile(`^[0-9]{1,12}$`)
 var dnsTypePattern = regexp.MustCompile(`^(A|AAAA|CNAME|MX|TXT|NS|SRV)$`)
 var dnsNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.*@-]{1,253}$`)
+var linodeNodeLabelPattern = regexp.MustCompile(`^[A-Za-z0-9-_.]{3,32}$`)
+
+func validLinodeNodeRequest(request cloudLBRequest) bool {
+	return net.ParseIP(request.Address) != nil && request.Port >= 1 && request.Port <= 65535 && request.Weight >= 1 && request.Weight <= 255 && linodeNodeLabelPattern.MatchString(request.Label)
+}
+
+func linodeNodePayload(request cloudLBRequest) (map[string]any, error) {
+	if !validLinodeNodeRequest(request) {
+		return nil, errors.New("invalid NodeBalancer node address, port, weight, or label")
+	}
+	ip := net.ParseIP(request.Address)
+	return map[string]any{
+		"address": net.JoinHostPort(ip.String(), strconv.Itoa(request.Port)),
+		"label":   request.Label,
+		"weight":  request.Weight,
+	}, nil
+}
 
 func cloudDNSRecordValid(in cloudDNSRequest) bool {
 	typ := strings.ToUpper(in.Type)
-	if !dnsTypePattern.MatchString(typ) || !dnsNamePattern.MatchString(in.Name) || len(in.Target) == 0 || len(in.Target) > 512 || in.TTL < 30 || in.TTL > 604800 {
+	if !dnsTypePattern.MatchString(typ) || !validLinodeDNSName(typ, in.Name) || len(in.Target) == 0 || len(in.Target) > 512 || !validLinodeTTL(in.TTL) {
 		return false
 	}
 	switch typ {
@@ -504,21 +556,9 @@ func cloudDNSRecordValid(in cloudDNSRequest) bool {
 	case "CNAME", "NS":
 		return dnsNamePattern.MatchString(strings.TrimSuffix(in.Target, "."))
 	case "MX":
-		parts := strings.Fields(in.Target)
-		if len(parts) != 2 {
-			return false
-		}
-		priority, err := strconv.Atoi(parts[0])
-		return err == nil && priority >= 0 && priority <= 65535 && dnsNamePattern.MatchString(strings.TrimSuffix(parts[1], "."))
+		return in.Priority >= 0 && in.Priority <= 255 && validLinodeDNSName("NS", in.Target)
 	case "SRV":
-		parts := strings.Fields(in.Target)
-		if len(parts) != 4 {
-			return false
-		}
-		priority, priorityErr := strconv.Atoi(parts[0])
-		weight, weightErr := strconv.Atoi(parts[1])
-		port, portErr := strconv.Atoi(parts[2])
-		return priorityErr == nil && weightErr == nil && portErr == nil && priority >= 0 && priority <= 65535 && weight >= 0 && weight <= 65535 && port >= 0 && port <= 65535 && dnsNamePattern.MatchString(strings.TrimSuffix(parts[3], "."))
+		return in.Priority >= 0 && in.Priority <= 255 && in.Weight >= 0 && in.Weight <= 65535 && in.Port >= 0 && in.Port <= 65535 && validDNSServiceLabel(in.Service) && validDNSServiceLabel(in.Protocol) && validLinodeDNSName("NS", in.Target)
 	case "TXT":
 		for _, r := range in.Target {
 			if r < 0x20 || r == 0x7f {
@@ -529,6 +569,65 @@ func cloudDNSRecordValid(in cloudDNSRequest) bool {
 	default:
 		return true
 	}
+}
+
+func validLinodeTTL(ttl int) bool {
+	switch ttl {
+	case 300, 3600, 7200, 14400, 28800, 57600, 86400, 172800, 345600, 604800, 1209600, 2419200:
+		return true
+	default:
+		return false
+	}
+}
+
+func validLinodeDNSName(recordType, name string) bool {
+	if strings.EqualFold(recordType, "SRV") {
+		return name == "" || dnsNamePattern.MatchString(name)
+	}
+	return dnsNamePattern.MatchString(name)
+}
+
+func validDNSServiceLabel(value string) bool {
+	if len(value) == 0 || len(value) > 63 {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func linodeDNSRecordPayload(in cloudDNSRequest) map[string]any {
+	payload := map[string]any{"type": strings.ToUpper(in.Type), "target": in.Target, "ttl_sec": in.TTL}
+	if !strings.EqualFold(in.Type, "SRV") {
+		payload["name"] = in.Name
+	}
+	switch strings.ToUpper(in.Type) {
+	case "MX":
+		payload["priority"] = in.Priority
+	case "SRV":
+		payload["service"] = in.Service
+		payload["protocol"] = in.Protocol
+		payload["port"] = in.Port
+		payload["priority"] = in.Priority
+		payload["weight"] = in.Weight
+	}
+	return payload
+}
+
+func validLinodeSnapshotLabel(label string) bool {
+	label = strings.TrimSpace(label)
+	if len(label) == 0 || len(label) > 255 {
+		return false
+	}
+	for _, r := range label {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 func numeric(value string) bool {
 	if value == "" {
@@ -547,8 +646,17 @@ func numeric(value string) bool {
 // record as pending, and the job records applied or failed when it ends, so
 // desired state can never claim a pending change that has no job behind it.
 func (a *App) queueDNSJob(w http.ResponseWriter, r *http.Request, in cloudDNSRequest, action string) error {
-	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "dns", Provider: "linode", Action: action, ID: in.DomainID, DNS: in, Actor: a.Auth.UsernameForRequest(r)})
+	operationKey, err := requestOperationKey(r)
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return err
+	}
+	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "dns", Provider: "linode", Action: action, ID: in.DomainID, DNS: in, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
+	if err != nil {
+		if errors.Is(err, ErrIdempotencyConflict) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return err
+		}
 		http.Error(w, "could not persist DNS job", http.StatusServiceUnavailable)
 		return err
 	}
@@ -607,7 +715,13 @@ func dnsRecordExists(value any, in cloudDNSRequest) bool {
 		typ, _ := record["type"].(string)
 		name, _ := record["name"].(string)
 		target, _ := record["target"].(string)
-		if strings.EqualFold(typ, in.Type) && strings.EqualFold(strings.TrimSuffix(name, "."), strings.TrimSuffix(in.Name, ".")) && strings.EqualFold(strings.TrimSuffix(target, "."), strings.TrimSuffix(in.Target, ".")) {
+		ttl, _ := record["ttl_sec"].(float64)
+		priority, _ := record["priority"].(float64)
+		port, _ := record["port"].(float64)
+		weight, _ := record["weight"].(float64)
+		service, _ := record["service"].(string)
+		protocol, _ := record["protocol"].(string)
+		if strings.EqualFold(typ, in.Type) && strings.EqualFold(strings.TrimSuffix(name, "."), strings.TrimSuffix(in.Name, ".")) && strings.EqualFold(strings.TrimSuffix(target, "."), strings.TrimSuffix(in.Target, ".")) && int(ttl) == in.TTL && int(priority) == in.Priority && int(port) == in.Port && int(weight) == in.Weight && strings.EqualFold(service, in.Service) && strings.EqualFold(protocol, in.Protocol) {
 			return true
 		}
 	}
@@ -687,6 +801,11 @@ func linodeAPIRequestWithClient(ctx context.Context, method, path string, payloa
 	value, err := requestPage(1)
 	if err != nil || method != http.MethodGet || value == nil {
 		return value, err
+	}
+	if _, hasData := value["data"]; !hasData {
+		if _, hasPageMetadata := value["page"]; !hasPageMetadata {
+			return value, nil
+		}
 	}
 	firstPage, err := linodeResponseInt(value, "page")
 	if err != nil || firstPage != 1 {
@@ -783,47 +902,56 @@ func executeAWSVolumeSnapshot(ctx context.Context, request AWSVolumeSnapshot) er
 	return runCloudCLI(ctx, "aws", "AWS", args...)
 }
 
-func executeCloudAction(ctx context.Context, provider, action, id string) error {
-	// Validate ID to prevent SSRF attacks via URL manipulation
-	if !cloudIDPattern.MatchString(id) {
-		return fmt.Errorf("invalid instance ID format: %s", id)
+func linodeBackupsPath(linodeID string) (string, error) {
+	if !cloudNumericID.MatchString(linodeID) {
+		return "", errors.New("invalid Linode instance ID")
 	}
+	return "/linode/instances/" + linodeID + "/backups", nil
+}
 
+func linodeInstanceActionRequest(action, linodeID, snapshotLabel string, confirmSnapshotReplacement bool) (string, string, any, error) {
+	if !cloudNumericID.MatchString(linodeID) {
+		return "", "", nil, errors.New("invalid Linode instance ID")
+	}
+	path := "/linode/instances/" + linodeID
+	switch action {
+	case "start":
+		return http.MethodPost, path + "/boot", nil, nil
+	case "stop":
+		return http.MethodPost, path + "/shutdown", nil, nil
+	case "reboot":
+		return http.MethodPost, path + "/reboot", nil, nil
+	case "snapshot":
+		if !validLinodeSnapshotLabel(snapshotLabel) {
+			return "", "", nil, errors.New("a valid snapshot label is required")
+		}
+		if !confirmSnapshotReplacement {
+			return "", "", nil, errors.New("snapshot replacement must be explicitly confirmed")
+		}
+		return http.MethodPost, path + "/backups", map[string]string{"label": strings.TrimSpace(snapshotLabel)}, nil
+	default:
+		return "", "", nil, fmt.Errorf("unsupported Linode instance action %q", action)
+	}
+}
+
+func executeCloudAction(ctx context.Context, provider, action, id, snapshotLabel string, confirmSnapshotReplacement bool) error {
 	switch provider {
 	case "linode":
-		token := os.Getenv("STEPANEL_LINODE_TOKEN")
-		if token == "" {
-			return errors.New("STEPANEL_LINODE_TOKEN is not configured")
-		}
-		// lgtm[go/request-forgery]: id is validated against cloudIDPattern regex in caller
-		path := "/linode/instances/" + id
-		if action == "snapshot" {
-			path += "/backups"
-		} else {
-			// lgtm[go/request-forgery]: action is constrained to a hardcoded map
-			path += "/" + map[string]string{"start": "boot", "stop": "shutdown", "reboot": "reboot"}[action]
-		}
-		baseURL := url.URL{Scheme: "https", Host: "api.linode.com", Path: "/v4" + path}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL.String(), nil)
+		method, path, payload, err := linodeInstanceActionRequest(action, id, snapshotLabel, confirmSnapshotReplacement)
 		if err != nil {
 			return err
 		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		res, err := (&http.Client{Timeout: 20 * time.Second}).Do(req) // lgtm[go/request-forgery]: URL uses hardcoded host (api.linode.com) and HTTPS scheme
-		if err != nil {
-			return err
-		}
-		defer res.Body.Close()
-		if res.StatusCode/100 != 2 {
-			return fmt.Errorf("Linode API returned %s", res.Status)
-		}
-		return nil
+		_, err = linodeAPIRequest(ctx, method, path, payload)
+		return err
 	case "aws":
 		if action == "snapshot" {
 			return executeAWSVolumeSnapshot(ctx, AWSVolumeSnapshot{VolumeID: id})
 		}
 		return executeAWSInstanceAction(ctx, action, AWSInstanceAction{InstanceID: id})
 	case "openstack":
+		if !cloudIDPattern.MatchString(id) {
+			return fmt.Errorf("invalid instance ID format: %s", id)
+		}
 		args := []string{"server"}
 		switch action {
 		case "start":
@@ -834,6 +962,8 @@ func executeCloudAction(ctx context.Context, provider, action, id string) error 
 			args = append(args, "reboot", "--hard")
 		case "snapshot":
 			args = append(args, "backup", "create", "--name", "stepanel-"+id)
+		default:
+			return fmt.Errorf("unsupported OpenStack instance action %q", action)
 		}
 		args = append(args, id, "-f", "json")
 		return runCloudCLI(ctx, "openstack", "OpenStack", args...)
@@ -884,7 +1014,7 @@ func linodeInventory(ctx context.Context) (CloudInventory, error) {
 	get := func(path string) (any, error) {
 		return linodeAPIRequest(ctx, http.MethodGet, path, nil)
 	}
-	paths := []struct{ name, path string }{{"servers", "/linode/instances"}, {"dns", "/domains"}, {"load_balancers", "/nodebalancers"}, {"snapshots", "/account/linode/backups"}}
+	paths := []struct{ name, path string }{{"servers", "/linode/instances"}, {"dns", "/domains"}, {"load_balancers", "/nodebalancers"}}
 	inv := CloudInventory{Provider: "linode"}
 	for _, item := range paths {
 		value, err := get(item.path)
@@ -903,6 +1033,7 @@ func linodeInventory(ctx context.Context) (CloudInventory, error) {
 			inv.Snapshots = value
 		}
 	}
+	inv.Warnings = append(inv.Warnings, "snapshots: Linode backups are scoped to an instance; use GET /api/cloud/snapshots?linode_id=<id>")
 	return inv, nil
 }
 

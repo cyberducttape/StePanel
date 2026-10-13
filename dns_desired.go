@@ -21,6 +21,11 @@ type DNSDesiredRecord struct {
 	Name      string    `json:"name"`
 	Target    string    `json:"target"`
 	TTL       int       `json:"ttl"`
+	Priority  int       `json:"priority,omitempty"`
+	Service   string    `json:"service,omitempty"`
+	Protocol  string    `json:"protocol,omitempty"`
+	Port      int       `json:"port,omitempty"`
+	Weight    int       `json:"weight,omitempty"`
 	Action    string    `json:"action"`
 	Actor     string    `json:"actor"`
 	State     string    `json:"state"`
@@ -76,12 +81,12 @@ func dnsDesiredKey(in cloudDNSRequest) string {
 	if in.RecordID != "" {
 		return in.DomainID + "/" + in.RecordID
 	}
-	hash := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%d", strings.ToUpper(in.Type), strings.ToLower(in.Name), in.Target, in.TTL)))
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%d\x00%s\x00%s\x00%d\x00%d", strings.ToUpper(in.Type), strings.ToLower(in.Name), in.Target, in.TTL, in.Priority, strings.ToLower(in.Service), strings.ToLower(in.Protocol), in.Port, in.Weight)))
 	return in.DomainID + "/pending-" + hex.EncodeToString(hash[:8])
 }
 
 func newPendingDNSRecord(in cloudDNSRequest, action, actor string) DNSDesiredRecord {
-	return DNSDesiredRecord{Key: dnsDesiredKey(in), DomainID: in.DomainID, RecordID: in.RecordID, Type: strings.ToUpper(in.Type), Name: in.Name, Target: in.Target, TTL: in.TTL, Action: action, Actor: actor, State: "pending", UpdatedAt: time.Now().UTC()}
+	return DNSDesiredRecord{Key: dnsDesiredKey(in), DomainID: in.DomainID, RecordID: in.RecordID, Type: strings.ToUpper(in.Type), Name: in.Name, Target: in.Target, TTL: in.TTL, Priority: in.Priority, Service: in.Service, Protocol: in.Protocol, Port: in.Port, Weight: in.Weight, Action: action, Actor: actor, State: "pending", UpdatedAt: time.Now().UTC()}
 }
 
 func (s *DNSDesiredStore) markResult(in cloudDNSRequest, action string, resultErr error) error {
@@ -94,7 +99,7 @@ func (s *DNSDesiredStore) markResult(in cloudDNSRequest, action string, resultEr
 	}
 	record, ok := s.values[key]
 	if !ok {
-		record = DNSDesiredRecord{Key: key, DomainID: in.DomainID, RecordID: in.RecordID, Type: strings.ToUpper(in.Type), Name: in.Name, Target: in.Target, TTL: in.TTL, Action: action}
+		record = DNSDesiredRecord{Key: key, DomainID: in.DomainID, RecordID: in.RecordID, Type: strings.ToUpper(in.Type), Name: in.Name, Target: in.Target, TTL: in.TTL, Priority: in.Priority, Service: in.Service, Protocol: in.Protocol, Port: in.Port, Weight: in.Weight, Action: action}
 	}
 	record.State = "applied"
 	record.LastError = ""

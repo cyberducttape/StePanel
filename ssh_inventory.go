@@ -129,8 +129,17 @@ func (a *App) sshAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid SSH server, action, or service", 422)
 		return
 	}
-	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "ssh", Provider: "ssh", Action: in.Action, ID: in.Server, Service: in.Service, Actor: a.Auth.UsernameForRequest(r)})
+	operationKey, err := requestOperationKey(r)
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	job, err := a.enqueueCloudJob(durableCloudRequest{Operation: "ssh", Provider: "ssh", Action: in.Action, ID: in.Server, Service: in.Service, Actor: a.Auth.UsernameForRequest(r)}, operationKey)
+	if err != nil {
+		if errors.Is(err, ErrIdempotencyConflict) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "could not persist SSH job", 500)
 		return
 	}

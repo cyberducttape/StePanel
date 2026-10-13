@@ -249,7 +249,7 @@ func TestDurableJobLeaseLifecycle(t *testing.T) {
 	}
 }
 
-func TestEmptyOperationKeyIsAtomicallyIdempotentAcrossConnections(t *testing.T) {
+func TestEmptyOperationKeyDoesNotCollapseDistinctRequestsAcrossConnections(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control.db")
 	first, err := OpenDurableJobs(path, "", 2)
 	if err != nil {
@@ -271,18 +271,19 @@ func TestEmptyOperationKeyIsAtomicallyIdempotentAcrossConnections(t *testing.T) 
 	start.Add(2)
 	var ready sync.WaitGroup
 	ready.Add(2)
-	for _, jobs := range []*Jobs{first, second} {
-		go func(jobs *Jobs) {
+	for index, jobs := range []*Jobs{first, second} {
+		go func(jobs *Jobs, index int) {
 			defer start.Done()
 			ready.Done()
 			ready.Wait()
-			job, existing, enqueueErr := jobs.EnqueueIdempotent("site.terminate", "site", "", []byte(`{"site":"site"}`), 1)
+			payload := []byte(fmt.Sprintf(`{"site":"site","operation":"%d"}`, index))
+			job, existing, enqueueErr := jobs.EnqueueIdempotent("site.operation", "site", "", payload, 1)
 			results <- result{job: job, existing: existing, err: enqueueErr}
-		}(jobs)
+		}(jobs, index)
 	}
 	start.Wait()
 	close(results)
-	var jobsSeen int
+	jobIDs := map[string]bool{}
 	for item := range results {
 		if item.err != nil {
 			t.Fatal(item.err)
@@ -290,17 +291,47 @@ func TestEmptyOperationKeyIsAtomicallyIdempotentAcrossConnections(t *testing.T) 
 		if item.job.ID == "" {
 			t.Fatal("empty job ID returned")
 		}
-		jobsSeen++
+		if item.existing {
+			t.Fatalf("unkeyed request unexpectedly reused job %q", item.job.ID)
+		}
+		jobIDs[item.job.ID] = true
 	}
-	if jobsSeen != 2 {
-		t.Fatalf("received %d enqueue results, want 2", jobsSeen)
+	if len(jobIDs) != 2 {
+		t.Fatalf("distinct unkeyed requests produced %d job IDs, want 2", len(jobIDs))
 	}
 	var active int
-	if err := first.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE kind = 'site.terminate' AND owner = 'site' AND operation_key = '' AND state IN ('queued', 'running')`).Scan(&active); err != nil {
+	if err := first.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE kind = 'site.operation' AND owner = 'site' AND operation_key = '' AND state IN ('queued', 'running')`).Scan(&active); err != nil {
 		t.Fatal(err)
 	}
-	if active != 1 {
-		t.Fatalf("active empty-key jobs = %d, want 1", active)
+	if active != 2 {
+		t.Fatalf("active empty-key jobs = %d, want 2", active)
+	}
+	var uniqueIndex int
+	if err := first.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'jobs_active_empty_operation_unique_idx'`).Scan(&uniqueIndex); err != nil {
+		t.Fatal(err)
+	}
+	if uniqueIndex != 0 {
+		t.Fatal("empty-key active-job unique index was not removed by migration")
+	}
+}
+
+func TestDurableIdempotencyKeyIsBoundToPayload(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	first, existing, err := jobs.EnqueueIdempotent("site.operation", "site", "git.deploy:request-1", []byte(`{"operation":"git.deploy","commit":"abc"}`), 1)
+	if err != nil || existing {
+		t.Fatalf("first request = %+v, existing=%v, err=%v", first, existing, err)
+	}
+	retry, existing, err := jobs.EnqueueIdempotent("site.operation", "site", "git.deploy:request-1", []byte(`{"operation":"git.deploy","commit":"abc"}`), 1)
+	if err != nil || !existing || retry.ID != first.ID {
+		t.Fatalf("exact retry = %+v, existing=%v, err=%v", retry, existing, err)
+	}
+	if _, _, err := jobs.EnqueueIdempotent("site.operation", "site", "git.deploy:request-1", []byte(`{"operation":"composer.install","package":"vendor/pkg"}`), 1); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("conflicting payload error = %v, want ErrIdempotencyConflict", err)
 	}
 }
 

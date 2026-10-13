@@ -25,7 +25,10 @@ import (
 	"github.com/cyberducttape/StePanel/internal/state"
 )
 
-var ErrJobBusy = errors.New("too many long-running jobs or target is already active")
+var (
+	ErrJobBusy             = errors.New("too many long-running jobs or target is already active")
+	ErrIdempotencyConflict = errors.New("idempotency key was already used with a different request")
+)
 
 // authorizeDurableSiteJob rechecks tenant policy at execution time. Queue
 // admission is not sufficient because an account can be suspended or detached
@@ -79,9 +82,8 @@ func validJobOperationKey(value string) bool {
 }
 
 // requestOperationKey validates an optional HTTP idempotency key. Callers may
-// pass the returned value directly to EnqueueIdempotent; an empty value keeps
-// the existing active-job de-duplication behavior for clients that have not
-// opted into replay-safe retries yet.
+// pass the returned value directly to EnqueueIdempotent. An empty value means
+// the caller did not request retry coalescing, so a new durable job is created.
 func requestOperationKey(r *http.Request) (string, error) {
 	if r == nil {
 		return "", errors.New("request is required")
@@ -447,44 +449,46 @@ func (j *Jobs) Enqueue(kind, owner, operationKey string, payload []byte, maxAtte
 }
 
 func (j *Jobs) EnqueueIdempotent(kind, owner, operationKey string, payload []byte, maxAttempts int) (Job, bool, error) {
-	var existingID string
-	if j.db == nil || strings.TrimSpace(operationKey) == "" {
-		if j.db != nil && strings.TrimSpace(operationKey) == "" {
-			if err := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND state IN ('queued', 'running') ORDER BY started_at LIMIT 1`, kind, owner).Scan(&existingID); err == nil {
-				if item, ok := j.Get(existingID); ok {
-					return item, true, nil
-				}
-				return Job{ID: existingID, Kind: kind, User: owner}, true, nil
-			}
-		}
+	if strings.TrimSpace(operationKey) == "" {
 		item, err := j.Enqueue(kind, owner, operationKey, payload, maxAttempts)
-		if err != nil && strings.Contains(strings.ToLower(err.Error()), "unique") {
-			if existingIDErr := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = '' AND state IN ('queued', 'running') ORDER BY started_at LIMIT 1`, kind, owner).Scan(&existingID); existingIDErr == nil {
-				if item, ok := j.Get(existingID); ok {
-					return item, true, nil
-				}
-				return Job{ID: existingID, Kind: kind, User: owner}, true, nil
-			}
-		}
 		return item, false, err
 	}
-	err := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID)
-	if err == nil {
-		if item, ok := j.Get(existingID); ok {
-			return item, true, nil
-		}
-		return Job{ID: existingID, Kind: kind, User: owner, OperationKey: operationKey}, true, nil
+	if j.db == nil {
+		item, err := j.Enqueue(kind, owner, operationKey, payload, maxAttempts)
+		return item, false, err
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return Job{}, false, err
+	if existing, found, err := j.lookupIdempotentJob(kind, owner, operationKey, payload); err != nil || found {
+		return existing, found, err
 	}
 	item, err := j.Enqueue(kind, owner, operationKey, payload, maxAttempts)
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "unique") {
-		if lookupErr := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID); lookupErr == nil {
-			return Job{ID: existingID, Kind: kind, User: owner, OperationKey: operationKey}, true, nil
+		if existing, found, lookupErr := j.lookupIdempotentJob(kind, owner, operationKey, payload); lookupErr != nil || found {
+			return existing, found, lookupErr
 		}
 	}
 	return item, false, err
+}
+
+func (j *Jobs) lookupIdempotentJob(kind, owner, operationKey string, payload []byte) (Job, bool, error) {
+	var existingID string
+	err := j.db.QueryRow(`SELECT id FROM jobs WHERE kind = ? AND owner = ? AND operation_key = ? LIMIT 1`, kind, owner, operationKey).Scan(&existingID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Job{}, false, nil
+	}
+	if err != nil {
+		return Job{}, false, err
+	}
+	existing, found, err := j.loadDurableJob(existingID)
+	if err != nil {
+		return Job{}, false, err
+	}
+	if !found {
+		return Job{}, false, nil
+	}
+	if !bytes.Equal(existing.Payload, payload) {
+		return Job{}, false, ErrIdempotencyConflict
+	}
+	return existing, true, nil
 }
 
 // ClaimNext atomically claims the oldest eligible queued job directly in SQL.

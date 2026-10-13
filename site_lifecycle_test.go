@@ -32,11 +32,11 @@ func TestSiteTerminationEnqueueIsIdempotent(t *testing.T) {
 	}
 	defer db.Close()
 	app := &App{Jobs: newJobsWithDB(db, 1)}
-	first, err := app.enqueueSiteTermination("customer-site", "admin")
+	first, err := app.enqueueSiteTermination("customer-site", "admin", "termination-request-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := app.enqueueSiteTermination("customer-site", "admin")
+	second, err := app.enqueueSiteTermination("customer-site", "admin", "termination-request-1")
 	if err != nil {
 		t.Fatal(err)
 	}

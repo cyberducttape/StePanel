@@ -51,7 +51,7 @@ func TestDNSPendingIsDerivedFromTheDurableJob(t *testing.T) {
 	}
 	changed := request
 	changed.Target = "192.0.2.20"
-	if _, err := app.enqueueCloudJob(durableCloudRequest{Operation: "dns", Provider: "linode", Action: "update", ID: changed.DomainID, DNS: changed, Actor: "admin"}); err != nil {
+	if _, err := app.enqueueCloudJob(durableCloudRequest{Operation: "dns", Provider: "linode", Action: "update", ID: changed.DomainID, DNS: changed, Actor: "admin"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	view, err := app.dnsDesiredView("123")
@@ -63,6 +63,35 @@ func TestDNSPendingIsDerivedFromTheDurableJob(t *testing.T) {
 	}
 	if stored := store.list("123"); len(stored) != 1 || stored[0].State != "applied" {
 		t.Fatalf("enqueue wrote desired state directly: %#v", stored)
+	}
+}
+
+func TestCloudActionsAreNewAttemptsUnlessCallerRetriesWithKey(t *testing.T) {
+	app, _ := newDNSTestApp(t)
+	request := durableCloudRequest{Operation: "instance", Provider: "linode", Action: "stop", ID: "123", Actor: "admin"}
+	seen := map[string]bool{}
+	for _, action := range []string{"start", "stop", "start", "reboot", "reboot"} {
+		request.Action = action
+		job, err := app.enqueueCloudJob(request, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seen[job.ID] {
+			t.Fatalf("separate %s action reused durable job %q", action, job.ID)
+		}
+		seen[job.ID] = true
+	}
+	request.Action = "stop"
+	retry, err := app.enqueueCloudJob(request, "operator-request-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exactRetry, err := app.enqueueCloudJob(request, "operator-request-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry.ID != exactRetry.ID {
+		t.Fatalf("exact retry jobs differ: %q and %q", retry.ID, exactRetry.ID)
 	}
 }
 
@@ -79,7 +108,7 @@ func TestReconcileFailsLegacyPendingDNSWithoutDurableJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.mu.Unlock()
-	if _, err := app.enqueueCloudJob(durableCloudRequest{Operation: "dns", Provider: "linode", Action: "update", ID: live.DomainID, DNS: live, Actor: "admin"}); err != nil {
+	if _, err := app.enqueueCloudJob(durableCloudRequest{Operation: "dns", Provider: "linode", Action: "update", ID: live.DomainID, DNS: live, Actor: "admin"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	orphaned, err := app.reconcileOrphanedDNSDesired()

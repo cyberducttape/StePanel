@@ -16,6 +16,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Site-operation submissions without an `Idempotency-Key` now always create a
+  distinct durable job instead of coalescing unrelated operations for the
+  same site. Explicit keys bind to the complete request payload and conflicting
+  reuse returns HTTP 409. Cloud actions likewise create a fresh attempt unless
+  the caller supplies an exact, UTC-day-bounded retry key.
+- Corrected Linode backup handling to use per-instance backup inventory and
+  removed the unsupported snapshot deletion route. Snapshot creation now sends
+  the required label and requires explicit confirmation that the provider may
+  replace the existing manual snapshot. MX/SRV DNS records and NodeBalancer
+  nodes now serialize their documented type-specific fields; DNS create
+  reconciliation includes TTL and those fields.
 - Linode inventory pagination now validates the provider's documented
   `results` total, page sequence, and consistent page metadata. It rejects
   incomplete responses or results requiring more than 1,000 pages instead of

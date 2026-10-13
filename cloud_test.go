@@ -2,12 +2,14 @@ package stepanel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 type cloudRoundTripper func(*http.Request) (*http.Response, error)
@@ -118,6 +120,127 @@ func TestLinodeAPIRequestRejectsIncompletePagination(t *testing.T) {
 	})
 }
 
+func TestLinodeAPIRequestAcceptsInstanceBackupObject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v4/linode/instances/123/backups" {
+			t.Errorf("request path = %q", request.URL.Path)
+		}
+		_, _ = response.Write([]byte(`{"automatic":[],"snapshot":{"current":null,"in_progress":null}}`))
+	}))
+	defer server.Close()
+	value, err := linodeAPIRequestWithClient(context.Background(), http.MethodGet, "/linode/instances/123/backups", nil, "test-token", linodeTestClient(server))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, ok := value.(map[string]any)
+	if !ok || root["snapshot"] == nil {
+		t.Fatalf("backup response = %#v, want unpaginated backup object", value)
+	}
+}
+
+func TestLinodeSnapshotRequestMatchesProviderContract(t *testing.T) {
+	method, path, payload, err := linodeInstanceActionRequest("snapshot", "123", "before-maintenance", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method != http.MethodPost || path != "/linode/instances/123/backups" {
+		t.Fatalf("snapshot request = %s %s", method, path)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v4/linode/instances/123/backups" {
+			t.Errorf("provider request = %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Errorf("decode snapshot body: %v", err)
+		}
+		if body["label"] != "before-maintenance" {
+			t.Errorf("snapshot body = %#v", body)
+		}
+		_, _ = response.Write([]byte(`{"id":44,"type":"snapshot"}`))
+	}))
+	defer server.Close()
+	if _, err := linodeAPIRequestWithClient(context.Background(), method, path, payload, "test-token", linodeTestClient(server)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := linodeInstanceActionRequest("snapshot", "123", "", true); err == nil {
+		t.Fatal("snapshot without a required provider label was accepted")
+	}
+	if _, _, _, err := linodeInstanceActionRequest("snapshot", "123", "backup", false); err == nil {
+		t.Fatal("snapshot without explicit replacement confirmation was accepted")
+	}
+}
+
+func TestLinodeDNSRecordPayloadUsesTypedMXAndSRVFields(t *testing.T) {
+	mx := cloudDNSRequest{Type: "mx", Name: "@", Target: "mail.example.com", TTL: 2419200, Priority: 10}
+	if !cloudDNSRecordValid(mx) {
+		t.Fatal("valid Linode MX record rejected")
+	}
+	if got := linodeDNSRecordPayload(mx); got["target"] != "mail.example.com" || got["priority"] != 10 || got["ttl_sec"] != 2419200 {
+		t.Fatalf("MX payload = %#v", got)
+	}
+	srv := cloudDNSRequest{Type: "SRV", Service: "https", Protocol: "tcp", Target: "service.example.com", TTL: 3600, Priority: 5, Weight: 20, Port: 443}
+	if !cloudDNSRecordValid(srv) {
+		t.Fatal("valid Linode SRV record rejected")
+	}
+	got := linodeDNSRecordPayload(srv)
+	if got["target"] != "service.example.com" || got["service"] != "https" || got["protocol"] != "tcp" || got["priority"] != 5 || got["weight"] != 20 || got["port"] != 443 {
+		t.Fatalf("SRV payload = %#v", got)
+	}
+	if _, exists := got["name"]; exists {
+		t.Fatalf("SRV payload must use service/protocol, not name: %#v", got)
+	}
+}
+
+func TestLinodeBackupsPathRequiresInstanceID(t *testing.T) {
+	if got, err := linodeBackupsPath("123"); err != nil || got != "/linode/instances/123/backups" {
+		t.Fatalf("backups path = %q, %v", got, err)
+	}
+	if _, err := linodeBackupsPath("../../account"); err == nil {
+		t.Fatal("invalid Linode ID accepted")
+	}
+}
+
+func TestCloudOperationKeysAreOptionalAndTimeBounded(t *testing.T) {
+	request := durableCloudRequest{Operation: "instance", Action: "stop"}
+	first := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	if cloudOperationKey(request, "", first) != "" {
+		t.Fatal("missing client idempotency key unexpectedly generated a persistent identity")
+	}
+	key := cloudOperationKey(request, "request-123", first)
+	if got := cloudOperationKey(request, "request-123", first.Add(time.Minute)); got != key {
+		t.Fatalf("same-day retry key changed: %q != %q", got, key)
+	}
+	if got := cloudOperationKey(request, "request-123", first.Add(12*time.Hour)); got == key {
+		t.Fatal("client key was not expired at the bounded UTC-day boundary")
+	}
+}
+
+func TestLinodeNodePayloadCombinesAddressAndPort(t *testing.T) {
+	for _, test := range []struct {
+		address string
+		port    int
+		want    string
+	}{
+		{"192.0.2.10", 8080, "192.0.2.10:8080"},
+		{"2001:db8::1", 443, "[2001:db8::1]:443"},
+	} {
+		payload, err := linodeNodePayload(cloudLBRequest{Address: test.address, Port: test.port, Label: "backend-1", Weight: 255})
+		if err != nil {
+			t.Fatalf("payload for %s: %v", test.address, err)
+		}
+		if payload["address"] != test.want || payload["label"] != "backend-1" || payload["weight"] != 255 {
+			t.Errorf("node payload = %#v, want address %q, label, and weight", payload, test.want)
+		}
+		if _, exists := payload["port"]; exists {
+			t.Errorf("node payload has unsupported separate port field: %#v", payload)
+		}
+	}
+	if _, err := linodeNodePayload(cloudLBRequest{Address: "192.0.2.10", Port: 80, Label: "x", Weight: 1}); err == nil {
+		t.Fatal("invalid short node label accepted")
+	}
+}
+
 func TestCloudCommandEnvKeepsRcloneConfigButFiltersPanelSecrets(t *testing.T) {
 	t.Setenv("RCLONE_CONFIG", "/run/secrets/rclone.conf")
 	t.Setenv("STEPANEL_RCLONE_CONFIG", "/wrong/path")
@@ -170,13 +293,13 @@ func TestAWSActionArgsUseTypedResourceFlags(t *testing.T) {
 }
 
 func TestCloudDNSRecordValidation(t *testing.T) {
-	valid := []cloudDNSRequest{{Type: "A", Name: "@", Target: "192.0.2.10", TTL: 300}, {Type: "AAAA", Name: "www", Target: "2001:db8::1", TTL: 300}, {Type: "MX", Name: "@", Target: "10 mail.example.com", TTL: 300}, {Type: "SRV", Name: "_https._tcp", Target: "10 5 443 service.example.com", TTL: 300}}
+	valid := []cloudDNSRequest{{Type: "A", Name: "@", Target: "192.0.2.10", TTL: 300}, {Type: "AAAA", Name: "www", Target: "2001:db8::1", TTL: 300}, {Type: "MX", Name: "@", Target: "mail.example.com", TTL: 300, Priority: 10}, {Type: "SRV", Service: "https", Protocol: "tcp", Target: "service.example.com", TTL: 300, Priority: 10, Weight: 5, Port: 443}}
 	for _, record := range valid {
 		if !cloudDNSRecordValid(record) {
 			t.Errorf("valid record rejected: %#v", record)
 		}
 	}
-	invalid := []cloudDNSRequest{{Type: "A", Name: "@", Target: "example.com", TTL: 300}, {Type: "A", Name: "@", Target: "192.0.2.1", TTL: 10}, {Type: "MX", Name: "@", Target: "mail.example.com", TTL: 300}, {Type: "MX", Name: "@", Target: "70000 mail.example.com", TTL: 300}, {Type: "SRV", Name: "_https._tcp", Target: "10 5 70000 service.example.com", TTL: 300}, {Type: "TXT", Name: "@", Target: "safe\nvalue", TTL: 300}}
+	invalid := []cloudDNSRequest{{Type: "A", Name: "@", Target: "example.com", TTL: 300}, {Type: "A", Name: "@", Target: "192.0.2.1", TTL: 10}, {Type: "MX", Name: "@", Target: "10 mail.example.com", TTL: 300}, {Type: "MX", Name: "@", Target: "mail.example.com", TTL: 300, Priority: 256}, {Type: "SRV", Service: "_https", Protocol: "tcp", Target: "service.example.com", TTL: 300, Port: 70000}, {Type: "TXT", Name: "@", Target: "safe\nvalue", TTL: 300}}
 	for _, record := range invalid {
 		if cloudDNSRecordValid(record) {
 			t.Errorf("invalid record accepted: %#v", record)
@@ -185,8 +308,11 @@ func TestCloudDNSRecordValidation(t *testing.T) {
 }
 
 func TestDNSRecordExists(t *testing.T) {
-	value := map[string]any{"data": []any{map[string]any{"type": "A", "name": "www.example.com.", "target": "192.0.2.10"}}}
-	if !dnsRecordExists(value, cloudDNSRequest{Type: "a", Name: "www.example.com", Target: "192.0.2.10"}) {
+	value := map[string]any{"data": []any{map[string]any{"type": "A", "name": "www.example.com.", "target": "192.0.2.10", "ttl_sec": float64(300)}}}
+	if !dnsRecordExists(value, cloudDNSRequest{Type: "a", Name: "www.example.com", Target: "192.0.2.10", TTL: 300}) {
 		t.Fatal("identical DNS record was not detected")
+	}
+	if dnsRecordExists(value, cloudDNSRequest{Type: "a", Name: "www.example.com", Target: "192.0.2.10", TTL: 3600}) {
+		t.Fatal("same DNS record with a different TTL was incorrectly treated as already configured")
 	}
 }

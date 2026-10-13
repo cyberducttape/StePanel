@@ -212,8 +212,12 @@ paths:
   /api/cloud/action:
     post:
       summary: Start, stop, reboot, or snapshot an existing cloud resource
+      description: Linode snapshot requests require snapshot_label and confirm_snapshot_replacement=true because the provider may replace the current manual snapshot. Optional Idempotency-Key values deduplicate the exact request for a bounded UTC-day window; distinct submissions without a key always create distinct attempts.
+      parameters:
+        - {name: Idempotency-Key, in: header, required: false, schema: {type: string, minLength: 1, maxLength: 128}}
       responses:
         '202': {description: Provider action queued; poll the returned job URL}
+        '409': {description: Idempotency key was already used for a different request}
   /api/cloud/dns:
     get:
       summary: List Linode DNS records
@@ -221,8 +225,12 @@ paths:
         '200': {description: DNS records}
     post:
       summary: Queue a Linode DNS record creation or update
+      description: MX requests provide target and priority separately. SRV requests provide service, protocol, target, port, priority, and weight as separate fields. A matching create is considered already present only when its TTL and type-specific fields also match.
+      parameters:
+        - {name: Idempotency-Key, in: header, required: false, schema: {type: string, minLength: 1, maxLength: 128}}
       responses:
         '202': {description: DNS change queued}
+        '409': {description: Idempotency key was already used for a different request}
     delete:
       summary: Queue a Linode DNS record deletion
       responses:
@@ -235,17 +243,21 @@ paths:
   /api/cloud/loadbalancer:
     post:
       summary: Queue a Linode load-balancer backend add or removal
+      description: Node additions accept address as an IP and port separately, then combine them into the provider's address-with-port field (IPv6 is bracketed). A label is required and weight must be from 1 through 255. Optional Idempotency-Key values deduplicate an exact request for a bounded UTC-day window.
+      parameters:
+        - {name: Idempotency-Key, in: header, required: false, schema: {type: string, minLength: 1, maxLength: 128}}
       responses:
         '202': {description: Load-balancer change queued}
+        '409': {description: Idempotency key was already used for a different request}
   /api/cloud/snapshots:
     get:
-      summary: List Linode snapshots
+      summary: List backups for one Linode instance (read-only)
+      description: Linode backup inventory is instance-scoped. Snapshot deletion is not exposed because the documented API does not provide the assumed account-wide deletion operation.
+      parameters:
+        - {name: linode_id, in: query, required: true, schema: {type: string, pattern: '^[0-9]{1,12}$'}}
       responses:
-        '200': {description: Snapshots}
-    delete:
-      summary: Queue deletion of a Linode snapshot
-      responses:
-        '202': {description: Snapshot deletion queued}
+        '200': {description: Automatic and manual backup information for the selected Linode instance}
+        '422': {description: Missing or invalid Linode instance ID}
   /api/ssh:
     get:
       summary: Inspect configured SSH servers with strict host-key checking

@@ -104,8 +104,25 @@ Manage customer tokens with `GET`/`POST /api/account/tokens` and
   `status_url`. Do not submit the same destructive request repeatedly.
 - Use `Idempotency-Key` on cPanel restore requests. Reusing the same valid key
   returns the original restore job instead of starting a second restore.
+- Cloud mutation endpoints accept an optional `Idempotency-Key`. Without it,
+  every deliberate action is enqueued as a new attempt. With it, only an exact
+  request retry is deduplicated, for the current UTC day; reusing a key with a
+  different request returns `409`.
 - Destructive operations require exact confirmation strings documented by the
   endpoint and are audited before execution.
+
+Linode snapshot inventory is read-only and instance-scoped:
+`GET /api/cloud/snapshots?linode_id=123`. Linode snapshot creation through
+`POST /api/cloud/action` requires `action: "snapshot"`, a validated
+`snapshot_label`, and `confirm_snapshot_replacement: true`, because the
+provider may replace the current manual snapshot. Snapshot deletion is not
+offered until a supported provider lifecycle operation is available.
+
+For Linode DNS writes, MX `target` and `priority` are separate fields. SRV
+records use separate `service`, `protocol`, `target`, `port`, `priority`, and
+`weight` fields. NodeBalancer node creation uses separate IP `address` and
+`port` inputs, which StePanel combines into the provider's address-with-port
+representation; a node `label` and weight from 1 through 255 are required.
 
 ## Health and observability
 

@@ -163,6 +163,10 @@ func (a *App) enqueueSiteOperation(w http.ResponseWriter, r *http.Request, paylo
 	}
 	job, _, err := a.Jobs.EnqueueIdempotent(siteOperationKind, payload.Site, operationKey, data, 1)
 	if err != nil {
+		if errors.Is(err, ErrIdempotencyConflict) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "could not queue operation", http.StatusServiceUnavailable)
 		return
 	}
