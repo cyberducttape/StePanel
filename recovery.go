@@ -577,6 +577,14 @@ func recoverSiteTransactionsWithRename(root, site string, renameForSite func(con
 			failures = append(failures, fmt.Errorf("recover transaction %s: database cleanup is incomplete", txn.ID))
 			continue
 		}
+		if len(txn.Routes) > 0 {
+			// A published route can still direct requests to this site. Never
+			// swap or remove its filesystem until the route is confirmed absent.
+			// The database-recovery pass owns route cleanup and records progress
+			// in the same journal before this rollback pass runs.
+			failures = append(failures, fmt.Errorf("recover transaction %s: route cleanup is incomplete", txn.ID))
+			continue
+		}
 		recoveryCtx, unlock, lockErr := lockRecoveredSite(lockSite, txn.Site)
 		if lockErr != nil {
 			failures = append(failures, fmt.Errorf("recover transaction %s: lock site: %w", txn.ID, lockErr))

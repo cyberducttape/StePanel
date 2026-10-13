@@ -82,7 +82,7 @@ func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lock
 				continue
 			}
 		}
-		if (txn.Kind == siteCreationTransactionKind || txn.Kind == recoveryProofTransactionKind) && !txn.HadExisting {
+		if (txn.Kind == siteCreationTransactionKind || txn.Kind == recoveryProofTransactionKind || txn.Kind == "backup.restore-to-staging") && !txn.HadExisting {
 			// An interrupted site creation also leaves the site account, PHP
 			// pool and site root the helper prepared; creation refuses any site
 			// whose root already exists, so all of it belongs to the

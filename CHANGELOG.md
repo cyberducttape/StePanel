@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Preserve staged-restore files and databases when vhost cleanup fails, and
+  prevent recovery from rolling back a site while its route remains published;
+  startup cleanup now finalizes interrupted staging-restore accounts.
 - Require the root broker's authoritative web-identity configuration to be
   root-owned before trusting its service-group value.
 - Run failed staging-restore database compensation on an independent bounded

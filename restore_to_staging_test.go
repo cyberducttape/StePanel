@@ -277,8 +277,15 @@ func TestRestoreToStagingRouteCleanupFailurePersistsIntervention(t *testing.T) {
 	if txn.RecoveryRequired == "" || len(txn.Routes) != 1 || !txn.Routes[0].Applied {
 		t.Fatalf("route recovery journal = %+v; want unresolved applied route", txn)
 	}
-	if _, err := RecoverSiteTransactions(f.cfg.RecoveryRoot, f.cfg.WebRoot, f.cfg.MailRoot); err == nil || !strings.Contains(err.Error(), "requires operator intervention") {
-		t.Fatalf("startup recovery error = %v, want durable route intervention", err)
+	// Even if an operator clears the intervention marker before actually
+	// removing the route, filesystem recovery must refuse to roll back beneath
+	// a still-published vhost.
+	txn.RecoveryRequired = ""
+	if err := txn.persist(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecoverSiteTransactions(f.cfg.RecoveryRoot, f.cfg.WebRoot, f.cfg.MailRoot); err == nil || !strings.Contains(err.Error(), "route cleanup is incomplete") {
+		t.Fatalf("startup recovery error = %v, want unresolved route cleanup", err)
 	}
 	f.assertSite(t, versionTwo)
 }

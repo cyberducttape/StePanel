@@ -625,14 +625,15 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	committed := false
-	createdDatabase := false
 	defer func() {
 		if !committed {
 			var compensationErrors []error
 			routeCleanupCtx, cancelRouteCleanup := context.WithTimeout(context.WithoutCancel(operationCtx), helperConfigMutationTimeout)
 			if routeErr := txn.cleanupRoutes(routeCleanupCtx, a.Config); routeErr != nil {
 				log.Printf("staging route cleanup failed for %s: %v", input.Site, routeErr)
-				compensationErrors = append(compensationErrors, fmt.Errorf("route cleanup: %w", routeErr))
+				cancelRouteCleanup()
+				a.markStagingRestoreRecoveryRequired("staging_restore_compensation", fmt.Errorf("route cleanup: %w", routeErr), "staging route could not be removed; site state retained for operator reconciliation", txn)
+				return
 			}
 			cancelRouteCleanup()
 			if rollbackErr := txn.Rollback(); rollbackErr != nil {
@@ -652,11 +653,9 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 				log.Printf("staging site cleanup failed for %s: %v", input.Site, deleteErr)
 				compensationErrors = append(compensationErrors, fmt.Errorf("site filesystem cleanup: %w", deleteErr))
 			}
-			if createdDatabase {
-				if cleanupErr := a.cleanupStagingRestoreDatabase(input.TargetDatabase, input.TargetUser); cleanupErr != nil {
-					log.Printf("staging database cleanup failed for %s: %v", input.TargetDatabase, cleanupErr)
-					compensationErrors = append(compensationErrors, fmt.Errorf("database cleanup: %w", cleanupErr))
-				}
+			if cleanupErr := txn.cleanupDatabases(cleanupCtx, a.Config); cleanupErr != nil {
+				log.Printf("staging database cleanup failed for %s: %v", input.TargetDatabase, cleanupErr)
+				compensationErrors = append(compensationErrors, fmt.Errorf("database cleanup: %w", cleanupErr))
 			}
 			if len(compensationErrors) > 0 {
 				a.markStagingRestoreRecoveryRequired("staging_restore_compensation", errors.Join(compensationErrors...), "staging restore compensation is incomplete; startup reconciliation is required", txn)
@@ -690,9 +689,11 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if hasDatabase {
-		var databaseCreated bool
-		databaseCreated, e = restoreDatabaseIntoStagingContext(operationCtx, a.Config, stage, input)
-		createdDatabase = databaseCreated
+		if e = txn.TrackDatabase(ManagedDatabase{Name: input.TargetDatabase, User: input.TargetUser, Kind: "wordpress"}); e != nil {
+			http.Error(w, "could not journal staging database", 503)
+			return
+		}
+		_, e = restoreDatabaseIntoStagingContext(operationCtx, a.Config, stage, input)
 		if e != nil {
 			http.Error(w, "could not restore staging database: "+e.Error(), 502)
 			return
