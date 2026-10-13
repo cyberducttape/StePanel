@@ -128,6 +128,20 @@ set_unknown_password() {
   hash=$(openssl passwd -6 -stdin <<< "$(openssl rand -base64 48)") || return 1
   usermod --password "$hash" "$site_user"
 }
+ensure_sshd_runtime_dir() {
+  local runtime_dir=/run/sshd owner mode
+  [[ ! -L $runtime_dir ]] || { echo 'sshd runtime directory must not be a symlink' >&2; return 1; }
+  if [[ ! -e $runtime_dir ]]; then
+    install -d -m 0755 -o root -g root -- "$runtime_dir" || return 1
+  fi
+  [[ -d $runtime_dir && ! -L $runtime_dir ]] || { echo 'sshd runtime path is not a directory' >&2; return 1; }
+  owner=$(stat -c '%u:%g' -- "$runtime_dir") || return 1
+  mode=$(stat -c '%a' -- "$runtime_dir") || return 1
+  [[ $owner == 0:0 && $mode == 755 ]] || {
+    echo 'sshd runtime directory must be root-owned with mode 0755' >&2
+    return 1
+  }
+}
 
 if [[ $action == access ]]; then
   (( $# == 5 )) || { echo 'usage: stepanel-sitectl access SITE SITE_USER SFTP SHELL' >&2; exit 64; }
@@ -201,6 +215,7 @@ if [[ $action == access ]]; then
       set_unknown_password || { restore_access; echo 'could not enable the SSH/SFTP account' >&2; exit 1; }
     fi
     command -v sshd >/dev/null 2>&1 || { restore_access; echo 'sshd is required for SSH access management' >&2; exit 1; }
+    ensure_sshd_runtime_dir || { restore_access; exit 1; }
     mv -f "$staged" "$authorized_keys"
     cat > "$ssh_config" <<EOF
 # Managed by StePanel. Do not edit.
@@ -227,6 +242,7 @@ EOF
     fi
     rm -f "$authorized_keys" "$ssh_config" "$staged"
     if (( key_existed || config_existed )); then
+      ensure_sshd_runtime_dir || { restore_access; exit 1; }
       if ! (command -v sshd >/dev/null 2>&1 && sshd -t && (systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null)); then
         restore_access
         echo 'could not reload sshd after revoking access policy' >&2
@@ -247,6 +263,7 @@ if [[ $action == ftp ]]; then
   [[ -f $ftp_config && ! -L $ftp_config ]] || { echo 'vsftpd is not installed or configured' >&2; exit 1; }
   command -v chpasswd >/dev/null 2>&1 || { echo 'chpasswd is required for FTPS provisioning' >&2; exit 1; }
   command -v sshd >/dev/null 2>&1 || { echo 'sshd is required to enforce FTPS SSH password isolation' >&2; exit 1; }
+  ensure_sshd_runtime_dir || exit 1
   password=
   if [[ $ftp_enabled == 1 ]]; then
     password=$(cat)

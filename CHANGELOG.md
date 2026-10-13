@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Ensure the root-owned OpenSSH runtime directory exists with safe ownership
+  and permissions before validating StePanel-managed SSH/SFTP and FTPS policy.
+  This allows fresh installations to provision access before the SSH daemon
+  has created `/run/sshd`, while refusing symlink or ownership/mode mismatches.
+
 ### Testing and documentation
 
 - Extended the installed-host smoke to build a pinned, database-backed
