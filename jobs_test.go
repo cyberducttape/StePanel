@@ -761,6 +761,9 @@ func TestDurableJobListNeverFallsBackToStaleCache(t *testing.T) {
 	if listed := jobs.ListSummaries(10); listed != nil {
 		t.Fatalf("summary list returned stale cached jobs: %#v", listed)
 	}
+	if item, ok := jobs.Get(queued.ID); ok {
+		t.Fatalf("compatibility lookup returned stale cached job: %#v", item)
+	}
 }
 
 func TestListForOwnersAppliesLimitAfterOwnerFilter(t *testing.T) {
