@@ -71,17 +71,7 @@ func (s *DomainClaimStore) persistLocked() error {
 func (s *DomainClaimStore) save(claim DomainClaim) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.values[claim.Domain]
-	s.values[claim.Domain] = claim
-	if err := s.persistLocked(); err != nil {
-		if existed {
-			s.values[claim.Domain] = previous
-		} else {
-			delete(s.values, claim.Domain)
-		}
-		return err
-	}
-	return nil
+	return persistMapKeyChange(s.values, claim.Domain, &claim, s.persistLocked)
 }
 
 func (s *DomainClaimStore) get(domain string) (DomainClaim, bool) {
@@ -95,23 +85,9 @@ func (s *DomainClaimStore) removeSite(access SiteCapability) error {
 	site := access.Site()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	removed := map[string]DomainClaim{}
-	for domain, claim := range s.values {
-		if claim.Site == site {
-			removed[domain] = claim
-			delete(s.values, domain)
-		}
-	}
-	if len(removed) == 0 {
-		return nil
-	}
-	if err := s.persistLocked(); err != nil {
-		for domain, claim := range removed {
-			s.values[domain] = claim
-		}
-		return err
-	}
-	return nil
+	return persistMapFilter(s.values, func(_ string, claim DomainClaim) bool {
+		return claim.Site == site
+	}, s.persistLocked)
 }
 
 func (s *DomainClaimStore) verifiedFor(site, domain string) bool {
@@ -138,14 +114,7 @@ func (s *DomainClaimStore) claim(site, domain string) (DomainClaim, error) {
 		return DomainClaim{}, err
 	}
 	claim := DomainClaim{Domain: domain, Site: site, Token: token, State: "pending"}
-	previous, existed := s.values[domain]
-	s.values[domain] = claim
-	if err := s.persistLocked(); err != nil {
-		if existed {
-			s.values[domain] = previous
-		} else {
-			delete(s.values, domain)
-		}
+	if err := persistMapKeyChange(s.values, domain, &claim, s.persistLocked); err != nil {
 		return DomainClaim{}, err
 	}
 	return claim, nil

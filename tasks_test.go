@@ -187,7 +187,7 @@ func TestFinalizeTaskDeletionRollsBackMemoryOnPersistFailure(t *testing.T) {
 	app := &App{Tasks: store}
 
 	store.mu.Lock()
-	err = app.finalizeTaskDeletionLocked(key, task)
+	err = app.finalizeTaskDeletionLocked(key)
 	store.mu.Unlock()
 	if err == nil {
 		t.Fatal("expected task state persistence failure")

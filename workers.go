@@ -69,17 +69,7 @@ func (s *WorkerStore) persistLocked() error {
 func (s *WorkerStore) save(key string, worker Worker) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.values[key]
-	s.values[key] = worker
-	if err := s.persistLocked(); err != nil {
-		if existed {
-			s.values[key] = previous
-		} else {
-			delete(s.values, key)
-		}
-		return err
-	}
-	return nil
+	return persistMapKeyChange(s.values, key, &worker, s.persistLocked)
 }
 
 // remove persists removal of a desired worker and restores the exact previous
@@ -87,15 +77,7 @@ func (s *WorkerStore) save(key string, worker Worker) error {
 func (s *WorkerStore) remove(key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.values[key]
-	delete(s.values, key)
-	if err := s.persistLocked(); err != nil {
-		if existed {
-			s.values[key] = previous
-		}
-		return err
-	}
-	return nil
+	return persistMapKeyChange(s.values, key, (*Worker)(nil), s.persistLocked)
 }
 func validWorkerName(v string) bool {
 	if v == "" || len(v) > 32 {

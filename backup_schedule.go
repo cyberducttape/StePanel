@@ -178,7 +178,6 @@ func (a *App) runDueBackups() {
 		if !s.Enabled || s.NextRun.After(now) {
 			continue
 		}
-		previous := s
 		operationKey := fmt.Sprintf("schedule:%s:%d", site, s.NextRun.UnixNano())
 		s.LastRun = &now
 		s.NextRun = now.Add(time.Duration(s.IntervalMinutes) * time.Minute)
@@ -190,9 +189,7 @@ func (a *App) runDueBackups() {
 		if enqueueErr != nil {
 			continue
 		}
-		a.Schedules.items[site] = s
-		if err := a.Schedules.persistLocked(); err != nil {
-			a.Schedules.items[site] = previous
+		if err := persistMapKeyChange(a.Schedules.items, site, &s, a.Schedules.persistLocked); err != nil {
 			TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", site, err.Error())
 		}
 	}

@@ -34,6 +34,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Map-backed route, worker, task, domain-claim, DNS, environment, and schedule
+  transitions now use the shared rollback-on-write-failure path, preserving a
+  refreshed SQLite peer snapshot instead of restoring stale cached values.
 - Resource-profile transitions now use rollback-on-persistence-failure and
   preserve refreshed SQLite peer state after conflicting updates, keeping the
   in-memory cache aligned with the durable desired profile.

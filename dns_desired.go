@@ -102,15 +102,7 @@ func (s *DNSDesiredStore) markResult(in cloudDNSRequest, action string, resultEr
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if action == "delete" && resultErr == nil {
-		previous, existed := s.values[key]
-		delete(s.values, key)
-		if err := s.persistLocked(); err != nil {
-			if existed {
-				s.values[key] = previous
-			}
-			return err
-		}
-		return nil
+		return persistMapKeyChange(s.values, key, (*DNSDesiredRecord)(nil), s.persistLocked)
 	}
 	previous, existed := s.values[key]
 	record, ok := previous, existed
@@ -124,16 +116,7 @@ func (s *DNSDesiredStore) markResult(in cloudDNSRequest, action string, resultEr
 		record.LastError = resultErr.Error()
 	}
 	record.UpdatedAt = time.Now().UTC()
-	s.values[key] = record
-	if err := s.persistLocked(); err != nil {
-		if existed {
-			s.values[key] = previous
-		} else {
-			delete(s.values, key)
-		}
-		return err
-	}
-	return nil
+	return persistMapKeyChange(s.values, key, &record, s.persistLocked)
 }
 
 // failOrphanedPending marks every stored pending record whose key is not in
@@ -159,8 +142,10 @@ func (s *DNSDesiredStore) failOrphanedPending(active map[string]bool, reason str
 		return 0, nil
 	}
 	if err := s.persistLocked(); err != nil {
-		for key, record := range previous {
-			s.values[key] = record
+		if !errors.Is(err, errControlPlaneStateRefreshed) {
+			for key, record := range previous {
+				s.values[key] = record
+			}
 		}
 		return 0, err
 	}

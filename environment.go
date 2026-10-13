@@ -387,9 +387,6 @@ func (a *App) removeEnvironmentLocked(ctx context.Context, site string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	a.Environments.mu.RLock()
-	_, existed := a.Environments.values[site]
-	a.Environments.mu.RUnlock()
 	empty := map[string]environmentValue{}
 	// Persist the empty desired state before changing the host. If the process
 	// stops after this point, startup reconciliation will still remove the host
@@ -399,16 +396,7 @@ func (a *App) removeEnvironmentLocked(ctx context.Context, site string) error {
 		a.Environments.mu.Unlock()
 		return err
 	}
-	previous := cloneEnvironmentValues(a.Environments.values[site])
-	a.Environments.values[site] = empty
-	err := a.Environments.persistLocked()
-	if err != nil {
-		if existed {
-			a.Environments.values[site] = previous
-		} else {
-			delete(a.Environments.values, site)
-		}
-	}
+	err := persistMapKeyChange(a.Environments.values, site, &empty, a.Environments.persistLocked)
 	a.Environments.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("environment desired state save failed: %w", err)
@@ -421,11 +409,9 @@ func (a *App) removeEnvironmentLocked(ctx context.Context, site string) error {
 		a.Environments.mu.Unlock()
 		return fmt.Errorf("environment removal completed but reconciliation is pending: %w", err)
 	}
-	delete(a.Environments.values, site)
-	if err := a.Environments.persistLocked(); err != nil {
+	if err := persistMapKeyChange(a.Environments.values, site, (*map[string]environmentValue)(nil), a.Environments.persistLocked); err != nil {
 		// The durable empty map is already the desired state. Retain it in
 		// memory so a later reconciliation can safely repeat the cleanup.
-		a.Environments.values[site] = empty
 		a.Environments.mu.Unlock()
 		return fmt.Errorf("environment metadata cleanup pending: %w", err)
 	}
@@ -501,7 +487,7 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.Environments.mu.Lock()
-		previous, existed := a.Environments.values[site]
+		previous := a.Environments.values[site]
 		input, mergeErr := mergeEnvironmentUpdate(previous, updates)
 		if mergeErr != nil {
 			a.Environments.mu.Unlock()
@@ -509,15 +495,7 @@ func (a *App) siteEnvironment(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, mergeErr.Error(), 422)
 			return
 		}
-		a.Environments.values[site] = input
-		err := a.Environments.persistLocked()
-		if err != nil {
-			if existed {
-				a.Environments.values[site] = previous
-			} else {
-				delete(a.Environments.values, site)
-			}
-		}
+		err := persistMapKeyChange(a.Environments.values, site, &input, a.Environments.persistLocked)
 		a.Environments.mu.Unlock()
 		if err != nil {
 			intent.Failed(err.Error())

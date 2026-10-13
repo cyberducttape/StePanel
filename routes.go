@@ -68,55 +68,25 @@ func (s *RouteStore) persistLocked() error {
 func (s *RouteStore) save(route RouteDesired) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.values[route.Name]
-	s.values[route.Name] = route
-	if err := s.persistLocked(); err != nil {
-		if existed {
-			s.values[route.Name] = previous
-		} else {
-			delete(s.values, route.Name)
-		}
-		return err
-	}
-	return nil
+	return persistMapKeyChange(s.values, route.Name, &route, s.persistLocked)
 }
 
 func (s *RouteStore) remove(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.values[name]
-	if !existed {
+	if _, existed := s.values[name]; !existed {
 		return nil
 	}
-	delete(s.values, name)
-	if err := s.persistLocked(); err != nil {
-		s.values[name] = previous
-		return err
-	}
-	return nil
+	return persistMapKeyChange(s.values, name, (*RouteDesired)(nil), s.persistLocked)
 }
 
 func (s *RouteStore) removeSite(access SiteCapability) error {
 	site := access.Site()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous := map[string]RouteDesired{}
-	for name, route := range s.values {
-		if route.Site == site {
-			previous[name] = route
-			delete(s.values, name)
-		}
-	}
-	if len(previous) == 0 {
-		return nil
-	}
-	if err := s.persistLocked(); err != nil {
-		for name, route := range previous {
-			s.values[name] = route
-		}
-		return err
-	}
-	return nil
+	return persistMapFilter(s.values, func(_ string, route RouteDesired) bool {
+		return route.Site == site
+	}, s.persistLocked)
 }
 
 func (s *RouteStore) list() []RouteDesired {

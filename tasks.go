@@ -134,8 +134,10 @@ func (s *TaskStore) normalizeSafeguards() error {
 	}
 	if changed {
 		if err := s.persistLocked(); err != nil {
-			for key, task := range previous {
-				s.values[key] = task
+			if !errors.Is(err, errControlPlaneStateRefreshed) {
+				for key, task := range previous {
+					s.values[key] = task
+				}
 			}
 			return err
 		}
@@ -159,17 +161,7 @@ func (s *TaskStore) persistLocked() error {
 func (s *TaskStore) save(key string, task ScheduledTask) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous, existed := s.values[key]
-	s.values[key] = task
-	if err := s.persistLocked(); err != nil {
-		if existed {
-			s.values[key] = previous
-		} else {
-			delete(s.values, key)
-		}
-		return err
-	}
-	return nil
+	return persistMapKeyChange(s.values, key, &task, s.persistLocked)
 }
 func validTaskRuntime(v string) bool {
 	return v == "php" || v == "node" || v == "python" || v == "shell"
@@ -516,7 +508,7 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.Tasks.mu.Lock()
-		err = a.finalizeTaskDeletionLocked(key, task)
+		err = a.finalizeTaskDeletionLocked(key)
 		a.Tasks.mu.Unlock()
 		if err != nil {
 			http.Error(w, "scheduled task removed but state cleanup is pending", 503)
@@ -607,13 +599,8 @@ func (a *App) tasks(w http.ResponseWriter, r *http.Request) {
 // state is durable. Callers must hold Tasks.mu. Restoring the map entry on a
 // pre-commit write failure keeps the running process aligned with the state
 // that will be loaded on the next startup.
-func (a *App) finalizeTaskDeletionLocked(key string, task ScheduledTask) error {
-	delete(a.Tasks.values, key)
-	if err := a.Tasks.persistLocked(); err != nil {
-		a.Tasks.values[key] = task
-		return err
-	}
-	return nil
+func (a *App) finalizeTaskDeletionLocked(key string) error {
+	return persistMapKeyChange(a.Tasks.values, key, (*ScheduledTask)(nil), a.Tasks.persistLocked)
 }
 
 func (a *App) applyTask(ctx context.Context, task ScheduledTask) error {
@@ -709,7 +696,7 @@ func (a *App) reconcileTasks(ctx context.Context) (reconciled []string, failed m
 		}
 		if task.Deleted {
 			a.Tasks.mu.Lock()
-			err := a.finalizeTaskDeletionLocked(key, task)
+			err := a.finalizeTaskDeletionLocked(key)
 			a.Tasks.mu.Unlock()
 			if err != nil {
 				failed[key] = "state persistence failed"
