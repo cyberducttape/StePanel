@@ -47,13 +47,23 @@ cleanup() {
   local status=$?
   if (( status != 0 && route_created )) && [[ ${STEPANEL_WEBSERVER:-caddy} == caddy ]]; then
     echo "Caddy recovery-proof route before cleanup: $route_file" >&2
+    if [[ -f /etc/caddy/Caddyfile && ! -L /etc/caddy/Caddyfile ]]; then
+      echo 'Caddyfile imports:' >&2
+      sed -n '1,120p' /etc/caddy/Caddyfile >&2
+    fi
     if [[ -f $route_file && ! -L $route_file ]]; then
       sed -n '1,160p' "$route_file" >&2
     fi
-    if command -v jq >/dev/null 2>&1; then
-      caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile --pretty 2>/dev/null \
-        | jq -c '[.apps.http.servers[]?.routes[]? | {hosts: [.match[]?.host[]?], handlers: [.handle[]?.handler]}] | .[]' \
-        | head -80 >&2 || true
+    echo 'Caddy adapted host/handler routes:' >&2
+    if adapted_caddy=$(caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile --pretty 2>&1); then
+      if command -v jq >/dev/null 2>&1; then
+        jq -c '[.apps.http.servers[]?.routes[]? | {hosts: [.match[]?.host[]?], handlers: [.handle[]?.handler]}] | .[]' \
+          <<<"$adapted_caddy" >&2 || printf '%s\n' "$adapted_caddy" | head -c 32768 >&2
+      else
+        printf '%s\n' "$adapted_caddy" | head -c 32768 >&2
+      fi
+    else
+      printf '%s\n' "$adapted_caddy" | head -c 32768 >&2
     fi
   fi
   if (( route_created )); then
