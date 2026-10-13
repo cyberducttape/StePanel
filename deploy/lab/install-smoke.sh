@@ -276,6 +276,12 @@ CPMOVE_SMOKE_SITE=ci-import bash /work/deploy/lab/cpmove-import-smoke.sh
 bash /work/deploy/lab/cpmove-recovery-smoke.sh
 bash /work/deploy/lab/dbctl-lock-smoke.sh
 DATABASE_RESTORE_RECOVERY=1 bash /work/deploy/lab/backup-recovery-smoke.sh
+if [[ $STEPANEL_DB_ENGINE == mysql || $STEPANEL_DB_ENGINE == mariadb ]] && \
+   [[ $STEPANEL_WEBSERVER == caddy || $STEPANEL_WEBSERVER == apache ]]; then
+  bash /work/deploy/lab/wordpress-recovery-proof-smoke.sh
+else
+  echo "installed WordPress application proof skipped for unsupported lab pair: $STEPANEL_WEBSERVER + $STEPANEL_DB_ENGINE"
+fi
 bash /work/deploy/lab/account-suspension-recovery-smoke.sh
 bash /work/deploy/lab/deploy-recovery-smoke.sh
 # The deploy recovery drill above deliberately kills the panel while holding

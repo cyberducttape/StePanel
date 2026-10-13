@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing and documentation
 
+- Extended the installed-host smoke to build a pinned, database-backed
+  WordPress fixture, create a real backup through the panel, and require the
+  built-in throwaway restore to pass archive, database, and HTTP application
+  checks. Apache/Caddy with MySQL/MariaDB are covered when those pairs are run;
+  other combinations remain explicitly skipped and uncertified.
 - Documented the durable-operation authority contract: SQLite owns admitted
   intent and reported status, journals preserve host-transition intent, and
   observed host state is reconciled before compensation or terminal success.
