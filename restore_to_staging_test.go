@@ -83,10 +83,12 @@ func TestFailedStagingDatabaseCompensationMarksRecoveryRequired(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := &App{Config: Config{DBCtl: helper}}
-	if err := app.cleanupStagingRestoreDatabase("staging_db", "staging_user"); err == nil {
+	cleanupErr := app.cleanupStagingRestoreDatabase("staging_db", "staging_user")
+	if cleanupErr == nil {
 		t.Fatal("database compensation failure was not returned")
 	}
-	if got := app.recovery.get(); got == nil || !strings.Contains(got.Error(), "staging_restore_database") {
+	app.markStagingRestoreRecoveryRequired("staging_restore_compensation", cleanupErr, "staging restore compensation is incomplete; startup reconciliation is required")
+	if got := app.recovery.get(); got == nil || !strings.Contains(got.Error(), "staging_restore_compensation") {
 		t.Fatalf("recovery state = %v, want staged database intervention", got)
 	}
 	response := httptest.NewRecorder()
@@ -102,7 +104,7 @@ func TestFailedStagingDatabaseCompensationMarksRecoveryRequired(t *testing.T) {
 	if err := json.Unmarshal(body["checks"], &checks); err != nil {
 		t.Fatalf("decode operational checks: %v", err)
 	}
-	if check := checks["recovery_state"]; check.Ready || !strings.Contains(check.Detail, "staging_restore_database") {
+	if check := checks["recovery_state"]; check.Ready || !strings.Contains(check.Detail, "staging_restore_compensation") {
 		t.Fatalf("recovery health check = %+v, want an actionable failed check", check)
 	}
 }

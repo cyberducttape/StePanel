@@ -13,7 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Run failed staging-restore database compensation on an independent bounded
   context so request cancellation cannot suppress cleanup of the staged DB;
   regression coverage cancels during an active SQL import, and failed
-  compensation now degrades readiness until startup reconciliation.
+  database, journal, or filesystem compensation degrades readiness until
+  startup reconciliation.
 - Make long workspace sidebar jumps land immediately while retaining smooth
   transitions between nearby sections, so deep destinations are responsive.
 - Verify database-backed WordPress recovery over both Apache and Caddy with

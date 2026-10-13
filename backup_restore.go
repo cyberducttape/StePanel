@@ -613,7 +613,9 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 	managerActivated := false
 	defer func() {
 		if !managerActivated {
-			_ = a.discardSiteStaging(context.Background(), managerStage)
+			if discardErr := a.discardSiteStaging(context.Background(), managerStage); discardErr != nil {
+				a.markStagingRestoreRecoveryRequired("staging_restore_files", discardErr, "staging filesystem cleanup failed; startup reconciliation is required")
+			}
 		}
 	}()
 	if e = siteHelperContext(operationCtx, a.Config, "prepare", input.Site); e != nil {
@@ -638,8 +640,10 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 	createdDatabase := false
 	defer func() {
 		if !committed {
+			var compensationErrors []error
 			if rollbackErr := txn.Rollback(); rollbackErr != nil {
 				log.Printf("backup staging rollback failed for transaction %s: %v", txn.ID, rollbackErr)
+				compensationErrors = append(compensationErrors, fmt.Errorf("restore journal rollback: %w", rollbackErr))
 			}
 			// The staging site did not exist before this restore: remove the
 			// identity and PHP-FPM pool "prepare" created and the site
@@ -648,14 +652,20 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			cleanupCtx := context.Background()
 			if teardownErr := siteHelperContext(cleanupCtx, a.Config, "delete", input.Site); teardownErr != nil {
 				log.Printf("staging site teardown failed for %s: %v", input.Site, teardownErr)
+				compensationErrors = append(compensationErrors, fmt.Errorf("site teardown: %w", teardownErr))
 			}
 			if deleteErr := a.deleteSiteTree(cleanupCtx, input.Site); deleteErr != nil {
 				log.Printf("staging site cleanup failed for %s: %v", input.Site, deleteErr)
+				compensationErrors = append(compensationErrors, fmt.Errorf("site filesystem cleanup: %w", deleteErr))
 			}
 			if createdDatabase {
 				if cleanupErr := a.cleanupStagingRestoreDatabase(input.TargetDatabase, input.TargetUser); cleanupErr != nil {
 					log.Printf("staging database cleanup failed for %s: %v", input.TargetDatabase, cleanupErr)
+					compensationErrors = append(compensationErrors, fmt.Errorf("database cleanup: %w", cleanupErr))
 				}
+			}
+			if len(compensationErrors) > 0 {
+				a.markStagingRestoreRecoveryRequired("staging_restore_compensation", errors.Join(compensationErrors...), "staging restore compensation is incomplete; startup reconciliation is required")
 			}
 		}
 	}()
@@ -702,12 +712,15 @@ func (a *App) cleanupStagingRestoreDatabase(database, username string) error {
 	defer cancel()
 	_, err := runDatabaseHelperContext(ctx, a.Config, time.Minute, "", "drop-managed", database, username)
 	if err != nil {
-		stateErr := state.NewCleanupError("staging_restore_database", err, "staging database compensation failed; startup reconciliation is required")
-		a.observeStateError(stateErr)
-		a.recovery.set(stateErr)
 		return fmt.Errorf("staging database compensation failed: %w", err)
 	}
 	return nil
+}
+
+func (a *App) markStagingRestoreRecoveryRequired(operation string, err error, message string) {
+	stateErr := state.NewCleanupError(operation, err, message)
+	a.observeStateError(stateErr)
+	a.recovery.set(stateErr)
 }
 
 func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {
