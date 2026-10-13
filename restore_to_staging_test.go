@@ -8,15 +8,60 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestCleanupStagingRestoreDatabaseRunsBoundedCompensation(t *testing.T) {
+func TestCanceledStagingDatabaseRestoreStillRunsCompensation(t *testing.T) {
 	root := t.TempDir()
 	argsPath := filepath.Join(root, "database-cleanup.args")
+	stage := filepath.Join(root, "stage")
+	marker := filepath.Join(root, "restore-started")
+	if err := os.MkdirAll(filepath.Join(stage, "databases"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "databases", "source.sql"), []byte("CREATE TABLE fixture (id INT);\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	helper := filepath.Join(root, "dbctl")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsPath + "\"\n"
+	script := "#!/bin/sh\ncase \"$1\" in\n" +
+		"provision) exit 0 ;;\n" +
+		"restore-dump) touch \"" + marker + "\"; exec sleep 30 ;;\n" +
+		"drop-managed) printf '%s\\n' \"$@\" > \"" + argsPath + "\" ;;\n" +
+		"*) exit 64 ;;\nesac\n"
 	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
 		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	type restoreResult struct {
+		created bool
+		err     error
+	}
+	finished := make(chan restoreResult, 1)
+	go func() {
+		created, err := restoreDatabaseIntoStagingContext(ctx, Config{DBCtl: helper}, stage, RestoreToStagingRequest{
+			Database: "source", TargetDatabase: "staging_db", TargetUser: "staging_user",
+			TargetPassword: "staging-password-1234567890", Site: "staging",
+		})
+		finished <- restoreResult{created: created, err: err}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		} else if time.Now().After(deadline) {
+			cancel()
+			t.Fatalf("database import helper did not start: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case result := <-finished:
+		if !result.created || result.err == nil {
+			t.Fatalf("canceled staged restore = created %t, err %v; want provisioned database and failed import", result.created, result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("staged database restore did not stop after cancellation")
 	}
 	if err := cleanupStagingRestoreDatabase(Config{DBCtl: helper}, "staging_db", "staging_user"); err != nil {
 		t.Fatalf("cleanupStagingRestoreDatabase: %v", err)
