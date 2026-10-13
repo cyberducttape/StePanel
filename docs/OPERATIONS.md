@@ -205,7 +205,10 @@ and oldest unreplicated backup; remote object connectivity alone is not a
 recoverability proof.
 
 Dead-letter jobs intentionally keep readiness failed until reviewed. After
-remediating the underlying fault, an administrator can requeue one with
+ordinary job cleanup does not prune unresolved dead-letter records, even after
+the normal completed-job retention period; the record survives a panel restart
+until an administrator explicitly requeues it. After remediating the
+underlying fault, an administrator can requeue one with
 `POST /api/jobs/<job-id>/retry`; the action resets its attempt counter, is
 durably compare-and-set against the dead-letter state, and is audit logged.
 
