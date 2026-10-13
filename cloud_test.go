@@ -469,7 +469,7 @@ func TestLinodeBackupsPathRequiresInstanceID(t *testing.T) {
 	}
 }
 
-func TestCloudOperationKeysAreOptionalAndTimeBounded(t *testing.T) {
+func TestCloudOperationKeysAreStableAcrossUTCDateBoundary(t *testing.T) {
 	request := durableCloudRequest{Operation: "instance", Action: "stop"}
 	first := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	if cloudOperationKey(request, "", first) != "" {
@@ -479,8 +479,46 @@ func TestCloudOperationKeysAreOptionalAndTimeBounded(t *testing.T) {
 	if got := cloudOperationKey(request, "request-123", first.Add(time.Minute)); got != key {
 		t.Fatalf("same-day retry key changed: %q != %q", got, key)
 	}
-	if got := cloudOperationKey(request, "request-123", first.Add(12*time.Hour)); got == key {
-		t.Fatal("client key was not expired at the bounded UTC-day boundary")
+	if got := cloudOperationKey(request, "request-123", first.Add(12*time.Hour)); got != key {
+		t.Fatalf("stable request key changed at UTC midnight: %q != %q", got, key)
+	}
+}
+
+func TestLinodeInventoryFailsWhenEveryProviderQueryFails(t *testing.T) {
+	failed := func(string) (any, error) { return nil, errors.New("provider unavailable") }
+	if inventory, err := linodeInventoryWith(failed); err == nil || len(inventory.Warnings) != 4 {
+		t.Fatalf("all-failed inventory = %#v, err=%v; expected warnings and an error", inventory, err)
+	}
+	partial := func(path string) (any, error) {
+		if path == "/domains" {
+			return map[string]any{"data": []any{}}, nil
+		}
+		return nil, errors.New("provider unavailable")
+	}
+	if inventory, err := linodeInventoryWith(partial); err != nil || len(inventory.Warnings) != 3 {
+		t.Fatalf("partial inventory = %#v, err=%v; expected usable partial data and warnings", inventory, err)
+	}
+}
+
+func TestLinodeDNSRecordIDValidationIsImmediateAndOptionalOnlyForCreate(t *testing.T) {
+	for _, test := range []struct {
+		id   string
+		want bool
+	}{{"", true}, {"123", true}, {"../123", false}, {"12x", false}} {
+		if got := validOptionalLinodeRecordID(test.id); got != test.want {
+			t.Errorf("record ID %q valid = %v, want %v", test.id, got, test.want)
+		}
+	}
+}
+
+func TestLinodeDNSRecordNameUsesProviderLengthLimit(t *testing.T) {
+	valid := cloudDNSRequest{Type: "A", Name: strings.Repeat("a", 100), Target: "192.0.2.1", TTL: 300}
+	if !cloudDNSRecordValid(valid) {
+		t.Fatal("provider-maximum 100-character record name rejected")
+	}
+	valid.Name += "a"
+	if cloudDNSRecordValid(valid) {
+		t.Fatal("provider-invalid 101-character record name accepted")
 	}
 }
 

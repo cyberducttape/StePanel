@@ -104,29 +104,30 @@ func newJobID(kind string) (string, error) {
 }
 
 type Job struct {
-	ID           string               `json:"id"`
-	Kind         string               `json:"kind"`
-	OperationKey string               `json:"operation_key,omitempty"`
-	State        string               `json:"state"`
-	User         string               `json:"user"`
-	Result       *ImportResult        `json:"result,omitempty"`
-	WPress       *WPressResult        `json:"wpress,omitempty"`
-	Certificate  *CertificateResult   `json:"certificate,omitempty"`
-	Backup       *BackupResult        `json:"backup,omitempty"`
-	Restore      *BackupRestoreResult `json:"restore,omitempty"`
-	Cloud        *CloudActionResult   `json:"cloud,omitempty"`
-	Error        string               `json:"error,omitempty"`
-	StartedAt    time.Time            `json:"started_at"`
-	FinishedAt   *time.Time           `json:"finished_at,omitempty"`
-	Payload      json.RawMessage      `json:"-"`
-	Output       json.RawMessage      `json:"output,omitempty"`
-	Attempts     int                  `json:"attempts,omitempty"`
-	MaxAttempts  int                  `json:"max_attempts,omitempty"`
-	NextAttempt  *time.Time           `json:"next_attempt_at,omitempty"`
-	Progress     int                  `json:"progress,omitempty"`
-	Cancel       bool                 `json:"cancel_requested,omitempty"`
-	LeaseOwner   string               `json:"-"`
-	LeaseExpires *time.Time           `json:"-"`
+	ID                   string               `json:"id"`
+	Kind                 string               `json:"kind"`
+	OperationKey         string               `json:"operation_key,omitempty"`
+	IdempotencyExpiresAt *time.Time           `json:"idempotency_expires_at,omitempty"`
+	State                string               `json:"state"`
+	User                 string               `json:"user"`
+	Result               *ImportResult        `json:"result,omitempty"`
+	WPress               *WPressResult        `json:"wpress,omitempty"`
+	Certificate          *CertificateResult   `json:"certificate,omitempty"`
+	Backup               *BackupResult        `json:"backup,omitempty"`
+	Restore              *BackupRestoreResult `json:"restore,omitempty"`
+	Cloud                *CloudActionResult   `json:"cloud,omitempty"`
+	Error                string               `json:"error,omitempty"`
+	StartedAt            time.Time            `json:"started_at"`
+	FinishedAt           *time.Time           `json:"finished_at,omitempty"`
+	Payload              json.RawMessage      `json:"-"`
+	Output               json.RawMessage      `json:"output,omitempty"`
+	Attempts             int                  `json:"attempts,omitempty"`
+	MaxAttempts          int                  `json:"max_attempts,omitempty"`
+	NextAttempt          *time.Time           `json:"next_attempt_at,omitempty"`
+	Progress             int                  `json:"progress,omitempty"`
+	Cancel               bool                 `json:"cancel_requested,omitempty"`
+	LeaseOwner           string               `json:"-"`
+	LeaseExpires         *time.Time           `json:"-"`
 }
 
 // JobEvent is emitted after a durable job change has been persisted. Payloads
@@ -324,7 +325,7 @@ func (j *Jobs) persistDurableItem(item *Job) error {
 	if err != nil {
 		return err
 	}
-	_, err = j.db.Exec(`INSERT INTO jobs (id, kind, operation_key, state, owner, started_at, finished_at, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, operation_key=excluded.operation_key, state=excluded.state, owner=excluded.owner, started_at=excluded.started_at, finished_at=excluded.finished_at, payload=excluded.payload, lease_owner=excluded.lease_owner, lease_expires_at=excluded.lease_expires_at, next_attempt_at=excluded.next_attempt_at, cancel_requested=excluded.cancel_requested, updated_at=excluded.updated_at`, item.ID, item.Kind, item.OperationKey, item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), leaseExpires, nextAttempt, boolInt(item.Cancel))
+	_, err = j.db.Exec(`INSERT INTO jobs (id, kind, operation_key, idempotency_expires_at, state, owner, started_at, finished_at, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, operation_key=excluded.operation_key, idempotency_expires_at=excluded.idempotency_expires_at, state=excluded.state, owner=excluded.owner, started_at=excluded.started_at, finished_at=excluded.finished_at, payload=excluded.payload, lease_owner=excluded.lease_owner, lease_expires_at=excluded.lease_expires_at, next_attempt_at=excluded.next_attempt_at, cancel_requested=excluded.cancel_requested, updated_at=excluded.updated_at`, item.ID, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), leaseExpires, nextAttempt, boolInt(item.Cancel))
 	return err
 }
 
@@ -333,7 +334,7 @@ func (j *Jobs) persistDurableItemCAS(item *Job, expectedOwner string) error {
 	if err != nil {
 		return err
 	}
-	result, err := j.db.Exec(`UPDATE jobs SET kind=?, operation_key=?, state=?, owner=?, started_at=?, finished_at=?, payload=?, lease_owner=?, lease_expires_at=?, next_attempt_at=?, cancel_requested=?, updated_at=unixepoch() WHERE id=? AND state='running' AND lease_owner=?`, item.Kind, item.OperationKey, item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), leaseExpires, nextAttempt, boolInt(item.Cancel), item.ID, expectedOwner)
+	result, err := j.db.Exec(`UPDATE jobs SET kind=?, operation_key=?, idempotency_expires_at=?, state=?, owner=?, started_at=?, finished_at=?, payload=?, lease_owner=?, lease_expires_at=?, next_attempt_at=?, cancel_requested=?, updated_at=unixepoch() WHERE id=? AND state='running' AND lease_owner=?`, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), leaseExpires, nextAttempt, boolInt(item.Cancel), item.ID, expectedOwner)
 	if err != nil {
 		return err
 	}
@@ -345,6 +346,13 @@ func (j *Jobs) persistDurableItemCAS(item *Job, expectedOwner string) error {
 		return errJobLeaseNotHeld
 	}
 	return nil
+}
+
+func nullableTimeNano(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return value.UnixNano()
 }
 
 // Renew extends a worker lease. Expired leases cannot be renewed.
@@ -512,6 +520,10 @@ func (j *Jobs) finishClaim(id, owner string, apply func(*Job)) error {
 // Payload is opaque to the control plane and must contain only replay-safe
 // operation input, never credentials or bearer tokens.
 func (j *Jobs) Enqueue(kind, owner, operationKey string, payload []byte, maxAttempts int) (Job, error) {
+	return j.enqueue(kind, owner, operationKey, payload, maxAttempts, nil)
+}
+
+func (j *Jobs) enqueue(kind, owner, operationKey string, payload []byte, maxAttempts int, expiresAt *time.Time) (Job, error) {
 	if j.db == nil || strings.TrimSpace(kind) == "" || strings.TrimSpace(owner) == "" {
 		return Job{}, errors.New("durable enqueue requires a kind and owner")
 	}
@@ -525,7 +537,7 @@ func (j *Jobs) Enqueue(kind, owner, operationKey string, payload []byte, maxAtte
 	if err != nil {
 		return Job{}, err
 	}
-	item := &Job{ID: id, Kind: kind, OperationKey: operationKey, State: "queued", User: owner, Payload: append([]byte(nil), payload...), MaxAttempts: maxAttempts, StartedAt: time.Now().UTC()}
+	item := &Job{ID: id, Kind: kind, OperationKey: operationKey, IdempotencyExpiresAt: expiresAt, State: "queued", User: owner, Payload: append([]byte(nil), payload...), MaxAttempts: maxAttempts, StartedAt: time.Now().UTC()}
 	if err := j.add(item); err != nil {
 		return Job{}, err
 	}
@@ -533,24 +545,112 @@ func (j *Jobs) Enqueue(kind, owner, operationKey string, payload []byte, maxAtte
 }
 
 func (j *Jobs) EnqueueIdempotent(kind, owner, operationKey string, payload []byte, maxAttempts int) (Job, bool, error) {
+	return j.enqueueIdempotent(kind, owner, operationKey, payload, maxAttempts, nil)
+}
+
+func (j *Jobs) EnqueueIdempotentWithExpiry(kind, owner, operationKey string, payload []byte, maxAttempts int, expiresAt time.Time) (Job, bool, error) {
 	if strings.TrimSpace(operationKey) == "" {
-		item, err := j.Enqueue(kind, owner, operationKey, payload, maxAttempts)
+		return j.EnqueueIdempotent(kind, owner, operationKey, payload, maxAttempts)
+	}
+	if !expiresAt.After(time.Now().UTC()) {
+		return Job{}, false, errors.New("idempotency expiration must be in the future")
+	}
+	expiresAt = expiresAt.UTC()
+	return j.enqueueIdempotent(kind, owner, operationKey, payload, maxAttempts, &expiresAt)
+}
+
+func (j *Jobs) enqueueIdempotent(kind, owner, operationKey string, payload []byte, maxAttempts int, expiresAt *time.Time) (Job, bool, error) {
+	if strings.TrimSpace(operationKey) == "" {
+		item, err := j.enqueue(kind, owner, operationKey, payload, maxAttempts, expiresAt)
 		return item, false, err
 	}
 	if j.db == nil {
-		item, err := j.Enqueue(kind, owner, operationKey, payload, maxAttempts)
+		item, err := j.enqueue(kind, owner, operationKey, payload, maxAttempts, expiresAt)
 		return item, false, err
+	}
+	if expiresAt != nil {
+		if err := j.releaseExpiredIdempotencyKey(kind, owner, operationKey, time.Now().UTC()); err != nil {
+			return Job{}, false, err
+		}
 	}
 	if existing, found, err := j.lookupIdempotentJob(kind, owner, operationKey, payload); err != nil || found {
 		return existing, found, err
 	}
-	item, err := j.Enqueue(kind, owner, operationKey, payload, maxAttempts)
+	item, err := j.enqueue(kind, owner, operationKey, payload, maxAttempts, expiresAt)
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "unique") {
 		if existing, found, lookupErr := j.lookupIdempotentJob(kind, owner, operationKey, payload); lookupErr != nil || found {
 			return existing, found, lookupErr
 		}
 	}
 	return item, false, err
+}
+
+func (j *Jobs) releaseExpiredIdempotencyKey(kind, owner, operationKey string, now time.Time) error {
+	tx, err := j.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`SELECT id, payload FROM jobs WHERE kind=? AND owner=? AND operation_key=? AND idempotency_expires_at IS NOT NULL AND idempotency_expires_at<=? AND state NOT IN ('queued','running')`, kind, owner, operationKey, now.UnixNano())
+	if err != nil {
+		return err
+	}
+	type expiredJob struct {
+		id      string
+		payload []byte
+	}
+	var expired []expiredJob
+	for rows.Next() {
+		var item expiredJob
+		if err := rows.Scan(&item.id, &item.payload); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		expired = append(expired, item)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	var released []string
+	for _, item := range expired {
+		var persisted persistedJob
+		if err := json.Unmarshal(item.payload, &persisted); err != nil {
+			return fmt.Errorf("decode expired idempotency job %s: %w", item.id, err)
+		}
+		persisted.Job.OperationKey = ""
+		persisted.Job.IdempotencyExpiresAt = nil
+		data, err := json.Marshal(&persisted)
+		if err != nil {
+			return err
+		}
+		result, err := tx.Exec(`UPDATE jobs SET operation_key='', idempotency_expires_at=NULL, payload=?, updated_at=unixepoch() WHERE id=? AND operation_key=? AND idempotency_expires_at<=? AND state NOT IN ('queued','running')`, data, item.id, operationKey, now.UnixNano())
+		if err != nil {
+			return err
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if updated == 1 {
+			released = append(released, item.id)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	j.mu.Lock()
+	for _, id := range released {
+		if item := j.items[id]; item != nil {
+			item.OperationKey = ""
+			item.IdempotencyExpiresAt = nil
+		}
+	}
+	j.mu.Unlock()
+	return nil
 }
 
 func (j *Jobs) lookupIdempotentJob(kind, owner, operationKey string, payload []byte) (Job, bool, error) {
@@ -1380,6 +1480,9 @@ func openDurableJobsDBWithKey(db *sql.DB, legacyPath, payloadKey string, limits 
 			}
 		}
 	}
+	if err := j.normalizeLegacyCloudJobOwners(); err != nil {
+		return nil, fmt.Errorf("migrate cloud job resource owners: %w", err)
+	}
 	if j.payloadBox != nil && j.legacyPayloads.Load() {
 		// Re-seal every payload bound to its job, then refuse the legacy
 		// formats from now on.
@@ -1395,6 +1498,37 @@ func openDurableJobsDBWithKey(db *sql.DB, legacyPath, payloadKey string, limits 
 		j.legacyPayloadsSeen.Store(false)
 	}
 	return j, nil
+}
+
+// normalizeLegacyCloudJobOwners upgrades pre-namespace job owners after their
+// payloads have been opened with the original owner-bound encryption context.
+// Re-persisting re-seals each payload against the new typed owner.
+func (j *Jobs) normalizeLegacyCloudJobOwners() error {
+	if j.db == nil {
+		return nil
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for _, item := range j.items {
+		if item == nil || item.Kind != "cloud.action" {
+			continue
+		}
+		var request durableCloudRequest
+		if err := json.Unmarshal(item.Payload, &request); err != nil {
+			return fmt.Errorf("decode cloud job %s: %w", item.ID, err)
+		}
+		owner := cloudJobOwner(request)
+		if owner == "" || owner == item.User {
+			continue
+		}
+		previous := *item
+		item.User = owner
+		if err := j.persistDurableItem(item); err != nil {
+			*item = previous
+			return fmt.Errorf("persist cloud job %s owner: %w", item.ID, err)
+		}
+	}
+	return nil
 }
 
 func jobPayloadKey(value string) []byte {
@@ -1758,7 +1892,7 @@ func (j *Jobs) persistLocked() error {
 			if item.NextAttempt != nil {
 				nextAttempt = item.NextAttempt.UnixNano()
 			}
-			if _, err := tx.Exec(`INSERT INTO jobs (id, kind, operation_key, state, owner, started_at, finished_at, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, operation_key=excluded.operation_key, state=excluded.state, owner=excluded.owner, started_at=excluded.started_at, finished_at=excluded.finished_at, payload=excluded.payload, lease_owner=excluded.lease_owner, lease_expires_at=excluded.lease_expires_at, next_attempt_at=excluded.next_attempt_at, cancel_requested=excluded.cancel_requested, updated_at=excluded.updated_at`, item.ID, item.Kind, item.OperationKey, item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), leaseExpires, nextAttempt, boolInt(item.Cancel)); err != nil {
+			if _, err := tx.Exec(`INSERT INTO jobs (id, kind, operation_key, idempotency_expires_at, state, owner, started_at, finished_at, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, operation_key=excluded.operation_key, idempotency_expires_at=excluded.idempotency_expires_at, state=excluded.state, owner=excluded.owner, started_at=excluded.started_at, finished_at=excluded.finished_at, payload=excluded.payload, lease_owner=excluded.lease_owner, lease_expires_at=excluded.lease_expires_at, next_attempt_at=excluded.next_attempt_at, cancel_requested=excluded.cancel_requested, updated_at=excluded.updated_at`, item.ID, item.Kind, item.OperationKey, nullableTimeNano(item.IdempotencyExpiresAt), item.State, item.User, item.StartedAt.UnixNano(), finished, data, nullString(item.LeaseOwner), leaseExpires, nextAttempt, boolInt(item.Cancel)); err != nil {
 				return rollback(fmt.Errorf("write durable job %s: %w", item.ID, err))
 			}
 		}
@@ -1977,8 +2111,11 @@ func (j *Jobs) loadDurableJob(id string) (Job, bool, error) {
 const durableJobColumns = `state, payload, lease_owner, lease_expires_at, next_attempt_at, cancel_requested`
 
 const (
-	maxActivePayloads      = 10_000
-	maxOwnerActivePayloads = 500
+	maxActivePayloads = 10_000
+	// A single Linode domain may contain up to 12,000 records. The pending DNS
+	// view must not fail at an arbitrary lower per-owner cap; the global active
+	// job budget remains the bound for this query.
+	maxOwnerActivePayloads = maxActivePayloads
 )
 
 func (j *Jobs) decodeDurableJob(state string, data []byte, leaseOwner sql.NullString, leaseExpires, nextAttempt sql.NullInt64, cancelRequested int) (Job, error) {
@@ -2020,8 +2157,8 @@ func (j *Jobs) ActivePayloads(kind string) ([]json.RawMessage, error) {
 }
 
 // ActivePayloadsForOwner reads only active jobs owned by one resource. Cloud
-// DNS uses the domain ID as owner, so a domain's pending view does not need to
-// decrypt and decode unrelated cloud operations.
+// DNS uses the provider-qualified domain owner, so a domain's pending view does
+// not need to decrypt and decode unrelated cloud operations.
 func (j *Jobs) ActivePayloadsForOwner(kind, owner string) ([]json.RawMessage, error) {
 	if j.db == nil {
 		return nil, nil

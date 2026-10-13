@@ -212,7 +212,7 @@ paths:
   /api/cloud/action:
     post:
       summary: Start, stop, reboot, or snapshot an existing cloud resource
-      description: Linode snapshot requests require snapshot_label and confirm_snapshot_replacement=true because the provider may replace the current manual snapshot. Optional Idempotency-Key values deduplicate the exact request for a bounded UTC-day window; distinct submissions without a key always create distinct attempts.
+      description: Linode snapshot requests require snapshot_label and confirm_snapshot_replacement=true because the provider may replace the current manual snapshot. Optional Idempotency-Key values deduplicate the exact request for 24 hours from admission, including across UTC midnight, and for longer if the job is still active; distinct submissions without a key always create distinct attempts.
       parameters:
         - {name: Idempotency-Key, in: header, required: false, schema: {type: string, minLength: 1, maxLength: 128}}
       responses:
@@ -243,7 +243,7 @@ paths:
   /api/cloud/loadbalancer:
     post:
       summary: Queue a Linode load-balancer backend add or removal
-      description: Node additions accept address as an IP and port separately, then combine them into the provider's address-with-port field (IPv6 is bracketed). A label is required and weight must be from 1 through 255. Optional Idempotency-Key values deduplicate an exact request for a bounded UTC-day window.
+      description: Node additions accept address as an IP and port separately, then combine them into the provider's address-with-port field (IPv6 is bracketed). A label is required and weight must be from 1 through 255. Optional Idempotency-Key values deduplicate an exact request for 24 hours from admission, including across UTC midnight, and for longer if the job is still active.
       parameters:
         - {name: Idempotency-Key, in: header, required: false, schema: {type: string, minLength: 1, maxLength: 128}}
       responses:

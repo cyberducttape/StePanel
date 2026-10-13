@@ -26,6 +26,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   including rejection of IPv4-mapped IPv6 addresses for both record types.
 - Documented the Linode account-event permission required to verify reboot
   completion before reporting the cloud job successful.
+- Legacy DNS desired-state reload now accepts every supported Linode TTL and
+  the empty owner name permitted for SRV records, with restart coverage for all
+  seven supported record types.
+- Linode inventory now returns an unavailable error when every provider query
+  fails, while preserving partial results and per-resource warnings when at
+  least one query succeeds. DNS update record IDs are rejected before job
+  admission, record-name validation matches Linode's 100-character limit, and
+  pending DNS views use the global bounded active-job limit instead of an
+  arbitrary 500-job per-domain cutoff.
+- A confirmed Linode DNS mutation remains a successful job if local desired
+  state cannot be persisted; the durable result and audit log now carry an
+  explicit reconciliation warning instead of inviting a duplicate mutation.
+- Cloud job owners now include provider and resource type so equal numeric IDs
+  for instances, DNS domains, and NodeBalancers do not block each other;
+  startup migrates existing owners and pending DNS views retain old jobs.
+- Cloud idempotency keys are stable across UTC midnight and use a persisted
+  24-hour expiration; expired terminal attempts release their key, while active
+  operations remain protected from duplicate dispatch.
 - AWS EBS snapshot jobs now parse the top-level `SnapshotId`, persist it in
   the durable job payload before waiting, and wait for that exact snapshot;
   OpenStack backup jobs now treat successful `server backup create --wait` as
@@ -50,8 +68,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   same site. Explicit keys bind to the complete request payload and conflicting
   reuse returns HTTP 409. Regression coverage verifies Git deployment and
   Composer installation are both admitted for one site. Cloud actions
-  likewise create a fresh attempt unless the caller supplies an exact,
-  UTC-day-bounded retry key.
+  likewise create a fresh attempt unless the caller supplies an exact retry
+  key, which is retained for 24 hours from admission.
 - Corrected Linode backup handling to use per-instance backup inventory and
   removed the unsupported snapshot deletion route. Snapshot creation now sends
   the required label and requires explicit confirmation that the provider may

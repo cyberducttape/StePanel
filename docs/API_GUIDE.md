@@ -106,8 +106,9 @@ Manage customer tokens with `GET`/`POST /api/account/tokens` and
   returns the original restore job instead of starting a second restore.
 - Cloud mutation endpoints accept an optional `Idempotency-Key`. Without it,
   every deliberate action is enqueued as a new attempt. With it, only an exact
-  request retry is deduplicated, for the current UTC day; reusing a key with a
-  different request returns `409`.
+  request retry is deduplicated for 24 hours from its first admission, across
+  UTC date boundaries. A still-active attempt remains deduplicated until it
+  becomes terminal; reusing a key with a different request returns `409`.
 - Destructive operations require exact confirmation strings documented by the
   endpoint and are audited before execution.
 

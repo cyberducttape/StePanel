@@ -26,12 +26,13 @@ type CloudInventory struct {
 }
 
 type CloudActionResult struct {
-	Provider    string    `json:"provider"`
-	Action      string    `json:"action"`
-	ID          string    `json:"id"`
-	SnapshotID  string    `json:"snapshot_id,omitempty"`
-	RemoteState string    `json:"remote_state,omitempty"`
-	CompletedAt time.Time `json:"completed_at"`
+	Provider     string    `json:"provider"`
+	Action       string    `json:"action"`
+	ID           string    `json:"id"`
+	SnapshotID   string    `json:"snapshot_id,omitempty"`
+	RemoteState  string    `json:"remote_state,omitempty"`
+	StateWarning string    `json:"state_warning,omitempty"`
+	CompletedAt  time.Time `json:"completed_at"`
 }
 
 type cloudDNSRequest struct {
@@ -99,29 +100,60 @@ func (a *App) enqueueCloudJob(request durableCloudRequest, suppliedKey string) (
 	if err != nil {
 		return Job{}, err
 	}
-	owner := request.ID
+	owner := cloudJobOwner(request)
 	if owner == "" {
-		owner = request.DNS.DomainID
+		return Job{}, errors.New("cloud job request is missing its typed resource owner")
 	}
-	if owner == "" {
-		owner = request.LB.NodeBalancerID
-	}
-	operationKey := cloudOperationKey(request, suppliedKey, time.Now().UTC())
+	now := time.Now().UTC()
+	operationKey := cloudOperationKey(request, suppliedKey, now)
 	// Provider mutations can have an ambiguous outcome when a worker or network
 	// fails after dispatch. Never replay them automatically; leave the attempt
 	// visible for reconciliation by an operator or a new explicit request.
-	job, _, err := a.Jobs.EnqueueIdempotent("cloud.action", owner, operationKey, payload, 1)
+	var job Job
+	if operationKey == "" {
+		job, _, err = a.Jobs.EnqueueIdempotent("cloud.action", owner, operationKey, payload, 1)
+	} else {
+		job, _, err = a.Jobs.EnqueueIdempotentWithExpiry("cloud.action", owner, operationKey, payload, 1, now.Add(24*time.Hour))
+	}
 	return job, err
 }
 
-// cloudOperationKey scopes an optional request idempotency key to one action
-// and a UTC day. Retried submissions converge for at most 24 hours, while a
-// later deliberate action can never be permanently hidden by old job history.
-func cloudOperationKey(request durableCloudRequest, suppliedKey string, now time.Time) string {
+func cloudJobOwner(request durableCloudRequest) string {
+	provider := strings.ToLower(strings.TrimSpace(request.Provider))
+	switch request.Operation {
+	case "dns":
+		if request.DNS.DomainID != "" {
+			return provider + ":domain:" + request.DNS.DomainID
+		}
+	case "loadbalancer":
+		if request.LB.NodeBalancerID != "" {
+			return provider + ":nodebalancer:" + request.LB.NodeBalancerID
+		}
+	case "instance":
+		if request.AWSVolume != nil {
+			return provider + ":volume:" + request.AWSVolume.VolumeID
+		}
+		if request.ID != "" {
+			return provider + ":instance:" + request.ID
+		}
+	case "ssh":
+		if request.ID != "" {
+			return "ssh:service:" + request.ID + ":" + request.Service
+		}
+	}
+	if provider != "" && request.ID != "" && request.Operation != "" {
+		return provider + ":" + request.Operation + ":" + request.ID
+	}
+	return ""
+}
+
+// cloudOperationKey is stable across time. Its separate durable expiration
+// timestamp bounds retry deduplication without creating a UTC-midnight gap.
+func cloudOperationKey(request durableCloudRequest, suppliedKey string, _ time.Time) string {
 	if suppliedKey == "" {
 		return ""
 	}
-	return request.Operation + ":" + request.Action + ":" + now.UTC().Format("20060102") + ":" + suppliedKey
+	return request.Operation + ":" + request.Action + ":" + suppliedKey
 }
 
 func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
@@ -269,7 +301,12 @@ func (a *App) handleCloudJob(ctx context.Context, item Job) ([]byte, error) {
 	}
 	if request.Operation == "dns" && a.DNSDesired != nil {
 		if desiredErr := a.DNSDesired.markResult(request.DNS, request.Action, nil); desiredErr != nil {
-			return nil, fmt.Errorf("persist DNS applied state: %w", desiredErr)
+			// The provider has already confirmed the mutation. Failing the job here
+			// would invite an unsafe duplicate request after an ambiguous local
+			// persistence error. Keep provider success authoritative and expose the
+			// local reconciliation failure in the durable job result.
+			result.StateWarning = "provider mutation succeeded but DNS applied state could not be saved; reconcile provider state: " + desiredErr.Error()
+			TelemetryAudit(a.Config.AuditLog, request.Actor, "cloud.dns.state_persistence_failed", request.DNS.DomainID, result.StateWarning)
 		}
 	}
 	auditPrefix := "cloud."
@@ -461,6 +498,10 @@ func (a *App) cloudDNS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid domain_id", 422)
 		return
 	}
+	if !validOptionalLinodeRecordID(in.RecordID) {
+		http.Error(w, "invalid record_id", 422)
+		return
+	}
 	if r.Method == http.MethodDelete {
 		if !cloudNumericID.MatchString(in.RecordID) {
 			http.Error(w, "invalid record_id", 422)
@@ -479,6 +520,10 @@ func (a *App) cloudDNS(w http.ResponseWriter, r *http.Request) {
 		action = "update"
 	}
 	a.queueDNSJob(w, r, in, action)
+}
+
+func validOptionalLinodeRecordID(id string) bool {
+	return id == "" || cloudNumericID.MatchString(id)
 }
 
 func (a *App) cloudLoadBalancer(w http.ResponseWriter, r *http.Request) {
@@ -600,9 +645,14 @@ func (a *App) dnsDesiredView(domainID string) ([]DNSDesiredRecord, error) {
 		records[record.Key] = record
 	}
 	if a.Jobs != nil {
-		payloads, err := a.Jobs.ActivePayloadsForOwner("cloud.action", domainID)
-		if err != nil {
-			return nil, err
+		owners := []string{"linode:domain:" + domainID, domainID} // The second owner keeps pending jobs from pre-namespace releases visible.
+		var payloads []json.RawMessage
+		for _, owner := range owners {
+			active, err := a.Jobs.ActivePayloadsForOwner("cloud.action", owner)
+			if err != nil {
+				return nil, err
+			}
+			payloads = append(payloads, active...)
 		}
 		for _, payload := range payloads {
 			var request durableCloudRequest
@@ -1278,14 +1328,20 @@ func linodeInventory(ctx context.Context) (CloudInventory, error) {
 	get := func(path string) (any, error) {
 		return linodeAPIRequest(ctx, http.MethodGet, path, nil)
 	}
+	return linodeInventoryWith(get)
+}
+
+func linodeInventoryWith(get func(string) (any, error)) (CloudInventory, error) {
 	paths := []struct{ name, path string }{{"servers", "/linode/instances"}, {"dns", "/domains"}, {"load_balancers", "/nodebalancers"}}
 	inv := CloudInventory{Provider: "linode"}
+	var successes int
 	for _, item := range paths {
 		value, err := get(item.path)
 		if err != nil {
 			inv.Warnings = append(inv.Warnings, item.name+": "+err.Error())
 			continue
 		}
+		successes++
 		switch item.name {
 		case "servers":
 			inv.Servers = value
@@ -1298,6 +1354,9 @@ func linodeInventory(ctx context.Context) (CloudInventory, error) {
 		}
 	}
 	inv.Warnings = append(inv.Warnings, "snapshots: Linode backups are scoped to an instance; use GET /api/cloud/snapshots?linode_id=<id>")
+	if successes == 0 {
+		return inv, errors.New("all Linode inventory queries failed")
+	}
 	return inv, nil
 }
 

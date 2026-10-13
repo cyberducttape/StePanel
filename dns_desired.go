@@ -57,7 +57,12 @@ func OpenDNSDesiredStore(path string) (*DNSDesiredStore, error) {
 	for key, record := range store.values {
 		validRecord := record.Action == "delete" && cloudNumericID.MatchString(record.RecordID)
 		if record.Action != "delete" {
-			validRecord = dnsTypePattern.MatchString(strings.ToUpper(record.Type)) && dnsNamePattern.MatchString(record.Name) && record.TTL >= 30 && record.TTL <= 604800
+			recordType := strings.ToUpper(record.Type)
+			validName := dnsNamePattern.MatchString(record.Name)
+			if recordType == "SRV" {
+				validName = validLinodeDNSName(recordType, record.Name)
+			}
+			validRecord = dnsTypePattern.MatchString(recordType) && validName && record.TTL >= 30 && record.TTL <= 2419200
 		}
 		if key == "" || record.Key != key || !cloudNumericID.MatchString(record.DomainID) || !validRecord || (record.State != "pending" && record.State != "applied" && record.State != "failed") {
 			return nil, errors.New("invalid DNS desired state")

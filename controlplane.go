@@ -347,6 +347,12 @@ CREATE INDEX IF NOT EXISTS jobs_owner_state_idx ON jobs(owner, state, started_at
 CREATE INDEX IF NOT EXISTS jobs_kind_owner_state_idx ON jobs(kind, owner, state);`)
 		return err
 	}),
+	migration.NewMigrationWithCheck(17, "add job idempotency expiration", func(tx *sql.Tx) (bool, error) {
+		return controlPlaneColumnExists(tx, "jobs", "idempotency_expires_at")
+	}, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN idempotency_expires_at INTEGER`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

@@ -22,9 +22,10 @@ import (
 // Linode-specific request validation and wire payloads live here so the
 // provider's contract is auditable independently of cloud job orchestration.
 var (
-	dnsTypePattern         = regexp.MustCompile(`^(A|AAAA|CNAME|MX|TXT|NS|SRV)$`)
-	dnsNamePattern         = regexp.MustCompile(`^[A-Za-z0-9_.*@-]{1,253}$`)
-	linodeNodeLabelPattern = regexp.MustCompile(`^[A-Za-z0-9-_.]{3,32}$`)
+	dnsTypePattern          = regexp.MustCompile(`^(A|AAAA|CNAME|MX|TXT|NS|SRV)$`)
+	dnsNamePattern          = regexp.MustCompile(`^[A-Za-z0-9_.*@-]{1,253}$`)
+	linodeRecordNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.*@-]{1,100}$`)
+	linodeNodeLabelPattern  = regexp.MustCompile(`^[A-Za-z0-9-_.]{3,32}$`)
 )
 
 func validLinodeNodeRequest(request cloudLBRequest) bool {
@@ -86,9 +87,9 @@ func validLinodeTTL(ttl int) bool {
 
 func validLinodeDNSName(recordType, name string) bool {
 	if strings.EqualFold(recordType, "SRV") {
-		return name == "" || dnsNamePattern.MatchString(name)
+		return name == "" || linodeRecordNamePattern.MatchString(name)
 	}
-	return dnsNamePattern.MatchString(name)
+	return linodeRecordNamePattern.MatchString(name)
 }
 
 func validDNSServiceLabel(value string) bool {

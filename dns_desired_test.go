@@ -1,6 +1,8 @@
 package stepanel
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -23,6 +25,43 @@ func TestDNSDesiredStateSurvivesTransitions(t *testing.T) {
 	}
 	if len(store.list("123")) != 0 {
 		t.Fatal("deleted DNS desired record remained")
+	}
+}
+
+func TestDNSDesiredLegacyStateReloadAcceptsCurrentDNSContract(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dns-desired.json")
+	records := map[string]DNSDesiredRecord{}
+	inputs := []cloudDNSRequest{
+		{DomainID: "123", Type: "A", Name: "@", Target: "192.0.2.10", TTL: 2419200},
+		{DomainID: "123", Type: "AAAA", Name: "v6", Target: "2001:db8::10", TTL: 1209600},
+		{DomainID: "123", Type: "CNAME", Name: "www", Target: "example.com", TTL: 300},
+		{DomainID: "123", Type: "MX", Name: "@", Target: "mail.example.com", TTL: 604800, Priority: 10},
+		{DomainID: "123", Type: "NS", Name: "@", Target: "ns1.example.com", TTL: 1209600},
+		{DomainID: "123", Type: "SRV", Name: "", Target: "service.example.com", TTL: 2419200, Priority: 10, Service: "https", Protocol: "tcp", Port: 443, Weight: 5},
+		{DomainID: "123", Type: "TXT", Name: "@", Target: "v=spf1 include:example.com", TTL: 300},
+	}
+	for index, input := range inputs {
+		key := "123/legacy-" + string(rune('a'+index))
+		records[key] = DNSDesiredRecord{
+			Key: key, DomainID: input.DomainID, Type: input.Type, Name: input.Name,
+			Target: input.Target, TTL: input.TTL, Priority: input.Priority,
+			Service: input.Service, Protocol: input.Protocol, Port: input.Port,
+			Weight: input.Weight, Action: "update", State: "applied",
+		}
+	}
+	data, err := json.Marshal(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenDNSDesiredStore(path)
+	if err != nil {
+		t.Fatalf("reload valid legacy DNS schema: %v", err)
+	}
+	if got := store.list("123"); len(got) != len(inputs) {
+		t.Fatalf("reloaded %d DNS records, want %d", len(got), len(inputs))
 	}
 }
 
@@ -63,6 +102,49 @@ func TestDNSPendingIsDerivedFromTheDurableJob(t *testing.T) {
 	}
 	if stored := store.list("123"); len(stored) != 1 || stored[0].State != "applied" {
 		t.Fatalf("enqueue wrote desired state directly: %#v", stored)
+	}
+}
+
+func TestCloudResourcesWithSameNumericIDHaveIndependentQueueOwners(t *testing.T) {
+	app, _ := newDNSTestApp(t)
+	requests := []durableCloudRequest{
+		{Operation: "instance", Provider: "linode", Action: "reboot", ID: "123", Actor: "admin"},
+		{Operation: "dns", Provider: "linode", Action: "update", ID: "123", DNS: cloudDNSRequest{DomainID: "123", RecordID: "1", Type: "A", Name: "@", Target: "192.0.2.1", TTL: 300}, Actor: "admin"},
+		{Operation: "loadbalancer", Provider: "linode", Action: "remove", ID: "123", LB: cloudLBRequest{NodeBalancerID: "123", ConfigID: "1", NodeID: "2", Action: "remove"}, Actor: "admin"},
+	}
+	app.Jobs.workerLimit = len(requests)
+	wantOwners := map[string]bool{
+		"linode:instance:123":     false,
+		"linode:domain:123":       false,
+		"linode:nodebalancer:123": false,
+	}
+	for _, request := range requests {
+		job, err := app.enqueueCloudJob(request, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := wantOwners[job.User]; !ok {
+			t.Fatalf("cloud job owner = %q, want a typed owner", job.User)
+		}
+		wantOwners[job.User] = true
+	}
+	for owner, seen := range wantOwners {
+		if !seen {
+			t.Errorf("no job received independent owner %q", owner)
+		}
+	}
+	claimedOwners := map[string]bool{}
+	for range requests {
+		job, claimed, err := app.Jobs.ClaimNext("typed-owner-test", "cloud.action")
+		if err != nil || !claimed {
+			t.Fatalf("independent cloud job claim = %v, %v; want a claim", claimed, err)
+		}
+		claimedOwners[job.User] = true
+	}
+	for owner := range wantOwners {
+		if !claimedOwners[owner] {
+			t.Errorf("queue head-of-line blocking prevented claim for %q", owner)
+		}
 	}
 }
 

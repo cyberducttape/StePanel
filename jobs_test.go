@@ -335,6 +335,128 @@ func TestDurableIdempotencyKeyIsBoundToPayload(t *testing.T) {
 	}
 }
 
+func TestDurableIdempotencyExpiryIsTimestampBasedAndRestartSafe(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 2)
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	key := "instance:reboot:operator-request"
+	payload := []byte(`{"operation":"instance","action":"reboot"}`)
+	first, existing, err := jobs.EnqueueIdempotentWithExpiry("cloud.action", "linode:instance:123", key, payload, 1, expiresAt)
+	if err != nil || existing {
+		t.Fatalf("initial expiring request = %+v, existing=%v, err=%v", first, existing, err)
+	}
+	if first.IdempotencyExpiresAt == nil || !first.IdempotencyExpiresAt.Equal(expiresAt) {
+		t.Fatalf("job expiration = %v, want %v", first.IdempotencyExpiresAt, expiresAt)
+	}
+	restarted := newJobsWithDB(db, 2)
+	if err := restarted.load(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := restarted.items[first.ID]
+	if reloaded == nil || reloaded.IdempotencyExpiresAt == nil || !reloaded.IdempotencyExpiresAt.Equal(expiresAt) {
+		t.Fatalf("reloaded expiration = %v", reloaded)
+	}
+	retry, existing, err := restarted.EnqueueIdempotentWithExpiry("cloud.action", "linode:instance:123", key, payload, 1, expiresAt)
+	if err != nil || !existing || retry.ID != first.ID {
+		t.Fatalf("same request retry = %+v, existing=%v, err=%v", retry, existing, err)
+	}
+	expiredAt := time.Now().UTC().Add(-time.Second)
+	if _, err := db.Exec(`UPDATE jobs SET idempotency_expires_at=? WHERE id=?`, expiredAt.UnixNano(), first.ID); err != nil {
+		t.Fatal(err)
+	}
+	restarted.items[first.ID].IdempotencyExpiresAt = &expiredAt
+	activeRetry, existing, err := restarted.EnqueueIdempotentWithExpiry("cloud.action", "linode:instance:123", key, payload, 1, time.Now().UTC().Add(time.Hour))
+	if err != nil || !existing || activeRetry.ID != first.ID {
+		t.Fatalf("expired active request = %+v, existing=%v, err=%v; active attempt must remain deduplicated", activeRetry, existing, err)
+	}
+	claimed, ok, err := restarted.Claim(first.ID, "expiry-test-worker")
+	if err != nil || !ok {
+		t.Fatalf("claim expiring job = %v, %v", ok, err)
+	}
+	if err := restarted.finishClaim(claimed.ID, "expiry-test-worker", func(item *Job) {
+		item.State = "completed"
+		finished := time.Now().UTC()
+		item.FinishedAt = &finished
+	}); err != nil {
+		t.Fatal(err)
+	}
+	second, existing, err := restarted.EnqueueIdempotentWithExpiry("cloud.action", "linode:instance:123", key, payload, 1, time.Now().UTC().Add(time.Hour))
+	if err != nil || existing || second.ID == first.ID {
+		t.Fatalf("request after expiry = %+v, existing=%v, err=%v; want a new durable attempt", second, existing, err)
+	}
+	var oldKey string
+	if err := db.QueryRow(`SELECT operation_key FROM jobs WHERE id=?`, first.ID).Scan(&oldKey); err != nil {
+		t.Fatal(err)
+	}
+	if oldKey != "" {
+		t.Fatalf("expired attempt retained unique operation key %q", oldKey)
+	}
+}
+
+func TestLegacyCloudJobOwnerIsNamespacedBeforeNewClaims(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	legacy := newJobsWithDB(db, 2)
+	request := durableCloudRequest{Operation: "instance", Provider: "linode", Action: "reboot", ID: "123", Actor: "admin"}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := legacy.Enqueue("cloud.action", "123", "", payload, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := openDurableJobsDB(db, "", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, found, err := jobs.loadDurableJob(old.ID)
+	if err != nil || !found || loaded.User != "linode:instance:123" {
+		t.Fatalf("migrated job owner = %q, found=%v, err=%v", loaded.User, found, err)
+	}
+	app := &App{Jobs: jobs}
+	newJob, err := app.enqueueCloudJob(request, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dnsJob, err := app.enqueueCloudJob(durableCloudRequest{Operation: "dns", Provider: "linode", Action: "update", ID: "123", DNS: cloudDNSRequest{DomainID: "123", RecordID: "7", Type: "A", Name: "www", Target: "192.0.2.7", TTL: 300}, Actor: "admin"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, claimed, err := jobs.ClaimNext("owner-migration-worker", "cloud.action")
+	if err != nil || !claimed {
+		t.Fatalf("claim first same-resource attempt = %v, %v", claimed, err)
+	}
+	second, claimed, err := jobs.ClaimNext("owner-migration-worker", "cloud.action")
+	if err != nil || !claimed {
+		t.Fatalf("same-numeric-ID DNS job was blocked by instance: %v, %v", claimed, err)
+	}
+	if first.ID != old.ID || second.ID != dnsJob.ID {
+		t.Fatalf("claim order = %q then %q, want legacy instance %q then independent DNS %q", first.ID, second.ID, old.ID, dnsJob.ID)
+	}
+	if _, claimed, err := jobs.ClaimNext("owner-migration-worker", "cloud.action"); err != nil || claimed {
+		t.Fatalf("same instance was not serialized behind the legacy attempt: claimed=%v err=%v", claimed, err)
+	}
+	if err := jobs.finishClaim(first.ID, "owner-migration-worker", func(item *Job) {
+		item.State = "completed"
+		finished := time.Now().UTC()
+		item.FinishedAt = &finished
+	}); err != nil {
+		t.Fatal(err)
+	}
+	third, claimed, err := jobs.ClaimNext("owner-migration-worker", "cloud.action")
+	if err != nil || !claimed || third.ID != newJob.ID {
+		t.Fatalf("claim new instance after legacy completion = %q, %v, %v; want %q", third.ID, claimed, err, newJob.ID)
+	}
+}
+
 func TestActivePayloadQueriesAreSinglePassAndOwnerScoped(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {
@@ -374,6 +496,24 @@ func TestActivePayloadQueriesAreSinglePassAndOwnerScoped(t *testing.T) {
 	}
 	if _, err := jobs.activePayloads(`kind = ?`, []any{"cloud.action"}, 3); err == nil || !strings.Contains(err.Error(), "3-job safety limit") {
 		t.Fatalf("over-limit payload query error = %v, want explicit bounded-query failure", err)
+	}
+}
+
+func TestActivePayloadsForOwnerAcceptsMoreThanLegacy500Cutoff(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	for i := 0; i < 501; i++ {
+		if _, err := jobs.Enqueue("cloud.action", "linode:domain:123", fmt.Sprintf("record-%d", i), []byte(`{"operation":"dns","domain_id":"123"}`), 1); err != nil {
+			t.Fatalf("enqueue active record %d: %v", i, err)
+		}
+	}
+	payloads, err := jobs.ActivePayloadsForOwner("cloud.action", "linode:domain:123")
+	if err != nil || len(payloads) != 501 {
+		t.Fatalf("active owner payload count = %d, err=%v; want 501", len(payloads), err)
 	}
 }
 
