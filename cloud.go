@@ -926,14 +926,44 @@ func executeAWSInstanceAction(ctx context.Context, action string, request AWSIns
 	if err != nil {
 		return err
 	}
+	var before string
+	if action == "reboot" {
+		before, err = awsInstanceHealth(ctx, request.InstanceID)
+		if err != nil {
+			return fmt.Errorf("read AWS instance health before reboot: %w", err)
+		}
+	}
 	if err := runCloudCLI(ctx, "aws", "AWS", args...); err != nil {
 		return err
+	}
+	if action == "reboot" {
+		return waitCloudState(ctx, before, "ok\tok", time.Second, func(waitCtx context.Context) (string, error) {
+			return awsInstanceHealth(waitCtx, request.InstanceID)
+		})
 	}
 	waiter := map[string]string{"start": "instance-running", "stop": "instance-stopped", "reboot": "instance-status-ok"}[action]
 	if waiter == "" {
 		return fmt.Errorf("unsupported AWS instance action: %s", action)
 	}
 	return runCloudCLI(ctx, "aws", "AWS", "ec2", "wait", waiter, "--instance-ids", request.InstanceID)
+}
+
+func awsInstanceHealth(ctx context.Context, instanceID string) (string, error) {
+	if !cloudIDPattern.MatchString(instanceID) {
+		return "", fmt.Errorf("invalid AWS instance ID format: %s", instanceID)
+	}
+	out, err := runCloudCLIOutput(ctx, "aws", "AWS", "ec2", "describe-instance-status", "--include-all-instances", "--instance-ids", instanceID, "--query", "InstanceStatuses[0].[InstanceStatus.Status,SystemStatus.Status]", "--output", "text")
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(string(out))))
+	if len(fields) == 1 && (fields[0] == "none" || fields[0] == "") {
+		return "pending", nil
+	}
+	if len(fields) != 2 {
+		return "", fmt.Errorf("AWS instance status response has unexpected shape %q", strings.TrimSpace(string(out)))
+	}
+	return fields[0] + "\t" + fields[1], nil
 }
 
 func executeAWSVolumeSnapshot(ctx context.Context, request AWSVolumeSnapshot) error {
@@ -1001,14 +1031,25 @@ func executeCloudAction(ctx context.Context, provider, action, id, snapshotLabel
 		if !cloudIDPattern.MatchString(id) {
 			return fmt.Errorf("invalid instance ID format: %s", id)
 		}
+		if action == "reboot" {
+			before, err := readOpenStackServerState(ctx, id)
+			if err != nil {
+				return fmt.Errorf("read OpenStack server state before reboot: %w", err)
+			}
+			args := []string{"server", "reboot", "--hard", id, "-f", "json"}
+			if err := runCloudCLI(ctx, "openstack", "OpenStack", args...); err != nil {
+				return err
+			}
+			return waitCloudState(ctx, before, "ACTIVE", time.Second, func(waitCtx context.Context) (string, error) {
+				return readOpenStackServerState(waitCtx, id)
+			})
+		}
 		args := []string{"server"}
 		switch action {
 		case "start":
 			args = append(args, "start")
 		case "stop":
 			args = append(args, "stop")
-		case "reboot":
-			args = append(args, "reboot", "--hard")
 		case "snapshot":
 			args = append(args, "backup", "create", "--name", "stepanel-"+id)
 		default:
@@ -1018,10 +1059,7 @@ func executeCloudAction(ctx context.Context, provider, action, id, snapshotLabel
 		if err := runCloudCLI(ctx, "openstack", "OpenStack", args...); err != nil {
 			return err
 		}
-		return waitOpenStackServerState(ctx, action, id, time.Second, func(waitCtx context.Context, serverID string) (string, error) {
-			out, err := runCloudCLIOutput(waitCtx, "openstack", "OpenStack", "server", "show", serverID, "-f", "value", "-c", "status")
-			return strings.TrimSpace(string(out)), err
-		})
+		return waitOpenStackServerState(ctx, action, id, time.Second, readOpenStackServerState)
 	default:
 		return errors.New("unsupported cloud provider")
 	}
@@ -1167,8 +1205,13 @@ func waitCloudPoll(ctx context.Context, interval time.Duration) error {
 	}
 }
 
+func readOpenStackServerState(ctx context.Context, serverID string) (string, error) {
+	out, err := runCloudCLIOutput(ctx, "openstack", "OpenStack", "server", "show", serverID, "-f", "value", "-c", "status")
+	return strings.TrimSpace(string(out)), err
+}
+
 func waitOpenStackServerState(ctx context.Context, action, id string, interval time.Duration, read func(context.Context, string) (string, error)) error {
-	want := map[string]string{"start": "ACTIVE", "stop": "SHUTOFF", "reboot": "ACTIVE"}[action]
+	want := map[string]string{"start": "ACTIVE", "stop": "SHUTOFF"}[action]
 	if want == "" {
 		return fmt.Errorf("unsupported OpenStack instance action %q", action)
 	}
@@ -1182,6 +1225,30 @@ func waitOpenStackServerState(ctx context.Context, action, id string, interval t
 		}
 		if err := waitCloudPoll(ctx, interval); err != nil {
 			return fmt.Errorf("OpenStack %s did not converge to %s; reconcile provider state before retrying: %w", action, want, err)
+		}
+	}
+}
+
+// waitCloudState requires an observed change away from the initial value when
+// it already equals the requested healthy state. This prevents a successful
+// command acceptance (or a waiter observing the pre-existing state) from
+// being reported as proof that a reboot completed.
+func waitCloudState(ctx context.Context, before, want string, interval time.Duration, read func(context.Context) (string, error)) error {
+	transitioned := !strings.EqualFold(strings.TrimSpace(before), strings.TrimSpace(want))
+	for {
+		state, err := read(ctx)
+		if err != nil {
+			return fmt.Errorf("read provider state while waiting for convergence: %w", err)
+		}
+		state = strings.TrimSpace(state)
+		if !strings.EqualFold(state, strings.TrimSpace(before)) {
+			transitioned = true
+		}
+		if transitioned && strings.EqualFold(state, strings.TrimSpace(want)) {
+			return nil
+		}
+		if err := waitCloudPoll(ctx, interval); err != nil {
+			return fmt.Errorf("provider action has not demonstrated convergence to %s; reconcile remote state before retrying: %w", want, err)
 		}
 	}
 }

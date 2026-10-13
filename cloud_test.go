@@ -305,6 +305,35 @@ func TestOpenStackWaitRequiresDesiredState(t *testing.T) {
 	}
 }
 
+func TestCloudRebootWaitRequiresObservedTransition(t *testing.T) {
+	statuses := []string{"ACTIVE", "REBOOT", "ACTIVE"}
+	reads := 0
+	err := waitCloudState(context.Background(), "ACTIVE", "ACTIVE", 0, func(context.Context) (string, error) {
+		status := statuses[min(reads, len(statuses)-1)]
+		reads++
+		return status, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reads != 3 {
+		t.Fatalf("health reads = %d, want transition away and back", reads)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	reads = 0
+	err = waitCloudState(ctx, "ok\tok", "ok\tok", 0, func(context.Context) (string, error) {
+		reads++
+		if reads == 2 {
+			cancel()
+		}
+		return "ok\tok", nil
+	})
+	if err == nil {
+		t.Fatal("unchanged healthy state falsely proved reboot completion")
+	}
+}
+
 func TestLinodeDNSRecordPayloadUsesTypedMXAndSRVFields(t *testing.T) {
 	mx := cloudDNSRequest{Type: "mx", Name: "@", Target: "mail.example.com", TTL: 2419200, Priority: 10}
 	if !cloudDNSRecordValid(mx) {
