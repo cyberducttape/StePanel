@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing and documentation
 
+- Documented the durable-operation authority contract: SQLite owns admitted
+  intent and reported status, journals preserve host-transition intent, and
+  observed host state is reconciled before compensation or terminal success.
 - Durable worker completion tests now allow for slow race-instrumented CI
   scheduling and verify completion through the authoritative SQLite read API.
 - Recorded the 2026-10-13 repository production-gate run for `b29856f`:

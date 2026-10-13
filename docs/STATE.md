@@ -24,6 +24,40 @@ The current legacy paths (`jobs.json`, `sessions.json`, `accounts.json`, and
 feature-specific JSON files) remain configurable for one-time import and
 backward-compatible tooling. New production mutations use the SQLite database.
 
+## Durable operation and host-state authority
+
+The control-plane database is the authority for whether an operation was
+admitted, who owns its lease, its retry/cancellation state, and its durable
+reported outcome. Process-local job maps and event channels are caches and
+notifications only; they must never turn a failed database read into an
+authoritative status. A recovery journal records the intended host transition
+and its commit boundary. The host is authoritative only for observed effects
+(for example, which site tree is active or whether a service is running); an
+observation does not by itself mean the requested operation was committed.
+
+State-changing workflows follow this order:
+
+1. **Validate** the request, actor, target, and current preconditions before
+   admitting work.
+2. **Reserve and lock** capacity and the affected resource, then durably record
+   the operation and its recovery intent before performing external effects.
+3. **Execute** idempotent or explicitly reconcilable host/provider changes,
+   checking lease ownership before crossing irreversible boundaries.
+4. **Commit and verify** the workflow-specific commit point, observe the
+   resulting host state, and persist the terminal job outcome only after that
+   verification succeeds.
+
+On failure, first inspect the durable operation record and journal, then
+observe actual host state. If the commit point was not crossed, compensate and
+verify the prior state. If it was crossed, finish forward reconciliation and
+verify the committed state. When neither outcome can be established, retain the
+journal and expose an explicit pending-reconciliation/operator-intervention
+state; do not claim success, silently roll back only the database record, or
+delete evidence needed for recovery. Each workflow must document its commit
+point and recovery action. Repository tests exercise these contracts, but they
+do not replace installed-host interruption and power-loss evidence required by
+[`V1_PRODUCTION_GATES.md`](V1_PRODUCTION_GATES.md).
+
 ## Pre-migration snapshots
 
 Before applying schema migrations to an existing control-plane database,
