@@ -12,6 +12,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   rows with ten blocked owners. Record the SQLite query plan and compare an
   ordered candidate index; the 100k-row measurement shows the correlated
   eligibility scan, not sorting, dominates this synthetic workload.
+- Repeat the 100k-row claim benchmark three times per index variant and record
+  the measurements against the current commit; the extra ordering index does
+  not improve this synthetic workload and is not added to production schema.
+- Compare the current ordered queue scan with a grouped-owner-head selection;
+  the alternative is slower in the blocked-owner case and remains benchmark-
+  only, avoiding an unproven production query rewrite.
+- Record the second successful six-combination installed WordPress recovery
+  smoke run (Ubuntu 24.04, AlmaLinux 9, Rocky Linux 9 with Apache/Caddy and
+  MariaDB), including measured proof RTOs and explicit one-run limitations.
 
 ### Fixed
 

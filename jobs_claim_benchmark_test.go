@@ -58,10 +58,52 @@ func BenchmarkClaimNextQueueDepth(b *testing.B) {
 	}
 }
 
+// BenchmarkClaimNextQueueSelectionStrategies compares the current ordered
+// candidate scan with an experimental owner-head prefilter. The experimental
+// strategy is benchmark-only until owner ordering, retry timing, lease, and
+// concurrent-claim semantics are covered by contract tests.
+func BenchmarkClaimNextQueueSelectionStrategies(b *testing.B) {
+	for _, strategy := range []struct {
+		name  string
+		query string
+	}{
+		{name: "ordered_candidate_scan", query: claimBenchmarkOrderedSelection},
+		{name: "grouped_owner_heads", query: claimBenchmarkGroupedSelection},
+	} {
+		b.Run(strategy.name, func(b *testing.B) {
+			db, _, eligibleID := newClaimBenchmarkStore(b, 100_000, false)
+			defer db.Close()
+			now := time.Now().UTC().UnixNano()
+			b.Logf("selection query plan: %s", strings.Join(claimBenchmarkPlan(b, db, strategy.query, now, now, "site.backup"), " | "))
+			b.ReportMetric(100_000, "queued")
+			b.ReportMetric(claimBenchmarkStalledOwners, "stalled_owners")
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				var id string
+				if err := db.QueryRow(strategy.query, time.Now().UTC().UnixNano(), time.Now().UTC().UnixNano(), "site.backup").Scan(&id); err != nil {
+					b.Fatal(err)
+				}
+				if id != eligibleID {
+					b.Fatalf("selected job %q, want %q", id, eligibleID)
+				}
+			}
+		})
+	}
+}
+
+const claimBenchmarkOrderedSelection = `SELECT candidate.id FROM jobs AS candidate WHERE candidate.state = 'queued' AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= ?) AND NOT EXISTS (SELECT 1 FROM jobs AS active WHERE active.owner = candidate.owner AND ((active.state = 'running' AND (active.lease_expires_at IS NULL OR active.lease_expires_at > ?)) OR (active.state = 'queued' AND (active.started_at < candidate.started_at OR (active.started_at = candidate.started_at AND active.id < candidate.id))))) AND candidate.kind IN (?) ORDER BY candidate.started_at, candidate.id LIMIT 1`
+
+const claimBenchmarkGroupedSelection = `WITH owner_heads AS (SELECT owner, MIN(started_at) AS started_at FROM jobs WHERE state='queued' GROUP BY owner) SELECT candidate.id FROM owner_heads AS head JOIN jobs AS candidate ON candidate.owner=head.owner AND candidate.started_at=head.started_at AND candidate.state='queued' WHERE candidate.id=(SELECT first_job.id FROM jobs AS first_job WHERE first_job.owner=candidate.owner AND first_job.state='queued' ORDER BY first_job.started_at, first_job.id LIMIT 1) AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= ?) AND NOT EXISTS (SELECT 1 FROM jobs AS active WHERE active.owner=candidate.owner AND active.state='running' AND (active.lease_expires_at IS NULL OR active.lease_expires_at > ?)) AND candidate.kind IN (?) ORDER BY candidate.started_at, candidate.id LIMIT 1`
+
 func claimBenchmarkClaimPlan(b *testing.B, db *sql.DB) []string {
 	b.Helper()
 	now := time.Now().UTC().UnixNano()
-	rows, err := db.Query(`EXPLAIN QUERY PLAN SELECT id, payload, kind, owner, started_at FROM jobs AS candidate WHERE candidate.state = 'queued' AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= ?) AND NOT EXISTS (SELECT 1 FROM jobs AS active WHERE active.owner = candidate.owner AND ((active.state = 'running' AND (active.lease_expires_at IS NULL OR active.lease_expires_at > ?)) OR (active.state = 'queued' AND (active.started_at < candidate.started_at OR (active.started_at = candidate.started_at AND active.id < candidate.id))))) AND kind IN (?) ORDER BY candidate.started_at, candidate.id LIMIT 1`, now, now, "site.backup")
+	return claimBenchmarkPlan(b, db, claimBenchmarkOrderedSelection, now, now, "site.backup")
+}
+
+func claimBenchmarkPlan(b *testing.B, db *sql.DB, query string, args ...any) []string {
+	b.Helper()
+	rows, err := db.Query("EXPLAIN QUERY PLAN "+query, args...)
 	if err != nil {
 		b.Fatal(err)
 	}

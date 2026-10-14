@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-12
+**Last Updated:** 2026-10-14
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -51,6 +51,18 @@ These are single-run smoke results for the named combinations, not repeated
 recovery evidence, a broader runtime certification, or production approval.
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
+
+### Evidence update — 2026-10-14
+
+- Hosted install smoke passed again on Ubuntu 24.04, AlmaLinux 9, and Rocky
+  Linux 9 with Apache and Caddy + MariaDB. Each of the six jobs completed a
+  database-backed WordPress recovery proof and one interruption-matrix
+  iteration; measured proof RTOs were 4.5–8.0 seconds. See the
+  [run evidence](lab-results/2026-10-14-hosted-install-smoke.md).
+- This is a second single-run result per combination, not the required 20–50
+  installed-VM recovery repetitions. Physical power loss, broader ENOSPC,
+  capacity certification, and the separately running quota-enabled VM gate
+  remain open pending evidence.
 
 ### Changes 2026-10-03 to 2026-10-10 (on `main`, unreleased)
 
