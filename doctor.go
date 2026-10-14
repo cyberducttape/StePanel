@@ -665,8 +665,8 @@ func (a *App) resourceStatus(w http.ResponseWriter, r *http.Request) {
 		"resource_budget": status,
 		// Free space promised to in-progress uploads but not yet written.
 		"upload_capacity_reserved_bytes": map[string]uint64{
-			"import_root": a.capacity.heldBytes(a.Config.ImportRoot),
-			"sites":       a.capacity.heldBytes(filepath.Join(a.Config.WebRoot, "sites")),
+			"import_root": a.capacityLedger().heldBytes(a.Config.ImportRoot),
+			"sites":       a.capacityLedger().heldBytes(filepath.Join(a.Config.WebRoot, "sites")),
 		},
 		"event_streams": a.streams.status(),
 	}

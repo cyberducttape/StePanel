@@ -31,6 +31,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Preserve the initialized SQLite capacity ledger and its process identity in
+  the application so another panel or worker process cannot misclassify live
+  reservations as orphaned and over-admit disk-consuming work.
 - Keep the installer shell-lint gate clean by documenting that `JOURNAL_FILE`
   is consumed by the sourced journal library rather than locally in
   `install.sh`.

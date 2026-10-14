@@ -248,6 +248,41 @@ func TestCapacityReservationsCoordinateAcrossLedgerInstances(t *testing.T) {
 	secondHold.release()
 }
 
+func TestAppCapacityLedgerPreservesOwnerIdentity(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	initialized, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{capacity: initialized}
+	ledger := app.capacityLedger()
+	if ledger != initialized {
+		t.Fatal("App rebuilt the initialized capacity ledger instead of preserving its process identity")
+	}
+
+	reservation, err := ledger.reserve(cfg, "app-owner", cfg.ImportRoot, []capacityDemand{{Path: cfg.ImportRoot, Bytes: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.release()
+
+	var ownerPID int
+	var ownerStart string
+	if err := db.QueryRow(`SELECT owner_pid,owner_start FROM capacity_reservations WHERE reservation_id=?`, reservation.id).Scan(&ownerPID, &ownerStart); err != nil {
+		t.Fatal(err)
+	}
+	if ownerPID != os.Getpid() || ownerPID <= 0 || ownerStart == "" || ownerStart != initialized.ownerStart {
+		t.Fatalf("reservation owner = (%d, %q), want current process (%d, %q)", ownerPID, ownerStart, os.Getpid(), initialized.ownerStart)
+	}
+}
+
 func TestCapacityLedgerReclaimsOnlyReservationsFromDeadProcesses(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0
@@ -754,7 +789,7 @@ func TestChunkedUploadIsNotRefusedForTheUploadCeiling(t *testing.T) {
 	if response.Code == http.StatusInsufficientStorage || strings.Contains(response.Body.String(), "insufficient free space") {
 		t.Fatalf("small chunked upload refused for capacity: %d %s", response.Code, response.Body.String())
 	}
-	if held := app.capacity.heldBytes(cfg.ImportRoot); held != 0 {
+	if held := app.capacityLedger().heldBytes(cfg.ImportRoot); held != 0 {
 		t.Fatalf("reservation leaked after the request: %d bytes held", held)
 	}
 }
@@ -893,7 +928,7 @@ func TestInspectAbortsStalledUpload(t *testing.T) {
 	if list, err := os.ReadDir(cfg.ImportRoot); err != nil || len(list) != 0 {
 		t.Fatalf("stalled upload left staged files: %v %v", list, err)
 	}
-	if held := app.capacity.heldBytes(cfg.ImportRoot); held != 0 {
+	if held := app.capacityLedger().heldBytes(cfg.ImportRoot); held != 0 {
 		t.Fatalf("stalled upload kept %d reserved bytes", held)
 	}
 	var metrics bytes.Buffer
@@ -915,7 +950,7 @@ func TestInspectReleasesReservationAfterSuccessfulUpload(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if held := app.capacity.heldBytes(cfg.ImportRoot); held != 0 {
+	if held := app.capacityLedger().heldBytes(cfg.ImportRoot); held != 0 {
 		t.Fatalf("completed upload kept %d reserved bytes", held)
 	}
 }

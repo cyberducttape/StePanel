@@ -72,14 +72,27 @@ type App struct {
 	databaseInventoryCache   []DatabaseResource
 	databaseInventoryAt      time.Time
 	gitActivationMu          sync.Mutex
+	capacityInitMu           sync.Mutex
 	webhookReplayCache       *WebhookReplayCache
 	siteOperations           operations.Locks
 	dbLocks                  *operations.DBLocks
 	siteManager              siteauthority.Manager
 	// capacity holds free space promised to in-progress archive uploads.
-	capacity capacityLedger
+	capacity *capacityLedger
 	// streams bounds open server-sent event streams.
 	streams streamLimiter
+}
+
+// capacityLedger returns the process-wide ledger shared by all handlers. The
+// lazy zero-value path keeps focused App tests convenient; production injects
+// the initialized SQLite-backed ledger so owner PID/start identity is kept.
+func (a *App) capacityLedger() *capacityLedger {
+	a.capacityInitMu.Lock()
+	defer a.capacityInitMu.Unlock()
+	if a.capacity == nil {
+		a.capacity = &capacityLedger{}
+	}
+	return a.capacity
 }
 
 // startupState separates process liveness from control-plane readiness. The
@@ -570,7 +583,7 @@ func Main() {
 	if err != nil {
 		log.Fatalf("initialize capacity ledger: %v", err)
 	}
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacityLedger{db: capacity.db}}
+	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
 	app.startup.begin()
 	// Categorized state errors feed stepanel_state_errors_total and the logs.
 	jobs.SetStateErrorObserver(app.observeStateError)
@@ -1273,7 +1286,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 		}
 		result = BackupResult{Site: request.Site, Path: candidate, ArchiveSHA256: manifest.ArchiveSHA256, Bytes: manifest.Bytes, Databases: manifest.Databases, CreatedAt: manifest.CreatedAt, VerifiedAt: manifest.VerifiedAt, Consistency: manifest.Consistency, ManifestSigned: manifest.SignatureAlgorithm != "", Encrypted: manifest.Encryption != ""}
 	} else {
-		result, err = createSiteBackupContext(operationCtx, a.Config, access, request.IncludeDatabases, &a.capacity)
+		result, err = createSiteBackupContext(operationCtx, a.Config, access, request.IncludeDatabases, a.capacityLedger())
 		if err != nil {
 			TelemetryAudit(a.Config.AuditLog, request.Actor, "site.backup.failed", request.Site, err.Error())
 			if request.Scheduled {
@@ -1398,7 +1411,7 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	}
 	// The staged archive is already on disk; extraction and the site staging
 	// tree each need about its size again.
-	if err := a.capacity.check(a.Config, "WPress restore", stagedArchiveDemands(a.Config, uint64(request.Size))); err != nil {
+	if err := a.capacityLedger().check(a.Config, "WPress restore", stagedArchiveDemands(a.Config, uint64(request.Size))); err != nil {
 		return nil, err
 	}
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, request.Actor, "wordpress.restore", request.Site, "staged WPress archive")

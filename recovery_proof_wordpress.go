@@ -323,7 +323,7 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 	if err != nil {
 		return result, err
 	}
-	reservation, err := a.capacity.reserve(a.Config, "wordpress-recovery-proof", a.Config.WebRoot, []capacityDemand{{Path: a.Config.WebRoot, Bytes: proofBytes}})
+	reservation, err := a.capacityLedger().reserve(a.Config, "wordpress-recovery-proof", a.Config.WebRoot, []capacityDemand{{Path: a.Config.WebRoot, Bytes: proofBytes}})
 	if err != nil {
 		return result, fmt.Errorf("admit WordPress recovery proof site copy: %w", err)
 	}

@@ -74,7 +74,7 @@ func (a *App) archiveSpool(workflow string) importer.ArchiveSpool {
 	return archivesafe.DirSpool{
 		Dir: a.Config.ImportRoot,
 		Check: func(int64) error {
-			return a.capacity.check(a.Config, workflow, []capacityDemand{{Path: a.Config.ImportRoot}})
+			return a.capacityLedger().check(a.Config, workflow, []capacityDemand{{Path: a.Config.ImportRoot}})
 		},
 	}
 }

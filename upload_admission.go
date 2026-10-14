@@ -1004,10 +1004,10 @@ func (a *App) stageArchiveUpload(w http.ResponseWriter, r *http.Request, workflo
 	var reservation *capacityReservation
 	if err == nil {
 		if known {
-			reservation, err = a.capacity.reserve(a.Config, workflow, a.Config.ImportRoot, archiveUploadDemands(a.Config, declared))
+			reservation, err = a.capacityLedger().reserve(a.Config, workflow, a.Config.ImportRoot, archiveUploadDemands(a.Config, declared))
 		} else {
 			demandsFor := func(archive uint64) []capacityDemand { return archiveUploadDemands(a.Config, archive) }
-			reservation, err = a.capacity.reserveProgressive(a.Config, workflow, a.Config.ImportRoot, declared, demandsFor)
+			reservation, err = a.capacityLedger().reserveProgressive(a.Config, workflow, a.Config.ImportRoot, declared, demandsFor)
 		}
 	}
 	if err != nil {
@@ -1074,5 +1074,5 @@ func (a *App) checkCPMoveCapacity(expandedBytes, databaseBytes int64, restoreDat
 		// directory once indexes and logs are counted.
 		demands = append(demands, capacityDemand{Path: dir, Bytes: saturatingAdd(uint64(databaseBytes), uint64(databaseBytes))})
 	}
-	return a.capacity.check(a.Config, "cpmove", demands)
+	return a.capacityLedger().check(a.Config, "cpmove", demands)
 }
