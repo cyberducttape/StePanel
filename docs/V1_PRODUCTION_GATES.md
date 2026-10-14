@@ -94,6 +94,19 @@ The quota run for `12b0d70` was pending and then replaced by the newer pending
 run; the active `c73926e` run was not canceled. This is queue state, not test
 evidence.
 
+Status refresh after `b88c3ad`: current-head hosted CI passed, including the
+serialized Go test/coverage suite, race tests, recovery drills, UI E2E, and
+container/deployment validation ([CI run 38582152727](https://github.com/cyberducttape/StePanel/actions/runs/38582152727));
+CodeQL also passed ([run 38582152612](https://github.com/cyberducttape/StePanel/actions/runs/38582152612)).
+The six-host installed-host matrix is still running
+([run 38582152769](https://github.com/cyberducttape/StePanel/actions/runs/38582152769))
+and is not included in the completed-run or WordPress-proof counts. An earlier
+matrix on `5fd7907` passed five combinations but failed Rocky Linux 9/Caddy at
+the installed WordPress HTTPS probe; the latest candidate includes a bounded
+retry for local certificate/readiness convergence. Its result remains pending.
+The new quota-enabled guest run for `b88c3ad` is also pending; the previously
+active quota run is separate and must not be attributed to this commit.
+
 The latest completed installed-host values supersede the historical values in the
 runtime table below. They remain smoke results, not a certified support
 promise.

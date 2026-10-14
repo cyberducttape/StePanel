@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   silently reporting optional integration setup as complete.
 - Stabilize the lease-loss helper test under loaded CI runners while retaining
   the explicit takeover and forced-cancellation checks.
+- Refresh release-gate evidence for current-head hosted CI and CodeQL, while
+  keeping the in-progress installed-host and quota workflows explicitly pending.
 
 ### Added
 
