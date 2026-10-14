@@ -36,6 +36,14 @@ degradation and restart behavior only; they do not claim recovery from a
 control-plane database outage or a broker killed during an in-flight mutation,
 so the corresponding full workflow matrix cells above remain open.
 
+The installed-host smoke includes a separate control-plane SQLite outage drill:
+it stops panel, worker, and broker services; preserves the database plus any
+WAL/SHM/journal sidecars; makes the configured database path unavailable; and
+requires readiness not to return HTTP 200. It then restores the exact files
+and requires all services and readiness to recover. This is a bounded outage
+and restart test, not evidence for corruption, ENOSPC, or failure during an
+in-flight host mutation.
+
 **KVM** marks a pass in the single
 [2026-10-09 Rocky Linux 9 KVM certification run](lab-results/2026-10-09-rocky9-kvm-certification.md)
 (SELinux enforcing, full matrix at `RECOVERY_MATRIX_REPEATS=1`). "KVM guest
