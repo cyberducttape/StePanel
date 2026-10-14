@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   service recovery after restoring the exact files.
 - Retry the installed WordPress application probe briefly after vhost activation
   so asynchronous local TLS certificate issuance does not create a false failure.
+- Report failed Certbot timer activation as pending post-install work instead of
+  silently reporting optional integration setup as complete.
 
 ### Added
 

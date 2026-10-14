@@ -1193,7 +1193,7 @@ if [[ "$INSTALL_FTP" == "1" && "$ACTIVATE_FTP" == "1" ]]; then
 elif [[ "$INSTALL_FTP" == "1" && "$FTP_PREEXISTING" == "0" ]]; then
   systemctl disable --now vsftpd 2>/dev/null || true
 fi
-if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then systemctl enable --now certbot.timer 2>/dev/null || true; fi
+if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then activate_optional_service certbot.timer; fi
 if [[ "$INSTALL_FAIL2BAN" == "1" ]]; then
   if ! bash "$APP_DIR/integrations/install-fail2ban.sh" --yes --jails "$FAIL2BAN_JAILS" --ignore-ip "$FAIL2BAN_IGNORE_IP"; then
     POST_INSTALL_PENDING+=(fail2ban)

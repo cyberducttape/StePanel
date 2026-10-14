@@ -109,6 +109,10 @@ func TestInstallerJournalsBeforeMutationAndRecordsPartialRollbackContract(t *tes
 	if !strings.Contains(text, `install_journal_record recovery required manual "registered files and core service state restored where possible; packages, repository/module changes and unregistered host configuration may remain"`) {
 		t.Fatal("installer rollback must report that pre-transaction host changes may remain")
 	}
+	certbotActivation := strings.Index(text, `if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then activate_optional_service certbot.timer; fi`)
+	if certbotActivation < 0 || !strings.Contains(text, `POST_INSTALL_PENDING+=("$service")`) {
+		t.Fatal("requested Certbot timer activation failures must be visible as pending post-install work")
+	}
 	contractDoc, err := os.ReadFile("docs/INSTALLER_RECOVERY.md")
 	if err != nil {
 		t.Fatal(err)
