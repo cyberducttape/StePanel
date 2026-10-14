@@ -41,10 +41,20 @@ site_prepared=0
 wp_cli_site=''
 database_created=0
 route_created=0
+database_outage_injected=0
+broker_outage_injected=0
 route_file="/etc/caddy/stepanel.d/site-${site}-${domain//./_}.caddy"
 
 cleanup() {
   local status=$?
+  if (( broker_outage_injected )); then
+    systemctl start stepanel-root-broker.service || true
+  fi
+  if (( database_outage_injected )); then
+    db_unit=${STEPANEL_DB_ENGINE:-mariadb}
+    [[ $db_unit == mysql ]] || db_unit=mariadb
+    systemctl start "$db_unit.service" || true
+  fi
   if (( status != 0 && route_created )) && [[ ${STEPANEL_WEBSERVER:-caddy} == caddy ]]; then
     echo "Caddy recovery-proof route before cleanup: $route_file" >&2
     if [[ -f /etc/caddy/Caddyfile && ! -L /etc/caddy/Caddyfile ]]; then
@@ -204,6 +214,77 @@ if [[ $origin_status != 200 ]] || ! grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f
   [[ ! -f $origin_body ]] || sed -n '1,120p' "$origin_body" >&2
   exit 1
 fi
+
+# Exercise component degradation and recovery on the disposable installed
+# host. The site is still live here, so this proves both customer-facing DB
+# recovery and that management readiness fails closed when the broker is down.
+db_unit=${STEPANEL_DB_ENGINE:-mariadb}
+[[ $db_unit == mysql ]] || db_unit=mariadb
+systemctl is-active --quiet "$db_unit.service" || {
+  echo "database service $db_unit.service is not active before outage drill" >&2
+  exit 1
+}
+database_outage_injected=1
+systemctl stop "$db_unit.service"
+db_outage_status=$(curl --silent --show-error --max-time 20 \
+  "${origin_curl_resolve[@]}" --output /dev/null --write-out '%{http_code}' \
+  "$application_url/?p=$origin_post_id" || true)
+[[ $db_outage_status != 200 ]] || {
+  echo 'WordPress continued returning HTTP 200 while its database was stopped' >&2
+  exit 1
+}
+systemctl start "$db_unit.service"
+for _ in $(seq 1 60); do
+  if systemctl is-active --quiet "$db_unit.service" && \
+     curl --fail --silent --max-time 5 "${origin_curl_resolve[@]}" \
+       "$application_url/?p=$origin_post_id" | grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a'; then
+    break
+  fi
+  sleep 1
+done
+curl --fail --silent --show-error --max-time 10 "${origin_curl_resolve[@]}" \
+  "$application_url/?p=$origin_post_id" | grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' || {
+  echo 'WordPress did not recover after the database service restarted' >&2
+  exit 1
+}
+database_outage_injected=0
+echo "installed WordPress database outage recovered (during outage HTTP $db_outage_status)"
+
+systemctl is-active --quiet stepanel-root-broker.service || {
+  echo 'root broker service is not active before outage drill' >&2
+  exit 1
+}
+broker_outage_injected=1
+systemctl stop stepanel-root-broker.service
+live_status=$(curl --silent --show-error --max-time 5 --output /dev/null \
+  --write-out '%{http_code}' http://127.0.0.1:8090/livez || true)
+ready_status=$(curl --silent --show-error --max-time 5 --output "$work/broker-down-ready.json" \
+  --write-out '%{http_code}' http://127.0.0.1:8090/readyz || true)
+[[ $live_status == 204 && $ready_status == 503 ]] || {
+  echo "broker outage health contract mismatch: /livez=$live_status /readyz=$ready_status (expected 204/503)" >&2
+  exit 1
+}
+python3 - "$work/broker-down-ready.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+assert data.get("ready") is False, "readiness did not report degraded state during broker outage"
+check = data.get("checks", {}).get("root_broker", {})
+assert check.get("ready") is False, "readiness omitted the unavailable root broker"
+PY
+systemctl start stepanel-root-broker.service
+for _ in $(seq 1 60); do
+  if systemctl is-active --quiet stepanel-root-broker.service && \
+     curl --fail --silent --max-time 2 http://127.0.0.1:8090/readyz >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8090/readyz >/dev/null || {
+  echo 'panel readiness did not recover after the root broker restarted' >&2
+  exit 1
+}
+broker_outage_injected=0
+echo 'root broker outage degraded readiness while preserving liveness, then recovered'
 
 sleep $((31 - $(date +%s) % 30))
 totp=$(python3 - "$STEPANEL_ADMIN_TOTP_SECRET" <<'PY'

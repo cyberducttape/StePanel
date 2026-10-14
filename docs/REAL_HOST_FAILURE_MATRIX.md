@@ -27,6 +27,15 @@ site/account names. `RECOVERY_MATRIX_REPEATS=1` is the normal smoke default;
 | Restore | repository/hosted/KVM | lab follow-up | hosted/partial/KVM* | hosted/partial | lab follow-up |
 | Site delete | repository/hosted/KVM | lab follow-up | lab follow-up | lab follow-up | lab follow-up |
 
+The installed WordPress recovery-proof smoke also injects a bounded MariaDB
+service outage against its disposable application and verifies that the
+database-backed HTTP probe recovers after restart. It stops the root broker
+and verifies `/livez` remains available while `/readyz` reports the broker as
+unavailable, then checks readiness recovery. These checks cover service
+degradation and restart behavior only; they do not claim recovery from a
+control-plane database outage or a broker killed during an in-flight mutation,
+so the corresponding full workflow matrix cells above remain open.
+
 **KVM** marks a pass in the single
 [2026-10-09 Rocky Linux 9 KVM certification run](lab-results/2026-10-09-rocky9-kvm-certification.md)
 (SELinux enforcing, full matrix at `RECOVERY_MATRIX_REPEATS=1`). "KVM guest

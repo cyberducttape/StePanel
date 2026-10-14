@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Extend the installed-host WordPress recovery proof with disposable database
+  and root-broker outage drills, verifying service recovery and the live/readiness
+  health contract.
+
 ### Added
 
 - Record current-head installed-host evidence for all six Ubuntu 24.04,
