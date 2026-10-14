@@ -137,7 +137,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 			historyUnavailable(w, r)
 			return
 		}
-		if _, err := CreateSiteBackupContext(operationCtx, a.Config, access, true); err != nil {
+		if _, err := createSiteBackupContext(operationCtx, a.Config, access, true, a.capacityLedger()); err != nil {
 			_ = a.recordDeployment(input.Site, "backup", "failed", err.Error(), result, "") // failure already marks readiness
 			http.Error(w, "pre-activation backup failed", 502)
 			return

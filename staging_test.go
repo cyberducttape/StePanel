@@ -9,7 +9,7 @@ import (
 func TestCloneManagedDatabaseToStagingContextHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := cloneManagedDatabaseToStagingContext(ctx, Config{}, "source", "target", "user", "password", AuthorizedSite{site: "site"})
+	_, err := cloneManagedDatabaseToStagingContext(ctx, Config{}, "source", "target", "user", "password", AuthorizedSite{site: "site"}, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cloneManagedDatabaseToStagingContext error = %v, want context.Canceled", err)
 	}

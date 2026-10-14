@@ -215,6 +215,12 @@ the panel created under an approved staging root (`/var/www`,
 descriptor. Production backups always use this path, so a dump's size is not
 limited by the 4 MiB inline dump cap (`rootbroker.MaxInlineDumpBytes`),
 which applies to `dump_data` in requests and responses.
+Production dump-to-path requests also carry the durable capacity reservation
+ID, staging directory, expected dump size, and configured free-space reserve.
+The broker verifies that the reservation is a backup hold for the same
+filesystem and exact staging directory. If output exceeds the estimate, it
+extends the shared SQLite hold before writing the excess bytes; an admission
+failure terminates the dump process group and leaves the output incomplete.
 
 Example:
 

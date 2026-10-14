@@ -248,6 +248,48 @@ func TestCapacityReservationsCoordinateAcrossLedgerInstances(t *testing.T) {
 	secondHold.release()
 }
 
+func TestCapacityReservationMirrorsBrokerStreamingGrowth(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := ledger.reserve(cfg, "backup", cfg.ImportRoot, []capacityDemand{{Path: cfg.ImportRoot, Bytes: 100}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reservation.release()
+	device, err := filesystemDevice(cfg.ImportRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE capacity_reservations SET bytes=bytes+50 WHERE reservation_id=? AND device=?`, reservation.id, device); err != nil {
+		t.Fatal(err)
+	}
+	if err := reservation.recordExternalGrowth(cfg.ImportRoot, 50); err != nil {
+		t.Fatal(err)
+	}
+	if got := reservation.held[device]; got != 150 {
+		t.Fatalf("local reservation after broker growth = %d, want 150", got)
+	}
+	if err := reservation.shrink(cfg.ImportRoot, 30); err != nil {
+		t.Fatal(err)
+	}
+	var durable int64
+	if err := db.QueryRow(`SELECT bytes FROM capacity_reservations WHERE reservation_id=? AND device=?`, reservation.id, device).Scan(&durable); err != nil {
+		t.Fatal(err)
+	}
+	if durable != 120 || reservation.held[device] != 120 {
+		t.Fatalf("reservation after shrink: durable=%d local=%d, want both 120", durable, reservation.held[device])
+	}
+}
+
 func TestAppCapacityLedgerPreservesOwnerIdentity(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0

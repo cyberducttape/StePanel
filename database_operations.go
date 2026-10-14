@@ -554,7 +554,7 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
-		safetyBackup, err := createDatabaseSafetyBackupContext(operationCtx, a.Config, name)
+		safetyBackup, err := createDatabaseSafetyBackupContext(operationCtx, a.Config, name, a.capacityLedger())
 		if err != nil {
 			log.Printf("database safety backup failed for %s: %v", name, err)
 			http.Error(w, "database deletion refused because its safety backup failed", http.StatusServiceUnavailable)

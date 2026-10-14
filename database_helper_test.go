@@ -132,7 +132,7 @@ func TestProductionCPMoveRestoreFailsClosedWithoutDatabaseBroker(t *testing.T) {
 func TestCreateDatabaseSafetyBackupContextHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := createDatabaseSafetyBackupContext(ctx, Config{}, "database")
+	_, err := createDatabaseSafetyBackupContext(ctx, Config{}, "database", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("createDatabaseSafetyBackupContext error = %v, want context.Canceled", err)
 	}

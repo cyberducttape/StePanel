@@ -254,25 +254,30 @@ type RunnerRequest struct {
 // --- Database Operations ---
 
 type DBRequest struct {
-	Action    string `json:"action"`   // inventory, provision, dump, restore-dump, drop
-	Database  string `json:"database"` // Database name (validated)
-	SessionID string `json:"session_id,omitempty"`
-	Username  string `json:"username"`            // DB username (validated)
-	Password  string `json:"password"`            // DB password (not logged)
-	Site      string `json:"site"`                // Associated site
-	Encoding  string `json:"encoding"`            // utf8mb4, UTF8, etc.
-	DumpData  []byte `json:"dump_data,omitempty"` // For restore-dump action
-	DumpPath  string `json:"dump_path,omitempty"` // Root broker reads and streams this validated staging file
+	Action                  string `json:"action"`   // inventory, provision, dump, restore-dump, drop
+	Database                string `json:"database"` // Database name (validated)
+	SessionID               string `json:"session_id,omitempty"`
+	Username                string `json:"username"`            // DB username (validated)
+	Password                string `json:"password"`            // DB password (not logged)
+	Site                    string `json:"site"`                // Associated site
+	Encoding                string `json:"encoding"`            // utf8mb4, UTF8, etc.
+	DumpData                []byte `json:"dump_data,omitempty"` // For restore-dump action
+	DumpPath                string `json:"dump_path,omitempty"` // Root broker reads and streams this validated staging file
+	DumpCapacityReservation string `json:"dump_capacity_reservation,omitempty"`
+	DumpCapacityStage       string `json:"dump_capacity_stage,omitempty"`
+	DumpExpectedBytes       uint64 `json:"dump_expected_bytes,omitempty"`
+	DumpMinFreeBytes        uint64 `json:"dump_min_free_bytes,omitempty"`
 }
 
 type DBResponse struct {
-	Provisioned bool   `json:"provisioned,omitempty"`
-	Restored    bool   `json:"restored,omitempty"`
-	Dropped     bool   `json:"dropped,omitempty"`
-	Database    string `json:"database,omitempty"`
-	Username    string `json:"username,omitempty"`
-	Output      string `json:"output,omitempty"`
-	DumpData    []byte `json:"dump_data,omitempty"`
+	Provisioned        bool   `json:"provisioned,omitempty"`
+	Restored           bool   `json:"restored,omitempty"`
+	Dropped            bool   `json:"dropped,omitempty"`
+	Database           string `json:"database,omitempty"`
+	Username           string `json:"username,omitempty"`
+	Output             string `json:"output,omitempty"`
+	DumpData           []byte `json:"dump_data,omitempty"`
+	CapacityAddedBytes uint64 `json:"capacity_added_bytes,omitempty"`
 }
 
 // --- Vhost Operations ---

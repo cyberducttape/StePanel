@@ -208,6 +208,9 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
+	if cfg.Production && includeDatabases && (ledger == nil || ledger.db == nil) {
+		return result, errors.New("production database backups require the durable capacity ledger")
+	}
 	siteName := site.Site()
 	if safeUser(siteName) == "" {
 		return result, errors.New("invalid backup site")
@@ -340,7 +343,8 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 			if err := reservation.grow(tempDir, backupDatabasePeakReservation(predicted)); err != nil {
 				return result, abortArchive(fmt.Errorf("reserve database dump %s: %w", database, err))
 			}
-			if err := dumpManagedDatabaseContext(ctx, cfg, database, dumpPath); err != nil {
+			streamingReserved, err := dumpManagedDatabaseContext(ctx, cfg, database, dumpPath, reservation, predicted)
+			if err != nil {
 				return result, abortArchive(err)
 			}
 			info, statErr := os.Stat(dumpPath)
@@ -348,7 +352,7 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 				return result, abortArchive(statErr)
 			}
 			measured := uint64(info.Size())
-			if measured > predicted {
+			if measured > predicted && !streamingReserved {
 				delta := measured - predicted
 				if err := reservation.grow(tempDir, saturatingAdd(delta, delta)); err != nil {
 					return result, abortArchive(fmt.Errorf("adjust database dump %s capacity: %w", database, err))
@@ -781,7 +785,7 @@ func parseManagedDatabaseDumpEstimates(site string, databases []string, output s
 	return estimates, nil
 }
 
-func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database string) (DatabaseSafetyBackup, error) {
+func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database string, ledger *capacityLedger) (DatabaseSafetyBackup, error) {
 	result := DatabaseSafetyBackup{Database: database, Created: time.Now().UTC()}
 	if err := ctx.Err(); err != nil {
 		return result, err
@@ -795,8 +799,18 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 		return result, err
 	}
 	defer os.RemoveAll(temp)
+	var reservation *capacityReservation
+	if ledger != nil {
+		reservation, err = ledger.reserve(cfg, "backup", temp, []capacityDemand{{Path: temp, Bytes: backupDatabasePeakReservation(backupDatabaseReservation)}})
+		if err != nil {
+			return result, err
+		}
+		defer reservation.release()
+	} else if cfg.Production {
+		return result, errors.New("production database safety backups require the durable capacity ledger")
+	}
 	dump := filepath.Join(temp, database+".sql")
-	if err := dumpManagedDatabaseContext(ctx, cfg, database, dump); err != nil {
+	if _, err := dumpManagedDatabaseContext(ctx, cfg, database, dump, reservation, backupDatabaseReservation); err != nil {
 		return result, err
 	}
 	result.SHA256, err = fileSHA256(dump)
@@ -827,38 +841,49 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 	return result, nil
 }
 
-func dumpManagedDatabaseContext(parent context.Context, cfg Config, database, destination string) error {
+func dumpManagedDatabaseContext(parent context.Context, cfg Config, database, destination string, reservation *capacityReservation, expectedBytes uint64) (bool, error) {
 	if !validManagedDatabaseIdentifier(database, 64) {
-		return errors.New("invalid managed database")
+		return false, errors.New("invalid managed database")
 	}
 	out, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		return err
+		return false, err
 	}
 	ctx, cancel := context.WithTimeout(parent, helperBackupRestoreTimeout)
 	defer cancel()
 	if cfg.Production {
+		if reservation == nil || reservation.id == "" || reservation.ledger == nil || reservation.ledger.db == nil {
+			_ = out.Close()
+			return false, errors.New("production database dump requires a durable capacity reservation")
+		}
 		// Production has no sudo: the root broker streams the dump into the
 		// empty file created above, which it verifies before writing.
 		if err := out.Close(); err != nil {
-			return err
+			return false, err
 		}
 		destination, err := filepath.Abs(destination)
 		if err != nil {
-			return err
+			return false, err
 		}
 		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 		if err != nil {
-			return err
+			return false, err
 		}
-		response, err := client.DBDumpToPath(ctx, database, destination)
+		response, err := client.DBDumpToPath(ctx, database, destination, reservation.id, reservation.stagingPath, expectedBytes, reservation.reserve)
 		if err != nil {
-			return fmt.Errorf("dump managed database %s: %w", database, err)
+			return false, fmt.Errorf("dump managed database %s: %w", database, err)
 		}
 		if !response.OK {
-			return fmt.Errorf("dump managed database %s: %s", database, response.Error)
+			return false, fmt.Errorf("dump managed database %s: %s", database, response.Error)
 		}
-		return nil
+		var details rootbroker.DBResponse
+		if err := json.Unmarshal(response.Details, &details); err != nil {
+			return false, fmt.Errorf("decode database dump capacity result: %w", err)
+		}
+		if err := reservation.recordExternalGrowth(reservation.stagingPath, details.CapacityAddedBytes); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 	cmd := helperCommandContext(ctx, cfg, cfg.DBCtl, "dump", database)
 	var stderr strings.Builder
@@ -872,9 +897,9 @@ func dumpManagedDatabaseContext(parent context.Context, cfg Config, database, de
 		runErr = closeErr
 	}
 	if runErr != nil {
-		return fmt.Errorf("dump managed database %s: %w: %s", database, runErr, strings.TrimSpace(stderr.String()))
+		return false, fmt.Errorf("dump managed database %s: %w: %s", database, runErr, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+	return false, nil
 }
 
 func fileSHA256(path string) (string, error) {

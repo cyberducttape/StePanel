@@ -789,6 +789,34 @@ func (r *capacityReservation) grow(path string, bytes uint64) error {
 	return nil
 }
 
+// recordExternalGrowth mirrors capacity already committed by a cooperating
+// privileged writer into this reservation's process-local bookkeeping. The
+// caller must receive a successful acknowledgement from that writer first.
+func (r *capacityReservation) recordExternalGrowth(path string, bytes uint64) error {
+	if r == nil || bytes == 0 {
+		return nil
+	}
+	device, err := filesystemDevice(path)
+	if err != nil {
+		return fmt.Errorf("inspect %s capacity at %s: %w", r.workflow, path, err)
+	}
+	l := r.ledger
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.db == nil || r.id == "" {
+		return errors.New("external capacity growth requires a durable reservation")
+	}
+	var durable int64
+	if err := l.db.QueryRow(`SELECT bytes FROM capacity_reservations WHERE reservation_id=? AND device=?`, r.id, device).Scan(&durable); err != nil {
+		return fmt.Errorf("verify external capacity growth: %w", err)
+	}
+	if durable < 0 || bytes > ^uint64(0)-r.held[device] || uint64(durable) < r.held[device]+bytes {
+		return errors.New("external capacity growth is not present in the durable reservation")
+	}
+	r.held[device] += bytes
+	return nil
+}
+
 // shrink releases an overestimate after a staged object has been measured.
 // It is deliberately scoped to one reservation so another workflow's hold
 // cannot be released accidentally.

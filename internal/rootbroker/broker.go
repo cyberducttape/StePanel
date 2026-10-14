@@ -1247,14 +1247,18 @@ func (b *Broker) dbDumpToPath(ctx context.Context, req *DBRequest) (*Response, e
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 	defer file.Close()
+	writer, err := newCapacityDumpWriter(ctx, file, b.fencingDB, req)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
 	cmd := stepanelhelper.NewCommand(ctx, b.dbctlPath, "dump", req.Database)
-	if stderr, err := stepanelhelper.RunCappedToFile(ctx, cmd, file, maxBrokerCommandStderr); err != nil {
+	if stderr, err := stepanelhelper.RunCappedWriter(ctx, cmd, writer, maxBrokerCommandStderr); err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("database dump failed: %v: %s", err, strings.TrimSpace(string(stderr)))}, nil
 	}
 	if err := file.Sync(); err != nil {
 		return &Response{OK: false, Error: fmt.Sprintf("sync database dump: %v", err)}, nil
 	}
-	details, err := json.Marshal(DBResponse{Database: req.Database})
+	details, err := json.Marshal(DBResponse{Database: req.Database, CapacityAddedBytes: writer.addedBytes()})
 	if err != nil {
 		return nil, err
 	}

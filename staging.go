@@ -278,7 +278,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Database {
-		createdDatabase, err = cloneManagedDatabaseToStagingContext(operationCtx, a.Config, input.SourceDatabase, input.TargetDatabase, input.TargetUser, input.TargetPassword, targetAccess)
+		createdDatabase, err = cloneManagedDatabaseToStagingContext(operationCtx, a.Config, input.SourceDatabase, input.TargetDatabase, input.TargetUser, input.TargetPassword, targetAccess, a.capacityLedger())
 		if err != nil {
 			http.Error(w, "could not clone staging database: "+err.Error(), 502)
 			return
@@ -317,10 +317,10 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func cloneManagedDatabaseToStaging(cfg Config, source, target, user, password string, site SiteCapability) (bool, error) {
-	return cloneManagedDatabaseToStagingContext(context.Background(), cfg, source, target, user, password, site)
+	return cloneManagedDatabaseToStagingContext(context.Background(), cfg, source, target, user, password, site, nil)
 }
 
-func cloneManagedDatabaseToStagingContext(ctx context.Context, cfg Config, source, target, user, password string, site SiteCapability) (bool, error) {
+func cloneManagedDatabaseToStagingContext(ctx context.Context, cfg Config, source, target, user, password string, site SiteCapability, ledger *capacityLedger) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -329,8 +329,18 @@ func cloneManagedDatabaseToStagingContext(ctx context.Context, cfg Config, sourc
 		return false, err
 	}
 	defer removeImportStage(root, stageLock)
+	var reservation *capacityReservation
+	if ledger != nil {
+		reservation, err = ledger.reserve(cfg, "backup", root, []capacityDemand{{Path: root, Bytes: backupDatabasePeakReservation(backupDatabaseReservation)}})
+		if err != nil {
+			return false, err
+		}
+		defer reservation.release()
+	} else if cfg.Production {
+		return false, errors.New("production staging database clones require the durable capacity ledger")
+	}
 	dump := filepath.Join(root, "database.sql")
-	if err := dumpManagedDatabaseContext(ctx, cfg, source, dump); err != nil {
+	if _, err := dumpManagedDatabaseContext(ctx, cfg, source, dump, reservation, backupDatabaseReservation); err != nil {
 		return false, fmt.Errorf("dump source database: %w", err)
 	}
 	encoding := "utf8mb4"

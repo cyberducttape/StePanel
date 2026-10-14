@@ -331,7 +331,7 @@ func (a *App) terminationBackup(ctx context.Context, site SiteCapability, starte
 		}
 		return item, nil
 	}
-	result, err := CreateSiteBackupContext(ctx, a.Config, site, true)
+	result, err := createSiteBackupContext(ctx, a.Config, site, true, a.capacityLedger())
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("create verified termination backup: %w", err)
 	}

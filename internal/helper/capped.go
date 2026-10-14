@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/sys/unix"
 )
@@ -87,10 +88,57 @@ func RunCappedSeparate(ctx context.Context, cmd *exec.Cmd, stdoutLimit, stderrLi
 // capped, for output that belongs on disk rather than in memory (database
 // dumps). The same cancellation and process-group guarantees apply.
 func RunCappedToFile(ctx context.Context, cmd *exec.Cmd, file *os.File, stderrLimit int) (stderr []byte, err error) {
+	return RunCappedWriter(ctx, cmd, file, stderrLimit)
+}
+
+// RunCappedWriter runs cmd with stdout directed to a caller-supplied writer
+// and stderr capped. The writer may enforce admission or accounting before
+// each output chunk is persisted.
+func RunCappedWriter(ctx context.Context, cmd *exec.Cmd, stdout io.Writer, stderrLimit int) (stderr []byte, err error) {
+	if stdout == nil {
+		return nil, errors.New("capped command requires a stdout writer")
+	}
 	exceeded := make(chan struct{})
-	errOut := &cappedBuffer{limit: stderrLimit, exceeded: exceeded, once: &sync.Once{}}
-	err = runCapped(ctx, cmd, file, errOut, exceeded, nil)
+	once := &sync.Once{}
+	errOut := &cappedBuffer{limit: stderrLimit, exceeded: exceeded, once: once}
+	writerFailed := &atomic.Bool{}
+	stream := &errorSignalingWriter{writer: stdout, exceeded: exceeded, once: once, failed: writerFailed}
+	err = runCapped(ctx, cmd, stream, errOut, exceeded, nil)
+	if errors.Is(err, ErrOutputLimitExceeded) && writerFailed.Load() {
+		stream.mu.Lock()
+		writerErr := stream.err
+		stream.mu.Unlock()
+		if writerErr != nil {
+			err = writerErr
+		}
+	}
 	return errOut.bytes(), err
+}
+
+type errorSignalingWriter struct {
+	mu       sync.Mutex
+	writer   io.Writer
+	exceeded chan struct{}
+	once     *sync.Once
+	failed   *atomic.Bool
+	err      error
+}
+
+func (w *errorSignalingWriter) Write(p []byte) (int, error) {
+	n, err := w.writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		w.mu.Lock()
+		w.err = err
+		w.mu.Unlock()
+		w.once.Do(func() {
+			w.failed.Store(true)
+			close(w.exceeded)
+		})
+	}
+	return n, err
 }
 
 func runCapped(ctx context.Context, cmd *exec.Cmd, stdout io.Writer, stderr *cappedBuffer, exceeded <-chan struct{}, cleanup func()) error {

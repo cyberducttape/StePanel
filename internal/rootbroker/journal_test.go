@@ -2,14 +2,19 @@ package rootbroker
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestClientConvenienceMethodsUseTheSocketBoundary(t *testing.T) {
@@ -62,7 +67,10 @@ func TestClientConvenienceMethodsUseTheSocketBoundary(t *testing.T) {
 			return e
 		},
 		func() error { _, e := client.DBInventory(ctx); return e },
-		func() error { _, e := client.DBDumpToPath(ctx, "db", "/var/backups/stepanel/db.sql"); return e },
+		func() error {
+			_, e := client.DBDumpToPath(ctx, "db", "/var/backups/stepanel/db.sql", "cap-test", "/var/backups/stepanel", 1, 1)
+			return e
+		},
 		func() error { _, e := client.VhostApply(ctx, "site", "example.test", "caddy"); return e },
 		func() error { _, e := client.IssueCertificate(ctx, "example.test", "admin@example.test"); return e },
 		func() error { _, e := client.TaskKill(ctx, "site", "cron"); return e },
@@ -219,17 +227,42 @@ func TestBrokerStreamsValidatedDumpPathWithoutEmbeddingDumpBytes(t *testing.T) {
 // under an approved root, so a dump of any size bypasses the JSON response.
 func TestBrokerDumpsIntoCallerCreatedFile(t *testing.T) {
 	webRoot := t.TempDir()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "capacity.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, statement := range []string{
+		`CREATE TABLE state_blobs(name TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at INTEGER NOT NULL, revision INTEGER NOT NULL)`,
+		`CREATE TABLE capacity_reservations(reservation_id TEXT NOT NULL, device INTEGER NOT NULL, bytes INTEGER NOT NULL, workflow TEXT NOT NULL, staging_path TEXT NOT NULL, created_at INTEGER NOT NULL, owner_pid INTEGER NOT NULL DEFAULT 0, owner_start TEXT NOT NULL DEFAULT '', PRIMARY KEY(reservation_id,device))`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
 	helper := filepath.Join(t.TempDir(), "dbctl")
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\n[ \"$1\" = dump ] || exit 64\nprintf 'DUMP OF %s\\n' \"$2\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	broker, err := newBroker(webRoot, t.TempDir(), log.New(io.Discard, "", 0), &fakeHost{})
+	broker, err := newBrokerWithFencingDB(webRoot, t.TempDir(), log.New(io.Discard, "", 0), &fakeHost{}, db)
 	if err != nil {
 		t.Fatal(err)
 	}
 	broker.dbctlPath = helper
+	sequence := 0
 	dump := func(path string) *Response {
 		t.Helper()
+		sequence++
+		stage := filepath.Dir(path)
+		stageInfo, statErr := os.Stat(stage)
+		if statErr == nil {
+			device := stageInfo.Sys().(*syscall.Stat_t).Dev
+			reservationID := fmt.Sprintf("capacity-test-%d", sequence)
+			if _, err := db.Exec(`INSERT INTO capacity_reservations(reservation_id,device,bytes,workflow,staging_path,created_at) VALUES(?,?,3145728,'backup',?,unixepoch())`, reservationID, device, stage); err != nil {
+				t.Fatal(err)
+			}
+			return brokerDump(t, broker, path, reservationID, stage)
+		}
 		response, err := broker.Execute(context.Background(), &Request{RequestType: "db", DB: &DBRequest{
 			Action: "dump", Database: "site_db", Username: "dump", Site: "dump", DumpPath: path,
 		}})
@@ -247,11 +280,51 @@ func TestBrokerDumpsIntoCallerCreatedFile(t *testing.T) {
 	}
 
 	target := create("dump.sql", "")
-	if response := dump(target); !response.OK {
-		t.Fatalf("dump into caller-created file failed: %s", response.Error)
+	firstResponse := dump(target)
+	if !firstResponse.OK {
+		t.Fatalf("dump into caller-created file failed: %s", firstResponse.Error)
+	}
+	var dumpDetails DBResponse
+	if err := json.Unmarshal(firstResponse.Details, &dumpDetails); err != nil {
+		t.Fatal(err)
+	}
+	if dumpDetails.CapacityAddedBytes != 24 {
+		t.Fatalf("stream capacity extension = %d bytes, want 24", dumpDetails.CapacityAddedBytes)
+	}
+	var reserved int64
+	if err := db.QueryRow(`SELECT bytes FROM capacity_reservations WHERE reservation_id='capacity-test-1'`).Scan(&reserved); err != nil {
+		t.Fatal(err)
+	}
+	if reserved != 3145752 {
+		t.Fatalf("durable reservation after stream = %d, want 3145752", reserved)
 	}
 	if data, _ := os.ReadFile(target); string(data) != "DUMP OF site_db\n" {
 		t.Fatalf("dump file = %q", data)
+	}
+	undersizedTarget := create("undersized.sql", "")
+	stageInfo, err := os.Stat(webRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device := stageInfo.Sys().(*syscall.Stat_t).Dev
+	if _, err := db.Exec(`INSERT INTO capacity_reservations(reservation_id,device,bytes,workflow,staging_path,created_at) VALUES('undersized',?,1,'backup',?,unixepoch())`, device, webRoot); err != nil {
+		t.Fatal(err)
+	}
+	if response := brokerDump(t, broker, undersizedTarget, "undersized", webRoot); response.OK {
+		t.Fatal("broker started a dump with an undersized capacity reservation")
+	}
+	if data, err := os.ReadFile(undersizedTarget); err != nil || len(data) != 0 {
+		t.Fatalf("undersized reservation wrote dump bytes: size=%d err=%v", len(data), err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER reject_capacity_extension BEFORE UPDATE ON capacity_reservations BEGIN SELECT RAISE(ABORT,'injected capacity failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	rejectedTarget := create("rejected.sql", "")
+	if response := dump(rejectedTarget); response.OK {
+		t.Fatal("dump continued after streaming capacity extension failed")
+	}
+	if data, err := os.ReadFile(rejectedTarget); err != nil || len(data) != 0 {
+		t.Fatalf("dump wrote bytes before capacity was admitted: size=%d err=%v", len(data), err)
 	}
 
 	if response := dump(create("existing.sql", "keep")); response.OK {
@@ -284,4 +357,17 @@ func TestBrokerDumpsIntoCallerCreatedFile(t *testing.T) {
 	if response := dump(outside); response.OK {
 		t.Fatal("broker wrote outside the approved staging roots")
 	}
+}
+
+func brokerDump(t *testing.T, broker *Broker, path, reservationID, stage string) *Response {
+	t.Helper()
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "db", DB: &DBRequest{
+		Action: "dump", Database: "site_db", Username: "dump", Site: "dump", DumpPath: path,
+		DumpCapacityReservation: reservationID, DumpCapacityStage: stage,
+		DumpExpectedBytes: 4, DumpMinFreeBytes: 1,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response
 }

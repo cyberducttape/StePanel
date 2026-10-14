@@ -294,8 +294,12 @@ func (c *Client) DBInventory(ctx context.Context) (*Response, error) {
 // DBDumpToPath asks the root broker to stream a database dump into dumpPath,
 // an empty file the caller created under an approved staging root. The dump
 // bytes never cross the JSON RPC, so its size is not limited by it.
-func (c *Client) DBDumpToPath(ctx context.Context, database, dumpPath string) (*Response, error) {
-	return c.Execute(ctx, &Request{RequestType: "db", DB: &DBRequest{Action: "dump", Database: database, Username: "dump", Site: "dump", DumpPath: dumpPath}})
+func (c *Client) DBDumpToPath(ctx context.Context, database, dumpPath, reservationID, stagingPath string, expectedBytes, minFreeBytes uint64) (*Response, error) {
+	return c.Execute(ctx, &Request{RequestType: "db", DB: &DBRequest{
+		Action: "dump", Database: database, Username: "dump", Site: "dump", DumpPath: dumpPath,
+		DumpCapacityReservation: reservationID, DumpCapacityStage: stagingPath,
+		DumpExpectedBytes: expectedBytes, DumpMinFreeBytes: minFreeBytes,
+	}})
 }
 
 // DBRestoreFromPath asks the root broker to open and stream a validated dump

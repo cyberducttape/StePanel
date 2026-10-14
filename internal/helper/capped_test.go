@@ -130,3 +130,18 @@ func TestRunCappedToFileStreamsStdoutAndBoundsStderr(t *testing.T) {
 		t.Fatalf("stderr flood err = %v; want ErrOutputLimitExceeded", err)
 	}
 }
+
+type rejectingWriter struct{ err error }
+
+func (w rejectingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestRunCappedWriterTerminatesProcessOnAdmissionFailure(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	writerErr := errors.New("capacity admission rejected output")
+	cmd := exec.Command("sh", "-c", `echo $$ > "$1"; printf x; exec sleep 60`, "sh", pidFile)
+	_, err := RunCappedWriter(context.Background(), cmd, rejectingWriter{err: writerErr}, 1024)
+	if !errors.Is(err, writerErr) {
+		t.Fatalf("writer failure = %v, want %v", err, writerErr)
+	}
+	requireProcessGone(t, pidFile)
+}
