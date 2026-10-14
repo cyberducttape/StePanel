@@ -54,12 +54,17 @@ recovery evidence, a broader runtime certification, or production approval.
 
 ### Evidence update — 2026-10-14
 
+- A third hosted install smoke run passed all six Ubuntu 24.04, AlmaLinux 9,
+  and Rocky Linux 9 × Apache/Caddy + MariaDB combinations. Each installed-host
+  job passed the database-backed WordPress recovery proof and one default
+  interruption-matrix iteration; measured proof RTOs were 4.125–5.566 seconds.
+  See [run 38526303906 evidence](lab-results/2026-10-14-hosted-install-smoke-38526303906.md).
 - Hosted install smoke passed again on Ubuntu 24.04, AlmaLinux 9, and Rocky
   Linux 9 with Apache and Caddy + MariaDB. Each of the six jobs completed a
   database-backed WordPress recovery proof and one interruption-matrix
-  iteration; measured proof RTOs were 4.5–8.0 seconds. See the
+  iteration; measured proof RTOs were 4.5–8.0 seconds in that earlier run. See the
   [run evidence](lab-results/2026-10-14-hosted-install-smoke.md).
-- This is a second single-run result per combination, not the required 20–50
+- The latest run is a third single-run result per combination, not the required 20–50
   installed-VM recovery repetitions. Physical power loss, broader ENOSPC,
   capacity certification, and repeated recovery certification remain open.
 - The quota-enabled Ubuntu 24.04 guest run also passed on 2026-10-14: production-

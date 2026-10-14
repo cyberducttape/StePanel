@@ -18,7 +18,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Compare the current ordered queue scan with a grouped-owner-head selection;
   the alternative is slower in the blocked-owner case and remains benchmark-
   only, avoiding an unproven production query rewrite.
-- Record the second successful six-combination installed WordPress recovery
+- Record the third successful six-combination installed WordPress recovery
   smoke run (Ubuntu 24.04, AlmaLinux 9, Rocky Linux 9 with Apache/Caddy and
   MariaDB), including measured proof RTOs and explicit one-run limitations.
 - Record the successful quota-enabled Ubuntu 24.04 install/recovery run,
