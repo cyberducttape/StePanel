@@ -354,6 +354,19 @@ CREATE INDEX IF NOT EXISTS jobs_kind_owner_state_idx ON jobs(kind, owner, state)
 		_, err := tx.Exec(`ALTER TABLE jobs ADD COLUMN idempotency_expires_at INTEGER`)
 		return err
 	}),
+	migration.NewMigration(18, "add transactional backup scheduler outbox", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS backup_schedule_outbox (
+            id TEXT PRIMARY KEY,
+            site TEXT NOT NULL,
+            operation_key TEXT NOT NULL UNIQUE,
+            payload BLOB NOT NULL,
+            created_at INTEGER NOT NULL,
+            delivered_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS backup_schedule_outbox_pending_idx
+            ON backup_schedule_outbox(created_at, id) WHERE delivered_at IS NULL;`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

@@ -21,6 +21,20 @@ type siteCreationFixture struct {
 	log     string
 }
 
+type siteCreationActivationObserver struct {
+	siteauthority.Manager
+	beforeActivate func()
+	activated      bool
+}
+
+func (m *siteCreationActivationObserver) ActivateStaged(ctx context.Context, name, staging string) (*siteauthority.Site, error) {
+	m.activated = true
+	if m.beforeActivate != nil {
+		m.beforeActivate()
+	}
+	return m.Manager.ActivateStaged(ctx, name, staging)
+}
+
 // newSiteCreationFixture builds an App whose site helper is a script that
 // records each call and, like stepanel-sitectl, creates the site root on
 // prepare and removes it on delete. failOn names an action that fails.
@@ -57,9 +71,14 @@ exit 0
 			RecoveryRoot: filepath.Join(root, "recovery"),
 			AuditLog:     filepath.Join(root, "audit.jsonl"),
 			SiteCtl:      sitectl,
+			AppCtl:       filepath.Join(root, "fake-appctl"),
 		},
 		Auth: Auth{Username: "admin"},
 		Jobs: newJobsWithDB(db, 1),
+	}
+	appctl := "#!/usr/bin/env bash\necho \"$*\" >> \"" + log + "\"\n[[ \"${STEPANEL_TEST_FAIL_RESOURCE:-}\" != \"1\" || \"$1\" != \"resource-apply\" ]]\n"
+	if err := os.WriteFile(app.Config.AppCtl, []byte(appctl), 0o700); err != nil {
+		t.Fatal(err)
 	}
 	return &siteCreationFixture{app: app, root: root, webRoot: webRoot, log: log}
 }
@@ -261,6 +280,87 @@ func TestTerminalCustomerSiteCreationFailureReleasesAssignment(t *testing.T) {
 	}
 }
 
+func TestCustomerSiteCreationEnforcesPlanResourcesBeforeActivation(t *testing.T) {
+	f := newSiteCreationFixture(t, "")
+	accounts, err := OpenAccountStore(filepath.Join(f.root, "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", []string{"limited-site"}); err != nil {
+		t.Fatal(err)
+	}
+	resources, err := OpenResourceStore(filepath.Join(f.root, "resources.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.app.Accounts, f.app.Resources = accounts, resources
+	manager, err := siteauthority.NewDefaultManager(f.webRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := &siteCreationActivationObserver{Manager: manager, beforeActivate: func() {
+		profile, ok := resources.values["limited-site"]
+		if !ok || profile.State != "applied" {
+			t.Errorf("site activation began before limits were applied: %#v, exists=%v", profile, ok)
+		}
+	}}
+	f.app.siteManager = observer
+	item := Job{ID: "create-limited-site", Kind: "site.create", MaxAttempts: 1, StartedAt: time.Now().UTC()}
+	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "limited-site", Template: "php", Actor: "customer", CustomerProvisioning: true})
+	if _, err := f.app.handleSiteCreation(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	profile, ok := resources.values["limited-site"]
+	if !ok || profile.State != "applied" || profile.Account != "customer" {
+		t.Fatalf("provisioned resource profile = %#v, exists=%v", profile, ok)
+	}
+	calls := f.helperCalls(t)
+	resourceApply, seal := strings.Index(calls, "resource-apply limited-site"), strings.Index(calls, "seal limited-site")
+	if resourceApply < 0 || seal < 0 || resourceApply > seal {
+		t.Fatalf("resource ceilings were not applied before site sealing: %q", calls)
+	}
+	if !observer.activated {
+		t.Fatal("site activation was never reached")
+	}
+}
+
+func TestCustomerSiteCreationDoesNotActivateWhenPlanEnforcementFails(t *testing.T) {
+	f := newSiteCreationFixture(t, "")
+	accounts, err := OpenAccountStore(filepath.Join(f.root, "accounts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Create("customer", "a sufficiently long customer password", testTOTPSecret, "starter", []string{"limited-site"}); err != nil {
+		t.Fatal(err)
+	}
+	resources, err := OpenResourceStore(filepath.Join(f.root, "resources.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.app.Accounts, f.app.Resources = accounts, resources
+	manager, err := siteauthority.NewDefaultManager(f.webRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := &siteCreationActivationObserver{Manager: manager}
+	f.app.siteManager = observer
+	t.Setenv("STEPANEL_TEST_FAIL_RESOURCE", "1")
+	item := Job{ID: "create-limited-site", Kind: "site.create", MaxAttempts: 1, StartedAt: time.Now().UTC()}
+	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: "limited-site", Template: "php", Actor: "customer", CustomerProvisioning: true})
+	if _, err := f.app.handleSiteCreation(context.Background(), item); err == nil {
+		t.Fatal("creation succeeded despite resource enforcement failure")
+	}
+	if observer.activated {
+		t.Fatal("site activated before resource enforcement succeeded")
+	}
+	if _, err := os.Lstat(filepath.Join(f.webRoot, "sites", "limited-site")); !os.IsNotExist(err) {
+		t.Fatalf("site tree was activated despite failed resource enforcement: %v", err)
+	}
+	if _, ok := resources.values["limited-site"]; ok {
+		t.Fatal("failed provisioning left its newly-created resource profile behind")
+	}
+}
+
 // A second creation job for a site that another job already created fails,
 // but must not release the reservation that now belongs to the live site.
 func TestDuplicateCustomerSiteCreationKeepsAssignmentOfExistingSite(t *testing.T) {
@@ -311,6 +411,15 @@ func TestSiteCreationRefusesExistingSite(t *testing.T) {
 // the creation back completely, including the prepared account.
 func TestStartupRecoveryRemovesInterruptedSiteCreation(t *testing.T) {
 	f := newSiteCreationFixture(t, "")
+	resources, err := OpenResourceStore(filepath.Join(f.root, "resources.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := resourceProfileForPlan("customer", "half-made", hostingPlans["starter"])
+	if err := persistMapKeyChange(resources.values, "half-made", &profile, resources.persistLocked); err != nil {
+		t.Fatal(err)
+	}
+	f.app.Resources = resources
 	canonical := filepath.Join(f.webRoot, "sites", "half-made", "public")
 	txn, err := BeginSiteTransaction(f.app.Config.RecoveryRoot, canonical, siteCreationTransactionKind, AuthorizedSite{site: "half-made"})
 	if err != nil {
@@ -326,8 +435,11 @@ func TestStartupRecoveryRemovesInterruptedSiteCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failures := recoverUncleanShutdown(f.app.Config, manager, f.app.acquireSiteMutationLockContext); len(failures) != 0 {
+	if failures := recoverUncleanShutdown(f.app.Config, manager, f.app.acquireSiteMutationLockContext, resources); len(failures) != 0 {
 		t.Fatalf("recovery failures: %v", failures)
+	}
+	if _, exists := resources.values["half-made"]; exists {
+		t.Fatal("interrupted site creation left a stale resource profile")
 	}
 	if _, err := os.Lstat(filepath.Join(f.webRoot, "sites", "half-made")); !os.IsNotExist(err) {
 		t.Fatalf("interrupted site creation remains after recovery: %v", err)

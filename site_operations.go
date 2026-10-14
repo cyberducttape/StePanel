@@ -330,7 +330,7 @@ func (a *App) reconcileInterruptedSiteWithLease(ctx context.Context, site string
 	held := func(context.Context, string) (context.Context, func(), error) {
 		return ctx, func() {}, nil
 	}
-	if failures := recoverInterruptedState(a.Config, manager, held, site); len(failures) > 0 {
+	if failures := recoverInterruptedState(a.Config, manager, held, site, a.Resources); len(failures) > 0 {
 		return errors.Join(failures...)
 	}
 	return nil

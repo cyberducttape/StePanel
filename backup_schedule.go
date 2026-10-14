@@ -23,6 +23,11 @@ type backupSchedules struct {
 	items map[string]BackupSchedule
 }
 
+type backupScheduleOutboxItem struct {
+	id, site, key string
+	payload       []byte
+}
+
 func openBackupSchedules(path string) (*backupSchedules, error) {
 	s := &backupSchedules{path: path, items: map[string]BackupSchedule{}}
 	b, err := os.ReadFile(path)
@@ -168,31 +173,213 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) runDueBackups() {
-	if a.Schedules == nil {
+	if a.Schedules == nil || a.Jobs == nil || a.Jobs.db == nil {
 		return
 	}
 	now := time.Now().UTC()
 	a.Schedules.mu.Lock()
-	defer a.Schedules.mu.Unlock()
-	for site, s := range a.Schedules.items {
+	due := make([]BackupSchedule, 0)
+	for _, s := range a.Schedules.items {
 		if !s.Enabled || s.NextRun.After(now) {
 			continue
 		}
-		operationKey := fmt.Sprintf("schedule:%s:%d", site, s.NextRun.UnixNano())
-		s.LastRun = &now
-		s.NextRun = now.Add(time.Duration(s.IntervalMinutes) * time.Minute)
-		payload, marshalErr := json.Marshal(durableBackupRequest{Site: site, IncludeDatabases: s.IncludeDatabases, Scheduled: true, KeepLast: s.KeepLast, Actor: "scheduler", StartedAt: now})
-		if marshalErr != nil {
-			continue
-		}
-		_, _, enqueueErr := a.Jobs.EnqueueIdempotent("site.backup", site, operationKey, payload, 3)
-		if enqueueErr != nil {
-			continue
-		}
-		if err := persistMapKeyChange(a.Schedules.items, site, &s, a.Schedules.persistLocked); err != nil {
-			TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", site, err.Error())
+		due = append(due, s)
+	}
+	a.Schedules.mu.Unlock()
+	if err := a.dispatchBackupScheduleOutbox(); err != nil {
+		log.Printf("dispatch scheduled backup outbox: %v", err)
+	}
+	bindingValue, bound := controlPlaneStateBindings.Load(a.Schedules)
+	if !bound {
+		TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", "", "schedule state is not bound to the durable control-plane database")
+		return
+	}
+	binding := bindingValue.(controlPlaneStateBinding)
+	if binding.db != a.Jobs.db || binding.name == "" {
+		TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", "", "backup schedules and jobs do not share a control-plane database")
+		return
+	}
+	for _, schedule := range due {
+		if err := a.stageScheduledBackup(binding, schedule, now); err != nil {
+			TelemetryAudit(a.Config.AuditLog, "scheduler", "backup.schedule.persistence_failed", schedule.Site, err.Error())
 		}
 	}
+	if err := a.dispatchBackupScheduleOutbox(); err != nil {
+		log.Printf("dispatch scheduled backup outbox: %v", err)
+	}
+}
+
+// stageScheduledBackup atomically advances the authoritative SQLite schedule
+// image and records a durable intent for job admission. The dispatcher may
+// safely replay the intent because its operation key is deterministic.
+func (a *App) stageScheduledBackup(binding controlPlaneStateBinding, due BackupSchedule, now time.Time) error {
+	tx, err := binding.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var raw []byte
+	var revision int64
+	if err := tx.QueryRow(`SELECT payload, revision FROM state_blobs WHERE name=?`, binding.name).Scan(&raw, &revision); err != nil {
+		return err
+	}
+	var schedules map[string]BackupSchedule
+	if err := json.Unmarshal(raw, &schedules); err != nil {
+		return fmt.Errorf("decode authoritative backup schedules: %w", err)
+	}
+	current, exists := schedules[due.Site]
+	if !exists || !current.Enabled || !current.NextRun.Equal(due.NextRun) {
+		_ = tx.Rollback()
+		if err := a.refreshBoundBackupSchedules(binding); err != nil {
+			return fmt.Errorf("refresh schedules changed by another process: %w", err)
+		}
+		return nil
+	}
+	operationKey := fmt.Sprintf("schedule:%s:%d", current.Site, current.NextRun.UnixNano())
+	started := now
+	updated := current
+	updated.LastRun = &started
+	updated.NextRun = now.Add(time.Duration(current.IntervalMinutes) * time.Minute)
+	schedules[current.Site] = updated
+	encodedState, err := json.Marshal(schedules)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(durableBackupRequest{Site: current.Site, IncludeDatabases: current.IncludeDatabases, Scheduled: true, KeepLast: current.KeepLast, Actor: "scheduler", StartedAt: now})
+	if err != nil {
+		return err
+	}
+	result, err := tx.Exec(`UPDATE state_blobs SET payload=?, updated_at=unixepoch(), revision=revision+1 WHERE name=? AND revision=?`, encodedState, binding.name, revision)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return errors.New("backup schedule changed concurrently; retry on next scheduler tick")
+	}
+	if _, err := tx.Exec(`INSERT INTO backup_schedule_outbox(id, site, operation_key, payload, created_at) VALUES(?, ?, ?, ?, ?) ON CONFLICT(operation_key) DO NOTHING`, operationKey, current.Site, operationKey, payload, now.UnixNano()); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Refresh all schedule keys from the committed image so a process that had
+	// stale peer state cannot later persist an accidental deletion of another
+	// process's schedule. This small read is outside the queue dispatch and
+	// transaction; the mutex is held only while decoding the current image.
+	if err := a.refreshBoundBackupSchedules(binding); err != nil {
+		log.Printf("refresh committed backup schedule state: %v", err)
+		// The outbox and schedule transition are already durable; report success
+		// so this intent is not represented as uncommitted work.
+	}
+	return nil
+}
+
+func (a *App) refreshBoundBackupSchedules(binding controlPlaneStateBinding) error {
+	a.Schedules.mu.Lock()
+	defer a.Schedules.mu.Unlock()
+	raw, revision, err := readControlPlaneBlobWithRevision(binding.db, binding.name)
+	if err != nil {
+		return err
+	}
+	if err := decodeBoundControlPlaneTarget(binding.target, raw); err != nil {
+		return err
+	}
+	controlPlaneStateRevisions.Store(a.Schedules, revision)
+	controlPlaneStateSnapshots.Store(a.Schedules, append([]byte(nil), raw...))
+	return nil
+}
+
+func (a *App) dispatchBackupScheduleOutbox() error {
+	if a.Jobs == nil || a.Jobs.db == nil {
+		return errors.New("durable jobs are unavailable")
+	}
+	bindingValue, bound := controlPlaneStateBindings.Load(a.Schedules)
+	if !bound {
+		return errors.New("backup schedules are not bound to durable control-plane state")
+	}
+	binding := bindingValue.(controlPlaneStateBinding)
+	if binding.db != a.Jobs.db || binding.name == "" {
+		return errors.New("backup schedules and jobs do not share a control-plane database")
+	}
+	rows, err := a.Jobs.db.Query(`SELECT id, site, operation_key, payload FROM backup_schedule_outbox WHERE delivered_at IS NULL ORDER BY created_at, id LIMIT 100`)
+	if err != nil {
+		return err
+	}
+	var batch []backupScheduleOutboxItem
+	for rows.Next() {
+		var item backupScheduleOutboxItem
+		if err := rows.Scan(&item.id, &item.site, &item.key, &item.payload); err != nil {
+			rows.Close()
+			return err
+		}
+		batch = append(batch, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range batch {
+		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(context.Background(), item.site)
+		if lockErr != nil {
+			return fmt.Errorf("lock scheduled backup site %s: %w", item.site, lockErr)
+		}
+		if err := a.refreshBoundBackupSchedules(binding); err != nil {
+			release()
+			return fmt.Errorf("refresh schedule before dispatch for %s: %w", item.site, err)
+		}
+		a.Schedules.mu.Lock()
+		schedule, exists := a.Schedules.items[item.site]
+		a.Schedules.mu.Unlock()
+		if !exists || !schedule.Enabled {
+			_, deleteErr := a.Jobs.db.Exec(`DELETE FROM backup_schedule_outbox WHERE id=? AND delivered_at IS NULL`, item.id)
+			release()
+			if deleteErr != nil {
+				return deleteErr
+			}
+			continue
+		}
+		if err := operationCtx.Err(); err != nil {
+			release()
+			return fmt.Errorf("scheduled backup site lock was lost: %w", err)
+		}
+		if err := a.enqueueScheduledBackupIntent(item); err != nil {
+			release()
+			return fmt.Errorf("enqueue schedule intent %s: %w", item.id, err)
+		}
+		if _, err := a.Jobs.db.Exec(`DELETE FROM backup_schedule_outbox WHERE id=? AND delivered_at IS NULL`, item.id); err != nil {
+			release()
+			return err
+		}
+		release()
+	}
+	return nil
+}
+
+func (a *App) enqueueScheduledBackupIntent(item backupScheduleOutboxItem) error {
+	_, _, err := a.Jobs.EnqueueIdempotent("site.backup", item.site, item.key, item.payload, 3)
+	if !errors.Is(err, ErrIdempotencyConflict) {
+		return err
+	}
+	// Before the outbox migration, a crash between enqueue and schedule
+	// persistence could leave a job with the same schedule key but a different
+	// StartedAt timestamp. Reconcile that prior intent semantically instead of
+	// permanently wedging the outbox on a harmless timestamp difference.
+	var existingID string
+	if queryErr := a.Jobs.db.QueryRow(`SELECT id FROM jobs WHERE kind='site.backup' AND owner=? AND operation_key=?`, item.site, item.key).Scan(&existingID); queryErr != nil {
+		return errors.Join(err, queryErr)
+	}
+	existing, found, loadErr := a.Jobs.loadDurableJob(existingID)
+	if loadErr != nil || !found {
+		return errors.Join(err, loadErr)
+	}
+	var wanted, actual durableBackupRequest
+	if json.Unmarshal(item.payload, &wanted) != nil || json.Unmarshal(existing.Payload, &actual) != nil || wanted.Site != actual.Site || wanted.IncludeDatabases != actual.IncludeDatabases || wanted.Scheduled != actual.Scheduled || wanted.KeepLast != actual.KeepLast || wanted.Actor != actual.Actor {
+		return err
+	}
+	return nil
 }
 
 // removeSiteBackupSchedule is an idempotent lifecycle cleanup operation. It
@@ -207,12 +394,19 @@ func (a *App) removeSiteBackupSchedule(ctx context.Context, site string) error {
 		return nil
 	}
 	a.Schedules.mu.Lock()
-	defer a.Schedules.mu.Unlock()
-	if _, exists := a.Schedules.items[site]; !exists {
-		return nil
+	_, exists := a.Schedules.items[site]
+	var err error
+	if exists {
+		err = persistMapKeyChange(a.Schedules.items, site, (*BackupSchedule)(nil), a.Schedules.persistLocked)
 	}
-	if err := persistMapKeyChange(a.Schedules.items, site, (*BackupSchedule)(nil), a.Schedules.persistLocked); err != nil {
+	a.Schedules.mu.Unlock()
+	if err != nil {
 		return fmt.Errorf("remove backup schedule state: %w", err)
+	}
+	if a.Jobs != nil && a.Jobs.db != nil {
+		if _, err := a.Jobs.db.Exec(`DELETE FROM backup_schedule_outbox WHERE site=?`, site); err != nil {
+			return fmt.Errorf("remove pending backup schedule intents: %w", err)
+		}
 	}
 	return ctx.Err()
 }

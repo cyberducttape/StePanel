@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Advance due backup schedules and record their job intents atomically in a
+  SQLite-backed outbox; dispatch retries are idempotent and no longer hold the
+  schedule mutex across queue/database work. Dispatch shares site mutation
+  locks and termination removes undispatched intents, preventing backups for
+  deleted or reused site names. Customer site creation now
+  persists and applies plan resource ceilings before activating the site, and
+  failed or interrupted creation removes its newly created resource profile.
+
 - Quarantine durable jobs with malformed or undecryptable payloads before
   committing a worker lease, so poisoned records become visible dead letters
   and cannot indefinitely block later operations for the same owner. Read

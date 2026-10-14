@@ -182,6 +182,85 @@ func (a *App) ensurePlanResourcesContext(ctx context.Context, account HostingAcc
 	return pending, nil
 }
 
+// prepareProvisionedSiteResources persists and applies the customer's plan
+// ceilings while the site is prepared but before its document tree is
+// activated. The caller already owns the site mutation lock.
+func (a *App) prepareProvisionedSiteResources(ctx context.Context, account HostingAccount, site string) (bool, error) {
+	if a.Resources == nil {
+		return false, errors.New("customer site creation requires resource enforcement state")
+	}
+	plan, ok := hostingPlans[account.Plan]
+	if !ok {
+		return false, errors.New("customer plan is unavailable for resource enforcement")
+	}
+	a.Resources.mu.Lock()
+	profile, existed := a.Resources.values[site]
+	if existed {
+		if profile.Account != "" && profile.Account != account.Username {
+			a.Resources.mu.Unlock()
+			return false, errors.New("existing site resource profile belongs to another account")
+		}
+		profile = clampResourceProfileToPlan(profile, plan)
+		profile.Account = account.Username
+	} else {
+		profile = resourceProfileForPlan(account.Username, site, plan)
+	}
+	profile.State = "pending"
+	if profile.hasFilesystemQuota() {
+		profile.FilesystemQuotaState = "apply-pending"
+	}
+	err := persistMapKeyChange(a.Resources.values, site, &profile, a.Resources.persistLocked)
+	a.Resources.mu.Unlock()
+	if err != nil {
+		return !existed, fmt.Errorf("persist desired plan resources: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return !existed, err
+	}
+	if err := a.applyResourceProfile(ctx, profile, false); err != nil {
+		return !existed, fmt.Errorf("apply plan resource ceilings before site activation: %w", err)
+	}
+	profile.State = "applied"
+	profile.AppliedAt = time.Now().UTC()
+	if profile.hasFilesystemQuota() {
+		profile.FilesystemQuotaState = "enforced"
+	} else {
+		profile.FilesystemQuotaState = "none"
+	}
+	a.Resources.mu.Lock()
+	err = persistMapKeyChange(a.Resources.values, site, &profile, a.Resources.persistLocked)
+	a.Resources.mu.Unlock()
+	if err != nil {
+		return !existed, fmt.Errorf("persist applied plan resource state: %w", err)
+	}
+	return !existed, nil
+}
+
+func (a *App) removeProvisionedSiteResourceProfile(account, site string) error {
+	if a.Resources == nil {
+		return nil
+	}
+	a.Resources.mu.Lock()
+	defer a.Resources.mu.Unlock()
+	profile, exists := a.Resources.values[site]
+	if !exists {
+		return nil
+	}
+	if profile.Account != account {
+		return errors.New("refusing to remove a resource profile owned by another account")
+	}
+	return persistMapKeyChange(a.Resources.values, site, (*ResourceProfile)(nil), a.Resources.persistLocked)
+}
+
+func (s *ResourceStore) removeRecoveredSiteProfile(site string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.values[site]; !exists {
+		return nil
+	}
+	return persistMapKeyChange(s.values, site, (*ResourceProfile)(nil), s.persistLocked)
+}
+
 // reconcileAccountResourcePlan updates resource desired state after an account
 // plan or assignment change. Existing stricter site settings are preserved;
 // values above the new plan ceiling are clamped. Host changes happen only after

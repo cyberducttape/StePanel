@@ -604,7 +604,7 @@ func Main() {
 				failures = append(failures, err)
 			}
 		}
-		failures = append(failures, recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext)...)
+		failures = append(failures, recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext, app.Resources)...)
 		if _, err := recoverAppActivationJournals(cfg); err != nil {
 			failures = append(failures, fmt.Errorf("recover application activations: %w", err))
 		}

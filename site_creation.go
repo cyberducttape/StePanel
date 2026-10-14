@@ -20,10 +20,9 @@ import (
 // activates the staged tree, and the broker seals ownership. A SiteTransaction
 // journal makes an interrupted creation roll back on startup.
 //
-// Creation does not publish a web route or assign the site to a customer
-// account. Those stay with their existing workflows, which own domain
-// verification (POST /api/sites/deploy) and plan resource enforcement
-// (PATCH /api/accounts/{username}).
+// Creation does not publish a web route. Domain verification and route
+// publication stay with POST /api/sites/deploy; customer plan ceilings are
+// applied before activation for customer-provisioning requests.
 
 // siteTemplate fills a staged public root for a new site.
 type siteTemplate struct {
@@ -246,11 +245,22 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("site creation authorization: %w", err)
 	}
+	var customerAccount HostingAccount
 	operationCtx, release, err := a.acquireSiteMutationLockContext(ctx, req.Site)
 	if err != nil {
 		return nil, fmt.Errorf("acquire site mutation lock: %w", err)
 	}
 	defer release()
+	if req.CustomerProvisioning {
+		var found bool
+		if a.Accounts == nil {
+			return nil, errors.New("customer account state is unavailable")
+		}
+		customerAccount, found = a.Accounts.Get(req.Actor)
+		if !found || !a.Accounts.OwnsSite(req.Actor, req.Site) || a.Accounts.TenantSuspended(req.Actor) {
+			return nil, errors.New("customer site assignment is no longer active")
+		}
+	}
 	if exists, err := a.siteExists(req.Site); err != nil {
 		return nil, fmt.Errorf("inspect site: %w", err)
 	} else if exists {
@@ -296,6 +306,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		return nil, fmt.Errorf("begin site creation transaction: %w", err)
 	}
 	committed, prepared := false, false
+	createdResourceProfile := false
 	defer func() {
 		if committed {
 			return
@@ -310,10 +321,18 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 			// Keep the job's lease token: the broker rejects unfenced
 			// mutations, and ctx may already be cancelled.
 			cleanupCtx := context.WithoutCancel(ctx)
+			removed := false
 			if err := siteHelperContext(cleanupCtx, a.Config, "delete", req.Site); err != nil {
 				log.Printf("remove partially created site %s: %v", req.Site, err)
 			} else if err := manager.Delete(cleanupCtx, req.Site); err != nil {
 				log.Printf("finalize removal of partially created site %s: %v", req.Site, err)
+			} else {
+				removed = true
+			}
+			if removed && createdResourceProfile {
+				if err := a.removeProvisionedSiteResourceProfile(req.Actor, req.Site); err != nil {
+					log.Printf("remove failed provisioning resource profile for %s: %v", req.Site, err)
+				}
 			}
 		}
 	}()
@@ -321,6 +340,12 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	prepared = true
 	if err := siteHelperContext(operationCtx, a.Config, "prepare", req.Site); err != nil {
 		return nil, fmt.Errorf("prepare isolated site: %w", err)
+	}
+	if req.CustomerProvisioning {
+		createdResourceProfile, err = a.prepareProvisionedSiteResources(operationCtx, customerAccount, req.Site)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if _, err := manager.ActivateStaged(operationCtx, req.Site, staging); err != nil {
 		return nil, fmt.Errorf("activate site: %w", err)
@@ -343,27 +368,6 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	}
 	nextSteps := []string{
 		"Publish a route for the site with POST /api/sites/deploy",
-	}
-	if req.Actor != a.Auth.Username && a.Accounts != nil {
-		account, ok := a.Accounts.Get(req.Actor)
-		if !ok {
-			nextSteps = append(nextSteps, "Operator reconciliation is required: the customer account was not found after site creation")
-		} else {
-			pendingResources, resourceErr := a.ensurePlanResourcesContext(context.WithoutCancel(ctx), account)
-			if resourceErr != nil || len(pendingResources) > 0 {
-				reason := "resource enforcement is pending"
-				if resourceErr != nil {
-					reason = resourceErr.Error()
-				}
-				if _, suspendErr := a.setAccountSuspended(context.WithoutCancel(ctx), req.Actor, true); suspendErr != nil {
-					log.Printf("suspend account %s after site resource enforcement failure: %v", req.Actor, suspendErr)
-					nextSteps = append(nextSteps, "Operator reconciliation is required: plan resource enforcement failed and automatic account suspension failed")
-				} else {
-					RevocationAudit(a.Config.AuditLog, req.Actor, "hosting.account.suspended", req.Actor, "resource enforcement pending after customer site creation: "+reason)
-					nextSteps = append(nextSteps, "The account is suspended until its plan resource enforcement is applied and verified")
-				}
-			}
-		}
 	}
 	creationCompleted = true
 	return json.Marshal(SiteCreationResult{

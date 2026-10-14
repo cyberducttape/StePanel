@@ -24,15 +24,15 @@ import (
 // it, so broker requests carry a current fencing token and cannot race a
 // lease another process now holds. A nil lockSite (tests without a control
 // plane database) runs unlocked.
-func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker) []error {
-	return recoverInterruptedState(cfg, siteManager, lockSite, "")
+func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, resources ...*ResourceStore) []error {
+	return recoverInterruptedState(cfg, siteManager, lockSite, "", resources...)
 }
 
 // recoverInterruptedState is recoverUncleanShutdown limited to one site when
 // site is not empty. A worker runs the site-scoped pass, holding the site's
 // lease, when it finds a site operation that a crash interrupted, so the site
 // is repaired without waiting for the panel to restart.
-func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, site string) []error {
+func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, site string, resources ...*ResourceStore) []error {
 	var failures []error
 	databaseRecoveries, err := recoverTransactionDatabases(cfg, cfg.RecoveryRoot, lockSite, site)
 	if err != nil {
@@ -99,6 +99,14 @@ func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lock
 				failures = append(failures, fmt.Errorf("finalize interrupted site creation %s: %w", id, deleteErr))
 				log.Printf("finalize interrupted site creation %s: %v", id, deleteErr)
 				continue
+			}
+			if txn.Kind == siteCreationTransactionKind && len(resources) > 0 && resources[0] != nil {
+				if resourceErr := resources[0].removeRecoveredSiteProfile(txn.Site); resourceErr != nil {
+					unlock()
+					failures = append(failures, fmt.Errorf("remove resource profile for interrupted site creation %s: %w", id, resourceErr))
+					log.Printf("remove resource profile for interrupted site creation %s: %v", id, resourceErr)
+					continue
+				}
 			}
 		}
 		unlock()
