@@ -70,12 +70,25 @@ start_guest() {
     -daemonize -pidfile "$run_dir/qemu.pid"
 }
 
+qemu_guest_running() {
+  [[ -s $run_dir/qemu.pid ]] || return 1
+  local pid command_line
+  pid=$(<"$run_dir/qemu.pid")
+  [[ $pid =~ ^[1-9][0-9]*$ && -r /proc/$pid/cmdline ]] || return 1
+  command_line=$(tr '\0' ' ' < "/proc/$pid/cmdline") || return 1
+  [[ $command_line == *qemu-system-x86_64* && $command_line == *"-pidfile $run_dir/qemu.pid"* ]]
+}
+
 kill_guest() {
   [[ -s $run_dir/qemu.pid ]] || return 0
   local pid; pid=$(<"$run_dir/qemu.pid")
+  if ! qemu_guest_running; then
+    rm -f "$run_dir/qemu.pid"
+    return 0
+  fi
   kill -KILL "$pid" 2>/dev/null || true
-  for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-  ! kill -0 "$pid" 2>/dev/null || { echo 'QEMU did not stop' >&2; return 1; }
+  for _ in $(seq 1 30); do qemu_guest_running || break; sleep 1; done
+  ! qemu_guest_running || { echo 'QEMU did not stop' >&2; return 1; }
   rm -f "$run_dir/qemu.pid"
 }
 
@@ -110,6 +123,10 @@ guest_job() {
   deadline=$((SECONDS + minutes * 60))
   status=''
   while (( SECONDS < deadline )); do
+    if ! qemu_guest_running; then
+      echo "QEMU guest exited during job $name; inspect $run_dir/console.log" | tee "$run_dir/$name.log" >&2
+      return 125
+    fi
     status=$(timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 "sudo cat /var/log/stepanel-cert/$name.status 2>/dev/null" 2>/dev/null || true)
     [[ -n $status ]] && break
     sleep 30

@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Make the local KVM certification harness detect guest-process termination
+  promptly and verify its PID against the run-specific QEMU command line before
+  signaling it, avoiding hours of polling or signaling an unrelated reused PID.
 - Preserve staged-restore files and databases when vhost cleanup fails, and
   prevent recovery from rolling back a site while its route remains published;
   startup cleanup now finalizes interrupted staging-restore accounts.
