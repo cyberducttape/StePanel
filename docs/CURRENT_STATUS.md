@@ -42,40 +42,49 @@ exercise every ENOSPC boundary. Gate 5 remains open; see the
 | **Gate 4** | Automated Archive Database Restoration | ✅ COMPLETE | None |
 | **Gate 5** | Failure Recovery Testing | 🔄 PARTIAL | 20–50× repeated matrix (two consecutive full Rocky KVM runs now recorded), ENOSPC beyond backup/file restore, physical power loss |
 
-On 2026-10-13 the installed-host WordPress recovery proof passed on Apache and
-Caddy with MariaDB for Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9. The Caddy
-results include the database-backed published-post HTTP probe after the
-canonical FastCGI root and explicit front-controller routing fixes. See the
-six linked job results in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
-These are single-run smoke results for the named combinations, not repeated
-recovery evidence, a broader runtime certification, or production approval.
+On 2026-10-14 the installed-host WordPress recovery proof passed on Apache and
+Caddy with MariaDB for Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9. The latest
+completed matrix run is 38547265154; it includes database-backed HTTP proofs
+and one recovery-matrix iteration per host combination. These remain smoke
+results, not repeated recovery evidence, a broader runtime certification, or
+production approval.
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
 ### Evidence update — 2026-10-14
 
-- A third hosted install smoke run passed all six Ubuntu 24.04, AlmaLinux 9,
-  and Rocky Linux 9 × Apache/Caddy + MariaDB combinations. Each installed-host
-  job passed the database-backed WordPress recovery proof and one default
-  interruption-matrix iteration; measured proof RTOs were 4.125–5.566 seconds.
-  See [run 38526303906 evidence](lab-results/2026-10-14-hosted-install-smoke-38526303906.md).
-- Hosted install smoke passed again on Ubuntu 24.04, AlmaLinux 9, and Rocky
-  Linux 9 with Apache and Caddy + MariaDB. Each of the six jobs completed a
-  database-backed WordPress recovery proof and one interruption-matrix
-  iteration; measured proof RTOs were 4.5–8.0 seconds in that earlier run. See the
-  [run evidence](lab-results/2026-10-14-hosted-install-smoke.md).
-- The latest run is a third single-run result per combination, not the required 20–50
+- The latest completed hosted install smoke run (38547265154) passed all six
+  Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB
+  combinations. Each installed-host job passed the database-backed WordPress
+  recovery proof and one default interruption-matrix iteration; measured
+  proof RTOs were 5.253–7.251 seconds. Across four completed six-host runs,
+  there are 24 single-run proofs. See the
+  [latest run evidence](lab-results/2026-10-14-hosted-install-smoke-38547265154.md).
+- These are four single-run results per combination, not the required 20–50
   installed-VM recovery repetitions. Physical power loss, broader ENOSPC,
   capacity certification, and repeated recovery certification remain open.
-- A second quota-enabled Ubuntu 24.04 guest run passed on 2026-10-14 at
+- A quota-enabled Ubuntu 24.04 guest run passed on 2026-10-14 at
   `1b293f8`: production-shaped install, quota-backed `/var/www`, WordPress
   recovery proof (87.688 s in QEMU TCG), worker/panel interruption smokes,
   rootless build/release pipeline, abrupt QEMU guest loss with persistent
   disks, and real backup/file-restore ENOSPC tests. This remains one run, not
   physical host power-loss evidence; publication/import/database-restore
   ENOSPC and 20–50 repetitions remain open. See the
-  [latest quota-install result](lab-results/2026-10-14-quota-install-smoke-38526303825.md)
+  [latest successful quota-install result](lab-results/2026-10-14-quota-install-smoke-38526303825.md)
   and [earlier quota run](lab-results/2026-10-14-quota-install-smoke.md).
+- A later quota-enabled installation smoke ([run 38547265178](https://github.com/cyberducttape/StePanel/actions/runs/38547265178))
+  passed, but no detailed diagnostic artifact was retained; it adds no new
+  failure-recovery evidence. A subsequent attempt was canceled by a newer push
+  under the old workflow concurrency policy. Commit `12b0d70` disables
+  cancellation of an active quota run; the replacement run is
+  [pending](https://github.com/cyberducttape/StePanel/actions/runs/38572966792).
+- Hosted CI, CodeQL, and install-smoke checks passed on `730cbd9`. At capture
+  time for source commit `12b0d70`, CodeQL and UI E2E had passed, the Go CI
+  job and six-host installation smoke were in progress, and quota-enabled
+  install was pending ([CI](https://github.com/cyberducttape/StePanel/actions/runs/38572967532),
+  [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38572967236),
+  [install](https://github.com/cyberducttape/StePanel/actions/runs/38572967470),
+  [quota install](https://github.com/cyberducttape/StePanel/actions/runs/38572966792)).
 
 ### Changes 2026-10-03 to 2026-10-10 (on `main`, unreleased)
 

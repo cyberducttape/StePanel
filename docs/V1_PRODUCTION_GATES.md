@@ -53,7 +53,7 @@ published only as a certified envelope, never as targets.
 | Cross-process data consistency | ✅ Implemented; needs matrix evidence | The panel and job worker share the control-plane database. Accounts and site assignments are written per row with the observed payload as a compare-and-swap (`TestStaleAccountStorePersistsOnlyItsOwnChange`, `TestStaleAccountStoreConflictingChangeIsRejected`); deployment history appends with a revision check (`TestDBStoresSharingHistoryDoNotLoseRecords`); API tokens are individual rows. A conflicting write fails with a retryable error instead of overwriting. Two-process soak evidence on an installed host remains to be recorded. |
 | Authoritative deployment status | ✅ Implemented | Activation is the commit point for Git deploy, pipeline release, and Git rollback. A failure before activation fails the job; after activation the job succeeds with `outcome` `activated` or `committed_reconciliation_pending`, and history records the completed activation (`TestCommittedReleaseIsNeverReportedAsCancelled`). |
 | Application runtime/manifest consistency | ✅ Journaled; installed-host evidence open | App deploy, rollback, start, stop, and restart persist the previous and target generations before changing runtime state. Startup compensates uncommitted transitions and re-applies the committed target before retiring its journal. Regression coverage includes `TestRecoverAppActivationJournalRestoresRuntimeAndManifest`, `TestRecoverAppActivationJournalReconcilesCommittedGeneration`, and `TestAppStateActionFailureCompensatesAndCleansJournal`. Real systemd crash-point injection remains required before claiming host-level recovery. |
-| Application-level WordPress restore proof | ⚠️ Implemented; 24 single-run hosted installed-host results across four runs | Rehearsals restore into a throwaway `stepanel-proof-<id>` site through the production path: site account and PHP-FPM pool, `restore-wordpress` import as a fresh database user, `wp-config.php` rewritten to those credentials and a private `*.localhost` hostname, a published web server route, and loopback probes of `/` and `/wp-login.php` that fail on database errors, the installer, or off-host redirects ([OPERATIONS.md](./OPERATIONS.md)). Proof resources are tracked in an uncommitted site transaction that startup recovery removes. Repository coverage includes `TestWordPressProofRestoresAndServesThrowawaySite` and `TestStartupRecoveryRemovesInterruptedWordPressProof`. The current-head installed-host smoke run passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations, including a populated database-backed HTTP proof and one recovery-matrix iteration per combination ([run 38547265154](./lab-results/2026-10-14-hosted-install-smoke-38547265154.md)). This is four single runs per combination, not repeated VM recovery certification. OpenLiteSpeed has no installed-host proof. The operator-supplied `STEPANEL_RECOVERY_PROOF_COMMAND` hook alone is not sufficient release evidence. |
+| Application-level WordPress restore proof | ⚠️ Implemented; 24 single-run hosted installed-host results across four runs | Rehearsals restore into a throwaway `stepanel-proof-<id>` site through the production path: site account and PHP-FPM pool, `restore-wordpress` import as a fresh database user, `wp-config.php` rewritten to those credentials and a private `*.localhost` hostname, a published web server route, and loopback probes of `/` and `/wp-login.php` that fail on database errors, the installer, or off-host redirects ([OPERATIONS.md](./OPERATIONS.md)). Proof resources are tracked in an uncommitted site transaction that startup recovery removes. Repository coverage includes `TestWordPressProofRestoresAndServesThrowawaySite` and `TestStartupRecoveryRemovesInterruptedWordPressProof`. The latest completed installed-host smoke run passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations, including a populated database-backed HTTP proof and one recovery-matrix iteration per combination ([run 38547265154](./lab-results/2026-10-14-hosted-install-smoke-38547265154.md)). This is four single runs per combination, not repeated VM recovery certification. OpenLiteSpeed has no installed-host proof. The operator-supplied `STEPANEL_RECOVERY_PROOF_COMMAND` hook alone is not sufficient release evidence. |
 | Operational notifications | ⚠️ Implemented; delivery evidence required | Failed/dead-letter transitions enter a SQLite outbox atomically; signed HTTPS webhook and STARTTLS SMTP delivery retry independently, and `/api/health/operational` exposes undelivered and failed counts. Tests cover event creation, HMAC signatures, a verified STARTTLS SMTP session including auth and message delivery, redaction, and retry state. Still required: delivery against configured live SMTP/webhook endpoints and outage/retry evidence on an installed host, plus operator-facing alert routing/runbook validation. |
 | Capacity certification | ❌ Open | [CERTIFIED_ENVELOPE.md](./CERTIFIED_ENVELOPE.md) lists targets (500 sites, 2,000 domains, 100 accounts, 2 concurrent mutations), not a certified envelope. A synthetic 500-site/50-backup mixed HTTP smoke and repeated latency results are recorded in [HTTP_LOAD_BASELINE_2026-10-02.md](./HTTP_LOAD_BASELINE_2026-10-02.md), but they omit real PHP/database traffic, sustained load, resource ceilings, and the required recovery evidence. A reproducible full-envelope run must certify the limits before any site/domain/account count is promised. |
 | Upgrade and rollback | ⚠️ Partial | The N-1 upgrade smoke (`deploy/lab/upgrade-smoke.sh`, last passing run `37940877632` on 2026-10-09) upgrades the previous release, verifies the audit chain and control-plane state, and proves the installer transaction rolls a deliberately broken candidate back to the running version and its intact database. Remaining: a published list of supported upgrade paths, versioned state-migration evidence for each, a clean-install run, and a tested rollback recorded for the release candidate. |
@@ -69,14 +69,20 @@ commit `16957b8`. Hosted run [38547265154](./lab-results/2026-10-14-hosted-insta
 adds six passing installed-host combinations and six database-backed
 WordPress recovery proofs, bringing the evidence to four runs and 24
 single-run proofs. Each OS/web-server pair has still only been exercised once
-in each run; this does not satisfy the repeated recovery gate. Current-head CI
-([38547265056](https://github.com/cyberducttape/StePanel/actions/runs/38547265056)),
-CodeQL ([38547265125](https://github.com/cyberducttape/StePanel/actions/runs/38547265125)),
-and quota-enabled install smoke ([38547265178](https://github.com/cyberducttape/StePanel/actions/runs/38547265178))
-also passed. No new physical power-loss, broader ENOSPC, SMTP/webhook outage,
-OpenLiteSpeed, or capacity-certification claim is made.
+in each run; this does not satisfy the repeated recovery gate. Hosted CI,
+CodeQL, and installation smoke passed on `730cbd9` ([CI](https://github.com/cyberducttape/StePanel/actions/runs/38565327194),
+[CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38565327198),
+[install](https://github.com/cyberducttape/StePanel/actions/runs/38565327133));
+the local full Go suite also passes on subsequent source commit `c73926e`.
+At capture time for current source commit `12b0d70`, CodeQL and UI E2E had
+passed, the Go CI job and six-host installation smoke were in progress, and
+the quota-enabled guest run was pending ([CI](https://github.com/cyberducttape/StePanel/actions/runs/38572967532),
+[installation](https://github.com/cyberducttape/StePanel/actions/runs/38572967470),
+[quota run](https://github.com/cyberducttape/StePanel/actions/runs/38572966792)).
+No new physical power-loss, broader ENOSPC,
+SMTP/webhook outage, OpenLiteSpeed, or capacity-certification claim is made.
 
-The current-head installed-host values supersede the historical values in the
+The latest completed installed-host values supersede the historical values in the
 runtime table below. They remain smoke results, not a certified support
 promise.
 
@@ -88,12 +94,12 @@ successful unit test. The installed-host smoke matrix currently exercises:
 
 | Distribution | Web server | Database | Latest WordPress recovery-proof result |
 |---|---|---|---|
-| Ubuntu 24.04 | Apache | MariaDB | Pass, 7.251 s proof RTO, [current-head job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855377) |
-| AlmaLinux 9 | Apache | MariaDB | Pass, 5.253 s proof RTO, [current-head job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855736) |
-| Rocky Linux 9 | Apache | MariaDB | Pass, 5.525 s proof RTO, [current-head job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855628) |
-| Ubuntu 24.04 | Caddy | MariaDB | Pass, 5.537 s proof RTO, [current-head job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855636) |
-| AlmaLinux 9 | Caddy | MariaDB | Pass, 5.408 s proof RTO, [current-head job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855792) |
-| Rocky Linux 9 | Caddy | MariaDB | Pass, 5.309 s proof RTO, [current-head job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855077) |
+| Ubuntu 24.04 | Apache | MariaDB | Pass, 7.251 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855377) |
+| AlmaLinux 9 | Apache | MariaDB | Pass, 5.253 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855736) |
+| Rocky Linux 9 | Apache | MariaDB | Pass, 5.525 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855628) |
+| Ubuntu 24.04 | Caddy | MariaDB | Pass, 5.537 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855636) |
+| AlmaLinux 9 | Caddy | MariaDB | Pass, 5.408 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855792) |
+| Rocky Linux 9 | Caddy | MariaDB | Pass, 5.309 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855077) |
 
 These are one-run smoke results, not production certification or a general
 support promise. They do not certify repeated recovery, PHP versions, upgrade
