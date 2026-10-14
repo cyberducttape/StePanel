@@ -26,7 +26,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the journal directory.
   Failed installs now explicitly report that package/repository and
   pre-transaction host changes may remain; per-file snapshots are checkpointed,
-  and account, SELinux, recursive ownership/ACL, legacy mount, and trust-store
+  and regression tests verify that pre-transaction ModSecurity changes remain
+  classified as manual recovery outside file rollback. Account, SELinux,
+  recursive ownership/ACL, legacy mount, and trust-store
   effects outside rollback are recorded. Document the exact automatic rollback
   scope and operator recovery steps in `docs/INSTALLER_RECOVERY.md`.
 

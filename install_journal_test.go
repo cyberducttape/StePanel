@@ -95,6 +95,30 @@ func TestInstallerJournalsBeforeMutationAndRecordsPartialRollbackContract(t *tes
 			t.Errorf("installer journal contract missing %q", contract)
 		}
 	}
+
+	// Optional ModSecurity changes deliberately happen before the managed-file
+	// transaction. Keep their package/module/configuration side effects visible
+	// as manual-recovery work instead of implying the later rollback covers them.
+	modsecJournal := strings.Index(text, `install_journal_record configuration started manual "ModSecurity package, module and Apache configuration"`)
+	modsecApply := strings.Index(text, "  configure_modsecurity\n")
+	modsecComplete := strings.Index(text, `install_journal_record configuration complete manual "ModSecurity configuration validated; package/module effects are outside file rollback"`)
+	transaction := strings.Index(text, "INSTALL_TXN=$(mktemp -d /var/tmp/stepanel-install.")
+	if modsecJournal < 0 || modsecApply < 0 || modsecComplete < 0 || transaction < 0 || !(modsecJournal < modsecApply && modsecApply < modsecComplete && modsecComplete < transaction) {
+		t.Fatal("ModSecurity must be journaled as manual-recovery work and completed before the managed-file transaction begins")
+	}
+	if !strings.Contains(text, `install_journal_record recovery required manual "registered files and core service state restored where possible; packages, repository/module changes and unregistered host configuration may remain"`) {
+		t.Fatal("installer rollback must report that pre-transaction host changes may remain")
+	}
+	contractDoc, err := os.ReadFile("docs/INSTALLER_RECOVERY.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"ModSecurity", "does not uninstall packages", "manual", "not reversed"} {
+		if !strings.Contains(string(contractDoc), expected) {
+			t.Errorf("installer recovery contract does not document %q", expected)
+		}
+	}
+
 	for _, checkpoint := range []struct {
 		marker string
 		change string
