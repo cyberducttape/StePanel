@@ -35,6 +35,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   mutations in a root-only runtime directory, reject symlinked lock paths, and
   hold the lock through post-install integration activation, so parallel runs
   cannot interleave host changes or redirect a root lock open through `/run/lock`.
+- Exercise installer lock setup with isolated tests for symlink rejection,
+  non-truncating opens, restrictive permissions, and concurrent acquisition.
 - Isolate Installation smoke and CodeQL concurrency by GitHub event so
   scheduled runs cannot cancel in-progress push-triggered release evidence.
 - Cache the assembled site overview for at most five seconds, coalesce concurrent
