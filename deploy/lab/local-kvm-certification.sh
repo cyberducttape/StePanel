@@ -13,7 +13,7 @@ set -Eeuo pipefail
 # (default /var/tmp/stepanel-kvm-cert) must be on a disk-backed filesystem:
 # the guest disks are several GiB.
 #
-# Environment: VM_MEMORY_MB (3072), VM_CPUS (4), SSH_PORT (2232),
+# Environment: VM_MEMORY_MB (3072), VM_HOST_RESERVE_MB (2048), VM_CPUS (4), SSH_PORT (2232),
 # RECOVERY_MATRIX_REPEATS (1; use 20–50 for the release soak),
 # PHASES (space-separated subset of: boot install runner abrupt-loss
 # abrupt-loss-under-load enospc), KEEP_VM=1 to leave the guest running,
@@ -28,6 +28,7 @@ repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 memory=${VM_MEMORY_MB:-3072}
 cpus=${VM_CPUS:-4}
 port=${SSH_PORT:-2232}
+host_reserve=${VM_HOST_RESERVE_MB:-2048}
 phases=${PHASES:-boot install runner abrupt-loss abrupt-loss-under-load enospc}
 matrix_repeats=${RECOVERY_MATRIX_REPEATS:-1}
 
@@ -42,6 +43,18 @@ install_timeout_minutes=$((60 + matrix_repeats * 180))
 for tool in qemu-system-x86_64 qemu-img genisoimage ssh scp ssh-keygen go; do
   command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
+if [[ ${RESUME:-0} != 1 ]]; then
+  [[ $memory =~ ^[1-9][0-9]*$ && $host_reserve =~ ^[0-9]+$ ]] || {
+    echo 'VM_MEMORY_MB and VM_HOST_RESERVE_MB must be nonnegative integer MiB values; VM_MEMORY_MB must be positive' >&2
+    exit 1
+  }
+  available_memory_mb=$(awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo)
+  required_memory_mb=$((memory + host_reserve))
+  if (( available_memory_mb < required_memory_mb )); then
+    echo "insufficient host memory for KVM guest: ${available_memory_mb} MiB available, ${required_memory_mb} MiB required (${memory} MiB guest + ${host_reserve} MiB host reserve)" >&2
+    exit 1
+  fi
+fi
 [[ $(findmnt -no FSTYPE --target "$(dirname "$run_dir")") != tmpfs ]] || { echo "$run_dir must not be on tmpfs" >&2; exit 1; }
 results="$run_dir/results.tsv"
 if [[ ${RESUME:-0} == 1 ]]; then

@@ -59,7 +59,10 @@ matrix, the rootless build runner checks, abrupt whole-guest loss (idle and
 during a backup, via `abrupt-loss-backup-drill.sh`), and a real ENOSPC drill
 inside a disposable Rocky Linux 9 KVM guest with SELinux enforcing. It needs
 a usable `/dev/kvm`, QEMU, and a run directory on disk (not tmpfs); a full
-run takes about four hours. Nothing is installed on the workstation itself.
+run takes about four hours. A fresh run also requires at least `VM_MEMORY_MB`
+plus `VM_HOST_RESERVE_MB` (default 2048 MiB) in `/proc/meminfo`'s
+`MemAvailable`; increase the host reserve if other workloads need more memory.
+Nothing is installed on the workstation itself.
 
 ```sh
 deploy/lab/local-kvm-certification.sh Rocky-9-GenericCloud.latest.x86_64.qcow2

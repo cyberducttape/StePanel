@@ -37,7 +37,10 @@ full timeout after the VM process had died. The harness now verifies that the
 run-specific QEMU process is still alive on each poll and returns promptly if
 it has exited. Cleanup also checks the process command line against the
 run-specific PID file before signaling, avoiding a signal to an unrelated
-process if the PID has been reused.
+process if the PID has been reused. Fresh runs now require configurable
+`MemAvailable` headroom (`VM_MEMORY_MB` plus `VM_HOST_RESERVE_MB`, default
+2048 MiB) before allocating a guest, so this workstation should reject the
+same attempt before booting under its current memory pressure.
 
 ## Artifacts and remaining work
 
