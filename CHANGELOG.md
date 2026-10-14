@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Record current-head installed-host evidence for all six Ubuntu 24.04,
+  AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations,
+  including populated WordPress HTTP recovery proofs, measured proof RTOs,
+  one recovery-matrix iteration per combination, and passing current-head CI,
+  UI E2E, CodeQL, and quota-enabled install workflows. Keep repeated host
+  recovery, power-loss, broader ENOSPC, OpenLiteSpeed, and capacity gates open.
 - Add a reproducible durable-job claim benchmark at 1k, 10k, and 100k queued
   rows with ten blocked owners. Record the SQLite query plan and compare an
   ordered candidate index; the 100k-row measurement shows the correlated
