@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Add a reproducible durable-job claim benchmark at 1k, 10k, and 100k queued
+  rows with ten blocked owners. Record the SQLite query plan and compare an
+  ordered candidate index; the 100k-row measurement shows the correlated
+  eligibility scan, not sorting, dominates this synthetic workload.
+
 ### Fixed
 
 - Re-run the complete repository production gate against the retention
