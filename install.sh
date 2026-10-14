@@ -399,6 +399,8 @@ install -d -o root -g root -m 0700 "$INSTALL_JOURNAL_DIR"
 INSTALL_JOURNAL="$INSTALL_JOURNAL_DIR/$(date -u +%Y%m%dT%H%M%SZ)-$$.tsv"
 (umask 077; : > "$INSTALL_JOURNAL")
 chmod 0600 "$INSTALL_JOURNAL"
+# Consumed by the functions in the sourced journal library.
+# shellcheck disable=SC2034
 JOURNAL_FILE=$INSTALL_JOURNAL
 install_journal_init
 INSTALL_JOURNAL_TERMINAL=0

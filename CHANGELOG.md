@@ -15,6 +15,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Keep the installer shell-lint gate clean by documenting that `JOURNAL_FILE`
+  is consumed by the sourced journal library rather than locally in
+  `install.sh`.
+
 - Re-run the complete repository production gate against the retention
   hardening commit and record the exact coverage, race, recovery-drill,
   benchmark, and mixed-load results. Host-level recovery and capacity gates
