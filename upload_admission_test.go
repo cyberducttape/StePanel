@@ -283,6 +283,51 @@ func TestAppCapacityLedgerPreservesOwnerIdentity(t *testing.T) {
 	}
 }
 
+func TestCapacityReservationReleaseRetriesDurableDelete(t *testing.T) {
+	cfg := uploadTestConfig(t)
+	cfg.MinFreeBytes = 0
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reservation, err := ledger.reserve(cfg, "release-retry", cfg.ImportRoot, []capacityDemand{{Path: cfg.ImportRoot, Bytes: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER reject_capacity_release BEFORE DELETE ON capacity_reservations BEGIN SELECT RAISE(ABORT, 'injected reservation release failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	reservation.release()
+	var rows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM capacity_reservations WHERE reservation_id=?`, reservation.id).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("reservation after injected release failure = %d rows, err=%v; want retained durable hold", rows, err)
+	}
+	if _, ok := ledger.pendingReleases[reservation.id]; !ok {
+		t.Fatal("failed reservation release was not retained for retry")
+	}
+	if _, err := db.Exec(`DROP TRIGGER reject_capacity_release`); err != nil {
+		t.Fatal(err)
+	}
+
+	next, err := ledger.reserve(cfg, "release-retry-next", cfg.ImportRoot, []capacityDemand{{Path: cfg.ImportRoot, Bytes: 1}})
+	if err != nil {
+		t.Fatalf("admission after release retry failed: %v", err)
+	}
+	defer next.release()
+	if err := db.QueryRow(`SELECT COUNT(*) FROM capacity_reservations WHERE reservation_id=?`, reservation.id).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("released reservation after retry = %d rows, err=%v; want 0", rows, err)
+	}
+	if _, ok := ledger.pendingReleases[reservation.id]; ok {
+		t.Fatal("successfully retried reservation release remained pending")
+	}
+}
+
 func TestCapacityLedgerReclaimsOnlyReservationsFromDeadProcesses(t *testing.T) {
 	cfg := uploadTestConfig(t)
 	cfg.MinFreeBytes = 0

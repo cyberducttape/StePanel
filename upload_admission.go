@@ -95,11 +95,12 @@ func filesystemDevice(path string) (uint64, error) {
 // concurrent uploads cannot each claim the same bytes. The zero value is
 // ready to use.
 type capacityLedger struct {
-	mu         sync.Mutex
-	held       map[uint64]uint64
-	db         *sql.DB
-	ownerPID   int
-	ownerStart string
+	mu              sync.Mutex
+	held            map[uint64]uint64
+	pendingReleases map[string]struct{}
+	db              *sql.DB
+	ownerPID        int
+	ownerStart      string
 }
 
 // capacityReservation is one upload's outstanding promise.
@@ -512,6 +513,7 @@ func (l *capacityLedger) admit(cfg Config, workflow string, demands []capacityDe
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.db != nil {
+		l.retryPendingReleasesLocked()
 		return l.admitDurable(cfg, workflow, grouped, hold)
 	}
 	for _, demand := range grouped {
@@ -678,13 +680,36 @@ func (r *capacityReservation) release() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.db != nil && r.id != "" {
-		_, _ = l.db.Exec(`DELETE FROM capacity_reservations WHERE reservation_id=?`, r.id)
+		if _, err := l.db.Exec(`DELETE FROM capacity_reservations WHERE reservation_id=?`, r.id); err != nil {
+			if l.pendingReleases == nil {
+				l.pendingReleases = make(map[string]struct{})
+			}
+			l.pendingReleases[r.id] = struct{}{}
+			log.Printf("capacity reservation release pending for %s: %v", r.id, err)
+		} else {
+			delete(l.pendingReleases, r.id)
+		}
 	}
 	for device, bytes := range r.held {
 		if l.held != nil {
 			l.held[device] -= bytes
 		}
 		delete(r.held, device)
+	}
+}
+
+// retryPendingReleasesLocked retries durable reservation cleanup that failed
+// during deferred release. The rows remain charged in SQLite until deletion
+// succeeds, so failure is conservative; retrying before subsequent admission
+// prevents a transient database error from holding capacity until restart.
+// The caller must hold l.mu.
+func (l *capacityLedger) retryPendingReleasesLocked() {
+	for id := range l.pendingReleases {
+		if _, err := l.db.Exec(`DELETE FROM capacity_reservations WHERE reservation_id=?`, id); err != nil {
+			log.Printf("retry capacity reservation release for %s: %v", id, err)
+			continue
+		}
+		delete(l.pendingReleases, id)
 	}
 }
 
@@ -811,6 +836,7 @@ func (l *capacityLedger) heldBytes(path string) uint64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.db != nil {
+		l.retryPendingReleasesLocked()
 		var held sql.NullInt64
 		if err := l.db.QueryRow(`SELECT SUM(bytes) FROM capacity_reservations WHERE device=?`, device).Scan(&held); err == nil && held.Valid && held.Int64 > 0 {
 			return uint64(held.Int64)

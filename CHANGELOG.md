@@ -34,6 +34,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Preserve the initialized SQLite capacity ledger and its process identity in
   the application so another panel or worker process cannot misclassify live
   reservations as orphaned and over-admit disk-consuming work.
+- Retry transient failures while deleting released SQLite capacity holds on
+  the next admission or capacity-status read, rather than pinning stale holds
+  until process restart.
 - Keep the installer shell-lint gate clean by documenting that `JOURNAL_FILE`
   is consumed by the sourced journal library rather than locally in
   `install.sh`.
