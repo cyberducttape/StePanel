@@ -1,12 +1,72 @@
 package stepanel
 
 import (
-	"bufio"
+	"bytes"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 )
+
+const maxLogTailBytes = 4 << 20
+const maxFilteredLogBytes = 16 << 20
+
+// readLogTail reads backward from EOF, bounding both disk I/O and memory. If
+// the bound cuts through a line, that partial leading line is discarded.
+func readLogTail(file *os.File, count, maxBytes int64, filter string) ([]string, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	end := info.Size()
+	start := end
+	var data []byte
+	newlines := int64(0)
+	for start > 0 && end-start < maxBytes {
+		chunk := int64(32 << 10)
+		if chunk > maxBytes-(end-start) {
+			chunk = maxBytes - (end - start)
+		}
+		if chunk > start {
+			chunk = start
+		}
+		start -= chunk
+		buf := make([]byte, chunk)
+		if _, err := file.ReadAt(buf, start); err != nil && err != io.EOF {
+			return nil, err
+		}
+		newlines += int64(bytes.Count(buf, []byte{'\n'}))
+		data = append(buf, data...)
+		if newlines > count && filter == "" {
+			break
+		}
+	}
+	if start > 0 {
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			data = data[i+1:]
+		} else {
+			data = nil
+		}
+	}
+	parts := bytes.Split(data, []byte{'\n'})
+	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
+		parts = parts[:len(parts)-1]
+	}
+	needle := strings.ToLower(filter)
+	result := make([]string, 0, count)
+	for i := len(parts) - 1; i >= 0 && int64(len(result)) < count; i-- {
+		line := string(bytes.TrimSuffix(parts[i], []byte{'\r'}))
+		if needle != "" && !strings.Contains(strings.ToLower(line), needle) {
+			continue
+		}
+		result = append(result, line)
+	}
+	for left, right := 0, len(result)-1; left < right; left, right = left+1, right-1 {
+		result[left], result[right] = result[right], result[left]
+	}
+	return result, nil
+}
 
 var siteLogSources = map[string]string{
 	"access": "access.log", "error": "error.log", "php-fpm": "php-fpm.log",
@@ -56,22 +116,19 @@ func (a *App) siteLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	all := make([]string, 0, lines)
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), 256<<10)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if filter != "" && !strings.Contains(strings.ToLower(line), strings.ToLower(filter)) {
-			continue
-		}
-		all = append(all, line)
-		if len(all) > lines {
-			all = all[1:]
-		}
+	limit := int64(maxLogTailBytes)
+	if filter != "" {
+		limit = maxFilteredLogBytes
 	}
-	if err := scanner.Err(); err != nil {
+	all, err := readLogTail(file, int64(lines), limit, filter)
+	if err != nil {
 		http.Error(w, "log could not be read", 503)
 		return
+	}
+	if filter != "" {
+		if info, statErr := file.Stat(); statErr == nil && info.Size() > limit {
+			w.Header().Set("X-Log-Search-Truncated", "true")
+		}
 	}
 	if r.URL.Query().Get("download") == "1" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")

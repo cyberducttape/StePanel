@@ -711,12 +711,61 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	}
 	var id string
 	var payload []byte
-	err = tx.QueryRow(`SELECT id, payload FROM jobs AS candidate WHERE candidate.state = 'queued' AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= ?) AND NOT EXISTS (SELECT 1 FROM jobs AS active WHERE active.owner = candidate.owner AND ((active.state = 'running' AND (active.lease_expires_at IS NULL OR active.lease_expires_at > ?)) OR (active.state = 'queued' AND (active.started_at < candidate.started_at OR (active.started_at = candidate.started_at AND active.id < candidate.id)))))`+filter+` ORDER BY candidate.started_at, candidate.id LIMIT 1`, args...).Scan(&id, &payload)
+	var kind, jobOwner string
+	var startedAt int64
+	err = tx.QueryRow(`SELECT id, payload, kind, owner, started_at FROM jobs AS candidate WHERE candidate.state = 'queued' AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= ?) AND NOT EXISTS (SELECT 1 FROM jobs AS active WHERE active.owner = candidate.owner AND ((active.state = 'running' AND (active.lease_expires_at IS NULL OR active.lease_expires_at > ?)) OR (active.state = 'queued' AND (active.started_at < candidate.started_at OR (active.started_at = candidate.started_at AND active.id < candidate.id)))))`+filter+` ORDER BY candidate.started_at, candidate.id LIMIT 1`, args...).Scan(&id, &payload, &kind, &jobOwner, &startedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, false, nil
 	}
 	if err != nil {
 		return Job{}, false, err
+	}
+	// Decode and decrypt before committing the lease. A bad durable payload is
+	// permanent for this record; quarantine it instead of letting lease expiry
+	// requeue it forever and block later work for the same owner.
+	var persisted persistedJob
+	decodeErr := json.Unmarshal(payload, &persisted)
+	var item Job
+	if decodeErr == nil {
+		item = persisted.Job
+		item.Payload = decodePersistedJobPayload(persisted.Payload)
+		var opened []byte
+		opened, decodeErr = j.openPayload(&item, item.Payload)
+		if decodeErr == nil {
+			item.Payload = opened
+		}
+	}
+	if decodeErr != nil {
+		diagnostic := "permanent job payload error: " + decodeErr.Error()
+		finished := time.Now().UTC()
+		if json.Unmarshal(payload, &persisted) == nil {
+			persisted.Job.State = "dead-letter"
+			persisted.Job.Error = diagnostic
+			persisted.Job.FinishedAt = &finished
+		} else {
+			// Keep the invalid bytes for forensic review while making the row
+			// readable by normal durable-job queries and startup recovery.
+			encodedPayload, _ := json.Marshal(payload)
+			persisted = persistedJob{Job: Job{ID: id, Kind: kind, User: jobOwner, StartedAt: time.Unix(0, startedAt).UTC(), State: "dead-letter", Error: diagnostic, FinishedAt: &finished}, Payload: encodedPayload}
+		}
+		if encoded, marshalErr := json.Marshal(&persisted); marshalErr == nil {
+			payload = encoded
+		}
+		if _, err := tx.Exec(`UPDATE jobs SET state='dead-letter', finished_at=?, payload=?, lease_owner=NULL, lease_expires_at=NULL, next_attempt_at=NULL, updated_at=unixepoch() WHERE id=? AND state='queued'`, finished.UnixNano(), payload, id); err != nil {
+			return Job{}, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return Job{}, false, err
+		}
+		log.Printf("quarantined unreadable durable job %s: %v", id, decodeErr)
+		if json.Unmarshal(payload, &persisted) == nil {
+			persisted.Job.Payload = nil
+			j.mu.Lock()
+			j.items[id] = &persisted.Job
+			j.mu.Unlock()
+			j.publish(persisted.Job)
+		}
+		return Job{}, false, nil
 	}
 	expires := time.Now().UTC().Add(j.leaseDuration())
 	result, err := tx.Exec(`UPDATE jobs SET state='running', lease_owner=?, lease_expires_at=?, updated_at=unixepoch() WHERE id=? AND state='queued'`, owner, expires.UnixNano(), id)
@@ -729,17 +778,6 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	if err := tx.Commit(); err != nil {
 		return Job{}, false, err
 	}
-	var persisted persistedJob
-	if err := json.Unmarshal(payload, &persisted); err != nil {
-		return Job{}, false, fmt.Errorf("decode claimed job: %w", err)
-	}
-	item := persisted.Job
-	item.Payload = decodePersistedJobPayload(persisted.Payload)
-	openedPayload, err := j.openPayload(&item, item.Payload)
-	if err != nil {
-		return Job{}, false, fmt.Errorf("open claimed job payload: %w", err)
-	}
-	item.Payload = openedPayload
 	item.State = "running"
 	item.LeaseOwner = owner
 	item.LeaseExpires = &expires

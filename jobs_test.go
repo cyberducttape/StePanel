@@ -672,6 +672,48 @@ func TestDurableQueueClaimRetryAndDeadLetter(t *testing.T) {
 	}
 }
 
+func TestClaimNextQuarantinesUnreadablePayloadAndContinuesOwnerQueue(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	poisoned, err := jobs.Enqueue("test.operation", "same-site", "", []byte(`{"ok":true}`), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := jobs.Enqueue("test.operation", "same-site", "", []byte(`{"next":true}`), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE jobs SET payload=? WHERE id=?`, []byte(`{broken`), poisoned.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, claimed, err := jobs.ClaimNext("worker", "test.operation"); err != nil || claimed {
+		t.Fatalf("poison claim = claimed %v, err %v; want quarantined without lease", claimed, err)
+	}
+	var state string
+	if err := db.QueryRow(`SELECT state FROM jobs WHERE id=?`, poisoned.ID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "dead-letter" {
+		t.Fatalf("poison state = %q, want dead-letter", state)
+	}
+	reloaded := newJobsWithDB(db, 1)
+	if err := reloaded.load(); err != nil {
+		t.Fatalf("load quarantined job: %v", err)
+	}
+	dead, ok := reloaded.Get(poisoned.ID)
+	if !ok || dead.State != "dead-letter" || !strings.Contains(dead.Error, "permanent job payload error") {
+		t.Fatalf("quarantined job record = %#v, found=%v", dead, ok)
+	}
+	claimedJob, claimed, err := jobs.ClaimNext("worker", "test.operation")
+	if err != nil || !claimed || claimedJob.ID != next.ID {
+		t.Fatalf("next same-owner claim = %#v, claimed %v, err %v", claimedJob, claimed, err)
+	}
+}
+
 func TestDurableJobCleanupRetainsDeadLettersAcrossRestart(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

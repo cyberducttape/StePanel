@@ -1074,22 +1074,42 @@ trap - ERR EXIT INT TERM
 for temporary in "${TXN_TEMPS[@]}"; do rm -f "$temporary"; done
 rm -rf "$INSTALL_TXN"
 flock -u 8
-if [[ "$INSTALL_SECURITY" == "1" ]]; then systemctl enable --now stepanel-malware-guard; fi
+declare -a POST_INSTALL_PENDING=()
+activate_optional_service() {
+  local service=$1
+  if ! systemctl enable --now "$service"; then
+    POST_INSTALL_PENDING+=("$service")
+    echo "Post-install activation pending: $service (core installation is committed; retry with systemctl enable --now $service)." >&2
+  fi
+}
+if [[ "$INSTALL_SECURITY" == "1" ]]; then activate_optional_service stepanel-malware-guard; fi
 if [[ "$INSTALL_MAIL" == "1" && "$ACTIVATE_MAIL" == "1" ]]; then
-  systemctl enable --now "$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)" dovecot "$MAIL_SPAM_SERVICE"
+  activate_optional_service "$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)"
+  activate_optional_service dovecot
+  activate_optional_service "$MAIL_SPAM_SERVICE"
 elif [[ "$INSTALL_MAIL" == "1" ]]; then
   [[ "$MAIL_EXIM_PREEXISTING" == "1" ]] || systemctl disable --now "$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)" 2>/dev/null || true
   [[ "$MAIL_DOVECOT_PREEXISTING" == "1" ]] || systemctl disable --now dovecot 2>/dev/null || true
   [[ "$MAIL_SPAM_PREEXISTING" == "1" ]] || systemctl disable --now "$MAIL_SPAM_SERVICE" 2>/dev/null || true
 fi
 if [[ "$INSTALL_FTP" == "1" && "$ACTIVATE_FTP" == "1" ]]; then
-  systemctl enable --now vsftpd
+  activate_optional_service vsftpd
 elif [[ "$INSTALL_FTP" == "1" && "$FTP_PREEXISTING" == "0" ]]; then
   systemctl disable --now vsftpd 2>/dev/null || true
 fi
 if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then systemctl enable --now certbot.timer 2>/dev/null || true; fi
 if [[ "$INSTALL_FAIL2BAN" == "1" ]]; then
-  bash "$APP_DIR/integrations/install-fail2ban.sh" --yes --jails "$FAIL2BAN_JAILS" --ignore-ip "$FAIL2BAN_IGNORE_IP"
+  if ! bash "$APP_DIR/integrations/install-fail2ban.sh" --yes --jails "$FAIL2BAN_JAILS" --ignore-ip "$FAIL2BAN_IGNORE_IP"; then
+    POST_INSTALL_PENDING+=(fail2ban)
+    echo 'Post-install configuration pending: fail2ban (core installation is committed; rerun the integration installer after resolving the error).' >&2
+  fi
+fi
+if (( ${#POST_INSTALL_PENDING[@]} )); then
+  printf 'post_install_status=pending services='
+  printf '%s ' "${POST_INSTALL_PENDING[@]}"
+  printf '\n'
+else
+  echo 'post_install_status=complete'
 fi
 echo "StePanel installed with $WEB_SERVER and $DB_ENGINE ($DB_VERSION). Verify services with: systemctl status $APACHE_SERVICE $DB_SERVICE"
 echo "Panel hostname: $PANEL_HOSTNAME. Complete TLS termination before signing in; Secure cookies are mandatory in production."

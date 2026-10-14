@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Quarantine durable jobs with malformed or undecryptable payloads before
+  committing a worker lease, so poisoned records become visible dead letters
+  and cannot indefinitely block later operations for the same owner. Read
+  recent site logs by seeking backward within a bounded byte budget; filtered
+  searches are separately bounded and report when older content was omitted.
+  Optional post-install service activation now reports pending integrations
+  without misreporting a committed core installation as failed.
+
 - Make the local KVM certification harness detect guest-process termination
   promptly and verify its PID against the run-specific QEMU command line before
   signaling it, avoiding hours of polling or signaling an unrelated reused PID;
