@@ -136,3 +136,20 @@ func TestInstallerJournalsBeforeMutationAndRecordsPartialRollbackContract(t *tes
 		}
 	}
 }
+
+func TestInstallerAcquiresHostMutationLockBeforePackageChanges(t *testing.T) {
+	script, err := os.ReadFile("install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(script)
+	lock := strings.Index(text, "exec 8>/run/lock/stepanel-installer.lock")
+	acquire := strings.Index(text, "flock -xn 8")
+	firstPackageMutation := strings.Index(text, "; apt-get update; apt-get install")
+	if lock < 0 || acquire < 0 || firstPackageMutation < 0 || !(lock < acquire && acquire < firstPackageMutation) {
+		t.Fatal("installer must hold its host-wide lock before package or service mutations")
+	}
+	if strings.Contains(text[acquire:], "flock -u 8") {
+		t.Fatal("installer must retain its host-wide lock through the complete install")
+	}
+}

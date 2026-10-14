@@ -8,6 +8,13 @@ tab-separated UTC timestamp, phase, status,
 recovery class, and a bounded detail label. They contain no credentials. Keep
 the journal with the host's installation and incident records.
 
+After preflight and operator confirmation, the installer acquires the
+nonblocking host-wide lock `/run/lock/stepanel-installer.lock` before its first
+package or service mutation. The lock remains held through optional
+post-install activation and is released automatically when the installer
+process exits. A concurrent install or upgrade exits with status 75 without
+starting host mutations.
+
 The journal describes progress; it is not a snapshot of the whole host and it
 does not make every host change reversible.
 

@@ -382,6 +382,15 @@ if (( GUIDED == 1 )); then
   fi
 fi
 
+# Serialize the entire mutating install, including package installation and
+# optional integrations. Apache helper operations use their own separate lock.
+command -v flock >/dev/null 2>&1 || { echo 'flock is required for installation locking.' >&2; exit 1; }
+exec 8>/run/lock/stepanel-installer.lock
+if ! flock -xn 8; then
+  echo 'Another StePanel installer is already changing this host; retry after it finishes.' >&2
+  exit 75
+fi
+
 # Keep an append-only record outside the rollback directory. Package-manager
 # and host-service changes are not safely reversible, so a failed run must
 # leave operators a durable account of its phase and recovery boundary.
@@ -707,9 +716,6 @@ configure_modsecurity() {
   echo "ModSecurity configured in $MODSEC_MODE mode${crs_load:+ with OWASP CRS}."
 }
 
-command -v flock >/dev/null 2>&1 || { echo 'flock is required for installation locking.' >&2; exit 1; }
-exec 8>/run/lock/stepanel-apache.lock
-flock -x 8
 install_journal_record dependency_installation complete manual "base, selected web/database, and optional packages installed; package changes are not rolled back"
 for package in "$WEB_PACKAGE" "$DB_PACKAGE" php-fpm; do install_journal_package "$package"; done
 install_journal_record configuration checkpoint partial "pre-transaction service and integration setup has completed; review prior records for exact actions"
@@ -1167,7 +1173,6 @@ trap - ERR EXIT INT TERM
 install_journal_record commit complete manual "core installation committed; optional integrations are reported separately and package changes remain" || echo 'Could not append installer commit record; preserve installer output as evidence.' >&2
 for temporary in "${TXN_TEMPS[@]}"; do rm -f "$temporary"; done
 rm -rf "$INSTALL_TXN"
-flock -u 8
 declare -a POST_INSTALL_PENDING=()
 activate_optional_service() {
   local service=$1
