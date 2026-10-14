@@ -37,6 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Keep an active quota-enabled host recovery run alive when newer commits are
+  pushed, so long-running release-gate evidence is not canceled mid-test.
 - Preserve encrypted durable jobs as queued when a worker lacks the account
   key; report the configuration error without falsely quarantining recoverable
   work, and verify a correctly configured worker can subsequently claim it.
