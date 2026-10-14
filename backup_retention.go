@@ -102,9 +102,13 @@ func CleanupBackupStages(root string, maxAge time.Duration) error {
 	return nil
 }
 
-func pruneSiteBackups(root string, site SiteCapability, keep int) error {
+// pruneSiteBackups retains the newest manifest-dated backups and explicitly
+// protects protectedVerifiedName, which must be the basename of the backup
+// that just passed archive verification. The protected artifact takes one
+// slot within keep, regardless of host clock ordering.
+func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerifiedName string) error {
 	siteName := site.Site()
-	if safeUser(siteName) == "" || keep < 1 {
+	if safeUser(siteName) == "" || keep < 1 || (protectedVerifiedName != "" && !validBackupName(protectedVerifiedName)) {
 		return errors.New("invalid backup retention policy")
 	}
 	entries, err := os.ReadDir(root)
@@ -116,6 +120,7 @@ func pruneSiteBackups(root string, site SiteCapability, keep int) error {
 		createdAt  time.Time
 	}
 	items := []candidate{}
+	protectedFound := protectedVerifiedName == ""
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Name()[0] == '.' {
 			continue
@@ -153,13 +158,32 @@ func pruneSiteBackups(root string, site SiteCapability, keep int) error {
 		}
 		if manifest.Site == siteName {
 			items = append(items, candidate{name: entry.Name(), path: path, createdAt: manifest.CreatedAt})
+			if entry.Name() == protectedVerifiedName {
+				protectedFound = true
+			}
 		}
 	}
+	if !protectedFound {
+		return fmt.Errorf("verified backup %q for site %s is missing from retention inventory; no backups pruned", protectedVerifiedName, siteName)
+	}
 	sort.Slice(items, func(i, j int) bool {
+		// The just-created artifact has already passed strict verification in
+		// the backup workflow. Protect it independently of wall-clock ordering:
+		// host clock corrections must not make retention delete its own recovery
+		// point.
+		if items[i].name == protectedVerifiedName {
+			return items[j].name != protectedVerifiedName
+		}
+		if items[j].name == protectedVerifiedName {
+			return false
+		}
 		if !items[i].createdAt.IsZero() && !items[j].createdAt.IsZero() && !items[i].createdAt.Equal(items[j].createdAt) {
 			return items[i].createdAt.After(items[j].createdAt)
 		}
-		return items[i].name > items[j].name
+		if items[i].name != items[j].name {
+			return items[i].name > items[j].name
+		}
+		return false
 	})
 	if len(items) <= keep {
 		return syncDirectory(root)

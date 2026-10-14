@@ -403,8 +403,11 @@ storage/database snapshots or an independently verified recovery procedure
 when a point-in-time consistent backup is required. WordPress maintenance mode
 is recorded only as `web-requests-quiesced`; it does not stop cron, WP-CLI,
 PHP workers, or independent database writers. Staging retention never deletes published
-backups. A scheduled backup's `keep_last` policy prunes its oldest verified
-local copies only after a replacement succeeds; safety dumps made before
+backups. A scheduled backup's `keep_last` policy protects the newly completed
+archive-verified backup, then orders other local candidates by manifest
+creation time and prunes the oldest after replacement succeeds. Older retained
+archives are not all re-verified during pruning; run strict verification or a
+restore rehearsal to establish their recoverability. Safety dumps made before
 database deletion remain under `.database-deletions` for explicit DBA review.
 
 Backups expose separate `filesystem_consistency`, `database_consistency`, and

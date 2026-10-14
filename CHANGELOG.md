@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Protect the newly verified backup artifact during scheduled retention,
+  independent of manifest timestamp ordering; fail closed without pruning if
+  that recovery point is missing from the retention inventory.
+
 - Record the 2026-10-14 repository production-gate results against the exact
   tested commit, including coverage, full race suite, recovery drills,
   benchmarks, and synthetic mixed-load measurements. Keep real-host recovery

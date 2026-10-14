@@ -1314,7 +1314,7 @@ func (a *App) handleBackupJob(ctx context.Context, item Job) ([]byte, error) {
 			started = time.Now()
 		}
 		a.Schedules.recordResult(request.Site, started, nil)
-		if err := pruneSiteBackups(a.Config.BackupRoot, access, request.KeepLast); err != nil {
+		if err := pruneSiteBackups(a.Config.BackupRoot, access, request.KeepLast, filepath.Base(result.Path)); err != nil {
 			TelemetryAudit(a.Config.AuditLog, request.Actor, "backup.retention.failed", request.Site, err.Error())
 		}
 		a.maybeEnqueueScheduledRehearsal(ctx, request.Site, filepath.Base(result.Path))

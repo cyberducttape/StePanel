@@ -76,7 +76,7 @@ func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
 		}
 	}
 	access := AuthorizedSite{site: "demo"}
-	if err := pruneSiteBackups(root, access, 2); err != nil {
+	if err := pruneSiteBackups(root, access, 2, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "20260101-000000.000000000-demo")); !os.IsNotExist(err) {
@@ -107,7 +107,7 @@ func TestPruneSiteBackupsUsesManifestCreationTime(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1); err != nil {
+	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "renamed-new")); err != nil {
@@ -134,10 +134,56 @@ func TestPruneSiteBackupsFailsClosedOnUnownedCorruptDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(corrupt, "manifest.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1); err == nil {
+	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err == nil {
 		t.Fatal("retention silently ignored backup with unknown ownership")
 	}
 	if _, err := os.Stat(corrupt); err != nil {
 		t.Fatalf("uncertain artifact was deleted: %v", err)
+	}
+}
+
+func TestPruneSiteBackupsProtectsNewlyVerifiedBackupAgainstClockOrdering(t *testing.T) {
+	root := t.TempDir()
+	items := []struct {
+		name      string
+		createdAt time.Time
+	}{
+		{name: "verified-current", createdAt: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{name: "timestamp-newer", createdAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	for _, item := range items {
+		dir := filepath.Join(root, item.name)
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeBackupManifest(dir, BackupManifest{Version: 1, Site: "demo", Archive: "backup.tar.gz", CreatedAt: item.createdAt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "verified-current"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "verified-current")); err != nil {
+		t.Fatalf("newly verified recovery point was pruned: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "timestamp-newer")); !os.IsNotExist(err) {
+		t.Fatalf("timestamp-ordered stale point was not pruned: %v", err)
+	}
+}
+
+func TestPruneSiteBackupsRefusesMissingProtectedVerifiedBackup(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "other-backup")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBackupManifest(dir, BackupManifest{Version: 1, Site: "demo", Archive: "backup.tar.gz", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "missing-verified"); err == nil {
+		t.Fatal("retention pruned without finding the just-verified recovery point")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("inventory changed after protected backup was missing: %v", err)
 	}
 }

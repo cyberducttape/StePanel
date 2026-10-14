@@ -49,8 +49,10 @@ deadlocks, and allocated database bytes. Alert on collection failure, blocking,
 long transactions, unexpected deadlock growth, and capacity trends. Backup
 schedules retain their last success, duration, last error, and consecutive
 failure count. Their `keep_last` policy (default 7, range 1-365) prunes only
-verified local site backups after a successful replacement; immutable offsite
-copies are not deleted.
+the newly archive-verified backup and prunes older local candidates by manifest
+creation time after a successful replacement. Older retained archives are not
+all re-verified during pruning; strict verification and application recovery
+proof are separate checks. Immutable offsite copies are not deleted.
 
 Logical dumps are not PITR. WAL/binlog archiving, physical base backups,
 replication topology, controlled switchover, and fenced failover remain
