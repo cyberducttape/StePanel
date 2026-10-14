@@ -25,6 +25,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   including abrupt disposable-guest loss and real backup/file-restore ENOSPC
   tests; explicitly retain physical power-loss, broader ENOSPC, and repeat-count
   gates as open.
+- Make the installed-host smoke workflow accept 1–50 recovery-matrix repeats,
+  with bounded timeout scaling, so extended recovery evidence is reproducible
+  without editing the workflow or relying on implicit defaults.
 
 ### Fixed
 

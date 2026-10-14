@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      recovery_matrix_repeats:
+        description: 'Run the recovery matrix this many times (1-50)'
+        required: false
+        default: 1
+        type: number
 
 concurrency:
   group: stepanel-install-smoke-${{ github.ref }}
@@ -23,7 +28,9 @@ permissions:
 jobs:
   install:
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.full_recovery_matrix && 180 || 45 }}
+    timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 45 }}
+    env:
+      RECOVERY_MATRIX_REPEATS: ${{ inputs.recovery_matrix_repeats || 1 }}
     strategy:
       fail-fast: false
       matrix:
@@ -59,6 +66,12 @@ jobs:
         with:
           go-version: '1.26.9'
           cache: true
+      - name: Validate recovery matrix repeat count
+        run: |
+          [[ "$RECOVERY_MATRIX_REPEATS" =~ ^([1-9]|[1-4][0-9]|50)$ ]] || {
+            echo 'recovery_matrix_repeats must be an integer from 1 through 50' >&2
+            exit 64
+          }
       - name: Build release-shaped installer tree
         run: |
           go build -trimpath -ldflags='-s -w' -o stepanel ./cmd/stepanel
@@ -139,11 +152,12 @@ jobs:
           # matrix exercises every restore checkpoint and is opt-in because
           # it needs substantially more wall-clock time on TCG/shared CI
           # hosts.
-          timeout --foreground ${{ inputs.full_recovery_matrix && '170m' || '42m' }} docker exec \
+          timeout --foreground ${{ inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '42m' }} docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
             -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX_FULL=${{ inputs.full_recovery_matrix && '1' || '0' }} \
+            -e RECOVERY_MATRIX_REPEATS="$RECOVERY_MATRIX_REPEATS" \
             stepanel-install /work/deploy/lab/install-smoke.sh \
             2>&1 | tee "$diagnostics_dir/install-smoke-output.txt"
           smoke_status=${PIPESTATUS[0]}
