@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Record the 2026-10-14 repository production-gate results against the exact
+  tested commit, including coverage, full race suite, recovery drills,
+  benchmarks, and synthetic mixed-load measurements. Keep real-host recovery
+  and capacity gates explicitly open.
+
 - Anchor canonical site deletion to an opened `os.Root` for the sites directory.
   Deletion now rejects group/world-writable parent permissions and removes the
   site name relative to the directory descriptor, preventing pathname swaps

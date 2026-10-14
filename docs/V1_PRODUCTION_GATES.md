@@ -131,7 +131,7 @@ itself. It must increase as root-package handlers are extracted and tested;
 the release process must not lower it to accommodate a regression. Coverage is
 supplemental evidence and does not replace the failure-recovery matrix below.
 The current local repository-gate run is recorded in
-[2026-10-13-repository-production-gate.md](./lab-results/2026-10-13-repository-production-gate.md);
+[2026-10-14-repository-production-gate.md](./lab-results/2026-10-14-repository-production-gate.md);
 it passed but does not close the installed-host release gates.
 
 ---
