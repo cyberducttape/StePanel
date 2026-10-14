@@ -385,26 +385,8 @@ fi
 # Serialize the entire mutating install, including package installation and
 # optional integrations. Apache helper operations use their own separate lock.
 command -v flock >/dev/null 2>&1 || { echo 'flock is required for installation locking.' >&2; exit 1; }
-INSTALL_LOCK_DIR=/run/stepanel-installer
-INSTALL_LOCK_FILE=$INSTALL_LOCK_DIR/installer.lock
-[[ ! -L $INSTALL_LOCK_DIR ]] || { echo 'Refusing a symlinked installer lock directory.' >&2; exit 1; }
-install -d -o root -g root -m 0700 "$INSTALL_LOCK_DIR"
-[[ -d $INSTALL_LOCK_DIR && ! -L $INSTALL_LOCK_DIR ]] || { echo 'Installer lock directory is not a real directory.' >&2; exit 1; }
-[[ $(stat -c %u -- "$INSTALL_LOCK_DIR") == 0 ]] || { echo 'Installer lock directory must be root-owned.' >&2; exit 1; }
-chmod 0700 "$INSTALL_LOCK_DIR"
-[[ $(stat -c %u:%g:%a -- "$INSTALL_LOCK_DIR") == 0:0:700 ]] || { echo 'Installer lock directory must be root-owned with mode 0700.' >&2; exit 1; }
-[[ ! -L $INSTALL_LOCK_FILE && ( ! -e $INSTALL_LOCK_FILE || -f $INSTALL_LOCK_FILE ) ]] || {
-  echo 'Refusing a symlink or non-regular installer lock file.' >&2
-  exit 1
-}
-touch "$INSTALL_LOCK_FILE"
-chown root:root "$INSTALL_LOCK_FILE"
-chmod 0600 "$INSTALL_LOCK_FILE"
-exec 8>>"$INSTALL_LOCK_FILE"
-if ! flock -xn 8; then
-  echo 'Another StePanel installer is already changing this host; retry after it finishes.' >&2
-  exit 75
-fi
+. "$ROOT_DIR/deploy/lib/install-lock.sh"
+install_acquire_host_lock /run/stepanel-installer 0 0 || exit $?
 
 # Keep an append-only record outside the rollback directory. Package-manager
 # and host-service changes are not safely reversible, so a failed run must
