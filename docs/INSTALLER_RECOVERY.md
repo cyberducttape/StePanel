@@ -2,7 +2,9 @@
 
 Every mutating installer run writes an append-only, root-owned journal to
 `/var/lib/stepanel/install-journal/<UTC timestamp>-<pid>.tsv` (directory mode
-0700, file mode 0600). Records are tab-separated UTC timestamp, phase, status,
+0700, file mode 0600). Each existing path component is checked to be a real,
+root-owned directory not writable by group or other users. Records are
+tab-separated UTC timestamp, phase, status,
 recovery class, and a bounded detail label. They contain no credentials. Keep
 the journal with the host's installation and incident records.
 

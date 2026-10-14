@@ -390,12 +390,15 @@ if [[ -L /var/lib/stepanel || -L "$INSTALL_JOURNAL_DIR" ]]; then
   echo 'Refusing a symlinked installer journal path.' >&2
   exit 1
 fi
+# shellcheck source=deploy/lib/install-journal.sh
+. "$ROOT_DIR/deploy/lib/install-journal.sh"
+install_journal_validate_directory /var 0
+install_journal_validate_directory /var/lib 0
+if [[ -e /var/lib/stepanel ]]; then install_journal_validate_directory /var/lib/stepanel 0; fi
 install -d -o root -g root -m 0700 "$INSTALL_JOURNAL_DIR"
 INSTALL_JOURNAL="$INSTALL_JOURNAL_DIR/$(date -u +%Y%m%dT%H%M%SZ)-$$.tsv"
 (umask 077; : > "$INSTALL_JOURNAL")
 chmod 0600 "$INSTALL_JOURNAL"
-# shellcheck source=deploy/lib/install-journal.sh
-. "$ROOT_DIR/deploy/lib/install-journal.sh"
 JOURNAL_FILE=$INSTALL_JOURNAL
 install_journal_init
 INSTALL_JOURNAL_TERMINAL=0

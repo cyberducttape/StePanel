@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -37,6 +38,38 @@ func TestInstallerJournalWritesDurableSingleLineRecords(t *testing.T) {
 	}
 	if info, err := os.Stat(journal); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("journal mode = %v, %v; want 0600", info, err)
+	}
+}
+
+func TestInstallerJournalRejectsWritableOrSymlinkedPathComponents(t *testing.T) {
+	lib, err := filepath.Abs("deploy/lib/install-journal.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := func(path string) error {
+		cmd := exec.Command("bash", "-c", `. "$LIB"; install_journal_validate_directory "$PATH_COMPONENT" "$OWNER"`)
+		cmd.Env = append(os.Environ(), "LIB="+lib, "PATH_COMPONENT="+path, "OWNER="+strconv.Itoa(os.Getuid()))
+		return cmd.Run()
+	}
+	if err := run(dir); err != nil {
+		t.Fatalf("secure directory rejected: %v", err)
+	}
+	if err := os.Chmod(dir, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(dir); err == nil {
+		t.Fatal("group-writable journal ancestor was accepted")
+	}
+	link := filepath.Join(t.TempDir(), "journal-link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(link); err == nil {
+		t.Fatal("symlinked journal ancestor was accepted")
 	}
 }
 

@@ -10,6 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Record installer inventory, preflight, dependency, configuration, activation,
   verification, commit, and recovery phases in a root-only persistent journal.
+  The journal path's existing ancestors must also be real root-owned
+  non-writable directories, preventing an unprivileged parent from replacing
+  the journal directory.
   Failed installs now explicitly report that package/repository and
   pre-transaction host changes may remain; per-file snapshots are checkpointed,
   and account, SELinux, recursive ownership/ACL, legacy mount, and trust-store

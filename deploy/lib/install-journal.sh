@@ -1,18 +1,32 @@
 #!/usr/bin/env bash
 
-# Small append-only installer journal. Callers create the root-owned journal
-# directory before sourcing this file and pass a per-run file in JOURNAL_FILE.
-install_journal_init() {
-  local directory owner mode
-  directory=$(dirname -- "$JOURNAL_FILE")
-  [[ -d $directory && ! -L $directory && -f $JOURNAL_FILE && ! -L $JOURNAL_FILE ]] || {
-    echo 'Installer journal paths must be an existing directory and regular file.' >&2
+# Small append-only installer journal. Callers validate the trusted ancestor
+# chain, create a root-owned journal directory, and pass a per-run file in
+# JOURNAL_FILE.
+install_journal_validate_directory() {
+  local path=$1 expected_owner=$2 owner mode
+  [[ -d $path && ! -L $path ]] || {
+    echo "Installer journal path component $path must be a real directory." >&2
     return 1
   }
-  owner=$(stat -c %u -- "$directory")
-  mode=$(stat -c %a -- "$directory")
-  [[ $owner == 0 && $mode =~ ^[0-7]{3,4}$ && $(( 8#$mode & 077 )) == 0 ]] || {
-    echo 'Installer journal directory must be root-owned and inaccessible to group/other users.' >&2
+  owner=$(stat -c %u -- "$path")
+  mode=$(stat -c %a -- "$path")
+  [[ $owner == "$expected_owner" && $mode =~ ^[0-7]{3,4}$ && $(( 8#$mode & 022 )) == 0 ]] || {
+    echo "Installer journal path component $path has an unsafe owner or permissions." >&2
+    return 1
+  }
+}
+
+install_journal_init() {
+  local directory owner mode ancestor
+  local -a path_components=(/var /var/lib /var/lib/stepanel)
+  directory=$(dirname -- "$JOURNAL_FILE")
+  path_components+=("$directory")
+  for ancestor in "${path_components[@]}"; do
+    install_journal_validate_directory "$ancestor" 0 || return 1
+  done
+  [[ -f $JOURNAL_FILE && ! -L $JOURNAL_FILE ]] || {
+    echo 'Installer journal paths must be an existing directory and regular file.' >&2
     return 1
   }
   owner=$(stat -c %u -- "$JOURNAL_FILE")
