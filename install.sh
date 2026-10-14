@@ -382,6 +382,54 @@ if (( GUIDED == 1 )); then
   fi
 fi
 
+# Keep an append-only record outside the rollback directory. Package-manager
+# and host-service changes are not safely reversible, so a failed run must
+# leave operators a durable account of its phase and recovery boundary.
+INSTALL_JOURNAL_DIR=/var/lib/stepanel/install-journal
+if [[ -L /var/lib/stepanel || -L "$INSTALL_JOURNAL_DIR" ]]; then
+  echo 'Refusing a symlinked installer journal path.' >&2
+  exit 1
+fi
+install -d -o root -g root -m 0700 "$INSTALL_JOURNAL_DIR"
+INSTALL_JOURNAL="$INSTALL_JOURNAL_DIR/$(date -u +%Y%m%dT%H%M%SZ)-$$.tsv"
+(umask 077; : > "$INSTALL_JOURNAL")
+chmod 0600 "$INSTALL_JOURNAL"
+# shellcheck source=deploy/lib/install-journal.sh
+. "$ROOT_DIR/deploy/lib/install-journal.sh"
+JOURNAL_FILE=$INSTALL_JOURNAL
+install_journal_init
+INSTALL_JOURNAL_TERMINAL=0
+install_journal_record inventory started retained "os=$ID:$VERSION_ID package_manager=$PKG web_server=$WEB_SERVER database=$DB_ENGINE:$DB_VERSION"
+install_journal_package() {
+  local package=$1 state
+  if [[ "$PKG" == apt ]]; then
+    state=$(dpkg-query -W -f='${Version}' "$package" 2>/dev/null || true)
+  else
+    state=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}' "$package" 2>/dev/null || true)
+  fi
+  [[ -n $state ]] || state=not_installed
+  install_journal_record inventory package retained "$package=$state"
+}
+for web_service in apache2 httpd caddy lsws; do
+  if state=$(web_service_state "$web_service"); then
+    install_journal_record inventory observed retained "$web_service:$state"
+  fi
+done
+for package in "$WEB_PACKAGE" "$DB_PACKAGE" php-fpm; do install_journal_package "$package"; done
+install_journal_record preflight complete retained "take_over_host=$TAKE_OVER_HOST modsecurity=$INSTALL_MODSEC mail=$INSTALL_MAIL ftp=$INSTALL_FTP"
+install_journal_record dependency_installation started manual "package and repository changes are retained if this run fails"
+install_journal_record configuration started partial "package scripts and subsequent host configuration may change services before the file transaction"
+install_journal_on_exit() {
+  local status=$?
+  trap - EXIT
+  if (( status != 0 && INSTALL_JOURNAL_TERMINAL == 0 )); then
+    install_journal_record recovery required manual "installer exited status=$status; inspect host services, packages and configuration; see docs/INSTALLER_RECOVERY.md" || true
+    echo "Installer stopped before commit; recovery journal: $INSTALL_JOURNAL" >&2
+  fi
+  return "$status"
+}
+trap install_journal_on_exit EXIT
+
 if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota tar gzip ca-certificates openssl curl git sudo logrotate
 else
   # Rocky/Alma cloud images may ship the full curl package while minimal
@@ -432,6 +480,7 @@ for web_service in apache2 httpd caddy lsws; do
   [[ "$web_service" == "$APACHE_SERVICE" ]] && continue
   if [[ " ${PREEXISTING_WEB_SERVICES[*]} " == *" $web_service "* ]]; then
     (( TAKE_OVER_HOST == 1 )) || { echo "Refusing to stop pre-existing $web_service without --take-over-host." >&2; exit 1; }
+    install_journal_record activation started manual "taking over pre-existing web service $web_service; its prior configuration is not transactionally restored"
     echo "Taking over host: stopping and disabling $web_service"
   fi
   systemctl disable --now "$web_service" >/dev/null 2>&1 || true
@@ -488,6 +537,7 @@ if [[ "$DB_ENGINE" == "postgresql" && "$PKG" == "dnf" && ! -f /var/lib/pgsql/dat
   command -v postgresql-setup >/dev/null 2>&1 || { echo 'postgresql-setup is unavailable after PostgreSQL installation.' >&2; exit 1; }
   postgresql-setup --initdb
 fi
+install_journal_record activation started partial "enabling database and discovered PHP-FPM services before the installer file transaction"
 systemctl enable --now "$DB_SERVICE"
 mapfile -t FPM_UNITS < <(systemctl list-unit-files --type=service --no-legend 'php*-fpm.service' 'php-fpm.service' 2>/dev/null | awk '{print $1}')
 (( ${#FPM_UNITS[@]} > 0 )) || { echo 'No PHP-FPM systemd service was found after installation.' >&2; exit 1; }
@@ -603,8 +653,14 @@ if command -v exim >/dev/null 2>&1 || command -v exim4 >/dev/null 2>&1; then MAI
 command -v dovecot >/dev/null 2>&1 && MAIL_DOVECOT_PREEXISTING=1
 if command -v spamd >/dev/null 2>&1 || command -v spamassassin >/dev/null 2>&1; then MAIL_SPAM_PREEXISTING=1; fi
 command -v vsftpd >/dev/null 2>&1 && FTP_PREEXISTING=1
-if [[ "$INSTALL_MAIL" == "1" ]]; then install_mail_stack; fi
-if [[ "$INSTALL_FTP" == "1" ]]; then install_ftp_stack; fi
+if [[ "$INSTALL_MAIL" == "1" ]]; then
+  install_journal_record configuration started manual "installing/configuring optional mail stack; package and service changes may remain on failure"
+  install_mail_stack
+fi
+if [[ "$INSTALL_FTP" == "1" ]]; then
+  install_journal_record configuration started manual "installing/configuring optional FTP stack; package and service changes may remain on failure"
+  install_ftp_stack
+fi
 
 configure_modsecurity() {
   local apache_conf modsec_conf audit_log crs_load backup apache_backup
@@ -646,7 +702,14 @@ configure_modsecurity() {
 command -v flock >/dev/null 2>&1 || { echo 'flock is required for installation locking.' >&2; exit 1; }
 exec 8>/run/lock/stepanel-apache.lock
 flock -x 8
-if [[ "$INSTALL_MODSEC" == "1" ]]; then configure_modsecurity; fi
+install_journal_record dependency_installation complete manual "base, selected web/database, and optional packages installed; package changes are not rolled back"
+for package in "$WEB_PACKAGE" "$DB_PACKAGE" php-fpm; do install_journal_package "$package"; done
+install_journal_record configuration checkpoint partial "pre-transaction service and integration setup has completed; review prior records for exact actions"
+if [[ "$INSTALL_MODSEC" == "1" ]]; then
+  install_journal_record configuration started manual "ModSecurity package, module and Apache configuration"
+  configure_modsecurity
+  install_journal_record configuration complete manual "ModSecurity configuration validated; package/module effects are outside file rollback"
+fi
 
 INSTALL_TXN=$(mktemp -d /var/tmp/stepanel-install.XXXXXX)
 chmod 0700 "$INSTALL_TXN"
@@ -682,6 +745,7 @@ rollback_install() {
   local status=$? index temporary
   trap - ERR EXIT INT TERM
   if (( INSTALL_COMMITTED )); then exit "$status"; fi
+  install_journal_record recovery started partial "restoring registered StePanel files, control-plane database and core service state" || echo 'Could not append installer recovery-start journal record.' >&2
   echo 'Installation failed; restoring the previous StePanel-owned files.' >&2
   # The candidate may already have migrated the control-plane database. Stop
   # it before restoring the database the previous release left.
@@ -705,6 +769,8 @@ rollback_install() {
   elif command -v httpd >/dev/null 2>&1 && httpd -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
   fi
   rm -rf "$INSTALL_TXN"
+  install_journal_record recovery required manual "registered files and core service state restored where possible; packages, repository/module changes and unregistered host configuration may remain" || echo 'Could not append installer recovery result; operator inspection is required.' >&2
+  echo "Installation rollback ended; host-level recovery is not complete. Journal: $INSTALL_JOURNAL" >&2
   exit "$status"
 }
 trap rollback_install ERR EXIT
@@ -735,6 +801,7 @@ managed_targets=(
   /etc/sudoers.d/stepanel
   /etc/stepanel-audit.key
 )
+install_journal_record configuration transaction_preparing partial "registered file and control-plane database snapshots are being prepared under $INSTALL_TXN"
 if [[ "$INSTALL_DB_ADMIN" == "1" && "$WEB_SERVER" == "apache" && "$PKG" == "apt" ]]; then
   managed_targets+=(/etc/apache2/stepanel-panel/db-admin.conf /etc/apache2/conf-enabled/phpmyadmin.conf /etc/apache2/conf-enabled/phppgadmin.conf)
 elif [[ "$INSTALL_DB_ADMIN" == "1" && "$WEB_SERVER" == "apache" ]]; then
@@ -757,6 +824,7 @@ if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl stop stepanel-root-broker.se
 # With every StePanel process stopped, snapshot the control-plane database so
 # a failed upgrade restores binary and database together.
 control_plane_txn_begin "$DATA_DIR/stepanel-control.db" "$INSTALL_TXN"
+install_journal_record configuration transaction_ready reversible "registered file targets and control-plane database are snapshotted under $INSTALL_TXN"
 
 install -d -m 0750 "$APP_DIR" "$DATA_DIR/imports" "$DATA_DIR/mail" "$DATA_DIR/apps" /var/www/sites
 install -d -m 0755 -o root -g root "$PROXY_ROOT" "$VHOST_ROOT"
@@ -1055,6 +1123,8 @@ if [[ "$WEB_SERVER" == "caddy" ]]; then
 fi
 systemctl enable --now stepanel-root-broker.service
 systemctl enable --now stepanel.service stepanel-worker.service
+install_journal_record activation complete partial "core web, database, PHP-FPM, broker, panel and worker activation attempted; prior service state is restored on handled failure"
+install_journal_record verification started partial "waiting for the installed panel readiness endpoint"
 health_ready=0
 for _ in {1..120}; do
   if curl --fail --silent --max-time 2 http://127.0.0.1:8090/readyz >/dev/null; then health_ready=1; break; fi
@@ -1070,7 +1140,9 @@ if (( health_ready != 1 )); then
 fi
 INSTALL_COMMITTED=1
 control_plane_txn_commit
+INSTALL_JOURNAL_TERMINAL=1
 trap - ERR EXIT INT TERM
+install_journal_record commit complete manual "core installation committed; optional integrations are reported separately and package changes remain" || echo 'Could not append installer commit record; preserve installer output as evidence.' >&2
 for temporary in "${TXN_TEMPS[@]}"; do rm -f "$temporary"; done
 rm -rf "$INSTALL_TXN"
 flock -u 8
@@ -1108,9 +1180,13 @@ if (( ${#POST_INSTALL_PENDING[@]} )); then
   printf 'post_install_status=pending services='
   printf '%s ' "${POST_INSTALL_PENDING[@]}"
   printf '\n'
+  install_journal_record post_install pending manual "services=${POST_INSTALL_PENDING[*]}"
 else
   echo 'post_install_status=complete'
+  install_journal_record post_install complete retained "optional integrations activated or not requested"
 fi
+install_journal_record verification complete partial "core readiness passed; inspect post_install_status for optional integrations" || echo 'Could not append installer verification record.' >&2
+install_journal_record recovery contract manual "automatic rollback covers registered files, control-plane database and core service activation; see docs/INSTALLER_RECOVERY.md" || echo 'Could not append installer recovery-contract record.' >&2
 echo "StePanel installed with $WEB_SERVER and $DB_ENGINE ($DB_VERSION). Verify services with: systemctl status $APACHE_SERVICE $DB_SERVICE"
 echo "Panel hostname: $PANEL_HOSTNAME. Complete TLS termination before signing in; Secure cookies are mandatory in production."
 if [[ "$INSTALL_MAIL" == "1" ]]; then echo "Mail stack installed. Mailbox data is staged under $DATA_DIR/mail; services are active only when STEPANEL_ACTIVATE_MAIL=1."; fi
