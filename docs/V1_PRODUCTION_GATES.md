@@ -149,7 +149,7 @@ and this gate now describes the implementation as it is:
 | Layer | Owner | Responsibility |
 |-------|-------|----------------|
 | Lifecycle orchestration | Root-package lifecycle handlers and durable jobs (`site_lifecycle.go` `handleSiteTermination`, import/restore/clone/release jobs) | Locks, ordering, audit, recovery, and the decision to create, publish, or remove a site |
-| Filesystem primitive | `SiteManager` (`internal/sites/manager.go`) | Staging allocation, atomic activation/replacement/rollback, clone, path-safe final deletion. Every path is derived from the manager's own web root |
+| Filesystem primitive | `SiteManager` (`internal/sites/manager.go`) | Staging allocation, atomic activation/replacement/rollback, clone, and descriptor-rooted final deletion. Deletion rejects a writable `sites/` parent and removes relative to an opened `os.Root`; canonical path components must remain trusted and customer accounts must not write `sites/`. |
 | Privilege executor | Root broker and helpers (`internal/rootbroker`, `stepanel-sitectl`, `stepanel-appctl`) | Site Unix account, ownership, PHP-FPM pool, SSH access, quotas, services, and the privileged part of site teardown |
 
 **Two domains:**
@@ -181,7 +181,7 @@ release → SiteManager.CreateReleaseStaging() + build + SiteManager.ActivateSta
 update  → domain handlers + root broker (PHP runtime, resources, quota); SiteManager is not involved
 delete  → lifecycle job: backups, services, tasks, routes, databases
           → broker/stepanel-sitectl delete (account, PHP-FPM, SSH, site tree)
-          → SiteManager.Delete() (path-safe, idempotent finalization)
+          → SiteManager.Delete() (descriptor-rooted, idempotent finalization)
 
 # Never acceptable:
 ❌ os.Mkdir/Create/Rename on {webRoot}/sites/* outside SiteManager
@@ -203,7 +203,8 @@ have no production callers; the flows above use staging instead.
       file-backup restore, staging clone, backup restore-to-staging, and the
       release pipeline all publish through manager-owned staging
 - ✅ Failed staging workflows discard trees through `SiteManager.DiscardStaging()`
-- ✅ Site termination finalizes deletion through `SiteManager.Delete()` after
+- ✅ Site termination finalizes deletion through descriptor-rooted
+      `SiteManager.Delete()` after
       the privileged helper removes root-owned state
 - ✅ Canonical site modifications are protected by distributed locks
 - ⚠️ Configuration updates, suspend, and resume have no `SiteManager` entry
@@ -213,7 +214,7 @@ have no production callers; the flows above use staging instead.
 **Acceptance Criteria:**
 - [x] All site creation operations publish through SiteManager staging (Phase 1 audit: importer.go, cpmove.go, staging.go use manager staging)
 - [x] Site modification operations are lock-protected (Phase 2 audit: node_tooling.go, apps.go; release_pipeline.go uses manager release staging)
-- [x] Site deletion finalizes through `SiteManager.Delete()`; the privileged helper's tree removal is the documented exception
+- [x] Site deletion finalizes through descriptor-rooted `SiteManager.Delete()`; the privileged helper's tree removal is the documented exception
 - [x] Grep audit: no `os.Mkdir.*sites` outside manager (only in test files)
 - [x] Grep audit: no direct file operations on site paths outside manager (all non-test operations are read-only or lock-protected)
 - [x] This section matches `SiteManager`'s implemented methods (`TestGateOneDocumentMatchesManager`)

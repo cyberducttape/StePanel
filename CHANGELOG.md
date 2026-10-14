@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Anchor canonical site deletion to an opened `os.Root` for the sites directory.
+  Deletion now rejects group/world-writable parent permissions and removes the
+  site name relative to the directory descriptor, preventing pathname swaps
+  from redirecting recursive deletion outside the managed site tree.
+
 - Remove unused `SiteManager` placeholder methods and request types for import,
   restore, configuration, suspend, and resume. The public manager API now
   matches its implemented filesystem/staging responsibilities, and Gate 1

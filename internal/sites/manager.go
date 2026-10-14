@@ -115,7 +115,8 @@ func NewDefaultManager(webRoot string) (*DefaultManager, error) {
 // resolveSiteRoot is the single path-derivation primitive every method
 // uses. It validates the site name, joins under the configured web root,
 // and checks containment + symlink-parent safety via helper.SafePath. The
-// returned path is safe to pass to os.RemoveAll or os.MkdirAll.
+// path check is not a substitute for descriptor-relative deletion; Delete
+// opens the sites directory and removes the validated name through os.Root.
 func (m *DefaultManager) resolveSiteRoot(name string) (string, error) {
 	if !validSiteName.MatchString(name) {
 		return "", fmt.Errorf("sites.Manager: invalid site name %q", name)
@@ -854,33 +855,50 @@ func (r *contextReader) Read(p []byte) (int, error) {
 	return r.reader.Read(p)
 }
 
-// Delete removes a site's directory tree. This is the highest-risk
-// operation the manager exposes, so it re-validates independently even
-// though every HTTP caller already validates. The steps:
-//
-//  1. Name pattern is re-checked (defense in depth: a malformed name
-//     that reached this point would be caught here even if the HTTP
-//     validator regressed).
-//  2. The path is derived from the manager's stored webRoot — the
-//     caller cannot influence which tree gets rm -rf'd.
-//  3. helper.SafePath enforces "inside webRoot" and rejects any
-//     symlinked parent, so `sites/../etc` and `sites/attacker-symlink`
-//     both fail.
-//  4. The final path is Lstat'd to verify it is a directory (not a
-//     symlink at the leaf either), so a race between validation and
-//     removal cannot substitute a symlink for the site dir.
-func (m *DefaultManager) Delete(ctx context.Context, name string) error {
+// openSitesRoot opens the sites directory once and validates its immediate
+// entry. Site accounts can traverse this directory but must not be able to
+// replace entries in it; fail closed if group/other write permission drifts.
+func openSitesRoot(webRoot string) (*os.Root, error) {
+	web, err := os.OpenRoot(webRoot)
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: open web root: %w", err)
+	}
+	info, err := web.Lstat("sites")
+	if err != nil {
+		_ = web.Close()
+		return nil, fmt.Errorf("sites.Manager: inspect sites directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		_ = web.Close()
+		return nil, errors.New("sites.Manager: sites path must be a real directory")
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		_ = web.Close()
+		return nil, errors.New("sites.Manager: sites directory must not be group/world writable")
+	}
+	sites, err := web.OpenRoot("sites")
+	closeErr := web.Close()
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: open sites directory: %w", err)
+	}
+	if closeErr != nil {
+		_ = sites.Close()
+		return nil, fmt.Errorf("sites.Manager: close web root: %w", closeErr)
+	}
+	return sites, nil
+}
+
+func removeSiteAtRoot(ctx context.Context, sites *os.Root, name string) error {
+	if !validSiteName.MatchString(name) {
+		return fmt.Errorf("sites.Manager: invalid site name %q", name)
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	siteDir, err := m.resolveSiteRoot(name)
-	if err != nil {
-		return err
-	}
-	info, err := os.Lstat(siteDir)
+	info, err := sites.Lstat(name)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil // Idempotent: deleting an absent site is not an error.
+			return nil
 		}
 		return fmt.Errorf("sites.Manager: inspect site: %w", err)
 	}
@@ -893,8 +911,35 @@ func (m *DefaultManager) Delete(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(siteDir); err != nil {
+	if err := sites.RemoveAll(name); err != nil {
 		return fmt.Errorf("sites.Manager: remove site: %w", err)
+	}
+	return nil
+}
+
+// Delete removes one canonical site relative to an open directory descriptor.
+// It validates the name independently, refuses symlink/non-directory leaves,
+// and uses os.Root.RemoveAll so replacing a pathname cannot redirect recursive
+// deletion outside the originally opened sites tree. The sites parent must
+// remain non-writable to customer accounts.
+func (m *DefaultManager) Delete(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !validSiteName.MatchString(name) {
+		return fmt.Errorf("sites.Manager: invalid site name %q", name)
+	}
+	sites, err := openSitesRoot(m.webRoot)
+	if err != nil {
+		return err
+	}
+	removeErr := removeSiteAtRoot(ctx, sites, name)
+	closeErr := sites.Close()
+	if removeErr != nil {
+		return removeErr
+	}
+	if closeErr != nil {
+		return fmt.Errorf("sites.Manager: close sites directory: %w", closeErr)
 	}
 	return nil
 }

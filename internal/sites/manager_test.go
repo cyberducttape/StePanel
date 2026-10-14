@@ -237,11 +237,8 @@ func TestDeleteRefusesInvalidNames(t *testing.T) {
 	}
 }
 
-// TestDeleteRefusesSymlinkedSite is the second half of the trust boundary:
-// if the site directory has been replaced with a symlink between
-// provisioning and deletion, the manager MUST NOT follow it into another
-// tree. helper.SafePath rejects symlink *parents*, and the leaf check in
-// Delete rejects the site path itself being a symlink.
+// TestDeleteRefusesSymlinkedSite verifies the manager rejects a site entry
+// that is already a symlink rather than treating the link as a valid site.
 func TestDeleteRefusesSymlinkedSite(t *testing.T) {
 	m, root := newManager(t)
 	// Create a "target" tree the attacker would like us to rm -rf.
@@ -264,6 +261,60 @@ func TestDeleteRefusesSymlinkedSite(t *testing.T) {
 	}
 	if _, err := os.Stat(victim); err != nil {
 		t.Fatalf("Delete followed symlink and touched target: %v", err)
+	}
+}
+
+func TestDeleteRemainsAnchoredWhenSitesPathIsReplaced(t *testing.T) {
+	_, root := newManager(t)
+	sitePath := filepath.Join(root, "sites", "victim")
+	if err := os.MkdirAll(sitePath, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sitePath, "owned.txt"), []byte("managed site"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	victim := filepath.Join(outside, "keep.txt")
+	if err := os.WriteFile(victim, []byte("must survive"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	openedSites, err := openSitesRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer openedSites.Close()
+	if err := os.Rename(filepath.Join(root, "sites"), filepath.Join(root, "sites-original")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "sites")); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeSiteAtRoot(context.Background(), openedSites, "victim"); err != nil {
+		t.Fatalf("descriptor-relative delete failed: %v", err)
+	}
+	if data, err := os.ReadFile(victim); err != nil || string(data) != "must survive" {
+		t.Fatalf("path replacement redirected deletion: data=%q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sites-original", "victim")); !os.IsNotExist(err) {
+		t.Fatalf("delete did not operate on the opened sites directory: %v", err)
+	}
+}
+
+func TestDeleteRejectsWritableSitesParent(t *testing.T) {
+	m, root := newManager(t)
+	sitePath := filepath.Join(root, "sites", "site")
+	if err := os.Mkdir(sitePath, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(root, "sites"), 0770); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(context.Background(), "site"); err == nil || !strings.Contains(err.Error(), "writable") {
+		t.Fatalf("Delete accepted a group-writable sites parent: %v", err)
+	}
+	if _, err := os.Stat(sitePath); err != nil {
+		t.Fatalf("site changed after unsafe parent was rejected: %v", err)
 	}
 }
 
