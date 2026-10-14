@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Re-run the complete repository production gate against the retention
+  hardening commit and record the exact coverage, race, recovery-drill,
+  benchmark, and mixed-load results. Host-level recovery and capacity gates
+  remain explicitly open.
+
 - Protect the newly verified backup artifact during scheduled retention,
   independent of manifest timestamp ordering; fail closed without pruning if
   that recovery point is missing from the retention inventory.
