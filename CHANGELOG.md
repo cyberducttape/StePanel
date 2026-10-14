@@ -20,6 +20,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   so asynchronous local TLS certificate issuance does not create a false failure.
 - Report failed Certbot timer activation as pending post-install work instead of
   silently reporting optional integration setup as complete.
+- Stabilize the lease-loss helper test under loaded CI runners while retaining
+  the explicit takeover and forced-cancellation checks.
 
 ### Added
 

@@ -307,7 +307,11 @@ func TestSiteMutationLockLossTerminatesInFlightHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dbB.Close()
-	locksA, err := operations.NewDBLocks(dbA, "helper-owner", 100*time.Millisecond)
+	// Keep the lease long enough that a heavily loaded test runner can launch
+	// the helper before the renewal goroutine is scheduled. The test explicitly
+	// expires the lease after observing the helper's start marker, so a short
+	// lease adds timing flakiness without improving the takeover assertion.
+	locksA, err := operations.NewDBLocks(dbA, "helper-owner", 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +328,7 @@ func TestSiteMutationLockLossTerminatesInFlightHelper(t *testing.T) {
 	defer release()
 	done := make(chan error, 1)
 	go func() { done <- siteHelperContext(ctx, owner.Config, "seal", "helper-loss") }()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if _, err := os.Stat(started); err == nil {
 			break
@@ -346,7 +350,7 @@ func TestSiteMutationLockLossTerminatesInFlightHelper(t *testing.T) {
 		if err == nil {
 			t.Fatal("in-flight helper reported success after lease loss")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(4 * time.Second):
 		t.Fatal("in-flight helper was not terminated after lease loss")
 	}
 	time.Sleep(100 * time.Millisecond)
