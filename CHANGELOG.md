@@ -21,7 +21,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Record the third successful six-combination installed WordPress recovery
   smoke run (Ubuntu 24.04, AlmaLinux 9, Rocky Linux 9 with Apache/Caddy and
   MariaDB), including measured proof RTOs and explicit one-run limitations.
-- Record the successful quota-enabled Ubuntu 24.04 install/recovery run,
+- Record the second successful quota-enabled Ubuntu 24.04 install/recovery run,
   including abrupt disposable-guest loss and real backup/file-restore ENOSPC
   tests; explicitly retain physical power-loss, broader ENOSPC, and repeat-count
   gates as open.
