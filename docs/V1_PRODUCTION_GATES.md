@@ -74,13 +74,25 @@ CodeQL, and installation smoke passed on `730cbd9` ([CI](https://github.com/cybe
 [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38565327198),
 [install](https://github.com/cyberducttape/StePanel/actions/runs/38565327133));
 the local full Go suite also passes on subsequent source commit `c73926e`.
-At capture time for current source commit `12b0d70`, CodeQL and UI E2E had
+At capture time for source commit `12b0d70`, CodeQL and UI E2E had
 passed, the Go CI job and six-host installation smoke were in progress, and
 the quota-enabled guest run was pending ([CI](https://github.com/cyberducttape/StePanel/actions/runs/38572967532),
 [installation](https://github.com/cyberducttape/StePanel/actions/runs/38572967470),
 [quota run](https://github.com/cyberducttape/StePanel/actions/runs/38572966792)).
 No new physical power-loss, broader ENOSPC,
 SMTP/webhook outage, OpenLiteSpeed, or capacity-certification claim is made.
+
+Status refresh after commit `d1a259c`: CodeQL is running; CI and the
+six-host installation matrix are queued. The quota guest run for `c73926e`
+remains active, while the newest quota run for `d1a259c` is pending
+([CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38574974617),
+[CI](https://github.com/cyberducttape/StePanel/actions/runs/38574974335),
+[install](https://github.com/cyberducttape/StePanel/actions/runs/38574974411),
+[active quota run](https://github.com/cyberducttape/StePanel/actions/runs/38572742100),
+[pending quota run](https://github.com/cyberducttape/StePanel/actions/runs/38574974320)).
+The quota run for `12b0d70` was pending and then replaced by the newer pending
+run; the active `c73926e` run was not canceled. This is queue state, not test
+evidence.
 
 The latest completed installed-host values supersede the historical values in the
 runtime table below. They remain smoke results, not a certified support

@@ -85,6 +85,17 @@ production approval.
   [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38572967236),
   [install](https://github.com/cyberducttape/StePanel/actions/runs/38572967470),
   [quota install](https://github.com/cyberducttape/StePanel/actions/runs/38572966792)).
+- Status refresh after commit `d1a259c`: CodeQL is running; CI and the
+  six-host installation matrix are queued. The quota guest run for `c73926e`
+  remains active, while the newest quota run for `d1a259c` is pending
+  ([CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38574974617),
+  [CI](https://github.com/cyberducttape/StePanel/actions/runs/38574974335),
+  [install](https://github.com/cyberducttape/StePanel/actions/runs/38574974411),
+  [active quota run](https://github.com/cyberducttape/StePanel/actions/runs/38572742100),
+  [pending quota run](https://github.com/cyberducttape/StePanel/actions/runs/38574974320)).
+  The intervening quota run for `12b0d70` was pending, then replaced when a
+  newer run entered the single pending slot; it did not cancel the active
+  `c73926e` run. This is queue replacement, not a test result.
 
 ### Changes 2026-10-03 to 2026-10-10 (on `main`, unreleased)
 

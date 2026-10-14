@@ -40,6 +40,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Reconcile the project status page with the fourth six-host WordPress proof
   run and distinguish completed hosted checks from checks still pending on the
   latest source commit.
+- Clarify quota-workflow concurrency evidence: a newer pending run can replace
+  an older pending run, while the active quota recovery run remains in flight.
 - Keep an active quota-enabled host recovery run alive when newer commits are
   pushed, so long-running release-gate evidence is not canceled mid-test.
 - Preserve encrypted durable jobs as queued when a worker lacks the account
