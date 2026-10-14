@@ -31,6 +31,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Keep externally sourced database identifiers out of backup staging paths;
+  temporary dumps and checksum sidecars now use fixed or locally generated
+  filenames while retaining the validated database name in backup metadata.
 - Reserve per-database peak staging capacity for both the temporary SQL dump
   and its simultaneous archive representation, retaining only the archive
   allowance after the dump file is removed. The root broker extends the shared

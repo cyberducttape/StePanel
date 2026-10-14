@@ -326,14 +326,16 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		if err != nil {
 			return result, abortArchive(err)
 		}
-		for _, database := range databases {
+		for dbIndex, database := range databases {
 			if err := ctx.Err(); err != nil {
 				return result, abortArchive(err)
 			}
 			if len(manifest.Entries) >= maxEntries {
 				return result, abortArchive(errors.New("backup contains too many entries"))
 			}
-			dumpPath := filepath.Join(tempDir, database+".sql")
+			// Database identifiers belong in the archive manifest, not in a
+			// filesystem path. Use a locally generated ordinal for staging.
+			dumpPath := filepath.Join(tempDir, fmt.Sprintf("database-%06d.sql", dbIndex))
 			predicted := dumpEstimates[database]
 			if predicted == 0 {
 				predicted = backupDatabaseReservation
@@ -809,7 +811,8 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 	} else if cfg.Production {
 		return result, errors.New("production database safety backups require the durable capacity ledger")
 	}
-	dump := filepath.Join(temp, database+".sql")
+	// Keep externally sourced database identifiers out of staging paths.
+	dump := filepath.Join(temp, "database.sql")
 	if _, err := dumpManagedDatabaseContext(ctx, cfg, database, dump, reservation, backupDatabaseReservation); err != nil {
 		return result, err
 	}
@@ -817,7 +820,7 @@ func createDatabaseSafetyBackupContext(ctx context.Context, cfg Config, database
 	if err != nil {
 		return result, err
 	}
-	if err := writeSyncedFile(temp, database+".sql.sha256", []byte(result.SHA256+"  "+database+".sql\n"), 0600); err != nil {
+	if err := writeSyncedFile(temp, "database.sql.sha256", []byte(result.SHA256+"  database.sql\n"), 0600); err != nil {
 		return result, err
 	}
 	if err := ctx.Err(); err != nil {
