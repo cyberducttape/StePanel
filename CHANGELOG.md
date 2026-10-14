@@ -32,8 +32,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - Acquire a host-wide nonblocking installer lock before package and service
-  mutations, and hold it through post-install integration activation, so two
-  concurrent install or upgrade runs cannot interleave host changes.
+  mutations in a root-only runtime directory, reject symlinked lock paths, and
+  hold the lock through post-install integration activation, so parallel runs
+  cannot interleave host changes or redirect a root lock open through `/run/lock`.
 - Isolate Installation smoke and CodeQL concurrency by GitHub event so
   scheduled runs cannot cancel in-progress push-triggered release evidence.
 - Cache the assembled site overview for at most five seconds, coalesce concurrent

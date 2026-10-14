@@ -143,7 +143,7 @@ func TestInstallerAcquiresHostMutationLockBeforePackageChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(script)
-	lock := strings.Index(text, "exec 8>/run/lock/stepanel-installer.lock")
+	lock := strings.Index(text, "exec 8>>\"$INSTALL_LOCK_FILE\"")
 	acquire := strings.Index(text, "flock -xn 8")
 	firstPackageMutation := strings.Index(text, "; apt-get update; apt-get install")
 	if lock < 0 || acquire < 0 || firstPackageMutation < 0 || !(lock < acquire && acquire < firstPackageMutation) {
@@ -151,5 +151,15 @@ func TestInstallerAcquiresHostMutationLockBeforePackageChanges(t *testing.T) {
 	}
 	if strings.Contains(text[acquire:], "flock -u 8") {
 		t.Fatal("installer must retain its host-wide lock through the complete install")
+	}
+	for _, invariant := range []string{
+		"INSTALL_LOCK_DIR=/run/stepanel-installer",
+		"[[ ! -L $INSTALL_LOCK_DIR ]]",
+		"[[ ! -L $INSTALL_LOCK_FILE",
+		"chmod 0700 \"$INSTALL_LOCK_DIR\"",
+	} {
+		if !strings.Contains(text, invariant) {
+			t.Errorf("installer lock must enforce private, symlink-resistant path: missing %q", invariant)
+		}
 	}
 }
