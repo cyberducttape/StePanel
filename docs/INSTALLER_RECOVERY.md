@@ -13,8 +13,8 @@ does not make every host change reversible.
 | --- | --- | --- |
 | Inventory / preflight | OS ID/version, selected package manager/web server/database, installed versions of the selected web/database/PHP-FPM packages before and after package installation, detected web-service states, takeover and optional integration choices | Read-only. The journal stores a concise inventory, not a complete package/repository manifest or copies of arbitrary host configuration. |
 | Dependency installation | Start and completion of base and optional package installation | Package installs, repository metadata, and enabled distribution modules are retained. The installer does not uninstall packages or reverse repository/module changes. |
-| Configuration | ModSecurity and start of the registered-file transaction | Configuration completed before the transaction, including ModSecurity, mail/FTP, host takeover, and database/PHP service setup, may remain after a later failure. Components with their own validation rollback report that locally; otherwise inspect and restore them manually. |
-| Activation | Core web/database/PHP-FPM and StePanel service activation | A handled failure after the transaction starts restores registered StePanel-owned files, the control-plane SQLite file set, and the prior enabled/active state of the three StePanel units where restoration succeeds. It does not restore every host service or package side effect. |
+| Configuration | ModSecurity, mail/FTP setup, per-file snapshot checkpoints, system account and SELinux configuration | Configuration completed before or during the transaction may remain after failure. Installer-created account/group membership, PostgreSQL initialization, SELinux labels/booleans, recursive ownership changes, and existing-site ACL migration are not reversed. Per-file checkpoints identify exactly which managed files were snapshotted. |
+| Activation | Web-service takeover/normalization, database/PHP-FPM, legacy mount retirement, Caddy trust, and StePanel service activation | A handled failure after the transaction starts restores registered StePanel-owned files, the control-plane SQLite file set, and the prior enabled/active state of the three StePanel units where restoration succeeds. It does not restore pre-existing web services, package post-install service changes, or re-establish an unmounted legacy `/var/www` bind. |
 | Verification | Core `/readyz` check and optional integration outcome | Core readiness is the commit gate. Optional integrations may remain pending after core commit and are printed as `post_install_status`. |
 | Commit | Successful core installation | The install transaction is discarded after commit. Post-commit optional integrations have their own retry instructions and are not covered by the core rollback. |
 | Recovery | Failed/partial or completed recovery-contract record | `required/manual` means operators must inspect the host. A journal ending before `commit` is not evidence that all changes were reverted. |
@@ -38,3 +38,21 @@ This contract covers handled installer errors. It does not claim recovery from
 power loss, package-manager interruption, arbitrary external host changes, or
 failure of the recovery actions themselves. Such cases require operator
 inspection; the journal is intentionally retained for that purpose.
+
+The following host changes are intentionally outside automatic rollback and
+are explicitly journaled when their phase is reached:
+
+- APT/DNF package, repository metadata, and PostgreSQL module changes.
+- PostgreSQL data-directory initialization.
+- Existing web-service takeover and package-triggered service state changes.
+- Creation or modification of the `stepanel` system account and group membership.
+- Recursive application/data ownership changes and ACL repair across existing
+  site trees.
+- Persistent SELinux file labels and booleans.
+- Retirement of the old `stepanel-nosymfollow` unit and possible `/var/www`
+  unmount. A failed install does not recreate that legacy mount.
+- Caddy local CA installation into the machine trust store.
+
+Do not reverse these mechanically without checking for pre-existing workloads
+and data. The journal's `manual` recovery class is an explicit operator-review
+boundary, not a claim that the effect is automatically undone.

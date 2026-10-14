@@ -476,6 +476,7 @@ fi
 # stopped and disabled here. Servers that were already active or enabled
 # before the run were reported by the preflight and are only touched because
 # the operator passed --take-over-host.
+install_journal_record activation started manual "normalizing web service activation after package install; package post-install service state may be changed"
 for web_service in apache2 httpd caddy lsws; do
   [[ "$web_service" == "$APACHE_SERVICE" ]] && continue
   if [[ " ${PREEXISTING_WEB_SERVICES[*]} " == *" $web_service "* ]]; then
@@ -493,6 +494,7 @@ if [[ "$DB_ENGINE" == "postgresql" && "$PKG" == "dnf" && "$DB_VERSION" != "defau
     dnf module list postgresql --all || true
     exit 1
   fi
+  install_journal_record dependency_installation started manual "enabling PostgreSQL AppStream module $DB_VERSION; module state is not reversed"
   dnf module enable -y "postgresql:$DB_VERSION"
 fi
 if [[ "$DB_VERSION" == "default" ]]; then
@@ -535,6 +537,7 @@ if [[ "$WEB_SERVER" == "openlitespeed" ]]; then PROXY_ROOT=/usr/local/lsws/conf/
 
 if [[ "$DB_ENGINE" == "postgresql" && "$PKG" == "dnf" && ! -f /var/lib/pgsql/data/PG_VERSION ]]; then
   command -v postgresql-setup >/dev/null 2>&1 || { echo 'postgresql-setup is unavailable after PostgreSQL installation.' >&2; exit 1; }
+  install_journal_record configuration started manual "initializing PostgreSQL data directory; database initialization is not removed by installer rollback"
   postgresql-setup --initdb
 fi
 install_journal_record activation started partial "enabling database and discovered PHP-FPM services before the installer file transaction"
@@ -817,7 +820,11 @@ fi
 if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then managed_targets+=(/usr/local/sbin/stepanel-certbot); fi
 if [[ -n "$FPM_LENS_BINARY" ]]; then managed_targets+=(/usr/local/bin/fpm-lens); fi
 if [[ "$INSTALL_SECURITY" == "1" ]]; then managed_targets+=(/usr/local/sbin/stepanel-malware-guard /etc/systemd/system/stepanel-malware-guard.service); fi
-for managed_target in "${managed_targets[@]}"; do backup_managed_target "$managed_target"; done
+for managed_target in "${managed_targets[@]}"; do
+  install_journal_record configuration snapshot_started reversible "target=$managed_target"
+  backup_managed_target "$managed_target"
+  install_journal_record configuration snapshot_ready reversible "target=$managed_target"
+done
 if (( STEPANEL_WAS_ACTIVE )); then systemctl stop stepanel.service; fi
 if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl stop stepanel-worker.service; fi
 if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl stop stepanel-root-broker.service; fi
@@ -836,9 +843,11 @@ install -d -m 0700 -o root -g root /var/lib/stepanel/recovery
 chown root:root /var/lib/stepanel/recovery
 chmod 0700 /var/lib/stepanel/recovery
 install -d -m 0755 "$APP_DIR/integrations"
+install_journal_record identity_setup started manual "creating or changing the stepanel system account and web-group membership; account database changes are outside file rollback"
 id "$APP_USER" >/dev/null 2>&1 || useradd --system --home-dir "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
 install -d -m 0750 -o "$APP_USER" -g "$APP_USER" /var/backups/stepanel
 usermod -a -G "$WEB_GROUP" "$APP_USER"
+install_journal_record identity_setup complete manual "stepanel account and web-group membership established; these host account changes are not automatically removed"
 if [[ "$INSTALL_NODE" == "1" ]]; then bash "$ROOT_DIR/deploy/integrations/install-node-nvm.sh" "$APP_USER" "$APP_DIR/.nvm" "$NODE_VERSIONS"; fi
 if [[ "$INSTALL_SECURITY" == "1" ]]; then
   if [[ "$PKG" == "apt" ]]; then apt-get install -y clamav clamav-daemon inotify-tools; else dnf install -y clamav clamav-update inotify-tools; fi
@@ -917,6 +926,7 @@ if [[ "$WEB_SERVER" == "caddy" ]]; then
   fi
   caddy validate --config /etc/caddy/Caddyfile
 fi
+install_journal_record filesystem_migration started manual "recursive app/data ownership and later site ACL updates are not reversed by file/database rollback"
 chown -R root:root "$APP_DIR"
 chmod 0755 "$APP_DIR"
 if [[ -d "$APP_DIR/.nvm" ]]; then
@@ -1032,12 +1042,14 @@ install -m 0644 "$ROOT_DIR/deploy/stepanel.logrotate" /etc/logrotate.d/stepanel
 rm -f /etc/sudoers.d/stepanel
 if [[ "$INSTALL_SECURITY" == "1" ]]; then install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-malware-guard" /usr/local/sbin/stepanel-malware-guard; install -m 0644 "$ROOT_DIR/deploy/stepanel-malware-guard.service" /etc/systemd/system/stepanel-malware-guard.service; fi
 if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+  install_journal_record selinux_configuration started manual "restorecon and persistent SELinux boolean changes may remain after rollback"
   if command -v restorecon >/dev/null 2>&1; then
     restorecon_paths=(/opt/stepanel /var/lib/ste-panel /var/lib/stepanel /var/lib/stepanel/recovery /var/lib/stepanel-privileged /var/backups/stepanel /var/www/sites "$PROXY_ROOT" "$VHOST_ROOT")
     [[ "$WEB_SERVER" == "apache" ]] && restorecon_paths+=(/etc/httpd/conf.d/stepanel.conf)
     restorecon -RF "${restorecon_paths[@]}"
   fi
   if command -v setsebool >/dev/null 2>&1; then setsebool -P httpd_can_network_connect 1; fi
+  install_journal_record selinux_configuration complete manual "SELinux labels and persistent booleans are outside installer rollback"
 fi
 systemctl daemon-reload
 # Rewrite units generated by earlier builds:
@@ -1075,16 +1087,19 @@ if command -v getfacl >/dev/null 2>&1 && command -v setfacl >/dev/null 2>&1; the
     find "$site_root" -type d -exec setfacl -m d:u:stepanel:rwx {} +
   done
 fi
+install_journal_record filesystem_migration complete manual "existing app/data ownership and site ACL changes may remain after a failed install"
 # An earlier build bind-mounted /var/www with nosymfollow. That also blocks the
 # symlinks Python virtualenvs and node_modules rely on, so retire it. Symlink
 # isolation for served content is enforced by the vhost helpers instead.
 if [[ -e /etc/systemd/system/stepanel-nosymfollow.service ]]; then
+  install_journal_record legacy_mount_retirement started manual "removing the obsolete nosymfollow unit/helper and possibly unmounting /var/www; rollback does not reinstate the mount"
   systemctl disable --now stepanel-nosymfollow.service
   rm -f /etc/systemd/system/stepanel-nosymfollow.service /usr/local/sbin/stepanel-nosymfollow
   systemctl daemon-reload
   if [[ $(findmnt -no TARGET -T /var/www) == /var/www ]] && findmnt -no OPTIONS -T /var/www | tr ',' '\n' | grep -Fxq nosymfollow; then
     umount /var/www
   fi
+  install_journal_record legacy_mount_retirement complete manual "legacy nosymfollow service retired; inspect mount state after failure"
 fi
 if [[ "$WEB_SERVER" == "apache" ]]; then
   if command -v apachectl >/dev/null 2>&1; then apachectl -t; else httpd -t; fi
@@ -1104,6 +1119,7 @@ if [[ "$WEB_SERVER" == "caddy" ]]; then
   # documented trust before enabling those proofs. Prefer Caddy's own helper;
   # on minimal RHEL hosts it can fail while attempting optional NSS/Java store
   # integration even though the system trust store can be updated directly.
+  install_journal_record trust_store started manual "Caddy local CA trust may add a host certificate outside the installer file transaction"
   if ! caddy trust --config /etc/caddy/Caddyfile; then
     CADDY_LOCAL_CA=/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
     if [[ ! -f "$CADDY_LOCAL_CA" || -L "$CADDY_LOCAL_CA" ]] || \
@@ -1120,6 +1136,7 @@ if [[ "$WEB_SERVER" == "caddy" ]]; then
       update-ca-trust extract
     fi
   fi
+  install_journal_record trust_store complete manual "Caddy local CA trust may remain after failed installation"
 fi
 systemctl enable --now stepanel-root-broker.service
 systemctl enable --now stepanel.service stepanel-worker.service

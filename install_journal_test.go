@@ -62,4 +62,20 @@ func TestInstallerJournalsBeforeMutationAndRecordsPartialRollbackContract(t *tes
 			t.Errorf("installer journal contract missing %q", contract)
 		}
 	}
+	for _, checkpoint := range []struct {
+		marker string
+		change string
+	}{
+		{"configuration snapshot_started reversible", "backup_managed_target \"$managed_target\""},
+		{"identity_setup started manual", "useradd --system"},
+		{"filesystem_migration started manual", "chown -R root:root \"$APP_DIR\""},
+		{"legacy_mount_retirement started manual", "systemctl disable --now stepanel-nosymfollow.service"},
+		{"trust_store started manual", "caddy trust --config /etc/caddy/Caddyfile"},
+		{"selinux_configuration started manual", "restorecon -RF \"${restorecon_paths[@]}\""},
+	} {
+		markerAt, changeAt := strings.Index(text, checkpoint.marker), strings.Index(text, checkpoint.change)
+		if markerAt < 0 || changeAt < 0 || markerAt > changeAt {
+			t.Errorf("installer must journal %q before %q", checkpoint.marker, checkpoint.change)
+		}
+	}
 }

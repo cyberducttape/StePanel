@@ -11,8 +11,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Record installer inventory, preflight, dependency, configuration, activation,
   verification, commit, and recovery phases in a root-only persistent journal.
   Failed installs now explicitly report that package/repository and
-  pre-transaction host changes may remain; document the exact automatic
-  rollback scope and operator recovery steps in `docs/INSTALLER_RECOVERY.md`.
+  pre-transaction host changes may remain; per-file snapshots are checkpointed,
+  and account, SELinux, recursive ownership/ACL, legacy mount, and trust-store
+  effects outside rollback are recorded. Document the exact automatic rollback
+  scope and operator recovery steps in `docs/INSTALLER_RECOVERY.md`.
 
 - Advance due backup schedules and record their job intents atomically in a
   SQLite-backed outbox; dispatch retries are idempotent and no longer hold the
