@@ -35,5 +35,7 @@ the time it was checked.
 These are privileged systemd-container tests, not clean-VM certification.
 They do not establish physical power-loss behavior, ENOSPC during database
 restore or outside backup creation, repeated full-matrix reliability, or
-application-level WordPress recovery. The separately running quota-enabled
-Ubuntu installation was not part of these completed results.
+application-level WordPress recovery. At the time of this run, the quota-
+enabled Ubuntu installation was still running and was not part of these
+results; it later completed successfully with the distinct evidence and limits
+recorded in the [2026-10-14 quota-install result](./2026-10-14-quota-install-smoke.md).

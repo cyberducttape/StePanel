@@ -61,8 +61,14 @@ recovery evidence, a broader runtime certification, or production approval.
   [run evidence](lab-results/2026-10-14-hosted-install-smoke.md).
 - This is a second single-run result per combination, not the required 20–50
   installed-VM recovery repetitions. Physical power loss, broader ENOSPC,
-  capacity certification, and the separately running quota-enabled VM gate
-  remain open pending evidence.
+  capacity certification, and repeated recovery certification remain open.
+- The quota-enabled Ubuntu 24.04 guest run also passed on 2026-10-14: production-
+  shaped install, quota-backed `/var/www`, WordPress recovery proof, worker/
+  panel interruption smokes, rootless build/release pipeline, abrupt QEMU guest
+  loss with persistent disks, and real backup/file-restore ENOSPC tests. This
+  was one guest run, not physical host power-loss evidence; publication/import/
+  database-restore ENOSPC and 20–50 repetitions remain open. See the
+  [quota-install result](lab-results/2026-10-14-quota-install-smoke.md).
 
 ### Changes 2026-10-03 to 2026-10-10 (on `main`, unreleased)
 
