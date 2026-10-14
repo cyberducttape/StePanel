@@ -714,6 +714,42 @@ func TestClaimNextQuarantinesUnreadablePayloadAndContinuesOwnerQueue(t *testing.
 	}
 }
 
+func TestClaimNextPreservesEncryptedJobWhenWorkerKeyIsUnavailable(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	producer, err := openDurableJobsDBWithKey(db, "", "correct-account-key", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := producer.Enqueue("test.operation", "same-site", "", []byte(`{"operation":"verified"}`), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This models a separately started worker whose key configuration is
+	// missing or stale while another process continues to enqueue valid work.
+	misconfiguredWorker := newJobsWithDB(db, 1)
+	if _, claimed, err := misconfiguredWorker.ClaimNext("worker-without-key", "test.operation"); !errors.Is(err, errJobPayloadKeyUnavailable) || claimed {
+		t.Fatalf("claim without key = claimed %v, err %v; want a key-unavailable error and no claim", claimed, err)
+	}
+	var state string
+	if err := db.QueryRow(`SELECT state FROM jobs WHERE id=?`, queued.ID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "queued" {
+		t.Fatalf("job state after unavailable-key claim = %q, want queued", state)
+	}
+
+	claimedJob, claimed, err := producer.ClaimNext("worker-with-key", "test.operation")
+	if err != nil || !claimed || claimedJob.ID != queued.ID || string(claimedJob.Payload) != `{"operation":"verified"}` {
+		t.Fatalf("claim with key = %#v, claimed %v, err %v; want original queued payload", claimedJob, claimed, err)
+	}
+}
+
 func TestDurableJobCleanupRetainsDeadLettersAcrossRestart(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

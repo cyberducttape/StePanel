@@ -144,6 +144,11 @@ type persistedJob struct {
 
 var encryptedJobPayloadPrefix = []byte("SPJ1")
 
+// errJobPayloadKeyUnavailable distinguishes a worker configuration problem
+// from a permanently unreadable payload. Callers must leave the durable row
+// untouched so another correctly configured worker can process it later.
+var errJobPayloadKeyUnavailable = errors.New("job payload encryption key is unavailable")
+
 func decodePersistedJobPayload(raw json.RawMessage) []byte {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -736,6 +741,9 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 		}
 	}
 	if decodeErr != nil {
+		if errors.Is(decodeErr, errJobPayloadKeyUnavailable) {
+			return Job{}, false, fmt.Errorf("cannot claim durable job %s: %w", id, decodeErr)
+		}
 		diagnostic := "permanent job payload error: " + decodeErr.Error()
 		finished := time.Now().UTC()
 		if json.Unmarshal(payload, &persisted) == nil {
@@ -1704,12 +1712,12 @@ func (j *Jobs) openPayload(item *Job, payload []byte) ([]byte, error) {
 	switch {
 	case secretbox.IsSealed(payload):
 		if j.payloadBox == nil {
-			return nil, errors.New("encrypted job payload requires STEPANEL_ACCOUNT_KEY")
+			return nil, fmt.Errorf("%w: encrypted payload requires STEPANEL_ACCOUNT_KEY", errJobPayloadKeyUnavailable)
 		}
 		return j.payloadBox.Open(payload, item.ID, item.Kind, item.User)
 	case bytes.HasPrefix(payload, encryptedJobPayloadPrefix):
 		if len(j.payloadKey) == 0 {
-			return nil, errors.New("encrypted job payload requires STEPANEL_ACCOUNT_KEY")
+			return nil, fmt.Errorf("%w: encrypted payload requires STEPANEL_ACCOUNT_KEY", errJobPayloadKeyUnavailable)
 		}
 		if !j.legacyPayloads.Load() {
 			return nil, errors.New("job payload is not bound to its job; legacy ciphertexts are no longer accepted")

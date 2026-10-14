@@ -37,6 +37,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Preserve encrypted durable jobs as queued when a worker lacks the account
+  key; report the configuration error without falsely quarantining recoverable
+  work, and verify a correctly configured worker can subsequently claim it.
 - Keep externally sourced database identifiers out of backup staging paths;
   temporary dumps and checksum sidecars now use fixed or locally generated
   filenames while retaining the validated database name in backup metadata.
