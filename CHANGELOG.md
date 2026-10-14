@@ -31,6 +31,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Cache the assembled site overview for at most five seconds, coalesce concurrent
+  refreshes, and evaluate the authenticated administrator identity once per
+  response rather than revalidating it for every site. Apply tenant ownership
+  filtering after reading the unscoped snapshot on every request; regression
+  tests cover concurrent refreshes, invalidation, and two tenants sharing the
+  cache. The 500-site mixed-load profile improved from 392 ms to 14.6 ms p95.
 - Preserve the initialized SQLite capacity ledger and its process identity in
   the application so another panel or worker process cannot misclassify live
   reservations as orphaned and over-admit disk-consuming work.

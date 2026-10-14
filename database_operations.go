@@ -306,6 +306,9 @@ func (a *App) invalidateDatabaseInventory() {
 	a.databaseInventoryMu.Lock()
 	a.databaseInventoryCache = nil
 	a.databaseInventoryMu.Unlock()
+	if a.MetadataCache != nil {
+		a.MetadataCache.invalidateSiteOverviews()
+	}
 }
 
 func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {

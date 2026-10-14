@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,9 +46,41 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 	if !a.requireCustomerScope(w, r, "site:read") {
 		return
 	}
-	sites := map[string]*siteOverview{}
+	var result []siteOverview
+	var err error
+	if a.MetadataCache != nil {
+		result, err = a.MetadataCache.GetOrBuildSiteOverviews(a.buildSiteOverviewSnapshot)
+	} else {
+		result, err = a.buildSiteOverviewSnapshot()
+	}
+	if err != nil {
+		http.Error(w, "unable to inspect managed site overview", http.StatusInternalServerError)
+		return
+	}
 
-	// Get site list (with caching)
+	// The cached snapshot is deliberately unscoped. Apply the current principal's
+	// authorization on every request; never cache tenant access decisions.
+	username := a.Auth.UsernameForRequest(r)
+	isAdministrator := subtle.ConstantTimeCompare([]byte(username), []byte(a.Auth.Username)) == 1
+	authorized := make([]siteOverview, 0, len(result))
+	for _, site := range result {
+		if isAdministrator || a.Accounts != nil && a.Accounts.OwnsSite(username, site.Site) {
+			authorized = append(authorized, site)
+		}
+	}
+
+	response := map[string]any{
+		"sites": authorized,
+		"time":  time.Now().UTC(),
+	}
+	if a.MetadataCache != nil {
+		response["metadata_age_sec"] = a.MetadataCache.StalenessSeconds() // How many seconds old the cached metadata is
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (a *App) buildSiteOverviewSnapshot() ([]siteOverview, error) {
+	sites := make(map[string]*siteOverview)
 	var siteNames []string
 	if a.MetadataCache != nil {
 		if cached, ok := a.MetadataCache.GetSites(); ok {
@@ -56,25 +89,21 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 			var err error
 			siteNames, err = managedSiteNames(filepath.Join(a.Config.WebRoot, "sites"))
 			if err != nil {
-				http.Error(w, "unable to inspect managed sites", http.StatusInternalServerError)
-				return
+				return nil, fmt.Errorf("inspect managed sites: %w", err)
 			}
 			a.MetadataCache.SetSites(siteNames)
 		}
 	} else {
-		// Fallback for tests without initialized cache
 		var err error
 		siteNames, err = managedSiteNames(filepath.Join(a.Config.WebRoot, "sites"))
 		if err != nil {
-			http.Error(w, "unable to inspect managed sites", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("inspect managed sites: %w", err)
 		}
 	}
 
 	siteRoots, rootProblems, rootsErr := existingManagedSiteRoots(a.Config.WebRoot)
 	if rootsErr != nil && !errors.Is(rootsErr, os.ErrNotExist) {
-		http.Error(w, "unable to inspect managed sites", http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("inspect managed sites: %w", rootsErr)
 	}
 	for _, siteName := range siteNames {
 		siteRoot, resolveErr := siteRoots[siteName], rootProblems[siteName]
@@ -83,13 +112,11 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 		}
 		overview, err := siteOverviewAt(a.Config, siteName, siteRoot, resolveErr)
 		if err != nil {
-			http.Error(w, "unable to inspect managed site document roots", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("inspect managed site document roots: %w", err)
 		}
 		sites[siteName] = overview
 	}
 
-	// Get apps (with caching)
 	var apps []AppManifest
 	if a.MetadataCache != nil {
 		if cached, ok := a.MetadataCache.GetApps(); ok {
@@ -98,27 +125,22 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 			var err error
 			apps, err = managedAppsWithError(a.Config.AppRoot)
 			if err != nil {
-				http.Error(w, "unable to inspect application manifests", http.StatusInternalServerError)
-				return
+				return nil, fmt.Errorf("inspect application manifests: %w", err)
 			}
 			a.MetadataCache.SetApps(apps)
 		}
 	} else {
-		// Fallback for tests without initialized cache
 		var err error
 		apps, err = managedAppsWithError(a.Config.AppRoot)
 		if err != nil {
-			http.Error(w, "unable to inspect application manifests", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("inspect application manifests: %w", err)
 		}
 	}
-
 	for _, app := range apps {
 		if sites[app.Site] == nil {
 			overview, err := newSiteOverview(a.Config, app.Site)
 			if err != nil {
-				http.Error(w, "unable to inspect managed site document roots", http.StatusInternalServerError)
-				return
+				return nil, fmt.Errorf("inspect managed site document roots: %w", err)
 			}
 			sites[app.Site] = overview
 		}
@@ -128,15 +150,13 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(a.Config.DBCtl) != "" {
 		databases, err := a.cachedManagedDatabaseInventory()
 		if err != nil {
-			http.Error(w, "unable to inspect managed database inventory", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("inspect managed database inventory: %w", err)
 		}
 		for _, database := range databases {
 			if sites[database.Site] == nil {
 				overview, err := newSiteOverview(a.Config, database.Site)
 				if err != nil {
-					http.Error(w, "unable to inspect managed site document roots", http.StatusInternalServerError)
-					return
+					return nil, fmt.Errorf("inspect managed site document roots: %w", err)
 				}
 				sites[database.Site] = overview
 			}
@@ -144,66 +164,46 @@ func (a *App) siteOverviewList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result := make([]*siteOverview, 0, len(sites))
+	result := make([]siteOverview, 0, len(sites))
 	for _, site := range sites {
-		if !a.canAccessSite(r, site.Site) {
-			continue
-		}
-
-		// Get routes and proxies (with caching)
 		if a.MetadataCache != nil {
 			if cached, ok := a.MetadataCache.GetRoutes(site.Site); ok {
 				site.Routes = cached
 			} else {
 				routes, err := siteRoutesForWithError(a.Config.VHostRoot, site.Site)
 				if err != nil {
-					http.Error(w, "unable to inspect managed site routes", http.StatusInternalServerError)
-					return
+					return nil, fmt.Errorf("inspect managed site routes: %w", err)
 				}
 				site.Routes = routes
 				a.MetadataCache.SetRoutes(site.Site, routes)
 			}
-
 			if cached, ok := a.MetadataCache.GetProxies(site.Site); ok {
 				site.Proxies = cached
 			} else {
 				proxies, err := siteProxiesForWithError(a.Config.ProxyRoot, site.Site)
 				if err != nil {
-					http.Error(w, "unable to inspect proxy configurations", http.StatusInternalServerError)
-					return
+					return nil, fmt.Errorf("inspect proxy configurations: %w", err)
 				}
 				site.Proxies = proxies
 				a.MetadataCache.SetProxies(site.Site, proxies)
 			}
 		} else {
-			// Fallback for tests without initialized cache
 			var err error
 			site.Routes, err = siteRoutesForWithError(a.Config.VHostRoot, site.Site)
 			if err != nil {
-				http.Error(w, "unable to inspect managed site routes", http.StatusInternalServerError)
-				return
+				return nil, fmt.Errorf("inspect managed site routes: %w", err)
 			}
 			site.Proxies, err = siteProxiesForWithError(a.Config.ProxyRoot, site.Site)
 			if err != nil {
-				http.Error(w, "unable to inspect proxy configurations", http.StatusInternalServerError)
-				return
+				return nil, fmt.Errorf("inspect proxy configurations: %w", err)
 			}
 		}
-
 		sort.Slice(site.Routes, func(i, j int) bool { return site.Routes[i].Domain < site.Routes[j].Domain })
 		sort.Slice(site.Applications, func(i, j int) bool { return site.Applications[i].Domain < site.Applications[j].Domain })
-		result = append(result, site)
+		result = append(result, *site)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Site < result[j].Site })
-
-	response := map[string]any{
-		"sites": result,
-		"time":  time.Now().UTC(),
-	}
-	if a.MetadataCache != nil {
-		response["metadata_age_sec"] = a.MetadataCache.StalenessSeconds() // How many seconds old the cached metadata is
-	}
-	writeJSON(w, http.StatusOK, response)
+	return result, nil
 }
 
 func managedSiteNames(root string) ([]string, error) {

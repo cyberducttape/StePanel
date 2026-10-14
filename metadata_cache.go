@@ -10,6 +10,13 @@ import (
 type MetadataCache struct {
 	mu sync.RWMutex
 
+	// The assembled site overview is expensive because it combines filesystem,
+	// route, app, and database inventory. Keep one immutable snapshot and
+	// serialize refreshes; authorization is always applied by the handler.
+	overviewMu      sync.Mutex
+	siteOverviews   []siteOverview
+	overviewsExpire time.Time
+
 	// Site list cache
 	sites        []string
 	sitesExpires time.Time
@@ -50,6 +57,7 @@ func NewMetadataCache(ttl time.Duration) *MetadataCache {
 
 // InvalidateAll clears all caches immediately (called when operations modify sites).
 func (mc *MetadataCache) InvalidateAll() {
+	mc.invalidateSiteOverviews()
 	mc.mu.Lock()
 	mc.sites = nil
 	mc.sitesExpires = time.Time{}
@@ -70,6 +78,7 @@ func (mc *MetadataCache) InvalidateAll() {
 
 // InvalidateApps clears the cached application manifests (called after app operations).
 func (mc *MetadataCache) InvalidateApps() {
+	mc.invalidateSiteOverviews()
 	mc.mu.Lock()
 	mc.apps = nil
 	mc.appsExpires = time.Time{}
@@ -78,6 +87,7 @@ func (mc *MetadataCache) InvalidateApps() {
 
 // InvalidateSite clears cache for a specific site (called after site operations).
 func (mc *MetadataCache) InvalidateSite(site string) {
+	mc.invalidateSiteOverviews()
 	mc.mu.Lock()
 	mc.sites = nil // Site list changed; invalidate entirely
 	mc.sitesExpires = time.Time{}
@@ -92,6 +102,53 @@ func (mc *MetadataCache) InvalidateSite(site string) {
 	delete(mc.proxiesCache, site)
 	delete(mc.proxiesExp, site)
 	mc.proxiesMu.Unlock()
+}
+
+// GetOrBuildSiteOverviews returns the immutable full overview snapshot. The
+// caller must treat the returned slice and its nested slices as read-only. The
+// cache is capped at the same five-second freshness bound as
+// database inventory, even when the general metadata cache has a longer TTL.
+// The callback runs under overviewMu so simultaneous cold requests share one
+// filesystem/database scan. Authorization must be applied after this method.
+func (mc *MetadataCache) GetOrBuildSiteOverviews(build func() ([]siteOverview, error)) ([]siteOverview, error) {
+	mc.overviewMu.Lock()
+	defer mc.overviewMu.Unlock()
+	now := time.Now()
+	if mc.siteOverviews != nil && now.Before(mc.overviewsExpire) {
+		return mc.siteOverviews, nil
+	}
+	items, err := build()
+	if err != nil {
+		return nil, err
+	}
+	mc.siteOverviews = cloneSiteOverviews(items)
+	ttl := mc.ttl
+	if ttl > overviewInventoryMaxAge {
+		ttl = overviewInventoryMaxAge
+	}
+	mc.overviewsExpire = now.Add(ttl)
+	mc.mu.Lock()
+	mc.lastRefresh = time.Now()
+	mc.mu.Unlock()
+	return mc.siteOverviews, nil
+}
+
+func cloneSiteOverviews(items []siteOverview) []siteOverview {
+	cloned := make([]siteOverview, len(items))
+	for i := range items {
+		cloned[i] = items[i]
+		cloned[i].Routes = append([]siteRoute{}, items[i].Routes...)
+		cloned[i].Applications = append([]AppManifest{}, items[i].Applications...)
+		cloned[i].Proxies = append([]proxyInfo{}, items[i].Proxies...)
+	}
+	return cloned
+}
+
+func (mc *MetadataCache) invalidateSiteOverviews() {
+	mc.overviewMu.Lock()
+	mc.siteOverviews = nil
+	mc.overviewsExpire = time.Time{}
+	mc.overviewMu.Unlock()
 }
 
 // GetSites returns cached site list if fresh, otherwise returns empty and signals refresh needed.

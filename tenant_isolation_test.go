@@ -228,6 +228,7 @@ func TestSiteOverviewListFiltersTenantInventory(t *testing.T) {
 		}
 	}
 	a := &App{Config: Config{WebRoot: webRoot}}
+	a.MetadataCache = NewMetadataCache(time.Minute)
 	a.Accounts = &AccountStore{accounts: map[string]HostingAccount{
 		"alice": {Username: "alice", Plan: "starter", Sites: []string{"alice-site"}},
 		"bob":   {Username: "bob", Plan: "starter", Sites: []string{"bob-site"}},
@@ -248,6 +249,22 @@ func TestSiteOverviewListFiltersTenantInventory(t *testing.T) {
 	}
 	if len(response.Sites) != 1 || response.Sites[0].Site != "alice-site" {
 		t.Fatalf("alice overview leaked or omitted sites: %#v", response.Sites)
+	}
+
+	// The second tenant reuses the same unscoped cache entry, but must receive
+	// a fresh authorization filter rather than Alice's view or the full list.
+	r = httptest.NewRequest(http.MethodGet, "/api/sites/overview", nil)
+	r = r.WithContext(context.WithValue(r.Context(), apiTokenUsernameKey{}, "bob"))
+	w = httptest.NewRecorder()
+	a.siteOverviewList(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Bob overview status = %d %s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Sites) != 1 || response.Sites[0].Site != "bob-site" {
+		t.Fatalf("cached overview leaked or omitted Bob's sites: %#v", response.Sites)
 	}
 }
 
