@@ -335,29 +335,40 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 			if predicted == 0 {
 				predicted = backupDatabaseReservation
 			}
-			if err := reservation.grow(tempDir, predicted); err != nil {
+			// The SQL dump and its archive representation coexist until the
+			// dump file is removed. Reserve both before invoking the dump helper.
+			if err := reservation.grow(tempDir, backupDatabasePeakReservation(predicted)); err != nil {
 				return result, abortArchive(fmt.Errorf("reserve database dump %s: %w", database, err))
 			}
 			if err := dumpManagedDatabaseContext(ctx, cfg, database, dumpPath); err != nil {
 				return result, abortArchive(err)
 			}
-			if info, statErr := os.Stat(dumpPath); statErr == nil {
-				measured := uint64(info.Size())
-				if measured > predicted {
-					if err := reservation.grow(tempDir, measured-predicted); err != nil {
-						return result, abortArchive(fmt.Errorf("adjust database dump %s capacity: %w", database, err))
-					}
-				} else if err := reservation.shrink(tempDir, predicted-measured); err != nil {
+			info, statErr := os.Stat(dumpPath)
+			if statErr != nil {
+				return result, abortArchive(statErr)
+			}
+			measured := uint64(info.Size())
+			if measured > predicted {
+				delta := measured - predicted
+				if err := reservation.grow(tempDir, saturatingAdd(delta, delta)); err != nil {
+					return result, abortArchive(fmt.Errorf("adjust database dump %s capacity: %w", database, err))
+				}
+			} else if measured < predicted {
+				delta := predicted - measured
+				if err := reservation.shrink(tempDir, saturatingAdd(delta, delta)); err != nil {
 					return result, abortArchive(fmt.Errorf("release database dump %s capacity: %w", database, err))
 				}
-			} else if statErr != nil {
-				return result, abortArchive(statErr)
 			}
 			if err := addBackupFileExpectedContext(ctx, tw, dumpPath, "databases/"+database+".sql", &uncompressedBytes, &manifest, nil); err != nil {
 				return result, abortArchive(err)
 			}
 			if err := os.Remove(dumpPath); err != nil {
 				return result, abortArchive(err)
+			}
+			// The dump file is gone, so retain only the archive-side hold for
+			// this database until the archive itself is published or discarded.
+			if err := reservation.shrink(tempDir, measured); err != nil {
+				return result, abortArchive(fmt.Errorf("release database dump %s staging capacity: %w", database, err))
 			}
 			manifest.Databases = append(manifest.Databases, database)
 		}
@@ -455,6 +466,13 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 }
 
 const backupDatabaseReservation = 64 << 20
+const backupDatabaseArchiveOverhead = 1 << 20
+
+func backupDatabasePeakReservation(dumpBytes uint64) uint64 {
+	// Reserve the temporary dump and a second copy in the archive, with room
+	// for gzip's bounded expansion and tar metadata.
+	return saturatingAdd(saturatingAdd(dumpBytes, dumpBytes), backupDatabaseArchiveOverhead)
+}
 
 func reserveBackupCapacity(cfg Config, stagingPath string, includeDatabases bool, ledger *capacityLedger, siteBytes int64) (*capacityReservation, error) {
 	if ledger == nil {
@@ -670,11 +688,10 @@ func managedDatabasesForSiteContext(parent context.Context, cfg Config, site str
 	return databases, nil
 }
 
-// managedDatabaseDumpEstimatesContext returns an upper-bound planning size
-// for every database in a backup. The privileged inventory reports current
-// data/index bytes; a small allowance covers SQL text and dump overhead. A
-// database without a usable inventory row receives the conservative legacy
-// allowance, but that allowance is applied per database before its dump.
+// managedDatabaseDumpEstimatesContext returns a planning size for every
+// database in a backup. The inventory reports current data/index bytes; a 2x
+// factor allows for SQL serialization expansion and a fixed allowance covers
+// schema and dump overhead. Production fails closed if inventory is incomplete.
 func managedDatabaseDumpEstimatesContext(parent context.Context, cfg Config, site string, databases []string) (map[string]uint64, error) {
 	estimates := make(map[string]uint64, len(databases))
 	for _, database := range databases {
@@ -716,23 +733,50 @@ func managedDatabaseDumpEstimatesContext(parent context.Context, cfg Config, sit
 		}
 		return nil, fmt.Errorf("read managed database size inventory: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	return parseManagedDatabaseDumpEstimates(site, databases, string(output), cfg.Production)
+}
+
+func parseManagedDatabaseDumpEstimates(site string, databases []string, output string, requireComplete bool) (map[string]uint64, error) {
+	estimates := make(map[string]uint64, len(databases))
 	allowed := make(map[string]struct{}, len(databases))
 	for _, database := range databases {
 		allowed[database] = struct{}{}
+		estimates[database] = backupDatabaseReservation
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+	seen := make(map[string]struct{}, len(databases))
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		fields := strings.Split(line, "\t")
-		if len(fields) < 4 || fields[1] != site {
+		if len(fields) == 0 {
 			continue
 		}
 		if _, ok := allowed[fields[0]]; !ok {
 			continue
 		}
-		size, parseErr := strconv.ParseUint(fields[3], 10, 64)
-		if parseErr != nil {
+		if _, duplicate := seen[fields[0]]; duplicate && requireComplete {
+			return nil, fmt.Errorf("managed database inventory duplicated %s", fields[0])
+		}
+		if len(fields) < 4 || fields[1] != site {
+			if requireComplete {
+				return nil, fmt.Errorf("managed database inventory has an invalid row for %s", fields[0])
+			}
 			continue
 		}
-		estimates[fields[0]] = saturatingAdd(size, 1<<20)
+		size, parseErr := strconv.ParseUint(fields[3], 10, 64)
+		if parseErr != nil {
+			if requireComplete {
+				return nil, fmt.Errorf("managed database inventory has invalid size for %s", fields[0])
+			}
+			continue
+		}
+		estimates[fields[0]] = saturatingAdd(saturatingAdd(size, size), backupDatabaseArchiveOverhead)
+		seen[fields[0]] = struct{}{}
+	}
+	if requireComplete {
+		for database := range allowed {
+			if _, ok := seen[database]; !ok {
+				return nil, fmt.Errorf("managed database inventory omitted %s; refusing an unverified capacity estimate", database)
+			}
+		}
 	}
 	return estimates, nil
 }

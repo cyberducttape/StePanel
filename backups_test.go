@@ -837,6 +837,40 @@ func TestCreateSiteBackupIncludesManagedDatabaseDump(t *testing.T) {
 	}
 }
 
+func TestDatabaseBackupCapacityAccountsForDumpAndArchiveCopies(t *testing.T) {
+	const inventoryBytes = uint64(48 << 20)
+	estimates, err := parseManagedDatabaseDumpEstimates(
+		"account",
+		[]string{"account_blog", "account_store"},
+		"account_blog\taccount\tblog_user\t50331648\tutf8mb4\naccount_store\taccount\tstore_user\t50331648\tutf8mb4\n",
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDumpEstimate := inventoryBytes*2 + backupDatabaseArchiveOverhead
+	for _, database := range []string{"account_blog", "account_store"} {
+		if estimates[database] != wantDumpEstimate {
+			t.Errorf("estimate for %s = %d, want %d", database, estimates[database], wantDumpEstimate)
+		}
+		wantPeak := wantDumpEstimate*2 + backupDatabaseArchiveOverhead
+		if got := backupDatabasePeakReservation(estimates[database]); got != wantPeak {
+			t.Errorf("peak reservation for %s = %d, want %d", database, got, wantPeak)
+		}
+	}
+	if _, err := parseManagedDatabaseDumpEstimates("account", []string{"account_blog"}, "", true); err == nil {
+		t.Fatal("production capacity planning accepted an omitted database inventory row")
+	}
+	duplicate := "account_blog\taccount\tblog_user\t1\tutf8mb4\naccount_blog\taccount\tblog_user\t1\tutf8mb4\n"
+	if _, err := parseManagedDatabaseDumpEstimates("account", []string{"account_blog"}, duplicate, true); err == nil {
+		t.Fatal("production capacity planning accepted duplicate inventory rows")
+	}
+	devEstimates, err := parseManagedDatabaseDumpEstimates("account", []string{"account_blog"}, "", false)
+	if err != nil || devEstimates["account_blog"] != backupDatabaseReservation {
+		t.Fatalf("development fallback = %#v, err = %v", devEstimates, err)
+	}
+}
+
 func TestBackupRestoreFilesPreservesExistingDatabaseBoundary(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

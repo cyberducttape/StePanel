@@ -31,6 +31,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Reserve per-database peak staging capacity for both the temporary SQL dump
+  and its simultaneous archive representation, retaining only the archive
+  allowance after the dump file is removed. Estimate dump growth conservatively
+  from database inventory and fail closed in production when inventory rows
+  are missing, malformed, or duplicated; cover cumulative multi-database
+  planning with regression tests.
 - Acquire a host-wide nonblocking installer lock before package and service
   mutations in a root-only runtime directory, reject symlinked lock paths, and
   hold the lock through post-install integration activation, so parallel runs
