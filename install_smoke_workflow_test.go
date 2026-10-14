@@ -6,12 +6,21 @@ import (
 	"testing"
 )
 
-func TestInstallSmokeConcurrencyIsEventScoped(t *testing.T) {
-	workflow, err := os.ReadFile(".github/workflows/install-smoke.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(workflow), "group: stepanel-install-smoke-${{ github.ref }}-${{ github.event_name }}") {
-		t.Fatal("install smoke concurrency group must isolate events so scheduled checks cannot cancel push evidence")
+func TestScheduledWorkflowConcurrencyIsEventScoped(t *testing.T) {
+	for _, workflow := range []struct {
+		path  string
+		group string
+	}{
+		{path: ".github/workflows/install-smoke.yml", group: "stepanel-install-smoke"},
+		{path: ".github/workflows/codeql.yml", group: "stepanel-codeql"},
+	} {
+		content, err := os.ReadFile(workflow.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := "group: " + workflow.group + "-${{ github.ref }}-${{ github.event_name }}"
+		if !strings.Contains(string(content), expected) {
+			t.Errorf("%s concurrency group must include github.event_name so scheduled checks cannot cancel push evidence", workflow.path)
+		}
 	}
 }
