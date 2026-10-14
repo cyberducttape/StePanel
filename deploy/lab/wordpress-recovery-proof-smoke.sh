@@ -234,19 +234,22 @@ db_outage_status=$(curl --silent --show-error --max-time 20 \
   exit 1
 }
 systemctl start "$db_unit.service"
+recovered_body="$work/recovered-response.html"
 for _ in $(seq 1 60); do
   if systemctl is-active --quiet "$db_unit.service" && \
      curl --fail --silent --max-time 5 "${origin_curl_resolve[@]}" \
-       "$application_url/?p=$origin_post_id" | grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a'; then
+       --output "$recovered_body" "$application_url/?p=$origin_post_id" && \
+     grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' "$recovered_body"; then
     break
   fi
   sleep 1
 done
-curl --fail --silent --show-error --max-time 10 "${origin_curl_resolve[@]}" \
-  "$application_url/?p=$origin_post_id" | grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' || {
+if ! curl --fail --silent --show-error --max-time 10 "${origin_curl_resolve[@]}" \
+  --output "$recovered_body" "$application_url/?p=$origin_post_id" || \
+  ! grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' "$recovered_body"; then
   echo 'WordPress did not recover after the database service restarted' >&2
   exit 1
-}
+fi
 database_outage_injected=0
 echo "installed WordPress database outage recovered (during outage HTTP $db_outage_status)"
 

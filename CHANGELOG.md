@@ -9,6 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Extend the installed-host WordPress recovery proof with disposable database
   and root-broker outage drills, verifying service recovery and the live/readiness
   health contract.
+- Run Bash syntax and ShellCheck validation for the installed WordPress recovery
+  proof directly in CI.
+- Preserve active six-host installation smoke runs across subsequent pushes so
+  release evidence is not discarded during long disposable-host tests.
 
 ### Added
 

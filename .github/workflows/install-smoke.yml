@@ -19,9 +19,10 @@ on:
         type: number
 
 concurrency:
-  # Keep scheduled/manual runs from canceling push-triggered release evidence.
+  # Preserve disposable-host release evidence across newer pushes; GitHub
+  # retains only the latest pending run for this group.
   group: stepanel-install-smoke-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
