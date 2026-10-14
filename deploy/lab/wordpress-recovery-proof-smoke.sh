@@ -195,11 +195,21 @@ origin_curl_resolve=(--resolve "$domain:80:127.0.0.1")
 if [[ $application_scheme == https ]]; then
   origin_curl_resolve=(--resolve "$domain:443:127.0.0.1")
 fi
-origin_status=$(curl --silent --show-error --location --max-time 30 \
-  "${origin_curl_resolve[@]}" \
-  --dump-header "$origin_headers" --output "$origin_body" --write-out '%{http_code}' \
-  "$application_url/?p=$origin_post_id" || true)
-if [[ $origin_status != 200 ]] || ! grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' "$origin_body"; then
+origin_status=000
+origin_probe_passed=0
+for attempt in $(seq 1 15); do
+  origin_status=$(curl --silent --show-error --location --max-time 3 \
+    "${origin_curl_resolve[@]}" \
+    --dump-header "$origin_headers" --output "$origin_body" --write-out '%{http_code}' \
+    "$application_url/?p=$origin_post_id" 2>/dev/null || true)
+  if [[ $origin_status == 200 ]] && grep -Fq 'STEPANEL_WORDPRESS_ORIGIN_PROBE_6f1d0f3a' "$origin_body"; then
+    origin_probe_passed=1
+    (( attempt == 1 )) || echo "installed WordPress HTTPS route became ready after $attempt probe attempts"
+    break
+  fi
+  sleep 1
+done
+if (( ! origin_probe_passed )); then
   direct_body="$work/direct-index-response.html"
   direct_headers="$work/direct-index-response.headers"
   direct_status=$(curl --silent --show-error --location --max-time 30 \

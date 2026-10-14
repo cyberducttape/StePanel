@@ -16,6 +16,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Add a disposable installed-host control-plane SQLite outage drill that keeps
   the database and sidecars intact, verifies readiness fails closed, and proves
   service recovery after restoring the exact files.
+- Retry the installed WordPress application probe briefly after vhost activation
+  so asynchronous local TLS certificate issuance does not create a false failure.
 
 ### Added
 
