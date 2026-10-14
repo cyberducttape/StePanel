@@ -37,6 +37,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   filtering after reading the unscoped snapshot on every request; regression
   tests cover concurrent refreshes, invalidation, and two tenants sharing the
   cache. The 500-site mixed-load profile improved from 392 ms to 14.6 ms p95.
+- Fix the HTTP load baseline's executable build command and record repeated
+  500-site/50-backup measurements, including observed variance and explicit
+  synthetic-workload limitations; link the evidence from the authoritative
+  release gate without treating it as capacity certification.
 - Preserve the initialized SQLite capacity ledger and its process identity in
   the application so another panel or worker process cannot misclassify live
   reservations as orphaned and over-admit disk-consuming work.

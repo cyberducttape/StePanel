@@ -20,17 +20,19 @@ with 50 Job Center viewers and two active workers) and its measured results
 are in [`LOAD_BASELINE_2026-10-02.md`](LOAD_BASELINE_2026-10-02.md). Those
 results are also synthetic single-process measurements.
 
-HTTP latency is **measured** for one workload in
+HTTP latency is **measured** for synthetic mixed workloads in
 [`HTTP_LOAD_BASELINE_2026-10-02.md`](HTTP_LOAD_BASELINE_2026-10-02.md): a real
-`stepanel` process with 200 sites, 8 concurrent readers, and 20 backup jobs
-running at the same time (p95 108 ms on a developer laptop). CI enforces
-p95 ≤ 500 ms for the same workload on every push. It is not production
-hardware or a production workload.
+`stepanel` process with 200- and 500-site fixtures, concurrent readers, and
+file-backup jobs. The 500-site profile measured 14.6 ms and 69.0 ms overall
+p95 in two runs on a developer laptop after an overview-path optimization;
+the pre-fix run measured 392.1 ms. CI enforces p95 ≤ 500 ms on its 200-site
+profile. These short synthetic runs are not production hardware, application
+traffic, or a certified capacity envelope.
 
 ### Targets (not measured or production-validated)
 
 | Metric | Target | Notes |
-|--------|----------|-----------|-------|
+|--------|----------|-------|
 | API Latency P50 | < 100ms | Planning target; no production HTTP measurement yet |
 | API Latency P95 | < 500ms | Planning target; enforced in CI for the synthetic mixed workload only |
 | API Latency P99 | < 2s | Planning target; heavy operations vary substantially |
