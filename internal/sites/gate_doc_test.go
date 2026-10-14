@@ -1,46 +1,37 @@
 package sites
 
 import (
-	"context"
-	"errors"
 	"os"
-	"path/filepath"
-	"regexp"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
 )
 
-// TestGateOneDocumentMatchesManager keeps the release gate honest: the Gate 1
-// flow must not route an operation to a manager method that returns
-// ErrNotImplemented, and the gate's "Not implemented" list must name exactly
-// the methods that do.
+// TestGateOneDocumentMatchesManager keeps the release gate aligned with the
+// filesystem primitive API. Durable workflow and privileged operations must
+// not be represented as manager methods until this package owns them.
 func TestGateOneDocumentMatchesManager(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "sites", "demo"), 0o755); err != nil {
-		t.Fatal(err)
+	managerType := reflect.TypeOf((*Manager)(nil)).Elem()
+	methods := make([]string, managerType.NumMethod())
+	for i := 0; i < managerType.NumMethod(); i++ {
+		methods[i] = managerType.Method(i).Name
 	}
-	m, err := NewDefaultManager(root)
-	if err != nil {
-		t.Fatal(err)
+	sort.Strings(methods)
+	want := []string{
+		"ActivateStaged", "ActivateStagedReplacing", "CleanupOrphanedStaging",
+		"Clone", "Create", "CreateReleaseStaging", "CreateStaging", "Delete",
+		"DiscardReleaseStaging", "DiscardStaging", "RollbackStagedActivation",
 	}
-	ctx := context.Background()
-	placeholders := map[string]error{
-		"ImportArchive":       func() error { _, err := m.ImportArchive(ctx, &ImportRequest{Name: "demo"}); return err }(),
-		"Restore":             func() error { _, err := m.Restore(ctx, &RestoreRequest{Name: "demo"}); return err }(),
-		"UpdateConfiguration": m.UpdateConfiguration(ctx, "demo", &UpdateRequest{}),
-		"Suspend":             m.Suspend(ctx, "demo", "test"),
-		"Resume":              m.Resume(ctx, "demo"),
+	sort.Strings(want)
+	if !reflect.DeepEqual(methods, want) {
+		t.Fatalf("Manager methods = %v, want implemented filesystem primitives %v", methods, want)
 	}
-	var unimplemented []string
-	for name, err := range placeholders {
-		if errors.Is(err, ErrNotImplemented) {
-			unimplemented = append(unimplemented, name)
-		}
+	if !reflect.TypeOf((*DefaultManager)(nil)).Implements(managerType) {
+		t.Fatal("DefaultManager no longer implements the authoritative Manager interface")
 	}
-	sort.Strings(unimplemented)
 
-	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "V1_PRODUCTION_GATES.md"))
+	data, err := os.ReadFile("../../docs/V1_PRODUCTION_GATES.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,29 +42,22 @@ func TestGateOneDocumentMatchesManager(t *testing.T) {
 		t.Fatal("Gate 1 section not found")
 	}
 	gate := doc[start:end]
-
-	flowStart := strings.Index(gate, "```\n")
-	flowEnd := strings.Index(gate, "# Never acceptable:")
-	if flowStart < 0 || flowEnd < flowStart {
-		t.Fatal("Gate 1 flow block not found")
-	}
-	flow := gate[flowStart:flowEnd]
-	for _, name := range unimplemented {
-		if strings.Contains(flow, "SiteManager."+name+"(") {
-			t.Errorf("Gate 1 flow routes an operation to SiteManager.%s, which returns ErrNotImplemented", name)
+	gateNormalized := strings.Join(strings.Fields(strings.ToLower(gate)), " ")
+	for _, obsolete := range []string{
+		"ErrNotImplemented", "SiteManager.ImportArchive(", "SiteManager.Restore(",
+		"SiteManager.UpdateConfiguration(", "SiteManager.Suspend(", "SiteManager.Resume(",
+	} {
+		if strings.Contains(gate, obsolete) {
+			t.Errorf("Gate 1 documents obsolete placeholder API %q", obsolete)
 		}
 	}
-
-	listed := regexp.MustCompile("\\*\\*Not implemented in `SiteManager`\\*\\*[^:]*:([^.]*)\\.").FindStringSubmatch(gate)
-	if listed == nil {
-		t.Fatal("Gate 1 has no \"Not implemented in SiteManager\" list")
-	}
-	var documented []string
-	for _, match := range regexp.MustCompile("`([A-Za-z]+)`").FindAllStringSubmatch(listed[1], -1) {
-		documented = append(documented, match[1])
-	}
-	sort.Strings(documented)
-	if strings.Join(documented, ",") != strings.Join(unimplemented, ",") {
-		t.Errorf("Gate 1 lists unimplemented methods %v, manager has %v", documented, unimplemented)
+	for _, current := range []string{
+		"site filesystem primitive interface",
+		"imports, restores, and configuration updates are orchestrated by durable jobs and the root broker",
+		"suspend and resume are not exposed by this interface",
+	} {
+		if !strings.Contains(gateNormalized, current) {
+			t.Errorf("Gate 1 is missing current manager contract %q", current)
+		}
 	}
 }

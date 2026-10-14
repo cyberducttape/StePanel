@@ -227,7 +227,7 @@ Three layers own site lifecycle (see Gate 1 in [V1_PRODUCTION_GATES.md](docs/V1_
 - Must be activated/discarded only via `SiteManager.ActivateStaged*()` or `SiteManager.DiscardStaging()`
 - Must never persist paths or assume existence across operation boundaries
 
-Do not route new code through `SiteManager` methods that return `ErrNotImplemented`, and keep Gate 1 in sync with the code (`TestGateOneDocumentMatchesManager` enforces this).
+Keep Gate 1 in sync with the implemented `SiteManager` filesystem primitive interface (`TestGateOneDocumentMatchesManager` enforces its method set). Lifecycle orchestration and privileged suspension do not belong in this interface unless they are implemented here.
 
 This rule prevents inconsistent lifecycle setup (missing PHP-FPM, recovery journals, account ownership, resource envelopes, audit trails) across different site creation paths.
 

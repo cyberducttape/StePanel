@@ -296,33 +296,6 @@ func TestDeleteHonorsCancelledContext(t *testing.T) {
 	}
 }
 
-// TestPlaceholdersReturnErrNotImplemented — Restore/Update/Suspend/Resume no
-// longer silently succeed. A caller that treated the old nil return as "done"
-// would have been actively lied to.
-func TestPlaceholdersReturnErrNotImplemented(t *testing.T) {
-	m, root := newManager(t)
-	if err := os.MkdirAll(filepath.Join(root, "sites", "existing", "public"), 0750); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-
-	if _, err := m.Restore(ctx, &RestoreRequest{Name: "existing"}); !errors.Is(err, ErrNotImplemented) {
-		t.Errorf("Restore: want ErrNotImplemented, got %v", err)
-	}
-	if _, err := m.ImportArchive(ctx, &ImportRequest{Name: "new"}); !errors.Is(err, ErrNotImplemented) {
-		t.Errorf("ImportArchive: want ErrNotImplemented, got %v", err)
-	}
-	if err := m.UpdateConfiguration(ctx, "existing", &UpdateRequest{}); !errors.Is(err, ErrNotImplemented) {
-		t.Errorf("UpdateConfiguration: want ErrNotImplemented, got %v", err)
-	}
-	if err := m.Suspend(ctx, "existing", "test"); !errors.Is(err, ErrNotImplemented) {
-		t.Errorf("Suspend: want ErrNotImplemented, got %v", err)
-	}
-	if err := m.Resume(ctx, "existing"); !errors.Is(err, ErrNotImplemented) {
-		t.Errorf("Resume: want ErrNotImplemented, got %v", err)
-	}
-}
-
 func TestCloneStagesAndAtomicallyPublishesSite(t *testing.T) {
 	m, root := newManager(t)
 	source := filepath.Join(root, "sites", "source", "public")
@@ -473,20 +446,6 @@ func TestActivateStagedAcceptsManagerOwnedRollbackRelease(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(siteRoot, "index.html"))
 	if err != nil || string(data) != "previous" {
 		t.Fatalf("rollback activation content = %q, error = %v", data, err)
-	}
-}
-
-// TestPlaceholdersStillValidateName — a placeholder returning ErrNotImplemented
-// must still refuse a malformed name up front, so a caller that catches
-// ErrNotImplemented specifically doesn't mask input validation errors.
-func TestPlaceholdersStillValidateName(t *testing.T) {
-	m, _ := newManager(t)
-	ctx := context.Background()
-	if err := m.UpdateConfiguration(ctx, "../etc", &UpdateRequest{}); err == nil || errors.Is(err, ErrNotImplemented) {
-		t.Errorf("UpdateConfiguration with bad name should fail on validation, got %v", err)
-	}
-	if err := m.Suspend(ctx, "UPPERCASE", "test"); err == nil || errors.Is(err, ErrNotImplemented) {
-		t.Errorf("Suspend with bad name should fail on validation, got %v", err)
 	}
 }
 

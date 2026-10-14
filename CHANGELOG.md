@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Remove unused `SiteManager` placeholder methods and request types for import,
+  restore, configuration, suspend, and resume. The public manager API now
+  matches its implemented filesystem/staging responsibilities, and Gate 1
+  contract tests assert that API instead of preserving dead `ErrNotImplemented`
+  paths.
+
 - Record installer inventory, preflight, dependency, configuration, activation,
   verification, commit, and recovery phases in a root-only persistent journal.
   The journal path's existing ancestors must also be real root-owned

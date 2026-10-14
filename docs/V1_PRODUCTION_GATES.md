@@ -189,10 +189,11 @@ delete  → lifecycle job: backups, services, tasks, routes, databases
 ❌ A new privileged path that deletes canonical trees without being listed above
 ```
 
-**Not implemented in `SiteManager`** (each returns `ErrNotImplemented`; no
-operation above routes through them): `ImportArchive`, `Restore`,
-`UpdateConfiguration`, `Suspend`, `Resume`. `TestGateOneDocumentMatchesManager`
-fails if this list drifts or the flow above routes an operation to one of them.
+**Manager API contract:** `SiteManager` is the site filesystem primitive
+interface. Imports, restores, and configuration updates are orchestrated by
+durable jobs and the root broker; suspend and resume are not exposed by this
+interface. `TestGateOneDocumentMatchesManager` asserts the exact implemented
+method set and rejects stale placeholder claims in this section.
 
 **Implemented but unused:** `SiteManager.Create()` and `SiteManager.Clone()`
 have no production callers; the flows above use staging instead.
