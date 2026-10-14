@@ -37,6 +37,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   cannot interleave host changes or redirect a root lock open through `/run/lock`.
 - Exercise installer lock setup with isolated tests for symlink rejection,
   non-truncating opens, restrictive permissions, and concurrent acquisition.
+- Record a passing local repository production gate for source commit `26ec161`,
+  including coverage, full race tests, recovery drills, and synthetic mixed
+  load, while keeping host-level certification limits explicit.
 - Isolate Installation smoke and CodeQL concurrency by GitHub event so
   scheduled runs cannot cancel in-progress push-triggered release evidence.
 - Cache the assembled site overview for at most five seconds, coalesce concurrent
