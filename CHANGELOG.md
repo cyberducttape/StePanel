@@ -31,6 +31,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Isolate Installation smoke concurrency by GitHub event so a scheduled run
+  cannot cancel in-progress push-triggered release-evidence jobs.
 - Cache the assembled site overview for at most five seconds, coalesce concurrent
   refreshes, and evaluate the authenticated administrator identity once per
   response rather than revalidating it for every site. Apply tenant ownership

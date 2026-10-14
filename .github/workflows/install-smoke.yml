@@ -19,7 +19,8 @@ on:
         type: number
 
 concurrency:
-  group: stepanel-install-smoke-${{ github.ref }}
+  # Keep scheduled/manual runs from canceling push-triggered release evidence.
+  group: stepanel-install-smoke-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
