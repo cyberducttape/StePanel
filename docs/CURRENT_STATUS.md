@@ -51,6 +51,25 @@ production approval.
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
+### Current-head evidence update — 2026-10-15 (`7ca34dc`)
+
+- Hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38692216922)
+  and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38692216955)
+  passed. CI includes the full Go suite, coverage thresholds, race tests,
+  repository recovery drills, real tmpfs ENOSPC, mixed-load testing, production
+  container smoke, deployment validation, and UI E2E/accessibility.
+- A local full `go test -race -p 1 -timeout 20m ./...` also passed on this
+  source; the root package completed in 443.572 seconds. Full results are in
+  the [current-head validation report](lab-results/2026-10-15-current-head-checks-7ca34dc.md).
+- The exact-head six-host install run [38692216889](https://github.com/cyberducttape/StePanel/actions/runs/38692216889)
+  is queued, the quota-enabled run [38692216846](https://github.com/cyberducttape/StePanel/actions/runs/38692216846)
+  is pending, and the exact-head 20-repeat full matrix [38692636041](https://github.com/cyberducttape/StePanel/actions/runs/38692636041)
+  is pending. The older matrix [38670189826](https://github.com/cyberducttape/StePanel/actions/runs/38670189826)
+  remains live on source `1fb3879` and is not counted as current-head evidence.
+- Physical power loss, broader ENOSPC, live notification outage/retry,
+  capacity certification, full runtime support certification, and independent
+  security review remain open. No production approval is implied.
+
 ### Current-head evidence update — 2026-10-15 (`7badb0b`)
 
 - Hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38690891081)

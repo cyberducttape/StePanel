@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Record successful current-head full Go race, CI, UI E2E/accessibility, and
+  CodeQL validation separately from the still-pending installed-host and
+  repeated recovery certification gates.
 - Record current-head Go, race, recovery, ENOSPC, container, UI, and CodeQL
   results while keeping pending host certification and older-source recovery
   matrix evidence explicitly separate.
