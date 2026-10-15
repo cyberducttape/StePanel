@@ -50,6 +50,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   job admission, database-dump capacity, and scheduled-backup outbox staging.
 - Add an operator notification incident procedure covering redacted triage,
   durable retries, and independent monitoring.
+- Reconcile the notification production-gate status with the new runbook while
+  retaining the open installed-host delivery evidence requirement.
 
 ### Added
 
