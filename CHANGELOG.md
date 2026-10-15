@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Publish off-site backup contents into the final object prefix only after staged
+  transfer verification, then write the completion marker last; retries now
+  safely resume if marker publication fails.
 - Extend the installed-host WordPress recovery proof with disposable database
   and root-broker outage drills, verifying service recovery and the live/readiness
   health contract.

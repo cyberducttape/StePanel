@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,14 +117,14 @@ func TestOffsiteUploadAndDownloadRoundTripPublishedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	fakeRclone := filepath.Join(root, "rclone")
+	failMarker := filepath.Join(root, "fail-marker-once")
 	script := `#!/bin/sh
 set -eu
 	remote() { case "$1" in *:*) printf '%s/%s' "$RCLONE_FAKE_ROOT" "${1#*:}";; *) printf '%s' "$1";; esac; }
 case "$1" in
-copy) src="$2"; dst=$(remote "$3"); mkdir -p "$dst"; cp -a "$src"/. "$dst"/ ;;
+copy) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$dst"; cp -a "$src"/. "$dst"/ ;;
 check) exit 0 ;;
-moveto) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$(dirname "$dst")"; mv "$src" "$dst" ;;
-copyto) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
+copyto) src=$(remote "$2"); dst=$(remote "$3"); case "$dst" in */.stepanel-complete) if [ -f "$RCLONE_FAIL_MARKER" ]; then rm -f "$RCLONE_FAIL_MARKER"; exit 73; fi;; esac; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
 purge) rm -rf "$(remote "$2")" ;;
 *) echo "unsupported fake rclone command" >&2; exit 1 ;;
 esac
@@ -133,15 +134,28 @@ esac
 	}
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("RCLONE_FAKE_ROOT", fakeRemote)
+	t.Setenv("RCLONE_FAIL_MARKER", failMarker)
 	cfg := Config{WebRoot: webRoot, BackupRoot: backupRoot, ImportRoot: importRoot, OffsiteTarget: "s3:bucket/stepanel"}
 	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := uploadOffsiteContext(t.Context(), cfg, backup); err != nil {
-		t.Fatalf("offsite upload: %v", err)
+	if err := os.WriteFile(failMarker, []byte("fail once"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err == nil {
+		t.Fatal("upload unexpectedly succeeded when completion-marker publication failed")
 	}
 	remoteRoot := filepath.Join(fakeRemote, "bucket", "stepanel", "account", filepath.Base(backup.Path))
+	if _, err := os.Stat(filepath.Join(remoteRoot, ".stepanel-complete")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed publication exposed a completion marker: err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(remoteRoot, "manifest.json")); err != nil {
+		t.Fatalf("expected verified backup objects to remain retryable: %v", err)
+	}
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err != nil {
+		t.Fatalf("retry offsite upload after marker failure: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(remoteRoot, ".stepanel-complete")); err != nil {
 		t.Fatalf("completion marker missing: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
 	"os/exec"
@@ -73,8 +74,10 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return fmt.Errorf("create offsite upload identity: %w", err)
 	}
-	// Keep the temporary prefix beside, not beneath, the final prefix so
-	// provider-side moveto can promote it atomically as a directory.
+	// Upload to a unique staging prefix first so transfer failures never expose
+	// a partial backup at its final name. Remote object stores do not generally
+	// provide atomic directory renames, so publish the verified objects into the
+	// final prefix and write the completion marker only after that copy succeeds.
 	temporary := destination + ".stepanel-upload-" + fmt.Sprintf("%x", nonce[:])
 	completed := false
 	defer func() {
@@ -92,8 +95,12 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	if output, err := runOffsiteRclone(ctx, "check", backupPath, temporary, "--one-way"); err != nil {
 		return fmt.Errorf("offsite upload verification failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
-	if output, err := runOffsiteRclone(ctx, "moveto", temporary, destination); err != nil {
-		return fmt.Errorf("publish offsite backup failed: %w: %s", err, strings.TrimSpace(string(output)))
+	copyFinalArgs := append([]string{"copy", temporary, destination}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
+	if output, err := runOffsiteRclone(ctx, copyFinalArgs...); err != nil {
+		return fmt.Errorf("publish offsite backup objects failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if output, err := runOffsiteRclone(ctx, "check", backupPath, destination, "--one-way"); err != nil {
+		return fmt.Errorf("published offsite backup verification failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	marker, err := os.CreateTemp("", "stepanel-offsite-complete-")
 	if err != nil {
@@ -116,6 +123,11 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 		return fmt.Errorf("publish offsite completion marker failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	completed = true
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
+	if output, cleanupErr := runOffsiteRclone(cleanupCtx, "purge", temporary); cleanupErr != nil {
+		log.Printf("remove verified offsite upload staging prefix %s: %v: %s", temporary, cleanupErr, strings.TrimSpace(string(output)))
+	}
+	cleanupCancel()
 	return nil
 }
 
