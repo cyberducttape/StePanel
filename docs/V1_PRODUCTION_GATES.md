@@ -128,6 +128,18 @@ asset, action-pin, and shell checks. See the
 This does not close the still-running six-host repetition matrix or any
 physical-host, broader ENOSPC, or capacity-certification gate.
 
+The subsequent installed-host smoke run on `f335ed5` passed all six host
+combinations ([run 38677968172](https://github.com/cyberducttape/StePanel/actions/runs/38677968172));
+each completed one default recovery-matrix iteration and a populated,
+database-backed WordPress HTTP recovery proof. Measured proof RTOs were
+4.548–8.155 seconds. This raises the recorded hosted smoke evidence to eight
+six-host runs/48 single-run proofs, but remains one run per host per workflow
+execution. See the [run report](./lab-results/2026-10-15-hosted-install-smoke-38677968172.md).
+The exact-HEAD install smoke for `5978fcd` is queued, and the independent
+20-repeat matrix remains in progress; neither is counted as passed. No
+physical-host power-loss, publication/database-restore ENOSPC, or capacity
+certification claim is made.
+
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`
 remains active, while the newest quota run for `d1a259c` is pending

@@ -90,6 +90,17 @@ The hosted current-head checks and 20-repeat installed-host matrix remain
 separate; no physical power-loss, broader ENOSPC, or production approval is
 claimed.
 
+The installed-host smoke on `f335ed5` subsequently passed all six Ubuntu
+24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations
+([run 38677968172](https://github.com/cyberducttape/StePanel/actions/runs/38677968172)).
+Each completed one default interruption-matrix iteration and a populated,
+database-backed WordPress HTTP recovery proof; RTOs were 4.548–8.155 seconds.
+This is eight six-host runs/48 individual smoke proofs in total, not 20–50
+repetitions. See the [run report](lab-results/2026-10-15-hosted-install-smoke-38677968172.md).
+The `5978fcd` exact-HEAD install run remains queued; the separate 20-repeat
+matrix remains in progress. No new physical power-loss, broader ENOSPC, or
+capacity certification is established.
+
 ### Historical evidence update — 2026-10-14
 
 - The latest completed hosted install smoke run (38547265154) passed all six

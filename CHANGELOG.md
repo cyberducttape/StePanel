@@ -40,6 +40,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   timeout and time for diagnostic upload.
 - Guard the installed-smoke host/job timeout margin with a workflow contract
   regression test.
+- Record the passing six-host installed WordPress recovery run on `f335ed5`,
+  including per-host RTOs and explicit remaining certification limits.
 
 ### Added
 
