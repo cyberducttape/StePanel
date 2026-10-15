@@ -26,6 +26,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   keeping the in-progress installed-host and quota workflows explicitly pending.
 - Require the installed control-plane database outage drill to capture an
   explicit readiness failure or a matching database startup diagnostic.
+- Record current-head CI, CodeQL, six-host installation, outage-drill, and
+  WordPress recovery-proof results without upgrading open production gates.
 
 ### Added
 

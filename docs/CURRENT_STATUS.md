@@ -51,7 +51,25 @@ production approval.
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
-### Evidence update — 2026-10-14
+### Current-head evidence update — 2026-10-15 (`7af2e82`)
+
+- Hosted CI passed, including serialized Go tests/coverage, race checks,
+  repository recovery drills, real tmpfs ENOSPC, UI E2E/accessibility, and
+  deployment/container checks ([run 38662396749](https://github.com/cyberducttape/StePanel/actions/runs/38662396749)).
+- CodeQL passed ([run 38662396836](https://github.com/cyberducttape/StePanel/actions/runs/38662396836));
+  no open code-scanning alerts were reported.
+- All six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB
+  installed-host jobs passed, including explicit control-plane database-outage
+  evidence and database-backed WordPress recovery ([run 38662396787](https://github.com/cyberducttape/StePanel/actions/runs/38662396787)).
+  This adds six single-run proofs; five runs/30 proofs are recorded overall,
+  not the required 20–50 repetitions. Per-host details and RTOs are in the
+  [run report](lab-results/2026-10-15-hosted-install-smoke-38662396787.md).
+- The quota-enabled production install/recovery workflow was still running at
+  capture ([run 38662396783](https://github.com/cyberducttape/StePanel/actions/runs/38662396783));
+  it is not counted as passed. Physical host power loss, additional ENOSPC
+  boundaries, and capacity certification remain open.
+
+### Historical evidence update — 2026-10-14
 
 - The latest completed hosted install smoke run (38547265154) passed all six
   Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB

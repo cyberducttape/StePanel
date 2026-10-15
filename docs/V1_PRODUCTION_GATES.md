@@ -82,6 +82,22 @@ the quota-enabled guest run was pending ([CI](https://github.com/cyberducttape/S
 No new physical power-loss, broader ENOSPC,
 SMTP/webhook outage, OpenLiteSpeed, or capacity-certification claim is made.
 
+### Current-head evidence update — 2026-10-15
+
+Commit `7af2e82` passed hosted CI ([run 38662396749](https://github.com/cyberducttape/StePanel/actions/runs/38662396749)),
+CodeQL ([run 38662396836](https://github.com/cyberducttape/StePanel/actions/runs/38662396836)),
+and all six installed-host combinations ([run 38662396787](https://github.com/cyberducttape/StePanel/actions/runs/38662396787)).
+The Go coverage, race, recovery, and real tmpfs ENOSPC checks passed. The
+updated control-plane outage drill passed on every installed host, requiring
+explicit readiness failure or a matching database startup diagnostic before
+accepting the outage result. All six installed WordPress recovery proofs passed
+with measured RTOs of 5.157–6.621 seconds. This brings installed-host evidence
+to five runs and 30 single-run proofs across the matrix; it does not satisfy
+the 20–50 repetitions. See the [run evidence](./lab-results/2026-10-15-hosted-install-smoke-38662396787.md).
+At capture, quota-enabled installation/recovery run 38662396783 remained
+in progress. No claim is made for physical host power loss, broader ENOSPC,
+OpenLiteSpeed, or certified capacity.
+
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`
 remains active, while the newest quota run for `d1a259c` is pending
@@ -119,12 +135,12 @@ successful unit test. The installed-host smoke matrix currently exercises:
 
 | Distribution | Web server | Database | Latest WordPress recovery-proof result |
 |---|---|---|---|
-| Ubuntu 24.04 | Apache | MariaDB | Pass, 7.251 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855377) |
-| AlmaLinux 9 | Apache | MariaDB | Pass, 5.253 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855736) |
-| Rocky Linux 9 | Apache | MariaDB | Pass, 5.525 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855628) |
-| Ubuntu 24.04 | Caddy | MariaDB | Pass, 5.537 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855636) |
-| AlmaLinux 9 | Caddy | MariaDB | Pass, 5.408 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855792) |
-| Rocky Linux 9 | Caddy | MariaDB | Pass, 5.309 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38547265154/job/115796855077) |
+| Ubuntu 24.04 | Apache | MariaDB | Pass, 5.157 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479237) |
+| AlmaLinux 9 | Apache | MariaDB | Pass, 5.488 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479291) |
+| Rocky Linux 9 | Apache | MariaDB | Pass, 6.378 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479245) |
+| Ubuntu 24.04 | Caddy | MariaDB | Pass, 5.424 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479306) |
+| AlmaLinux 9 | Caddy | MariaDB | Pass, 5.190 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479057) |
+| Rocky Linux 9 | Caddy | MariaDB | Pass, 6.621 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479314) |
 
 These are one-run smoke results, not production certification or a general
 support promise. They do not certify repeated recovery, PHP versions, upgrade
