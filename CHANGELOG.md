@@ -32,6 +32,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   ENOSPC evidence while keeping physical power-loss and remaining ENOSPC gates open.
 - Refresh current-host smoke and quota evidence, and track the in-progress
   20-repeat matrix without counting pending runs as passed.
+- Record a passing current-head repository production gate, including full Go
+  coverage and race suites, recovery drills, control-plane benchmarks, and
+  synthetic mixed HTTP load, while preserving outstanding host-level gates.
 
 ### Added
 

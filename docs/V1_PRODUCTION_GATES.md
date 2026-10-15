@@ -60,7 +60,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | The installer has package-manager paths for Debian-family and RHEL-family hosts and accepts Caddy, Apache, and OpenLiteSpeed, plus MariaDB/MySQL/PostgreSQL. That is implementation scope, not a certified support promise. Four installed-host smoke runs have passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations, including database-backed WordPress HTTP recovery ([latest run evidence](./lab-results/2026-10-14-hosted-install-smoke-38547265154.md)). Debian 12, OpenLiteSpeed, other database engines, PHP-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. Publish the exact supported combinations and evidence with the release. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Open | The latest local repository-gate pass is recorded for source commit `26ec161` ([results](./lab-results/2026-10-14-repository-production-gate-26ec161.md)); this does not replace current-commit hosted checks. Every checked claim must link to a current test result, hosted run, or reproducible artifact; stale claims must be downgraded or removed. The release must also publish the supported OS/runtime matrix, upgrade runbooks, a disaster-recovery runbook, and the support/escalation path. |
+| Release documentation reconciled with executable evidence | ⚠️ Open | A local repository-gate pass is recorded for current source commit `3f1445f` ([results](./lab-results/2026-10-15-repository-production-gate-3f1445f.md)); this does not replace current-head hosted checks or certify capacity. Every checked claim must link to a current test result, hosted run, or reproducible artifact; stale claims must be downgraded or removed. The release must also publish the supported OS/runtime matrix, upgrade runbooks, a disaster-recovery runbook, and the support/escalation path. |
 
 ### Current-head evidence update — 2026-10-14
 
@@ -119,6 +119,14 @@ The required 20-repeat matrix is running in workflow
 its result is not yet counted. No evidence here establishes physical host
 power-loss recovery, database-restore/publication ENOSPC, OpenLiteSpeed support,
 or certified capacity.
+
+The local repository production gate passed on the same checkout with Go
+1.26.7: full coverage and race suites, repository recovery drills,
+control-plane microbenchmarks, synthetic mixed HTTP load, and documentation,
+asset, action-pin, and shell checks. See the
+[captured results](./lab-results/2026-10-15-repository-production-gate-3f1445f.md).
+This does not close the still-running six-host repetition matrix or any
+physical-host, broader ENOSPC, or capacity-certification gate.
 
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`

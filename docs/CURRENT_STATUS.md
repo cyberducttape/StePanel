@@ -77,6 +77,19 @@ production approval.
   [quota report](lab-results/2026-10-15-quota-install-smoke-38662396783.md).
   A quota rerun for the docs-only commit `94d5801` remains queued.
 
+### Repository gate update — 2026-10-15 (`3f1445f`)
+
+The full local `scripts/production-gate.sh` passed on `3f1445f` with Go
+1.26.7: 56.1% repository coverage and all configured package thresholds,
+complete race suite, four recovery drills, control-plane benchmarks,
+synthetic 200-site mixed HTTP load, documentation/reference checks, pinned
+actions, assets, and shell syntax. The recorded p95 for the short synthetic
+load was 11.949 ms; this is not a certified capacity result. See the
+[gate report](lab-results/2026-10-15-repository-production-gate-3f1445f.md).
+The hosted current-head checks and 20-repeat installed-host matrix remain
+separate; no physical power-loss, broader ENOSPC, or production approval is
+claimed.
+
 ### Historical evidence update — 2026-10-14
 
 - The latest completed hosted install smoke run (38547265154) passed all six
