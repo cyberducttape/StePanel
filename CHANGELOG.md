@@ -28,6 +28,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   explicit readiness failure or a matching database startup diagnostic.
 - Record current-head CI, CodeQL, six-host installation, outage-drill, and
   WordPress recovery-proof results without upgrading open production gates.
+- Record quota-backed Ubuntu recovery, abrupt guest-loss, and backup/file-restore
+  ENOSPC evidence while keeping physical power-loss and remaining ENOSPC gates open.
 
 ### Added
 

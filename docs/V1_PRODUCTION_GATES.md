@@ -94,9 +94,16 @@ accepting the outage result. All six installed WordPress recovery proofs passed
 with measured RTOs of 5.157–6.621 seconds. This brings installed-host evidence
 to five runs and 30 single-run proofs across the matrix; it does not satisfy
 the 20–50 repetitions. See the [run evidence](./lab-results/2026-10-15-hosted-install-smoke-38662396787.md).
-At capture, quota-enabled installation/recovery run 38662396783 remained
-in progress. No claim is made for physical host power loss, broader ENOSPC,
-OpenLiteSpeed, or certified capacity.
+The quota-enabled installation/recovery run for the same source commit also
+passed ([run 38662396783](https://github.com/cyberducttape/StePanel/actions/runs/38662396783)):
+user quotas were enabled on a separate `/var/www`, WordPress recovered in
+75.925 seconds under QEMU TCG, abrupt QEMU guest loss with persistent disks was
+recovered, and backup/file-restore ENOSPC tests passed. See the [quota-run
+evidence](./lab-results/2026-10-15-quota-install-smoke-38662396783.md).
+This is not physical host power-loss evidence; publication/import/database-
+restore ENOSPC, 20–50 repetitions, OpenLiteSpeed, and certified capacity remain
+open. A documentation-head quota rerun was active at capture and is not
+counted as a separate successful recovery result.
 
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`

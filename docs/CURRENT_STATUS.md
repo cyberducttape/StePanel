@@ -64,10 +64,14 @@ production approval.
   This adds six single-run proofs; five runs/30 proofs are recorded overall,
   not the required 20–50 repetitions. Per-host details and RTOs are in the
   [run report](lab-results/2026-10-15-hosted-install-smoke-38662396787.md).
-- The quota-enabled production install/recovery workflow was still running at
-  capture ([run 38662396783](https://github.com/cyberducttape/StePanel/actions/runs/38662396783));
-  it is not counted as passed. Physical host power loss, additional ENOSPC
-  boundaries, and capacity certification remain open.
+- A quota-enabled Ubuntu 24.04 QEMU guest run passed on source commit
+  `7af2e82` ([run 38662396783](https://github.com/cyberducttape/StePanel/actions/runs/38662396783)):
+  `/var/www` user quota was active, WordPress restore proof RTO was 75.925 s,
+  abrupt guest loss with persistent disks recovered, and real backup/file-
+  restore ENOSPC tests passed. See the [run report](lab-results/2026-10-15-quota-install-smoke-38662396783.md).
+  This does not establish physical host power-loss recovery; publication/import/
+  database-restore ENOSPC and 20–50 repetitions remain open. A quota rerun for
+  the docs-only commit `1fb3879` is still pending and is not counted.
 
 ### Historical evidence update — 2026-10-14
 
