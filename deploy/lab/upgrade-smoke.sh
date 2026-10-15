@@ -124,7 +124,20 @@ if [[ -n "$broken_root" ]]; then
   fi
   systemctl is-active --quiet stepanel.service stepanel-worker.service
   /opt/stepanel/stepanel version | grep -Fx "StePanel $candidate_version"
-  curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
+  ready_after_rollback=0
+  for _ in {1..30}; do
+    if curl --fail --silent --max-time 2 http://127.0.0.1:8090/readyz >/dev/null; then
+      ready_after_rollback=1
+      break
+    fi
+    sleep 1
+  done
+  if (( ready_after_rollback != 1 )); then
+    echo 'The previous release did not become ready after installer rollback.' >&2
+    curl --silent --show-error --max-time 5 http://127.0.0.1:8090/readyz >&2 || true
+    echo >&2
+    exit 1
+  fi
   # The broken candidate really did damage the database (its copy was kept
   # aside), and the database now in place is the sound pre-upgrade one.
   compgen -G "$control_db.failed-upgrade-*" >/dev/null || { echo 'broken candidate never reached the database; rollback was not exercised' >&2; exit 1; }

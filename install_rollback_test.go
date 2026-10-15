@@ -191,3 +191,19 @@ func TestPanelServicesStartAfterRootBroker(t *testing.T) {
 		}
 	}
 }
+
+func TestUpgradeSmokeWaitsForReadinessAfterRollback(t *testing.T) {
+	script, err := os.ReadFile("deploy/lab/upgrade-smoke.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(script)
+	rollbackCheck := strings.Index(text, "ready_after_rollback=0")
+	if rollbackCheck < 0 {
+		t.Fatal("upgrade smoke does not track post-rollback readiness")
+	}
+	deadline := strings.Index(text[rollbackCheck:], "for _ in {1..30}; do")
+	if deadline < 0 || !strings.Contains(text[rollbackCheck:], "The previous release did not become ready after installer rollback.") {
+		t.Fatal("upgrade smoke must wait for bounded readiness convergence after the rollback before declaring failure")
+	}
+}
