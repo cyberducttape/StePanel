@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Record current-head Go, race, recovery, ENOSPC, container, UI, and CodeQL
+  results while keeping pending host certification and older-source recovery
+  matrix evidence explicitly separate.
 - Publish off-site backup contents into the final object prefix only after staged
   transfer verification, then write the completion marker last; retries now
   safely resume if marker publication fails.

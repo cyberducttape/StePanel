@@ -51,6 +51,27 @@ production approval.
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
 
+### Current-head evidence update — 2026-10-15 (`7badb0b`)
+
+- Hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38690891081)
+  passed, including full tests, coverage floors, race suite, repository
+  recovery drills, tmpfs ENOSPC, container smoke/restart, deployment checks,
+  and UI E2E/accessibility. [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38690891066)
+  passed, and the open-alert query returned none.
+- The [local current-head report](lab-results/2026-10-15-current-head-checks-7badb0b.md)
+  records full Go tests, vet, and the off-site publication failure/retry round
+  trip. The off-site change publishes verified objects before its completion
+  marker and retries the same immutable artifact after marker-publication
+  failure.
+- Exact-head installed-host run [38690891035](https://github.com/cyberducttape/StePanel/actions/runs/38690891035)
+  was pending; quota-enabled host run [38690891070](https://github.com/cyberducttape/StePanel/actions/runs/38690891070)
+  was in progress. The 20-repeat matrix [38670189826](https://github.com/cyberducttape/StePanel/actions/runs/38670189826)
+  remains active on older source `1fb3879`, not current-head certification.
+- Physical power loss, broader ENOSPC, repeated current-head installed-host
+  recovery, live notification outage/retry, capacity certification, and
+  unsupported runtime combinations remain open. No production approval is
+  implied.
+
 ### Current-head evidence update — 2026-10-15 (`a362b29`)
 
 - The exact-head local [repository production gate](lab-results/2026-10-15-repository-production-gate-a362b29.md) passed with Go 1.26.7: full tests, 56.2% coverage and all package floors, race suite, repository recovery drills, benchmarks, synthetic mixed HTTP load, and documentation/asset/shell checks.
