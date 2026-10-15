@@ -24,3 +24,31 @@ func TestScheduledWorkflowConcurrencyIsEventScoped(t *testing.T) {
 		}
 	}
 }
+
+func TestControlPlaneDBOutageSmokeRequiresExplicitFailClosedEvidence(t *testing.T) {
+	script, err := os.ReadFile("deploy/lab/control-plane-db-outage-smoke.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(script)
+	for _, evidence := range []string{
+		"journalctl -u stepanel.service --no-pager -n 200",
+		"(open|ping) control-plane database:",
+		"control_plane_integrity",
+		"unexpected readiness response during database outage",
+	} {
+		if !strings.Contains(text, evidence) {
+			t.Errorf("control-plane database outage drill lacks explicit evidence check %q", evidence)
+		}
+	}
+	for _, branch := range []string{
+		`case "$ready_status" in`,
+		"  503)",
+		"  000|unreachable)",
+		"  *)",
+	} {
+		if !strings.Contains(text, branch) {
+			t.Errorf("database outage drill lacks explicit status handling %q", branch)
+		}
+	}
+}

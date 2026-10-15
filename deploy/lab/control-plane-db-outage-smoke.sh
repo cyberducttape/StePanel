@@ -8,7 +8,7 @@ set -Eeuo pipefail
   echo 'control-plane database outage smoke is restricted to the disposable install lab' >&2
   exit 1
 }
-for command in curl systemctl; do
+for command in curl systemctl journalctl; do
   command -v "$command" >/dev/null || { echo "control-plane outage smoke requires $command" >&2; exit 77; }
 done
 
@@ -119,7 +119,33 @@ for _ in $(seq 1 20); do
   }
   sleep 1
 done
-echo "control-plane database outage failed closed (/readyz HTTP ${ready_status:-unreachable})"
+case "$ready_status" in
+  503)
+    grep -Eq '"ready"[[:space:]]*:[[:space:]]*false' "$work/ready.json" || {
+      echo '/readyz returned 503 without an explicit ready=false state' >&2
+      exit 1
+    }
+    grep -Eq '"control_plane_integrity"[[:space:]]*:[[:space:]]*\{"ready"[[:space:]]*:[[:space:]]*false' "$work/ready.json" || {
+      echo '/readyz returned 503 without identifying the failed control-plane check' >&2
+      exit 1
+    }
+    echo 'control-plane database outage failed closed with an explicit readiness diagnostic (HTTP 503)'
+    ;;
+  000|unreachable)
+    journalctl -u stepanel.service --no-pager -n 200 >"$work/panel-outage.log" 2>&1 || true
+    grep -Eiq '(open|ping) control-plane database:' "$work/panel-outage.log" || {
+      echo 'panel was unreachable during the outage without a control-plane database startup diagnostic' >&2
+      cat "$work/panel-outage.log" >&2 || true
+      exit 1
+    }
+    echo 'panel failed startup closed with an explicit control-plane database diagnostic (readiness unreachable)'
+    ;;
+  *)
+    echo "unexpected readiness response during database outage: HTTP $ready_status" >&2
+    cat "$work/ready.json" >&2 || true
+    exit 1
+    ;;
+esac
 
 restore_database
 echo 'installed control-plane database outage recovery passed'

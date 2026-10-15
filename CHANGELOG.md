@@ -24,6 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the explicit takeover and forced-cancellation checks.
 - Refresh release-gate evidence for current-head hosted CI and CodeQL, while
   keeping the in-progress installed-host and quota workflows explicitly pending.
+- Require the installed control-plane database outage drill to capture an
+  explicit readiness failure or a matching database startup diagnostic.
 
 ### Added
 
