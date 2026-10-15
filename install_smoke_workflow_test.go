@@ -25,6 +25,25 @@ func TestScheduledWorkflowConcurrencyIsEventScoped(t *testing.T) {
 	}
 }
 
+func TestInstallSmokeTimeoutLeavesHostAndDiagnosticHeadroom(t *testing.T) {
+	workflow, err := os.ReadFile(".github/workflows/install-smoke.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, budget := range []string{
+		"timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 90 }}",
+		"inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '80m'",
+		"use an 80-minute bound",
+		"within the",
+		"90-minute job.",
+	} {
+		if !strings.Contains(text, budget) {
+			t.Errorf("install smoke timeout contract is missing %q", budget)
+		}
+	}
+}
+
 func TestControlPlaneDBOutageSmokeRequiresExplicitFailClosedEvidence(t *testing.T) {
 	script, err := os.ReadFile("deploy/lab/control-plane-db-outage-smoke.sh")
 	if err != nil {

@@ -38,6 +38,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Give the six-host installed smoke sufficient time for the complete default
   recovery matrix on slow RHEL-family runners, retaining a bounded inner
   timeout and time for diagnostic upload.
+- Guard the installed-smoke host/job timeout margin with a workflow contract
+  regression test.
 
 ### Added
 
