@@ -135,11 +135,18 @@ database-backed WordPress HTTP recovery proof. Measured proof RTOs were
 4.548–8.155 seconds. This raises the recorded hosted smoke evidence to eight
 six-host runs/48 single-run proofs, but remains one run per host per workflow
 execution. See the [run report](./lab-results/2026-10-15-hosted-install-smoke-38677968172.md).
-The exact-HEAD CI, CodeQL, install, and quota checks for `276282f` are queued,
-and the independent 20-repeat matrix remains in progress; none is counted as
-passed. No
-physical-host power-loss, publication/database-restore ENOSPC, or capacity
-certification claim is made.
+At capture, CodeQL for `970bb78` was in progress and its CI, install, and quota
+checks were queued; none is counted as passed. The independent 20-repeat
+matrix also remains in progress. No physical-host power-loss,
+publication/database-restore ENOSPC, or capacity certification claim is
+made.
+
+Focused local regression tests also pass on application source commit
+`970bb78` for distinct site-job admission, Linode/AWS/OpenStack provider
+contracts, DNS record serialization, per-dump capacity admission, and atomic
+schedule/outbox staging ([audit report](./lab-results/2026-10-15-provider-and-capacity-regression-audit-970bb78.md)).
+These fixture-backed checks do not replace live-provider or installed-host
+evidence.
 
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`
