@@ -30,7 +30,7 @@ permissions:
 jobs:
   install:
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 45 }}
+    timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 90 }}
     env:
       RECOVERY_MATRIX_REPEATS: ${{ inputs.recovery_matrix_repeats || 1 }}
     strategy:
@@ -148,13 +148,14 @@ jobs:
           set +e
           # Bound host-install validation so a stuck package manager or
           # service transition yields diagnostics rather than consuming the
-          # entire matrix job timeout. The optional recovery matrix runs
-          # after the default drills and needs more than the original 20m
-          # budget while remaining below the normal job timeout. The full
-          # matrix exercises every restore checkpoint and is opt-in because
-          # it needs substantially more wall-clock time on TCG/shared CI
-          # hosts.
-          timeout --foreground ${{ inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '42m' }} docker exec \
+          # entire matrix job timeout. The default package install and
+          # recovery checks can exceed 42 minutes on slow RHEL-family runners;
+          # use an 80-minute bound and leave time for diagnostics within the
+          # 90-minute job.
+          # Full-matrix runs exercise every restore checkpoint and are opt-in
+          # because they need substantially more wall-clock time on TCG/shared
+          # CI hosts.
+          timeout --foreground ${{ inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '80m' }} docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
             -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \

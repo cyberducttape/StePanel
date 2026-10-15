@@ -35,6 +35,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Record a passing current-head repository production gate, including full Go
   coverage and race suites, recovery drills, control-plane benchmarks, and
   synthetic mixed HTTP load, while preserving outstanding host-level gates.
+- Give the six-host installed smoke sufficient time for the complete default
+  recovery matrix on slow RHEL-family runners, retaining a bounded inner
+  timeout and time for diagnostic upload.
 
 ### Added
 
