@@ -55,6 +55,7 @@ cleanup() {
 trap cleanup EXIT
 
 wait_for_panel_ready() {
+  local stage=${1:-after worker restart}
   for _ in $(seq 1 120); do
     if systemctl is-active --quiet stepanel.service && \
        curl --fail --silent --max-time 2 "$PANEL/readyz" >/dev/null; then
@@ -62,8 +63,9 @@ wait_for_panel_ready() {
     fi
     sleep 1
   done
-  echo 'panel did not become ready after worker restart' >&2
+  echo "panel did not become ready $stage" >&2
   systemctl status stepanel.service stepanel-worker.service --no-pager >&2 || true
+  journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 80 >&2 || true
   return 1
 }
 
@@ -88,6 +90,7 @@ PY
 
 work=$(mktemp -d)
 cookies="$work/cookies.txt"
+wait_for_panel_ready 'before backup-recovery login'
 curl --fail --silent --show-error --max-time 10 -c "$cookies" "$PANEL/login" >/dev/null
 curl --fail --silent --show-error --max-time 10 -L \
   -b "$cookies" -c "$cookies" \

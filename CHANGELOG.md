@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Wait for panel readiness before backup-recovery smoke authentication and
+  include recent service logs when readiness does not converge.
 - Fail closed during backup retention when a site's manifest lacks a creation
   timestamp, and reject symlinked manifests instead of falling back to
   filename-based chronology.
