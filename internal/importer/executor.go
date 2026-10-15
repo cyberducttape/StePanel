@@ -1018,15 +1018,60 @@ func containsString(values []string, target string) bool {
 // metadata are synced. The parent-directory sync makes the rename durable
 // across a sudden power loss, while preserving the original mode and owner.
 func durableReplaceConfig(configFile string, content []byte, info os.FileInfo) (retErr error) {
-	tempFile, err := os.CreateTemp(filepath.Dir(configFile), "."+filepath.Base(configFile)+".*")
+	return durableReplaceConfigWithOps(configFile, content, info, systemConfigReplaceOps())
+}
+
+type configReplaceTempFile interface {
+	Name() string
+	Write([]byte) (int, error)
+	Chmod(os.FileMode) error
+	Chown(int, int) error
+	Sync() error
+	Close() error
+}
+
+type configReplaceOps struct {
+	createTemp func(string, string) (configReplaceTempFile, error)
+	rename     func(string, string) error
+	remove     func(string) error
+	syncDir    func(string) error
+}
+
+func systemConfigReplaceOps() configReplaceOps {
+	return configReplaceOps{
+		createTemp: func(dir, pattern string) (configReplaceTempFile, error) {
+			return os.CreateTemp(dir, pattern)
+		},
+		rename:  os.Rename,
+		remove:  os.Remove,
+		syncDir: syncDirectory,
+	}
+}
+
+func durableReplaceConfigWithOps(configFile string, content []byte, info os.FileInfo, ops configReplaceOps) (retErr error) {
+	if ops.createTemp == nil || ops.rename == nil || ops.remove == nil || ops.syncDir == nil {
+		return errors.New("config replacement operations are incomplete")
+	}
+	tempFile, err := ops.createTemp(filepath.Dir(configFile), "."+filepath.Base(configFile)+".*")
 	if err != nil {
 		return fmt.Errorf("cannot create temp file: %w", err)
 	}
 	tempName := tempFile.Name()
-	defer os.Remove(tempName)
+	published := false
+	defer func() {
+		if !published {
+			if err := ops.remove(tempName); err != nil && !errors.Is(err, os.ErrNotExist) {
+				retErr = errors.Join(retErr, fmt.Errorf("cannot remove temp config file: %w", err))
+			}
+		}
+	}()
 
-	if _, err := tempFile.Write(content); err != nil {
+	written, err := tempFile.Write(content)
+	if err != nil || written != len(content) {
 		_ = tempFile.Close()
+		if err == nil {
+			err = io.ErrShortWrite
+		}
 		return fmt.Errorf("cannot write temp file: %w", err)
 	}
 	if err := tempFile.Chmod(info.Mode().Perm()); err != nil {
@@ -1046,10 +1091,11 @@ func durableReplaceConfig(configFile string, content []byte, info os.FileInfo) (
 	if err := tempFile.Close(); err != nil {
 		return fmt.Errorf("cannot close temp config file: %w", err)
 	}
-	if err := os.Rename(tempName, configFile); err != nil {
+	if err := ops.rename(tempName, configFile); err != nil {
 		return fmt.Errorf("cannot replace config file: %w", err)
 	}
-	if err := syncDirectory(filepath.Dir(configFile)); err != nil {
+	published = true
+	if err := ops.syncDir(filepath.Dir(configFile)); err != nil {
 		return fmt.Errorf("config replacement committed but parent directory sync failed: %w", err)
 	}
 	return nil

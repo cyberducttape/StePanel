@@ -86,6 +86,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Make importer configuration replacement report short writes and staging-file
+  cleanup failures, and add fault-injection coverage for write, metadata, sync,
+  close, rename, and post-rename directory-sync failures.
 - Reconcile the project status page with the fourth six-host WordPress proof
   run and distinguish completed hosted checks from checks still pending on the
   latest source commit.
