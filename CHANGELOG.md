@@ -42,6 +42,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   regression test.
 - Record the passing six-host installed WordPress recovery run on `f335ed5`,
   including per-host RTOs and explicit remaining certification limits.
+- Reconcile the release-gate roll-up counts and source attribution with the
+  latest completed host and repository-gate evidence.
 
 ### Added
 
