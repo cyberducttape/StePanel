@@ -246,6 +246,36 @@ credentials in the webhook URL; use the HMAC secret. Treat the SMTP password
 and webhook secret as production credentials and keep the environment file
 root-readable only.
 
+#### Alert-delivery incident procedure
+
+When an external monitor or the Health view reports notification degradation:
+
+1. Check the admin-only `/api/health/operational` result and record the
+   pending count, failed-delivery count, last failure time, and current
+   StePanel version. Do not copy notification secrets or event payloads into
+   an incident ticket.
+2. Inspect recent panel messages with
+   `journalctl -u stepanel --since '-30 minutes'`; delivery errors are
+   intentionally redacted. Check DNS, outbound firewall rules, TLS
+   certificate validity, SMTP STARTTLS availability, and destination
+   authentication with the destination operator.
+3. Correct `/etc/ste-panel.env` if necessary, preserve mode `0600` and
+   root ownership, then restart `stepanel` to load the updated environment.
+   Do not delete or edit notification outbox rows to make health green.
+4. The dispatcher retries undelivered channels with bounded exponential
+   backoff. Recheck operational health after the retry window: pending and
+   failed counts should return to zero for configured channels. Confirm
+   receipt at the destination using the event ID; webhook receivers must
+   deduplicate repeated event IDs because delivery is at least once.
+5. If delivery remains degraded, retain the outbox, escalate to the
+   destination or StePanel operator, and route critical alerts through the
+   independent monitoring system. Do not rely on StePanel to notify you that
+   StePanel itself or its host is unreachable.
+
+Before production, test the configured destination and its outage/recovery
+behavior on the installed host; unit tests or a green connectivity probe alone
+do not prove an alert was received and acknowledged by the operator.
+
 Pending resource enforcement shows in each site's resource profile
 (`GET /api/sites/resources/{site}`, any `state` other than `applied`);
 `POST /api/reconcile/resources` re-applies pending profiles and reports the

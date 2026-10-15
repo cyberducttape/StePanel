@@ -48,6 +48,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   evidence reconciliation.
 - Record focused passing regression checks for provider contracts, durable
   job admission, database-dump capacity, and scheduled-backup outbox staging.
+- Add an operator notification incident procedure covering redacted triage,
+  durable retries, and independent monitoring.
 
 ### Added
 
