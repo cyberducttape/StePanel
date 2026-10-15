@@ -65,12 +65,21 @@ func TestCleanupBackupStagesSkipsOwnedStage(t *testing.T) {
 
 func TestPruneSiteBackupsKeepsNewestAndOtherSites(t *testing.T) {
 	root := t.TempDir()
-	for _, item := range []struct{ name, site string }{{"20260101-000000.000000000-demo", "demo"}, {"20260102-000000.000000000-demo", "demo"}, {"20260103-000000.000000000-demo", "demo"}, {"20260101-000000.000000000-other", "other"}} {
+	for _, item := range []struct {
+		name      string
+		site      string
+		createdAt time.Time
+	}{
+		{"20260101-000000.000000000-demo", "demo", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{"20260102-000000.000000000-demo", "demo", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+		{"20260103-000000.000000000-demo", "demo", time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)},
+		{"20260101-000000.000000000-other", "other", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+	} {
 		dir := filepath.Join(root, item.name)
 		if err := os.Mkdir(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
-		manifest := BackupManifest{Version: 1, Site: item.site, Archive: "backup.tar.gz"}
+		manifest := BackupManifest{Version: 1, Site: item.site, Archive: "backup.tar.gz", CreatedAt: item.createdAt}
 		if err := writeBackupManifest(dir, manifest); err != nil {
 			t.Fatal(err)
 		}
@@ -139,6 +148,52 @@ func TestPruneSiteBackupsFailsClosedOnUnownedCorruptDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(corrupt); err != nil {
 		t.Fatalf("uncertain artifact was deleted: %v", err)
+	}
+}
+
+func TestPruneSiteBackupsRefusesUnknownCreationTimeWithoutPruning(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"known-backup", "unknown-date-backup"} {
+		dir := filepath.Join(root, name)
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		manifest := BackupManifest{Version: 1, Site: "demo", Archive: "backup.tar.gz"}
+		if name == "known-backup" {
+			manifest.CreatedAt = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		}
+		if err := writeBackupManifest(dir, manifest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, "known-backup"); err == nil {
+		t.Fatal("retention accepted an unknown backup creation time")
+	}
+	for _, name := range []string{"known-backup", "unknown-date-backup"} {
+		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+			t.Fatalf("retention deleted %s despite ambiguous chronology: %v", name, err)
+		}
+	}
+}
+
+func TestPruneSiteBackupsRejectsSymlinkManifestWithoutPruning(t *testing.T) {
+	root := t.TempDir()
+	external := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(external, []byte(`{"site":"demo","created_at":"2026-01-01T00:00:00Z"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(root, "linked-backup")
+	if err := os.Mkdir(backup, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(backup, "manifest.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneSiteBackups(root, AuthorizedSite{site: "demo"}, 1, ""); err == nil {
+		t.Fatal("retention followed a symlinked manifest")
+	}
+	if _, err := os.Lstat(backup); err != nil {
+		t.Fatalf("uncertain backup was removed: %v", err)
 	}
 }
 

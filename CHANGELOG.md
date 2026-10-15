@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Fail closed during backup retention when a site's manifest lacks a creation
+  timestamp, and reject symlinked manifests instead of falling back to
+  filename-based chronology.
 - Record successful current-head full Go race, CI, UI E2E/accessibility, and
   CodeQL validation separately from the still-pending installed-host and
   repeated recovery certification gates.

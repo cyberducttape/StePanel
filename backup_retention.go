@@ -129,7 +129,14 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 		// Retention must still be able to remove stale artifacts when their
 		// archive is damaged; full manifest/archive validation belongs to the
 		// inventory and restore paths.
-		manifestFile, openErr := os.Open(filepath.Join(path, "manifest.json"))
+		manifestPath, pathErr := safePath(path, "manifest.json")
+		var manifestFile *os.File
+		var openErr error
+		if pathErr == nil {
+			manifestFile, _, openErr = openRegularNoFollow(manifestPath, nil)
+		} else {
+			openErr = pathErr
+		}
 		var data []byte
 		var readErr error
 		if openErr == nil {
@@ -157,6 +164,9 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 			return fmt.Errorf("backup retention found incomplete ownership metadata in %q; operator review required", entry.Name())
 		}
 		if manifest.Site == siteName {
+			if manifest.CreatedAt.IsZero() {
+				return fmt.Errorf("backup retention cannot establish creation order for %q: manifest has no created_at; operator review required", entry.Name())
+			}
 			items = append(items, candidate{name: entry.Name(), path: path, createdAt: manifest.CreatedAt})
 			if entry.Name() == protectedVerifiedName {
 				protectedFound = true
@@ -177,7 +187,7 @@ func pruneSiteBackups(root string, site SiteCapability, keep int, protectedVerif
 		if items[j].name == protectedVerifiedName {
 			return false
 		}
-		if !items[i].createdAt.IsZero() && !items[j].createdAt.IsZero() && !items[i].createdAt.Equal(items[j].createdAt) {
+		if !items[i].createdAt.Equal(items[j].createdAt) {
 			return items[i].createdAt.After(items[j].createdAt)
 		}
 		if items[i].name != items[j].name {
