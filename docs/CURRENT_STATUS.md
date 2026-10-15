@@ -61,17 +61,21 @@ production approval.
 - All six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB
   installed-host jobs passed, including explicit control-plane database-outage
   evidence and database-backed WordPress recovery ([run 38662396787](https://github.com/cyberducttape/StePanel/actions/runs/38662396787)).
-  This adds six single-run proofs; five runs/30 proofs are recorded overall,
-  not the required 20–50 repetitions. Per-host details and RTOs are in the
-  [run report](lab-results/2026-10-15-hosted-install-smoke-38662396787.md).
+  The subsequent docs-head install smoke also passed on all six combinations
+  ([run 38670211824](https://github.com/cyberducttape/StePanel/actions/runs/38670211824));
+  with the `1fb3879` docs-head rerun, seven runs/42 single-run proofs are now
+  recorded. This still is not the required 20–50 repetition gate. Latest
+  per-host RTOs are in the [run report](lab-results/2026-10-15-hosted-install-smoke-38670211824.md).
 - A quota-enabled Ubuntu 24.04 QEMU guest run passed on source commit
   `7af2e82` ([run 38662396783](https://github.com/cyberducttape/StePanel/actions/runs/38662396783)):
   `/var/www` user quota was active, WordPress restore proof RTO was 75.925 s,
   abrupt guest loss with persistent disks recovered, and real backup/file-
   restore ENOSPC tests passed. See the [run report](lab-results/2026-10-15-quota-install-smoke-38662396783.md).
   This does not establish physical host power-loss recovery; publication/import/
-  database-restore ENOSPC and 20–50 repetitions remain open. A quota rerun for
-  the docs-only commit `1fb3879` is still pending and is not counted.
+  database-restore ENOSPC and 20–50 repetitions remain open. The second quota
+  run on `1fb3879` also passed with a 79.412 s WordPress proof RTO; see the
+  [quota report](lab-results/2026-10-15-quota-install-smoke-38662396783.md).
+  A quota rerun for the docs-only commit `94d5801` remains queued.
 
 ### Historical evidence update — 2026-10-14
 

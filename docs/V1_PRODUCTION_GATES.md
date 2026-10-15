@@ -102,8 +102,23 @@ recovered, and backup/file-restore ENOSPC tests passed. See the [quota-run
 evidence](./lab-results/2026-10-15-quota-install-smoke-38662396783.md).
 This is not physical host power-loss evidence; publication/import/database-
 restore ENOSPC, 20–50 repetitions, OpenLiteSpeed, and certified capacity remain
-open. A documentation-head quota rerun was active at capture and is not
-counted as a separate successful recovery result.
+open. A second quota-enabled guest run on `1fb3879` also passed with a
+79.412-second WordPress proof RTO ([run 38667385389](https://github.com/cyberducttape/StePanel/actions/runs/38667385389));
+it likewise recovered from abrupt QEMU guest loss and backup/file-restore
+ENOSPC. The documentation-head quota rerun on `94d5801` remains pending.
+
+Documentation-head commit `94d5801` passed hosted CI
+([run 38670211688](https://github.com/cyberducttape/StePanel/actions/runs/38670211688)),
+CodeQL ([run 38670211775](https://github.com/cyberducttape/StePanel/actions/runs/38670211775)),
+and another six-host installation smoke ([run 38670211824](https://github.com/cyberducttape/StePanel/actions/runs/38670211824)).
+All six WordPress proofs and control-plane outage drills passed; RTOs were
+3.997–6.531 seconds. This brings the six-host evidence to seven runs and 42
+single-run proofs, not repeated recovery certification. See the [rerun report](./lab-results/2026-10-15-hosted-install-smoke-38670211824.md).
+The required 20-repeat matrix is running in workflow
+[38670189826](https://github.com/cyberducttape/StePanel/actions/runs/38670189826);
+its result is not yet counted. No evidence here establishes physical host
+power-loss recovery, database-restore/publication ENOSPC, OpenLiteSpeed support,
+or certified capacity.
 
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`
@@ -142,12 +157,12 @@ successful unit test. The installed-host smoke matrix currently exercises:
 
 | Distribution | Web server | Database | Latest WordPress recovery-proof result |
 |---|---|---|---|
-| Ubuntu 24.04 | Apache | MariaDB | Pass, 5.157 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479237) |
-| AlmaLinux 9 | Apache | MariaDB | Pass, 5.488 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479291) |
-| Rocky Linux 9 | Apache | MariaDB | Pass, 6.378 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479245) |
-| Ubuntu 24.04 | Caddy | MariaDB | Pass, 5.424 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479306) |
-| AlmaLinux 9 | Caddy | MariaDB | Pass, 5.190 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479057) |
-| Rocky Linux 9 | Caddy | MariaDB | Pass, 6.621 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38662396787/job/116186479314) |
+| Ubuntu 24.04 | Apache | MariaDB | Pass, 5.156 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324583) |
+| AlmaLinux 9 | Apache | MariaDB | Pass, 5.459 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324815) |
+| Rocky Linux 9 | Apache | MariaDB | Pass, 3.997 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324810) |
+| Ubuntu 24.04 | Caddy | MariaDB | Pass, 5.107 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324881) |
+| AlmaLinux 9 | Caddy | MariaDB | Pass, 6.531 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324878) |
+| Rocky Linux 9 | Caddy | MariaDB | Pass, 5.581 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324768) |
 
 These are one-run smoke results, not production certification or a general
 support promise. They do not certify repeated recovery, PHP versions, upgrade
