@@ -54,6 +54,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   retaining the open installed-host delivery evidence requirement.
 - Record focused site-deletion race and app-activation journal regression
   results without claiming installed-host crash certification.
+- Record exact-head repository gate, hosted CI/CodeQL, and successful N-1
+  upgrade/rollback evidence for `a362b29`, while retaining pending install and
+  open repeated host-recovery gates.
 
 ### Added
 

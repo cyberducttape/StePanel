@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-14
+**Last Updated:** 2026-10-15
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -50,6 +50,14 @@ results, not repeated recovery evidence, a broader runtime certification, or
 production approval.
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
+
+### Current-head evidence update — 2026-10-15 (`a362b29`)
+
+- The exact-head local [repository production gate](lab-results/2026-10-15-repository-production-gate-a362b29.md) passed with Go 1.26.7: full tests, 56.2% coverage and all package floors, race suite, repository recovery drills, benchmarks, synthetic mixed HTTP load, and documentation/asset/shell checks.
+- Hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38688623120), including UI E2E/accessibility, passed; [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38688623127) passed.
+- The [N−1 upgrade and rollback smoke](https://github.com/cyberducttape/StePanel/actions/runs/38688628029) passed from v0.6.0 to the candidate, including rollback after a deliberately broken candidate.
+- Six-host installation run [38688623197](https://github.com/cyberducttape/StePanel/actions/runs/38688623197) and quota-enabled run [38688623248](https://github.com/cyberducttape/StePanel/actions/runs/38688623248) were pending at capture. The separate 20-repeat run [38670189826](https://github.com/cyberducttape/StePanel/actions/runs/38670189826) remains in progress on older source `1fb3879`; it is not current-head certification.
+- Physical host power loss, broader ENOSPC, repeated current-head installed-host recovery, live alert outage/retry, capacity certification, and the unsupported portions of the runtime matrix remain open. No production approval is implied.
 
 ### Current-head evidence update — 2026-10-15 (`7af2e82`)
 
