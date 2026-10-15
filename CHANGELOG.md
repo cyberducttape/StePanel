@@ -86,6 +86,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Restart the privileged root broker before the panel and worker during
+  installer rollback, and order both systemd services after the broker so
+  startup recovery cannot race broker availability.
 - Make importer configuration replacement report short writes and staging-file
   cleanup failures, and add fault-injection coverage for write, metadata, sync,
   close, rename, and post-rename directory-sync failures.

@@ -1,7 +1,7 @@
 [Unit]
 Description=StePanel infrastructure control plane
-After=network-online.target
-Wants=network-online.target stepanel-worker.service
+After=network-online.target stepanel-root-broker.service
+Wants=network-online.target stepanel-root-broker.service stepanel-worker.service
 
 [Service]
 Type=simple

@@ -169,11 +169,25 @@ func TestInstallScriptWiresControlPlaneTransaction(t *testing.T) {
 	rollback = rollback[:strings.Index(rollback, "\n}\n")]
 	stopCandidate := strings.Index(rollback, "systemctl stop stepanel.service stepanel-worker.service")
 	restore := strings.Index(rollback, "control_plane_txn_rollback")
+	restartBroker := strings.Index(rollback, "systemctl restart stepanel-root-broker.service")
 	restart := strings.Index(rollback, "systemctl restart stepanel.service")
-	if stopCandidate < 0 || restore < 0 || restart < 0 || !(stopCandidate < restore && restore < restart) {
-		t.Fatal("rollback_install must stop the candidate, restore the database, then restart the previous release")
+	restartWorker := strings.Index(rollback, "systemctl restart stepanel-worker.service")
+	if stopCandidate < 0 || restore < 0 || restartBroker < 0 || restart < 0 || restartWorker < 0 || !(stopCandidate < restore && restore < restartBroker && restartBroker < restart && restart < restartWorker) {
+		t.Fatal("rollback_install must restore the database, restart the broker, then restart the previous panel and worker")
 	}
 	if !strings.Contains(text, "control_plane_txn_commit") {
 		t.Fatal("install.sh never commits the control-plane transaction")
+	}
+}
+
+func TestPanelServicesStartAfterRootBroker(t *testing.T) {
+	for _, path := range []string{"deploy/stepanel.service", "deploy/stepanel-worker.service"} {
+		unit, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(unit), "After=") || !strings.Contains(string(unit), "stepanel-root-broker.service") {
+			t.Errorf("%s must order startup after the root broker", path)
+		}
 	}
 }

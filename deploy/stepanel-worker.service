@@ -1,7 +1,7 @@
 [Unit]
 Description=StePanel durable job worker
-After=network-online.target stepanel.service
-Wants=network-online.target
+After=network-online.target stepanel.service stepanel-root-broker.service
+Wants=network-online.target stepanel-root-broker.service
 
 [Service]
 Type=simple

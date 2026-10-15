@@ -770,12 +770,12 @@ rollback_install() {
   done
   for temporary in "${TXN_TEMPS[@]}"; do rm -f "$temporary"; done
   systemctl daemon-reload 2>/dev/null || true
+  if (( STEPANEL_BROKER_WAS_ENABLED )); then systemctl enable stepanel-root-broker.service 2>/dev/null || true; else systemctl disable stepanel-root-broker.service 2>/dev/null || true; fi
+  if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl restart stepanel-root-broker.service 2>/dev/null || true; else systemctl stop stepanel-root-broker.service 2>/dev/null || true; fi
   if (( STEPANEL_WAS_ENABLED )); then systemctl enable stepanel.service 2>/dev/null || true; else systemctl disable stepanel.service 2>/dev/null || true; fi
   if (( STEPANEL_WAS_ACTIVE )); then systemctl restart stepanel.service 2>/dev/null || true; else systemctl stop stepanel.service 2>/dev/null || true; fi
   if (( STEPANEL_WORKER_WAS_ENABLED )); then systemctl enable stepanel-worker.service 2>/dev/null || true; else systemctl disable stepanel-worker.service 2>/dev/null || true; fi
   if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl restart stepanel-worker.service 2>/dev/null || true; else systemctl stop stepanel-worker.service 2>/dev/null || true; fi
-  if (( STEPANEL_BROKER_WAS_ENABLED )); then systemctl enable stepanel-root-broker.service 2>/dev/null || true; else systemctl disable stepanel-root-broker.service 2>/dev/null || true; fi
-  if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl restart stepanel-root-broker.service 2>/dev/null || true; else systemctl stop stepanel-root-broker.service 2>/dev/null || true; fi
   if command -v apachectl >/dev/null 2>&1 && apachectl -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
   elif command -v httpd >/dev/null 2>&1 && httpd -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
   fi
