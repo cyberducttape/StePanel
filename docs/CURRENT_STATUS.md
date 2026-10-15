@@ -97,9 +97,9 @@ Each completed one default interruption-matrix iteration and a populated,
 database-backed WordPress HTTP recovery proof; RTOs were 4.548–8.155 seconds.
 This is eight six-host runs/48 individual smoke proofs in total, not 20–50
 repetitions. See the [run report](lab-results/2026-10-15-hosted-install-smoke-38677968172.md).
-The `5978fcd` exact-HEAD install run remains queued; the separate 20-repeat
-matrix remains in progress. No new physical power-loss, broader ENOSPC, or
-capacity certification is established.
+Exact-HEAD CI, CodeQL, install, and quota checks for `276282f` are queued; the
+separate 20-repeat matrix remains in progress. No new physical power-loss,
+broader ENOSPC, or capacity certification is established.
 
 ### Historical evidence update — 2026-10-14
 

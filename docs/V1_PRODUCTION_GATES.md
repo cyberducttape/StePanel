@@ -135,8 +135,9 @@ database-backed WordPress HTTP recovery proof. Measured proof RTOs were
 4.548–8.155 seconds. This raises the recorded hosted smoke evidence to eight
 six-host runs/48 single-run proofs, but remains one run per host per workflow
 execution. See the [run report](./lab-results/2026-10-15-hosted-install-smoke-38677968172.md).
-The exact-HEAD install smoke for `5978fcd` is queued, and the independent
-20-repeat matrix remains in progress; neither is counted as passed. No
+The exact-HEAD CI, CodeQL, install, and quota checks for `276282f` are queued,
+and the independent 20-repeat matrix remains in progress; none is counted as
+passed. No
 physical-host power-loss, publication/database-restore ENOSPC, or capacity
 certification claim is made.
 

@@ -44,6 +44,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   including per-host RTOs and explicit remaining certification limits.
 - Reconcile the release-gate roll-up counts and source attribution with the
   latest completed host and repository-gate evidence.
+- Refresh the current-head validation references after pushing the gate
+  evidence reconciliation.
 
 ### Added
 
