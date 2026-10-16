@@ -59,6 +59,16 @@ The workflow now bounds each dispatch to one or two iterations per uniquely keye
 shard; see the [failure analysis](lab-results/2026-10-15-hosted-repeat-matrix-timeout-38694634787.md)
 and [shard procedure](REAL_HOST_FAILURE_MATRIX.md). Gate 5 remains open.
 
+On 2026-10-16, installed-host run [38828118744](https://github.com/cyberducttape/StePanel/actions/runs/38828118744)
+passed all six OS/web-server combinations, including populated WordPress
+restore/HTTP proofs, control-plane and WordPress database outage recovery, and
+one recovery-matrix iteration per host ([RTOs and job links](lab-results/2026-10-16-hosted-install-smoke-38828118744.md)).
+This brings smoke evidence to nine runs/54 proofs, not 20–50 repeated
+certification. Exact-head CI and CodeQL passed on `60f96ee`; the 20-iteration
+cohort is running as ten same-SHA shards, with shard 01 active and the rest
+queued at capture. Application code was unchanged between the six-host smoke
+and cohort source.
+
 ### Current-head evidence update — 2026-10-15 (`7ca34dc`)
 
 - Hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38692216922)

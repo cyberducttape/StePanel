@@ -50,6 +50,9 @@ These are screenshots of the real UI, captured with synthetic demo data by
 | Production Readiness | Startup validation of filesystem quotas, encryption keys, TLS configuration; diagnostic endpoint for production prerequisites; comprehensive security test matrix |
 | Delivery | Dockerfile, ARM64/AMD64 release workflow, checksums, CI, vulnerability scanning |
 
+The supported-by-evidence Operator Beta combinations and certification limits
+are listed in the [installation platform matrix](docs/INSTALLATION.md#supported-operating-systems).
+
 For cloud inventory/actions, DNS adapters, SSH inventory, WAF capability
 constraints, off-site backups, and operational configuration, see the
 [integration guide](docs/INTEGRATIONS.md), [installation guide](docs/INSTALLATION.md),

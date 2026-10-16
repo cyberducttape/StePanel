@@ -4,22 +4,30 @@
 
 The installer supports systems with `apt-get` (Debian/Ubuntu) or `dnf` (Fedora, Rocky, Alma, and compatible RHEL-family systems). It installs Caddy, Apache, or OpenLiteSpeed, MySQL/MariaDB/PostgreSQL, PHP-FPM, ACL and archive utilities, and StePanel.
 
-Support tiers are intentionally explicit. The current release evidence is:
+Support tiers are intentionally explicit. The following combinations have
+passed the disposable installed-host smoke, but StePanel remains Operator Beta
+until the production gates in [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md)
+are closed. A smoke pass is not a production certification:
 
-| Platform | Tier | Evidence / policy |
+| Platform combination | Tier | Evidence / policy |
 | --- | --- | --- |
-| AlmaLinux 9 + Caddy/MariaDB | Tier 1 | Disposable install smoke |
-| Rocky Linux 9 + Caddy/MariaDB | Tier 1 | Disposable install and recovery smoke |
-| Ubuntu 24.04 | Tier 1 | Quota-enabled disposable install path |
-| Debian 12 | Experimental | Installer coverage exists; not a Tier 1 release target |
+| Ubuntu 24.04 + Apache + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
+| Ubuntu 24.04 + Caddy + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
+| AlmaLinux 9 + Apache + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
+| AlmaLinux 9 + Caddy + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
+| Rocky Linux 9 + Apache + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
+| Rocky Linux 9 + Caddy + MariaDB | Operator Beta smoke-tested | Nine installed-host smoke runs; latest [run](lab-results/2026-10-16-hosted-install-smoke-38828118744.md) |
+| Debian 12 | Experimental | Installer coverage exists; not in the six-combination installed-host matrix |
 | Debian 13 | Unsupported until certified | No current install evidence |
 | AlmaLinux 8, Ubuntu 22.04 | Unsupported | No current release certification |
 
-Caddy is the Tier 1 default. Apache has disposable coverage on Debian 12 but
-is not automatically Tier 1 on every distribution. OpenLiteSpeed is Tier 2
-operator-integrated support until its repository, listener/template, PHP
-routing, and upgrade paths receive equivalent disposable-host coverage. The
-executable matrix is published in `.github/workflows/install-smoke.yml` and
+Caddy remains the default web server. The smoke matrix validates distro-default
+PHP-FPM packages with MariaDB; it does not certify PHP minor versions,
+PostgreSQL/MySQL alternatives, OpenLiteSpeed, or every SELinux/filesystem
+configuration. OpenLiteSpeed remains operator-integrated and uncertified until
+its repository, listener/template, PHP routing, and upgrade paths receive
+equivalent disposable-host coverage. The executable matrix is published in
+`.github/workflows/install-smoke.yml` and
 `.github/workflows/quota-install-smoke.yml`.
 
 The default is `STEPANEL_WEBSERVER=caddy`. Set `STEPANEL_WEBSERVER=apache` or
