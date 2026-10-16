@@ -114,6 +114,12 @@ from it until it completes.
   on `5732c10` passed partial SQL import cleanup, interrupted transaction
   recovery, configuration rollback, and pending runtime reconciliation. These
   synthetic tests do not substitute for installed-host failure evidence.
+- The full [repository production gate](lab-results/2026-10-16-repository-production-gate-3927b38.md)
+  passed on exact checkout `3927b38` with Go 1.26.7: tests, coverage floors,
+  race suite, repository recovery drills, benchmarks, synthetic mixed HTTP
+  load, docs, assets, action pins, and shell syntax. Host recovery repetition,
+  physical power loss, broader ENOSPC, live alert outage/retry, runtime matrix,
+  and capacity certification remain open.
 
 ### Full repository production gate — code source `1e38dfc`
 

@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Pass the full repository production gate on exact checkout `3927b38`, including
+  race and coverage floors, recovery drills, benchmarks, mixed HTTP load, docs,
+  embedded assets, action pins, and shell syntax; explicitly leave installed-host
+  repetition, physical power-loss, broader ENOSPC, and capacity gates open.
 - Include the retained pre-restore safety-backup identifier in failed database
   restore job errors, without exposing the absolute filesystem path, so
   operators can locate recovery data after an unsuccessful in-place import.

@@ -160,6 +160,17 @@ is not counted. This repository-level pass does not close real-host repeated
 recovery, physical power-loss, broader ENOSPC, live SMTP/webhook outage, or
 capacity-certification gates.
 
+### Current-checkout repository gate — 2026-10-16 (`3927b38`)
+
+The full local repository gate passed on exact checkout `3927b38`: Go vet,
+full tests and configured coverage floors, race tests, repository recovery
+drills, control-plane benchmarks, synthetic mixed HTTP load, documentation,
+assets, action pins, and shell syntax. See the
+[captured results](./lab-results/2026-10-16-repository-production-gate-3927b38.md).
+This does not close the installed-host repetition cohort, physical power-loss,
+broader ENOSPC, live notification outage/retry, runtime-matrix, capacity, or
+independent security-review gates.
+
 ### Repeated hosted recovery execution update — 2026-10-16
 
 The 20-repeat hosted run [38694634787](https://github.com/cyberducttape/StePanel/actions/runs/38694634787)
