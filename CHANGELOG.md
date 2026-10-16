@@ -21,6 +21,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Record exact-head Go, race, vet, documentation, shell, CI, and CodeQL validation
   for `64696a2`, with zero open CodeQL alerts; keep installed-host recovery
   shards and all remaining production gates explicitly unresolved.
+- Record four passing repository-level rollback/reconciliation drill groups on
+  `5732c10`, with exact source and elapsed times; explicitly retain the separate
+  installed-host, power-loss, and ENOSPC release gates.
 - Record the exact-head repository production gate pass, including the full
   race and coverage suites, crash drills, benchmarks, and mixed HTTP load;
   retain all outstanding real-host recovery and capacity gates.

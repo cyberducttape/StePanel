@@ -98,6 +98,10 @@ from it until it completes.
   upgrade-policy, or independent-security-review gates. No production approval
   is implied. Full results are in the
   [current-head validation report](lab-results/2026-10-16-current-head-validation-64696a2.md).
+- A fresh [repository recovery-drill run](lab-results/2026-10-16-recovery-drills.md)
+  on `5732c10` passed partial SQL import cleanup, interrupted transaction
+  recovery, configuration rollback, and pending runtime reconciliation. These
+  synthetic tests do not substitute for installed-host failure evidence.
 
 ### Current-head evidence update — 2026-10-15 (`7ca34dc`)
 
