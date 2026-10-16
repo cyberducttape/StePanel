@@ -241,6 +241,18 @@ func (r *rehearsalRun) end(name string) {
 	r.record.Phases = append(r.record.Phases, recovery.Phase{Name: name, DurationMS: time.Since(r.phaseStart).Milliseconds()})
 }
 
+func backupRehearsalExpandedBytes(manifest BackupManifest) (uint64, error) {
+	const maxInt64 = uint64(^uint64(0) >> 1)
+	var total uint64
+	for _, entry := range manifest.Entries {
+		if entry.Size < 0 || uint64(entry.Size) > maxInt64-total {
+			return 0, errors.New("backup rehearsal expanded size is invalid or exceeds the supported limit")
+		}
+		total += uint64(entry.Size)
+	}
+	return total, nil
+}
+
 func (a *App) rehearseBackupArchive(operationCtx context.Context, request durableBackupRehearsalRequest, run *rehearsalRun) (backupRehearsalResult, error) {
 	// The backup directory is published atomically and is immutable after
 	// publication, so a rehearsal does not need to serialize with live-site
@@ -264,15 +276,18 @@ func (a *App) rehearseBackupArchive(operationCtx context.Context, request durabl
 	if err := os.MkdirAll(a.Config.ImportRoot, 0700); err != nil {
 		return backupRehearsalResult{}, fmt.Errorf("create rehearsal root: %w", err)
 	}
-	// Extraction only writes under the import root; keep the operator's
-	// free-space reserve there so a rehearsal cannot fill the disk.
-	free, err := availableBytes(a.Config.ImportRoot)
+	expandedBytes, err := backupRehearsalExpandedBytes(manifest)
 	if err != nil {
-		return backupRehearsalResult{}, fmt.Errorf("inspect rehearsal free space: %w", err)
+		return backupRehearsalResult{}, err
 	}
-	if free < a.Config.MinFreeBytes {
-		return backupRehearsalResult{}, fmt.Errorf("insufficient space to rehearse: %d bytes free, %d reserved", free, a.Config.MinFreeBytes)
+	// Admission accounts for the full extracted tree and all concurrent holds,
+	// not just the operator's free-space reserve. Keep the reservation until
+	// extraction and validation have removed the staging tree.
+	reservation, err := a.capacityLedger().reserve(a.Config, "backup-rehearsal", a.Config.ImportRoot, []capacityDemand{{Path: a.Config.ImportRoot, Bytes: expandedBytes}})
+	if err != nil {
+		return backupRehearsalResult{}, fmt.Errorf("admit backup rehearsal extraction: %w", err)
 	}
+	defer reservation.release()
 	stage, stageLock, err := createImportStage(a.Config.ImportRoot, "backup-rehearsal-")
 	if err != nil {
 		return backupRehearsalResult{}, err

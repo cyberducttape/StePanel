@@ -1035,6 +1035,56 @@ func TestBackupRehearsalValidatesAndCleansTemporaryExtraction(t *testing.T) {
 	}
 }
 
+func TestBackupRehearsalReservesExpandedSpaceBeforeExtraction(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	importRoot := filepath.Join(root, "imports")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "backup")
+	created, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(importRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	const minFreeBytes = uint64(1 << 20)
+	free, err := availableBytes(importRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if free <= minFreeBytes+1 {
+		t.Fatalf("test filesystem has insufficient free space for reservation scenario: %d", free)
+	}
+	ledger := &capacityLedger{}
+	// Leave only one unreserved byte above the configured reserve. The archive
+	// expands to six bytes, so admission must fail before creating a stage.
+	_, err = ledger.reserve(Config{MinFreeBytes: minFreeBytes}, "competing-operation", importRoot, []capacityDemand{{Path: importRoot, Bytes: free - minFreeBytes - 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{
+		Auth:     Auth{Username: "admin"},
+		Jobs:     NewJobs(),
+		capacity: ledger,
+		Config:   Config{BackupRoot: backupRoot, ImportRoot: importRoot, MinFreeBytes: minFreeBytes},
+	}
+	payload, err := json.Marshal(durableBackupRehearsalRequest{Site: "account", Backup: filepath.Base(created.Path), Actor: "admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.handleBackupRehearsalJob(context.Background(), Job{ID: "rehearsal-capacity-test", Payload: payload}); err == nil || !strings.Contains(err.Error(), "admit backup rehearsal extraction") {
+		t.Fatalf("rehearsal error = %v; want capacity admission failure", err)
+	}
+	entries, err := os.ReadDir(importRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("capacity-rejected rehearsal created staging entries: %#v", entries)
+	}
+}
+
 // TestCreateSiteBackupCancelsInFlightDatabaseDump verifies the job context
 // reaches the database dump helper, so cancelling a backup stops a slow dump
 // instead of waiting for the helper's own timeout.

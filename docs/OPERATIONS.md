@@ -98,8 +98,10 @@ confidential even though credentials are not included.
 For recovery confidence without changing customer state, use the backup
 `Rehearse restore` action (or `POST /api/backups/rehearse`). The durable job
 verifies the signed archive, extracts it into a temporary isolated directory,
+reserves the manifest's expanded file size against concurrent staging work,
 checks the site tree and every recorded database dump, reports counts and
-bytes, and removes the temporary directory.
+bytes, and removes the temporary directory. The reservation is released only
+after the staging tree has been removed.
 
 **WordPress application proof (built in).** For a WordPress backup, the
 rehearsal then restores it into a throwaway site through the production
