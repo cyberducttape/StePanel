@@ -17,6 +17,27 @@ The matrix script rejects values above 50 and gives every iteration isolated
 site/account names. `RECOVERY_MATRIX_REPEATS=1` is the normal smoke default;
 20–50 repetitions are intended for destructive soak runs.
 
+The GitHub installed-host workflow is sharded because a sequential 20-repeat
+job exceeds the hosted runner's six-hour limit. A recovery shard accepts one or
+two iterations; two-iteration shards require unique IDs so Actions concurrency
+does not replace pending evidence. For a 20-iteration cohort, dispatch ten
+shards against the same `main` commit (use 25 shards for 50 iterations):
+
+```sh
+cohort="gate5-$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)"
+for shard in $(seq -w 1 10); do
+  gh workflow run install-smoke.yml --ref main \
+    -f full_recovery_matrix=true \
+    -f recovery_matrix_repeats=2 \
+    -f recovery_matrix_shard="$cohort-$shard"
+done
+```
+
+Record every workflow run ID and verify that all six OS/web-server jobs passed
+for every shard before aggregating the cohort. All shards must use the same
+source SHA; a source change starts a new cohort. A partial or timed-out shard
+contributes no iteration to the release gate.
+
 | Operation | SIGKILL | Reboot/power-loss | ENOSPC | DB failure | Broker kill |
 | --- | --- | --- | --- | --- | --- |
 | Site creation | repository/hosted | lab follow-up | lab follow-up | lab follow-up | lab follow-up |

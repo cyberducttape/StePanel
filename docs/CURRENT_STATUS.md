@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-15
+**Last Updated:** 2026-10-16
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -50,6 +50,14 @@ results, not repeated recovery evidence, a broader runtime certification, or
 production approval.
 
 **Overall:** Operator Beta gates are in place; Gate 5 Phase 7 remains open for production approval.
+
+The 20-repeat hosted recovery attempt [38694634787](https://github.com/cyberducttape/StePanel/actions/runs/38694634787)
+ran out of the six-hour hosted job budget after two complete matrix iterations
+and the start of iteration 3/20 on each of its six OS/web-server combinations.
+Those two iterations are partial evidence only; no 20-repeat cohort passed.
+The workflow now bounds each dispatch to one or two iterations per uniquely keyed
+shard; see the [failure analysis](lab-results/2026-10-15-hosted-repeat-matrix-timeout-38694634787.md)
+and [shard procedure](REAL_HOST_FAILURE_MATRIX.md). Gate 5 remains open.
 
 ### Current-head evidence update — 2026-10-15 (`7ca34dc`)
 

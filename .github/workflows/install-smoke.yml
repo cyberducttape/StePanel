@@ -13,15 +13,21 @@ on:
         default: false
         type: boolean
       recovery_matrix_repeats:
-        description: 'Run the recovery matrix this many times (1-50)'
+        description: 'Run 1-2 recovery iterations in this shard; use multiple shards for 20-50 repeats'
         required: false
         default: 1
         type: number
+      recovery_matrix_shard:
+        description: 'Unique identifier for this parallel recovery shard (required for 2 iterations)'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
-  # Preserve disposable-host release evidence across newer pushes; GitHub
-  # retains only the latest pending run for this group.
-  group: stepanel-install-smoke-${{ github.ref }}-${{ github.event_name }}
+  # Preserve long-running evidence across newer pushes. Repeated recovery
+  # shards must have independent groups so GitHub does not replace all but the
+  # latest pending shard for the same workflow event.
+  group: stepanel-install-smoke-${{ github.ref }}-${{ github.event_name }}-${{ inputs.recovery_matrix_shard || 'default' }}
   cancel-in-progress: false
 
 permissions:
@@ -33,6 +39,7 @@ jobs:
     timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 90 }}
     env:
       RECOVERY_MATRIX_REPEATS: ${{ inputs.recovery_matrix_repeats || 1 }}
+      RECOVERY_MATRIX_SHARD: ${{ inputs.recovery_matrix_shard || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +68,7 @@ jobs:
             image: rockylinux:9
             db: mariadb
             web: caddy
-    name: ${{ matrix.name }}
+    name: ${{ matrix.name }} / shard ${{ inputs.recovery_matrix_shard || 'default' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -70,10 +77,16 @@ jobs:
           cache: true
       - name: Validate recovery matrix repeat count
         run: |
-          [[ "$RECOVERY_MATRIX_REPEATS" =~ ^([1-9]|[1-4][0-9]|50)$ ]] || {
-            echo 'recovery_matrix_repeats must be an integer from 1 through 50' >&2
+          [[ "$RECOVERY_MATRIX_REPEATS" =~ ^[12]$ ]] || {
+            echo 'recovery_matrix_repeats must be 1 or 2 per shard; split 20-50 repeats across unique shards' >&2
             exit 64
           }
+          if (( RECOVERY_MATRIX_REPEATS > 1 )); then
+            [[ "$RECOVERY_MATRIX_SHARD" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$ ]] || {
+              echo 'two-iteration recovery shards require a unique 1-40 character recovery_matrix_shard' >&2
+              exit 64
+            }
+          fi
       - name: Build release-shaped installer tree
         run: |
           go build -trimpath -ldflags='-s -w' -o stepanel ./cmd/stepanel

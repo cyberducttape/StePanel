@@ -11,7 +11,6 @@ func TestScheduledWorkflowConcurrencyIsEventScoped(t *testing.T) {
 		path  string
 		group string
 	}{
-		{path: ".github/workflows/install-smoke.yml", group: "stepanel-install-smoke"},
 		{path: ".github/workflows/codeql.yml", group: "stepanel-codeql"},
 	} {
 		content, err := os.ReadFile(workflow.path)
@@ -21,6 +20,25 @@ func TestScheduledWorkflowConcurrencyIsEventScoped(t *testing.T) {
 		expected := "group: " + workflow.group + "-${{ github.ref }}-${{ github.event_name }}"
 		if !strings.Contains(string(content), expected) {
 			t.Errorf("%s concurrency group must include github.event_name so scheduled checks cannot cancel push evidence", workflow.path)
+		}
+	}
+}
+
+func TestInstallRecoveryShardsHaveIndependentConcurrencyGroups(t *testing.T) {
+	workflow, err := os.ReadFile(".github/workflows/install-smoke.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, contract := range []string{
+		"group: stepanel-install-smoke-${{ github.ref }}-${{ github.event_name }}-${{ inputs.recovery_matrix_shard || 'default' }}",
+		"recovery_matrix_shard:",
+		"RECOVERY_MATRIX_SHARD: ${{ inputs.recovery_matrix_shard || '' }}",
+		"[[ \"$RECOVERY_MATRIX_REPEATS\" =~ ^[12]$ ]]",
+		"two-iteration recovery shards require a unique 1-40 character recovery_matrix_shard",
+	} {
+		if !strings.Contains(text, contract) {
+			t.Errorf("install smoke workflow is missing recovery-shard contract %q", contract)
 		}
 	}
 }

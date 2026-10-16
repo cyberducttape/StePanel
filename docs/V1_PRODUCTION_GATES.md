@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-15
+**Last Updated:** 2026-10-16
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -159,6 +159,18 @@ The local KVM extended recovery matrix was interrupted before completion and
 is not counted. This repository-level pass does not close real-host repeated
 recovery, physical power-loss, broader ENOSPC, live SMTP/webhook outage, or
 capacity-certification gates.
+
+### Repeated hosted recovery execution update — 2026-10-16
+
+The 20-repeat hosted run [38694634787](https://github.com/cyberducttape/StePanel/actions/runs/38694634787)
+on source `31a8341` did not complete within GitHub's six-hour job limit. All
+six OS/web-server jobs completed two full iterations and began iteration 3/20
+before timeout; the partial third iterations are not counted. See the
+[run analysis](./lab-results/2026-10-15-hosted-repeat-matrix-timeout-38694634787.md).
+The installed-host workflow now supports independent one- or two-iteration
+shards with unique concurrency IDs, and the real-host matrix guide documents
+how to aggregate 20–50 iterations on one source SHA. This is a harness
+correction, not a closed recovery gate; no 20-repeat cohort has passed.
 
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`
