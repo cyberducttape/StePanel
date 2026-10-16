@@ -5,6 +5,13 @@ for hosting control planes and PHP workloads. It is intentionally deployable
 with standard Prometheus and Grafana rather than requiring a proprietary
 agent.
 
+The included dashboard combines restore activity with durable job backlog and
+age, control-plane database utilization, storage reservations, audit and alert
+outbox backlog, dead-letter jobs, and recovery readiness. These are
+StePanel-level signals, not a host resource monitor: scrape host CPU, memory,
+filesystem free space, and inode metrics from your host monitoring agent and
+correlate them with reservation and job activity.
+
 ## Quick start
 
 1. Run StePanel with `/metrics` reachable by your Prometheus server.

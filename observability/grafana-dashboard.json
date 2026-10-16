@@ -1,7 +1,7 @@
 {
-  "title": "StePanel restore operations",
+  "title": "StePanel operations",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "15s",
   "panels": [
     {
@@ -24,6 +24,54 @@
       "title": "Restore failures",
       "gridPos": {"h": 5, "w": 8, "x": 0, "y": 5},
       "targets": [{"expr": "increase(stepanel_restore_jobs_failed_total[24h])", "legendFormat": "last 24h"}]
+    },
+    {
+      "type": "stat",
+      "title": "Queued jobs",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 8},
+      "targets": [{"expr": "stepanel_jobs_queued{job=\"stepanel\"}", "legendFormat": "queued"}]
+    },
+    {
+      "type": "stat",
+      "title": "Oldest queued job (seconds)",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 8},
+      "targets": [{"expr": "stepanel_jobs_oldest_queued_age_seconds{job=\"stepanel\"}", "legendFormat": "age"}]
+    },
+    {
+      "type": "stat",
+      "title": "Control-plane DB limit used (%)",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 8},
+      "targets": [{"expr": "100 * stepanel_control_plane_database_limit_ratio{job=\"stepanel\"}", "legendFormat": "used"}]
+    },
+    {
+      "type": "stat",
+      "title": "Reserved staging bytes",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 8},
+      "targets": [{"expr": "stepanel_capacity_reserved_bytes{job=\"stepanel\"}", "legendFormat": "reserved"}]
+    },
+    {
+      "type": "stat",
+      "title": "Audit events awaiting publication",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 13},
+      "targets": [{"expr": "stepanel_audit_outbox_pending{job=\"stepanel\"}", "legendFormat": "pending"}]
+    },
+    {
+      "type": "stat",
+      "title": "Required alert deliveries pending",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 13},
+      "targets": [{"expr": "stepanel_operator_notifications_pending{job=\"stepanel\"}", "legendFormat": "pending"}]
+    },
+    {
+      "type": "stat",
+      "title": "Recovery readiness (1 = ready)",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 13},
+      "targets": [{"expr": "stepanel_readiness_check_ready{job=\"stepanel\",check=\"recovery_state\"}", "legendFormat": "recovery"}]
+    },
+    {
+      "type": "stat",
+      "title": "Dead-letter jobs",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 13},
+      "targets": [{"expr": "stepanel_jobs_dead_letter{job=\"stepanel\"}", "legendFormat": "review required"}]
     }
   ]
 }
