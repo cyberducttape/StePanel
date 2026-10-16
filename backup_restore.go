@@ -109,6 +109,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		if restoreErr == nil {
 			result, restoreErr = restoreManagedDatabase(operationCtx, a.Config, request.Backup, request.Site, request.Database)
 			result.SafetyBackup = safety.Path
+			restoreErr = annotateDatabaseRestoreFailure(restoreErr, safety)
 		}
 	case "offsite-files":
 		var root string
@@ -133,6 +134,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 				cfg.BackupRoot = root
 				result, restoreErr = restoreManagedDatabase(operationCtx, cfg, request.Backup, request.Site, request.Database)
 				result.SafetyBackup = safety.Path
+				restoreErr = annotateDatabaseRestoreFailure(restoreErr, safety)
 			}
 		}
 	default:
@@ -153,6 +155,18 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, err
 	}
 	return output, nil
+}
+
+// annotateDatabaseRestoreFailure keeps the recovery artifact discoverable
+// when the subsequent in-place database import fails. The full filesystem
+// path is intentionally omitted because job errors can be visible to a site
+// operator; the backup identifier is enough to locate it in the authorized
+// backup listing.
+func annotateDatabaseRestoreFailure(restoreErr error, safety BackupResult) error {
+	if restoreErr == nil || safety.Path == "" {
+		return restoreErr
+	}
+	return fmt.Errorf("%w; pre-restore safety backup was retained as %s", restoreErr, filepath.Base(safety.Path))
 }
 
 // handleBackupRehearsalJob verifies and extracts a backup into a disposable

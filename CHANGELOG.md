@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Include the retained pre-restore safety-backup identifier in failed database
+  restore job errors, without exposing the absolute filesystem path, so
+  operators can locate recovery data after an unsuccessful in-place import.
 - Run the real ext4 ENOSPC backup and file-restore drills on exact source
   `aa1d4b4` in a disposable Rocky Linux 9 KVM guest; record the checksum-pinned
   image and per-phase results while keeping uncovered ENOSPC boundaries open.

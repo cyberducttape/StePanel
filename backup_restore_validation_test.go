@@ -18,6 +18,23 @@ func TestRestoreDatabaseIntoStagingContextHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestDatabaseRestoreFailureIdentifiesRetainedSafetyBackup(t *testing.T) {
+	importErr := errors.New("database import failed: no space left on device")
+	root := t.TempDir()
+	safety := BackupResult{Path: filepath.Join(root, "site", "backup-20261016T023000Z")}
+
+	err := annotateDatabaseRestoreFailure(importErr, safety)
+	if !errors.Is(err, importErr) {
+		t.Fatalf("annotated restore error = %v; want to preserve original cause", err)
+	}
+	if !strings.Contains(err.Error(), "pre-restore safety backup was retained as backup-20261016T023000Z") {
+		t.Fatalf("restore failure does not identify retained safety artifact: %v", err)
+	}
+	if strings.Contains(err.Error(), root) {
+		t.Fatalf("restore failure leaked an absolute backup path: %v", err)
+	}
+}
+
 func TestRestoreDatabaseIntoStagingContextInjectsProvisionFailure(t *testing.T) {
 	root := t.TempDir()
 	stage := filepath.Join(root, "stage")
