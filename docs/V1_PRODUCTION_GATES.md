@@ -198,6 +198,18 @@ records the exact coverage, race, recovery-drill, benchmark, and mixed-load
 results. This synthetic repository gate does not close the real-host recovery,
 physical power-loss, broader ENOSPC, or capacity-certification gates.
 
+### Exact-head repository gate — 2026-10-16 (`c628903`)
+
+The full repository production gate passed on exact checkout `c628903` with Go
+1.26.7. Vet, coverage (56.2% overall; all package floors), the race suite
+(448.918 seconds for the root package), repository recovery drills, one-shot
+control-plane benchmarks, synthetic 200-site mixed HTTP load, documentation,
+assets, action pins, and shell syntax all passed. See the
+[exact-head report](./lab-results/2026-10-16-repository-production-gate-c628903.md).
+This does not close the installed-host repetition cohort, physical power-loss,
+broader ENOSPC, live notification delivery/outage, runtime matrix, capacity, or
+independent security-review gates.
+
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`
 remains active, while the newest quota run for `d1a259c` is pending

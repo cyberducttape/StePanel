@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Re-run the full repository production gate on `c628903`, recording exact-head
+  coverage, race, recovery-drill, benchmark, mixed-load, documentation, asset,
+  and shell-check results; retain the installed-host and production-certification
+  gates as open.
 - Shard repeated installed-host recovery runs into independent, bounded Actions
   workflow runs so 20–50 iterations do not exceed one hosted job's six-hour limit or
   replace one another in the concurrency queue; document the failed sequential

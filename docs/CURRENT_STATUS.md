@@ -115,6 +115,19 @@ explicitly does not establish host-level ENOSPC, power-loss, distro, or
 production-capacity evidence. See the
 [captured results](lab-results/2026-10-16-repository-production-gate-1e38dfc.md).
 
+### Exact-head repository production gate — `c628903`
+
+The full `bash scripts/production-gate.sh` passed on this exact checkout with
+Go 1.26.7: vet, full coverage and configured package floors, the complete race
+suite, repository recovery drills, control-plane benchmarks, synthetic 200-site
+mixed HTTP load, documentation/reference checks, action pinning, asset
+validation, and shell syntax. Overall coverage was 56.2%; the root race suite
+took 448.918 seconds. See the
+[captured results](lab-results/2026-10-16-repository-production-gate-c628903.md).
+This repository-level result does not close the installed-host recovery cohort,
+physical power-loss, broader ENOSPC, live notification, runtime-certification,
+or capacity gates.
+
 ### Current-head evidence update — 2026-10-15 (`7ca34dc`)
 
 - Hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38692216922)
