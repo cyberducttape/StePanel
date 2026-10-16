@@ -9,7 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Shard repeated installed-host recovery runs into independent, bounded Actions
   workflow runs so 20–50 iterations do not exceed one hosted job's six-hour limit or
   replace one another in the concurrency queue; document the failed sequential
-  attempt and keep the release gate open until a complete cohort passes.
+  attempt and provide a repeatable, uniquely identified 20–50 iteration cohort
+  dispatch procedure; keep the release gate open until a complete cohort passes.
 - Record the exact-head repository production gate pass, including the full
   race and coverage suites, crash drills, benchmarks, and mixed HTTP load;
   retain all outstanding real-host recovery and capacity gates.

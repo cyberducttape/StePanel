@@ -21,11 +21,15 @@ The GitHub installed-host workflow is sharded because a sequential 20-repeat
 job exceeds the hosted runner's six-hour limit. A recovery shard accepts one or
 two iterations; two-iteration shards require unique IDs so Actions concurrency
 does not replace pending evidence. For a 20-iteration cohort, dispatch ten
-shards against the same `main` commit (use 25 shards for 50 iterations):
+shards against the same `main` commit. Set `repeats=50` for 25 shards:
 
 ```sh
-cohort="gate5-$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)"
-for shard in $(seq -w 1 10); do
+set -euo pipefail
+repeats=20
+(( repeats >= 20 && repeats <= 50 && repeats % 2 == 0 ))
+shard_count=$((repeats / 2))
+cohort="gate5-$(date -u +%Y%m%dT%H%M%S)-$(git rev-parse --short=7 HEAD)"
+for shard in $(seq -w 1 "$shard_count"); do
   gh workflow run install-smoke.yml --ref main \
     -f full_recovery_matrix=true \
     -f recovery_matrix_repeats=2 \
