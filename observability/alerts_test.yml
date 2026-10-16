@@ -20,6 +20,8 @@ tests:
         values: '1+0x30'
       - series: 'stepanel_operator_notifications_oldest_pending_age_seconds{job="stepanel"}'
         values: '1000+0x30'
+      - series: 'stepanel_jobs_inventory_errors{job="stepanel"}'
+        values: '1+0x30'
     alert_rule_test:
       - eval_time: 20m
         alertname: StePanelControlPlaneDatabaseNearLimit
@@ -57,6 +59,15 @@ tests:
             exp_annotations:
               summary: Operator notifications are accumulating
               description: At least one required alert delivery has remained pending for more than fifteen minutes; inspect destination health and notification outbox metrics.
+      - eval_time: 20m
+        alertname: StePanelJobInventoryUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              severity: warning
+            exp_annotations:
+              summary: StePanel could not read durable job inventory
+              description: Job queue metrics are unavailable; inspect control-plane SQLite health and the panel-worker database connection before trusting job status views.
 
   # 100 requests per minute with 10 percent failing: the ratio rule fires.
   - interval: 1m

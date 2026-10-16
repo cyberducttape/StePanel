@@ -55,6 +55,15 @@ groups:
           summary: StePanel SQLite contention was observed
           description: Durable state paths encountered SQLite busy or locked errors; inspect control-plane contention and worker concurrency.
 
+      - alert: StePanelJobInventoryUnavailable
+        expr: stepanel_jobs_inventory_errors{job="stepanel"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: StePanel could not read durable job inventory
+          description: Job queue metrics are unavailable; inspect control-plane SQLite health and the panel-worker database connection before trusting job status views.
+
       - alert: StePanelControlPlaneDatabaseNearLimit
         expr: stepanel_control_plane_database_limit_ratio{job="stepanel"} > 0.80
         for: 10m
