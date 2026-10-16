@@ -202,6 +202,8 @@ jobs:
         run: bash scripts/check-docs-links.sh docs
       - name: Check documentation references
         run: python3 scripts/check-docs-references.py
+      - name: Validate Grafana dashboard metric references
+        run: python3 scripts/check-grafana-dashboard.py
       - name: Test Prometheus alert rules
         run: |
           set -eu

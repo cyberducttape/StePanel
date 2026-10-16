@@ -27,6 +27,7 @@ run go test -p 1 -run '^$' -bench '^BenchmarkControlPlane' -benchtime=1x -count=
 run make mixed-load
 run bash scripts/check-docs-links.sh docs
 run python3 scripts/check-docs-references.py
+run python3 scripts/check-grafana-dashboard.py
 run bash scripts/check-action-pins.sh
 run bash scripts/validate-assets.sh
 run bash -n install.sh deploy/lab/*.sh scripts/*.sh

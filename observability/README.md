@@ -22,6 +22,9 @@ correlate them with reservation and job activity.
    the alerts to the on-call channel. Use [`../docs/SLO.md`](../docs/SLO.md)
    to set service-level targets.
 
+CI validates dashboard JSON, panel layout, privacy-safe labels, and that every
+referenced StePanel metric is emitted by the Go exporters.
+
 The metrics endpoint is deliberately low-cardinality: account names, backup
 paths, and error text are never emitted as labels. Backup health is aggregated
 across schedules so customer/site identifiers are not exposed to metrics
