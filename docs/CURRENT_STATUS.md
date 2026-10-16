@@ -64,10 +64,9 @@ passed all six OS/web-server combinations, including populated WordPress
 restore/HTTP proofs, control-plane and WordPress database outage recovery, and
 one recovery-matrix iteration per host ([RTOs and job links](lab-results/2026-10-16-hosted-install-smoke-38828118744.md)).
 This brings smoke evidence to nine runs/54 proofs, not 20–50 repeated
-certification. Exact-head CI and CodeQL passed on `60f96ee`; the 20-iteration
-cohort is running as ten same-SHA shards, with shard 01 active and the rest
-queued at capture. Application code was unchanged between the six-host smoke
-and cohort source.
+certification. The later three-shard attempt on source `60f96ee` completed
+without a passing six-host cohort: one job per shard stopped at an HTTP 401 in
+the cPanel smoke login. See the [shard outcome report](lab-results/2026-10-16-hosted-recovery-shard-outcomes.md).
 
 Quota-enabled guest run [38828118772](https://github.com/cyberducttape/StePanel/actions/runs/38828118772)
 also passed on `0fe2138`: `/var/www` user quotas were active; the populated
@@ -75,10 +74,37 @@ WordPress proof RTO was 44.724 seconds; abrupt QEMU guest loss recovered; and
 real ENOSPC backup and file-restore tests passed. This is not physical-host
 power-loss evidence and does not cover publication/import/database-restore
 ENOSPC ([details](lab-results/2026-10-16-quota-install-smoke-38828118772.md)).
-The exact-head `e8590d7` quota run is still in progress; no result is inferred
-from it until it completes.
+The later quota-enabled smoke on current source `3be9b99` passed
+([run 38843586000](https://github.com/cyberducttape/StePanel/actions/runs/38843586000)).
 
-### Current-head validation — 2026-10-16 (`64696a2`)
+### Current-head validation — 2026-10-16 (`3be9b99`)
+
+- Exact-head hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38843586085),
+  [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38843585904),
+  [quota-enabled install smoke](https://github.com/cyberducttape/StePanel/actions/runs/38843586000),
+  and [N-1 upgrade smoke](https://github.com/cyberducttape/StePanel/actions/runs/38882203108)
+  passed. The six-host standard install smoke
+  [38871962287](https://github.com/cyberducttape/StePanel/actions/runs/38871962287)
+  and an earlier run [38843585907](https://github.com/cyberducttape/StePanel/actions/runs/38843585907)
+  remain queued/pending at capture; no result is inferred from them.
+- The three completed two-repeat recovery shards on older source `60f96ee`
+  ([01](https://github.com/cyberducttape/StePanel/actions/runs/38830877337),
+  [02](https://github.com/cyberducttape/StePanel/actions/runs/38830880739),
+  [03](https://github.com/cyberducttape/StePanel/actions/runs/38830884355))
+  did not pass as a cohort. Fifteen of 18 host jobs passed both iterations;
+  the other three each failed once at the cPanel smoke login with HTTP 401,
+  before import. Those failures occurred on Ubuntu/Apache, Rocky/Caddy, and
+  Ubuntu/Caddy respectively. The current-source smoke harness retries one 401
+  with a fresh TOTP counter, but its six-host hosted run is still queued, so
+  that mitigation is not yet confirmed by installed-host evidence. No 20-repeat
+  certification is claimed. Per-shard details and job IDs are recorded in the
+  [outcome report](lab-results/2026-10-16-hosted-recovery-shard-outcomes.md).
+- Production readiness remains **not approved**. Physical-host power loss,
+  broader ENOSPC boundaries, a complete same-source repeated matrix, live
+  notification outage/retry evidence, capacity certification, and independent
+  security assessment remain open.
+
+### Historical current-head validation — 2026-10-16 (`64696a2`)
 
 - Local `go test ./...`, `go test -race ./...`, and `go vet ./...` passed with
   Go 1.26.7. The standard root-package suite took 65.436 seconds; the race

@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Reconcile the completed older-source recovery shards: 15 of 18 host jobs
+  passed both iterations; the other three each hit an HTTP 401 in the cPanel
+  smoke login before import. Record the evidence without counting the cohort
+  as passed, alongside exact-head CI, CodeQL, quota-smoke, and N-1 upgrade
+  results for `3be9b99` ([report](docs/lab-results/2026-10-16-hosted-recovery-shard-outcomes.md)).
 - Make the installed cPanel-move smoke retry one HTTP 401 using a fresh TOTP
   counter, while keeping rate limits, transport failures, and a second 401
   fatal; this addresses an observed intermittent login failure in a long

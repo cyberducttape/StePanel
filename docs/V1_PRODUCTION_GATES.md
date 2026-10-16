@@ -60,7 +60,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Nine installed-host smoke runs have passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations, including database-backed WordPress recovery ([latest run evidence](./lab-results/2026-10-16-hosted-install-smoke-38828118744.md)). `INSTALLATION.md` lists these combinations explicitly as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Open | The full local repository gate passed on latest checkout `3927b38` ([report](./lab-results/2026-10-16-repository-production-gate-3927b38.md)); exact-source Go tests, race tests, vet, shell/doc checks, hosted CI, and CodeQL passed on docs commit `64696a2` ([report](./lab-results/2026-10-16-current-head-validation-64696a2.md), [CI](https://github.com/cyberducttape/StePanel/actions/runs/38833209036), [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38833209088); zero open CodeQL alerts at capture). The six-host install smoke passed on `0fe2138` ([run 38828118744](./lab-results/2026-10-16-hosted-install-smoke-38828118744.md)); its application code is unchanged on `1e38dfc`. The 20-repeat cohort on older source `60f96ee` remains incomplete ([shards 01](https://github.com/cyberducttape/StePanel/actions/runs/38830877337), [02](https://github.com/cyberducttape/StePanel/actions/runs/38830880739), and [03](https://github.com/cyberducttape/StePanel/actions/runs/38830884355)): one Rocky/Caddy job in shard 02 failed at the cPanel-move smoke login with HTTP 401; other shard jobs remain active. The cPanel-move smoke now retries one 401 with a fresh TOTP counter; a complete cohort on a single current source SHA is still required. Capacity, physical-host recovery, and remaining documented gates stay open. |
+| Release documentation reconciled with executable evidence | ⚠️ Open | The full local repository gate passed on `3927b38` ([report](./lab-results/2026-10-16-repository-production-gate-3927b38.md)). Exact-head CI, CodeQL, quota install smoke, and N-1 upgrade smoke passed on `3be9b99` ([CI](https://github.com/cyberducttape/StePanel/actions/runs/38843586085), [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38843585904), [quota](https://github.com/cyberducttape/StePanel/actions/runs/38843586000), [upgrade](https://github.com/cyberducttape/StePanel/actions/runs/38882203108)); standard six-host installation smoke is still queued. Three two-repeat shards on older source `60f96ee` ([01](https://github.com/cyberducttape/StePanel/actions/runs/38830877337), [02](https://github.com/cyberducttape/StePanel/actions/runs/38830880739), [03](https://github.com/cyberducttape/StePanel/actions/runs/38830884355)) all completed with one host job failing per shard at cPanel smoke login (HTTP 401 before import); 15/18 host jobs passed both iterations. See the [shard outcome report](./lab-results/2026-10-16-hosted-recovery-shard-outcomes.md). Current-source smoke code retries one 401 with a fresh TOTP counter, but awaits hosted validation. No complete repeated cohort is claimed. Capacity, physical-host recovery, and remaining documented gates stay open. |
 
 ### Historical evidence update — 2026-10-14
 
@@ -171,13 +171,13 @@ This does not close the installed-host repetition cohort, physical power-loss,
 broader ENOSPC, live notification outage/retry, runtime-matrix, capacity, or
 independent security-review gates.
 
-An older-source 20-repeat cohort is still underway, but one Rocky Linux 9/Caddy
-job in shard 02 failed before import at the cPanel-move smoke login (HTTP 401).
-The panel logged the failed login request; the available evidence does not
-identify whether the cause was a transient TOTP replay/window issue or another
-credential rejection. The smoke now retries once using a fresh TOTP counter;
-that harness adjustment is not yet validated by a completed hosted run and no
-cohort repetition is counted as passing until its complete shard succeeds.
+Three two-repeat shards on older source `60f96ee` have now completed, each with
+one host job failing before import at the cPanel-move smoke login (HTTP 401).
+The available evidence does not identify whether the cause was a transient
+TOTP replay/window issue or another credential rejection. The smoke now retries
+once using a fresh TOTP counter; that harness adjustment is not yet validated
+by a completed standard six-host hosted run, and none of the three shards is
+counted as passing. See the [shard outcome report](./lab-results/2026-10-16-hosted-recovery-shard-outcomes.md).
 
 ### Repeated hosted recovery execution update — 2026-10-16
 
