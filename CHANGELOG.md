@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   capacity holds, outbox backlog, dead-letter jobs, and recovery readiness.
 - Validate dashboard layout, privacy-safe label usage, and metric references in
   CI and the repository production gate.
+- Include the durable capacity-reservation schema in readiness and operational
+  health checks so admission-ledger loss is an explicit degraded state.
 - Bound Git clone memory with host/cgroup-aware admission and a 2 GiB
   address-space ceiling; install `prlimit` through util-linux on supported
   systems. Keep the existing staged-disk reservation and unpacked-tree limit.

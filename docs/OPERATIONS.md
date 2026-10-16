@@ -191,10 +191,10 @@ curl -fsS http://127.0.0.1:8090/api/health | jq
 ```
 
 `/livez` reports only that the process can serve HTTP and should be used for
-restart decisions. `/readyz` returns `503` when the durable SQLite control
-plane fails its integrity check, persistent job state has failed
-or the import, backup, or recovery filesystem is unavailable or below
-`STEPANEL_MIN_FREE_BYTES`; use it for traffic and post-upgrade checks.
+restart decisions. `/readyz` returns `503` when the lightweight durable SQLite
+query fails, the capacity-reservation schema is unavailable, persistent job
+state is degraded, or the import, backup, or recovery filesystem is unavailable
+or below `STEPANEL_MIN_FREE_BYTES`; use it for traffic and post-upgrade checks.
 
 In production, `/readyz` also fails closed when the configured root broker or
 required offsite target is unavailable. A fresh install can become ready before

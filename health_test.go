@@ -60,6 +60,52 @@ func TestReadyzChecksPersistentCapacity(t *testing.T) {
 	}
 }
 
+func TestReadyzFailsWhenDurableCapacityLedgerIsMissing(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{filepath.Join(root, "imports"), filepath.Join(root, "backups"), filepath.Join(root, "sites")} {
+		if err := os.MkdirAll(path, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db, err := openControlPlaneDB(filepath.Join(root, "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db)
+	if _, err := db.Exec(`DROP TABLE capacity_reservations`); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{
+		Config: Config{ImportRoot: filepath.Join(root, "imports"), BackupRoot: filepath.Join(root, "backups"), JobState: filepath.Join(root, "jobs.json"), RecoveryRoot: filepath.Join(root, "sites", ".stepanel-recovery"), MinFreeBytes: 1},
+		Jobs:   jobs,
+	}
+	response := httptest.NewRecorder()
+	app.readyz(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), `"capacity_ledger":{"ready":false`) {
+		t.Fatalf("readyz status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if check := operationalChecks(app.Config, jobs)["capacity_ledger"]; check.Ready || !strings.Contains(check.Detail, "schema is incomplete") {
+		t.Fatalf("operational capacity ledger check = %#v; want an explicit unavailable state", check)
+	}
+}
+
+func TestCapacityLedgerReadinessRejectsIncompleteSchema(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`DROP TABLE capacity_reservations;
+		CREATE TABLE capacity_reservations (reservation_id TEXT PRIMARY KEY, bytes INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	check := capacityLedgerReadiness(newJobsWithDB(db))
+	if check.Ready || !strings.Contains(check.Detail, "schema is incomplete") {
+		t.Fatalf("capacity ledger readiness = %#v; want incomplete-schema failure", check)
+	}
+}
+
 func TestReadyzAllowsFreshRequiredOffsiteInstallBeforeFirstBackup(t *testing.T) {
 	previousProbe := probeOffsiteRemote
 	probeOffsiteRemote = func(string) error { return nil }

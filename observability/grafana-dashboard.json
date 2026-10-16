@@ -72,6 +72,12 @@
       "title": "Dead-letter jobs",
       "gridPos": {"h": 5, "w": 6, "x": 18, "y": 15},
       "targets": [{"expr": "stepanel_jobs_dead_letter{job=\"stepanel\"}", "legendFormat": "review required"}]
+    },
+    {
+      "type": "stat",
+      "title": "Capacity ledger readiness (1 = ready)",
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 20},
+      "targets": [{"expr": "stepanel_readiness_check_ready{job=\"stepanel\",check=\"capacity_ledger\"}", "legendFormat": "capacity ledger"}]
     }
   ]
 }
