@@ -99,6 +99,15 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 
 	select {
 	case err := <-waitErr:
+		// exec.CommandContext may have killed only the direct child immediately
+		// before Wait won this select. Recheck cancellation and reap its process
+		// group so descendants do not survive that race.
+		if ctx.Err() != nil && cmd.Process != nil {
+			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
+		}
+		if ctx.Err() != nil {
+			return output.data, fmt.Errorf("%w: %s", ctx.Err(), string(output.data))
+		}
 		if err != nil {
 			return output.data, fmt.Errorf("%w: %s", err, string(output.data))
 		}

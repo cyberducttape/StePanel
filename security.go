@@ -31,10 +31,10 @@ func (a *App) WAFCapability() WAFCapability {
 func wafCapability(webserver string, services map[string]string) WAFCapability {
 	switch webserver {
 	case "apache":
-		if services["modsecurity"] == "enabled" {
-			return WAFCapability{WebServer: webserver, Provider: "ModSecurity + OWASP CRS", Status: "available", Detail: "Apache reports the ModSecurity module as enabled; review DetectionOnly audit events before blocking."}
+		if services["modsecurity"] == "loaded-unverified" {
+			return WAFCapability{WebServer: webserver, Provider: "ModSecurity + OWASP CRS", Status: "unverified", Detail: "Apache loads a ModSecurity module, but blocking mode and an active ruleset have not been verified; this is not counted as protection."}
 		}
-		return WAFCapability{WebServer: webserver, Provider: "ModSecurity + OWASP CRS", Status: "available-not-enabled", Detail: "The Apache integration is supported but ModSecurity is not currently detected as enabled."}
+		return WAFCapability{WebServer: webserver, Provider: "ModSecurity + OWASP CRS", Status: "unverified", Detail: "ModSecurity enforcement and an active ruleset are not verified."}
 	case "openlitespeed":
 		return WAFCapability{WebServer: webserver, Provider: "external", Status: "unavailable", Detail: "Native StePanel WAF integration is not available for OpenLiteSpeed; place a supported WAF/security proxy in front."}
 	default:
@@ -66,22 +66,22 @@ func (a *App) SecurityChecks() []SecurityCheck {
 
 	services := ServiceStatus()
 	waf := a.WAFCapability()
-	if waf.Status == "available" {
-		checks = append(checks, SecurityCheck{Name: "Web Application Firewall", Status: "pass", Severity: "low", Detail: waf.Detail})
-	} else if waf.Status == "available-not-enabled" {
-		checks = append(checks, SecurityCheck{Name: "Web Application Firewall", Status: "warning", Severity: "medium", Detail: waf.Detail})
-	} else {
-		checks = append(checks, SecurityCheck{Name: "Web Application Firewall", Status: "warning", Severity: "medium", Detail: waf.Detail})
-	}
-	if services["fail2ban"] == "installed" || services["fail2ban"] == "active" {
-		checks = append(checks, SecurityCheck{Name: "Fail2Ban", Status: "pass", Severity: "low", Detail: "The Fail2Ban executable is available."})
-	} else {
-		checks = append(checks, SecurityCheck{Name: "Fail2Ban", Status: "warning", Severity: "medium", Detail: "Fail2Ban is not available on PATH."})
-	}
+	checks = append(checks, SecurityCheck{Name: "Web Application Firewall", Status: "warning", Severity: "medium", Detail: waf.Detail})
+	checks = append(checks, fail2banSecurityCheck(services))
 	if database := a.DatabaseAdmin(); database.AdminInstalled {
 		checks = append(checks, databaseAdminSecurityCheck(database))
 	}
 	return checks
+}
+
+func fail2banSecurityCheck(services map[string]string) SecurityCheck {
+	if services["fail2ban"] == "active" && services["fail2ban-jails"] == "active" {
+		return SecurityCheck{Name: "Fail2Ban", Status: "pass", Severity: "low", Detail: "Fail2Ban is active and reports at least one enabled jail."}
+	}
+	if services["fail2ban"] == "active" {
+		return SecurityCheck{Name: "Fail2Ban", Status: "warning", Severity: "medium", Detail: "Fail2Ban is running, but no enabled jail has been verified."}
+	}
+	return SecurityCheck{Name: "Fail2Ban", Status: "warning", Severity: "medium", Detail: "Fail2Ban is not verified as running with enabled jails."}
 }
 
 func databaseAdminSecurityCheck(database DatabaseAdmin) SecurityCheck {

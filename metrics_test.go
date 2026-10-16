@@ -86,6 +86,14 @@ func TestJobMetricsExposeInventoryReadFailures(t *testing.T) {
 	}
 }
 
+func TestOperatorNotificationMetricsExposeUnavailableOutbox(t *testing.T) {
+	var output strings.Builder
+	writeOperatorNotificationMetrics(&output, nil, Config{})
+	if !strings.Contains(output.String(), "stepanel_operator_notification_outbox_up 0") || !strings.Contains(output.String(), "stepanel_operator_notifications_oldest_pending_age_seconds 0") {
+		t.Fatalf("notification metrics missing unavailable/age signals: %s", output.String())
+	}
+}
+
 type assertionError struct{}
 
 func (assertionError) Error() string { return "test failure" }

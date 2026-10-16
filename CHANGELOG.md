@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Report ModSecurity as unverified until enforcement and active rules are proven;
+  require a running Fail2Ban service and at least one reported jail before the
+  security check can pass, and detect the server/client executable names used
+  by supported installations.
+- Separate off-site reachability from backup and restore evidence: write and
+  read status now remain unknown until a successful remote backup and verified
+  restore respectively.
+- Open site logs through confined directory descriptors and reject symlinked
+  or replaced log files, closing the path-check/open race.
+- Reap command process groups when cancellation races with parent completion,
+  and deliver independent alert channels with bounded concurrency while
+  exposing oldest-pending notification age in health and Prometheus metrics.
+- Reserve configured staging capacity for Git checkouts and reject release
+  trees exceeding a new independent per-release byte ceiling before
+  activation. This is an admission and post-check limit, not a filesystem
+  quota on clone writes.
 - Retain audit outbox entries for 90 days after signed-log publication, pruning
   at most 500 per flush while never deleting undelivered events; make the
   signed audit chain the documented long-term evidence source.

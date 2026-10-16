@@ -35,3 +35,18 @@ func TestResolvedServiceStatusUsesDistributionAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestFail2banHasEnabledJail(t *testing.T) {
+	for _, test := range []struct {
+		output string
+		want   bool
+	}{
+		{"Status\n|- Number of jail: 0\n`- Jail list:\t\n", false},
+		{"Status\n|- Number of jail: 2\n`- Jail list:\tsshd, apache-auth\n", true},
+		{"Jail list:\t, , \n", false},
+	} {
+		if got := fail2banHasEnabledJail(test.output); got != test.want {
+			t.Errorf("fail2banHasEnabledJail(%q) = %t, want %t", test.output, got, test.want)
+		}
+	}
+}

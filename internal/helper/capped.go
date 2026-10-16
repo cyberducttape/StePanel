@@ -163,10 +163,16 @@ func runCapped(ctx context.Context, cmd *exec.Cmd, stdout io.Writer, stderr *cap
 	}
 	select {
 	case err := <-waitErr:
+		if ctx.Err() != nil {
+			killGroup()
+		}
 		select {
 		case <-exceeded:
 			return fmt.Errorf("%w", ErrOutputLimitExceeded)
 		default:
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 		return err
 	case <-exceeded:

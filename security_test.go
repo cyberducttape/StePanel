@@ -47,12 +47,34 @@ func TestWAFCapabilityIsWebserverSpecific(t *testing.T) {
 	for _, test := range []struct{ webserver, status, provider string }{
 		{"caddy", "unavailable", "external"},
 		{"openlitespeed", "unavailable", "external"},
-		{"apache", "available-not-enabled", "ModSecurity + OWASP CRS"},
+		{"apache", "unverified", "ModSecurity + OWASP CRS"},
 	} {
 		capability := wafCapability(test.webserver, map[string]string{})
 		if capability.Status != test.status || capability.Provider != test.provider {
 			t.Fatalf("%s capability = %#v", test.webserver, capability)
 		}
+	}
+}
+
+func TestSecurityChecksDoNotTreatLoadedModSecurityAsEnforcing(t *testing.T) {
+	capability := wafCapability("apache", map[string]string{"modsecurity": "loaded-unverified"})
+	if capability.Status == "available" || capability.Status == "enforcing" {
+		t.Fatalf("unverified ModSecurity reported protected: %#v", capability)
+	}
+}
+
+func TestSecurityChecksRequireRunningFail2BanJail(t *testing.T) {
+	for _, services := range []map[string]string{
+		{"fail2ban": "installed"},
+		{"fail2ban": "active"},
+		{"fail2ban": "active", "fail2ban-jails": "inactive"},
+	} {
+		if check := fail2banSecurityCheck(services); check.Status == "pass" {
+			t.Fatalf("unverified Fail2Ban reported pass: %#v", check)
+		}
+	}
+	if check := fail2banSecurityCheck(map[string]string{"fail2ban": "active", "fail2ban-jails": "active"}); check.Status != "pass" {
+		t.Fatalf("verified Fail2Ban status = %#v", check)
 	}
 }
 

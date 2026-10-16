@@ -19,6 +19,7 @@ import (
 	"net/smtp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/safehttp"
@@ -26,6 +27,7 @@ import (
 
 const (
 	operatorNotificationBatch       = 20
+	operatorNotificationConcurrency = 4
 	operatorNotificationPruneBatch  = 500
 	operatorNotificationRetention   = 90 * 24 * time.Hour
 	operatorNotificationTimeout     = 10 * time.Second
@@ -48,6 +50,8 @@ type operatorNotificationStatus struct {
 	Pending          int        `json:"pending"`
 	FailedDeliveries int        `json:"failed_deliveries"`
 	LastFailureAt    *time.Time `json:"last_failure_at,omitempty"`
+	OldestPendingAt  *time.Time `json:"oldest_pending_at,omitempty"`
+	OldestPendingAge int64      `json:"oldest_pending_age_seconds"`
 }
 
 type operatorAlertPayload struct {
@@ -163,6 +167,13 @@ func (s *operatorNotificationStore) flush(ctx context.Context, cfg Config) error
 	if err != nil {
 		return err
 	}
+	type delivery struct {
+		item    operatorNotification
+		channel string
+		payload operatorAlertPayload
+		body    []byte
+	}
+	deliveries := make([]delivery, 0, len(items)*2)
 	for _, item := range items {
 		payload := operatorAlertPayload{Event: operatorNotificationPayloadName, EventID: item.ID, JobID: item.JobID, JobKind: item.JobKind, Resource: item.Owner, State: item.State, CreatedAt: item.CreatedAt}
 		body, err := json.Marshal(payload)
@@ -170,23 +181,57 @@ func (s *operatorNotificationStore) flush(ctx context.Context, cfg Config) error
 			return fmt.Errorf("encode operator alert: %w", err)
 		}
 		if item.WebhookDue {
-			if err := deliverOperatorWebhook(ctx, cfg, item.ID, body); err != nil {
-				if updateErr := s.recordFailure(ctx, item.ID, "webhook", item.WebhookAttempts, err); updateErr != nil {
-					return errors.Join(err, updateErr)
-				}
-			} else if err := s.markDelivered(ctx, item.ID, "webhook"); err != nil {
-				return err
-			}
+			deliveries = append(deliveries, delivery{item: item, channel: "webhook", payload: payload, body: body})
 		}
 		if item.EmailDue {
-			if err := deliverOperatorEmail(ctx, cfg, payload); err != nil {
-				if updateErr := s.recordFailure(ctx, item.ID, "email", item.EmailAttempts, err); updateErr != nil {
-					return errors.Join(err, updateErr)
-				}
-			} else if err := s.markDelivered(ctx, item.ID, "email"); err != nil {
-				return err
-			}
+			deliveries = append(deliveries, delivery{item: item, channel: "email", payload: payload})
 		}
+	}
+	semaphore := make(chan struct{}, operatorNotificationConcurrency)
+	var workers sync.WaitGroup
+	var errorMu sync.Mutex
+	var deliveryErrors []error
+	for _, task := range deliveries {
+		workers.Add(1)
+		go func(task delivery) {
+			defer workers.Done()
+			select {
+			case semaphore <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-semaphore }()
+			var deliveryErr error
+			if task.channel == "webhook" {
+				deliveryErr = deliverOperatorWebhook(ctx, cfg, task.item.ID, task.body)
+			} else {
+				deliveryErr = deliverOperatorEmail(ctx, cfg, task.payload)
+			}
+			if deliveryErr != nil {
+				attempts := task.item.EmailAttempts
+				if task.channel == "webhook" {
+					attempts = task.item.WebhookAttempts
+				}
+				if updateErr := s.recordFailure(ctx, task.item.ID, task.channel, attempts, deliveryErr); updateErr != nil {
+					errorMu.Lock()
+					deliveryErrors = append(deliveryErrors, errors.Join(deliveryErr, updateErr))
+					errorMu.Unlock()
+				}
+				return
+			}
+			if err := s.markDelivered(ctx, task.item.ID, task.channel); err != nil {
+				errorMu.Lock()
+				deliveryErrors = append(deliveryErrors, err)
+				errorMu.Unlock()
+			}
+		}(task)
+	}
+	workers.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := errors.Join(deliveryErrors...); err != nil {
+		return err
 	}
 	return s.pruneDelivered(ctx)
 }
@@ -275,6 +320,15 @@ func (s *operatorNotificationStore) status(ctx context.Context, cfg Config) (ope
 	if last.Valid {
 		at := time.Unix(last.Int64, 0).UTC()
 		status.LastFailureAt = &at
+	}
+	var oldest sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `SELECT MIN(created_at) FROM operator_notification_events WHERE (webhook_required=1 AND webhook_delivered_at IS NULL) OR (email_required=1 AND email_delivered_at IS NULL)`).Scan(&oldest); err != nil {
+		return status, err
+	}
+	if oldest.Valid {
+		at := time.Unix(oldest.Int64, 0).UTC()
+		status.OldestPendingAt = &at
+		status.OldestPendingAge = max(int64(time.Since(at).Seconds()), 0)
 	}
 	return status, nil
 }

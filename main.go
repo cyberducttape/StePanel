@@ -1017,6 +1017,7 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	a.Metrics.Write(w)
 	writeJobMetrics(w, a.Jobs)
+	writeOperatorNotificationMetrics(w, a.Notifications, a.Config)
 	writeDatabaseMetrics(w, a.cachedDatabaseDiagnostics(15*time.Second))
 	writeReadinessMetrics(w, readinessChecks(a.Config, a.Jobs))
 	if a.Schedules != nil {

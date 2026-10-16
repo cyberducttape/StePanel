@@ -53,6 +53,45 @@ func TestRunBoundedCommandLimit(t *testing.T) {
 	}
 }
 
+func TestCancellationKillsCommandDescendants(t *testing.T) {
+	for name, run := range map[string]func(context.Context, *exec.Cmd) error{
+		"bounded": func(ctx context.Context, cmd *exec.Cmd) error {
+			_, err := RunBoundedCommandLimit(ctx, cmd, 64)
+			return err
+		},
+		"capped": func(ctx context.Context, cmd *exec.Cmd) error { _, err := RunCapped(ctx, cmd, 64); return err },
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			pidFile := filepath.Join(root, "child.pid")
+			marker := filepath.Join(root, "orphan-ran")
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			command := exec.CommandContext(ctx, "sh", "-c", "(sleep 1; echo orphan > \"$1\") & child=$!; echo $child > \"$2\"; wait", "sh", marker, pidFile)
+			done := make(chan error, 1)
+			go func() { done <- run(ctx, command) }()
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				if _, err := os.Stat(pidFile); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("child did not start")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			cancel()
+			if err := <-done; !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancel result = %v", err)
+			}
+			time.Sleep(1100 * time.Millisecond)
+			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("descendant survived cancellation (marker stat error %v)", err)
+			}
+		})
+	}
+}
+
 func TestCommandConstruction(t *testing.T) {
 	ctx := context.Background()
 	for name, cmd := range map[string]*exec.Cmd{

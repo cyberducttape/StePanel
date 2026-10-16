@@ -497,6 +497,13 @@ Prometheus exposes `stepanel_git_release_bytes` and
 `/api/audit/events` to correlate releases with process, proxy, and database
 changes. See [`GIT_DEPLOYMENTS.md`](GIT_DEPLOYMENTS.md).
 
+Each checkout and build artifact is also limited by
+`STEPANEL_GIT_RELEASE_MAX_TREE_BYTES` (default 5 GiB). The configured amount is
+reserved during checkout and the unpacked tree is checked before activation.
+This is not a hard write-time quota: a clone can temporarily exceed the limit
+before the post-check rejects it. Use filesystem/account quotas for hard
+containment of untrusted or unexpectedly large repositories.
+
 Use the authenticated database endpoints during an incident:
 
 ```text

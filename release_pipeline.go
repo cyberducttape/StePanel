@@ -158,6 +158,11 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "build artifact is unsafe", 422)
 		return
 	}
+	if err := validateGitReleaseSize(artifact, a.Config.GitReleaseMaxTreeBytes); err != nil {
+		_ = a.recordDeployment(input.Site, "build", "failed", "artifact size limit exceeded", result, artifact) // failure already marks readiness
+		http.Error(w, "build artifact exceeds the release size limit", 422)
+		return
+	}
 	if err := a.discardSiteReleaseStaging(operationCtx, input.Site, release); err != nil {
 		http.Error(w, "could not replace source with artifact", 500)
 		return
@@ -191,6 +196,12 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	if err != nil {
 		return "", "", err
 	}
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-checkout", release, []capacityDemand{{Path: release, Bytes: uint64(a.Config.GitReleaseMaxTreeBytes)}})
+	if err != nil {
+		_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
+		return "", "", fmt.Errorf("admit Git release staging: %w", err)
+	}
+	defer reservation.release()
 	var output []byte
 	if repository.Private {
 		output, err = clonePrivateRepository(ctx, a.Config, site.Site(), repository.URL, ref, release)
@@ -209,7 +220,7 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 		return "", "", err
 	}
 	commit := strings.TrimSpace(string(commitOutput))
-	if !gitCommitPattern.MatchString(commit) || validateGitRelease(release, a.Config.MaxEntries) != nil || os.RemoveAll(filepath.Join(release, ".git")) != nil {
+	if !gitCommitPattern.MatchString(commit) || validateGitRelease(release, a.Config.MaxEntries) != nil || validateGitReleaseSize(release, a.Config.GitReleaseMaxTreeBytes) != nil || os.RemoveAll(filepath.Join(release, ".git")) != nil {
 		_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
 		return "", "", fmt.Errorf("invalid checked-out release: %s", strings.TrimSpace(string(output)))
 	}

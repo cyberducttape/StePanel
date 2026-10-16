@@ -728,6 +728,12 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = a.discardSiteReleaseStaging(context.Background(), input.Site, release) }()
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-release-staging", release, []capacityDemand{{Path: release, Bytes: uint64(a.Config.GitReleaseMaxTreeBytes)}})
+	if err != nil {
+		http.Error(w, "insufficient capacity for the configured Git release limit", http.StatusInsufficientStorage)
+		return
+	}
+	defer reservation.release()
 	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
 	defer cancel()
 	var cloneOutput []byte
@@ -755,6 +761,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateGitRelease(release, a.Config.MaxEntries); err != nil {
 		http.Error(w, "repository contains an unsafe release tree: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if err := validateGitReleaseSize(release, a.Config.GitReleaseMaxTreeBytes); err != nil {
+		http.Error(w, "repository exceeds the configured release size limit", http.StatusRequestEntityTooLarge)
 		return
 	}
 	if err := os.RemoveAll(filepath.Join(release, ".git")); err != nil {
@@ -1099,6 +1109,43 @@ func validateGitRelease(root string, maxEntries int) error {
 		}
 		return nil
 	})
+}
+
+func validateGitReleaseSize(root string, maxBytes int64) error {
+	if maxBytes < 1 {
+		return errors.New("release size limit must be positive")
+	}
+	var total int64
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == filepath.Join(root, ".git") || strings.HasPrefix(path, filepath.Join(root, ".git")+string(os.PathSeparator)) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", filepath.Base(path))
+		}
+		if info.Size() > maxBytes-total {
+			return errors.New("release exceeds the configured byte limit")
+		}
+		total += info.Size()
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func newRequestID() string {

@@ -137,10 +137,23 @@ func (a *App) operationalHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Config.OffsiteTarget != "" && a.BackupIndex != nil {
 		if summary, err := a.BackupIndex.OffsiteSummary(a.Config.OffsiteTarget); err == nil {
-			verified := offsiteCapability.Mode == CapabilityRemote
+			remoteProbe, remoteCheckedAt := offsiteProbeEvidence(a.Config.OffsiteTarget)
+			var writable, readable *bool
+			var cryptographicIntegrity *bool
+			if summary.LastSuccessfulBackup != nil {
+				value := true
+				writable = &value
+			}
+			if summary.LastVerifiedRestore != nil {
+				value := true
+				readable = &value
+				cryptographicIntegrity = &value
+			}
 			response["offsite_backup_status"] = map[string]any{
-				"configured": true, "authenticated": verified, "writable": verified, "readable": verified,
-				"last_remote_verification":           offsiteProbeCheckedAt(a.Config.OffsiteTarget),
+				"configured": true, "remote_reachable": remoteProbe,
+				"authenticated": remoteProbe, "writable": writable, "readable": readable,
+				"cryptographic_integrity":            cryptographicIntegrity,
+				"last_remote_verification":           remoteCheckedAt,
 				"last_successful_backup":             summary.LastSuccessfulBackup,
 				"last_successful_backup_age_seconds": offsiteAgeSeconds(summary.LastSuccessfulBackup),
 				"last_verified_restore":              summary.LastVerifiedRestore,

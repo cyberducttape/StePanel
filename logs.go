@@ -2,11 +2,13 @@ package stepanel
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 const maxLogTailBytes = 4 << 20
@@ -114,12 +116,7 @@ func (a *App) siteLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter := r.URL.Query().Get("filter")
-	path, err := safePath(a.Config.WebRoot, "sites", site, "logs", filename)
-	if err != nil {
-		http.Error(w, "invalid log path", 422)
-		return
-	}
-	file, err := os.Open(path)
+	file, err := openManagedSiteLog(a.Config.WebRoot, site, filename)
 	if os.IsNotExist(err) {
 		writeJSON(w, 200, map[string]any{"site": site, "source": source, "lines": []string{}, "available": false})
 		return
@@ -150,4 +147,73 @@ func (a *App) siteLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"site": site, "source": source, "lines": all, "available": true, "filtered": filter != ""})
+}
+
+// openManagedSiteLog walks the trusted sites/site/logs hierarchy through
+// directory descriptors and opens only a regular, non-symlink log file. The
+// descriptor remains confined even if a customer concurrently renames entries.
+func openManagedSiteLog(webRoot, site, filename string) (*os.File, error) {
+	root, err := os.OpenRoot(webRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	sites, err := openChildRoot(root, "sites")
+	if err != nil {
+		return nil, err
+	}
+	defer sites.Close()
+	siteRoot, err := openChildRoot(sites, site)
+	if err != nil {
+		return nil, err
+	}
+	defer siteRoot.Close()
+	logs, err := openChildRoot(siteRoot, "logs")
+	if err != nil {
+		return nil, err
+	}
+	defer logs.Close()
+	entry, err := logs.Lstat(filename)
+	if err != nil {
+		return nil, err
+	}
+	if !entry.Mode().IsRegular() {
+		return nil, errors.New("log is not a regular file")
+	}
+	file, err := logs.OpenFile(filename, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := file.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(entry, opened) {
+		_ = file.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("log file changed while opening")
+	}
+	return file, nil
+}
+
+func openChildRoot(parent *os.Root, name string) (*os.Root, error) {
+	before, err := parent.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !before.IsDir() || before.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("managed log directory is not a real directory")
+	}
+	child, err := parent.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	after, err := child.Stat(".")
+	if err != nil || !os.SameFile(before, after) {
+		_ = child.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("managed log directory changed while opening")
+	}
+	return child, nil
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCapabilitiesEndpoint(t *testing.T) {
@@ -447,6 +448,21 @@ func resetOffsiteProbeCache() {
 	offsiteProbeCache.Lock()
 	offsiteProbeCache.results = make(map[string]offsiteProbeResult)
 	offsiteProbeCache.Unlock()
+}
+
+func TestOffsiteProbeEvidenceIsUnknownUntilChecked(t *testing.T) {
+	resetOffsiteProbeCache()
+	if result, checked := offsiteProbeEvidence("remote:"); result != nil || checked != nil {
+		t.Fatalf("unchecked remote evidence = (%v, %v), want unknown", result, checked)
+	}
+	checkedAt := time.Now().UTC()
+	offsiteProbeCache.Lock()
+	offsiteProbeCache.results["remote:"] = offsiteProbeResult{checked: checkedAt}
+	offsiteProbeCache.Unlock()
+	result, checked := offsiteProbeEvidence("remote:")
+	if result == nil || !*result || checked == nil || !checked.Equal(checkedAt) {
+		t.Fatalf("successful probe evidence = (%v, %v)", result, checked)
+	}
 }
 
 func TestBuildCapabilityRequiresExecutableRunnerCtlAndImageLimit(t *testing.T) {

@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -252,6 +253,22 @@ func writeJobMetrics(w io.Writer, jobs *Jobs) {
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_jobs_inventory_errors Whether durable job inventory collection failed")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_jobs_inventory_errors gauge")
 	_, _ = fmt.Fprintf(w, "stepanel_jobs_inventory_errors %d\n", inventoryErrors)
+}
+
+func writeOperatorNotificationMetrics(w io.Writer, store *operatorNotificationStore, cfg Config) {
+	up, pending, failures, oldestAge := 0, 0, 0, int64(0)
+	if store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		status, err := store.status(ctx, cfg)
+		cancel()
+		if err == nil {
+			up, pending, failures, oldestAge = 1, status.Pending, status.FailedDeliveries, status.OldestPendingAge
+		}
+	}
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_operator_notification_outbox_up Whether notification outbox status was read\n# TYPE stepanel_operator_notification_outbox_up gauge\nstepanel_operator_notification_outbox_up %d\n", up)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_operator_notifications_pending Required alert channel deliveries still pending\n# TYPE stepanel_operator_notifications_pending gauge\nstepanel_operator_notifications_pending %d\n", pending)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_operator_notifications_failed Deliveries with a recorded failure\n# TYPE stepanel_operator_notifications_failed gauge\nstepanel_operator_notifications_failed %d\n", failures)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_operator_notifications_oldest_pending_age_seconds Age of the oldest undelivered alert\n# TYPE stepanel_operator_notifications_oldest_pending_age_seconds gauge\nstepanel_operator_notifications_oldest_pending_age_seconds %d\n", oldestAge)
 }
 
 func writeDatabaseMetrics(w io.Writer, diagnostics DatabaseDiagnostics) {

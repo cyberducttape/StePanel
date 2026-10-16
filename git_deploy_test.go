@@ -242,6 +242,25 @@ func TestValidateGitReleaseRejectsSymlinksAndEntryFloods(t *testing.T) {
 	}
 }
 
+func TestValidateGitReleaseSizeExcludesGitMetadataAndEnforcesLimit(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "objects"), make([]byte, 4096), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "app.php"), []byte("12345"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateGitReleaseSize(root, 5); err != nil {
+		t.Fatalf("size at limit rejected: %v", err)
+	}
+	if err := validateGitReleaseSize(root, 4); err == nil {
+		t.Fatal("oversized release accepted")
+	}
+}
+
 // TestGitDeployWebhookRejectsCrossSiteBody is the regression test for the
 // webhook cross-site vulnerability: a valid signature for site-a must not be
 // usable to trigger a deploy on site-b by putting site-b in the request body.

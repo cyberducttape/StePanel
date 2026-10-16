@@ -8,6 +8,37 @@ import (
 	"testing"
 )
 
+func TestOpenManagedSiteLogRejectsSymlinkAndReadsRegularFile(t *testing.T) {
+	web := t.TempDir()
+	logs := filepath.Join(web, "sites", "site1", "logs")
+	if err := os.MkdirAll(logs, 0700); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(logs, "access.log")
+	if err := os.WriteFile(want, []byte("safe\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := openManagedSiteLog(web, "site1", "access.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = file.Close()
+	outside := filepath.Join(t.TempDir(), "outside.log")
+	if err := os.WriteFile(outside, []byte("secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(want); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, want); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := openManagedSiteLog(web, "site1", "access.log"); err == nil {
+		_ = file.Close()
+		t.Fatal("symlinked log file was opened")
+	}
+}
+
 func BenchmarkReadLogTailFiltered16MiB(b *testing.B) {
 	path := filepath.Join(b.TempDir(), "filtered.log")
 	line := []byte("INFO " + strings.Repeat("x", 4090) + "\n")

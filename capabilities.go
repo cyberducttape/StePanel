@@ -158,6 +158,18 @@ func offsiteProbeCheckedAt(target string) *time.Time {
 	return &t
 }
 
+func offsiteProbeEvidence(target string) (*bool, *time.Time) {
+	offsiteProbeCache.Lock()
+	defer offsiteProbeCache.Unlock()
+	result, ok := offsiteProbeCache.results[target]
+	if !ok || result.checked.IsZero() {
+		return nil, nil
+	}
+	passed := result.err == nil
+	checked := result.checked
+	return &passed, &checked
+}
+
 const (
 	CapabilityUnsupported CapabilityMode = "unsupported"       // Feature not available
 	CapabilityManual      CapabilityMode = "manual"            // Feature requires manual operation

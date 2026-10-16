@@ -51,9 +51,31 @@ func ServiceStatus() map[string]string {
 		return result
 	}
 	result := map[string]string{}
-	for _, service := range []string{"apache2", "httpd", "lsws", "caddy", "mysql", "mariadb", "redis-server", "valkey-server", "fail2ban", "fpm-lens", "exim4", "exim", "dovecot", "spamassassin", "spamd", "vsftpd"} {
+	for _, service := range []string{"apache2", "httpd", "lsws", "caddy", "mysql", "mariadb", "redis-server", "valkey-server", "fail2ban", "fail2ban-server", "fpm-lens", "exim4", "exim", "dovecot", "spamassassin", "spamd", "vsftpd"} {
 		if _, err := exec.LookPath(service); err == nil {
-			result[service] = serviceUnitState(service)
+			state := serviceUnitState(service)
+			if service == "fail2ban-server" {
+				if result["fail2ban"] == "" || state == "active" {
+					result["fail2ban"] = state
+				}
+			} else {
+				result[service] = state
+			}
+		}
+	}
+	if result["fail2ban"] != "active" {
+		if state := serviceUnitState("fail2ban"); state == "active" || result["fail2ban"] == "" {
+			result["fail2ban"] = state
+		}
+	}
+	if result["fail2ban"] == "active" {
+		if client, err := exec.LookPath("fail2ban-client"); err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, client, "status"))
+			cancel()
+			if err == nil && fail2banHasEnabledJail(string(output)) {
+				result["fail2ban-jails"] = "active"
+			}
 		}
 	}
 	if state := systemdPatternState("postgresql*.service"); state != "" {
@@ -74,7 +96,7 @@ func ServiceStatus() map[string]string {
 		output, err := runBoundedCommand(ctx, exec.CommandContext(ctx, apache, "-M"))
 		cancel()
 		if err == nil && (bytes.Contains(output, []byte("security2_module")) || bytes.Contains(output, []byte("security3_module"))) {
-			result["modsecurity"] = "enabled"
+			result["modsecurity"] = "loaded-unverified"
 			break
 		}
 	}
@@ -118,6 +140,22 @@ func cloneServiceStatus(source map[string]string) map[string]string {
 		copy[key] = value
 	}
 	return copy
+}
+
+func fail2banHasEnabledJail(output string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimLeft(strings.TrimSpace(line), "|-` ")
+		fields := strings.SplitN(line, ":", 2)
+		if len(fields) != 2 || !strings.EqualFold(strings.TrimSpace(fields[0]), "Jail list") {
+			continue
+		}
+		for _, jail := range strings.Split(fields[1], ",") {
+			if strings.TrimSpace(jail) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func serviceUnitState(service string) string {
