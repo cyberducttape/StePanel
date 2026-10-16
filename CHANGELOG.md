@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Run the real ext4 ENOSPC backup and file-restore drills on exact source
+  `aa1d4b4` in a disposable Rocky Linux 9 KVM guest; record the checksum-pinned
+  image and per-phase results while keeping uncovered ENOSPC boundaries open.
 - Use OpenStack's operation-aware `server reboot --wait` for reboot jobs so a
   fast transient server-state transition cannot be missed by StePanel polling;
   cover command dispatch and provider-wait failure propagation.

@@ -98,6 +98,13 @@ from it until it completes.
   upgrade-policy, or independent-security-review gates. No production approval
   is implied. Full results are in the
   [current-head validation report](lab-results/2026-10-16-current-head-validation-64696a2.md).
+- A focused KVM run on exact source `aa1d4b4` passed the real ext4 ENOSPC
+  backup and file-restore tests in a disposable Rocky Linux 9 guest. The
+  backup failed without publishing a partial artifact; file restore preserved
+  the existing site on ENOSPC and succeeded after space was freed. This run
+  did not install StePanel and does not cover publication, import, database
+  restore, physical power loss, or repeated recovery certification; see the
+  [run report](lab-results/2026-10-16-kvm-enospc-aa1d4b4.md).
 - A fresh [repository recovery-drill run](lab-results/2026-10-16-recovery-drills.md)
   on `5732c10` passed partial SQL import cleanup, interrupted transaction
   recovery, configuration rollback, and pending runtime reconciliation. These

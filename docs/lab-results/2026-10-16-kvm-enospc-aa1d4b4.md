@@ -1,0 +1,45 @@
+# Exact-source KVM ENOSPC drill — 2026-10-16
+
+## Result
+
+Passed the real-filesystem ENOSPC tests on source commit
+`aa1d4b4037a3e8bb9df486718a5b14ea0e4d3978` with a clean worktree. The run
+used the repository's `deploy/lab/local-kvm-certification.sh` harness with
+`PHASES=enospc`; no StePanel installation or customer data was involved.
+
+| Phase | Result | Duration | Evidence |
+| --- | --- | ---: | --- |
+| Guest boot | PASS | 84 s | Rocky Linux 9 guest booted with `/var/www` mounted using user quotas. |
+| Real ENOSPC | PASS | 31 s | `TestBackupRecoversFromRealENOSPC` and `TestRestoreFilesRecoversFromRealENOSPC` both passed on the dedicated ext4 test volume. |
+
+The backup test observed ENOSPC and confirmed no partial backup publication.
+The file-restore test observed ENOSPC, verified the preexisting live site was
+unchanged and staging was cleaned, then freed space and verified that retry
+restored the expected files.
+
+## Environment and reproduction
+
+- Host kernel: `7.0.0-38-generic`; QEMU: `10.2.1`; guest: Rocky Linux 9
+  GenericCloud, kernel `5.14.0-687.10.1.el9_8.0.1.x86_64`.
+- Guest resources: 3 GiB RAM, 4 vCPUs; dedicated 96 MiB raw ext4 ENOSPC volume.
+- Base image: official
+  [`Rocky-9-GenericCloud.latest.x86_64.qcow2`](https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2),
+  SHA-256 `92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8`
+  (verified against the adjacent official CHECKSUM file).
+- Source archive and test binary were built from the recorded clean commit.
+- Started `2026-10-16T02:26:11Z`; finished `2026-10-16T02:28:25Z`.
+
+Reproduce with a verified Rocky 9 GenericCloud image and usable `/dev/kvm`:
+
+```sh
+PHASES=enospc VM_MEMORY_MB=3072 VM_HOST_RESERVE_MB=2048 \
+  deploy/lab/local-kvm-certification.sh IMAGE.qcow2 RUN_DIR
+```
+
+## Scope limits
+
+This was a focused disposable-guest exercise, not an installed-host
+certification run. It does not cover ENOSPC during site publication, archive
+import, or database restore; physical host power loss; service/broker/database
+outages; the 20–50 repeated full recovery matrix; or capacity certification.
+Those release gates remain open.
