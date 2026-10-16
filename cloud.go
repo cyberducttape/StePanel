@@ -901,16 +901,14 @@ func executeOpenStackInstanceAction(ctx context.Context, action, id string, run 
 		return fmt.Errorf("invalid instance ID format: %s", id)
 	}
 	if action == "reboot" {
-		before, err := read(ctx, id)
+		args, err := openStackInstanceActionArgs(action, id)
 		if err != nil {
-			return fmt.Errorf("read OpenStack server state before reboot: %w", err)
-		}
-		if err := run(ctx, "server", "reboot", "--hard", id, "-f", "json"); err != nil {
 			return err
 		}
-		return waitCloudState(ctx, before, "ACTIVE", interval, func(waitCtx context.Context) (string, error) {
-			return read(waitCtx, id)
-		})
+		// Let OpenStack's operation-aware waiter observe the reboot lifecycle.
+		// Polling server status ourselves can miss the transient REBOOT state and
+		// then time out even though the provider completed the reboot.
+		return run(ctx, args...)
 	}
 	args, err := openStackInstanceActionArgs(action, id)
 	if err != nil {
@@ -936,6 +934,8 @@ func openStackInstanceActionArgs(action, id string) ([]string, error) {
 		return []string{"server", "start", id, "-f", "json"}, nil
 	case "stop":
 		return []string{"server", "stop", id, "-f", "json"}, nil
+	case "reboot":
+		return []string{"server", "reboot", "--hard", "--wait", id, "-f", "json"}, nil
 	case "snapshot":
 		// OpenStack returns after accepting a backup unless --wait is supplied.
 		return []string{"server", "backup", "create", "--name", "stepanel-" + id, "--wait", id, "-f", "json"}, nil

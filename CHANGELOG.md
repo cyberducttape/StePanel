@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Use OpenStack's operation-aware `server reboot --wait` for reboot jobs so a
+  fast transient server-state transition cannot be missed by StePanel polling;
+  cover command dispatch and provider-wait failure propagation.
 - Re-run the full repository production gate on `c628903`, recording exact-head
   coverage, race, recovery-drill, benchmark, mixed-load, documentation, asset,
   and shell-check results; retain the installed-host and production-certification

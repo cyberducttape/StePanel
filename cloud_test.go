@@ -364,6 +364,44 @@ func TestOpenStackWaitRequiresDesiredState(t *testing.T) {
 	}
 }
 
+func TestOpenStackRebootUsesProviderWait(t *testing.T) {
+	called := false
+	err := executeOpenStackInstanceAction(context.Background(), "reboot", "server-123",
+		func(_ context.Context, args ...string) error {
+			called = true
+			want := []string{"server", "reboot", "--hard", "--wait", "server-123", "-f", "json"}
+			if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+				t.Fatalf("OpenStack reboot command = %v, want %v", args, want)
+			}
+			return nil
+		},
+		func(context.Context, string) (string, error) {
+			t.Fatal("reboot completion must use the provider waiter, not state polling")
+			return "", nil
+		}, 0)
+	if err != nil || !called {
+		t.Fatalf("OpenStack reboot completion err=%v dispatched=%v", err, called)
+	}
+}
+
+func TestOpenStackRebootWaitFailureIsNotReportedAsSuccess(t *testing.T) {
+	waitErr := errors.New("provider reboot waiter failed")
+	err := executeOpenStackInstanceAction(context.Background(), "reboot", "server-123",
+		func(_ context.Context, args ...string) error {
+			if len(args) == 0 || args[0] != "server" {
+				t.Fatalf("unexpected OpenStack reboot command: %v", args)
+			}
+			return waitErr
+		},
+		func(context.Context, string) (string, error) {
+			t.Fatal("must not use the old state-polling fallback")
+			return "", nil
+		}, 0)
+	if !errors.Is(err, waitErr) {
+		t.Fatalf("OpenStack reboot error = %v, want provider waiter error", err)
+	}
+}
+
 func TestCloudRebootWaitRequiresObservedTransition(t *testing.T) {
 	statuses := []string{"ACTIVE", "REBOOT", "ACTIVE"}
 	reads := 0
