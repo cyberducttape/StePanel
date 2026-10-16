@@ -78,6 +78,27 @@ ENOSPC ([details](lab-results/2026-10-16-quota-install-smoke-38828118772.md)).
 The exact-head `e8590d7` quota run is still in progress; no result is inferred
 from it until it completes.
 
+### Current-head validation — 2026-10-16 (`64696a2`)
+
+- Local `go test ./...`, `go test -race ./...`, and `go vet ./...` passed with
+  Go 1.26.7. The standard root-package suite took 65.436 seconds; the race
+  suite took 441.531 seconds. Shell syntax checks passed for `install.sh` and
+  all shell scripts under `deploy/` and `scripts/`; documentation link and
+  source-reference checks passed for 88 documents.
+- Exact-head hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38833209036)
+  and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38833209088)
+  passed. The GitHub code-scanning API reported zero open alerts at capture.
+- The same-SHA 20-iteration installed-host cohort remains in progress:
+  shards 01 and 02 are running all six OS/web-server jobs; shards 03–10 are
+  queued. No iteration is counted until its complete six-host shard passes. The
+  exact-head six-host install and quota runs are pending; the completed smoke
+  and quota evidence documented above is on unchanged application code.
+- This validation does not close physical-host power-loss, publication/import/
+  database-restore ENOSPC, live SMTP/webhook outage, capacity, runtime-matrix,
+  upgrade-policy, or independent-security-review gates. No production approval
+  is implied. Full results are in the
+  [current-head validation report](lab-results/2026-10-16-current-head-validation-64696a2.md).
+
 ### Current-head evidence update — 2026-10-15 (`7ca34dc`)
 
 - Hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38692216922)

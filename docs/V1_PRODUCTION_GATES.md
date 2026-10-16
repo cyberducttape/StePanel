@@ -60,7 +60,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Nine installed-host smoke runs have passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations, including database-backed WordPress recovery ([latest run evidence](./lab-results/2026-10-16-hosted-install-smoke-38828118744.md)). `INSTALLATION.md` lists these combinations explicitly as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Open | Exact-head CI and CodeQL passed on `60f96ee` ([CI](https://github.com/cyberducttape/StePanel/actions/runs/38830844631), [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38830844606)). The six-host install smoke passed on `0fe2138` ([run 38828118744](./lab-results/2026-10-16-hosted-install-smoke-38828118744.md)); its application code is unchanged on `60f96ee`. The exact-head 20-repeat cohort is still running as ten shards ([shard 01](https://github.com/cyberducttape/StePanel/actions/runs/38830877337)); no repetition gate is yet closed. Capacity, physical-host recovery, and remaining documented gates stay open. |
+| Release documentation reconciled with executable evidence | ⚠️ Open | Exact-head local Go tests, race tests, vet, shell/doc checks, hosted CI, and CodeQL passed on `64696a2` ([report](./lab-results/2026-10-16-current-head-validation-64696a2.md), [CI](https://github.com/cyberducttape/StePanel/actions/runs/38833209036), [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38833209088); zero open CodeQL alerts at capture). The six-host install smoke passed on `0fe2138` ([run 38828118744](./lab-results/2026-10-16-hosted-install-smoke-38828118744.md)); its application code is unchanged on `64696a2`. The exact-head 20-repeat cohort is still running as ten shards ([shard 01](https://github.com/cyberducttape/StePanel/actions/runs/38830877337)); shards 01–02 are active and 03–10 queued at capture, so no repetition gate is closed. Capacity, physical-host recovery, and remaining documented gates stay open. |
 
 ### Historical evidence update — 2026-10-14
 
@@ -180,6 +180,15 @@ filesystem, the WordPress proof completed in 44.724 seconds, abrupt QEMU guest
 loss recovered with persistent disks, and real ENOSPC backup/file-restore
 checks passed. This does not establish physical host power-loss recovery or
 ENOSPC safety during publication, import, or database restore.
+
+### Exact-head validation update — 2026-10-16 (`64696a2`)
+
+The full Go tests, race tests, vet, shell syntax, and documentation checks passed
+locally; hosted CI and CodeQL also passed, with zero open code-scanning alerts at
+capture. See the [validation report](./lab-results/2026-10-16-current-head-validation-64696a2.md).
+This does not close the running 20-repeat hosted recovery cohort or the physical-
+host, broader ENOSPC, live-notification, capacity, runtime-certification, or
+independent-review gates.
 
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`
