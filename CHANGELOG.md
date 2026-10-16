@@ -24,6 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Record four passing repository-level rollback/reconciliation drill groups on
   `5732c10`, with exact source and elapsed times; explicitly retain the separate
   installed-host, power-loss, and ENOSPC release gates.
+- Record a full repository production-gate pass on code-bearing commit `1e38dfc`,
+  including coverage floors, race tests, recovery drills, benchmarks, and mixed
+  HTTP load; keep the real-host and certified-capacity gates open.
 - Record the exact-head repository production gate pass, including the full
   race and coverage suites, crash drills, benchmarks, and mixed HTTP load;
   retain all outstanding real-host recovery and capacity gates.

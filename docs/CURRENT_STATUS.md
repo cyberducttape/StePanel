@@ -103,6 +103,18 @@ from it until it completes.
   recovery, configuration rollback, and pending runtime reconciliation. These
   synthetic tests do not substitute for installed-host failure evidence.
 
+### Full repository production gate — code source `1e38dfc`
+
+`bash scripts/production-gate.sh` passed on `1e38dfc1d201a244ef07ffb2bfd01ef03f450969`
+with Go 1.26.7. It passed full coverage and configured package floors, the race
+suite, repository recovery drills, control-plane benchmarks, a 200-site mixed
+HTTP workload (180 requests; p95 10.914 ms), documentation/reference checks,
+action pinning, asset validation, and shell syntax. The synthetic load and
+single-iteration benchmarks are not a certified capacity envelope. The gate
+explicitly does not establish host-level ENOSPC, power-loss, distro, or
+production-capacity evidence. See the
+[captured results](lab-results/2026-10-16-repository-production-gate-1e38dfc.md).
+
 ### Current-head evidence update — 2026-10-15 (`7ca34dc`)
 
 - Hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38692216922)
