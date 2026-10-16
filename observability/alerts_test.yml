@@ -22,6 +22,12 @@ tests:
         values: '1000+0x30'
       - series: 'stepanel_jobs_inventory_errors{job="stepanel"}'
         values: '1+0x30'
+      - series: 'stepanel_jobs_dead_letter{job="stepanel"}'
+        values: '1+0x30'
+      - series: 'stepanel_jobs_queued{job="stepanel"}'
+        values: '1+0x30'
+      - series: 'stepanel_jobs_oldest_queued_age_seconds{job="stepanel"}'
+        values: '1000+0x30'
     alert_rule_test:
       - eval_time: 20m
         alertname: StePanelControlPlaneDatabaseNearLimit
@@ -68,6 +74,24 @@ tests:
             exp_annotations:
               summary: StePanel could not read durable job inventory
               description: Job queue metrics are unavailable; inspect control-plane SQLite health and the panel-worker database connection before trusting job status views.
+      - eval_time: 20m
+        alertname: StePanelDeadLetterJobs
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              severity: critical
+            exp_annotations:
+              summary: StePanel has jobs requiring operator review
+              description: One or more durable jobs exhausted retries; inspect the job record and recovery state, then explicitly retry, resolve, or archive it.
+      - eval_time: 20m
+        alertname: StePanelQueueWaitTooLong
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              severity: warning
+            exp_annotations:
+              summary: StePanel jobs are waiting unusually long
+              description: The oldest durable queued job has waited more than fifteen minutes; inspect worker availability, admission limits, and owner-level queue blocking.
 
   # 100 requests per minute with 10 percent failing: the ratio rule fires.
   - interval: 1m

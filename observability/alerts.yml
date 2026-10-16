@@ -64,6 +64,24 @@ groups:
           summary: StePanel could not read durable job inventory
           description: Job queue metrics are unavailable; inspect control-plane SQLite health and the panel-worker database connection before trusting job status views.
 
+      - alert: StePanelDeadLetterJobs
+        expr: stepanel_jobs_dead_letter{job="stepanel"} > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: StePanel has jobs requiring operator review
+          description: One or more durable jobs exhausted retries; inspect the job record and recovery state, then explicitly retry, resolve, or archive it.
+
+      - alert: StePanelQueueWaitTooLong
+        expr: stepanel_jobs_queued{job="stepanel"} > 0 and stepanel_jobs_oldest_queued_age_seconds{job="stepanel"} > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: StePanel jobs are waiting unusually long
+          description: The oldest durable queued job has waited more than fifteen minutes; inspect worker availability, admission limits, and owner-level queue blocking.
+
       - alert: StePanelControlPlaneDatabaseNearLimit
         expr: stepanel_control_plane_database_limit_ratio{job="stepanel"} > 0.80
         for: 10m
