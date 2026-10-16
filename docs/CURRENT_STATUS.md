@@ -18,6 +18,13 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate requirements and acceptance criteria.
 
+The exact pushed source `ee563eb` passed the repository production gate on
+2026-10-16, including full race tests, coverage thresholds, repository recovery
+drills, mixed HTTP load, and documentation checks. This is repository-level
+evidence only; the installed-host, repeated recovery, upgrade, and capacity
+gates remain as recorded in the authoritative gate document and the
+[run report](lab-results/2026-10-16-repository-production-gate-ee563eb.md).
+
 The 2026-10-11 hosted install smoke passed on both Rocky Linux 9 and
 AlmaLinux 9, including one default interruption-matrix iteration per OS.
 For `7d0754f4`, hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38224814805),

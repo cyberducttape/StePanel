@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Record the exact-head repository production gate for `ee563eb`: full race and
+  coverage gates, recovery drills, and mixed-load checks passed; retain the
+  report's explicit installed-host and capacity-certification limitations.
 - Apply a fixed 10 GiB SQLite page-allocation ceiling independently to the
   panel and root-broker connections, and expose database logical/physical size,
   limit utilization, and audit-outbox backlog metrics with Prometheus alerts.

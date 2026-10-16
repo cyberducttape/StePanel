@@ -62,6 +62,13 @@ published only as a certified envelope, never as targets.
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
 | Release documentation reconciled with executable evidence | ⚠️ Open | The full local repository gate passed on `3927b38` ([report](./lab-results/2026-10-16-repository-production-gate-3927b38.md)). Exact-head CI, CodeQL, quota install smoke, and N-1 upgrade smoke passed on `3be9b99` ([CI](https://github.com/cyberducttape/StePanel/actions/runs/38843586085), [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38843585904), [quota](https://github.com/cyberducttape/StePanel/actions/runs/38843586000), [upgrade](https://github.com/cyberducttape/StePanel/actions/runs/38882203108)); standard six-host installation smoke is still queued. Three two-repeat shards on older source `60f96ee` ([01](https://github.com/cyberducttape/StePanel/actions/runs/38830877337), [02](https://github.com/cyberducttape/StePanel/actions/runs/38830880739), [03](https://github.com/cyberducttape/StePanel/actions/runs/38830884355)) all completed with one host job failing per shard at cPanel smoke login (HTTP 401 before import); 15/18 host jobs passed both iterations. See the [shard outcome report](./lab-results/2026-10-16-hosted-recovery-shard-outcomes.md). Current-source smoke code retries one 401 with a fresh TOTP counter, but awaits hosted validation. No complete repeated cohort is claimed. Capacity, physical-host recovery, and remaining documented gates stay open. |
 
+The repository production gate was rerun on the exact pushed commit `ee563eb`
+and passed, including coverage thresholds, the complete race suite,
+repository recovery drills, mixed HTTP load, and documentation checks. The
+[run record](./lab-results/2026-10-16-repository-production-gate-ee563eb.md)
+captures its measurements and limitations. It does not close any installed-host
+or capacity-certification gate above.
+
 ### Historical evidence update — 2026-10-14
 
 The earlier three-run and 18-proof counts in the P0 table above predate
