@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Record the exact-head repository production gate pass, including the full
+  race and coverage suites, crash drills, benchmarks, and mixed HTTP load;
+  retain all outstanding real-host recovery and capacity gates.
 - Wait for panel readiness before backup-recovery smoke authentication and
   include recent service logs when readiness does not converge.
 - Fail closed during backup retention when a site's manifest lacks a creation

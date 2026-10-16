@@ -148,6 +148,18 @@ schedule/outbox staging ([audit report](./lab-results/2026-10-15-provider-and-ca
 These fixture-backed checks do not replace live-provider or installed-host
 evidence.
 
+### Repository production gate — 2026-10-16
+
+The full repository production-gate script passed on exact source commit
+`82cfe464757829dbbc15b92e92bbf91051df3811`: full Go tests and coverage
+thresholds, race tests, repository crash drills, control-plane benchmarks,
+synthetic mixed HTTP load, documentation and asset checks, action pinning, and
+shell syntax. See the [captured run results](./lab-results/2026-10-16-repository-production-gate-82cfe46.md).
+The local KVM extended recovery matrix was interrupted before completion and
+is not counted. This repository-level pass does not close real-host repeated
+recovery, physical power-loss, broader ENOSPC, live SMTP/webhook outage, or
+capacity-certification gates.
+
 Status refresh after commit `d1a259c`: CodeQL is running; CI and the
 six-host installation matrix are queued. The quota guest run for `c73926e`
 remains active, while the newest quota run for `d1a259c` is pending
