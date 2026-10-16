@@ -64,6 +64,15 @@ groups:
           summary: StePanel control-plane database is nearing its configured limit
           description: SQLite logical page allocation is above 80 percent of the fixed 10 GiB limit; inspect job and outbox retention and plan maintenance before writes are refused.
 
+      - alert: StePanelCapacityLedgerUnavailable
+        expr: stepanel_capacity_reservations_up{job="stepanel"} == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Durable storage admission telemetry is unavailable
+          description: The capacity reservation ledger could not be read; verify control-plane SQLite health and that storage-consuming operations are failing closed.
+
       - alert: StePanelAuditOutboxBacklog
         expr: stepanel_audit_outbox_pending{job="stepanel"} > 0 and stepanel_audit_outbox_oldest_pending_age_seconds{job="stepanel"} > 300
         for: 5m

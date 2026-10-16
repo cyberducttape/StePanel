@@ -1022,8 +1022,10 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	writeOperatorNotificationMetrics(w, a.Notifications, a.Config)
 	writeAuditOutboxMetrics(w, a.AuditOutbox)
 	if a.Jobs == nil {
+		writeCapacityReservationMetrics(w, nil)
 		writeControlPlaneStorageMetrics(w, nil, a.Config.ControlPlaneDB, sqliteutil.DefaultDatabaseMaxBytes)
 	} else {
+		writeCapacityReservationMetrics(w, a.Jobs.db)
 		writeControlPlaneStorageMetrics(w, a.Jobs.db, a.Config.ControlPlaneDB, sqliteutil.DefaultDatabaseMaxBytes)
 	}
 	writeDatabaseMetrics(w, a.cachedDatabaseDiagnostics(15*time.Second))

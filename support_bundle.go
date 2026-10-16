@@ -152,6 +152,11 @@ func writeSupportBundle(out io.Writer, a *App) error {
 	}
 	writeReadinessMetrics(&metricsText, readiness)
 	writeJobMetrics(&metricsText, a.Jobs)
+	if a.Jobs == nil {
+		writeCapacityReservationMetrics(&metricsText, nil)
+	} else {
+		writeCapacityReservationMetrics(&metricsText, a.Jobs.db)
+	}
 	if err := writeText("metrics.txt", metricsText.String()); err != nil {
 		return closeArchive(err)
 	}

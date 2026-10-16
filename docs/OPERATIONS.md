@@ -367,6 +367,10 @@ tracks bytes as they land and remains until the spool is closed, so a concurrent
 panel or worker operation sees the remaining commitment. Extraction into a
 site's staging tree separately performs a free-space preflight; this check is
 not a certified guarantee against unrelated host processes consuming storage.
+Prometheus exports the active reservation count, held bytes, oldest hold age,
+and held bytes per filesystem device without exposing site paths or workflow
+identifiers. Alert on `stepanel_capacity_reservations_up == 0`; if the ledger
+cannot be read, inspect SQLite health before retrying storage-consuming work.
 
 ## Safe maintenance
 

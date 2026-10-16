@@ -116,6 +116,51 @@ func TestAuditOutboxMetricsExposePendingAge(t *testing.T) {
 	}
 }
 
+func TestCapacityReservationMetricsAggregatePerFilesystem(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "capacity-metrics.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Now().Unix()
+	if _, err := db.Exec(`INSERT INTO capacity_reservations(reservation_id,device,bytes,workflow,staging_path,created_at) VALUES
+		('a',42,200,'import','/private/site-a',?),
+		('b',42,100,'backup','/private/site-b',?),
+		('c',84,40,'restore','/private/site-c',?)`, now-90, now-30, now); err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	writeCapacityReservationMetrics(&output, db)
+	for _, want := range []string{
+		"stepanel_capacity_reservations_up 1",
+		"stepanel_capacity_reservations_active 3",
+		"stepanel_capacity_reserved_bytes 340",
+		`stepanel_capacity_reserved_bytes_by_device{device="42"} 300`,
+		`stepanel_capacity_reserved_bytes_by_device{device="84"} 40`,
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("capacity reservation metric missing %q:\n%s", want, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "/private/") || strings.Contains(output.String(), "workflow=") {
+		t.Fatalf("capacity metrics expose private reservation metadata: %s", output.String())
+	}
+}
+
+func TestCapacityReservationMetricsReportUnavailableLedger(t *testing.T) {
+	var output strings.Builder
+	writeCapacityReservationMetrics(&output, nil)
+	for _, want := range []string{
+		"stepanel_capacity_reservations_up 0",
+		"stepanel_capacity_reservations_active 0",
+		"stepanel_capacity_reserved_bytes 0",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("unavailable capacity metric missing %q:\n%s", want, output.String())
+		}
+	}
+}
+
 type assertionError struct{}
 
 func (assertionError) Error() string { return "test failure" }

@@ -319,6 +319,71 @@ func writeControlPlaneStorageMetrics(w io.Writer, db *sql.DB, path string, maxBy
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_database_limit_ratio Fraction of configured maximum SQLite page allocation used\n# TYPE stepanel_control_plane_database_limit_ratio gauge\nstepanel_control_plane_database_limit_ratio %.6f\n", ratio)
 }
 
+// writeCapacityReservationMetrics exposes durable admission holds without
+// publishing customer paths, workflow names, or reservation identifiers. The
+// device label is the Linux st_dev value already used by the ledger, keeping
+// reservations on different filesystems distinguishable.
+func writeCapacityReservationMetrics(w io.Writer, db *sql.DB) {
+	type reservationStats struct {
+		device        int64
+		count         int64
+		bytes         int64
+		oldestCreated sql.NullInt64
+	}
+	up := 0
+	items := make([]reservationStats, 0, 4)
+	if db != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		rows, err := db.QueryContext(ctx, `SELECT device, COUNT(*), COALESCE(SUM(bytes), 0), MIN(created_at)
+			FROM capacity_reservations GROUP BY device ORDER BY device`)
+		if err == nil {
+			up = 1
+			for rows.Next() {
+				var item reservationStats
+				if err = rows.Scan(&item.device, &item.count, &item.bytes, &item.oldestCreated); err != nil {
+					up = 0
+					items = items[:0]
+					break
+				}
+				items = append(items, item)
+			}
+			if err == nil {
+				err = rows.Err()
+			}
+			if closeErr := rows.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				up = 0
+				items = items[:0]
+			}
+		}
+		cancel()
+	}
+	var count, reservedBytes int64
+	var oldestAge int64
+	for _, item := range items {
+		count += item.count
+		reservedBytes += item.bytes
+		age := int64(0)
+		if item.oldestCreated.Valid {
+			age = max(int64(time.Now().Unix()-item.oldestCreated.Int64), 0)
+		}
+		if age > oldestAge {
+			oldestAge = age
+		}
+	}
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_capacity_reservations_up Whether the durable capacity reservation ledger was readable\n# TYPE stepanel_capacity_reservations_up gauge\nstepanel_capacity_reservations_up %d\n", up)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_capacity_reservations_active Active durable capacity reservations\n# TYPE stepanel_capacity_reservations_active gauge\nstepanel_capacity_reservations_active %d\n", count)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_capacity_reserved_bytes Bytes held by active durable capacity reservations\n# TYPE stepanel_capacity_reserved_bytes gauge\nstepanel_capacity_reserved_bytes %d\n", reservedBytes)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_capacity_reservation_oldest_age_seconds Age of the oldest active capacity reservation\n# TYPE stepanel_capacity_reservation_oldest_age_seconds gauge\nstepanel_capacity_reservation_oldest_age_seconds %d\n", oldestAge)
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_capacity_reserved_bytes_by_device Bytes held by active capacity reservations, grouped by filesystem device")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_capacity_reserved_bytes_by_device gauge")
+	for _, item := range items {
+		_, _ = fmt.Fprintf(w, "stepanel_capacity_reserved_bytes_by_device{device=\"%d\"} %d\n", item.device, item.bytes)
+	}
+}
+
 func writeDatabaseMetrics(w io.Writer, diagnostics DatabaseDiagnostics) {
 	up := 0
 	if diagnostics.Available {

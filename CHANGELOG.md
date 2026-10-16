@@ -12,6 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Apply a fixed 10 GiB SQLite page-allocation ceiling independently to the
   panel and root-broker connections, and expose database logical/physical size,
   limit utilization, and audit-outbox backlog metrics with Prometheus alerts.
+- Expose active durable capacity reservations as aggregate and per-filesystem
+  gauges, include them in support bundles, and alert when the ledger is unreadable.
 - Bound Git clone memory with host/cgroup-aware admission and a 2 GiB
   address-space ceiling; install `prlimit` through util-linux on supported
   systems. Keep the existing staged-disk reservation and unpacked-tree limit.
