@@ -28,6 +28,37 @@ func TestArchiveImportJobDoesNotPersistWebRootAuthority(t *testing.T) {
 	}
 }
 
+func TestArchiveSpoolHoldsAndReleasesProgressiveCapacity(t *testing.T) {
+	dir := t.TempDir()
+	db, err := openControlPlaneDB(filepath.Join(dir, "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{ImportRoot: dir, MinFreeBytes: 1}, capacity: ledger}
+	spooled, err := app.archiveSpool("archive import").Store(strings.NewReader("archive"), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var held int64
+	if err := db.QueryRow(`SELECT COALESCE(SUM(bytes),0) FROM capacity_reservations`).Scan(&held); err != nil {
+		t.Fatal(err)
+	}
+	if held != 1024-int64(len("archive")) {
+		t.Fatalf("remaining spool reservation = %d, want %d", held, 1024-int64(len("archive")))
+	}
+	if err := spooled.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM capacity_reservations`).Scan(&held); err != nil || held != 0 {
+		t.Fatalf("reservation rows after spool close = %d, err=%v; want zero", held, err)
+	}
+}
+
 func TestArchiveImportRejectsDurableDatabaseRestoreWithoutPayloadEncryption(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

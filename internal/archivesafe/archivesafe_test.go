@@ -235,6 +235,75 @@ func TestDirSpoolBoundsAndChecksCapacity(t *testing.T) {
 	}
 }
 
+func TestDirSpoolProgressivelyConsumesReservationAndReleasesOnClose(t *testing.T) {
+	dir := t.TempDir()
+	var consumed []int64
+	var released bool
+	var checked []int64
+	spooled, err := (DirSpool{
+		Dir: dir,
+		Reserve: func(limit int64) (func(int64) error, func(), error) {
+			if limit != 7 {
+				t.Fatalf("reservation limit = %d, want 7", limit)
+			}
+			return func(written int64) error {
+				consumed = append(consumed, written)
+				return nil
+			}, func() { released = true }, nil
+		},
+		Check: func(written int64) error {
+			checked = append(checked, written)
+			return nil
+		},
+	}).Store(strings.NewReader("archive"), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(consumed) < 2 || consumed[0] != 0 || consumed[len(consumed)-1] != 7 {
+		t.Fatalf("reservation consumption = %v, want initial 0 and final 7", consumed)
+	}
+	if len(checked) < 2 || checked[0] != 0 || checked[len(checked)-1] != 7 {
+		t.Fatalf("capacity checks = %v, want initial 0 and final 7", checked)
+	}
+	if released {
+		t.Fatal("reservation released while the staged spool still exists")
+	}
+	if err := spooled.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !released {
+		t.Fatal("closing the spool did not release its remaining reservation")
+	}
+}
+
+func TestDirSpoolReleasesReservationWhenStagingCreationFails(t *testing.T) {
+	released := false
+	_, err := (DirSpool{
+		Dir: filepath.Join(t.TempDir(), "missing"),
+		Reserve: func(int64) (func(int64) error, func(), error) {
+			return nil, func() { released = true }, nil
+		},
+	}).Store(strings.NewReader("archive"), 7)
+	if err == nil || !released {
+		t.Fatalf("staging failure err=%v, reservation released=%v", err, released)
+	}
+}
+
+func TestDirSpoolReleasesReservationOnCapacityCheckFailure(t *testing.T) {
+	released := false
+	full := errors.New("disk reserve lost")
+	_, err := (DirSpool{
+		Dir: t.TempDir(),
+		Reserve: func(int64) (func(int64) error, func(), error) {
+			return nil, func() { released = true }, nil
+		},
+		Check: func(int64) error { return full },
+	}).Store(strings.NewReader("archive"), 7)
+	if !errors.Is(err, full) || !released {
+		t.Fatalf("capacity failure err=%v, reservation released=%v", err, released)
+	}
+}
+
 // os.Root.Chmod issues fchmodat2, which the systemd seccomp filters of
 // older distributions (AlmaLinux 9) reject with EPERM inside the panel and
 // worker units; every installed cPanel restore failed that way. Modes must be

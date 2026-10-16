@@ -361,6 +361,13 @@ reduce clone pressure but do not impose a host-wide memory quota; use cgroups
 and filesystem quotas for hard containment, especially when other worker
 processes are active.
 
+Remote archive inspection and ZIP-import spools acquire a progressive SQLite-
+backed capacity reservation before writing to the import filesystem. The hold
+tracks bytes as they land and remains until the spool is closed, so a concurrent
+panel or worker operation sees the remaining commitment. Extraction into a
+site's staging tree separately performs a free-space preflight; this check is
+not a certified guarantee against unrelated host processes consuming storage.
+
 ## Safe maintenance
 
 `systemctl stop stepanel stepanel-worker` stops accepting HTTP work and durable

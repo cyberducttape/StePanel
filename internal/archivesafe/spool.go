@@ -18,6 +18,10 @@ var ErrSpoolLimit = errors.New("archive exceeds the spool size limit")
 // the same terms as uploads, never the system temporary directory.
 type DirSpool struct {
 	Dir string
+	// Reserve acquires a progressive capacity hold for one spool before bytes
+	// are written. The consume callback transfers reserved bytes to actual disk
+	// usage as the spool grows; release is retained until Close.
+	Reserve func(limit int64) (consume func(written int64) error, release func(), err error)
 	// Check, when set, is called with the total bytes written so far, at
 	// least every 8 MiB and at the end; an error aborts the spool. Callers
 	// use it to verify free space against their capacity reservation.
@@ -27,7 +31,8 @@ type DirSpool struct {
 // Spooled is an archive on disk. Close removes it.
 type Spooled struct {
 	*os.File
-	Size int64
+	Size    int64
+	release func()
 }
 
 // Close closes and removes the spool file.
@@ -36,6 +41,10 @@ func (s *Spooled) Close() error {
 	removeErr := os.Remove(s.File.Name())
 	if errors.Is(removeErr, os.ErrNotExist) {
 		removeErr = nil
+	}
+	if s.release != nil {
+		s.release()
+		s.release = nil
 	}
 	return errors.Join(closeErr, removeErr)
 }
@@ -46,16 +55,50 @@ func (d DirSpool) Store(src io.Reader, limit int64) (*Spooled, error) {
 	if d.Dir == "" {
 		return nil, errors.New("archive spool directory is not configured")
 	}
+	check := d.Check
+	var release func()
+	if d.Reserve != nil {
+		consume, releaseReservation, err := d.Reserve(limit)
+		if err != nil {
+			if releaseReservation != nil {
+				releaseReservation()
+			}
+			return nil, fmt.Errorf("reserve archive spool capacity: %w", err)
+		}
+		release = releaseReservation
+		if release == nil {
+			release = func() {}
+		}
+		if consume != nil {
+			check = func(written int64) error {
+				if err := consume(written); err != nil {
+					return err
+				}
+				if d.Check != nil {
+					return d.Check(written)
+				}
+				return nil
+			}
+		}
+	}
 	file, err := os.CreateTemp(d.Dir, ".stepanel-spool-*")
 	if err != nil {
+		if release != nil {
+			release()
+		}
 		return nil, fmt.Errorf("create archive spool: %w", err)
 	}
-	spooled := &Spooled{File: file}
+	spooled := &Spooled{File: file, release: release}
 	fail := func(err error) (*Spooled, error) {
 		return nil, errors.Join(err, spooled.Close())
 	}
 	if err := file.Chmod(0o600); err != nil {
 		return fail(fmt.Errorf("secure archive spool: %w", err))
+	}
+	if check != nil {
+		if err := check(0); err != nil {
+			return fail(err)
+		}
 	}
 	buffer := make([]byte, 1<<20)
 	var sinceCheck int64
@@ -70,9 +113,9 @@ func (d DirSpool) Store(src io.Reader, limit int64) (*Spooled, error) {
 			}
 			spooled.Size += int64(n)
 			sinceCheck += int64(n)
-			if d.Check != nil && sinceCheck >= spoolCheckInterval {
+			if check != nil && sinceCheck >= spoolCheckInterval {
 				sinceCheck = 0
-				if err := d.Check(spooled.Size); err != nil {
+				if err := check(spooled.Size); err != nil {
 					return fail(err)
 				}
 			}
@@ -84,8 +127,8 @@ func (d DirSpool) Store(src io.Reader, limit int64) (*Spooled, error) {
 			return fail(fmt.Errorf("read archive: %w", readErr))
 		}
 	}
-	if d.Check != nil {
-		if err := d.Check(spooled.Size); err != nil {
+	if check != nil {
+		if err := check(spooled.Size); err != nil {
 			return fail(err)
 		}
 	}

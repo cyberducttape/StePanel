@@ -66,15 +66,25 @@ var newArchiveAnalyzer = func(spool importer.ArchiveSpool) archiveInspector {
 // cleanup removes ones a crash left behind.
 const archiveSpoolPrefix = ".stepanel-spool-"
 
-// archiveSpool spools streamed ZIP archives into the capacity-managed import
-// root. While it writes, free space must keep covering every admitted upload
-// reservation plus STEPANEL_MIN_FREE_BYTES, so a spool cannot consume space
-// promised to other workflows or the host reserve.
+// archiveSpool stores remote inspections and ZIP imports in the
+// capacity-managed import root. Its progressive reservation is acquired before
+// the first byte, converted to actual usage as the file grows, and held until
+// the archive is closed, so concurrent processes cannot spend the same space.
 func (a *App) archiveSpool(workflow string) importer.ArchiveSpool {
 	return archivesafe.DirSpool{
 		Dir: a.Config.ImportRoot,
-		Check: func(int64) error {
-			return a.capacityLedger().check(a.Config, workflow, []capacityDemand{{Path: a.Config.ImportRoot}})
+		Reserve: func(limit int64) (func(int64) error, func(), error) {
+			if limit <= 0 {
+				return nil, nil, errors.New("archive spool capacity limit must be positive")
+			}
+			demandsFor := func(bytes uint64) []capacityDemand {
+				return []capacityDemand{{Path: a.Config.ImportRoot, Bytes: bytes}}
+			}
+			reservation, err := a.capacityLedger().reserveProgressive(a.Config, workflow, a.Config.ImportRoot, uint64(limit), demandsFor)
+			if err != nil {
+				return nil, nil, err
+			}
+			return reservation.consume, reservation.release, nil
 		},
 	}
 }

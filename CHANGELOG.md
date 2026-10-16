@@ -15,6 +15,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Bound Git clone memory with host/cgroup-aware admission and a 2 GiB
   address-space ceiling; install `prlimit` through util-linux on supported
   systems. Keep the existing staged-disk reservation and unpacked-tree limit.
+- Give remote archive inspection and ZIP-import spools progressive durable
+  capacity reservations before writing, account bytes as the spool grows, and
+  retain any remaining hold until the staged archive is closed.
 - Report ModSecurity as unverified until enforcement and active rules are proven;
   require a running Fail2Ban service and at least one reported jail before the
   security check can pass, and detect the server/client executable names used
