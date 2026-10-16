@@ -105,6 +105,11 @@ from it until it completes.
   did not install StePanel and does not cover publication, import, database
   restore, physical power loss, or repeated recovery certification; see the
   [run report](lab-results/2026-10-16-kvm-enospc-aa1d4b4.md).
+- The exact-source ENOSPC drill was repeated on current source `081f1f6` in a
+  fresh Rocky Linux 9 guest; boot, backup, and file-restore ENOSPC phases
+  passed ([run report](lab-results/2026-10-16-kvm-enospc-081f1f6.md)). It is
+  still a focused disposable-guest test, not installed-host certification, and
+  the uncovered ENOSPC boundaries and physical power-loss gate remain open.
 - A fresh [repository recovery-drill run](lab-results/2026-10-16-recovery-drills.md)
   on `5732c10` passed partial SQL import cleanup, interrupted transaction
   recovery, configuration rollback, and pending runtime reconciliation. These
