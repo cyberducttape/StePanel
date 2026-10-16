@@ -367,6 +367,52 @@ CREATE INDEX IF NOT EXISTS jobs_kind_owner_state_idx ON jobs(kind, owner, state)
             ON backup_schedule_outbox(created_at, id) WHERE delivered_at IS NULL;`)
 		return err
 	}),
+	migration.NewMigration(19, "track required operator alert channels", func(tx *sql.Tx) error {
+		for _, column := range []string{"webhook_required", "email_required"} {
+			exists, err := controlPlaneColumnExists(tx, "operator_notification_events", column)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				if _, err := tx.Exec(`ALTER TABLE operator_notification_events ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0 CHECK (` + column + ` IN (0, 1))`); err != nil {
+					return fmt.Errorf("add operator notification %s: %w", column, err)
+				}
+			}
+		}
+		if _, err := tx.Exec(`UPDATE operator_notification_events SET
+			webhook_required = CASE WHEN webhook_delivered_at IS NOT NULL OR webhook_attempts > 0 OR last_webhook_error <> '' THEN 1 ELSE 0 END,
+			email_required = CASE WHEN email_delivered_at IS NOT NULL OR email_attempts > 0 OR last_email_error <> '' THEN 1 ELSE 0 END;
+		CREATE TABLE IF NOT EXISTS operator_notification_policy (
+			id INTEGER PRIMARY KEY CHECK (id=1),
+			webhook_required INTEGER NOT NULL CHECK (webhook_required IN (0, 1)),
+			email_required INTEGER NOT NULL CHECK (email_required IN (0, 1))
+		);
+		INSERT INTO operator_notification_policy(id, webhook_required, email_required)
+		VALUES(1, 0, 0) ON CONFLICT(id) DO NOTHING;
+		DROP TRIGGER IF EXISTS jobs_alert_on_terminal_insert;
+		DROP TRIGGER IF EXISTS jobs_alert_on_terminal_transition;
+		CREATE TRIGGER jobs_alert_on_terminal_insert
+		AFTER INSERT ON jobs WHEN NEW.state IN ('failed', 'dead-letter')
+		BEGIN
+			INSERT INTO operator_notification_events(id, job_id, job_kind, owner, state, created_at, webhook_next_attempt_at, email_next_attempt_at, webhook_required, email_required)
+			SELECT lower(hex(randomblob(16))), NEW.id, NEW.kind, NEW.owner, NEW.state, unixepoch(), unixepoch(), unixepoch(), webhook_required, email_required
+			FROM operator_notification_policy WHERE id=1;
+		END;
+		CREATE TRIGGER jobs_alert_on_terminal_transition
+		AFTER UPDATE OF state ON jobs
+		WHEN NEW.state IN ('failed', 'dead-letter') AND OLD.state <> NEW.state
+		BEGIN
+			INSERT INTO operator_notification_events(id, job_id, job_kind, owner, state, created_at, webhook_next_attempt_at, email_next_attempt_at, webhook_required, email_required)
+			SELECT lower(hex(randomblob(16))), NEW.id, NEW.kind, NEW.owner, NEW.state, unixepoch(), unixepoch(), unixepoch(), webhook_required, email_required
+			FROM operator_notification_policy WHERE id=1;
+		END;
+		CREATE INDEX IF NOT EXISTS operator_notification_retention_idx
+			ON operator_notification_events(created_at, id);
+		`); err != nil {
+			return fmt.Errorf("configure required operator alert channels: %w", err)
+		}
+		return nil
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

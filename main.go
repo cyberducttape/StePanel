@@ -401,7 +401,7 @@ func Main() {
 		log.Fatalf("initialize audit outbox: %v", err)
 	}
 	defaultAuditOutbox = auditOutbox
-	notifications, err := newOperatorNotificationStore(controlPlaneDB)
+	notifications, err := newOperatorNotificationStore(controlPlaneDB, cfg)
 	if err != nil {
 		log.Fatalf("initialize operator notification outbox: %v", err)
 	}

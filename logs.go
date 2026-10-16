@@ -20,29 +20,42 @@ func readLogTail(file *os.File, count, maxBytes int64, filter string) ([]string,
 		return nil, err
 	}
 	end := info.Size()
-	start := end
-	var data []byte
+	if end == 0 || count < 1 || maxBytes < 1 {
+		return []string{}, nil
+	}
+	window := min(end, maxBytes)
+	windowStart := end - window
+	cursor := end
+	// Allocate once and fill the tail window in place. Growing the slice by
+	// prepending each earlier chunk recopies all bytes read so far and becomes
+	// quadratic for filtered searches near maxFilteredLogBytes.
+	data := make([]byte, window)
+	position := len(data)
 	newlines := int64(0)
-	for start > 0 && end-start < maxBytes {
+	for position > 0 {
 		chunk := int64(32 << 10)
-		if chunk > maxBytes-(end-start) {
-			chunk = maxBytes - (end - start)
+		if chunk > int64(position) {
+			chunk = int64(position)
 		}
-		if chunk > start {
-			chunk = start
+		if chunk > cursor-windowStart {
+			chunk = cursor - windowStart
 		}
-		start -= chunk
-		buf := make([]byte, chunk)
-		if _, err := file.ReadAt(buf, start); err != nil && err != io.EOF {
+		readStart := cursor - chunk
+		position -= int(chunk)
+		buf := data[position : position+int(chunk)]
+		if n, err := file.ReadAt(buf, readStart); err != nil && err != io.EOF {
 			return nil, err
+		} else if n != len(buf) {
+			return nil, io.ErrUnexpectedEOF
 		}
 		newlines += int64(bytes.Count(buf, []byte{'\n'}))
-		data = append(buf, data...)
+		cursor = readStart
 		if newlines > count && filter == "" {
 			break
 		}
 	}
-	if start > 0 {
+	data = data[position:]
+	if windowStart > 0 {
 		if i := bytes.IndexByte(data, '\n'); i >= 0 {
 			data = data[i+1:]
 		} else {
@@ -53,14 +66,14 @@ func readLogTail(file *os.File, count, maxBytes int64, filter string) ([]string,
 	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
 		parts = parts[:len(parts)-1]
 	}
-	needle := strings.ToLower(filter)
+	needle := []byte(strings.ToLower(filter))
 	result := make([]string, 0, count)
 	for i := len(parts) - 1; i >= 0 && int64(len(result)) < count; i-- {
-		line := string(bytes.TrimSuffix(parts[i], []byte{'\r'}))
-		if needle != "" && !strings.Contains(strings.ToLower(line), needle) {
+		lineBytes := bytes.TrimSuffix(parts[i], []byte{'\r'})
+		if len(needle) > 0 && !bytes.Contains(bytes.ToLower(lineBytes), needle) {
 			continue
 		}
-		result = append(result, line)
+		result = append(result, string(lineBytes))
 	}
 	for left, right := 0, len(result)-1; left < right; left, right = left+1, right-1 {
 		result[left], result[right] = result[right], result[left]

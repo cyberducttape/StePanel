@@ -1,11 +1,34 @@
 package stepanel
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func BenchmarkReadLogTailFiltered16MiB(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "filtered.log")
+	line := []byte("INFO " + strings.Repeat("x", 4090) + "\n")
+	content := bytes.Repeat(line, int(maxFilteredLogBytes)/len(line)+1)
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		b.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer file.Close()
+	b.SetBytes(maxFilteredLogBytes)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := readLogTail(file, 200, maxFilteredLogBytes, "not-present"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 
 func TestReadLogTailReturnsRecentLinesWithoutReadingWholeFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "large.log")

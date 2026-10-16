@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Retain audit outbox entries for 90 days after signed-log publication, pruning
+  at most 500 per flush while never deleting undelivered events; make the
+  signed audit chain the documented long-term evidence source.
+- Record required alert channels on each durable event, migrate legacy delivery
+  evidence conservatively, and prune completed/unconfigured alert rows in
+  bounded batches even when notification destinations are disabled.
+- Fill the bounded log-tail buffer in place with `ReadAt`, removing repeated
+  prepend copies from filtered searches while preserving the same I/O limits.
 - Reconcile the completed older-source recovery shards: 15 of 18 host jobs
   passed both iterations; the other three each hit an HTTP 401 in the cPanel
   smoke login before import. Record the evidence without counting the cohort

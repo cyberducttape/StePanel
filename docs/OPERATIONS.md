@@ -241,6 +241,17 @@ admin-only `/api/health/operational` endpoint and Health view. Alert delivery
 degradation is not allowed to stop the panel or customer sites, but it makes
 operational health fail until delivery recovers or the outbox is resolved.
 
+Each alert records which destinations were configured when the job entered a
+terminal state. A webhook-only installation does not wait for SMTP delivery,
+and vice versa; events created with no destinations are not unexpectedly sent
+if an alert channel is configured later. Successfully completed events are
+retained for 90 days and deleted in batches of at most 500 during dispatcher
+flushes, including when no destinations are currently configured. Events with
+any required channel still undelivered are retained regardless of age. During
+the schema upgrade, a legacy channel is considered required only when the old
+row contains evidence of delivery or an attempted delivery; ambiguous legacy
+rows are not replayed to newly configured destinations.
+
 Webhook destinations must pass the outbound public-address policy. Do not put
 credentials in the webhook URL; use the HMAC secret. Treat the SMTP password
 and webhook secret as production credentials and keep the environment file

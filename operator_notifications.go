@@ -26,6 +26,8 @@ import (
 
 const (
 	operatorNotificationBatch       = 20
+	operatorNotificationPruneBatch  = 500
+	operatorNotificationRetention   = 90 * 24 * time.Hour
 	operatorNotificationTimeout     = 10 * time.Second
 	operatorNotificationRetryMax    = 6 * time.Hour
 	operatorNotificationPayloadName = "stepanel.operator-alert.v1"
@@ -95,7 +97,7 @@ func validateOperatorAlertConfig(cfg Config) error {
 	return nil
 }
 
-func newOperatorNotificationStore(db *sql.DB) (*operatorNotificationStore, error) {
+func newOperatorNotificationStore(db *sql.DB, cfg Config) (*operatorNotificationStore, error) {
 	if db == nil {
 		return nil, errors.New("operator notification database is required")
 	}
@@ -105,6 +107,9 @@ func newOperatorNotificationStore(db *sql.DB) (*operatorNotificationStore, error
 	}
 	if exists != 1 {
 		return nil, errors.New("operator notification schema is not initialized")
+	}
+	if _, err := db.Exec(`UPDATE operator_notification_policy SET webhook_required=?, email_required=? WHERE id=1`, boolInt(cfg.AlertWebhookURL != ""), boolInt(cfg.AlertSMTPHost != "")); err != nil {
+		return nil, fmt.Errorf("configure required operator alert channels: %w", err)
 	}
 	return &operatorNotificationStore{db: db}, nil
 }
@@ -121,11 +126,11 @@ func (s *operatorNotificationStore) pending(ctx context.Context, cfg Config, lim
 	}
 	now := time.Now().UTC().Unix()
 	rows, err := s.db.QueryContext(ctx, `SELECT id, job_id, job_kind, owner, state, created_at, webhook_attempts, email_attempts, webhook_delivered_at IS NOT NULL, email_delivered_at IS NOT NULL,
-		(webhook_delivered_at IS NULL AND webhook_next_attempt_at <= ? AND ?=1),
-		(email_delivered_at IS NULL AND email_next_attempt_at <= ? AND ?=1)
+		(webhook_required=1 AND webhook_delivered_at IS NULL AND webhook_next_attempt_at <= ? AND ?=1),
+		(email_required=1 AND email_delivered_at IS NULL AND email_next_attempt_at <= ? AND ?=1)
 		FROM operator_notification_events
-		WHERE (webhook_delivered_at IS NULL AND webhook_next_attempt_at <= ? AND ?=1)
-		OR (email_delivered_at IS NULL AND email_next_attempt_at <= ? AND ?=1)
+		WHERE (webhook_required=1 AND webhook_delivered_at IS NULL AND webhook_next_attempt_at <= ? AND ?=1)
+		OR (email_required=1 AND email_delivered_at IS NULL AND email_next_attempt_at <= ? AND ?=1)
 		ORDER BY created_at, id LIMIT ?`, now, boolInt(cfg.AlertWebhookURL != ""), now, boolInt(cfg.AlertSMTPHost != ""), now, boolInt(cfg.AlertWebhookURL != ""), now, boolInt(cfg.AlertSMTPHost != ""), limit)
 	if err != nil {
 		return nil, fmt.Errorf("read operator notification outbox: %w", err)
@@ -152,7 +157,7 @@ func (s *operatorNotificationStore) flush(ctx context.Context, cfg Config) error
 		return err
 	}
 	if !operatorAlertsConfigured(cfg) {
-		return nil
+		return s.pruneDelivered(ctx)
 	}
 	items, err := s.pending(ctx, cfg, operatorNotificationBatch)
 	if err != nil {
@@ -234,10 +239,23 @@ func notificationErrorCategory(err error) string {
 }
 
 func (s *operatorNotificationStore) pruneDelivered(ctx context.Context) error {
-	cutoff := time.Now().UTC().Add(-90 * 24 * time.Hour).Unix()
-	_, err := s.db.ExecContext(ctx, `DELETE FROM operator_notification_events WHERE created_at < ? AND webhook_delivered_at IS NOT NULL AND email_delivered_at IS NOT NULL`, cutoff)
+	cutoff := time.Now().UTC().Add(-operatorNotificationRetention).Unix()
+	result, err := s.db.ExecContext(ctx, `DELETE FROM operator_notification_events WHERE id IN (
+		SELECT id FROM operator_notification_events
+		WHERE created_at < ?
+		AND (webhook_required=0 OR webhook_delivered_at IS NOT NULL)
+		AND (email_required=0 OR email_delivered_at IS NOT NULL)
+		ORDER BY created_at, id LIMIT ?
+	)`, cutoff, operatorNotificationPruneBatch)
 	if err != nil {
 		return fmt.Errorf("prune delivered operator alerts: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count pruned operator alerts: %w", err)
+	}
+	if deleted > 0 {
+		log.Printf("pruned %d completed operator alert outbox row(s) older than %s", deleted, operatorNotificationRetention)
 	}
 	return nil
 }
@@ -247,11 +265,11 @@ func (s *operatorNotificationStore) status(ctx context.Context, cfg Config) (ope
 	if s == nil || s.db == nil {
 		return status, errors.New("operator notification store is unavailable")
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM operator_notification_events WHERE (webhook_delivered_at IS NULL AND ?=1) OR (email_delivered_at IS NULL AND ?=1)`, boolInt(cfg.AlertWebhookURL != ""), boolInt(cfg.AlertSMTPHost != "")).Scan(&status.Pending); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM operator_notification_events WHERE (webhook_required=1 AND webhook_delivered_at IS NULL) OR (email_required=1 AND email_delivered_at IS NULL)`).Scan(&status.Pending); err != nil {
 		return status, err
 	}
 	var last sql.NullInt64
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), MAX(MAX(COALESCE(last_webhook_failed_at, 0), COALESCE(last_email_failed_at, 0))) FROM operator_notification_events WHERE ((webhook_delivered_at IS NULL AND last_webhook_error <> '' AND ?=1) OR (email_delivered_at IS NULL AND last_email_error <> '' AND ?=1))`, boolInt(cfg.AlertWebhookURL != ""), boolInt(cfg.AlertSMTPHost != "")).Scan(&status.FailedDeliveries, &last); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), MAX(MAX(COALESCE(last_webhook_failed_at, 0), COALESCE(last_email_failed_at, 0))) FROM operator_notification_events WHERE ((webhook_required=1 AND webhook_delivered_at IS NULL AND last_webhook_error <> '') OR (email_required=1 AND email_delivered_at IS NULL AND last_email_error <> ''))`).Scan(&status.FailedDeliveries, &last); err != nil {
 		return status, err
 	}
 	if last.Valid {

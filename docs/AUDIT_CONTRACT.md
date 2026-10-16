@@ -52,6 +52,13 @@ recorded" would refuse the operation while the outbox later published an
 intent for something that never ran.) Processes without an outbox, such as
 CLI subcommands and tests, append to the signed log directly.
 
+Successfully published outbox rows are retained for 90 days and pruned in
+batches of at most 500 during normal flushes. Undelivered rows are never
+pruned by this policy. The signed, hash-chained audit log is the long-term
+evidence source: protect it and its verification key with the same backup and
+retention care as other security records. Periodic pruning reduces control
+database growth; it does not shorten the signed log's retention.
+
 ## Class B: telemetry
 
 `TelemetryAudit` records informational events: login failures, reconciliation

@@ -37,6 +37,9 @@ func TestTerminalJobTransitionsCreateDurableOperatorAlertEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if _, err := newOperatorNotificationStore(db, Config{AlertWebhookURL: "https://alerts.example.test/hook"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := db.Exec(`INSERT INTO jobs(id, kind, operation_key, state, owner, started_at, payload, cancel_requested, updated_at)
 		VALUES ('job-1', 'site.restore', '', 'queued', 'shop', ?, '{}', 0, unixepoch())`, time.Now().UTC().UnixNano()); err != nil {
@@ -71,6 +74,13 @@ func TestTerminalJobTransitionsCreateDurableOperatorAlertEvents(t *testing.T) {
 	}
 	if jobID != "job-1" || kind != "site.restore" || owner != "shop" || state != "dead-letter" {
 		t.Fatalf("captured alert = %q %q %q %q", jobID, kind, owner, state)
+	}
+	var webhookRequired, emailRequired int
+	if err := db.QueryRow(`SELECT webhook_required, email_required FROM operator_notification_events ORDER BY created_at, id LIMIT 1`).Scan(&webhookRequired, &emailRequired); err != nil {
+		t.Fatal(err)
+	}
+	if webhookRequired != 1 || emailRequired != 0 {
+		t.Fatalf("captured channel requirements = webhook:%d email:%d; want webhook-only", webhookRequired, emailRequired)
 	}
 	columns, err := db.Query(`SELECT name FROM pragma_table_info('operator_notification_events')`)
 	if err != nil {
@@ -119,6 +129,102 @@ func TestOperatorNotificationOutboxCapturesExistingDeadLetters(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("migration created %d events for existing dead-letter, want 1", count)
+	}
+}
+
+func TestOperatorNotificationMigrationPreservesKnownChannelsAndDiscardsAmbiguousLegacyRequirements(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-alert-channel.db")
+	db, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	old := time.Now().Add(-operatorNotificationRetention - time.Hour).Unix()
+	if _, err := db.Exec(`INSERT INTO operator_notification_events(id,job_id,job_kind,owner,state,created_at,webhook_delivered_at,email_delivered_at,webhook_attempts,email_attempts,webhook_required,email_required,webhook_next_attempt_at,email_next_attempt_at,last_webhook_error,last_email_error)
+		VALUES ('known','j1','site.restore','shop','failed',?, ?, NULL, 1, 0, 0, 0, 0, 0, '', ''),
+		('ambiguous','j2','site.restore','shop','failed',?, NULL, NULL, 0, 0, 0, 0, 0, 0, '', '')`, old, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DROP TRIGGER jobs_alert_on_terminal_insert; DROP TRIGGER jobs_alert_on_terminal_transition;
+		DROP TABLE operator_notification_policy;
+		UPDATE operator_notification_events SET webhook_required=0,email_required=0;
+		DELETE FROM control_plane_migrations WHERE version=19`); err != nil {
+		t.Fatal(err)
+	}
+	if err := runControlPlaneMigrations(db, path); err != nil {
+		t.Fatalf("reapply alert channel migration: %v", err)
+	}
+	var knownWebhook, knownEmail, ambiguousWebhook, ambiguousEmail int
+	if err := db.QueryRow(`SELECT webhook_required,email_required FROM operator_notification_events WHERE id='known'`).Scan(&knownWebhook, &knownEmail); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT webhook_required,email_required FROM operator_notification_events WHERE id='ambiguous'`).Scan(&ambiguousWebhook, &ambiguousEmail); err != nil {
+		t.Fatal(err)
+	}
+	if knownWebhook != 1 || knownEmail != 0 || ambiguousWebhook != 0 || ambiguousEmail != 0 {
+		t.Fatalf("legacy channel migration: known=%d/%d ambiguous=%d/%d", knownWebhook, knownEmail, ambiguousWebhook, ambiguousEmail)
+	}
+}
+
+func TestOperatorNotificationRetentionUsesRequiredChannelsAndPrunesWithoutConfiguration(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "alert-retention.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := newOperatorNotificationStore(db, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-operatorNotificationRetention - time.Hour).Unix()
+	recent := time.Now().UTC().Unix()
+	for i := 0; i < operatorNotificationPruneBatch+1; i++ {
+		if _, err := db.Exec(`INSERT INTO operator_notification_events(id,job_id,job_kind,owner,state,created_at,webhook_delivered_at,email_delivered_at,webhook_required,email_required,webhook_next_attempt_at,email_next_attempt_at)
+			VALUES (?,?,'site.restore','shop','failed',?, ?, NULL, 1, 0, 0, 0)`, fmt.Sprintf("delivered-%d", i), fmt.Sprintf("job-%d", i), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO operator_notification_events(id,job_id,job_kind,owner,state,created_at,webhook_delivered_at,email_delivered_at,webhook_required,email_required,webhook_next_attempt_at,email_next_attempt_at)
+		VALUES ('pending','pending','site.restore','shop','failed',?,NULL,NULL,1,0,0,0),
+		('unconfigured','unconfigured','site.restore','shop','failed',?,NULL,NULL,0,0,0,0),
+		('recent','recent','site.restore','shop','failed',?,?,NULL,1,0,0,0)`, old, old, recent, recent); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.flush(context.Background(), Config{}); err != nil {
+		t.Fatalf("prune without configured channels: %v", err)
+	}
+	var agedCompleted, pending, unconfigured, recentCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM operator_notification_events WHERE id LIKE 'delivered-%'`).Scan(&agedCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM operator_notification_events WHERE id='pending'`).Scan(&pending); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM operator_notification_events WHERE id='unconfigured'`).Scan(&unconfigured); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM operator_notification_events WHERE id='recent'`).Scan(&recentCount); err != nil {
+		t.Fatal(err)
+	}
+	if agedCompleted != 1 || pending != 1 || unconfigured != 1 || recentCount != 1 {
+		t.Fatalf("after bounded no-channel prune: aged completed=%d pending=%d unconfigured=%d recent=%d; want 1,1,1,1", agedCompleted, pending, unconfigured, recentCount)
+	}
+	if err := store.flush(context.Background(), Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM operator_notification_events WHERE id LIKE 'delivered-%'`).Scan(&agedCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if agedCompleted != 0 {
+		t.Fatalf("second batch left %d aged completed events", agedCompleted)
+	}
+	webhookCfg := Config{AlertWebhookURL: "https://alerts.example.test/hook", AlertWebhookSecret: strings.Repeat("s", 32)}
+	items, err := store.pending(context.Background(), webhookCfg, operatorNotificationBatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != "pending" {
+		t.Fatalf("later webhook configuration would deliver stale or unconfigured events: %+v", items)
 	}
 }
 
@@ -360,15 +466,15 @@ func TestOperatorNotificationDeliveryFailuresAreDurableAndRedacted(t *testing.T)
 		t.Fatal(err)
 	}
 	defer db.Close()
-	store, err := newOperatorNotificationStore(db)
+	cfg := Config{AlertWebhookURL: "https://alerts.example.test/hook"}
+	store, err := newOperatorNotificationStore(db, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO operator_notification_events(id, job_id, job_kind, owner, state, created_at, webhook_next_attempt_at, email_next_attempt_at)
-		VALUES ('event-1','job-1','site.restore','shop','failed',unixepoch(),unixepoch(),unixepoch())`); err != nil {
+	if _, err := db.Exec(`INSERT INTO operator_notification_events(id, job_id, job_kind, owner, state, created_at, webhook_next_attempt_at, email_next_attempt_at, webhook_required)
+		VALUES ('event-1','job-1','site.restore','shop','failed',unixepoch(),unixepoch(),unixepoch(),1)`); err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{AlertWebhookURL: "https://alerts.example.test/hook"}
 	status, err := store.status(t.Context(), cfg)
 	if err != nil || status.Pending != 1 || status.FailedDeliveries != 0 {
 		t.Fatalf("initial notification status = %+v, err=%v", status, err)
@@ -409,12 +515,13 @@ func TestOperatorNotificationChannelsUseIndependentRetryDeadlines(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer db.Close()
-	store, err := newOperatorNotificationStore(db)
+	cfg := Config{AlertWebhookURL: "https://alerts.example.test/hook", AlertSMTPHost: "smtp.example.test", AlertSMTPPort: 587, AlertEmailTo: "ops@example.test", AlertEmailFrom: "panel@example.test"}
+	store, err := newOperatorNotificationStore(db, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO operator_notification_events(id, job_id, job_kind, owner, state, created_at, webhook_next_attempt_at, email_next_attempt_at)
-		VALUES ('event-1','job-1','site.restore','shop','failed',unixepoch(),unixepoch(),unixepoch())`); err != nil {
+	if _, err := db.Exec(`INSERT INTO operator_notification_events(id, job_id, job_kind, owner, state, created_at, webhook_next_attempt_at, email_next_attempt_at, webhook_required, email_required)
+		VALUES ('event-1','job-1','site.restore','shop','failed',unixepoch(),unixepoch(),unixepoch(),1,1)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.recordFailure(t.Context(), "event-1", "webhook", 0, errors.New("timeout")); err != nil {
@@ -423,7 +530,7 @@ func TestOperatorNotificationChannelsUseIndependentRetryDeadlines(t *testing.T) 
 	if err := store.markDelivered(t.Context(), "event-1", "email"); err != nil {
 		t.Fatal(err)
 	}
-	items, err := store.pending(t.Context(), Config{AlertWebhookURL: "https://alerts.example.test/hook", AlertSMTPHost: "smtp.example.test"}, operatorNotificationBatch)
+	items, err := store.pending(t.Context(), cfg, operatorNotificationBatch)
 	if err != nil {
 		t.Fatal(err)
 	}

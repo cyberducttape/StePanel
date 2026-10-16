@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+const (
+	auditOutboxRetention  = 90 * 24 * time.Hour
+	auditOutboxPruneBatch = 500
+)
+
 // auditOutboxStore makes the mutation-to-audit boundary durable. The signed
 // audit file remains the tamper-evident publication format, while this table
 // records the intent before publication can fail because of disk pressure,
@@ -38,6 +43,8 @@ func newAuditOutboxStore(db *sql.DB) (*auditOutboxStore, error) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_audit_outbox_pending
 			ON audit_outbox(delivered_at, id);
+		CREATE INDEX IF NOT EXISTS idx_audit_outbox_retention
+			ON audit_outbox(delivered_at, id) WHERE delivered_at IS NOT NULL;
 	`); err != nil {
 		return nil, fmt.Errorf("create audit outbox: %w", err)
 	}
@@ -81,6 +88,11 @@ func (o *auditOutboxStore) persist(ctx context.Context, actor, action, target, d
 func (o *auditOutboxStore) flush(ctx context.Context, auditLog string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if err := o.pruneDelivered(ctx); err != nil {
+		// Retention is maintenance, not an audit publication prerequisite.
+		// Keep the cleanup failure observable without preventing a retry.
+		log.Printf("audit outbox retention cleanup deferred: %v", err)
+	}
 	rows, err := o.db.QueryContext(ctx, `
 		SELECT id, actor, action, target, detail
 		FROM audit_outbox
@@ -128,6 +140,29 @@ func (o *auditOutboxStore) flush(ctx context.Context, auditLog string) error {
 		`, time.Now().UTC().UnixNano(), item.id); err != nil {
 			return fmt.Errorf("mark audit outbox event delivered: %w", err)
 		}
+	}
+	return nil
+}
+
+// pruneDelivered removes only a bounded batch of rows already represented in
+// the signed audit chain. That chain, not the retry outbox, is the long-term
+// evidence source. Repeated flushes drain larger backlogs incrementally.
+func (o *auditOutboxStore) pruneDelivered(ctx context.Context) error {
+	cutoff := time.Now().UTC().Add(-auditOutboxRetention).UnixNano()
+	result, err := o.db.ExecContext(ctx, `DELETE FROM audit_outbox WHERE id IN (
+		SELECT id FROM audit_outbox
+		WHERE delivered_at IS NOT NULL AND delivered_at < ?
+		ORDER BY delivered_at, id LIMIT ?
+	)`, cutoff, auditOutboxPruneBatch)
+	if err != nil {
+		return fmt.Errorf("prune delivered audit outbox: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count pruned audit outbox rows: %w", err)
+	}
+	if deleted > 0 {
+		log.Printf("pruned %d delivered audit outbox row(s) older than %s; signed audit log retains long-term evidence", deleted, auditOutboxRetention)
 	}
 	return nil
 }
