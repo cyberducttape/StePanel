@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Make the installed cPanel-move smoke retry one HTTP 401 using a fresh TOTP
+  counter, while keeping rate limits, transport failures, and a second 401
+  fatal; this addresses an observed intermittent login failure in a long
+  recovery-matrix shard without weakening product authentication.
 - Pass the full repository production gate on exact checkout `3927b38`, including
   race and coverage floors, recovery drills, benchmarks, mixed HTTP load, docs,
   embedded assets, action pins, and shell syntax; explicitly leave installed-host

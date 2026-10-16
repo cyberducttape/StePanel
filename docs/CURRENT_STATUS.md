@@ -120,6 +120,12 @@ from it until it completes.
   load, docs, assets, action pins, and shell syntax. Host recovery repetition,
   physical power loss, broader ENOSPC, live alert outage/retry, runtime matrix,
   and capacity certification remain open.
+- The older-source 20-repeat cohort on `60f96ee` is incomplete. One Rocky Linux
+  9/Caddy host in shard 02 failed at cPanel-move smoke login with HTTP 401
+  before import; the panel logs confirm the failed login but not its cause.
+  Shards 01 and 03 and the other shard-02 hosts remain active at capture. The
+  cPanel-move smoke now retries one 401 with a fresh TOTP counter; this change
+  still needs hosted validation and the cohort does not count as passed.
 
 ### Full repository production gate — code source `1e38dfc`
 
