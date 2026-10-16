@@ -69,6 +69,15 @@ cohort is running as ten same-SHA shards, with shard 01 active and the rest
 queued at capture. Application code was unchanged between the six-host smoke
 and cohort source.
 
+Quota-enabled guest run [38828118772](https://github.com/cyberducttape/StePanel/actions/runs/38828118772)
+also passed on `0fe2138`: `/var/www` user quotas were active; the populated
+WordPress proof RTO was 44.724 seconds; abrupt QEMU guest loss recovered; and
+real ENOSPC backup and file-restore tests passed. This is not physical-host
+power-loss evidence and does not cover publication/import/database-restore
+ENOSPC ([details](lab-results/2026-10-16-quota-install-smoke-38828118772.md)).
+The exact-head `e8590d7` quota run is still in progress; no result is inferred
+from it until it completes.
+
 ### Current-head evidence update — 2026-10-15 (`7ca34dc`)
 
 - Hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38692216922)
