@@ -18,6 +18,7 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/migration"
 	"github.com/cyberducttape/StePanel/internal/recovery"
+	"github.com/cyberducttape/StePanel/internal/sqliteutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -130,8 +131,15 @@ var controlPlaneStateBindings sync.Map
 var controlPlaneOpenMu sync.Mutex
 
 func openControlPlaneDB(path string) (*sql.DB, error) {
+	return openControlPlaneDBWithMaxBytes(path, sqliteutil.DefaultDatabaseMaxBytes)
+}
+
+func openControlPlaneDBWithMaxBytes(path string, maxBytes int64) (*sql.DB, error) {
 	controlPlaneOpenMu.Lock()
 	defer controlPlaneOpenMu.Unlock()
+	if maxBytes < 16<<20 || maxBytes > 1<<44 {
+		return nil, errors.New("control-plane database size limit must be between 16 MiB and 16 TiB")
+	}
 
 	if stringsTrimmed := filepath.Clean(path); stringsTrimmed == "." || stringsTrimmed == "" {
 		return nil, errors.New("control-plane database path is empty")
@@ -155,6 +163,10 @@ func openControlPlaneDB(path string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping control-plane database: %w", err)
 	}
+	if err := setControlPlaneDBLimit(db, maxBytes); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := runControlPlaneMigrations(db, abs); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -168,6 +180,10 @@ func openControlPlaneDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("secure control-plane database: %w", err)
 	}
 	return db, nil
+}
+
+func setControlPlaneDBLimit(db *sql.DB, maxBytes int64) error {
+	return sqliteutil.SetDatabasePageLimit(db, maxBytes)
 }
 
 // controlPlaneMigrations returns the list of database schema migrations

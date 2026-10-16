@@ -6,6 +6,44 @@ rule_files:
 evaluation_interval: 30s
 
 tests:
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_control_plane_database_limit_ratio{job="stepanel"}'
+        values: '0.90+0x30'
+      - series: 'stepanel_audit_outbox_pending{job="stepanel"}'
+        values: '1+0x30'
+      - series: 'stepanel_audit_outbox_oldest_pending_age_seconds{job="stepanel"}'
+        values: '400+0x30'
+      - series: 'stepanel_operator_notifications_pending{job="stepanel"}'
+        values: '1+0x30'
+      - series: 'stepanel_operator_notifications_oldest_pending_age_seconds{job="stepanel"}'
+        values: '1000+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: StePanelControlPlaneDatabaseNearLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: StePanel control-plane database is nearing its configured limit
+              description: SQLite logical page allocation is above 80 percent of the fixed 10 GiB limit; inspect job and outbox retention and plan maintenance before writes are refused.
+      - eval_time: 20m
+        alertname: StePanelAuditOutboxBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: Durable audit events are not reaching the signed audit log
+              description: The oldest unpublished audit event is more than five minutes old; inspect audit-log permissions, disk capacity, and the audit outbox.
+      - eval_time: 20m
+        alertname: StePanelNotificationOutboxBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Operator notifications are accumulating
+              description: At least one required alert delivery has remained pending for more than fifteen minutes; inspect destination health and notification outbox metrics.
+
   # 100 requests per minute with 10 percent failing: the ratio rule fires.
   - interval: 1m
     input_series:

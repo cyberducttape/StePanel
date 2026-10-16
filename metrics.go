@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -269,6 +270,53 @@ func writeOperatorNotificationMetrics(w io.Writer, store *operatorNotificationSt
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_operator_notifications_pending Required alert channel deliveries still pending\n# TYPE stepanel_operator_notifications_pending gauge\nstepanel_operator_notifications_pending %d\n", pending)
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_operator_notifications_failed Deliveries with a recorded failure\n# TYPE stepanel_operator_notifications_failed gauge\nstepanel_operator_notifications_failed %d\n", failures)
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_operator_notifications_oldest_pending_age_seconds Age of the oldest undelivered alert\n# TYPE stepanel_operator_notifications_oldest_pending_age_seconds gauge\nstepanel_operator_notifications_oldest_pending_age_seconds %d\n", oldestAge)
+}
+
+func writeAuditOutboxMetrics(w io.Writer, store *auditOutboxStore) {
+	up, pending, oldestAge := 0, 0, int64(0)
+	if store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		defer cancel()
+		var oldest sql.NullInt64
+		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*), MIN(created_at) FROM audit_outbox WHERE delivered_at IS NULL`).Scan(&pending, &oldest); err == nil {
+			up = 1
+			if oldest.Valid {
+				oldestAge = int64(time.Since(time.Unix(0, oldest.Int64)).Seconds())
+				if oldestAge < 0 {
+					oldestAge = 0
+				}
+			}
+		}
+	}
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_outbox_up Whether audit outbox status was read\n# TYPE stepanel_audit_outbox_up gauge\nstepanel_audit_outbox_up %d\n", up)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_outbox_pending Undelivered durable audit events\n# TYPE stepanel_audit_outbox_pending gauge\nstepanel_audit_outbox_pending %d\n", pending)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_outbox_oldest_pending_age_seconds Age of the oldest unpublished audit event\n# TYPE stepanel_audit_outbox_oldest_pending_age_seconds gauge\nstepanel_audit_outbox_oldest_pending_age_seconds %d\n", oldestAge)
+}
+
+func writeControlPlaneStorageMetrics(w io.Writer, db *sql.DB, path string, maxBytes int64) {
+	up, logicalBytes, physicalBytes, limitBytes := 0, int64(0), int64(0), maxBytes
+	if db != nil && maxBytes > 0 {
+		var pages, pageSize, maxPages int64
+		if db.QueryRow(`PRAGMA page_count`).Scan(&pages) == nil && db.QueryRow(`PRAGMA page_size`).Scan(&pageSize) == nil && db.QueryRow(`PRAGMA max_page_count`).Scan(&maxPages) == nil && pageSize > 0 {
+			up = 1
+			logicalBytes = pages * pageSize
+			limitBytes = maxPages * pageSize
+			for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+				if info, err := os.Stat(candidate); err == nil {
+					physicalBytes += info.Size()
+				}
+			}
+		}
+	}
+	ratio := 0.0
+	if limitBytes > 0 {
+		ratio = float64(logicalBytes) / float64(limitBytes)
+	}
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_database_up Whether SQLite size statistics were collected\n# TYPE stepanel_control_plane_database_up gauge\nstepanel_control_plane_database_up %d\n", up)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_database_logical_bytes SQLite page bytes currently allocated\n# TYPE stepanel_control_plane_database_logical_bytes gauge\nstepanel_control_plane_database_logical_bytes %d\n", logicalBytes)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_database_physical_bytes Main database, WAL, and shared-memory file sizes\n# TYPE stepanel_control_plane_database_physical_bytes gauge\nstepanel_control_plane_database_physical_bytes %d\n", physicalBytes)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_database_limit_bytes Configured SQLite maximum page allocation\n# TYPE stepanel_control_plane_database_limit_bytes gauge\nstepanel_control_plane_database_limit_bytes %d\n", limitBytes)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_control_plane_database_limit_ratio Fraction of configured maximum SQLite page allocation used\n# TYPE stepanel_control_plane_database_limit_ratio gauge\nstepanel_control_plane_database_limit_ratio %.6f\n", ratio)
 }
 
 func writeDatabaseMetrics(w io.Writer, diagnostics DatabaseDiagnostics) {

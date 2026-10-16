@@ -54,6 +54,7 @@ func NewResourceBudget(maxConcurrentJobs int) *ResourceBudget {
 		"malware_scan": 1,                           // Malware scan: serial, I/O + memory intensive
 		"build":        max(1, maxConcurrentJobs/2), // Build: CPU-bound, less I/O impact
 		"db_restore":   1,                           // Database restore from dump: serial
+		"git_clone":    1,                           // Git clones use a bounded address-space budget
 	}
 
 	for name, maxSlots := range workloads {

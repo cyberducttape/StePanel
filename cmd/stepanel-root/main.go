@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/sqliteutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -61,6 +62,10 @@ func main() {
 		fencingDB, err = sql.Open("sqlite", "file:"+*controlPlaneDBFlag+"?_pragma=busy_timeout(5000)")
 		if err != nil {
 			logger.Fatalf("failed to open fencing database: %v", err)
+		}
+		fencingDB.SetMaxOpenConns(1)
+		if err := sqliteutil.SetDatabasePageLimit(fencingDB, sqliteutil.DefaultDatabaseMaxBytes); err != nil {
+			logger.Fatalf("apply control-plane database growth limit: %v", err)
 		}
 		defer fencingDB.Close()
 	}

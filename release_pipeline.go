@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -188,6 +189,11 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, repository gitRepository, ref string) (string, string, error) {
+	releaseGitSlot, err := a.acquireGitCloneAdmission(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("Git pipeline rejected by host memory admission: %w", err)
+	}
+	defer releaseGitSlot()
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
 		return "", "", err
@@ -206,7 +212,12 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	if repository.Private {
 		output, err = clonePrivateRepository(ctx, a.Config, site.Site(), repository.URL, ref, release)
 	} else {
-		cmd := exec.CommandContext(ctx, gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", ref, "--single-branch", "--no-tags", repository.URL, release)
+		prlimit, lookupErr := exec.LookPath("prlimit")
+		if lookupErr != nil {
+			_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
+			return "", "", errors.New("prlimit is required to enforce the Git clone memory ceiling")
+		}
+		cmd := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", ref, "--single-branch", "--no-tags", repository.URL, release)
 		cmd.Env = gitCommandEnv()
 		output, err = runBoundedCommand(ctx, cmd)
 	}

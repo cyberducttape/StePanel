@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,138 @@ import (
 var gitRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
 var gitCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 var webhookDeliveryIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+
+const (
+	gitCloneAddressSpaceBytes = uint64(2 << 30)
+	gitCloneMemoryHeadroom    = uint64(512 << 20)
+)
+
+func (a *App) acquireGitCloneAdmission(ctx context.Context) (func(), error) {
+	available, err := availableSystemMemoryBytes()
+	if err != nil {
+		return nil, fmt.Errorf("inspect available memory before Git clone: %w", err)
+	}
+	if available < gitCloneAddressSpaceBytes+gitCloneMemoryHeadroom {
+		return nil, fmt.Errorf("insufficient memory for Git clone: %d bytes available; need at least %d", available, gitCloneAddressSpaceBytes+gitCloneMemoryHeadroom)
+	}
+	if a.ResourceBudget != nil {
+		if !a.ResourceBudget.AcquireSlotContext(ctx, "git_clone") {
+			return nil, ctx.Err()
+		}
+		return func() { a.ResourceBudget.ReleaseSlot("git_clone") }, nil
+	}
+	return func() {}, nil
+}
+
+func availableSystemMemoryBytes() (uint64, error) {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[0] != "MemAvailable:" {
+			continue
+		}
+		kib, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil || kib > ^uint64(0)/1024 {
+			return 0, errors.New("invalid MemAvailable value")
+		}
+		available := kib * 1024
+		if remaining, limited, limitErr := cgroupMemoryRemaining(); limitErr != nil {
+			return 0, limitErr
+		} else if limited {
+			available = min(available, remaining)
+		}
+		return available, nil
+	}
+	return 0, errors.New("MemAvailable is missing from /proc/meminfo")
+}
+
+func cgroupMemoryRemaining() (uint64, bool, error) {
+	memberships, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return 0, false, err
+	}
+	var unifiedPath, memoryPath string
+	for _, line := range strings.Split(string(memberships), "\n") {
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		if parts[0] == "0" && parts[1] == "" {
+			unifiedPath = parts[2]
+		}
+		for _, controller := range strings.Split(parts[1], ",") {
+			if controller == "memory" {
+				memoryPath = parts[2]
+			}
+		}
+	}
+	if unifiedPath != "" {
+		return readCgroupMemoryAncestors("/sys/fs/cgroup", unifiedPath, "memory.max", "memory.current", true)
+	}
+	if memoryPath != "" {
+		return readCgroupMemoryAncestors("/sys/fs/cgroup/memory", memoryPath, "memory.limit_in_bytes", "memory.usage_in_bytes", false)
+	}
+	// Hosts without a cgroup memory controller still use MemAvailable.
+	return 0, false, nil
+}
+
+func readCgroupMemoryAncestors(base, groupPath, limitName, usageName string, supportsMax bool) (uint64, bool, error) {
+	for _, component := range strings.Split(filepath.ToSlash(groupPath), "/") {
+		if component == ".." {
+			return 0, false, errors.New("invalid cgroup path")
+		}
+	}
+	cleanGroup := filepath.Clean("/" + strings.TrimLeft(groupPath, "/"))
+	currentDir := filepath.Join(base, strings.TrimLeft(cleanGroup, "/"))
+	base = filepath.Clean(base)
+	if rel, err := filepath.Rel(base, currentDir); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return 0, false, errors.New("invalid cgroup path")
+	}
+	var smallest uint64
+	limited := false
+	for dir := currentDir; ; {
+		limit, limitErr := os.ReadFile(filepath.Join(dir, limitName))
+		usage, usageErr := os.ReadFile(filepath.Join(dir, usageName))
+		if limitErr == nil && usageErr == nil {
+			remaining, applies, err := parseCgroupMemoryRemaining(string(limit), string(usage), supportsMax)
+			if err != nil {
+				return 0, false, err
+			}
+			if applies && (!limited || remaining < smallest) {
+				smallest, limited = remaining, true
+			}
+		}
+		if dir == base {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return smallest, limited, nil
+}
+
+func parseCgroupMemoryRemaining(limitText, currentText string, supportsMax bool) (uint64, bool, error) {
+	limitText, currentText = strings.TrimSpace(limitText), strings.TrimSpace(currentText)
+	if supportsMax && limitText == "max" {
+		return 0, false, nil
+	}
+	limit, limitErr := strconv.ParseUint(limitText, 10, 64)
+	current, currentErr := strconv.ParseUint(currentText, 10, 64)
+	// The cgroup-v1 unlimited sentinel is close to MaxInt64 on 64-bit hosts.
+	if !supportsMax && limitErr == nil && limit >= 1<<60 {
+		return 0, false, nil
+	}
+	if limitErr != nil || currentErr != nil || current > limit {
+		return 0, false, errors.New("invalid cgroup memory limit or usage")
+	}
+	return limit - current, true, nil
+}
 
 // WebhookReplayCache prevents replay attacks on webhook deliveries
 type WebhookReplayCache struct {
@@ -722,6 +855,12 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git is not installed", http.StatusServiceUnavailable)
 		return
 	}
+	releaseGitSlot, err := a.acquireGitCloneAdmission(operationCtx)
+	if err != nil {
+		http.Error(w, "Git deployment rejected by host memory admission: "+err.Error(), http.StatusInsufficientStorage)
+		return
+	}
+	defer releaseGitSlot()
 	release, err := a.createSiteReleaseStaging(operationCtx, input.Site, ".stepanel-release-")
 	if err != nil {
 		http.Error(w, "unable to create release staging directory", http.StatusInternalServerError)
@@ -740,7 +879,12 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	if repository.Private {
 		cloneOutput, err = clonePrivateRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release)
 	} else {
-		clone := exec.CommandContext(ctx, gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", input.Ref, "--single-branch", "--no-tags", repository.URL, release)
+		prlimit, lookupErr := exec.LookPath("prlimit")
+		if lookupErr != nil {
+			http.Error(w, "prlimit is required to enforce the Git clone memory ceiling", http.StatusServiceUnavailable)
+			return
+		}
+		clone := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", input.Ref, "--single-branch", "--no-tags", repository.URL, release)
 		clone.Env = gitCommandEnv()
 		cloneOutput, err = runBoundedCommand(ctx, clone)
 	}

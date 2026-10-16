@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Apply a fixed 10 GiB SQLite page-allocation ceiling independently to the
+  panel and root-broker connections, and expose database logical/physical size,
+  limit utilization, and audit-outbox backlog metrics with Prometheus alerts.
+- Bound Git clone memory with host/cgroup-aware admission and a 2 GiB
+  address-space ceiling; install `prlimit` through util-linux on supported
+  systems. Keep the existing staged-disk reservation and unpacked-tree limit.
 - Report ModSecurity as unverified until enforcement and active rules are proven;
   require a running Fail2Ban service and at least one reported jail before the
   security check can pass, and detect the server/client executable names used

@@ -17,6 +17,7 @@ import (
 	"github.com/cyberducttape/StePanel/internal/safehttp"
 	"github.com/cyberducttape/StePanel/internal/siteidentity"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
+	"github.com/cyberducttape/StePanel/internal/sqliteutil"
 	"github.com/cyberducttape/StePanel/internal/state"
 	"github.com/cyberducttape/StePanel/internal/upload"
 	"html/template"
@@ -62,6 +63,7 @@ type App struct {
 	Resources                *ResourceStore
 	Webhooks                 *WebhookConfigStore
 	Notifications            *operatorNotificationStore
+	AuditOutbox              *auditOutboxStore
 	BackupIndex              *metadata.BackupIndex
 	Recovery                 *recovery.Store
 	ResourceBudget           *ResourceBudget
@@ -583,7 +585,7 @@ func Main() {
 	if err != nil {
 		log.Fatalf("initialize capacity ledger: %v", err)
 	}
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
+	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
 	app.startup.begin()
 	// Categorized state errors feed stepanel_state_errors_total and the logs.
 	jobs.SetStateErrorObserver(app.observeStateError)
@@ -1018,6 +1020,12 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	a.Metrics.Write(w)
 	writeJobMetrics(w, a.Jobs)
 	writeOperatorNotificationMetrics(w, a.Notifications, a.Config)
+	writeAuditOutboxMetrics(w, a.AuditOutbox)
+	if a.Jobs == nil {
+		writeControlPlaneStorageMetrics(w, nil, a.Config.ControlPlaneDB, sqliteutil.DefaultDatabaseMaxBytes)
+	} else {
+		writeControlPlaneStorageMetrics(w, a.Jobs.db, a.Config.ControlPlaneDB, sqliteutil.DefaultDatabaseMaxBytes)
+	}
 	writeDatabaseMetrics(w, a.cachedDatabaseDiagnostics(15*time.Second))
 	writeReadinessMetrics(w, readinessChecks(a.Config, a.Jobs))
 	if a.Schedules != nil {

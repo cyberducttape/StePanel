@@ -14,6 +14,58 @@ import (
 	"time"
 )
 
+func TestParseCgroupMemoryRemaining(t *testing.T) {
+	tests := []struct {
+		name        string
+		limit       string
+		current     string
+		v2          bool
+		want        uint64
+		wantLimited bool
+		wantErr     bool
+	}{
+		{name: "v2 finite", limit: "1073741824", current: "268435456", v2: true, want: 805306368, wantLimited: true},
+		{name: "v2 unlimited", limit: "max", current: "268435456", v2: true},
+		{name: "v1 unlimited sentinel", limit: "9223372036854771712", current: "268435456", wantLimited: false},
+		{name: "usage over limit", limit: "1024", current: "2048", v2: true, wantErr: true},
+		{name: "invalid value", limit: "unlimited", current: "1", v2: true, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, limited, err := parseCgroupMemoryRemaining(test.limit, test.current, test.v2)
+			if (err != nil) != test.wantErr || got != test.want || limited != test.wantLimited {
+				t.Fatalf("parseCgroupMemoryRemaining() = (%d, %v, %v), want (%d, %v, err=%v)", got, limited, err, test.want, test.wantLimited, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestReadCgroupMemoryAncestorsUsesTightestParentLimit(t *testing.T) {
+	base := t.TempDir()
+	writeCgroup := func(dir, limit, usage string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "memory.max"), []byte(limit), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "memory.current"), []byte(usage), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeCgroup(base, "4096", "1024")
+	writeCgroup(filepath.Join(base, "slice"), "1024", "900")
+	writeCgroup(filepath.Join(base, "slice", "service"), "2048", "1024")
+	got, limited, err := readCgroupMemoryAncestors(base, "/slice/service", "memory.max", "memory.current", true)
+	if err != nil || !limited || got != 124 {
+		t.Fatalf("remaining = %d, limited=%v, err=%v; want 124, true, nil", got, limited, err)
+	}
+	if _, _, err := readCgroupMemoryAncestors(base, "/../../outside", "memory.max", "memory.current", true); err == nil {
+		t.Fatal("path escaping cgroup mount was accepted")
+	}
+}
+
 func TestWebhookSignatureBindsReplayMetadata(t *testing.T) {
 	body := []byte(`{"ref":"refs/heads/main"}`)
 	secret := "webhook-secret"

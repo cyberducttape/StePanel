@@ -94,6 +94,28 @@ func TestOperatorNotificationMetricsExposeUnavailableOutbox(t *testing.T) {
 	}
 }
 
+func TestAuditOutboxMetricsExposePendingAge(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := newAuditOutboxStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.persist(t.Context(), "operator", "site.update", "example", "test"); err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	writeAuditOutboxMetrics(&output, store)
+	for _, want := range []string{"stepanel_audit_outbox_up 1", "stepanel_audit_outbox_pending 1", "stepanel_audit_outbox_oldest_pending_age_seconds 0"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("audit outbox metrics missing %q:\n%s", want, output.String())
+		}
+	}
+}
+
 type assertionError struct{}
 
 func (assertionError) Error() string { return "test failure" }

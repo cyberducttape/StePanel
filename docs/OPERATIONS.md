@@ -342,6 +342,25 @@ Restore admission checks both staging and destination filesystems. Configure
 `STEPANEL_MAX_CONCURRENT_JOBS` to match I/O and memory capacity; one long-running
 job per site is enforced independently of the global limit.
 
+The control-plane SQLite database has a fixed 10 GiB logical page-allocation
+ceiling. Both the panel and root broker apply the limit to their own SQLite
+connections; reaching it makes new database growth fail rather than consume
+unbounded space. This is not a physical-byte ceiling: WAL files and transient
+checkpoint/journal overhead can make on-disk usage higher. Monitor
+`stepanel_control_plane_database_limit_ratio` and
+`stepanel_control_plane_database_physical_bytes`; investigate sustained growth
+well before the warning threshold. The signed audit log is the long-term audit
+evidence source; delivered outbox rows are retained for 90 days and pruned in
+bounded batches, while undelivered rows are never pruned. Required notification
+deliveries have independent retention and oldest-pending alerts.
+
+Git checkouts require at least 2.5 GiB of currently available memory, share a
+single in-process clone admission slot, and run with a 2 GiB virtual-address
+space ceiling. The installer provides `prlimit` from util-linux. These bounds
+reduce clone pressure but do not impose a host-wide memory quota; use cgroups
+and filesystem quotas for hard containment, especially when other worker
+processes are active.
+
 ## Safe maintenance
 
 `systemctl stop stepanel stepanel-worker` stops accepting HTTP work and durable

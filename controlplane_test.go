@@ -52,6 +52,46 @@ func TestControlPlaneStateBlobIsTransactionalAndPersistent(t *testing.T) {
 	}
 }
 
+func TestControlPlanePageLimitMustBeAppliedToEachConnection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bounded-control.db")
+	limit := int64(16 << 20)
+	db, err := openControlPlaneDBWithMaxBytes(path, limit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pageSize, maxPages int64
+	if err := db.QueryRow(`PRAGMA page_size`).Scan(&pageSize); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`PRAGMA max_page_count`).Scan(&maxPages); err != nil {
+		t.Fatal(err)
+	}
+	if maxPages*pageSize > limit || maxPages*pageSize < limit-pageSize {
+		t.Fatalf("page cap = %d * %d, expected floor of %d bytes", maxPages, pageSize, limit)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	other, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	var otherPages int64
+	if err := other.QueryRow(`PRAGMA max_page_count`).Scan(&otherPages); err != nil {
+		t.Fatal(err)
+	}
+	if otherPages == maxPages {
+		t.Fatal("test expected the independent SQLite connection not to inherit the connection-local cap")
+	}
+	if err := setControlPlaneDBLimit(other, limit); err != nil {
+		t.Fatalf("apply cap to independent writer connection: %v", err)
+	}
+	if err := other.QueryRow(`PRAGMA max_page_count`).Scan(&otherPages); err != nil || otherPages != maxPages {
+		t.Fatalf("independent connection cap = %d, err=%v; want %d", otherPages, err, maxPages)
+	}
+}
+
 func TestControlPlaneStateCASReloadsAndMergesStaleIndependentConnection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control-plane.db")
 	firstDB, err := openControlPlaneDB(path)

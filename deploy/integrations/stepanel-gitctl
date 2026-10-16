@@ -41,6 +41,8 @@ case "$action" in
     [[ $destination =~ ^/var/www/sites/$site/\.stepanel-release-[A-Za-z0-9-]+$ && ! -e $destination && -d "/var/www/sites/$site" && ! -L "/var/www/sites/$site" ]] || { echo 'invalid clone destination' >&2; exit 1; }
     known_hosts=/etc/stepanel/git-known-hosts
     [[ -f $known_hosts && ! -L $known_hosts ]] || { echo 'trusted Git SSH host keys are not configured' >&2; exit 1; }
+    # Bound the clone and its Git/SSH descendants to 2 GiB virtual address space.
+    ulimit -v 2097152
     git -c credential.helper= -c core.hooksPath=/dev/null -c core.sshCommand="ssh -i $key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts -F /dev/null" \
       clone --depth 1 --branch "$ref" --single-branch --no-tags "$repository" "$destination"
     chown -R --no-dereference "$(stat -c '%u:%g' "/var/www/sites/$site")" "$destination"

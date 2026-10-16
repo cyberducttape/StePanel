@@ -55,6 +55,33 @@ groups:
           summary: StePanel SQLite contention was observed
           description: Durable state paths encountered SQLite busy or locked errors; inspect control-plane contention and worker concurrency.
 
+      - alert: StePanelControlPlaneDatabaseNearLimit
+        expr: stepanel_control_plane_database_limit_ratio{job="stepanel"} > 0.80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: StePanel control-plane database is nearing its configured limit
+          description: SQLite logical page allocation is above 80 percent of the fixed 10 GiB limit; inspect job and outbox retention and plan maintenance before writes are refused.
+
+      - alert: StePanelAuditOutboxBacklog
+        expr: stepanel_audit_outbox_pending{job="stepanel"} > 0 and stepanel_audit_outbox_oldest_pending_age_seconds{job="stepanel"} > 300
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Durable audit events are not reaching the signed audit log
+          description: The oldest unpublished audit event is more than five minutes old; inspect audit-log permissions, disk capacity, and the audit outbox.
+
+      - alert: StePanelNotificationOutboxBacklog
+        expr: stepanel_operator_notifications_pending{job="stepanel"} > 0 and stepanel_operator_notifications_oldest_pending_age_seconds{job="stepanel"} > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Operator notifications are accumulating
+          description: At least one required alert delivery has remained pending for more than fifteen minutes; inspect destination health and notification outbox metrics.
+
       - alert: StePanelReadinessCheckFailed
         expr: stepanel_readiness_check_ready{job="stepanel"} == 0
         for: 5m
