@@ -3,6 +3,9 @@ name: Installation smoke
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'CHANGELOG.md'
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:

@@ -19,6 +19,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the failed quota run and its unverified cause as explicit evidence.
 - Record exact pushed validation states for the quota-smoke admission fix and
   distinguish current-head checks from prior-source production evidence.
+- Pass and record the complete repository production gate on exact pushed head
+  `862d801`, including race tests, recovery drills, coverage floors, benchmarks,
+  mixed HTTP load, and repository hygiene checks.
+- Avoid replacing queued installed-host and quota smoke evidence on docs-only
+  pushes; those expensive workflows now run when relevant code, installer, or
+  lab-harness inputs change.
 - Reclaim expired durable job leases from the worker's idle wait path, so an
   abandoned destructive operation cannot remain `running` indefinitely when
   no other work is queued.

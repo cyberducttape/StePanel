@@ -2,8 +2,14 @@ name: Quota-enabled production install smoke
 
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'CHANGELOG.md'
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'CHANGELOG.md'
   workflow_dispatch:
 
 permissions:

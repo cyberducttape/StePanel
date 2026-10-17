@@ -18,22 +18,26 @@ The design is sound. The implementation is 85% there. The remaining work is:
 - Testing failure paths rigorously
 - Making recovery guarantees explicit
 
-### Current-head repository evidence — 2026-10-17 (`2c13219`)
+### Latest full repository gate — 2026-10-17 (`862d801`)
 
-The current pushed head is `2c132198de8b8a444725b85681a5c0c163dc03ba`.
-Its quota-smoke fixture and deployment-job diagnostics were corrected after
-the preceding exact-source quota run failed before the Git activation kill
-boundary. At capture, exact-head CI and CodeQL were queued, standard and quota
-installation smokes were pending, and three of ten installed-host recovery
-shards were in progress while seven were queued. These are not passing
-results; see [current status](./CURRENT_STATUS.md) and the
-[quota-smoke failure report](./lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
+The source `862d8015f3e7c3a85d9aa7525f2e17a04d147d97` passed the exact-source
+[repository production gate](./lab-results/2026-10-17-repository-production-gate-862d801.md)
+passed tests, race detection, recovery drills, benchmarks, mixed load, and
+repository hygiene checks. This does not establish installed-host or
+production-capacity certification. At capture, hosted CI and CodeQL were
+queued, standard and quota installation smokes were pending, and three of ten
+installed-host recovery shards were in progress while seven were queued. These
+are historical states; consult [current status](./CURRENT_STATUS.md) and the
+provider for live run status.
 
-The repository production gate and completed hosted checks below apply to the
-prior application source `a27becc`, not this workflow/harness update. They
-remain useful evidence but do not establish exact-head validation.
+The immediately prior `2c13219` workflow/harness update enlarged the quota
+fixture and improved Git job diagnostics after the preceding quota run failed
+before the activation kill boundary. Its push-triggered checks were canceled
+when the following documentation commit superseded it; the quota rerun was
+pending at the last capture. The original failure and unverified fixture diagnosis are documented
+in [the failure report](./lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
 
-### Prior-source repository evidence — 2026-10-17 (`a27becc`)
+### Prior-source hosted evidence — 2026-10-17 (`a27becc`)
 
 The full local repository production gate passed on exact source
 `a27beccc9b5be33a7e30d57662d027c74e6a6cbe`, including vet, tests, race,

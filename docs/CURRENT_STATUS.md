@@ -18,24 +18,24 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate requirements and acceptance criteria.
 
-### Current-head validation — 2026-10-17 (`2c13219`)
+### Latest full repository gate — 2026-10-17 (`862d801`)
 
-- Current `main` is `2c132198de8b8a444725b85681a5c0c163dc03ba`
-  (`Fix quota smoke Git deployment admission`). The quota fixture now provides
-  an 8 GiB `/var/www` filesystem for the 5 GiB Git staging reservation and
-  1 GiB free-space floor. The deployment-interruption smoke now requires a
-  durable job ID, detects premature terminal job state, and includes its
-  status in failure diagnostics. Shell syntax, ShellCheck, documentation
-  links/references, and `git diff --check` passed locally.
-- Exact-head hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38997387100)
-  and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38997387005)
-  are queued; [standard installation smoke](https://github.com/cyberducttape/StePanel/actions/runs/38997386955)
-  and [quota-enabled smoke](https://github.com/cyberducttape/StePanel/actions/runs/38997387063)
-  are pending. No result is inferred from these states.
+- Validation source was `862d8015f3e7c3a85d9aa7525f2e17a04d147d97`. The
+  [repository production gate](lab-results/2026-10-17-repository-production-gate-862d801.md)
+  passed: vet, tests, coverage floors, race suite, repository recovery drills,
+  benchmarks, synthetic mixed load, docs, dashboard, action pins, assets, and
+  shell checks. This remains repository evidence, not host certification.
+- At capture on that source, hosted CI and CodeQL were queued, standard and
+  quota installation smokes were pending, and three of ten installed-host
+  recovery shards were in progress while seven were queued. Later pushes may
+  replace pending push-triggered checks; current run state must be confirmed
+  from GitHub rather than inferred from this historical capture.
 - The earlier quota smoke failure on `a27becc` remains a failure, not pass
-  evidence; its incomplete result and unverified fixture diagnosis are
-  recorded in the [failure report](lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
-  The updated fixture and diagnostics require a successful exact-head rerun.
+  evidence. The corrected 8 GiB fixture and job diagnostics are in `2c13219`;
+  that commit's workflow runs were canceled when the documentation-only
+  `862d801` commit superseded them. The exact-head quota run is pending. The
+  original failure and unverified fixture diagnosis are recorded in the
+  [failure report](lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
 - The 20-repeat installed-host recovery cohort on `a27becc` is still
   incomplete: three two-iteration shards are in progress and seven are queued
   at this capture. No repeat is counted until its complete six-host shard
@@ -44,6 +44,15 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
   or independent-security-review gates.
 
 Production approval remains **NO-GO**.
+
+### Quota-smoke fixture fix — 2026-10-17 (`2c13219`)
+
+This commit increased the quota smoke's `/var/www` filesystem to 8 GiB for the
+5 GiB Git staging reservation and 1 GiB free-space floor. It also requires a
+durable Git deployment job ID, detects a terminal state before the injected
+activation kill, and prints the job status on timeout. Its hosted checks were
+canceled by the following docs-only push; exact-head hosted validation remains
+pending as recorded above.
 
 ### Prior source validation — 2026-10-17 (`a27becc`)
 
