@@ -18,22 +18,22 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate requirements and acceptance criteria.
 
-### Latest full repository gate — 2026-10-17 (`862d801`)
+### Latest full repository gate — 2026-10-17 (`bed56d8`)
 
-- Validation source was `862d8015f3e7c3a85d9aa7525f2e17a04d147d97`. The
-  [repository production gate](lab-results/2026-10-17-repository-production-gate-862d801.md)
+- Validation source was `bed56d81b9b56bfd102d48c5daca453ad66ab1aa`. The
+  [repository production gate](lab-results/2026-10-17-repository-production-gate-bed56d8.md)
   passed: vet, tests, coverage floors, race suite, repository recovery drills,
-  benchmarks, synthetic mixed load, docs, dashboard, action pins, assets, and
-  shell checks. This remains repository evidence, not host certification.
-- At capture on that source, hosted CI and CodeQL were queued, standard and
-  quota installation smokes were pending, and three of ten installed-host
-  recovery shards were in progress while seven were queued. Later pushes may
-  replace pending push-triggered checks; current run state must be confirmed
-  from GitHub rather than inferred from this historical capture.
+  benchmarks, synthetic mixed load, docs, dashboard, quota-fixture capacity
+  invariant, action pins, assets, and shell checks. This remains repository
+  evidence, not host certification.
+- At capture on that source, hosted CI was queued, CodeQL and standard/quota
+  install smokes were pending. Three of ten installed-host recovery shards
+  remained active in their long install/recovery step; seven were queued. No
+  host evidence is inferred from these states. Check GitHub for live status.
 - The earlier quota smoke failure on `a27becc` remains a failure, not pass
   evidence. The corrected 8 GiB fixture and job diagnostics are in `2c13219`;
-  that commit's workflow runs were canceled when the documentation-only
-  `862d801` commit superseded them. The exact-head quota run is pending. The
+  earlier push-triggered workflow runs were canceled by subsequent commits;
+  the latest quota run was pending at capture. The
   original failure and unverified fixture diagnosis are recorded in the
   [failure report](lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
 - The 20-repeat installed-host recovery cohort on `a27becc` is still
@@ -45,14 +45,16 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
 
 Production approval remains **NO-GO**.
 
-### Quota-smoke fixture fix — 2026-10-17 (`2c13219`)
+### Quota-smoke fixture and capacity check — 2026-10-17 (`bed56d8`)
 
 This commit increased the quota smoke's `/var/www` filesystem to 8 GiB for the
 5 GiB Git staging reservation and 1 GiB free-space floor. It also requires a
 durable Git deployment job ID, detects a terminal state before the injected
 activation kill, and prints the job status on timeout. Its hosted checks were
-canceled by the following docs-only push; exact-head hosted validation remains
-pending as recorded above.
+canceled by later pushes. The local KVM fixture now uses the same 8 GiB
+`/var/www` capacity as the hosted quota fixture. A repository check derives
+the minimum needed for Git staging plus the installer's free-space floor and
+rejects either undersized fixture.
 
 ### Prior source validation — 2026-10-17 (`a27becc`)
 

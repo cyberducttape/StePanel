@@ -18,24 +18,22 @@ The design is sound. The implementation is 85% there. The remaining work is:
 - Testing failure paths rigorously
 - Making recovery guarantees explicit
 
-### Latest full repository gate — 2026-10-17 (`862d801`)
+### Latest full repository gate — 2026-10-17 (`bed56d8`)
 
-The source `862d8015f3e7c3a85d9aa7525f2e17a04d147d97` passed the exact-source
-[repository production gate](./lab-results/2026-10-17-repository-production-gate-862d801.md)
-passed tests, race detection, recovery drills, benchmarks, mixed load, and
-repository hygiene checks. This does not establish installed-host or
-production-capacity certification. At capture, hosted CI and CodeQL were
-queued, standard and quota installation smokes were pending, and three of ten
-installed-host recovery shards were in progress while seven were queued. These
-are historical states; consult [current status](./CURRENT_STATUS.md) and the
-provider for live run status.
+The source `bed56d81b9b56bfd102d48c5daca453ad66ab1aa` passed the exact-source
+[repository production gate](./lab-results/2026-10-17-repository-production-gate-bed56d8.md):
+tests, coverage floors, race detection, recovery drills, benchmarks, mixed
+load, and repository hygiene checks. This does not establish installed-host
+or production-capacity certification. At capture, hosted CI was queued,
+CodeQL and standard/quota installation smokes were pending, and three of ten
+installed-host recovery shards remained in their long install/recovery stage.
+No host result is inferred; see [current status](./CURRENT_STATUS.md) for
+captured context and query GitHub for live run state.
 
 The immediately prior `2c13219` workflow/harness update enlarged the quota
 fixture and improved Git job diagnostics after the preceding quota run failed
-before the activation kill boundary. Its push-triggered checks were canceled
-when the following documentation commit superseded it; the quota rerun was
-pending at the last capture. The original failure and unverified fixture diagnosis are documented
-in [the failure report](./lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
+before the activation kill boundary. The original failure and unverified
+fixture diagnosis are documented in [the failure report](./lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
 
 ### Prior-source hosted evidence — 2026-10-17 (`a27becc`)
 
