@@ -1268,6 +1268,14 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+		case <-requeueTicker.C:
+			// The loop's top-level select handles lease recovery while work is
+			// being claimed or completed. When the queue is idle, this select is
+			// the only place that can observe the recovery ticker; omitting it
+			// leaves abandoned jobs in running forever after their leases expire.
+			if _, err := j.RequeueExpired(); err != nil {
+				return err
+			}
 		}
 	}
 }

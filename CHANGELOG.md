@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Reclaim expired durable job leases from the worker's idle wait path, so an
+  abandoned destructive operation cannot remain `running` indefinitely when
+  no other work is queued.
+- Require a 4 GiB guest for local KVM install certification, matching the
+  enforced Git-clone memory admission headroom and failing early when a smaller
+  VM would make the deployment-recovery smoke impossible to reach.
 - Record the exact-head repository production gate for `ee563eb`: full race and
   coverage gates, recovery drills, and mixed-load checks passed; retain the
   report's explicit installed-host and capacity-certification limitations.

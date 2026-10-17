@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-16
+**Last Updated:** 2026-10-17
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -17,6 +17,14 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 ## Release Gate Status
 
 See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate requirements and acceptance criteria.
+
+The 2026-10-17 local Rocky Linux 9 KVM install attempt on source `6d5b8b1`
+passed database ownership, import/restore/termination recovery, WordPress
+application proof, and outage checks, then stopped before Git activation because
+the 3 GiB guest had only 2.27 GiB available against the enforced 2.5 GiB clone
+admission minimum. The harness now defaults to a 4 GiB guest and rejects
+undersized install runs before boot. This attempt is incomplete evidence and
+closes no release gate; see the [run report](lab-results/2026-10-17-rocky9-kvm-6d5b8b1.md).
 
 The exact pushed source `ee563eb` passed the repository production gate on
 2026-10-16, including full race tests, coverage thresholds, repository recovery

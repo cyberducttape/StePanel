@@ -13,7 +13,7 @@ set -Eeuo pipefail
 # (default /var/tmp/stepanel-kvm-cert) must be on a disk-backed filesystem:
 # the guest disks are several GiB.
 #
-# Environment: VM_MEMORY_MB (3072), VM_HOST_RESERVE_MB (2048), VM_CPUS (4), SSH_PORT (2232),
+# Environment: VM_MEMORY_MB (4096), VM_HOST_RESERVE_MB (2048), VM_CPUS (4), SSH_PORT (2232),
 # RECOVERY_MATRIX_REPEATS (1; use 20–50 for the release soak),
 # PHASES (space-separated subset of: boot install runner abrupt-loss
 # abrupt-loss-under-load enospc), KEEP_VM=1 to leave the guest running,
@@ -25,7 +25,7 @@ set -Eeuo pipefail
 image=${1:?usage: local-kvm-certification.sh IMAGE.qcow2 [RUN_DIR]}
 run_dir=${2:-/var/tmp/stepanel-kvm-cert}
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-memory=${VM_MEMORY_MB:-3072}
+memory=${VM_MEMORY_MB:-4096}
 cpus=${VM_CPUS:-4}
 port=${SSH_PORT:-2232}
 host_reserve=${VM_HOST_RESERVE_MB:-2048}
@@ -34,6 +34,10 @@ matrix_repeats=${RECOVERY_MATRIX_REPEATS:-1}
 
 if [[ ! $matrix_repeats =~ ^[1-9][0-9]*$ ]] || (( matrix_repeats > 50 )); then
   echo 'RECOVERY_MATRIX_REPEATS must be an integer from 1 through 50' >&2
+  exit 1
+fi
+if [[ " $phases " == *" install "* ]] && (( memory < 4096 )); then
+  echo 'the install phase requires at least 4096 MiB guest memory for the enforced Git-clone admission headroom' >&2
   exit 1
 fi
 install_timeout_minutes=$((60 + matrix_repeats * 180))

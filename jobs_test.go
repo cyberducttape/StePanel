@@ -837,6 +837,75 @@ func TestDurableWorkerReclaimsExpiredClaimOnStartup(t *testing.T) {
 	}
 }
 
+func TestDurableWorkerReclaimsExpiredClaimWhileIdle(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	producer := newJobsWithDB(db, 1)
+	queued, err := producer.Enqueue("worker.operation", "site", "", []byte(`{"operation":"recover"}`), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := producer.ClaimNext("dead-worker", "worker.operation"); err != nil || !ok {
+		t.Fatalf("claim = %v, %v", ok, err)
+	}
+	// The replacement starts before the old lease expires, then has no work
+	// available. Its periodic idle wait must still trigger lease reclamation.
+	if _, err := db.Exec(`UPDATE jobs SET lease_expires_at = ? WHERE id = ?`, time.Now().UTC().Add(time.Minute).UnixNano(), queued.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	worker := newJobsWithDB(db, 1)
+	worker.leaseTTL = 180 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- worker.RunWorker(ctx, "replacement-worker", []string{"worker.operation"}, time.Hour, func(_ context.Context, item Job) ([]byte, error) {
+			if item.ID != queued.ID {
+				t.Errorf("reclaimed job = %s, want %s", item.ID, queued.ID)
+			}
+			cancel()
+			return []byte(`{"recovered":true}`), nil
+		})
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM worker_heartbeats WHERE worker_id = ?`, "replacement-worker").Scan(&count); err == nil && count == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			<-done
+			t.Fatal("replacement worker did not start before lease expiry")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := db.Exec(`UPDATE jobs SET lease_expires_at = ? WHERE id = ?`, time.Now().UTC().Add(-time.Second).UnixNano(), queued.ID); err != nil {
+		cancel()
+		<-done
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("worker exit = %v, want context canceled after recovering job", err)
+		}
+	case <-time.After(2 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("idle worker did not reclaim the expired job")
+	}
+	if got, ok := worker.Get(queued.ID); !ok || got.State != "completed" {
+		t.Fatalf("recovered job = %#v, found = %v", got, ok)
+	}
+}
+
 func TestDurableWorkerStopsWhenClaimIsTakenOver(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {
