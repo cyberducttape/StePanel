@@ -603,8 +603,8 @@ func validBackupName(name string) bool {
 	return true
 }
 
-// maxOffsiteListingBytes bounds the manifest listing used to choose a
-// recovery-proof backup (roughly 100k manifests).
+// maxOffsiteListingBytes bounds the manifest and completion-marker listing
+// used to choose a recovery-proof backup (roughly 50k backups).
 const maxOffsiteListingBytes = 8 << 20
 
 const maxOffsiteManifestBytes = 8 << 20
@@ -667,30 +667,44 @@ func listOffsiteBackupsContext(parent context.Context, cfg Config) ([]offsiteBac
 	// Only manifests are listed so a large repository stays well inside the
 	// output bound. A listing that reaches the bound is refused rather than
 	// silently sampling only the first backups in lexical order.
-	output, err := runOffsiteRcloneLimit(ctx, maxOffsiteListingBytes, "lsf", strings.TrimRight(cfg.OffsiteTarget, "/"), "--recursive", "--files-only", "--include", "/*/*/manifest.json")
+	output, err := runOffsiteRcloneLimit(ctx, maxOffsiteListingBytes, "lsf", strings.TrimRight(cfg.OffsiteTarget, "/"), "--recursive", "--files-only", "--include", "/*/*/manifest.json", "--include", "/*/*/"+offsiteCompleteMarker)
 	if err != nil {
 		return nil, fmt.Errorf("list offsite backups failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	if len(output) >= maxOffsiteListingBytes {
 		return nil, fmt.Errorf("offsite backup listing exceeds %d bytes; prune the repository before running a recovery proof", maxOffsiteListingBytes)
 	}
-	seen := make(map[string]bool)
-	var backups []offsiteBackupReference
+	// A backup is complete only when both its manifest and completion marker
+	// are published; an interrupted publication has the manifest alone.
+	manifests := make(map[string]bool)
+	complete := make(map[string]bool)
+	var order []offsiteBackupReference
 	for _, line := range strings.Split(string(output), "\n") {
 		parts := strings.Split(strings.Trim(strings.TrimSpace(line), "/"), "/")
 		// Upload staging prefixes carry a manifest copy but are never complete
 		// backups, so a recovery proof must not select them.
-		if len(parts) != 3 || parts[2] != "manifest.json" || safeUser(parts[0]) == "" || !validBackupName(parts[1]) || strings.Contains(parts[1], offsiteUploadStagingInfix) {
+		if len(parts) != 3 || safeUser(parts[0]) == "" || !validBackupName(parts[1]) || strings.Contains(parts[1], offsiteUploadStagingInfix) {
 			continue
 		}
 		key := parts[0] + "\x00" + parts[1]
-		if !seen[key] {
-			seen[key] = true
-			backups = append(backups, offsiteBackupReference{Site: parts[0], Backup: parts[1]})
+		switch parts[2] {
+		case "manifest.json":
+			if !manifests[key] {
+				manifests[key] = true
+				order = append(order, offsiteBackupReference{Site: parts[0], Backup: parts[1]})
+			}
+		case offsiteCompleteMarker:
+			complete[key] = true
+		}
+	}
+	var backups []offsiteBackupReference
+	for _, ref := range order {
+		if complete[ref.Site+"\x00"+ref.Backup] {
+			backups = append(backups, ref)
 		}
 	}
 	if len(backups) == 0 {
-		return nil, errors.New("offsite repository contains no valid backup manifests")
+		return nil, errors.New("offsite repository contains no complete backups")
 	}
 	return backups, nil
 }

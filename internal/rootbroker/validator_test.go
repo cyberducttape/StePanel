@@ -1,6 +1,8 @@
 package rootbroker
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -473,5 +475,59 @@ func TestValidateDomainRejectsMalformedNames(t *testing.T) {
 	}
 	if err := v.ValidateDomain("www.example.com"); err != nil {
 		t.Fatalf("valid domain rejected: %v", err)
+	}
+}
+
+// TestBrokerRejectsUnauthorizedFilesystemMutation covers the path checks
+// every privileged filesystem operation relies on: a path must stay inside
+// its approved root, and no component may be a symlink that the kernel would
+// follow out of that root.
+func TestBrokerRejectsUnauthorizedFilesystemMutation(t *testing.T) {
+	webRoot := t.TempDir()
+	outside := t.TempDir()
+	v := NewValidator(webRoot)
+	site := filepath.Join(webRoot, "sites", "demo")
+	if err := os.MkdirAll(filepath.Join(site, "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(site, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/etc/passwd", "../outside", "sites/../../outside", "sites/demo/escape/file", "sites/demo/escape"} {
+		if err := v.ValidateFilePath(webRoot, path); err == nil {
+			t.Errorf("ValidateFilePath accepted %q", path)
+		}
+	}
+	if err := v.ValidateFilePath(webRoot, "sites/demo/public/index.php"); err != nil {
+		t.Errorf("ValidateFilePath rejected an ordinary site path: %v", err)
+	}
+
+	dump := filepath.Join(site, "dump.sql")
+	if err := os.WriteFile(dump, []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	outsideDump := filepath.Join(outside, "dump.sql")
+	if err := os.WriteFile(outsideDump, []byte("SELECT 1;"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDump, filepath.Join(site, "link.sql")); err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{
+		"relative":         "sites/demo/dump.sql",
+		"outside roots":    outsideDump,
+		"traversal":        filepath.Join(webRoot, "..", filepath.Base(outside), "dump.sql"),
+		"symlinked parent": filepath.Join(site, "escape", "dump.sql"),
+		"final symlink":    filepath.Join(site, "link.sql"),
+		"directory":        filepath.Join(site, "public"),
+		"missing":          filepath.Join(site, "absent.sql"),
+		"system file":      "/etc/shadow",
+	} {
+		if err := v.validateDumpPath(path); err == nil {
+			t.Errorf("validateDumpPath accepted %s path %q", name, path)
+		}
+	}
+	if err := v.validateDumpPath(dump); err != nil {
+		t.Errorf("validateDumpPath rejected a regular staged dump: %v", err)
 	}
 }

@@ -197,7 +197,7 @@ func TestValidBackupNameRejectsRemotePathTraversal(t *testing.T) {
 func TestListOffsiteBackupsFiltersManifestObjects(t *testing.T) {
 	root := t.TempDir()
 	rclone := filepath.Join(root, "rclone")
-	if err := os.WriteFile(rclone, []byte("#!/bin/sh\nprintf '%s\\n' 'account/backup-1/manifest.json' 'account/backup-1/manifest.json' 'account/backup-1.stepanel-upload-1700000000-0123456789abcdef0123456789abcdef/manifest.json' 'account/backup-1/backup.tar.gz' 'bad/path name/manifest.json' '../escape/manifest.json'\n"), 0700); err != nil {
+	if err := os.WriteFile(rclone, []byte("#!/bin/sh\nprintf '%s\\n' 'account/backup-1/manifest.json' 'account/backup-1/manifest.json' 'account/backup-1/.stepanel-complete' 'account/backup-2/manifest.json' 'account/backup-1.stepanel-upload-1700000000-0123456789abcdef0123456789abcdef/manifest.json' 'account/backup-1/backup.tar.gz' 'bad/path name/manifest.json' '../escape/manifest.json'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -426,5 +426,127 @@ func TestOffsiteUploadStagingNamesAreSweepable(t *testing.T) {
 	}
 	if created, _ := strconv.ParseInt(match[1], 10, 64); created < before || created > time.Now().Unix() {
 		t.Fatalf("staging timestamp %d outside upload window", created)
+	}
+}
+
+// offsiteTestRemote installs a fake rclone backed by a local directory and
+// returns a config whose offsite target lives there.
+func offsiteTestRemote(t *testing.T, root string) (Config, string) {
+	t.Helper()
+	webRoot := filepath.Join(root, "www")
+	if err := os.MkdirAll(filepath.Join(webRoot, "sites", "account", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webRoot, "sites", "account", "public", "index.php"), []byte("<?php echo 'ok';"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fakeRemote := filepath.Join(root, "remote")
+	script := `#!/bin/sh
+set -eu
+remote() { case "$1" in *:*) printf '%s/%s' "$RCLONE_FAKE_ROOT" "${1#*:}";; *) printf '%s' "$1";; esac; }
+case "$1" in
+copy) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$dst"; cp -a "$src"/. "$dst"/ ;;
+check) exit 0 ;;
+lsf) dir=$(remote "$2"); [ -d "$dir" ] || exit 3; (cd "$dir" && find . -type f | sed 's#^\./##') ;;
+copyto) src=$(remote "$2"); dst=$(remote "$3"); [ -f "$src" ] || exit 3; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
+purge) rm -rf "$(remote "$2")" ;;
+*) echo "unsupported fake rclone command" >&2; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(root, "rclone"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("RCLONE_FAKE_ROOT", fakeRemote)
+	cfg := Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), ImportRoot: filepath.Join(root, "imports"), OffsiteTarget: "s3:bucket/stepanel"}
+	return cfg, filepath.Join(fakeRemote, "bucket", "stepanel")
+}
+
+// TestRecoveryAfterInterruptedOffsitePublication checks that a publication
+// interrupted before its completion marker is never restored or offered as
+// a backup, even though every backup object is present.
+func TestRecoveryAfterInterruptedOffsitePublication(t *testing.T) {
+	cfg, repo := offsiteTestRemote(t, t.TempDir())
+	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Base(backup.Path)
+	destination := filepath.Join(repo, "account", name)
+	// Model an upload killed after the final copy and before the marker.
+	if err := os.MkdirAll(destination, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyTreeContext(t.Context(), backup.Path, destination); err != nil {
+		t.Fatal(err)
+	}
+	if refs, err := listOffsiteBackupsContext(t.Context(), cfg); err == nil || len(refs) != 0 {
+		t.Fatalf("listing offered an incomplete backup: %#v, %v", refs, err)
+	}
+	if _, cleanup, err := downloadOffsiteBackupContext(t.Context(), cfg, "account", name); err == nil || !strings.Contains(err.Error(), "not complete") {
+		cleanup()
+		t.Fatalf("download of a backup without its completion marker = %v, want refusal", err)
+	}
+	if err := os.WriteFile(filepath.Join(destination, offsiteCompleteMarker), []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, cleanup, err := downloadOffsiteBackupContext(t.Context(), cfg, "account", name); err == nil || !strings.Contains(err.Error(), "completion marker is invalid") {
+		cleanup()
+		t.Fatalf("download with an invalid completion marker = %v, want refusal", err)
+	}
+	if err := os.Remove(filepath.Join(destination, offsiteCompleteMarker)); err != nil {
+		t.Fatal(err)
+	}
+	// Retrying the upload completes the same publication.
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err != nil {
+		t.Fatalf("resume interrupted publication: %v", err)
+	}
+	root, cleanup, err := downloadOffsiteBackupContext(t.Context(), cfg, "account", name)
+	if err != nil {
+		t.Fatalf("download after resumed publication: %v", err)
+	}
+	defer cleanup()
+	if _, err := VerifySiteBackupStrict(root, ""); err != nil {
+		t.Fatalf("resumed publication does not verify: %v", err)
+	}
+}
+
+// TestRecoveryFromIndependentOffsiteCopy restores customer files from the
+// offsite copy alone: the original host's backup tree and site are gone.
+func TestRecoveryFromIndependentOffsiteCopy(t *testing.T) {
+	cfg, _ := offsiteTestRemote(t, t.TempDir())
+	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(cfg.BackupRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(cfg.WebRoot, "sites", "account")); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := listOffsiteBackupsContext(t.Context(), cfg)
+	if err != nil || len(refs) != 1 || refs[0].Site != "account" || refs[0].Backup != filepath.Base(backup.Path) {
+		t.Fatalf("offsite listing = %#v, %v; want the one published backup", refs, err)
+	}
+	root, cleanup, err := downloadOffsiteBackupContext(t.Context(), cfg, refs[0].Site, refs[0].Backup)
+	if err != nil {
+		t.Fatalf("download from the offsite copy: %v", err)
+	}
+	defer cleanup()
+	manifest, err := VerifySiteBackupStrict(root, "")
+	if err != nil {
+		t.Fatalf("offsite copy does not verify without the original host: %v", err)
+	}
+	extracted := t.TempDir()
+	if err := extractBackupArchiveContext(t.Context(), filepath.Join(root, manifest.Archive), extracted, nil, manifest); err != nil {
+		t.Fatalf("extract offsite copy: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(extracted, "site", "public", "index.php"))
+	if err != nil || string(data) != "<?php echo 'ok';" {
+		t.Fatalf("restored customer file = %q, %v", data, err)
 	}
 }

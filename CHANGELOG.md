@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Offer only complete offsite backups for recovery-proof selection. The
+  listing now requires the completion marker as well as the manifest, so an
+  interrupted publication is never chosen. Add regression tests for
+  interrupted publication, recovery from the offsite copy alone, and the root
+  broker's path and dump-path boundaries.
 - Add per-site `stepanel_backup_last_success_age_seconds` and
   `stepanel_backup_interval_seconds` gauges and a `StePanelBackupOverdue`
   alert that names the site whose backup is more than an hour overdue. The
