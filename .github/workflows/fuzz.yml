@@ -26,3 +26,8 @@ jobs:
           for target in FuzzSafeArchivePath FuzzSafeUser FuzzValidBackupName FuzzManagedDatabaseIdentifier; do
             go test -run=^$ -fuzz="^${target}$" -fuzztime=75s .
           done
+      - name: Fuzz root broker request decoding and path validation
+        run: |
+          for target in FuzzValidateRequest FuzzValidateFilePath; do
+            go test -run=^$ -fuzz="^${target}$" -fuzztime=75s ./internal/rootbroker
+          done

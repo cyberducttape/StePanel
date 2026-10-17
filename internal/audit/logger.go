@@ -67,10 +67,15 @@ func (l *defaultLogger) LogAs(ctx context.Context, actor, action, target, detail
 	if strings.TrimSpace(l.path) == "" {
 		return nil
 	}
+	waitStart := time.Now()
 	mu.Lock()
 	defer mu.Unlock()
+	writeStart := time.Now()
 	err := l.appendEvent(actor, action, target, detail)
 	now := time.Now().UTC()
+	health.Writes++
+	health.LockWait += writeStart.Sub(waitStart)
+	health.WriteTime += now.Sub(writeStart)
 	health.LastError = err
 	if err != nil {
 		health.FailureCount++
@@ -88,12 +93,18 @@ func (l *defaultLogger) PersistenceError() error {
 	return health.LastError
 }
 
-// Health is a snapshot of audit persistence for this process.
+// Health is a snapshot of audit persistence for this process. Writes counts
+// every append attempt; LockWait is the cumulative time appends waited for
+// the in-process writer lock, and WriteTime the cumulative time spent
+// appending once it was held (including the cross-process file lock).
 type Health struct {
 	LastError    error
 	LastFailure  time.Time
 	LastSuccess  time.Time
 	FailureCount uint64
+	Writes       uint64
+	LockWait     time.Duration
+	WriteTime    time.Duration
 }
 
 func currentHealth() Health {

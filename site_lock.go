@@ -33,6 +33,39 @@ func (a *App) acquireSiteMutationLockContext(ctx context.Context, key string) (c
 		localRelease()
 		return nil, nil, err
 	}
+	return a.holdSiteMutationLease(ctx, key, lease, localRelease)
+}
+
+// errSiteMutationBusy reports that another operation holds a site's mutation
+// lock, so a caller that must not wait can retry the site later.
+var errSiteMutationBusy = errors.New("site has a mutation in progress")
+
+// tryAcquireSiteMutationLockContext is acquireSiteMutationLockContext for
+// callers that serve many sites and must not wait on one of them. It returns
+// errSiteMutationBusy instead of waiting when the lock is held in this
+// process or by another process's live lease.
+func (a *App) tryAcquireSiteMutationLockContext(ctx context.Context, key string) (context.Context, func(), error) {
+	localRelease, ok := a.siteOperations.TryAcquire(key)
+	if !ok {
+		return nil, nil, errSiteMutationBusy
+	}
+	if a.dbLocks == nil {
+		return ctx, localRelease, nil
+	}
+	lease, err := a.dbLocks.TryAcquire(key)
+	if err != nil {
+		localRelease()
+		if errors.Is(err, operations.ErrLockHeld) {
+			return nil, nil, errSiteMutationBusy
+		}
+		return nil, nil, err
+	}
+	return a.holdSiteMutationLease(ctx, key, lease, localRelease)
+}
+
+// holdSiteMutationLease renews an acquired durable lease until release and
+// cancels the returned context if another owner fences it.
+func (a *App) holdSiteMutationLease(ctx context.Context, key string, lease operations.Lease, localRelease func()) (context.Context, func(), error) {
 	operationCtx, cancelOperation := context.WithCancel(ctx)
 	operationCtx = operations.WithFencingTokens(operationCtx, lease.Token())
 	holdCtx, cancelHold := context.WithCancel(context.Background())

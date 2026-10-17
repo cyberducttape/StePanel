@@ -699,6 +699,7 @@ func Main() {
 		}()
 	}
 	go app.runOperatorNotificationLoop(runCtx)
+	go app.runOffsiteStagingSweepLoop(runCtx)
 	go func() {
 		scheduleTicker := time.NewTicker(time.Minute)
 		cleanupTicker := time.NewTicker(15 * time.Minute)
@@ -1046,6 +1047,7 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	writeJobMetrics(w, a.Jobs)
 	writeOperatorNotificationMetrics(w, a.Notifications, a.Config)
 	writeAuditOutboxMetrics(w, a.AuditOutbox)
+	writeAuditWriterMetrics(w, audit.CurrentHealth())
 	if a.Jobs == nil {
 		writeCapacityReservationMetrics(w, nil)
 		writeControlPlaneStorageMetrics(w, nil, a.Config.ControlPlaneDB, sqliteutil.DefaultDatabaseMaxBytes)

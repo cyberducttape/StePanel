@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/audit"
 )
 
 func TestMetricsWrite(t *testing.T) {
@@ -168,3 +170,20 @@ func (assertionError) Error() string { return "test failure" }
 type assertionErrorWithMessage struct{ message string }
 
 func (e assertionErrorWithMessage) Error() string { return e.message }
+
+func TestAuditWriterMetricsExposeLatencyAndFailures(t *testing.T) {
+	var output strings.Builder
+	writeAuditWriterMetrics(&output, audit.Health{Writes: 4, FailureCount: 1, LockWait: 1500 * time.Millisecond, WriteTime: 250 * time.Millisecond})
+	for _, want := range []string{
+		"# TYPE stepanel_audit_write_duration_seconds summary",
+		"stepanel_audit_write_duration_seconds_sum 0.25\n",
+		"stepanel_audit_write_duration_seconds_count 4\n",
+		"stepanel_audit_lock_wait_seconds_sum 1.5\n",
+		"stepanel_audit_lock_wait_seconds_count 4\n",
+		"stepanel_audit_write_failures_total 1\n",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("audit writer metrics missing %q:\n%s", want, output.String())
+		}
+	}
+}

@@ -1355,6 +1355,9 @@ func TestPersistenceErrorRecoversButHealthKeepsFailureHistory(t *testing.T) {
 		t.Fatalf("PersistenceError() after recovery = %v", err)
 	}
 	recovered := CurrentHealth()
+	if recovered.Writes != 3 || recovered.WriteTime <= 0 {
+		t.Fatalf("write accounting after recovery = %+v", recovered)
+	}
 	if recovered.LastError != nil || recovered.FailureCount != 2 || !recovered.LastFailure.Equal(failed.LastFailure) || recovered.LastSuccess.IsZero() {
 		t.Fatalf("health after recovery = %+v", recovered)
 	}

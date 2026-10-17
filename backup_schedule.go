@@ -301,7 +301,13 @@ func (a *App) dispatchBackupScheduleOutbox() error {
 	if binding.db != a.Jobs.db || binding.name == "" {
 		return errors.New("backup schedules and jobs do not share a control-plane database")
 	}
-	rows, err := a.Jobs.db.Query(`SELECT id, site, operation_key, payload FROM backup_schedule_outbox WHERE delivered_at IS NULL ORDER BY created_at, id LIMIT 100`)
+	// Only each site's oldest pending intent is eligible, so a site whose
+	// intents cannot be delivered occupies one slot instead of the batch.
+	rows, err := a.Jobs.db.Query(`SELECT id, site, operation_key, payload FROM (
+		SELECT id, site, operation_key, payload, created_at,
+			ROW_NUMBER() OVER (PARTITION BY site ORDER BY created_at, id) AS position
+		FROM backup_schedule_outbox WHERE delivered_at IS NULL
+	) WHERE position = 1 ORDER BY created_at, id LIMIT 100`)
 	if err != nil {
 		return err
 	}
@@ -321,41 +327,55 @@ func (a *App) dispatchBackupScheduleOutbox() error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
+	// A busy or failing site leaves its intent pending for the next tick and
+	// never delays other sites. Errors that are not specific to one site
+	// (schedule state or outbox writes) stop the batch.
+	var siteFailures []error
 	for _, item := range batch {
-		operationCtx, release, lockErr := a.acquireSiteMutationLockContext(context.Background(), item.site)
-		if lockErr != nil {
-			return fmt.Errorf("lock scheduled backup site %s: %w", item.site, lockErr)
+		retry, err := a.dispatchBackupScheduleItem(binding, item)
+		if err != nil && !retry {
+			return errors.Join(append(siteFailures, err)...)
 		}
-		if err := a.refreshBoundBackupSchedules(binding); err != nil {
-			release()
-			return fmt.Errorf("refresh schedule before dispatch for %s: %w", item.site, err)
+		if err != nil && !errors.Is(err, errSiteMutationBusy) {
+			siteFailures = append(siteFailures, err)
 		}
-		a.Schedules.mu.Lock()
-		schedule, exists := a.Schedules.items[item.site]
-		a.Schedules.mu.Unlock()
-		if !exists || !schedule.Enabled {
-			_, deleteErr := a.Jobs.db.Exec(`DELETE FROM backup_schedule_outbox WHERE id=? AND delivered_at IS NULL`, item.id)
-			release()
-			if deleteErr != nil {
-				return deleteErr
-			}
-			continue
-		}
-		if err := operationCtx.Err(); err != nil {
-			release()
-			return fmt.Errorf("scheduled backup site lock was lost: %w", err)
-		}
-		if err := a.enqueueScheduledBackupIntent(item); err != nil {
-			release()
-			return fmt.Errorf("enqueue schedule intent %s: %w", item.id, err)
-		}
-		if _, err := a.Jobs.db.Exec(`DELETE FROM backup_schedule_outbox WHERE id=? AND delivered_at IS NULL`, item.id); err != nil {
-			release()
-			return err
-		}
-		release()
 	}
-	return nil
+	return errors.Join(siteFailures...)
+}
+
+// dispatchBackupScheduleItem delivers one outbox intent. retry reports that
+// err is local to the item's site and the intent stays pending.
+func (a *App) dispatchBackupScheduleItem(binding controlPlaneStateBinding, item backupScheduleOutboxItem) (retry bool, err error) {
+	operationCtx, release, lockErr := a.tryAcquireSiteMutationLockContext(context.Background(), item.site)
+	if errors.Is(lockErr, errSiteMutationBusy) {
+		return true, lockErr
+	}
+	if lockErr != nil {
+		return false, fmt.Errorf("lock scheduled backup site %s: %w", item.site, lockErr)
+	}
+	defer release()
+	if err := a.refreshBoundBackupSchedules(binding); err != nil {
+		return false, fmt.Errorf("refresh schedule before dispatch for %s: %w", item.site, err)
+	}
+	a.Schedules.mu.Lock()
+	schedule, exists := a.Schedules.items[item.site]
+	a.Schedules.mu.Unlock()
+	if !exists || !schedule.Enabled {
+		if _, err := a.Jobs.db.Exec(`DELETE FROM backup_schedule_outbox WHERE id=? AND delivered_at IS NULL`, item.id); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	if err := operationCtx.Err(); err != nil {
+		return true, fmt.Errorf("scheduled backup site lock for %s was lost: %w", item.site, err)
+	}
+	if err := a.enqueueScheduledBackupIntent(item); err != nil {
+		return true, fmt.Errorf("enqueue schedule intent %s: %w", item.id, err)
+	}
+	if _, err := a.Jobs.db.Exec(`DELETE FROM backup_schedule_outbox WHERE id=? AND delivered_at IS NULL`, item.id); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func (a *App) enqueueScheduledBackupIntent(item backupScheduleOutboxItem) error {

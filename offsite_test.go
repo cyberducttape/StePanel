@@ -3,8 +3,11 @@ package stepanel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -194,7 +197,7 @@ func TestValidBackupNameRejectsRemotePathTraversal(t *testing.T) {
 func TestListOffsiteBackupsFiltersManifestObjects(t *testing.T) {
 	root := t.TempDir()
 	rclone := filepath.Join(root, "rclone")
-	if err := os.WriteFile(rclone, []byte("#!/bin/sh\nprintf '%s\\n' 'account/backup-1/manifest.json' 'account/backup-1/manifest.json' 'account/backup-1/backup.tar.gz' 'bad/path name/manifest.json' '../escape/manifest.json'\n"), 0700); err != nil {
+	if err := os.WriteFile(rclone, []byte("#!/bin/sh\nprintf '%s\\n' 'account/backup-1/manifest.json' 'account/backup-1/manifest.json' 'account/backup-1.stepanel-upload-1700000000-0123456789abcdef0123456789abcdef/manifest.json' 'account/backup-1/backup.tar.gz' 'bad/path name/manifest.json' '../escape/manifest.json'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -323,5 +326,105 @@ func TestOffsiteDestinationObjectsTreatsMissingPrefixAsEmptyAndPropagatesErrors(
 	}
 	if _, err := offsiteDestinationObjects(t.Context(), "s3:bucket/denied"); err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("listing failure error = %v", err)
+	}
+}
+
+func TestSweepOffsiteUploadStagingRemovesOnlyExpiredStagingPrefixes(t *testing.T) {
+	root := t.TempDir()
+	fakeRemote := filepath.Join(root, "remote")
+	repo := filepath.Join(fakeRemote, "bucket", "stepanel")
+	now := time.Unix(1_800_000_000, 0)
+	nonce := "0123456789abcdef0123456789abcdef"
+	expired := fmt.Sprintf("backup-1.stepanel-upload-%d-%s", now.Add(-(offsiteDefaultTransferDeadline + offsiteStagingSweepMargin + time.Minute)).Unix(), nonce)
+	inFlight := fmt.Sprintf("backup-2.stepanel-upload-%d-%s", now.Add(-offsiteDefaultTransferDeadline).Unix(), nonce)
+	stuck := fmt.Sprintf("backup-3.stepanel-upload-%d-%s", now.Add(-30*24*time.Hour).Unix(), nonce)
+	legacy := "backup-4.stepanel-upload-" + nonce
+	dirs := []string{"account/backup-1", "account/" + expired, "account/" + inFlight, "other/" + stuck, "other/" + legacy, "account/backup-5.stepanel-upload-notatime"}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(repo, dir), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, dir, "manifest.json"), []byte("{}"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fakeRclone := filepath.Join(root, "rclone")
+	script := `#!/bin/sh
+set -eu
+remote() { case "$1" in *:*) printf '%s/%s' "$RCLONE_FAKE_ROOT" "${1#*:}";; *) printf '%s' "$1";; esac; }
+case "$1" in
+lsf) dir=$(remote "$2"); [ -d "$dir" ] || exit 3; (cd "$dir" && find . -mindepth 1 -maxdepth 2 -type d | sed 's#^\./##; s#$#/#') ;;
+purge) case "$2" in *backup-3*) echo "throttled" >&2; exit 5;; esac; rm -rf "$(remote "$2")" ;;
+*) echo "unsupported fake rclone command" >&2; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(fakeRclone, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("RCLONE_FAKE_ROOT", fakeRemote)
+	t.Setenv("STEPANEL_OFFSITE_TRANSFER_TIMEOUT", "")
+	cfg := Config{OffsiteTarget: "s3:bucket/stepanel/"}
+
+	result, err := sweepOffsiteUploadStaging(t.Context(), cfg, now)
+	if err == nil || !strings.Contains(err.Error(), "throttled") {
+		t.Fatalf("sweep error = %v, want the failed purge reported", err)
+	}
+	if want := []string{"s3:bucket/stepanel/account/" + expired}; !slices.Equal(result.Removed, want) {
+		t.Fatalf("removed = %v, want %v", result.Removed, want)
+	}
+	if want := []string{"s3:bucket/stepanel/other/" + legacy}; !slices.Equal(result.Legacy, want) {
+		t.Fatalf("legacy = %v, want %v", result.Legacy, want)
+	}
+	for _, dir := range []string{"account/backup-1", "account/" + inFlight, "other/" + stuck, "other/" + legacy} {
+		if _, err := os.Stat(filepath.Join(repo, dir)); err != nil {
+			t.Fatalf("sweep removed %s: %v", dir, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, "account", expired)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired staging survived: %v", err)
+	}
+
+	if result, err := sweepOffsiteUploadStaging(t.Context(), Config{OffsiteTarget: "s3:bucket/empty"}, now); err != nil || len(result.Removed)+len(result.Legacy) != 0 {
+		t.Fatalf("missing repository sweep = %+v, %v", result, err)
+	}
+	if result, err := sweepOffsiteUploadStaging(t.Context(), Config{}, now); err != nil || len(result.Removed) != 0 {
+		t.Fatalf("unconfigured sweep = %+v, %v", result, err)
+	}
+}
+
+func TestOffsiteUploadStagingNamesAreSweepable(t *testing.T) {
+	root := t.TempDir()
+	var staged string
+	rclone := filepath.Join(root, "rclone")
+	log := filepath.Join(root, "argv")
+	if err := os.WriteFile(rclone, []byte("#!/bin/sh\ncase \"$1\" in lsf) exit 3;; copy) printf '%s\\n' \"$3\" >> \""+log+"\"; exit 9;; esac\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	backupRoot := filepath.Join(root, "backups")
+	backupPath := filepath.Join(backupRoot, "20261017-000000.000000000-account")
+	if err := os.MkdirAll(backupPath, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backupPath, "manifest.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().Unix()
+	if err := uploadOffsiteContext(t.Context(), Config{BackupRoot: backupRoot, OffsiteTarget: "s3:bucket/stepanel"}, BackupResult{Site: "account", Path: backupPath}); err == nil {
+		t.Fatal("upload succeeded with failing copy")
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged = strings.TrimSpace(string(data))
+	_, suffix, found := strings.Cut(staged, offsiteUploadStagingInfix)
+	match := offsiteStagingSuffixPattern.FindStringSubmatch(suffix)
+	if !found || match == nil || match[1] == "" {
+		t.Fatalf("staging prefix %q is not a timestamped staging name", staged)
+	}
+	if created, _ := strconv.ParseInt(match[1], 10, 64); created < before || created > time.Now().Unix() {
+		t.Fatalf("staging timestamp %d outside upload window", created)
 	}
 }

@@ -76,7 +76,7 @@ This table names the tests that actually exist on `main` (verified
 | Container image allowlist | Covered | `adversarial_test.go`: `TestContainerImageAllowlist` |
 | Server-originated requests (SSRF) | Covered | `internal/safehttp`: `TestClientRefusesLoopbackAtConnectTime`, `TestClientRevalidatesRedirects`; `task_webhook_test.go`: `TestTaskWebhookEnforcesPolicyAtConnectTime` |
 | Secrets kept out of support bundles | Covered | `support_bundle_test.go`: `TestSupportBundleIsRedactedAndContainsOperationalEvidence` |
-| Fuzzing | Covered | `fuzz_test.go`: `FuzzSafeUser`, `FuzzValidBackupName`, `FuzzManagedDatabaseIdentifier`; `cpmove_test.go`: `FuzzSafeArchivePath`; `environment_test.go`: `FuzzEnvironmentPersistenceBoundary` |
+| Fuzzing | Covered | `fuzz_test.go`: `FuzzSafeUser`, `FuzzValidBackupName`, `FuzzManagedDatabaseIdentifier`; `cpmove_test.go`: `FuzzSafeArchivePath`; `environment_test.go`: `FuzzEnvironmentPersistenceBoundary`; `internal/rootbroker/fuzz_test.go`: `FuzzValidateRequest` (root broker request decoding and validation), `FuzzValidateFilePath` |
 | Expired API tokens | Covered | `api_tokens_test.go`: `TestExpiredAPITokenIsRejected` (store and middleware, including a token expiring at the current second) |
 | Build runner network | Partial | `release_pipeline_test.go`: `TestPipelineBuildArgsPassesNetworkMode` checks the runner's network mode argument only |
 | Tenant workload network isolation | Not provided | Site code (PHP, tasks, workers) shares the host network and can reach loopback and private addresses; task units deny only cloud metadata ranges |

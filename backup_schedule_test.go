@@ -2,13 +2,17 @@ package stepanel
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/operations"
 )
 
 func TestBackupScheduleLifecycle(t *testing.T) {
@@ -198,5 +202,166 @@ func TestDueBackupScheduleAndOutboxCommitBeforeJobAdmission(t *testing.T) {
 	}
 	if got := jobs.List(10); len(got) != 1 {
 		t.Fatalf("deleted site's stale outbox intent was dispatched: %#v", got)
+	}
+}
+
+func TestScheduledBackupDispatchSkipsBusySitesWithoutBlockingOthers(t *testing.T) {
+	root := t.TempDir()
+	db, err := openControlPlaneDB(filepath.Join(root, "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	schedules, err := openBackupSchedules(filepath.Join(root, "schedules.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, site := range []string{"site-a", "site-b", "site-c"} {
+		schedules.items[site] = BackupSchedule{Site: site, IntervalMinutes: 60, KeepLast: 7, Enabled: true, NextRun: time.Now().UTC().Add(time.Hour)}
+	}
+	if _, err := bindControlPlaneState(schedules, db, "backup-schedules", &schedules.items); err != nil {
+		t.Fatal(err)
+	}
+	if err := schedules.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	panelLocks, err := operations.NewDBLocks(db, "panel", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerLocks, err := operations.NewDBLocks(db, "worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := newJobsWithDB(db, 1)
+	app := &App{Schedules: schedules, Jobs: jobs, dbLocks: panelLocks}
+
+	// site-a has a backlog older than every other intent. Its oldest intent
+	// is blocked by a restore in another process, and site-b by one in this
+	// process.
+	base := time.Now().UTC().Add(-time.Hour).UnixNano()
+	intents := []struct{ site, key string }{
+		{"site-a", "schedule:site-a:1"}, {"site-a", "schedule:site-a:2"}, {"site-a", "schedule:site-a:3"},
+		{"site-b", "schedule:site-b:1"}, {"site-c", "schedule:site-c:1"},
+	}
+	for i, intent := range intents {
+		payload, err := json.Marshal(durableBackupRequest{Site: intent.site, Scheduled: true, KeepLast: 7, Actor: "scheduler"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO backup_schedule_outbox(id, site, operation_key, payload, created_at) VALUES(?, ?, ?, ?, ?)`, intent.key, intent.site, intent.key, payload, base+int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	workerLease, err := workerLocks.Acquire(t.Context(), "site-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseB, err := app.acquireSiteMutationLock(t.Context(), "site-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- app.dispatchBackupScheduleOutbox() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("dispatch with busy sites = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("dispatch waited on a busy site")
+	}
+	pendingSites := func() []string {
+		t.Helper()
+		rows, err := db.Query(`SELECT operation_key FROM backup_schedule_outbox WHERE delivered_at IS NULL ORDER BY created_at, id`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var keys []string
+		for rows.Next() {
+			var key string
+			if err := rows.Scan(&key); err != nil {
+				t.Fatal(err)
+			}
+			keys = append(keys, key)
+		}
+		return keys
+	}
+	if got, want := pendingSites(), []string{"schedule:site-a:1", "schedule:site-a:2", "schedule:site-a:3", "schedule:site-b:1"}; !slices.Equal(got, want) {
+		t.Fatalf("pending intents = %v, want %v", got, want)
+	}
+	if got := jobs.List(10); len(got) != 1 || got[0].User != "site-c" {
+		t.Fatalf("jobs after busy dispatch = %#v, want only site-c", got)
+	}
+
+	releaseB()
+	if err := workerLocks.Release(workerLease); err != nil {
+		t.Fatal(err)
+	}
+	// One intent per site per pass: site-a's backlog drains in order.
+	for pass := 0; pass < 3; pass++ {
+		if err := app.dispatchBackupScheduleOutbox(); err != nil {
+			t.Fatalf("dispatch pass %d: %v", pass, err)
+		}
+	}
+	if got := pendingSites(); len(got) != 0 {
+		t.Fatalf("intents still pending after locks were released: %v", got)
+	}
+	if got := jobs.List(10); len(got) != 5 {
+		t.Fatalf("jobs after drain = %d, want 5", len(got))
+	}
+}
+
+func TestScheduledBackupDispatchContinuesPastSiteLocalEnqueueFailure(t *testing.T) {
+	root := t.TempDir()
+	db, err := openControlPlaneDB(filepath.Join(root, "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	schedules, err := openBackupSchedules(filepath.Join(root, "schedules.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, site := range []string{"site-a", "site-b"} {
+		schedules.items[site] = BackupSchedule{Site: site, IntervalMinutes: 60, KeepLast: 7, Enabled: true, NextRun: time.Now().UTC().Add(time.Hour)}
+	}
+	if _, err := bindControlPlaneState(schedules, db, "backup-schedules", &schedules.items); err != nil {
+		t.Fatal(err)
+	}
+	if err := schedules.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	jobs := newJobsWithDB(db, 1)
+	app := &App{Schedules: schedules, Jobs: jobs}
+	base := time.Now().UTC().Add(-time.Hour).UnixNano()
+	for i, site := range []string{"site-a", "site-b"} {
+		key := "schedule:" + site + ":1"
+		payload, err := json.Marshal(durableBackupRequest{Site: site, Scheduled: true, KeepLast: 7, Actor: "scheduler"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO backup_schedule_outbox(id, site, operation_key, payload, created_at) VALUES(?, ?, ?, ?, ?)`, key, site, key, payload, base+int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`CREATE TRIGGER fail_site_a_backup BEFORE INSERT ON jobs WHEN NEW.kind='site.backup' AND NEW.owner='site-a' BEGIN SELECT RAISE(ABORT,'injected site-a enqueue failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	err = app.dispatchBackupScheduleOutbox()
+	if err == nil || !strings.Contains(err.Error(), "injected site-a enqueue failure") {
+		t.Fatalf("dispatch error = %v, want site-a failure reported", err)
+	}
+	if got := jobs.List(10); len(got) != 1 || got[0].User != "site-b" {
+		t.Fatalf("jobs = %#v, want site-b despite site-a failure", got)
+	}
+	var pending int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM backup_schedule_outbox WHERE site='site-a' AND delivered_at IS NULL`).Scan(&pending); err != nil {
+		t.Fatal(err)
+	}
+	if pending != 1 {
+		t.Fatalf("site-a pending intents = %d, want 1 kept for retry", pending)
 	}
 }

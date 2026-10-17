@@ -96,3 +96,31 @@ func TestLocksAcquireManyUsesStableOrder(t *testing.T) {
 		t.Fatal("related operation did not acquire after release")
 	}
 }
+
+func TestLocksTryAcquireDoesNotWaitOrLeak(t *testing.T) {
+	var locks Locks
+	release, ok := locks.TryAcquire("demo")
+	if !ok {
+		t.Fatal("free key was reported busy")
+	}
+	if _, ok := locks.TryAcquire("demo"); ok {
+		t.Fatal("held key was acquired again")
+	}
+	if locks.Len() != 1 {
+		t.Fatalf("lock count while held = %d, want 1", locks.Len())
+	}
+	other, ok := locks.TryAcquire("other")
+	if !ok {
+		t.Fatal("unrelated key was reported busy")
+	}
+	other()
+	release()
+	if locks.Len() != 0 {
+		t.Fatalf("lock entries leaked: %d", locks.Len())
+	}
+	again, ok := locks.TryAcquire("demo")
+	if !ok {
+		t.Fatal("released key was reported busy")
+	}
+	again()
+}

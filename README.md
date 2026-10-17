@@ -102,7 +102,8 @@ host integrations and are not installed in the container image. Treat Docker
 and Kubernetes as control-plane packaging for evaluation or limited
 integration mode: they are not highly available and cannot provide the native
 host-management surface. Use the systemd installation for full single-host
-hosting.
+hosting. The production readiness report detects a Docker, Podman or
+Kubernetes runtime and flags it with a Deployment Mode warning.
 
 ```sh
 docker build -t stepanel:local .

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/recovery"
+	"github.com/cyberducttape/StePanel/internal/state"
 )
 
 var offsiteTargetPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]{1,240}$`)
@@ -104,7 +105,10 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	// a partial backup at its final name. Remote object stores do not generally
 	// provide atomic directory renames, so publish the verified objects into the
 	// final prefix and write the completion marker only after that copy succeeds.
-	temporary := destination + ".stepanel-upload-" + fmt.Sprintf("%x", nonce[:])
+	// The staging name records its creation time so sweepOffsiteUploadStaging
+	// can remove prefixes this cleanup never reaches (process killed, remote
+	// unavailable) once no upload could still be using them.
+	temporary := fmt.Sprintf("%s%s%d-%x", destination, offsiteUploadStagingInfix, time.Now().Unix(), nonce[:])
 	completed := false
 	defer func() {
 		if completed {
@@ -112,7 +116,9 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cleanupCancel()
-		_, _ = runOffsiteRclone(cleanupCtx, "purge", temporary)
+		if output, err := runOffsiteRclone(cleanupCtx, "purge", temporary); err != nil {
+			log.Printf("remove failed offsite upload staging prefix %s (the periodic sweep will retry): %v: %s", temporary, err, strings.TrimSpace(string(output)))
+		}
 	}()
 	copyArgs := append([]string{"copy", backupPath, temporary}, offsiteRcloneTransferArgs(maxOffsiteObjectBytes)...)
 	if output, err := runOffsiteRclone(ctx, copyArgs...); err != nil {
@@ -158,13 +164,123 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	completed = true
 	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
 	if output, cleanupErr := runOffsiteRclone(cleanupCtx, "purge", temporary); cleanupErr != nil {
-		log.Printf("remove verified offsite upload staging prefix %s: %v: %s", temporary, cleanupErr, strings.TrimSpace(string(output)))
+		log.Printf("remove verified offsite upload staging prefix %s (the periodic sweep will retry): %v: %s", temporary, cleanupErr, strings.TrimSpace(string(output)))
 	}
 	cleanupCancel()
 	return nil
 }
 
 const offsiteCompleteMarker = ".stepanel-complete"
+
+// offsiteUploadStagingInfix joins a backup's final prefix to the unique
+// staging prefix its upload writes first:
+// <site>/<backup>.stepanel-upload-<unix seconds>-<32 hex nonce>.
+const offsiteUploadStagingInfix = ".stepanel-upload-"
+
+// offsiteStagingSweepMargin is added to the transfer deadline before an
+// abandoned staging prefix is removed, covering clock skew and the final
+// cleanup step that runs after the transfer context ends.
+const offsiteStagingSweepMargin = time.Hour
+
+var offsiteStagingSuffixPattern = regexp.MustCompile(`^(?:([0-9]{1,19})-)?([0-9a-f]{32})$`)
+
+// offsiteStagingSweepResult reports one sweep of the offsite repository.
+// Legacy prefixes predate timestamped staging names; their age cannot be
+// established, so they are reported for manual removal instead of deleted.
+type offsiteStagingSweepResult struct {
+	Removed []string
+	Legacy  []string
+}
+
+// sweepOffsiteUploadStaging removes upload staging prefixes older than the
+// transfer deadline plus a margin. No upload can still be writing one: every
+// upload runs under that deadline from the time recorded in its name.
+// Removal failures are collected and the remaining prefixes are still swept.
+func sweepOffsiteUploadStaging(parent context.Context, cfg Config, now time.Time) (offsiteStagingSweepResult, error) {
+	var result offsiteStagingSweepResult
+	if cfg.OffsiteTarget == "" {
+		return result, nil
+	}
+	if err := validateOffsiteTarget(cfg.OffsiteTarget); err != nil {
+		return result, err
+	}
+	deadline, err := offsiteTransferTimeout()
+	if err != nil {
+		return result, err
+	}
+	cutoff := now.Add(-(deadline + offsiteStagingSweepMargin))
+	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
+	defer cancel()
+	target := strings.TrimRight(cfg.OffsiteTarget, "/")
+	output, err := runOffsiteRcloneLimit(ctx, maxOffsiteListingBytes, "lsf", target, "--recursive", "--dirs-only", "--max-depth", "2", "--quiet")
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == rcloneExitDirectoryNotFound {
+			return result, nil
+		}
+		return result, fmt.Errorf("list offsite upload staging failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if len(output) >= maxOffsiteListingBytes {
+		return result, fmt.Errorf("offsite repository listing exceeds %d bytes; prune it so abandoned uploads can be swept", maxOffsiteListingBytes)
+	}
+	var failures []error
+	for _, line := range strings.Split(string(output), "\n") {
+		parts := strings.Split(strings.Trim(strings.TrimSpace(line), "/"), "/")
+		if len(parts) != 2 || safeUser(parts[0]) == "" {
+			continue
+		}
+		backupName, suffix, found := strings.Cut(parts[1], offsiteUploadStagingInfix)
+		match := offsiteStagingSuffixPattern.FindStringSubmatch(suffix)
+		if !found || match == nil || !validBackupName(backupName) {
+			continue
+		}
+		prefix := target + "/" + parts[0] + "/" + parts[1]
+		if match[1] == "" {
+			result.Legacy = append(result.Legacy, prefix)
+			continue
+		}
+		created, err := strconv.ParseInt(match[1], 10, 64)
+		if err != nil || time.Unix(created, 0).After(cutoff) {
+			continue
+		}
+		if output, err := runOffsiteRclone(ctx, "purge", prefix); err != nil {
+			failures = append(failures, fmt.Errorf("remove abandoned offsite upload staging %s: %w: %s", prefix, err, strings.TrimSpace(string(output))))
+			continue
+		}
+		result.Removed = append(result.Removed, prefix)
+	}
+	return result, errors.Join(failures...)
+}
+
+// offsiteStagingSweepInterval spaces repository listings; abandoned staging
+// only becomes eligible after a multi-day transfer deadline.
+const offsiteStagingSweepInterval = 6 * time.Hour
+
+func (a *App) runOffsiteStagingSweepLoop(ctx context.Context) {
+	if a.Config.OffsiteTarget == "" {
+		return
+	}
+	timer := time.NewTimer(10 * time.Minute)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		result, err := sweepOffsiteUploadStaging(ctx, a.Config, time.Now())
+		for _, prefix := range result.Removed {
+			log.Printf("removed abandoned offsite upload staging prefix %s", prefix)
+		}
+		if len(result.Legacy) > 0 {
+			log.Printf("offsite repository has %d upload staging prefixes from before timestamped staging names (first: %s); remove them with rclone purge once no upload is running", len(result.Legacy), result.Legacy[0])
+		}
+		if err != nil && !errors.Is(err, context.Canceled) {
+			a.observeStateError(state.NewCleanupError("offsite_staging_sweep", err, "offsite upload staging sweep"))
+		}
+		timer.Reset(offsiteStagingSweepInterval)
+	}
+}
 
 // rcloneExitDirectoryNotFound is rclone's documented exit status for a
 // listing of a directory that does not exist.
@@ -562,7 +678,9 @@ func listOffsiteBackupsContext(parent context.Context, cfg Config) ([]offsiteBac
 	var backups []offsiteBackupReference
 	for _, line := range strings.Split(string(output), "\n") {
 		parts := strings.Split(strings.Trim(strings.TrimSpace(line), "/"), "/")
-		if len(parts) != 3 || parts[2] != "manifest.json" || safeUser(parts[0]) == "" || !validBackupName(parts[1]) {
+		// Upload staging prefixes carry a manifest copy but are never complete
+		// backups, so a recovery proof must not select them.
+		if len(parts) != 3 || parts[2] != "manifest.json" || safeUser(parts[0]) == "" || !validBackupName(parts[1]) || strings.Contains(parts[1], offsiteUploadStagingInfix) {
 			continue
 		}
 		key := parts[0] + "\x00" + parts[1]

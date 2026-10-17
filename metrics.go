@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/audit"
 )
 
 // Metrics contains the small, dependency-free Prometheus surface exposed by
@@ -291,6 +293,14 @@ func writeAuditOutboxMetrics(w io.Writer, store *auditOutboxStore) {
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_outbox_up Whether audit outbox status was read\n# TYPE stepanel_audit_outbox_up gauge\nstepanel_audit_outbox_up %d\n", up)
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_outbox_pending Undelivered durable audit events\n# TYPE stepanel_audit_outbox_pending gauge\nstepanel_audit_outbox_pending %d\n", pending)
 	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_outbox_oldest_pending_age_seconds Age of the oldest unpublished audit event\n# TYPE stepanel_audit_outbox_oldest_pending_age_seconds gauge\nstepanel_audit_outbox_oldest_pending_age_seconds %d\n", oldestAge)
+}
+
+// writeAuditWriterMetrics exposes audit append latency so contention on the
+// serialized audit writer can be measured before changing its design.
+func writeAuditWriterMetrics(w io.Writer, h audit.Health) {
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_write_duration_seconds Time spent appending audit events while holding the writer lock\n# TYPE stepanel_audit_write_duration_seconds summary\nstepanel_audit_write_duration_seconds_sum %g\nstepanel_audit_write_duration_seconds_count %d\n", h.WriteTime.Seconds(), h.Writes)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_lock_wait_seconds Time audit appends waited for the in-process writer lock\n# TYPE stepanel_audit_lock_wait_seconds summary\nstepanel_audit_lock_wait_seconds_sum %g\nstepanel_audit_lock_wait_seconds_count %d\n", h.LockWait.Seconds(), h.Writes)
+	_, _ = fmt.Fprintf(w, "# HELP stepanel_audit_write_failures_total Audit appends that failed since startup\n# TYPE stepanel_audit_write_failures_total counter\nstepanel_audit_write_failures_total %d\n", h.FailureCount)
 }
 
 func writeControlPlaneStorageMetrics(w io.Writer, db *sql.DB, path string, maxBytes int64) {

@@ -40,6 +40,8 @@ fuzz-smoke:
 	GOMAXPROCS=1 GOFLAGS=-p=1 $(GO) test -run=^$$ -fuzz=FuzzSafeUser -fuzztime=10s .
 	GOMAXPROCS=1 GOFLAGS=-p=1 $(GO) test -run=^$$ -fuzz=FuzzValidBackupName -fuzztime=10s .
 	GOMAXPROCS=1 GOFLAGS=-p=1 $(GO) test -run=^$$ -fuzz=FuzzManagedDatabaseIdentifier -fuzztime=10s .
+	GOMAXPROCS=1 GOFLAGS=-p=1 $(GO) test -run=^$$ -fuzz=FuzzValidateRequest -fuzztime=10s ./internal/rootbroker
+	GOMAXPROCS=1 GOFLAGS=-p=1 $(GO) test -run=^$$ -fuzz=FuzzValidateFilePath -fuzztime=10s ./internal/rootbroker
 
 vet:
 	$(GO) vet ./...

@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Add a Deployment Mode check to the production readiness report. It warns
+  when StePanel runs under Docker, Podman or Kubernetes, which are
+  control-plane packaging without host management.
+- Export audit writer metrics: `stepanel_audit_write_duration_seconds`,
+  `stepanel_audit_lock_wait_seconds` (time waiting for the process-wide
+  writer lock) and `stepanel_audit_write_failures_total`. These measure
+  contention on the serialized audit writer before any change to its design.
+- Fuzz root broker request decoding and validation (`FuzzValidateRequest`)
+  and path containment (`FuzzValidateFilePath`) in the weekly fuzz workflow
+  and `make fuzz-smoke`.
+- Sweep abandoned offsite upload staging prefixes. Staging names now carry
+  their creation time, and the panel removes any staging prefix older than
+  the transfer deadline plus one hour every six hours. This covers uploads
+  whose own cleanup failed or never ran. Untimestamped prefixes from earlier
+  releases are logged for manual removal, since their age cannot be
+  established. Failed cleanup purges are now logged instead of discarded.
+  Offsite recovery-proof selection no longer treats a staging prefix's
+  manifest as a backup.
+- Stop one busy site from stalling scheduled backups for every site. The
+  dispatcher waited without limit on each site's mutation lock on the shared
+  maintenance loop, so a long restore delayed every later backup, cleanup and
+  integrity check. It now tries the lock without waiting, and leaves a busy or
+  failing site's intent pending for the next minute. Only each site's oldest
+  intent is eligible per pass. Schedule-state and outbox write failures still
+  stop the batch.
 - Clear the `audit_state` readiness failure once audit writes succeed again.
   A single failed append previously kept readiness failing until restart.
   Readiness detail still reports how many audit writes have failed since

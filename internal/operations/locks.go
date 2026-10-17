@@ -47,6 +47,39 @@ func (l *Locks) Acquire(key string) func() {
 	}
 }
 
+// TryAcquire obtains the lock for one operation key only if no other
+// operation holds it. It reports false, holding nothing, when the key is busy.
+func (l *Locks) TryAcquire(key string) (func(), bool) {
+	l.mu.Lock()
+	if l.locks == nil {
+		l.locks = make(map[string]*operationLock)
+	}
+	lock := l.locks[key]
+	if lock == nil {
+		lock = &operationLock{}
+		l.locks[key] = lock
+	}
+	lock.refs++
+	l.mu.Unlock()
+
+	release := func() {
+		l.mu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(l.locks, key)
+		}
+		l.mu.Unlock()
+	}
+	if !lock.mu.TryLock() {
+		release()
+		return nil, false
+	}
+	return func() {
+		lock.mu.Unlock()
+		release()
+	}, true
+}
+
 // AcquireMany obtains a stable set of related operation locks in lexical
 // order, preventing lock-order deadlocks between concurrent requests.
 func (l *Locks) AcquireMany(keys ...string) func() {

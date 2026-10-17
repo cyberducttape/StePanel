@@ -111,6 +111,7 @@ func (a *App) checkProductionReadiness() ProductionReadinessReport {
 
 	// Production mode checks
 	checks := []ProductionReadinessCheck{
+		checkDeploymentModeReadiness(),
 		a.checkKernelReadiness(),
 		a.checkControlPlaneReadiness(),
 		a.checkWorkerReadiness(),
@@ -150,6 +151,42 @@ func (a *App) checkProductionReadiness() ProductionReadinessReport {
 	}
 
 	return report
+}
+
+// containerMarkers are files container runtimes create in every container
+// (Docker and Podman respectively). Variables so tests can redirect them.
+var containerMarkers = []string{"/.dockerenv", "/run/.containerenv"}
+
+// detectContainerRuntime names the container environment StePanel runs in,
+// or returns "" on a native host.
+func detectContainerRuntime() string {
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		return "Kubernetes"
+	}
+	for _, marker := range containerMarkers {
+		if _, err := os.Stat(marker); err == nil {
+			return "container"
+		}
+	}
+	return ""
+}
+
+// checkDeploymentModeReadiness states which deployment contract applies. Only
+// the native systemd install provides host management (accounts, PHP-FPM,
+// quotas, web server configuration, root broker); container packaging is for
+// evaluation or limited control-plane integration.
+func checkDeploymentModeReadiness() ProductionReadinessCheck {
+	environment := detectContainerRuntime()
+	if environment == "" {
+		return ProductionReadinessCheck{Name: "Deployment Mode", Status: "pass", Severity: "info", Message: "native host deployment: full hosting management is supported when the remaining checks pass"}
+	}
+	return ProductionReadinessCheck{
+		Name:        "Deployment Mode",
+		Status:      "warning",
+		Severity:    "warning",
+		Message:     environment + " deployment: control-plane packaging for evaluation or limited integration only. Host management (system accounts, PHP-FPM, filesystem quotas, web server configuration and the root broker) is not provided inside the container.",
+		Remediation: "Use the native systemd install (install.sh) for supported hosting management",
+	}
 }
 
 func (a *App) checkKernelReadiness() ProductionReadinessCheck {
