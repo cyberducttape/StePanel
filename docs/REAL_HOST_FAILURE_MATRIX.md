@@ -52,6 +52,37 @@ contributes no iteration to the release gate.
 | Restore | repository/hosted/KVM | lab follow-up | hosted/partial/KVM* | hosted/partial | lab follow-up |
 | Site delete | repository/hosted/KVM | lab follow-up | lab follow-up | lab follow-up | lab follow-up |
 
+## Disk exhaustion outcome contract
+
+The table above records evidence. This section defines the outcome each
+storage-heavy operation must produce when its filesystem fills, so ENOSPC
+lab runs have an invariant to check. A full disk fails the job attempt.
+Durable jobs retry with exponential backoff up to their attempt limit (three
+for backups and imports, two for restores) and are then dead-lettered.
+Retries usually hit the same full disk, so the operator frees space and
+resubmits.
+
+| Operation | Live data after ENOSPC | Partial work | Operator action |
+| --- | --- | --- | --- |
+| Backup creation | Unchanged; earlier backups intact | Staging directory removed; nothing published (publish is a rename after the manifest is written) | Free space on the backup filesystem and retry |
+| File restore | Unchanged; existing site files are kept | Import stage and SiteManager staging discarded; the recovery transaction rolls back | Free space and retry |
+| Offsite publication | Local backup unaffected | Remote staging prefix purged, or removed by the periodic staging sweep; no completion marker written | Free remote capacity and retry |
+| cPanel, WordPress and archive import | No existing site or database is touched: imports create a new site and a freshly provisioned database | The site recovery transaction rolls back; the helper drops the new database and its ownership record | Free space and re-run the import |
+| Git deploy | Live release unchanged until activation, which is the commit point | Release staging discarded; its capacity reservation released | Free space and redeploy |
+| Managed database restore (`database` and `offsite-database` modes) | **Partially restored.** The dump is loaded into the live database in place, and MySQL/MariaDB DDL auto-commits, so tables already processed are replaced and the rest are old or incomplete. The site stays online. | Restore stage removed. A full site and database safety backup taken immediately before the restore is kept, and the job error names it | Free space, then restore the safety backup named in the error. A failure once the load has started is never retried automatically. A job re-run after a crash or lost lease refuses to start, and its error names the first attempt's safety backup |
+
+The managed database restore is the one operation where a mid-operation
+failure leaves live customer data inconsistent. This is an open P0 item in
+[V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md). Closing it means restoring
+into a shadow database and swapping it in atomically, with admission for the
+second copy. The same exposure applies to any failure during the load, not
+only ENOSPC: a database server error, a killed helper or a lost lease. Until
+then, a `database-restore-<job>.json` marker in the recovery root records the
+start of each load. It keeps a retry from taking a new safety backup of the
+partial database and naming that backup in its error. The repository kill
+drill `restore:database` fires before this marker, so it still retries and
+completes.
+
 The installed WordPress recovery-proof smoke also injects a bounded MariaDB
 service outage against its disposable application and verifies that the
 database-backed HTTP probe recovers after restart. It stops the root broker

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -105,9 +106,12 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		result, restoreErr = backupRestoreFiles(operationCtx, a.Config, request.Backup, access)
 	case "database":
 		var safety BackupResult
-		safety, restoreErr = createSiteBackupContext(operationCtx, a.Config, access, true, a.capacityLedger())
+		restoreErr = checkInterruptedDatabaseRestore(a.Config.RecoveryRoot, item.ID)
 		if restoreErr == nil {
-			result, restoreErr = restoreManagedDatabase(operationCtx, a.Config, request.Backup, request.Site, request.Database)
+			safety, restoreErr = createSiteBackupContext(operationCtx, a.Config, access, true, a.capacityLedger())
+		}
+		if restoreErr == nil {
+			result, restoreErr = restoreManagedDatabase(operationCtx, a.Config, request.Backup, request.Site, request.Database, markDatabaseRestoreStarted(a.Config.RecoveryRoot, item.ID, request, safety))
 			result.SafetyBackup = safety.Path
 			restoreErr = annotateDatabaseRestoreFailure(restoreErr, safety)
 		}
@@ -124,7 +128,10 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	case "offsite-database":
 		var root string
 		var cleanup func()
-		root, cleanup, restoreErr = downloadOffsiteBackupContext(operationCtx, a.Config, request.Site, request.Backup)
+		restoreErr = checkInterruptedDatabaseRestore(a.Config.RecoveryRoot, item.ID)
+		if restoreErr == nil {
+			root, cleanup, restoreErr = downloadOffsiteBackupContext(operationCtx, a.Config, request.Site, request.Backup)
+		}
 		if restoreErr == nil {
 			defer cleanup()
 			var safety BackupResult
@@ -132,7 +139,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 			if restoreErr == nil {
 				cfg := a.Config
 				cfg.BackupRoot = root
-				result, restoreErr = restoreManagedDatabase(operationCtx, cfg, request.Backup, request.Site, request.Database)
+				result, restoreErr = restoreManagedDatabase(operationCtx, cfg, request.Backup, request.Site, request.Database, markDatabaseRestoreStarted(a.Config.RecoveryRoot, item.ID, request, safety))
 				result.SafetyBackup = safety.Path
 				restoreErr = annotateDatabaseRestoreFailure(restoreErr, safety)
 			}
@@ -145,6 +152,11 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, restoreErr
 	}
 	intent.Completed(request.Backup)
+	if request.Mode == "database" || request.Mode == "offsite-database" {
+		if err := clearDatabaseRestoreMarker(a.Config.RecoveryRoot, item.ID); err != nil {
+			log.Printf("database restore %s completed but its in-progress marker remains: %v", item.ID, err)
+		}
+	}
 	if strings.HasPrefix(request.Mode, "offsite-") && a.BackupIndex != nil {
 		if err := a.BackupIndex.MarkOffsiteRestoreVerified(a.Config.OffsiteTarget, request.Site, request.Backup, time.Now().UTC()); err != nil {
 			return nil, fmt.Errorf("restore completed but recording offsite restore verification failed: %w", err)
@@ -155,6 +167,80 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		return nil, err
 	}
 	return output, nil
+}
+
+// databaseRestoreMarker records that a job began loading a dump into a live
+// database. It is written before the load and removed only when the job
+// completes, so a re-run after a crash or lease loss can tell that the
+// database may be partially restored instead of backing up that state as a
+// new safety backup and loading over it.
+type databaseRestoreMarker struct {
+	JobID        string    `json:"job_id"`
+	Site         string    `json:"site"`
+	Database     string    `json:"database"`
+	SafetyBackup string    `json:"safety_backup"`
+	StartedAt    time.Time `json:"started_at"`
+}
+
+var databaseRestoreJobIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
+
+func databaseRestoreMarkerPath(recoveryRoot, jobID string) (string, error) {
+	if strings.TrimSpace(recoveryRoot) == "" || !databaseRestoreJobIDPattern.MatchString(jobID) || strings.Contains(jobID, "..") {
+		return "", errors.New("database restore marker requires a recovery root and a valid job ID")
+	}
+	return safePath(recoveryRoot, "database-restore-"+jobID+".json")
+}
+
+// checkInterruptedDatabaseRestore refuses to run a database restore job
+// again once an earlier attempt of the same job started its load.
+func checkInterruptedDatabaseRestore(recoveryRoot, jobID string) error {
+	path, err := databaseRestoreMarkerPath(recoveryRoot, jobID)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read database restore marker: %w", err)
+	}
+	var marker databaseRestoreMarker
+	if err := json.Unmarshal(data, &marker); err != nil {
+		return doNotRetry(fmt.Errorf("an earlier attempt of this restore began loading into the live database, which may be partially restored; its marker %s is unreadable: %w", filepath.Base(path), err))
+	}
+	return doNotRetry(fmt.Errorf("an earlier attempt of this restore began loading %s into the live database and did not finish, so it may be partially restored; restore the pre-restore safety backup %s", marker.Database, filepath.Base(marker.SafetyBackup)))
+}
+
+func markDatabaseRestoreStarted(recoveryRoot, jobID string, request durableBackupRestoreRequest, safety BackupResult) func() error {
+	return func() error {
+		path, err := databaseRestoreMarkerPath(recoveryRoot, jobID)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(recoveryRoot, 0700); err != nil {
+			return fmt.Errorf("prepare database restore marker root: %w", err)
+		}
+		data, err := json.Marshal(databaseRestoreMarker{JobID: jobID, Site: request.Site, Database: request.Database, SafetyBackup: filepath.Base(safety.Path), StartedAt: time.Now().UTC()})
+		if err != nil {
+			return err
+		}
+		if err := writeAtomic(path, append(data, '\n'), 0600); err != nil {
+			return fmt.Errorf("record database restore start: %w", err)
+		}
+		return nil
+	}
+}
+
+func clearDatabaseRestoreMarker(recoveryRoot, jobID string) error {
+	path, err := databaseRestoreMarkerPath(recoveryRoot, jobID)
+	if err != nil {
+		return err
+	}
+	if err := state.RemoveDurable(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // annotateDatabaseRestoreFailure keeps the recovery artifact discoverable
@@ -1085,7 +1171,11 @@ func backupContainsDatabase(manifest BackupManifest, database string) bool {
 	return false
 }
 
-func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, database string) (BackupRestoreResult, error) {
+// restoreManagedDatabase loads a backup's dump into the live database in
+// place. beforeLoad runs after every check that leaves the database untouched
+// and immediately before the load; a load failure is not retryable because
+// the database may be left partially restored.
+func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, database string, beforeLoad func() error) (BackupRestoreResult, error) {
 	if err := ctx.Err(); err != nil {
 		return BackupRestoreResult{}, err
 	}
@@ -1143,8 +1233,13 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 	defer input.Close()
 	ctx, cancel := context.WithTimeout(ctx, helperBackupRestoreTimeout)
 	defer cancel()
+	if beforeLoad != nil {
+		if err := beforeLoad(); err != nil {
+			return BackupRestoreResult{}, err
+		}
+	}
 	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", site, database, "restore", "", dump); err != nil {
-		return BackupRestoreResult{}, fmt.Errorf("restore database %s: %w", database, err)
+		return BackupRestoreResult{}, doNotRetry(fmt.Errorf("restore database %s (the live database may be partially restored): %w", database, err))
 	}
 	return BackupRestoreResult{Site: site, Backup: filepath.Base(backup), Mode: "database-only", Database: database, DatabaseRestored: true, DatabasePreserved: false, Consistency: manifest.Consistency, SchemaRollback: "manual: restore the safety backup or apply a forward migration", CompletedAt: time.Now().UTC()}, nil
 }

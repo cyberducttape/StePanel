@@ -796,9 +796,33 @@ func (j *Jobs) ClaimNext(owner string, kinds ...string) (Job, bool, error) {
 	return item, true, nil
 }
 
+// nonRetryableJobError marks a handler failure that must not be retried
+// automatically, because a retry could act on state the failed attempt left
+// behind. The job is dead-lettered immediately for operator review.
+type nonRetryableJobError struct{ err error }
+
+func (e nonRetryableJobError) Error() string { return e.err.Error() }
+func (e nonRetryableJobError) Unwrap() error { return e.err }
+
+func doNotRetry(err error) error {
+	if err == nil {
+		return nil
+	}
+	return nonRetryableJobError{err: err}
+}
+
+func isNonRetryableJobError(err error) bool {
+	var target nonRetryableJobError
+	return errors.As(err, &target)
+}
+
 // FailClaim records a worker failure and schedules bounded exponential retry.
 // Jobs that exhaust MaxAttempts become dead-letter records for operator review.
 func (j *Jobs) FailClaim(id, owner, message string) error {
+	return j.failClaim(id, owner, message, true)
+}
+
+func (j *Jobs) failClaim(id, owner, message string, retry bool) error {
 	if j.db == nil || id == "" || owner == "" {
 		return errors.New("durable failure requires a job ID and owner")
 	}
@@ -813,7 +837,7 @@ func (j *Jobs) FailClaim(id, owner, message string) error {
 	item.Error = strings.TrimSpace(message)
 	item.LeaseOwner = ""
 	item.LeaseExpires = nil
-	if item.MaxAttempts > 0 && item.Attempts >= item.MaxAttempts {
+	if !retry || item.MaxAttempts > 0 && item.Attempts >= item.MaxAttempts {
 		item.State = "dead-letter"
 		now := time.Now().UTC()
 		item.FinishedAt = &now
@@ -1236,7 +1260,7 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				return handler(handlerCtx, item)
 			}()
 			if err != nil {
-				if failErr := j.FailClaim(item.ID, owner, err.Error()); failErr != nil {
+				if failErr := j.failClaim(item.ID, owner, err.Error(), !isNonRetryableJobError(err)); failErr != nil {
 					if errors.Is(failErr, errJobLeaseNotHeld) {
 						// A replacement worker owns the claim now. It is responsible
 						// for completing or retrying the durable operation.

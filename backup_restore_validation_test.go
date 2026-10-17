@@ -226,3 +226,90 @@ func TestValidateRestoreStagingInput(t *testing.T) {
 		}
 	}
 }
+
+func TestManagedDatabaseRestoreMarksLoadStartAndRefusesRetryAfterLoadFailure(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "account", "public", "index.html"), "site")
+	loads := filepath.Join(root, "loads")
+	helper := filepath.Join(root, "dbctl")
+	script := "#!/bin/sh\ncase \"$1\" in\n  list) printf 'account_blog\\tcpmove:account\\n';;\n  dump) printf '%s\\n' 'CREATE TABLE posts (id INT);';;\n  restore-dump) cat >/dev/null; echo load >> \"" + loads + "\"; echo 'ERROR 3 (HY000): Error writing file (Errcode: 28 \"No space left on device\")' >&2; exit 1;;\n  *) exit 1;;\nesac\n"
+	if err := os.WriteFile(helper, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), ImportRoot: filepath.Join(root, "imports"), DBCtl: helper}
+	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backupName := filepath.Base(backup.Path)
+
+	// A failure before the load leaves the database untouched and is retryable.
+	refused := errors.New("marker write failed")
+	_, err = restoreManagedDatabase(t.Context(), cfg, backupName, "account", "account_blog", func() error { return refused })
+	if !errors.Is(err, refused) || isNonRetryableJobError(err) {
+		t.Fatalf("pre-load failure = %v, want the retryable marker error", err)
+	}
+	if _, statErr := os.Stat(loads); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("load ran although the start marker could not be written: %v", statErr)
+	}
+
+	marked := false
+	_, err = restoreManagedDatabase(t.Context(), cfg, backupName, "account", "account_blog", func() error { marked = true; return nil })
+	if !marked {
+		t.Fatal("load started without recording its start")
+	}
+	if err == nil || !isNonRetryableJobError(err) || !strings.Contains(err.Error(), "may be partially restored") {
+		t.Fatalf("load failure = %v, want a non-retryable partial-restore error", err)
+	}
+	if data, readErr := os.ReadFile(loads); readErr != nil || strings.Count(string(data), "load") != 1 {
+		t.Fatalf("helper load calls = %q, %v; want exactly one", data, readErr)
+	}
+}
+
+func TestDatabaseRestoreMarkerRefusesReRunAndNamesFirstSafetyBackup(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	if err := checkInterruptedDatabaseRestore(recoveryRoot, "job-1"); err != nil {
+		t.Fatalf("fresh job refused: %v", err)
+	}
+	request := durableBackupRestoreRequest{Site: "account", Database: "account_blog"}
+	safety := BackupResult{Path: filepath.Join(t.TempDir(), "20261017-000000.000000000-account")}
+	if err := markDatabaseRestoreStarted(recoveryRoot, "job-1", request, safety)(); err != nil {
+		t.Fatal(err)
+	}
+	path, err := databaseRestoreMarkerPath(recoveryRoot, "job-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("marker = %v, %v; want a 0600 file", info, err)
+	}
+	err = checkInterruptedDatabaseRestore(recoveryRoot, "job-1")
+	if err == nil || !isNonRetryableJobError(err) || !strings.Contains(err.Error(), "restore the pre-restore safety backup 20261017-000000.000000000-account") || strings.Contains(err.Error(), safety.Path) {
+		t.Fatalf("re-run error = %v, want non-retryable error naming only the first safety backup", err)
+	}
+	if err := checkInterruptedDatabaseRestore(recoveryRoot, "job-2"); err != nil {
+		t.Fatalf("a different job was refused by job-1's marker: %v", err)
+	}
+	if err := clearDatabaseRestoreMarker(recoveryRoot, "job-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkInterruptedDatabaseRestore(recoveryRoot, "job-1"); err != nil {
+		t.Fatalf("cleared marker still refuses: %v", err)
+	}
+	if err := clearDatabaseRestoreMarker(recoveryRoot, "job-1"); err != nil {
+		t.Fatalf("clearing an absent marker: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkInterruptedDatabaseRestore(recoveryRoot, "job-1"); err == nil || !isNonRetryableJobError(err) {
+		t.Fatalf("unreadable marker = %v, want non-retryable refusal", err)
+	}
+	for _, id := range []string{"", "../escape", "a/b", "..", strings.Repeat("a", 129)} {
+		if _, err := databaseRestoreMarkerPath(recoveryRoot, id); err == nil {
+			t.Fatalf("job ID %q was accepted", id)
+		}
+	}
+}

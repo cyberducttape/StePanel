@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Document the disk exhaustion outcome for each storage-heavy operation in
+  `docs/REAL_HOST_FAILURE_MATRIX.md`. Record as an open P0 gate that managed
+  database restore loads into the live database in place, so a failure during
+  the load leaves it partially restored.
+- Stop automatic retries of a managed database restore once its load has
+  started. The retry took a fresh "safety" backup of the partially restored
+  database and named that backup in its error, pointing the operator at the
+  wrong recovery copy. A load failure now dead-letters the job immediately. A
+  durable marker makes a job re-run after a crash or lost lease refuse to
+  start, and its error names the first attempt's safety backup.
 - Run staticcheck in CI with all correctness and simplification checks.
   Fix its findings: test assertions that ignored errors or never checked a
   value, an ineffective `break` in a broker concurrency test, nil contexts in

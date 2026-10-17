@@ -1573,3 +1573,52 @@ func TestDurableListAlwaysIncludesActiveJobsOutsideTheRecentWindow(t *testing.T)
 		t.Fatalf("oldest listed job = %#v; want the old queued job last", last)
 	}
 }
+
+func TestRunWorkerPoolDeadLettersNonRetryableFailuresImmediately(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	j := newJobsWithDB(db, 1)
+	final, err := j.Enqueue("test.final", "site-a", "", nil, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retried, err := j.Enqueue("test.retry", "site-b", "", nil, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- j.RunWorkerPool(ctx, "pool-worker", []string{"test.final", "test.retry"}, time.Millisecond, 1, func(_ context.Context, item Job) ([]byte, error) {
+			if item.Kind == "test.final" {
+				return nil, doNotRetry(errors.New("live state may be partial"))
+			}
+			return nil, errors.New("transient failure")
+		})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		finalJob, _ := j.Get(final.ID)
+		retriedJob, _ := j.Get(retried.ID)
+		if finalJob.State == "dead-letter" && retriedJob.Attempts >= 1 {
+			if finalJob.Attempts != 1 || !strings.Contains(finalJob.Error, "live state may be partial") {
+				t.Fatalf("non-retryable job = %+v, want one attempt then dead-letter", finalJob)
+			}
+			if retriedJob.State == "dead-letter" && retriedJob.Attempts < 3 {
+				t.Fatalf("retryable job dead-lettered early: %+v", retriedJob)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("jobs did not settle: final=%+v retried=%+v", finalJob, retriedJob)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}
