@@ -25,6 +25,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Avoid replacing queued installed-host and quota smoke evidence on docs-only
   pushes; those expensive workflows now run when relevant code, installer, or
   lab-harness inputs change.
+- Give the local KVM quota certification the same 8 GiB `/var/www` capacity as
+  hosted quota smoke, so Git deployment recovery is not rejected by an
+  undersized fixture.
 - Reclaim expired durable job leases from the worker's idle wait path, so an
   abandoned destructive operation cannot remain `running` indefinitely when
   no other work is queued.

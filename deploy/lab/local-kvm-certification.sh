@@ -171,7 +171,9 @@ tar -czf "$run_dir/source.tar.gz" --exclude=.git --exclude=node_modules --exclud
 
 # --- Boot ------------------------------------------------------------------
 qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$image")" "$run_dir/root.qcow2" 20G
-qemu-img create -q -f raw "$run_dir/www.ext4" 3G
+# The install phase runs the quota smoke and must admit the 5 GiB Git staging
+# reservation while retaining the installer's 1 GiB minimum-free floor.
+qemu-img create -q -f raw "$run_dir/www.ext4" 8G
 qemu-img create -q -f raw "$run_dir/enospc.ext4" 96M
 ssh-keygen -q -t ed25519 -N '' -f "$run_dir/id_ed25519"
 cat > "$run_dir/user-data" <<EOF
