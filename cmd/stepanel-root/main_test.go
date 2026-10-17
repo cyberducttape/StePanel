@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +16,43 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
+
+func TestOpenFencingDatabaseDoesNotCreateMissingDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "not-initialized.db")
+	if db, err := openFencingDatabase(path); err == nil {
+		_ = db.Close()
+		t.Fatal("opening a missing fencing database unexpectedly succeeded")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("missing fencing database was created: stat error = %v", err)
+	}
+}
+
+func TestOpenFencingDatabaseOpensInitializedDatabaseReadWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state with spaces", "control-plane.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seed.Exec(`CREATE TABLE initialized (value TEXT NOT NULL)`); err != nil {
+		_ = seed.Close()
+		t.Fatal(err)
+	}
+	if err := seed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := openFencingDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO initialized(value) VALUES ('broker-write')`); err != nil {
+		t.Fatalf("broker could not write initialized database: %v", err)
+	}
+}
 
 // slowExecutor blocks site requests until released and answers health
 // immediately, standing in for a long privileged operation.

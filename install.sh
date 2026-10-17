@@ -1033,6 +1033,13 @@ TXN_TEMPS+=("$env_tmp")
 chmod 0600 "$env_tmp"
 mv -f "$env_tmp" "$ENV_FILE"
 unset AUDIT_KEY
+# Initialize SQLite as the panel account before starting the root broker. The
+# broker shares this database for fencing and must not create a root-owned
+# file that the panel and worker cannot write on a fresh installation.
+install_journal_record control_plane_database initialization_started reversible "initializing the shared SQLite database as $APP_USER before root broker activation"
+runuser -u "$APP_USER" -- "$APP_DIR/stepanel" initialize-control-plane-db "$DATA_DIR/stepanel-control.db"
+[[ $(stat -c '%U:%a' "$DATA_DIR/stepanel-control.db") == "$APP_USER:600" ]] || { echo 'Control-plane database initialization did not preserve service ownership and private mode.' >&2; exit 1; }
+install_journal_record control_plane_database initialization_complete reversible "shared SQLite database initialized by $APP_USER with private file mode before broker activation"
 install -m 0644 "$ROOT_DIR/deploy/stepanel.service" /etc/systemd/system/stepanel.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-worker.service" /etc/systemd/system/stepanel-worker.service
 install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service

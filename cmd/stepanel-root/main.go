@@ -10,10 +10,12 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -59,7 +61,7 @@ func main() {
 	var fencingDB *sql.DB
 	var err error
 	if *controlPlaneDBFlag != "" {
-		fencingDB, err = sql.Open("sqlite", "file:"+*controlPlaneDBFlag+"?_pragma=busy_timeout(5000)")
+		fencingDB, err = openFencingDatabase(*controlPlaneDBFlag)
 		if err != nil {
 			logger.Fatalf("failed to open fencing database: %v", err)
 		}
@@ -86,6 +88,30 @@ func main() {
 	}
 
 	serveRequests(broker, os.Stdin, os.Stdout, logger)
+}
+
+// openFencingDatabase requires a database initialized by the panel service.
+// Opening with mode=rw prevents the privileged broker from creating a root-
+// owned file ahead of the stepanel service on fresh installations.
+func openFencingDatabase(path string) (*sql.DB, error) {
+	if !filepath.IsAbs(path) || strings.ContainsAny(path, "\x00\r\n") {
+		return nil, fmt.Errorf("fencing database path must be absolute")
+	}
+	u := &url.URL{Scheme: "file", Path: filepath.Clean(path)}
+	query := url.Values{}
+	query.Set("mode", "rw")
+	query.Add("_pragma", "busy_timeout(5000)")
+	u.RawQuery = query.Encode()
+	db, err := sql.Open("sqlite", u.String())
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ping existing fencing database: %w", err)
+	}
+	return db, nil
 }
 
 // executor runs one decoded broker request. The subprocess transport uses the

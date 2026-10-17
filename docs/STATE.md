@@ -24,6 +24,11 @@ The current legacy paths (`jobs.json`, `sessions.json`, `accounts.json`, and
 feature-specific JSON files) remain configurable for one-time import and
 backward-compatible tooling. New production mutations use the SQLite database.
 
+The installer initializes the SQLite database as the `stepanel` service user
+before enabling the root broker. The broker opens the existing database in
+read-write mode and fails startup rather than creating a root-owned database
+that the panel and worker cannot update.
+
 ## Durable operation and host-state authority
 
 The control-plane database is the authority for whether an operation was

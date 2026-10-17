@@ -192,6 +192,7 @@ done
 wait_for_panel_health http://127.0.0.1:8090/readyz
 systemctl is-active --quiet stepanel-worker.service
 test -s /var/lib/ste-panel/stepanel-control.db
+test "$(stat -c '%U:%a' /var/lib/ste-panel/stepanel-control.db)" = stepanel:600
 test -s /var/lib/ste-panel/audit.jsonl
 bash /work/deploy/lab/control-plane-db-outage-smoke.sh
 systemd-analyze security stepanel.service stepanel-worker.service

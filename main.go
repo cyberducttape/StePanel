@@ -164,6 +164,13 @@ func (s *startupState) status() (bool, error) {
 // entry point; the application itself lives in this importable package.
 func Main() {
 	workerMode := len(os.Args) == 2 && os.Args[1] == "worker"
+	if len(os.Args) == 3 && os.Args[1] == "initialize-control-plane-db" {
+		if err := initializeControlPlaneDatabase(os.Args[2]); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Fprintln(os.Stdout, "control-plane database initialized:", filepath.Clean(os.Args[2]))
+		return
+	}
 	if len(os.Args) == 2 && (os.Args[1] == "version" || os.Args[1] == "--version") {
 		_, _ = fmt.Fprintf(os.Stdout, "StePanel %s\ncommit: %s\nbuilt: %s\n", Version, Commit, BuildDate)
 		return
@@ -937,6 +944,24 @@ func Main() {
 	auditCtx, auditCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	auditOutbox.closePending(auditCtx, app.Config.AuditLog)
 	auditCancel()
+}
+
+// initializeControlPlaneDatabase lets the installer create the shared SQLite
+// database under the unprivileged service identity before the root broker
+// starts. The broker must never become the owner of a fresh database that the
+// panel and worker also need to write.
+func initializeControlPlaneDatabase(path string) error {
+	if strings.TrimSpace(path) == "" || strings.ContainsAny(path, "\x00\r\n") || !filepath.IsAbs(path) {
+		return errors.New("control-plane database initialization requires an absolute path")
+	}
+	db, err := openControlPlaneDB(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("initialize control-plane database: %w", err)
+	}
+	if err := db.Close(); err != nil {
+		return fmt.Errorf("close initialized control-plane database: %w", err)
+	}
+	return nil
 }
 
 func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {

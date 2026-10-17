@@ -26,6 +26,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   cannot remain visible only in the dashboard.
 - Reserve the verified expanded backup size before restore rehearsals extract,
   coordinating admission with concurrent uploads and other staging workflows.
+- Initialize the shared control-plane database as the panel service account
+  before root-broker activation; the broker now refuses to create a missing DB.
 - Bound Git clone memory with host/cgroup-aware admission and a 2 GiB
   address-space ceiling; install `prlimit` through util-linux on supported
   systems. Keep the existing staged-disk reservation and unpacked-tree limit.

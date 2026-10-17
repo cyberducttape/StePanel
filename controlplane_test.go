@@ -52,6 +52,35 @@ func TestControlPlaneStateBlobIsTransactionalAndPersistent(t *testing.T) {
 	}
 }
 
+func TestInitializeControlPlaneDatabaseCreatesServiceOwnedSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "control-plane.db")
+	if err := initializeControlPlaneDatabase(path); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("initialized database mode = %o, want 600", got)
+	}
+	db, err := openControlPlaneDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var exists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='capacity_reservations'`).Scan(&exists); err != nil || exists != 1 {
+		t.Fatalf("initialized database schema lookup = %d, %v", exists, err)
+	}
+}
+
+func TestInitializeControlPlaneDatabaseRequiresAbsolutePath(t *testing.T) {
+	if err := initializeControlPlaneDatabase(filepath.Join("relative", "control.db")); err == nil {
+		t.Fatal("relative initialization path unexpectedly succeeded")
+	}
+}
+
 func TestControlPlanePageLimitMustBeAppliedToEachConnection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bounded-control.db")
 	limit := int64(16 << 20)
