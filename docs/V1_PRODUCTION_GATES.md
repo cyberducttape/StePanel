@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-16
+**Last Updated:** 2026-10-17
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -17,6 +17,22 @@ The design is sound. The implementation is 85% there. The remaining work is:
 - Finishing what's already designed
 - Testing failure paths rigorously
 - Making recovery guarantees explicit
+
+### Current-head repository evidence — 2026-10-17 (`a27becc`)
+
+The full local repository production gate passed on exact source
+`a27beccc9b5be33a7e30d57662d027c74e6a6cbe`, including vet, tests, race,
+coverage floors, repository recovery drills, benchmarks, mixed HTTP load,
+documentation, assets, action pins, and shell checks. Exact-head hosted CI,
+CodeQL, and standard installation smoke also passed; the quota-enabled smoke
+was still running at capture. A ten-shard, 20-repeat installed-host full
+recovery cohort was dispatched on this SHA and remains uncounted until every
+required shard completes successfully. See the [exact-head report](./lab-results/2026-10-17-repository-production-gate-a27becc.md).
+
+This evidence does not close installed-host repetition, physical power loss,
+all ENOSPC boundaries, live notification outage/retry, certified capacity,
+runtime support, upgrade-policy, or independent security-review gates.
+Production approval remains **NO-GO**.
 
 ## Finite release contract
 

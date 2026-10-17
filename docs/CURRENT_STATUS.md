@@ -18,6 +18,27 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate requirements and acceptance criteria.
 
+### Current-head validation — 2026-10-17 (`a27becc`)
+
+- The full local [repository production gate](lab-results/2026-10-17-repository-production-gate-a27becc.md)
+  passed on exact source `a27beccc9b5be33a7e30d57662d027c74e6a6cbe` with Go
+  1.26.7: vet, tests and coverage floors, race suite, recovery drills,
+  benchmarks, mixed HTTP load, documentation, dashboard, asset, action-pin,
+  and shell checks.
+- Exact-head hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38992616491),
+  [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38992616456),
+  and [standard installation smoke](https://github.com/cyberducttape/StePanel/actions/runs/38992616469)
+  passed. The exact-head [quota-enabled installation smoke](https://github.com/cyberducttape/StePanel/actions/runs/38992616443)
+  was still running at capture.
+- A 20-repeat full installed-host recovery cohort was dispatched as ten
+  uniquely keyed two-iteration shards on this exact SHA. All shard links and
+  their then-current running/queued states are recorded in the [gate report](lab-results/2026-10-17-repository-production-gate-a27becc.md).
+  No repeats are counted until a complete shard passes all six host
+  combinations. The cohort does not prove physical host power loss or close
+  the remaining ENOSPC, notification, capacity, runtime-matrix, or independent
+  security-review gates.
+- Production approval remains **NO-GO** pending the open authoritative gates.
+
 The 2026-10-17 local Rocky Linux 9 KVM install attempt on source `6d5b8b1`
 passed database ownership, import/restore/termination recovery, WordPress
 application proof, and outage checks, then stopped before Git activation because

@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Pass the full repository production gate on exact source `a27becc`, including
+  Go coverage floors, the complete race suite, repository recovery drills,
+  mixed HTTP load, and documentation/security hygiene checks. Record the
+  still-running 20-repeat installed-host cohort without counting it as passed.
 - Reclaim expired durable job leases from the worker's idle wait path, so an
   abandoned destructive operation cannot remain `running` indefinitely when
   no other work is queued.
