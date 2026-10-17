@@ -866,7 +866,9 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to create release staging directory", http.StatusInternalServerError)
 		return
 	}
-	defer func() { _ = a.discardSiteReleaseStaging(context.Background(), input.Site, release) }()
+	defer func() {
+		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), input.Site, release))
+	}()
 	reservation, err := a.capacityLedger().reserve(a.Config, "git-release-staging", release, []capacityDemand{{Path: release, Bytes: uint64(a.Config.GitReleaseMaxTreeBytes)}})
 	if err != nil {
 		http.Error(w, "insufficient capacity for the configured Git release limit", http.StatusInsufficientStorage)

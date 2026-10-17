@@ -512,6 +512,11 @@ func (a *App) accountUnsuspend(w http.ResponseWriter, r *http.Request) {
 
 // checkPlanLimits automatically checks all accounts for limit violations
 // and logs warnings for operators to take action
+// checkPlanLimits audits plan usage warnings and suspends accounts whose
+// usage exceeds their plan. It is not scheduled in this release. Admission
+// and account validation keep usage within the plan, so usage can exceed it
+// only when a release lowers a plan's limits. An account exactly at its
+// limit is not suspended.
 func (a *App) checkPlanLimits() error {
 	if a.Accounts == nil {
 		return errors.New("accounts store not initialized")
@@ -539,7 +544,7 @@ func (a *App) checkPlanLimits() error {
 		// Check site limit violations
 		if sitesPercent >= criticalThreshold && !account.Suspended {
 			// Auto-suspend if critical
-			if plan.SiteLimit > 0 && sitesUsed >= plan.SiteLimit {
+			if plan.SiteLimit > 0 && sitesUsed > plan.SiteLimit {
 				if err := a.autoSuspendAccount(context.Background(), account.Username); err != nil {
 					return fmt.Errorf("auto-suspend account %s for site limit: %w", account.Username, err)
 				}
@@ -567,7 +572,7 @@ func (a *App) checkPlanLimits() error {
 		}
 
 		if databasesPercent >= criticalThreshold && !account.Suspended {
-			if plan.DatabaseLimit > 0 && databasesUsed >= plan.DatabaseLimit {
+			if plan.DatabaseLimit > 0 && databasesUsed > plan.DatabaseLimit {
 				if err := a.autoSuspendAccount(context.Background(), account.Username); err != nil {
 					return fmt.Errorf("auto-suspend account %s for database limit: %w", account.Username, err)
 				}

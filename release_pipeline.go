@@ -132,7 +132,9 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result.Commit = commit
-	defer func() { _ = a.discardSiteReleaseStaging(context.Background(), input.Site, release) }()
+	defer func() {
+		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), input.Site, release))
+	}()
 	if input.Backup {
 		if err := a.recordDeployment(input.Site, "backup", "running", "pre-activation backup started", result, ""); err != nil {
 			historyUnavailable(w, r)
@@ -204,7 +206,7 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	}
 	reservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-checkout", release, []capacityDemand{{Path: release, Bytes: uint64(a.Config.GitReleaseMaxTreeBytes)}})
 	if err != nil {
-		_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
+		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", fmt.Errorf("admit Git release staging: %w", err)
 	}
 	defer reservation.release()
@@ -214,7 +216,7 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	} else {
 		prlimit, lookupErr := exec.LookPath("prlimit")
 		if lookupErr != nil {
-			_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
+			logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 			return "", "", errors.New("prlimit is required to enforce the Git clone memory ceiling")
 		}
 		cmd := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", ref, "--single-branch", "--no-tags", repository.URL, release)
@@ -222,17 +224,17 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 		output, err = runBoundedCommand(ctx, cmd)
 	}
 	if err != nil {
-		_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
+		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", err
 	}
 	commitOutput, err := runBoundedCommand(ctx, exec.CommandContext(ctx, gitPath, "-C", release, "rev-parse", "HEAD"))
 	if err != nil {
-		_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
+		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", err
 	}
 	commit := strings.TrimSpace(string(commitOutput))
 	if !gitCommitPattern.MatchString(commit) || validateGitRelease(release, a.Config.MaxEntries) != nil || validateGitReleaseSize(release, a.Config.GitReleaseMaxTreeBytes) != nil || os.RemoveAll(filepath.Join(release, ".git")) != nil {
-		_ = a.discardSiteReleaseStaging(context.Background(), site.Site(), release)
+		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", fmt.Errorf("invalid checked-out release: %s", strings.TrimSpace(string(output)))
 	}
 	return release, commit, nil

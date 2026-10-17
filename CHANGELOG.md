@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Correct `docs/PLAN_ENFORCEMENT.md`: this release enforces plan limits at
+  admission. It does not run periodic usage monitoring, usage warnings or
+  automatic suspension, and temporary suspensions are not lifted
+  automatically. The unscheduled plan-limit check also suspended accounts
+  exactly at their limit (every one-site starter account); it now suspends
+  only accounts over their limit.
+- Log staging-tree discard failures in Git deploy, release pipeline, cPanel,
+  WordPress, staging and backup restore cleanup instead of discarding the
+  error. Orphaned-staging cleanup still removes the trees later.
 - Document the disk exhaustion outcome for each storage-heavy operation in
   `docs/REAL_HOST_FAILURE_MATRIX.md`. Record as an open P0 gate that managed
   database restore loads into the live database in place, so a failure during

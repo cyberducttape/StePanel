@@ -3,6 +3,8 @@ package stepanel
 import (
 	"context"
 	"fmt"
+	"log"
+	"path/filepath"
 
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
@@ -53,6 +55,17 @@ func discardSiteManagerStaging(ctx context.Context, cfg Config, stagedRoot strin
 		return fmt.Errorf("initialize site manager: %w", err)
 	}
 	return manager.DiscardStaging(ctx, stagedRoot)
+}
+
+// logStagingDiscardFailure records a staging tree that cleanup could not
+// remove. CleanupOrphanedStaging removes it later; the log keeps the leak
+// visible. Discards use context.Background deliberately: they must still run
+// after the operation's own context was cancelled, and they are local
+// filesystem removals that check the context only on entry.
+func logStagingDiscardFailure(stagedRoot string, err error) {
+	if err != nil {
+		log.Printf("discard staging %s (orphaned-staging cleanup will retry): %v", filepath.Base(stagedRoot), err)
+	}
 }
 
 func (a *App) discardSiteStaging(ctx context.Context, stagedRoot string) error {

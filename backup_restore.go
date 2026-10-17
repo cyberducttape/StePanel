@@ -1074,7 +1074,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	managerActivated := false
 	defer func() {
 		if !managerActivated {
-			_ = discardSiteManagerStaging(context.Background(), cfg, managerStage)
+			logStagingDiscardFailure(managerStage, discardSiteManagerStaging(context.Background(), cfg, managerStage))
 		}
 	}()
 	ok := false

@@ -84,26 +84,19 @@ Response shows:
 **Action required when:**
 - Any metric reaches 80% → Consider proactive customer outreach
 - Any metric reaches 95% → Operator should review usage
-- Customer exceeds limit → Automatic suspension may occur
+- Customer at the limit → New sites or databases are refused at admission
 
-## Automatic Usage Monitoring
+## Limit Enforcement
 
-StePanel periodically checks all customer accounts for:
+Plan limits are enforced when work is admitted. Creating or assigning a site,
+or provisioning a database, that would exceed the account's plan is refused
+before any job is queued. Account updates are validated against the plan in
+the same way, so usage cannot exceed a plan through normal operation.
 
-1. **Usage Warnings** — Logged when usage reaches 80% of limit
-2. **Critical Warnings** — Logged when usage reaches 95% of limit
-3. **Automatic Suspension** — Applied when usage exceeds 100% of limit
-
-Warnings are logged to the audit trail with:
-- `Action`: `account.usage.warning` or `account.suspended.auto`
-- `Target`: Customer username
-- `Details`: Usage breakdown (e.g., "site usage at 80% of limit (4/5)")
-
-Operators should review the audit log daily to identify customers approaching limits:
-
-```bash
-grep 'account.usage.warning\|account.suspended' /var/log/stepanel/audit.log
-```
+This release does not run periodic usage monitoring. It does not log usage
+warnings or suspend accounts automatically. Use the usage figures above to
+find customers approaching their limits, and suspend accounts manually as
+described below.
 
 ## Account Suspension
 
@@ -126,21 +119,9 @@ curl -X POST "https://panel.example.com/api/admin/suspend" \
 **Fields:**
 - `username` — Customer account to suspend
 - `reason` — Human-readable reason for suspension (required)
-- `permanent` — 
-  - `false` = Temporary suspension, automatically lifted if usage drops below limit
-  - `true` = Permanent suspension, manual unsuspension required
-
-### Automatic Suspension
-
-StePanel automatically suspends accounts when:
-
-1. **Site limit exceeded** — Customer creates more sites than allowed
-2. **Database limit exceeded** — Customer creates more databases than allowed
-
-Automatic suspensions are:
-- Logged with action `account.suspended.auto`
-- Marked with `triggered_by: "system"`
-- Temporary (auto-lifted if usage drops below limit)
+- `permanent` — Recorded in the audit trail: `false` logs
+  `account.suspension.temporary`, `true` logs `account.suspended`. Neither is
+  lifted automatically; both require manual unsuspension.
 
 ### Effects of Suspension
 
@@ -261,13 +242,10 @@ When a customer needs more resources:
    grep 'customer1' /var/log/stepanel/audit.log | grep suspended
    ```
 
-3. Determine if automatic or manual
-   - `triggered_by: "system"` = Automatic suspension
-   - `triggered_by: "admin"` = Manual suspension
+3. Read the recorded reason and the administrator who suspended the
+   account. Suspensions in this release are always manual.
 
-4. Take appropriate action
-   - If automatic: Upgrade customer's plan or reduce their usage
-   - If manual: Unsuspend if reason resolved
+4. Unsuspend once the reason is resolved, for example after a plan upgrade
 
 ## Best Practices
 
@@ -283,7 +261,7 @@ When a customer needs more resources:
 
 3. **Graceful Degradation**
    - Don't surprise customers with suspension
-   - Warn at 80% and 95%
+   - Contact customers at 80% and 95% usage
    - Log all suspension events
 
 4. **Regular Audits**
@@ -306,6 +284,5 @@ Monitor these metrics to manage plan enforcement:
 - **Unsuspension rate** — How quickly customers upgrade to resolve
 
 Set alerts:
-- **Alert**: Any account automatic suspension
 - **Alert**: More than 5 accounts at 95%+ usage
 - **Warning**: More than 10 accounts at 80%+ usage

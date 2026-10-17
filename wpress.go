@@ -305,7 +305,7 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	managerActivated := false
 	defer func() {
 		if !managerActivated {
-			_ = discardSiteManagerStaging(context.Background(), cfg, managerStage)
+			logStagingDiscardFailure(managerStage, discardSiteManagerStaging(context.Background(), cfg, managerStage))
 		}
 	}()
 	committed := false

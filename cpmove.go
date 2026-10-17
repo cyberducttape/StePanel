@@ -351,7 +351,7 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	activated := false
 	defer func() {
 		if !activated {
-			_ = manager.DiscardStaging(context.Background(), managerStage)
+			logStagingDiscardFailure(managerStage, manager.DiscardStaging(context.Background(), managerStage))
 		}
 	}()
 	txn, err := beginManagedSiteTransaction(ctx, cfg, home, "cpmove.restore", site)
