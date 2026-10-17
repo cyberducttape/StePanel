@@ -27,7 +27,11 @@ documentation, assets, action pins, and shell checks. Exact-head hosted CI,
 CodeQL, and standard installation smoke also passed; the quota-enabled smoke
 was still running at capture. A ten-shard, 20-repeat installed-host full
 recovery cohort was dispatched on this SHA and remains uncounted until every
-required shard completes successfully. See the [exact-head report](./lab-results/2026-10-17-repository-production-gate-a27becc.md).
+required shard completes successfully. A separate focused Rocky Linux 9 KVM
+run passed real ext4 ENOSPC backup and file-restore tests with user quotas
+enabled ([evidence](./lab-results/2026-10-17-rocky9-enospc-03af01b.md)); it
+does not cover publication, import, database restore, or physical host loss.
+See the [exact-head repository report](./lab-results/2026-10-17-repository-production-gate-a27becc.md).
 
 This evidence does not close installed-host repetition, physical power loss,
 all ENOSPC boundaries, live notification outage/retry, certified capacity,

@@ -10,6 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   Go coverage floors, the complete race suite, repository recovery drills,
   mixed HTTP load, and documentation/security hygiene checks. Record the
   still-running 20-repeat installed-host cohort without counting it as passed.
+- Pass a focused exact-source Rocky Linux 9 ext4 ENOSPC drill for backup and
+  file restore; keep publication, import, database restore, and host-loss gates
+  explicitly open.
 - Reclaim expired durable job leases from the worker's idle wait path, so an
   abandoned destructive operation cannot remain `running` indefinitely when
   no other work is queued.

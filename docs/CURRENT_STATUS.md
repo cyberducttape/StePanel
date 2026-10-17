@@ -37,6 +37,10 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
   combinations. The cohort does not prove physical host power loss or close
   the remaining ENOSPC, notification, capacity, runtime-matrix, or independent
   security-review gates.
+- A focused exact-source Rocky Linux 9 KVM drill passed real ext4 ENOSPC backup
+  and file-restore recovery with active user quotas on `/var/www` ([evidence](lab-results/2026-10-17-rocky9-enospc-03af01b.md)).
+  Publication, import, database-restore, and physical-host power-loss cases
+  remain open.
 - Production approval remains **NO-GO** pending the open authoritative gates.
 
 The 2026-10-17 local Rocky Linux 9 KVM install attempt on source `6d5b8b1`
