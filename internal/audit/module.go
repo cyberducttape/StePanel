@@ -33,6 +33,20 @@ func PersistenceError() error {
 	return defaultAudit.PersistenceError()
 }
 
+// CurrentHealth returns the default logger's persistence state, including
+// failures that later writes have recovered from. Loggers other than the
+// file-backed one report only their current PersistenceError.
+func CurrentHealth() Health {
+	switch logger := defaultAudit.(type) {
+	case nil:
+		return Health{}
+	case *defaultLogger:
+		return currentHealth()
+	default:
+		return Health{LastError: logger.PersistenceError()}
+	}
+}
+
 func Verify(path string) error {
 	if defaultAudit == nil {
 		return nil
@@ -62,9 +76,9 @@ func TestSetKeyPath(path string) {
 	auditKeyPath = path
 }
 
-// TestResetPersistenceError allows tests to clear persistence error state
+// TestResetPersistenceError allows tests to clear persistence health state
 func TestResetPersistenceError() {
 	mu.Lock()
 	defer mu.Unlock()
-	persistenceErr = nil
+	health = Health{}
 }

@@ -1322,3 +1322,43 @@ func TestAuditLockReleaseReportsOwnerStatFailure(t *testing.T) {
 		t.Fatalf("repeated release removed another owner's lock: %v", err)
 	}
 }
+
+func TestPersistenceErrorRecoversButHealthKeepsFailureHistory(t *testing.T) {
+	logger, _ := newTestLogger(t)
+	previousDefault := defaultAudit
+	SetDefault(logger)
+	t.Cleanup(func() { SetDefault(previousDefault) })
+	ctx := context.Background()
+	previousMkdirAll := auditMkdirAll
+	t.Cleanup(func() { auditMkdirAll = previousMkdirAll })
+
+	ioErr := errors.New("filesystem unavailable")
+	auditMkdirAll = func(string, os.FileMode) error { return ioErr }
+	for i := 0; i < 2; i++ {
+		if err := logger.LogAs(ctx, "admin", "site.read", "site-a", "x"); !errors.Is(err, ioErr) {
+			t.Fatalf("append %d error = %v", i, err)
+		}
+	}
+	if !errors.Is(logger.PersistenceError(), ioErr) {
+		t.Fatalf("PersistenceError() = %v, want %v", logger.PersistenceError(), ioErr)
+	}
+	failed := CurrentHealth()
+	if failed.FailureCount != 2 || failed.LastFailure.IsZero() || !failed.LastSuccess.IsZero() {
+		t.Fatalf("health after failures = %+v", failed)
+	}
+
+	auditMkdirAll = previousMkdirAll
+	if err := logger.LogAs(ctx, "admin", "site.read", "site-a", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.PersistenceError(); err != nil {
+		t.Fatalf("PersistenceError() after recovery = %v", err)
+	}
+	recovered := CurrentHealth()
+	if recovered.LastError != nil || recovered.FailureCount != 2 || !recovered.LastFailure.Equal(failed.LastFailure) || recovered.LastSuccess.IsZero() {
+		t.Fatalf("health after recovery = %+v", recovered)
+	}
+	if err := logger.Verify(logger.path); err != nil {
+		t.Fatalf("chain after recovered failures: %v", err)
+	}
+}

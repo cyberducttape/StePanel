@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Clear the `audit_state` readiness failure once audit writes succeed again.
+  A single failed append previously kept readiness failing until restart.
+  Readiness detail still reports how many audit writes have failed since
+  startup and when the last one failed.
+- Refuse to publish an offsite backup into a destination prefix that already
+  holds objects outside that backup, and verify the published prefix holds
+  exactly the backup's objects before writing `.stepanel-complete`.
+  Re-publishing a completed backup is now a verified no-op, and an interrupted
+  publication of the same backup still resumes.
 - Pin `toolchain go1.26.9` in `go.mod` so source builds on an older local Go
   1.26 toolchain fetch the patched release instead of compiling with the 13
   standard-library vulnerabilities `govulncheck` reports for 1.26.7.

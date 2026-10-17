@@ -124,6 +124,7 @@ set -eu
 case "$1" in
 copy) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$dst"; cp -a "$src"/. "$dst"/ ;;
 check) exit 0 ;;
+lsf) dir=$(remote "$2"); [ -d "$dir" ] || exit 3; (cd "$dir" && find . -type f | sed 's#^\./##') ;;
 copyto) src=$(remote "$2"); dst=$(remote "$3"); case "$dst" in */.stepanel-complete) if [ -f "$RCLONE_FAIL_MARKER" ]; then rm -f "$RCLONE_FAIL_MARKER"; exit 73; fi;; esac; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
 purge) rm -rf "$(remote "$2")" ;;
 *) echo "unsupported fake rclone command" >&2; exit 1 ;;
@@ -158,6 +159,14 @@ esac
 	}
 	if _, err := os.Stat(filepath.Join(remoteRoot, ".stepanel-complete")); err != nil {
 		t.Fatalf("completion marker missing: %v", err)
+	}
+	// Re-publishing a completed backup is idempotent and does not stage a
+	// second upload.
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err != nil {
+		t.Fatalf("re-publish completed offsite backup: %v", err)
+	}
+	if staged, _ := filepath.Glob(remoteRoot + ".stepanel-upload-*"); len(staged) != 0 {
+		t.Fatalf("re-publish staged a new upload: %v", staged)
 	}
 	restoredRoot, cleanup, err := downloadOffsiteBackupContext(t.Context(), cfg, "account", filepath.Base(backup.Path))
 	if err != nil {
@@ -207,5 +216,112 @@ func TestListOffsiteBackupsRefusesTruncatedListing(t *testing.T) {
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if _, err := listOffsiteBackupsContext(t.Context(), Config{OffsiteTarget: "s3:bucket/stepanel"}); err == nil || !strings.Contains(err.Error(), "listing exceeds") {
 		t.Fatalf("listOffsiteBackupsContext error = %v, want truncated-listing refusal", err)
+	}
+}
+
+func TestOffsiteUploadRefusesDestinationsHoldingOtherObjects(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	if err := os.MkdirAll(filepath.Join(webRoot, "sites", "account", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webRoot, "sites", "account", "public", "index.php"), []byte("<?php echo 'ok';"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fakeRemote := filepath.Join(root, "remote")
+	fakeRclone := filepath.Join(root, "rclone")
+	// RCLONE_INJECT names an object the final copy adds to the destination, to
+	// model a concurrent writer or an eventually consistent stale listing.
+	script := `#!/bin/sh
+set -eu
+remote() { case "$1" in *:*) printf '%s/%s' "$RCLONE_FAKE_ROOT" "${1#*:}";; *) printf '%s' "$1";; esac; }
+case "$1" in
+copy) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$dst"; cp -a "$src"/. "$dst"/; case "$dst" in *.stepanel-upload-*) ;; *) if [ -n "${RCLONE_INJECT:-}" ]; then : > "$dst/$RCLONE_INJECT"; fi;; esac ;;
+check) exit 0 ;;
+lsf) dir=$(remote "$2"); [ -d "$dir" ] || exit 3; (cd "$dir" && find . -type f | sed 's#^\./##') ;;
+copyto) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
+purge) rm -rf "$(remote "$2")" ;;
+*) echo "unsupported fake rclone command" >&2; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(fakeRclone, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("RCLONE_FAKE_ROOT", fakeRemote)
+	cfg := Config{WebRoot: webRoot, BackupRoot: backupRoot, ImportRoot: filepath.Join(root, "imports"), OffsiteTarget: "s3:bucket/stepanel"}
+	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteRoot := filepath.Join(fakeRemote, "bucket", "stepanel", "account", filepath.Base(backup.Path))
+	marker := filepath.Join(remoteRoot, offsiteCompleteMarker)
+
+	// A stale object from an earlier backup at the same name is refused before
+	// anything is uploaded.
+	if err := os.MkdirAll(remoteRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(remoteRoot, "backup.tar.gz.enc")
+	if err := os.WriteFile(stale, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err == nil || !strings.Contains(err.Error(), "not part of this backup") {
+		t.Fatalf("upload into stale destination error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(remoteRoot, "manifest.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused upload published objects: %v", err)
+	}
+	if err := os.Remove(stale); err != nil {
+		t.Fatal(err)
+	}
+
+	// An object that appears during final publication blocks the marker.
+	t.Setenv("RCLONE_INJECT", "intruder.bin")
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err == nil || !strings.Contains(err.Error(), "intruder.bin") {
+		t.Fatalf("upload with injected object error = %v", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("mixed destination received a completion marker: %v", err)
+	}
+	if staged, _ := filepath.Glob(remoteRoot + ".stepanel-upload-*"); len(staged) != 0 {
+		t.Fatalf("failed publication left its staging prefix: %v", staged)
+	}
+	if err := os.Remove(filepath.Join(remoteRoot, "intruder.bin")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RCLONE_INJECT", "")
+
+	// The interrupted publication of this same backup is resumable.
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err != nil {
+		t.Fatalf("resume offsite publication: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("completion marker missing: %v", err)
+	}
+
+	// A completed destination that lost an object is reported, not repaired.
+	if err := os.Remove(filepath.Join(remoteRoot, "manifest.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err == nil || !strings.Contains(err.Error(), "missing 1 backup objects") {
+		t.Fatalf("re-publish of incomplete completed destination error = %v", err)
+	}
+}
+
+func TestOffsiteDestinationObjectsTreatsMissingPrefixAsEmptyAndPropagatesErrors(t *testing.T) {
+	root := t.TempDir()
+	rclone := filepath.Join(root, "rclone")
+	if err := os.WriteFile(rclone, []byte("#!/bin/sh\ncase \"$2\" in *missing) exit 3;; *) echo denied >&2; exit 7;; esac\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	objects, err := offsiteDestinationObjects(t.Context(), "s3:bucket/missing")
+	if err != nil || len(objects) != 0 {
+		t.Fatalf("missing prefix = %v, %v", objects, err)
+	}
+	if _, err := offsiteDestinationObjects(t.Context(), "s3:bucket/denied"); err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("listing failure error = %v", err)
 	}
 }

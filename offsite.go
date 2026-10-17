@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -70,6 +71,31 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	}
 	ctx, cancel := context.WithTimeout(parent, deadline)
 	defer cancel()
+	// A backup's final prefix only ever holds that backup's own objects. rclone
+	// copy merges and one-way checks ignore extras, so refuse a destination
+	// that already holds anything else instead of publishing a mixed backup.
+	// Objects from an interrupted publication of this same backup are allowed:
+	// --immutable fails the copy if any of them differ from the local files.
+	expected, err := offsiteBackupObjects(backupPath)
+	if err != nil {
+		return fmt.Errorf("list offsite backup objects: %w", err)
+	}
+	existing, err := offsiteDestinationObjects(ctx, destination)
+	if err != nil {
+		return err
+	}
+	if err := requireOffsiteObjects(destination, existing, expected, false); err != nil {
+		return err
+	}
+	if existing[offsiteCompleteMarker] {
+		if err := requireOffsiteObjects(destination, existing, expected, true); err != nil {
+			return err
+		}
+		if output, err := runOffsiteRclone(ctx, "check", backupPath, destination, "--one-way"); err != nil {
+			return fmt.Errorf("previously published offsite backup verification failed: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return nil
+	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return fmt.Errorf("create offsite upload identity: %w", err)
@@ -102,6 +128,13 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	if output, err := runOffsiteRclone(ctx, "check", backupPath, destination, "--one-way"); err != nil {
 		return fmt.Errorf("published offsite backup verification failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	published, err := offsiteDestinationObjects(ctx, destination)
+	if err != nil {
+		return err
+	}
+	if err := requireOffsiteObjects(destination, published, expected, true); err != nil {
+		return err
+	}
 	marker, err := os.CreateTemp("", "stepanel-offsite-complete-")
 	if err != nil {
 		return fmt.Errorf("create offsite completion marker: %w", err)
@@ -115,7 +148,7 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 	if err := marker.Close(); err != nil {
 		return fmt.Errorf("close offsite completion marker: %w", err)
 	}
-	markerRemote, err := offsiteRemoteObject(destination, ".stepanel-complete")
+	markerRemote, err := offsiteRemoteObject(destination, offsiteCompleteMarker)
 	if err != nil {
 		return err
 	}
@@ -128,6 +161,87 @@ func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResul
 		log.Printf("remove verified offsite upload staging prefix %s: %v: %s", temporary, cleanupErr, strings.TrimSpace(string(output)))
 	}
 	cleanupCancel()
+	return nil
+}
+
+const offsiteCompleteMarker = ".stepanel-complete"
+
+// rcloneExitDirectoryNotFound is rclone's documented exit status for a
+// listing of a directory that does not exist.
+const rcloneExitDirectoryNotFound = 3
+
+// offsiteBackupObjects returns the slash-separated relative names of the
+// regular files in a published local backup directory.
+func offsiteBackupObjects(root string) (map[string]bool, error) {
+	objects := make(map[string]bool)
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("backup contains non-regular file %s", filepath.Base(path))
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		objects[filepath.ToSlash(rel)] = true
+		return nil
+	})
+	return objects, err
+}
+
+// offsiteDestinationObjects lists every file under a backup's final remote
+// prefix. A prefix that does not exist yet is empty.
+func offsiteDestinationObjects(ctx context.Context, destination string) (map[string]bool, error) {
+	output, err := runOffsiteRcloneLimit(ctx, maxOffsiteListingBytes, "lsf", destination, "--recursive", "--files-only", "--quiet")
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == rcloneExitDirectoryNotFound {
+			return map[string]bool{}, nil
+		}
+		return nil, fmt.Errorf("list offsite destination failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if len(output) >= maxOffsiteListingBytes {
+		return nil, fmt.Errorf("offsite destination listing exceeds %d bytes", maxOffsiteListingBytes)
+	}
+	objects := make(map[string]bool)
+	for _, line := range strings.Split(string(output), "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			objects[name] = true
+		}
+	}
+	return objects, nil
+}
+
+// requireOffsiteObjects rejects remote objects that are not part of the
+// backup (other than the completion marker) and, when complete is set, any
+// backup object the remote is missing.
+func requireOffsiteObjects(destination string, remote, expected map[string]bool, complete bool) error {
+	var unexpected, missing []string
+	for name := range remote {
+		if !expected[name] && name != offsiteCompleteMarker {
+			unexpected = append(unexpected, name)
+		}
+	}
+	if complete {
+		for name := range expected {
+			if !remote[name] {
+				missing = append(missing, name)
+			}
+		}
+	}
+	sort.Strings(unexpected)
+	sort.Strings(missing)
+	if len(unexpected) > 0 {
+		return fmt.Errorf("offsite destination %s holds %d objects that are not part of this backup (first: %s); refusing to publish into it", destination, len(unexpected), unexpected[0])
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("offsite destination %s is missing %d backup objects (first: %s)", destination, len(missing), missing[0])
+	}
 	return nil
 }
 
@@ -231,11 +345,11 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		cleanup()
 		return "", func() {}, err
 	}
-	if err := downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, ".stepanel-complete", maxOffsiteMarkerBytes); err != nil {
+	if err := downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, offsiteCompleteMarker, maxOffsiteMarkerBytes); err != nil {
 		cleanup()
 		return "", func() {}, fmt.Errorf("offsite backup is not complete: %w", err)
 	}
-	markerData, err := os.ReadFile(filepath.Join(root, ".stepanel-complete"))
+	markerData, err := os.ReadFile(filepath.Join(root, offsiteCompleteMarker))
 	if err != nil || string(markerData) != "STEPANEL_OFFSITE_COMPLETE_V1\n" {
 		cleanup()
 		return "", func() {}, errors.New("offsite backup completion marker is invalid")

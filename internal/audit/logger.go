@@ -23,7 +23,12 @@ const AuditKeyPath = "/etc/stepanel-audit.key"
 const emptyAuditLockStaleAfter = time.Second
 
 var mu sync.Mutex
-var persistenceErr error
+
+// health describes the audit writer's persistence state. LastError is the
+// result of the most recent append, so readiness recovers once writes
+// succeed again; FailureCount and LastFailure are kept for the life of the
+// process so an earlier failure stays visible after recovery.
+var health Health
 var distributedLocks = make(map[string]string)
 var distributedLocksMu sync.Mutex
 
@@ -65,16 +70,36 @@ func (l *defaultLogger) LogAs(ctx context.Context, actor, action, target, detail
 	mu.Lock()
 	defer mu.Unlock()
 	err := l.appendEvent(actor, action, target, detail)
+	now := time.Now().UTC()
+	health.LastError = err
 	if err != nil {
-		persistenceErr = err
+		health.FailureCount++
+		health.LastFailure = now
+	} else {
+		health.LastSuccess = now
 	}
 	return err
 }
 
+// PersistenceError reports whether the most recent audit append failed.
 func (l *defaultLogger) PersistenceError() error {
 	mu.Lock()
 	defer mu.Unlock()
-	return persistenceErr
+	return health.LastError
+}
+
+// Health is a snapshot of audit persistence for this process.
+type Health struct {
+	LastError    error
+	LastFailure  time.Time
+	LastSuccess  time.Time
+	FailureCount uint64
+}
+
+func currentHealth() Health {
+	mu.Lock()
+	defer mu.Unlock()
+	return health
 }
 
 func (l *defaultLogger) appendEvent(actor, action, target, detail string) error {

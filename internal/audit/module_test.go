@@ -23,7 +23,7 @@ func TestModuleHelpersWithoutDefaultLogger(t *testing.T) {
 	previous := defaultAudit
 	SetDefault(nil)
 	t.Cleanup(func() { SetDefault(previous) })
-	if Log("read", "site-a", "details") != nil || LogAs("admin", "read", "site-a", "details") != nil || PersistenceError() != nil || Verify("missing") != nil {
+	if Log("read", "site-a", "details") != nil || LogAs("admin", "read", "site-a", "details") != nil || PersistenceError() != nil || CurrentHealth() != (Health{}) || Verify("missing") != nil {
 		t.Fatal("nil default logger did not no-op")
 	}
 }
@@ -120,7 +120,7 @@ func TestModuleHelpersSurfaceLoggerFailures(t *testing.T) {
 	t.Cleanup(func() { SetDefault(previous) })
 	if !errors.Is(Log("read", "site-a", "details"), expected) ||
 		!errors.Is(LogAs("admin", "read", "site-a", "details"), expected) ||
-		!errors.Is(PersistenceError(), expected) || !errors.Is(Verify("audit"), expected) {
+		!errors.Is(PersistenceError(), expected) || !errors.Is(CurrentHealth().LastError, expected) || !errors.Is(Verify("audit"), expected) {
 		t.Fatal("module helper did not surface logger failure")
 	}
 	response := httptest.NewRecorder()

@@ -43,7 +43,10 @@ New on `main` since v0.7.0 (unreleased):
   WordPress and Node templates are planned.
 - **Transactional offsite backups**: uploads go to a temporary remote prefix,
   are checked, and are promoted with a completion marker that restore
-  requires; transfers use size-aware deadlines and stall limits.
+  requires. A destination prefix holding objects from anything other than
+  that backup is refused, and the published prefix must match the backup
+  exactly before the marker is written. Transfers use an operator-set total
+  deadline and stall limits.
 - **Crash-recoverable application activation**: application deploys and
   state changes are journaled, and startup restores the previous generation
   if the panel dies mid-activation.

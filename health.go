@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/audit"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
@@ -185,11 +186,7 @@ func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 	if cfg.Production || strings.TrimSpace(os.Getenv("STEPANEL_ROOT_BROKER_SOCKET")) != "" || strings.TrimSpace(os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET")) != "" {
 		checks["root_broker"] = rootBrokerHealthCheck()
 	}
-	if err := AuditPersistenceError(); err != nil {
-		checks["audit_state"] = ReadinessCheck{Ready: false, Detail: err.Error()}
-	} else {
-		checks["audit_state"] = ReadinessCheck{Ready: true}
-	}
+	checks["audit_state"] = auditReadiness(audit.CurrentHealth())
 	if jobs == nil {
 		checks["job_state"] = ReadinessCheck{Ready: false, Detail: "job store is not initialized"}
 	} else if err := jobs.PersistenceError(); err != nil {
@@ -349,4 +346,16 @@ func cpmoveRequiredFreeBytes(cfg Config, archiveBytes, expandedBytes int64) (tot
 		return 0, 0, fmt.Errorf("cpmove capacity estimate overflow")
 	}
 	return archive + 2*expanded + reserve, 2*expanded + reserve, nil
+}
+
+// auditReadiness reports the latest audit append. Failures the writer has
+// since recovered from keep ready true but stay visible in the detail.
+func auditReadiness(h audit.Health) ReadinessCheck {
+	if h.LastError != nil {
+		return ReadinessCheck{Ready: false, Detail: fmt.Sprintf("%v (%d audit write failures since startup)", h.LastError, h.FailureCount)}
+	}
+	if h.FailureCount > 0 {
+		return ReadinessCheck{Ready: true, Detail: fmt.Sprintf("recovered: %d audit write failures since startup, last at %s", h.FailureCount, h.LastFailure.Format(time.RFC3339))}
+	}
+	return ReadinessCheck{Ready: true}
 }
