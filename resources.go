@@ -126,10 +126,7 @@ func (a *App) ensurePlanResourcesContext(ctx context.Context, account HostingAcc
 	if !ok {
 		return nil, errors.New("account plan is not available")
 	}
-	lockKeys := make([]string, 0, len(account.Sites))
-	for _, site := range account.Sites {
-		lockKeys = append(lockKeys, site)
-	}
+	lockKeys := append([]string(nil), account.Sites...)
 	operationCtx, release, lockErr := a.acquireSiteMutationLocksContext(ctx, lockKeys...)
 	if lockErr != nil {
 		return nil, fmt.Errorf("acquire account resource site locks: %w", lockErr)

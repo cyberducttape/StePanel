@@ -130,6 +130,7 @@ func TarKind(header *tar.Header) (Kind, error) {
 	switch header.Typeflag {
 	case tar.TypeDir:
 		return Directory, nil
+	//lint:ignore SA1019 headers may not come from tar.Reader, which is what normalizes legacy TypeRegA.
 	case tar.TypeReg, tar.TypeRegA:
 		return File, nil
 	case tar.TypeSymlink, tar.TypeLink:

@@ -504,10 +504,8 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		},
 	}
 
-	// Add database restoration issue (if any)
-	if dbRestorationIssue != nil {
-		issues = append(issues, *dbRestorationIssue)
-	}
+	// Every path above records the database restoration outcome.
+	issues = append(issues, *dbRestorationIssue)
 
 	// Build next steps
 	nextSteps := []string{

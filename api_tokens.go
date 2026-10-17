@@ -790,7 +790,7 @@ func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
 	var legacyTokens []LegacyTokenWarning
 	// Calculate days until deadline dynamically (not a hardcoded constant that becomes wrong every day)
 	deadline := a.Auth.legacyTokenDeadline()
-	daysUntilDeadline := int64(deadline.Sub(time.Now()).Hours() / 24)
+	daysUntilDeadline := int64(time.Until(deadline).Hours() / 24)
 	if daysUntilDeadline < 0 {
 		daysUntilDeadline = 0 // Deadline has passed
 	}

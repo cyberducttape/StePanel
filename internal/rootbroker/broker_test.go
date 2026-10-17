@@ -1084,8 +1084,11 @@ func TestBrokerInvalidSiteName(t *testing.T) {
 	}
 
 	resp, err := broker.Execute(ctx, req)
-	if resp.OK {
-		t.Errorf("Execute should have failed for invalid site name")
+	if err != nil || resp == nil {
+		t.Fatalf("Execute returned (%v, %v); validation failures are reported in the response", resp, err)
+	}
+	if resp.OK || !strings.HasPrefix(resp.Error, "validation error:") {
+		t.Errorf("Execute should have failed validation for invalid site name: %+v", resp)
 	}
 	if resp.Error == "" {
 		t.Errorf("Expected error message, got empty")
@@ -1110,8 +1113,11 @@ func TestBrokerInvalidPort(t *testing.T) {
 	}
 
 	resp, err := broker.Execute(ctx, req)
-	if resp.OK {
-		t.Errorf("Execute should have failed for invalid port")
+	if err != nil || resp == nil {
+		t.Fatalf("Execute returned (%v, %v); validation failures are reported in the response", resp, err)
+	}
+	if resp.OK || !strings.HasPrefix(resp.Error, "validation error:") {
+		t.Errorf("Execute should have failed validation for invalid port: %+v", resp)
 	}
 	if resp.Error == "" {
 		t.Errorf("Expected error message, got empty")
@@ -1205,8 +1211,11 @@ func TestBrokerNilRequest(t *testing.T) {
 
 	ctx := context.Background()
 	resp, err := broker.Execute(ctx, nil)
-	if resp.OK {
-		t.Errorf("Execute should have failed for nil request")
+	if err != nil || resp == nil {
+		t.Fatalf("Execute returned (%v, %v); validation failures are reported in the response", resp, err)
+	}
+	if resp.OK || !strings.HasPrefix(resp.Error, "validation error:") {
+		t.Errorf("Execute should have failed validation for nil request: %+v", resp)
 	}
 }
 
@@ -1223,7 +1232,10 @@ func TestBrokerUnknownRequestType(t *testing.T) {
 	}
 
 	resp, err := broker.Execute(ctx, req)
-	if resp.OK {
-		t.Errorf("Execute should have failed for unknown request type")
+	if err != nil || resp == nil {
+		t.Fatalf("Execute returned (%v, %v); validation failures are reported in the response", resp, err)
+	}
+	if resp.OK || !strings.HasPrefix(resp.Error, "validation error:") {
+		t.Errorf("Execute should have failed validation for unknown request type: %+v", resp)
 	}
 }

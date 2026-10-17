@@ -242,8 +242,6 @@ func DurableSiteCreationWorkflow(siteName string, state *CreationState) Workflow
 // checkpoints prevent half-states even with failure injection.
 func TestDurableSiteCreationWithoutHalfStates(t *testing.T) {
 	siteName := "test-durable-site"
-	state := NewCreationState(siteName)
-
 	// Test creation with various failure points
 	failures := []struct {
 		point FailurePoint
@@ -257,7 +255,7 @@ func TestDurableSiteCreationWithoutHalfStates(t *testing.T) {
 
 	for _, failure := range failures {
 		// Reset state for each test
-		state = NewCreationState(siteName)
+		state := NewCreationState(siteName)
 		workflow := DurableSiteCreationWorkflow(siteName, state)
 
 		if err := RunFailureTest(workflow); err != nil {

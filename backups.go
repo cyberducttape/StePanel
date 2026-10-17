@@ -1053,6 +1053,7 @@ func verifyBackupArchiveContents(input io.Reader, manifest BackupManifest) error
 		if header.FileInfo().IsDir() {
 			continue
 		}
+		//lint:ignore SA1019 legacy V7 archives use TypeRegA; accept it explicitly rather than relying on reader normalization.
 		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
 			return errors.New("backup archive contains an unsupported entry type")
 		}

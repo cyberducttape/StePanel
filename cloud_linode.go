@@ -163,9 +163,7 @@ func validDNSLabel(label string, allowUnderscore bool) bool {
 }
 
 func validLinodeDomainTarget(target string, allowLeadingWildcard bool) bool {
-	if strings.HasSuffix(target, ".") {
-		target = strings.TrimSuffix(target, ".")
-	}
+	target = strings.TrimSuffix(target, ".")
 	if len(target) == 0 || len(target) >= 254 {
 		return false
 	}

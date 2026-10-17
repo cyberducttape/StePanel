@@ -628,7 +628,7 @@ func (v *Validator) validateDBRequest(req *DBRequest) error {
 }
 
 func (v *Validator) validateDumpPath(path string) error {
-	if filepath.IsAbs(path) == false {
+	if !filepath.IsAbs(path) {
 		return errors.New("dump path must be absolute")
 	}
 	cleaned, err := filepath.Abs(path)

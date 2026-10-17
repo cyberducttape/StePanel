@@ -305,13 +305,14 @@ func TestIntegration_ConcurrentRequests(t *testing.T) {
 
 	// Wait for all goroutines
 	completed := 0
+wait:
 	for i := 0; i < numRequests; i++ {
 		select {
 		case <-done:
 			completed++
 		case <-ctx.Done():
 			// Timeout is OK - just means the test took too long
-			break
+			break wait
 		}
 	}
 

@@ -172,8 +172,8 @@ func TestAPITokenLimiterStats(t *testing.T) {
 	}
 
 	tracked, max = limiter.stats()
-	if tracked != 5 {
-		t.Fatalf("expected 5 tracked tokens, got %d", tracked)
+	if tracked != 5 || max != maxTokenKeys {
+		t.Fatalf("expected (5, %d), got (%d, %d)", maxTokenKeys, tracked, max)
 	}
 }
 

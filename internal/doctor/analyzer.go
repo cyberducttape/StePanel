@@ -322,7 +322,7 @@ func (a *Analyzer) checkDiskSpace(analysis *MigrationAnalysis) {
 			Title:       fmt.Sprintf("Low disk space margin: %d GB needed, %d GB available", estimated, available),
 			Description: fmt.Sprintf("Migration uses %d GB of %d GB available. Limited headroom for temporary files.", estimated, available),
 			Impact:      "Migration may fail if temporary files exceed available space",
-			Solution:    fmt.Sprintf("Free up additional space or add storage before migration"),
+			Solution:    "Free up additional space or add storage before migration",
 		})
 	}
 }

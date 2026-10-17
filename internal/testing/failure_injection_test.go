@@ -82,7 +82,7 @@ func TestFailureInjectorSIGKILLUsesRealSignal(t *testing.T) {
 	if os.Getenv("STEPANEL_FAILURE_INJECTOR_CHILD") == "1" {
 		injector := NewFailureInjector()
 		injector.SetFailure(FailurePointInit, FailureTypeSIGKILL)
-		_ = injector.InjectAt(nil, "test", FailurePointInit)
+		_ = injector.InjectAt(context.Background(), "test", FailurePointInit)
 		t.Fatal("SIGKILL injection returned")
 	}
 

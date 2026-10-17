@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Run staticcheck in CI with all correctness and simplification checks.
+  Fix its findings: test assertions that ignored errors or never checked a
+  value, an ineffective `break` in a broker concurrency test, nil contexts in
+  tests, and minor simplifications. Three style and dead-code checks stay
+  disabled in `staticcheck.conf` until the existing code is migrated.
 - Add a Deployment Mode check to the production readiness report. It warns
   when StePanel runs under Docker, Podman or Kubernetes, which are
   control-plane packaging without host management.

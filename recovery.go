@@ -729,7 +729,7 @@ func loadSiteTransaction(dir string) (*SiteTransaction, error) {
 	if filepath.Clean(txn.Backup) != expectedBackup || txn.FailedSite != "" && !strings.HasPrefix(filepath.Clean(txn.FailedSite), dir+string(os.PathSeparator)) {
 		return nil, fmt.Errorf("recovery transaction %s contains unsafe paths", txn.ID)
 	}
-	if txn.MailRoot != "" && (filepath.IsAbs(txn.MailRoot) == false || filepath.Clean(txn.MailBackup) != filepath.Join(dir, "mail-before")) {
+	if txn.MailRoot != "" && (!filepath.IsAbs(txn.MailRoot) || filepath.Clean(txn.MailBackup) != filepath.Join(dir, "mail-before")) {
 		return nil, fmt.Errorf("recovery transaction %s contains unsafe mail paths", txn.ID)
 	}
 	txn.dir = dir

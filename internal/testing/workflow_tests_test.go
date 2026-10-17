@@ -1,6 +1,7 @@
 package testing
 
 import (
+	"context"
 	"testing"
 )
 
@@ -131,7 +132,7 @@ func TestFailureInjectionStats(t *testing.T) {
 
 	// Simulate some operations
 	for i := 0; i < 3; i++ {
-		injector.InjectAt(nil, "test", FailurePointMidOp)
+		injector.InjectAt(context.Background(), "test", FailurePointMidOp)
 		injector.RecordRecovery("test")
 	}
 

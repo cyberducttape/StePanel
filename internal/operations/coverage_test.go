@@ -7,6 +7,7 @@ import (
 )
 
 func TestFencingTokensRoundTripAndInvalidTokenFailsClosed(t *testing.T) {
+	//lint:ignore SA1012 FencingTokens documents and must tolerate a nil context.
 	if got := FencingTokens(nil); got != nil {
 		t.Fatalf("nil context tokens = %#v", got)
 	}

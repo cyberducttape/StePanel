@@ -220,6 +220,9 @@ jobs:
           "$promtool" test rules observability/alerts_test.yml
       - name: Vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Static analysis
+        # staticcheck.conf enables all correctness and simplification checks.
+        run: go run honnef.co/go/tools/cmd/staticcheck@2026.1 ./...
       - name: Build container
         run: docker build --tag stepanel:ci .
       - name: Production container smoke test
