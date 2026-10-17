@@ -104,17 +104,27 @@ PY
   "$PANEL/api/sites/git-deploy")
 set -e
 job_id=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("job_id", ""))' "$queued" 2>/dev/null || true)
+[[ -n $job_id ]] || { echo "Git deploy request did not return a durable job: $queued" >&2; exit 1; }
 
 killed=0
+job_status=
 for _ in $(seq 1 120); do
   current=$(systemctl show "$service" -p MainPID --value)
   if [[ "$current" =~ ^[1-9][0-9]*$ && "$current" != "$before" ]]; then
     killed=1
     break
   fi
+  job_status=$(curl --silent --max-time 10 -H "Cookie: $cookie_header" "$PANEL/api/jobs/$job_id" || true)
+  job_state=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("state", ""))' "$job_status" 2>/dev/null || true)
+  case $job_state in
+    failed|dead-letter|completed|cancelled)
+      echo "Git deploy job $job_id reached terminal state '$job_state' before the injected activation kill: $job_status" >&2
+      exit 1
+      ;;
+  esac
   sleep 1
 done
-(( killed )) || { echo "$service PID never changed; deploy activation kill boundary was not observed" >&2; exit 1; }
+(( killed )) || { echo "$service PID never changed; deploy activation kill boundary was not observed (job $job_id: ${job_status:-status unavailable})" >&2; exit 1; }
 
 systemctl stop "$service" || true
 rm -f -- "$dropin"

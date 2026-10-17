@@ -50,7 +50,10 @@ jobs:
           curl --fail --silent --show-error --location https://cloud-images.ubuntu.com/noble/current/SHA256SUMS -o "$vm_root/SHA256SUMS"
           (cd "$vm_root" && grep 'noble-server-cloudimg-amd64.img$' SHA256SUMS | sha256sum --check --status)
           qemu-img resize "$guest_image" 12G
-          qemu-img create -f raw "$vm_root/www.ext4" 2G
+          # Leave room for the configured 5 GiB Git release reservation plus
+          # the installer's 1 GiB minimum-free floor. The quota fixture must
+          # exercise activation recovery, not reject Git admission by design.
+          qemu-img create -f raw "$vm_root/www.ext4" 8G
           qemu-img create -f raw "$vm_root/enospc.ext4" 96M
 
           ssh-keygen -q -t ed25519 -N '' -f "$vm_root/id_ed25519"

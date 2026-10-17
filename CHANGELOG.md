@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Pass a focused exact-source Rocky Linux 9 ext4 ENOSPC drill for backup and
   file restore; keep publication, import, database restore, and host-loss gates
   explicitly open.
+- Increase the quota-smoke `/var/www` fixture to accommodate the configured
+  Git staging reservation and minimum-free floor, and report terminal Git job
+  state immediately when the deployment kill boundary is not reached. Preserve
+  the failed quota run and its unverified cause as explicit evidence.
 - Reclaim expired durable job leases from the worker's idle wait path, so an
   abandoned destructive operation cannot remain `running` indefinitely when
   no other work is queued.

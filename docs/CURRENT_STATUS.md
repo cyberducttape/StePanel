@@ -25,11 +25,13 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
   1.26.7: vet, tests and coverage floors, race suite, recovery drills,
   benchmarks, mixed HTTP load, documentation, dashboard, asset, action-pin,
   and shell checks.
-- Exact-head hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38992616491),
+- Exact-source hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38992616491),
   [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38992616456),
   and [standard installation smoke](https://github.com/cyberducttape/StePanel/actions/runs/38992616469)
-  passed. The exact-head [quota-enabled installation smoke](https://github.com/cyberducttape/StePanel/actions/runs/38992616443)
-  was still running at capture.
+  passed. The exact-source [quota-enabled installation smoke](https://github.com/cyberducttape/StePanel/actions/runs/38992616443)
+  failed before the Git deployment kill boundary; the failed run and
+  unverified capacity-fixture diagnosis are recorded in the [failure report](lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
+  The quota fixture and smoke diagnostics have been corrected for rerun.
 - A 20-repeat full installed-host recovery cohort was dispatched as ten
   uniquely keyed two-iteration shards on this exact SHA. All shard links and
   their then-current running/queued states are recorded in the [gate report](lab-results/2026-10-17-repository-production-gate-a27becc.md).
