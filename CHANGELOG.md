@@ -17,6 +17,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   Git staging reservation and minimum-free floor, and report terminal Git job
   state immediately when the deployment kill boundary is not reached. Preserve
   the failed quota run and its unverified cause as explicit evidence.
+- Record exact pushed validation states for the quota-smoke admission fix and
+  distinguish current-head checks from prior-source production evidence.
 - Reclaim expired durable job leases from the worker's idle wait path, so an
   abandoned destructive operation cannot remain `running` indefinitely when
   no other work is queued.

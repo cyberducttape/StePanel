@@ -18,7 +18,34 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate requirements and acceptance criteria.
 
-### Current-head validation — 2026-10-17 (`a27becc`)
+### Current-head validation — 2026-10-17 (`2c13219`)
+
+- Current `main` is `2c132198de8b8a444725b85681a5c0c163dc03ba`
+  (`Fix quota smoke Git deployment admission`). The quota fixture now provides
+  an 8 GiB `/var/www` filesystem for the 5 GiB Git staging reservation and
+  1 GiB free-space floor. The deployment-interruption smoke now requires a
+  durable job ID, detects premature terminal job state, and includes its
+  status in failure diagnostics. Shell syntax, ShellCheck, documentation
+  links/references, and `git diff --check` passed locally.
+- Exact-head hosted [CI](https://github.com/cyberducttape/StePanel/actions/runs/38997387100)
+  and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/38997387005)
+  are queued; [standard installation smoke](https://github.com/cyberducttape/StePanel/actions/runs/38997386955)
+  and [quota-enabled smoke](https://github.com/cyberducttape/StePanel/actions/runs/38997387063)
+  are pending. No result is inferred from these states.
+- The earlier quota smoke failure on `a27becc` remains a failure, not pass
+  evidence; its incomplete result and unverified fixture diagnosis are
+  recorded in the [failure report](lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
+  The updated fixture and diagnostics require a successful exact-head rerun.
+- The 20-repeat installed-host recovery cohort on `a27becc` is still
+  incomplete: three two-iteration shards are in progress and seven are queued
+  at this capture. No repeat is counted until its complete six-host shard
+  passes. These runs do not establish physical host power loss or close the
+  remaining ENOSPC, notification, capacity, runtime-matrix, upgrade-policy,
+  or independent-security-review gates.
+
+Production approval remains **NO-GO**.
+
+### Prior source validation — 2026-10-17 (`a27becc`)
 
 - The full local [repository production gate](lab-results/2026-10-17-repository-production-gate-a27becc.md)
   passed on exact source `a27beccc9b5be33a7e30d57662d027c74e6a6cbe` with Go
@@ -43,7 +70,9 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
   and file-restore recovery with active user quotas on `/var/www` ([evidence](lab-results/2026-10-17-rocky9-enospc-03af01b.md)).
   Publication, import, database-restore, and physical-host power-loss cases
   remain open.
-- Production approval remains **NO-GO** pending the open authoritative gates.
+- The source-level evidence below remains valid for `a27becc`; it is not
+  exact-head validation for later commits. Production approval remains
+  **NO-GO** pending the open authoritative gates.
 
 The 2026-10-17 local Rocky Linux 9 KVM install attempt on source `6d5b8b1`
 passed database ownership, import/restore/termination recovery, WordPress
