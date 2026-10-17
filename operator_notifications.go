@@ -283,6 +283,21 @@ func notificationErrorCategory(err error) string {
 	}
 }
 
+// transportFailureClass names the class of an HTTP transport error without
+// echoing its text.
+func transportFailureClass(err error) string {
+	var netErr net.Error
+	var certErr *tls.CertificateVerificationError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout():
+		return "timeout"
+	case errors.As(err, &certErr) || strings.Contains(strings.ToLower(err.Error()), "tls"):
+		return "tls"
+	default:
+		return "connection"
+	}
+}
+
 func (s *operatorNotificationStore) pruneDelivered(ctx context.Context) error {
 	cutoff := time.Now().UTC().Add(-operatorNotificationRetention).Unix()
 	result, err := s.db.ExecContext(ctx, `DELETE FROM operator_notification_events WHERE id IN (
@@ -362,7 +377,9 @@ func deliverOperatorWebhookWithClient(parent context.Context, cfg Config, id str
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return errors.New("webhook transport failed")
+		// Keep only the failure class: the transport error can carry the
+		// webhook URL, which may embed a token.
+		return errors.New("webhook transport failed: " + transportFailureClass(err))
 	}
 	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))

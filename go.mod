@@ -2,6 +2,10 @@ module github.com/cyberducttape/StePanel
 
 go 1.26.0
 
+// Builds use the patched toolchain that release, Docker, and CI pin
+// (scripts/check-release.sh keeps them in sync).
+toolchain go1.26.9
+
 require (
 	github.com/distribution/reference v0.6.0
 	golang.org/x/crypto v0.57.0

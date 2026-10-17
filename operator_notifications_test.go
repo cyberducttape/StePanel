@@ -545,3 +545,25 @@ func TestOperatorNotificationChannelsUseIndependentRetryDeadlines(t *testing.T) 
 		t.Fatalf("independent retry state incorrect: webhook next=%+v email delivered=%+v", webhookNext, emailDelivered)
 	}
 }
+
+func TestOperatorWebhookTransportFailuresKeepTheirCategory(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer server.Close()
+	defer close(release)
+	cfg := Config{AlertWebhookURL: server.URL + "/hook?token=secret-token"}
+	client := server.Client()
+	client.Timeout = 50 * time.Millisecond
+	err := deliverOperatorWebhookWithClient(context.Background(), cfg, "event-1", []byte(`{}`), safehttp.Policy{AllowPrefixes: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}}, client)
+	if err == nil || safeNotificationError(err) != "delivery failed: timeout" {
+		t.Fatalf("timeout classified as %q (err %v)", safeNotificationError(err), err)
+	}
+	if strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("transport error leaked the webhook URL: %v", err)
+	}
+}

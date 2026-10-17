@@ -70,6 +70,22 @@ if ! grep -Fq "'/dev/vdc /mnt/stepanel-enospc ext4 defaults 0 2' >> /etc/fstab" 
   exit 1
 fi
 
+# Every build pins the same patched Go toolchain: go.mod's toolchain line
+# (source builds), the Docker build image, and each workflow's setup-go.
+toolchain=$(sed -n 's/^toolchain go\([0-9.]*\)$/\1/p' go.mod)
+if [ -z "$toolchain" ]; then
+  echo "go.mod does not pin a toolchain" >&2
+  exit 1
+fi
+if ! grep -Eq "^FROM golang:$toolchain-" Dockerfile; then
+  echo "Dockerfile build image does not use Go $toolchain from go.mod" >&2
+  exit 1
+fi
+if grep -En "go-version: *'[0-9.]+'|go_version: *\['[0-9.]+'\]" .github/workflows/*.yml | grep -Fv "'$toolchain'" >&2; then
+  echo "workflow Go version pins above differ from go.mod toolchain $toolchain" >&2
+  exit 1
+fi
+
 chart_version=$(sed -n 's/^version: \([^[:space:]]*\)$/\1/p' deploy/helm/stepanel/Chart.yaml)
 chart_app_version=$(sed -n 's/^appVersion: "\([^"]*\)"$/\1/p' deploy/helm/stepanel/Chart.yaml)
 openapi_version=$(sed -n 's/^  version: \([^[:space:]]*\)$/\1/p' docs/openapi.yaml)

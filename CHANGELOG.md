@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Pin `toolchain go1.26.9` in `go.mod` so source builds on an older local Go
+  1.26 toolchain fetch the patched release instead of compiling with the 13
+  standard-library vulnerabilities `govulncheck` reports for 1.26.7.
+  `make release-check` now fails if the Dockerfile or any workflow pins a
+  different Go version than `go.mod`.
+- Report webhook alert delivery timeouts and TLS failures as such in the
+  operator notification status. Every webhook transport error was replaced
+  with a fixed string before categorization, so all of them were reported as
+  "transport or authentication error". The URL is still never recorded.
 - Pass the full repository production gate on exact source `a27becc`, including
   Go coverage floors, the complete race suite, repository recovery drills,
   mixed HTTP load, and documentation/security hygiene checks. Record the
