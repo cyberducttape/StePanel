@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Add `deploy/lab/abrupt-loss-operation-drill.sh` and the
+  `abrupt-loss-operations` KVM certification phase. They kill the whole guest
+  during file restore, database restore, Git activation, and control-plane
+  writes. After the reboot they check customer files, database tables and the
+  site over HTTP, not only readiness. They have not been run yet.
+- Add `STEPANEL_PAUSE_AT`, which holds an operation at a named kill boundary
+  so a harness can kill the guest there. It is honored only with
+  `STEPANEL_UNSAFE_LAB=1`.
+- Add `VM_DISK_CACHE` to the KVM harness so guest disks can run without the
+  host page cache.
 - Offer only complete offsite backups for recovery-proof selection. The
   listing now requires the completion marker as well as the manifest, so an
   interrupted publication is never chosen. Add regression tests for

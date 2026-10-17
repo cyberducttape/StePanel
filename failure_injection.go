@@ -2,9 +2,12 @@ package stepanel
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // failureInjection implements the deterministic fault hook used by recovery
@@ -36,14 +39,55 @@ func failureInjection(operation, point string) error {
 // at boundaries where startup recovery owns the abandoned state. It is inert
 // unless explicitly enabled by a crash-recovery test.
 func processKillInjection(operation, point string) {
-	spec := strings.TrimSpace(os.Getenv("STEPANEL_KILL_AT"))
-	if spec == "" {
-		return
-	}
-	parts := strings.SplitN(spec, ":", 2)
-	if len(parts) == 2 && strings.EqualFold(strings.TrimSpace(parts[0]), operation) && strings.EqualFold(strings.TrimSpace(parts[1]), point) {
+	processPauseInjection(operation, point)
+	if injectionPointMatches("STEPANEL_KILL_AT", operation, point) {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
 	}
+}
+
+func injectionPointMatches(variable, operation, point string) bool {
+	parts := strings.SplitN(strings.TrimSpace(os.Getenv(variable)), ":", 2)
+	return len(parts) == 2 && strings.EqualFold(strings.TrimSpace(parts[0]), operation) && strings.EqualFold(strings.TrimSpace(parts[1]), point)
+}
+
+// defaultPauseMarkerDir is inside the services' ReadWritePaths: their
+// ProtectSystem=strict sandbox makes /run read-only. Markers are never read
+// by StePanel; the drill removes them.
+const defaultPauseMarkerDir = "/var/lib/ste-panel/pause-markers"
+
+// pauseForever blocks the paused operation; tests replace it.
+var pauseForever = func() { select {} }
+
+// processPauseInjection holds an operation at a kill boundary so a lab
+// harness can kill the whole guest there, which a process kill cannot model.
+// STEPANEL_PAUSE_AT uses the STEPANEL_KILL_AT syntax and is honored only with
+// STEPANEL_UNSAFE_LAB=1. On a match it writes and syncs the marker
+// <STEPANEL_PAUSE_MARKER_DIR>/<operation>-<point> and then blocks; the
+// operation's lease keeps renewing, so the job stays running until the guest
+// dies. See deploy/lab/abrupt-loss-operation-drill.sh.
+func processPauseInjection(operation, point string) {
+	if os.Getenv("STEPANEL_UNSAFE_LAB") != "1" || !injectionPointMatches("STEPANEL_PAUSE_AT", operation, point) {
+		return
+	}
+	dir := strings.TrimSpace(os.Getenv("STEPANEL_PAUSE_MARKER_DIR"))
+	if dir == "" {
+		dir = defaultPauseMarkerDir
+	}
+	if err := writePauseMarker(dir, strings.ToLower(operation)+"-"+strings.ToLower(point)); err != nil {
+		log.Printf("pause injection at %s:%s could not write its marker: %v", operation, point, err)
+	}
+	log.Printf("pause injection holding %s:%s until the process is killed", operation, point)
+	pauseForever()
+}
+
+func writePauseMarker(dir, name string) error {
+	if !filepath.IsLocal(name) || filepath.Base(name) != name {
+		return fmt.Errorf("invalid pause marker name %q", name)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	return writeAtomic(filepath.Join(dir, name), []byte(time.Now().UTC().Format(time.RFC3339Nano)+"\n"), 0600)
 }
 
 func transactionFailureOperation(kind string) string {

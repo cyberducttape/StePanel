@@ -176,6 +176,7 @@ jobs:
       - run: bash -n deploy/integrations/install-fail2ban.sh
       - run: bash -n deploy/lab/install-smoke.sh
       - run: bash -n deploy/lab/wordpress-recovery-proof-smoke.sh
+      - run: bash -n deploy/lab/abrupt-loss-operation-drill.sh
       - run: bash -n deploy/lab/control-plane-db-outage-smoke.sh
       - run: bash -n scripts/check-action-pins.sh
       - run: bash -n deploy/lab/dbctl-lock-smoke.sh

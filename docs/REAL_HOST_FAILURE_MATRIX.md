@@ -105,6 +105,10 @@ in-flight host mutation.
 (SELinux enforcing, full matrix at `RECOVERY_MATRIX_REPEATS=1`). "KVM guest
 kill" is a QEMU `SIGKILL` of the whole guest mid-operation, not physical power
 loss. No cell is complete until it has passed at the 20–50 repetition level.
+`abrupt-loss-operation-drill.sh` adds mid-operation guest kills for file
+restore, database restore, Git activation, and control-plane writes, with
+post-boot checks of customer data and HTTP. It has no recorded runs yet, so
+those Reboot/power-loss cells remain open.
 Run the same harness with:
 
 ```sh

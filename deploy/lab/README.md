@@ -55,8 +55,10 @@ durable account suspension. The account drill uses the disposable
 ### KVM certification run
 
 `local-kvm-certification.sh` runs the install smoke, the full recovery
-matrix, the rootless build runner checks, abrupt whole-guest loss (idle and
-during a backup, via `abrupt-loss-backup-drill.sh`), and a real ENOSPC drill
+matrix, the rootless build runner checks, abrupt whole-guest loss (idle,
+during a backup via `abrupt-loss-backup-drill.sh`, and during file restore,
+database restore, Git activation, and control-plane writes via
+`abrupt-loss-operation-drill.sh`), and a real ENOSPC drill
 inside a disposable Rocky Linux 9 KVM guest with SELinux enforcing. It needs
 a usable `/dev/kvm`, QEMU, and a run directory on disk (not tmpfs); a full
 run takes about four hours. A fresh run also requires at least `VM_MEMORY_MB`
@@ -65,6 +67,18 @@ plus `VM_HOST_RESERVE_MB` (default 2048 MiB) in `/proc/meminfo`'s
 clone admission check in the install smoke. Increase the host reserve if other
 workloads need more memory.
 Nothing is installed on the workstation itself.
+
+The `abrupt-loss-operations` phase holds file restore and Git activation at
+their commit boundaries with `STEPANEL_PAUSE_AT`. That hook is honored only
+on `--unsafe-lab` installs and lives in a `/run` drop-in that the reboot
+removes. Database restore is caught after its load has started, and
+control-plane writes are interrupted by a guest kill partway through a write
+loop. Each verify step checks customer files or tables and the site over
+HTTP. Pick scenarios with `ABRUPT_LOSS_SCENARIOS`. Set
+`VM_DISK_CACHE=none` or `directsync` so writes the virtual disk acknowledged
+do not survive the kill in the host page cache. A large `DRILL_DB_DOUBLINGS`
+(default 18, about two million rows) keeps the database load long enough to
+interrupt.
 
 ```sh
 deploy/lab/local-kvm-certification.sh Rocky-9-GenericCloud.latest.x86_64.qcow2

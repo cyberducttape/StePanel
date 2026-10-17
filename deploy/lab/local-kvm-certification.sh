@@ -16,9 +16,13 @@ set -Eeuo pipefail
 # Environment: VM_MEMORY_MB (4096), VM_HOST_RESERVE_MB (2048), VM_CPUS (4), SSH_PORT (2232),
 # RECOVERY_MATRIX_REPEATS (1; use 20–50 for the release soak),
 # PHASES (space-separated subset of: boot install runner abrupt-loss
-# abrupt-loss-under-load enospc), KEEP_VM=1 to leave the guest running,
+# abrupt-loss-under-load abrupt-loss-operations enospc), KEEP_VM=1 to leave the guest running,
 # RESUME=1 to run PHASES against the guest a previous KEEP_VM=1 run left in
-# RUN_DIR (no rebuild or reboot; results are appended).
+# RUN_DIR (no rebuild or reboot; results are appended),
+# ABRUPT_LOSS_SCENARIOS (file-restore database-restore git-deploy
+# control-plane) for abrupt-loss-operations, and VM_DISK_CACHE (writeback) for
+# the guest disks. With writeback, writes the virtual disk acknowledged survive
+# a guest kill in the host page cache; none or directsync drops that cushion.
 #
 # Every phase runs only inside the guest. Nothing is installed on the host.
 
@@ -29,7 +33,9 @@ memory=${VM_MEMORY_MB:-4096}
 cpus=${VM_CPUS:-4}
 port=${SSH_PORT:-2232}
 host_reserve=${VM_HOST_RESERVE_MB:-2048}
-phases=${PHASES:-boot install runner abrupt-loss abrupt-loss-under-load enospc}
+phases=${PHASES:-boot install runner abrupt-loss abrupt-loss-under-load abrupt-loss-operations enospc}
+disk_cache=${VM_DISK_CACHE:-writeback}
+case $disk_cache in writeback|none|directsync|writethrough) ;; *) echo 'VM_DISK_CACHE must be writeback, none, directsync, or writethrough' >&2; exit 1 ;; esac
 matrix_repeats=${RECOVERY_MATRIX_REPEATS:-1}
 
 if [[ ! $matrix_repeats =~ ^[1-9][0-9]*$ ]] || (( matrix_repeats > 50 )); then
@@ -77,9 +83,9 @@ guest() { ssh "${ssh_args[@]}" vmtest@127.0.0.1 "$@"; }
 start_guest() {
   qemu-system-x86_64 \
     -machine accel=kvm -cpu host -smp "$cpus" -m "$memory" \
-    -drive "file=$run_dir/root.qcow2,if=virtio,format=qcow2" \
-    -drive "file=$run_dir/www.ext4,if=virtio,format=raw" \
-    -drive "file=$run_dir/enospc.ext4,if=virtio,format=raw" \
+    -drive "file=$run_dir/root.qcow2,if=virtio,format=qcow2,cache=$disk_cache" \
+    -drive "file=$run_dir/www.ext4,if=virtio,format=raw,cache=$disk_cache" \
+    -drive "file=$run_dir/enospc.ext4,if=virtio,format=raw,cache=$disk_cache" \
     -drive "file=$run_dir/seed.iso,if=virtio,media=cdrom,readonly=on" \
     -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$port-:22" \
     -device virtio-net-pci,netdev=net0 \
@@ -159,6 +165,7 @@ if [[ ${RESUME:-0} != 1 ]]; then
   printf 'commit: %s\n' "$(git -C "$repo" rev-parse HEAD)"
   printf 'dirty: %s\n' "$(git -C "$repo" status --porcelain | wc -l)"
   printf 'host_qemu: %s\nhost_kernel: %s\nguest_memory_mb: %s\nguest_cpus: %s\nrecovery_matrix_repeats: %s\ninstall_timeout_minutes: %s\n' "$(qemu-system-x86_64 --version | head -1)" "$(uname -r)" "$memory" "$cpus" "$matrix_repeats" "$install_timeout_minutes"
+  printf 'guest_disk_cache: %s\n' "$disk_cache"
   printf 'started_utc: %s\n' "$(date -u +%FT%TZ)"
 } > "$run_dir/environment.txt"
 
@@ -280,6 +287,37 @@ if has_phase abrupt-loss-under-load; then
   else
     record abrupt-loss-under-load FAIL $((SECONDS - start)) "prepare: $(tail -1 "$run_dir/abrupt-load-prepare.log")"
   fi
+fi
+
+# --- Abrupt guest loss in the middle of mutating operations -------------------
+# Each scenario holds or catches an operation at a commit boundary, kills the
+# whole guest there, boots it, and checks customer data and the site over
+# HTTP, not only readiness. See deploy/lab/abrupt-loss-operation-drill.sh.
+if has_phase abrupt-loss-operations; then
+  for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy control-plane}; do
+    start=$SECONDS
+    drill="sudo bash /work/deploy/lab/abrupt-loss-operation-drill.sh $scenario"
+    log_prefix="$run_dir/abrupt-loss-$scenario"
+    if ! guest "$drill prepare" > "$log_prefix-prepare.log" 2>&1; then
+      record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) "prepare: $(tail -1 "$log_prefix-prepare.log")"
+      continue
+    fi
+    if ! guest "$drill start" > "$log_prefix-start.log" 2>&1; then
+      record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) "start: $(tail -1 "$log_prefix-start.log")"
+      continue
+    fi
+    # Paused scenarios are already at their boundary; the schedule writer
+    # needs a moment of sustained writes before the kill.
+    [[ $scenario != control-plane ]] || sleep "${ABRUPT_LOSS_WRITE_SECONDS:-5}"
+    kill_guest
+    start_guest
+    if wait_ready 600 && guest "$drill verify" > "$log_prefix-verify.log" 2>&1; then
+      record "abrupt-loss-$scenario" PASS $((SECONDS - start)) "$(tail -1 "$log_prefix-verify.log")"
+    else
+      record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) "$(tail -1 "$log_prefix-verify.log" 2>/dev/null)"
+      guest 'sudo journalctl -b --no-pager -n 300' > "$log_prefix-journal.log" 2>&1 || true
+    fi
+  done
 fi
 
 # --- Real ENOSPC on a small dedicated filesystem ------------------------------

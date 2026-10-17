@@ -89,3 +89,34 @@ func TestFailureInjectionAtTransactionInitRestoresExistingSite(t *testing.T) {
 		t.Fatalf("initialization failure changed existing site to %q", data)
 	}
 }
+
+func TestPauseInjectionWritesMarkerAndBlocksOnlyInUnsafeLab(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "markers")
+	paused := 0
+	previous := pauseForever
+	pauseForever = func() { paused++ }
+	t.Cleanup(func() { pauseForever = previous })
+	t.Setenv("STEPANEL_PAUSE_MARKER_DIR", dir)
+	t.Setenv("STEPANEL_PAUSE_AT", "restore:commit")
+	t.Setenv("STEPANEL_KILL_AT", "")
+
+	t.Setenv("STEPANEL_UNSAFE_LAB", "")
+	processKillInjection("restore", "commit")
+	if paused != 0 {
+		t.Fatal("pause injection fired without STEPANEL_UNSAFE_LAB=1")
+	}
+
+	t.Setenv("STEPANEL_UNSAFE_LAB", "1")
+	processKillInjection("restore", "activate")
+	if paused != 0 {
+		t.Fatal("pause injection fired at a different point")
+	}
+	processKillInjection("Restore", "Commit")
+	if paused != 1 {
+		t.Fatalf("pause injection blocked %d times, want 1", paused)
+	}
+	info, err := os.Stat(filepath.Join(dir, "restore-commit"))
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("pause marker = %v, %v; want a 0600 file", info, err)
+	}
+}
