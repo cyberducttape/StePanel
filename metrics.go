@@ -429,6 +429,22 @@ func writeBackupScheduleMetrics(w io.Writer, schedules []BackupSchedule) {
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_backup_schedules_without_success Scheduled backups that have never completed successfully")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_backup_schedules_without_success gauge")
 	_, _ = fmt.Fprintf(w, "stepanel_backup_schedules_without_success %d\n", withoutSuccess)
+	// Per-site series let an alert name the overdue site. Site names are
+	// validated to [a-z0-9_-], so they are safe label values.
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_backup_last_success_age_seconds Time since the site's last successful scheduled backup")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_backup_last_success_age_seconds gauge")
+	for _, schedule := range schedules {
+		if schedule.Enabled && schedule.LastSuccess != nil && safeUser(schedule.Site) == schedule.Site {
+			_, _ = fmt.Fprintf(w, "stepanel_backup_last_success_age_seconds{site=%q} %.0f\n", schedule.Site, max(0, now.Sub(*schedule.LastSuccess).Seconds()))
+		}
+	}
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_backup_interval_seconds Configured interval of the site's enabled backup schedule")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_backup_interval_seconds gauge")
+	for _, schedule := range schedules {
+		if schedule.Enabled && schedule.LastSuccess != nil && safeUser(schedule.Site) == schedule.Site {
+			_, _ = fmt.Fprintf(w, "stepanel_backup_interval_seconds{site=%q} %d\n", schedule.Site, schedule.IntervalMinutes*60)
+		}
+	}
 }
 
 func writeGitReleaseMetrics(w io.Writer, webRoot string) {

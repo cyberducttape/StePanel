@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Add per-site `stepanel_backup_last_success_age_seconds` and
+  `stepanel_backup_interval_seconds` gauges and a `StePanelBackupOverdue`
+  alert that names the site whose backup is more than an hour overdue. The
+  existing backup metrics were fleet-wide aggregates that could not say which
+  site was late.
 - Correct `docs/PLAN_ENFORCEMENT.md`: this release enforces plan limits at
   admission. It does not run periodic usage monitoring, usage warnings or
   automatic suspension, and temporary suspensions are not lifted

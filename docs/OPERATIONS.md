@@ -392,7 +392,11 @@ Database monitoring also exports `stepanel_database_diagnostics_up`, connection,
 long-transaction, blocking, deadlock, and allocated-byte gauges. Scheduled
 backup RPO signals are available as `stepanel_backup_oldest_age_seconds`,
 `stepanel_backup_schedules_without_success`, and
-`stepanel_backup_consecutive_failures`.
+`stepanel_backup_consecutive_failures`. Per-site
+`stepanel_backup_last_success_age_seconds` and
+`stepanel_backup_interval_seconds` drive the `StePanelBackupOverdue` alert,
+which names the site whose last successful backup is more than an hour past
+its schedule.
 Before upgrading, back up `/etc/ste-panel.env`, the database server,
 `/var/www/sites`, and the complete state inventory in [`STATE.md`](STATE.md).
 Customer credentials and encrypted TOTP material are stored in the

@@ -199,6 +199,15 @@ groups:
           summary: Long database transactions detected
           description: Transactions older than five minutes have persisted for ten minutes and may delay vacuum, purge, DDL, or backups.
 
+      - alert: StePanelBackupOverdue
+        expr: stepanel_backup_last_success_age_seconds{job="stepanel"} - stepanel_backup_interval_seconds{job="stepanel"} > 3600
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Scheduled backup for {{ $labels.site }} is overdue
+          description: The last successful backup of {{ $labels.site }} is more than an hour past its schedule ({{ $value | humanizeDuration }} late). Inspect the site's latest backup job error and its operator notification.
+
       - alert: StePanelScheduledBackupFailures
         expr: stepanel_backup_consecutive_failures{job="stepanel"} > 0
         for: 15m

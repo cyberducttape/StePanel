@@ -161,3 +161,25 @@ tests:
       - eval_time: 25m
         alertname: StePanelHTTP5xxLowTraffic
         exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'stepanel_backup_last_success_age_seconds{job="stepanel",site="late"}'
+        values: '90000+60x30'
+      - series: 'stepanel_backup_interval_seconds{job="stepanel",site="late"}'
+        values: '86400+0x30'
+      - series: 'stepanel_backup_last_success_age_seconds{job="stepanel",site="ontime"}'
+        values: '3600+60x30'
+      - series: 'stepanel_backup_interval_seconds{job="stepanel",site="ontime"}'
+        values: '86400+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: StePanelBackupOverdue
+        exp_alerts:
+          - exp_labels:
+              job: stepanel
+              site: late
+              severity: critical
+            exp_annotations:
+              summary: Scheduled backup for late is overdue
+              description: The last successful backup of late is more than an hour past its schedule (1h 20m 0s late). Inspect the site's latest backup job error and its operator notification.

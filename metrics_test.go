@@ -187,3 +187,27 @@ func TestAuditWriterMetricsExposeLatencyAndFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupScheduleMetricsExposePerSiteAgeForEnabledSchedules(t *testing.T) {
+	succeeded := time.Now().UTC().Add(-26 * time.Hour)
+	var output strings.Builder
+	writeBackupScheduleMetrics(&output, []BackupSchedule{
+		{Site: "example", Enabled: true, IntervalMinutes: 1440, LastSuccess: &succeeded},
+		{Site: "paused", Enabled: false, IntervalMinutes: 60, LastSuccess: &succeeded},
+		{Site: "fresh", Enabled: true, IntervalMinutes: 60},
+	})
+	text := output.String()
+	for _, want := range []string{
+		`stepanel_backup_interval_seconds{site="example"} 86400`,
+		`stepanel_backup_last_success_age_seconds{site="example"} 936`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("backup metrics missing %q:\n%s", want, text)
+		}
+	}
+	for _, unwanted := range []string{`site="paused"`, `site="fresh"`} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("backup metrics include %s, which is disabled or has never succeeded:\n%s", unwanted, text)
+		}
+	}
+}
