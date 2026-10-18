@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-17
+**Last Updated:** 2026-10-18
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -17,6 +17,34 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 ## Release Gate Status
 
 See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate requirements and acceptance criteria.
+
+### Exact-head hosted validation — 2026-10-18 (`633c013`)
+
+- Exact-head [CI](https://github.com/cyberducttape/StePanel/actions/runs/39147354411),
+  [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39147354339),
+  [six-host installation smoke](https://github.com/cyberducttape/StePanel/actions/runs/39147354348),
+  and [quota-enabled installation smoke](https://github.com/cyberducttape/StePanel/actions/runs/39147354334)
+  passed. CI included Go tests, race tests, repository recovery drills,
+  MySQL 8 and PostgreSQL restore checks, the clean Python deployment test,
+  static analysis, and release/documentation checks.
+- All six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy hosts
+  passed the installed recovery smoke. Each restored a populated WordPress
+  database and passed its application HTTP probes (measured RTOs 4.269–5.538
+  seconds), recovered from a database outage, and passed one interruption
+  matrix iteration. The quota-enabled Ubuntu guest also passed. This is
+  current-source smoke evidence, not 20-repeat certification or physical-host
+  power-loss evidence.
+- A new 20-repeat cohort was dispatched on this exact SHA as ten unique
+  two-iteration shards (`gate5-20261018T192511-633c013`). At the recorded
+  capture, two shards were active and eight queued; no repeats are counted
+  until all six host jobs in a shard pass. The earlier `a27becc` cohort ended
+  with eight passing and two failed shards (16 successful repetitions per
+  host combination), so it does not satisfy the release gate.
+- Production remains **NO-GO**. Physical host power loss, additional ENOSPC
+  boundaries, live notification outage/retry, certified capacity, broader
+  runtime support, upgrade policy, and independent security review remain
+  open. Per-host RTOs, run IDs, and exact limitations are captured in the
+  [hosted validation report](lab-results/2026-10-18-hosted-validation-633c013.md).
 
 ### Latest full repository gate — 2026-10-17 (`bed56d8`)
 
@@ -36,12 +64,12 @@ See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate require
   the latest quota run was pending at capture. The
   original failure and unverified fixture diagnosis are recorded in the
   [failure report](lab-results/2026-10-17-quota-smoke-failure-38992616443.md).
-- The 20-repeat installed-host recovery cohort on `a27becc` is still
-  incomplete: three two-iteration shards are in progress and seven are queued
-  at this capture. No repeat is counted until its complete six-host shard
-  passes. These runs do not establish physical host power loss or close the
-  remaining ENOSPC, notification, capacity, runtime-matrix, upgrade-policy,
-  or independent-security-review gates.
+- The 20-repeat installed-host recovery cohort on `a27becc` is incomplete:
+  eight of ten two-iteration shards passed and two failed, so it contributes
+  16 successful repetitions per host combination, not 20. A new exact-head
+  cohort is recorded above. Neither cohort establishes physical host power
+  loss or closes the remaining ENOSPC, notification, capacity, runtime-matrix,
+  upgrade-policy, or independent-security-review gates.
 
 Production approval remains **NO-GO**.
 

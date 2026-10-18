@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Record exact-head hosted evidence for `633c013`: CI, CodeQL, the six-host
+  Ubuntu/AlmaLinux/Rocky × Apache/Caddy installation smoke, and the
+  quota-enabled Ubuntu smoke passed. The installed-host run restored and
+  HTTP-verified populated WordPress databases on all six hosts (RTO 4.269–
+  5.538 seconds), exercised database outage/recovery, and completed one
+  interruption-matrix iteration per host. Dispatch a fresh 20-repeat recovery
+  cohort on this source; do not combine it with the incomplete older cohort.
+  Detailed per-host RTOs and the ten current-cohort run IDs are in
+  `docs/lab-results/2026-10-18-hosted-validation-633c013.md`.
 - Document what each backup guarantees and its limits, in
   `docs/DR_OBJECTIVES.md`:
   - the per-field consistency classes in the manifest, and the absence of
