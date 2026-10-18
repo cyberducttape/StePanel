@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   blocker. Preserve the private clone's 2 GiB address-space cap using `prlimit`
   byte units, check that helper contract in release validation, and keep the
   release-gate regression test precise about per-file versus aggregate limits.
+  Add a kernel-level test proving an oversized write is actually capped.
 - Bound Docker host-smoke boot and diagnostic calls, and add step-level
   ceilings, so a wedged daemon or `docker logs` cannot strand CI runners while
   collecting failure evidence. Apply the same bounded-call and cleanup contract

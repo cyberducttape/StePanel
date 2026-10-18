@@ -8,11 +8,39 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestGitCloneFileSizeLimitIsEnforcedByKernel(t *testing.T) {
+	prlimit, err := exec.LookPath("prlimit")
+	if err != nil {
+		t.Skip("prlimit is unavailable")
+	}
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("POSIX shell is unavailable")
+	}
+
+	path := filepath.Join(t.TempDir(), "limited-file")
+	cmd := exec.Command(prlimit, "--fsize=4096", "--", shell, "-c", `head -c 8192 /dev/zero > "$1"`, "sh", path)
+	if output, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("write larger than RLIMIT_FSIZE unexpectedly succeeded; output=%q", output)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat limited file: %v", err)
+	}
+	if info.Size() > 4096 {
+		t.Fatalf("kernel file-size limit was not enforced: got %d bytes, want at most 4096", info.Size())
+	}
+	if info.Size() == 8192 {
+		t.Fatalf("oversized write completed despite RLIMIT_FSIZE: %d bytes", info.Size())
+	}
+}
 
 func TestParseCgroupMemoryRemaining(t *testing.T) {
 	tests := []struct {
