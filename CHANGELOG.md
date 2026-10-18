@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Documentation
+
+- Record the exact `6c6e018` repository production-gate results and explicitly
+  distinguish passing repository checks from still-pending hosted and real-host
+  certification gates.
+
 ### Fixed
 
 - Apply the configured per-file limit to public and private Git clones at write
