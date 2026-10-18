@@ -41,6 +41,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record the full repository production-gate pass on exact source `b571cb3`,
+  including the full race suite and recovery drills. Explicitly retain the open
+  aggregate Git staging, host-recovery, installed-host repetition, and capacity
+  certification blockers; repository-gate success is not production approval.
 - Recorded the exact-head repository production-gate results for `e447ca2` and
   reconciled the current release status without treating queued hosted checks
   or incomplete host-recovery evidence as passes.

@@ -9,20 +9,21 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest full repository gate — 2026-10-18 (`a291b57`)
+### Latest full repository gate — 2026-10-18 (`b571cb3`)
 
-The exact source checkout `a291b57dff7a406e30c95b637716c4ea0d7e94f7` passed
-[`bash scripts/production-gate.sh`](./lab-results/2026-10-18-repository-production-gate-a291b57.md):
+The exact source checkout `b571cb32d647615536eb607fb5b0245e35f40e79` passed
+[`bash scripts/production-gate.sh`](./lab-results/2026-10-18-repository-production-gate-b571cb3.md):
 vet, full tests and coverage floors, race detection, repository recovery
 drills, benchmarks, mixed HTTP load, documentation, dashboard, quota fixture,
 assets, action pins, and shell checks. Coverage was 56.9%; the root-package
-race suite passed in 478.187 seconds. The evidence report records exact
-measurements and limitations.
+race suite passed in 476.115 seconds. Detailed measurements and limitations
+are recorded in the report.
 
-At capture, exact-head CI and CodeQL were queued, and installation/quota runs
-were pending without jobs. These are not counted as passing. The separate
-20-repeat installed-host cohort on `633c013` remains incomplete. Repository
-gate success does not establish host certification; production remains
+This run does not establish exact-head hosted CI, installed-host certification,
+physical power-loss recovery, aggregate Git staging-space enforcement, or
+capacity certification. The 20-repeat installed-host cohort on `633c013` is
+still running; six jobs in its first shard remain at “Start disposable systemd
+host” and do not count as successful iterations. Production remains
 **NO-GO**.
 
 ### Previous full repository gate — 2026-10-18 (`e447ca2`)
