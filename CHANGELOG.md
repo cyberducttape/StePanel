@@ -17,6 +17,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   exercises success/failure outcomes, syntax-checks the installer libraries,
   and verifies the helper is included in release archives.
 
+### Security / Production Readiness
+
+- Explicitly track Git clone disk admission as an open production blocker:
+  release-size validation happens after Git has written objects and checked out
+  the tree, so the logical capacity reservation does not prevent ENOSPC.
+
 ### Documentation
 
 - Recorded the exact-head repository production-gate results for `e447ca2` and

@@ -52,6 +52,28 @@ func TestOneDotZeroScopeExcludesPlatformWork(t *testing.T) {
 	}
 }
 
+// TestGitCloneDiskAdmissionRemainsAnExplicitReleaseGate prevents a logical
+// reservation and a post-checkout size check from being mistaken for a hard
+// filesystem limit. The release claim must change only with an enforced write
+// boundary and corresponding failure evidence.
+func TestGitCloneDiskAdmissionRemainsAnExplicitReleaseGate(t *testing.T) {
+	data, err := os.ReadFile("docs/V1_PRODUCTION_GATES.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := strings.ToLower(string(data))
+	for _, required := range []string{
+		"hard write-time limits for git release staging",
+		"❌ open — production blocker",
+		"git clone` writes the pack and checkout before that size check",
+		"cannot prevent a malicious or unexpectedly large repository from exhausting `/var/www`",
+	} {
+		if !strings.Contains(doc, required) {
+			t.Errorf("production gate must retain Git staging disk-admission limitation %q", required)
+		}
+	}
+}
+
 // markdownSection returns the text from the first line starting with heading
 // up to the next heading of the same or higher level.
 func markdownSection(t *testing.T, path, heading string) string {
