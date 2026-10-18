@@ -1335,7 +1335,7 @@ func (b *Broker) dbRestoreDump(ctx context.Context, req *DBRequest) (*Response, 
 	if len(req.DumpData) > MaxInlineDumpBytes {
 		return &Response{OK: false, Error: "dump data exceeds the broker limit; use the streaming restore path"}, nil
 	}
-	return b.runDBHelper(ctx, []string{"restore-dump", req.Database, req.Site}, req.DumpData, DBResponse{Restored: true, Database: req.Database})
+	return b.runDBHelper(ctx, []string{"restore-dump", req.Database, req.Site, strconv.Itoa(len(req.DumpData))}, req.DumpData, DBResponse{Restored: true, Database: req.Database})
 }
 
 func (b *Broker) dbRestoreFromPath(ctx context.Context, req *DBRequest, action string) (*Response, error) {
@@ -1358,13 +1358,18 @@ func (b *Broker) dbRestoreFromPath(ctx context.Context, req *DBRequest, action s
 		return &Response{OK: false, Error: fmt.Sprintf("open database dump: %v", err)}, nil
 	}
 	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 {
+		return &Response{OK: false, Error: "cannot determine regular database dump size"}, nil
+	}
+	dumpBytes := strconv.FormatInt(info.Size(), 10)
 	var input io.Reader = file
 	args := []string{action, req.Database}
 	switch action {
 	case "restore", "restore-dump":
-		args = append(args, req.Site)
+		args = append(args, req.Site, dumpBytes)
 	case "restore-wordpress":
-		args = append(args, req.Username, req.Site)
+		args = append(args, req.Username, req.Site, dumpBytes)
 		input = io.MultiReader(strings.NewReader(req.Password+"\n"), file)
 	default:
 		return &Response{OK: false, Error: "unsupported streaming database action"}, nil

@@ -184,7 +184,7 @@ func TestBrokerStreamsDatabaseRestoreFromApprovedPath(t *testing.T) {
 	}
 	received := filepath.Join(root, "received.sql")
 	helper := filepath.Join(root, "dbctl")
-	script := "#!/bin/sh\n[ \"$1\" = restore-dump ] && [ \"$2\" = target_db ] && [ \"$3\" = demo ] || exit 11\ncat >" + received + "\n"
+	script := "#!/bin/sh\n[ \"$1\" = restore-dump ] && [ \"$2\" = target_db ] && [ \"$3\" = demo ] && [ \"$4\" = 32 ] || exit 11\ncat >" + received + "\n"
 	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -730,7 +730,7 @@ func TestBrokerDatabaseDumpAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.TrimSpace(string(args)), "dump smoke_db\nrestore-dump smoke_db smoke_site"; got != want {
+	if got, want := strings.TrimSpace(string(args)), "dump smoke_db\nrestore-dump smoke_db smoke_site 30"; got != want {
 		t.Fatalf("helper args = %q, want %q", got, want)
 	}
 }

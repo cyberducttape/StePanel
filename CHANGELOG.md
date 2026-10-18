@@ -20,6 +20,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Include the staged SQL dump size in privileged database restore admission and
+  reserve against the larger of twice the incoming dump or 1.5 times the live
+  database. This closes the undercount for restores targeting an empty/new
+  database; concurrent restore reservations and real-host ENOSPC certification
+  remain separate open capacity gates.
+
 - Apply the configured per-file limit to public and private Git clones at write
   time, covering both Git packfiles and checked-out files. This is a defense-in-
   depth bound alongside a root-broker-managed aggregate project quota. Clone

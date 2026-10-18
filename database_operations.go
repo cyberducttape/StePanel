@@ -168,13 +168,18 @@ func runDatabaseRestoreFromPath(ctx context.Context, cfg Config, action, site, d
 		return err
 	}
 	defer input.Close()
+	info, err := input.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 {
+		return errors.New("cannot determine regular database dump size")
+	}
+	dumpBytes := strconv.FormatInt(info.Size(), 10)
 	var stream io.Reader = input
 	args := []string{action, database}
 	switch action {
 	case "restore", "restore-dump":
-		args = append(args, site)
+		args = append(args, site, dumpBytes)
 	case "restore-wordpress":
-		args = append(args, username, site)
+		args = append(args, username, site, dumpBytes)
 		stream = io.MultiReader(strings.NewReader(password+"\n"), input)
 	default:
 		return errors.New("unsupported database restore action")

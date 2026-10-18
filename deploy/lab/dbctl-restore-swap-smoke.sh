@@ -302,6 +302,19 @@ if ! grep -q 'the restore copy needs about' "$work/error" || ! grep -q 'the live
 no_restore_left
 pass 'a restore that would leave the database filesystem below its reserve is refused before loading'
 
+# An empty/new target schema must still be admitted against the incoming dump
+# size; otherwise the live-size estimate is zero and a large load can fill the
+# shared database filesystem. A declared size larger than available capacity
+# must fail before creating a shadow database or consuming the stream.
+if "$helper" restore-dump "$db" "$site" 999999999999999999 < /dev/null 2> "$work/error"; then
+  fail 'a restore whose incoming dump exceeds available capacity was admitted'
+fi
+if ! grep -q 'the restore copy needs about' "$work/error" || ! grep -q 'the live database was not changed' "$work/error"; then
+  fail "an oversized incoming dump did not report an unchanged database: $(cat "$work/error")"
+fi
+no_restore_left
+pass 'restore admission accounts for incoming SQL size before loading'
+
 if "$helper" restore-dump "$db" "other-$suffix" < "$work/backup.sql" 2>/dev/null; then fail 'restore to another site was accepted'; fi
 no_restore_left
 pass 'restore for another site is refused before any shadow is created'
