@@ -47,7 +47,7 @@ case "$action" in
     [[ -f $known_hosts && ! -L $known_hosts ]] || { echo 'trusted Git SSH host keys are not configured' >&2; exit 1; }
     # Bound memory and individual pack/checkout files. This is defense in depth,
     # not an aggregate staging-space quota.
-    prlimit --as=2097152 --fsize="$max_file_bytes" -- git -c credential.helper= -c core.hooksPath=/dev/null -c core.sshCommand="ssh -i $key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts -F /dev/null" \
+    prlimit --as=2147483648 --fsize="$max_file_bytes" -- git -c credential.helper= -c core.hooksPath=/dev/null -c core.sshCommand="ssh -i $key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts -F /dev/null" \
       clone --depth 1 --branch "$ref" --single-branch --no-tags "$repository" "$destination"
     chown -R --no-dereference "$(stat -c '%u:%g' "/var/www/sites/$site")" "$destination"
     ;;

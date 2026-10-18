@@ -89,6 +89,10 @@ if ! grep -Fq -- '-snapshot-recovery-root /var/www/sites/.stepanel-recovery' dep
   echo "root broker service does not declare the panel snapshot recovery root" >&2
   exit 1
 fi
+if ! grep -Fq "prlimit --as=2147483648 --fsize=\"\$max_file_bytes\" -- git " deploy/integrations/stepanel-gitctl; then
+  echo "private Git clone must preserve its 2 GiB address-space limit and enforce the configured per-file limit" >&2
+  exit 1
+fi
 if ! grep -Fq "'/dev/vdc /mnt/stepanel-enospc ext4 defaults 0 2' >> /etc/fstab" .github/workflows/quota-install-smoke.yml; then
   echo "quota smoke does not persist its ENOSPC volume across guest reboot" >&2
   exit 1
