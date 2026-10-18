@@ -102,6 +102,253 @@ drop_objects() {
   fi
 }
 
+# Restoring a dump into a managed database is a shadow load and a swap. The
+# dump loads into a separate database registered as
+# pending-restore:SITE:DATABASE:PHASE; a failed or interrupted load leaves the
+# live database untouched and reconcile drops the shadow. Once the load
+# succeeds the record moves to the swap phase and every later step rolls
+# forward: MySQL/MariaDB move all base tables in one RENAME TABLE and
+# recreate views, triggers, routines and events from definitions exported
+# before the swap; PostgreSQL renames the databases in one transaction.
+restore_root="$registry/.restores"
+restore_unchanged_message='restore load failed; the live database was not changed'
+valid_restore_shadow() { [[ $1 =~ ^stepanel_restore_[0-9a-f]{16}$ ]]; }
+
+mysql_generated() {
+  # Runs SQL that prints statements, then runs those statements. The bound
+  # names are validated identifiers; object names come from the server and
+  # are quoted there, so they never pass through the shell.
+  local live=$1 shadow=$2 retired=$3 query=$4 statements
+  statements=$(printf "SET SESSION group_concat_max_len = 67108864; SET @live='%s', @shadow='%s', @retired='%s';\n%s;\n" "$live" "$shadow" "$retired" "$query" | "${admin[@]}")
+  # A long transaction on the live database must not queue every later
+  # query behind the swap's metadata lock indefinitely.
+  [[ -z $statements ]] || printf 'SET SESSION lock_wait_timeout = 60;\n%s\n' "$statements" | "${admin[@]}"
+}
+
+mysql_quoted() { printf "CONCAT(CHAR(96), REPLACE(%s, CHAR(96), CONCAT(CHAR(96), CHAR(96))), CHAR(96))" "$1"; }
+
+mysql_drop_schema_objects() {
+  local schema=$1 name
+  name=$(mysql_quoted NAME)
+  mysql_generated "$schema" '' '' "SELECT CONCAT('DROP ', KIND, ' ', CHAR(96), @live, CHAR(96), '.', $name, ';') FROM (
+    SELECT 'TRIGGER' KIND, TRIGGER_NAME NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=@live
+    UNION ALL SELECT 'VIEW', TABLE_NAME FROM information_schema.VIEWS WHERE TABLE_SCHEMA=@live
+    UNION ALL SELECT ROUTINE_TYPE, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA=@live
+    UNION ALL SELECT 'EVENT', EVENT_NAME FROM information_schema.EVENTS WHERE EVENT_SCHEMA=@live) objects"
+}
+
+mysql_base_table_count() {
+  sql "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$1' AND TABLE_TYPE NOT IN ('VIEW','SYSTEM VIEW')"
+}
+
+mysql_create_like() {
+  local source=$1 target=$2 definition charset collation
+  definition=$(sql "SELECT CONCAT(DEFAULT_CHARACTER_SET_NAME, CHAR(9), DEFAULT_COLLATION_NAME) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='$source'")
+  charset=${definition%%$'\t'*}; collation=${definition#*$'\t'}
+  [[ $charset =~ ^[A-Za-z0-9_]{1,64}$ && $collation =~ ^[A-Za-z0-9_]{1,64}$ ]] || { echo "cannot read the character set of $source" >&2; return 1; }
+  sql "CREATE DATABASE IF NOT EXISTS \`$target\` CHARACTER SET $charset COLLATE $collation"
+}
+
+mysql_export_definitions() {
+  # Views, triggers, routines and events cannot change schema, so their
+  # definitions are exported from the loaded shadow and recreated in the
+  # live database after the tables move. SHOW CREATE VIEW, which the dump
+  # client uses, leaves references to the dumped schema unqualified.
+  local shadow=$1 journal=$2 dump_client=mysqldump hex name
+  local -a views=()
+  command -v mariadb-dump >/dev/null 2>&1 && dump_client=mariadb-dump
+  "$dump_client" --no-defaults --protocol=socket --skip-comments --no-create-info --no-data --triggers --routines --events "$shadow" > "$journal/objects.sql"
+  while IFS= read -r hex; do
+    [[ $hex =~ ^([0-9A-F]{2}){1,256}$ ]] || { echo 'invalid view name encoding' >&2; return 1; }
+    # shellcheck disable=SC2001 # ${var//pattern/&} needs bash 5.2
+    printf -v name '%b' "$(sed 's/../\\x&/g' <<<"$hex")"
+    views+=("$name")
+  done < <(sql "SELECT HEX(TABLE_NAME) FROM information_schema.VIEWS WHERE TABLE_SCHEMA='$shadow' ORDER BY TABLE_NAME")
+  if (( ${#views[@]} > 0 )); then
+    "$dump_client" --no-defaults --protocol=socket --skip-comments --no-data --skip-triggers "$shadow" "${views[@]}" > "$journal/views.sql"
+  else
+    : > "$journal/views.sql"
+  fi
+  mysql_base_table_count "$shadow" > "$journal/tables"
+  sync "$journal/objects.sql" "$journal/views.sql" "$journal/tables"
+  sync -d "$journal"
+}
+
+mysql_finish_restore() {
+  local database=$1 shadow=$2 retired=$3 journal=$4 expected moved remaining source target
+  [[ -r $journal/tables && -r $journal/objects.sql && -r $journal/views.sql ]] || { echo "restore journal for $database is incomplete" >&2; return 1; }
+  expected=$(<"$journal/tables"); [[ $expected =~ ^[0-9]+$ ]] || { echo "restore journal for $database is invalid" >&2; return 1; }
+  database_exists "$shadow" || { echo "restore shadow for $database is missing during the swap" >&2; return 1; }
+  remaining=$(mysql_base_table_count "$shadow")
+  if (( remaining == expected )); then
+    # RENAME TABLE is atomic, so the shadow still holds every table until
+    # it runs. An empty dump moves only the old tables, which is idempotent.
+    mysql_create_like "$database" "$retired"
+    mysql_drop_schema_objects "$database"
+    mysql_drop_schema_objects "$shadow"
+    source=$(mysql_quoted TABLE_NAME)
+    mysql_generated "$database" "$shadow" "$retired" "SELECT CONCAT('RENAME TABLE ', GROUP_CONCAT(STATEMENT ORDER BY ORDINAL SEPARATOR ', ')) FROM (
+      SELECT 0 ORDINAL, CONCAT(CHAR(96), @live, CHAR(96), '.', $source, ' TO ', CHAR(96), @retired, CHAR(96), '.', $source) STATEMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA=@live AND TABLE_TYPE NOT IN ('VIEW','SYSTEM VIEW')
+      UNION ALL SELECT 1, CONCAT(CHAR(96), @shadow, CHAR(96), '.', $source, ' TO ', CHAR(96), @live, CHAR(96), '.', $source) FROM information_schema.TABLES WHERE TABLE_SCHEMA=@shadow AND TABLE_TYPE NOT IN ('VIEW','SYSTEM VIEW')) moves HAVING COUNT(*) > 0"
+  elif (( remaining != 0 )); then
+    echo "restore swap for $database moved only part of its tables; $shadow and $retired hold the rest" >&2
+    return 1
+  fi
+  moved=$(mysql_base_table_count "$shadow")
+  (( moved == 0 )) || { echo "restore swap for $database left tables in $shadow" >&2; return 1; }
+  mysql_drop_schema_objects "$database"
+  "$client" --no-defaults --protocol=socket --batch --binary-mode "$database" < "$journal/views.sql"
+  "$client" --no-defaults --protocol=socket --batch --binary-mode "$database" < "$journal/objects.sql"
+  target=$(mysql_base_table_count "$database")
+  (( target == expected )) || { echo "restored $database holds $target tables, expected $expected" >&2; return 1; }
+}
+
+postgres_owner() { sql "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='$1'"; }
+
+postgres_finish_restore() {
+  local database=$1 shadow=$2 retired=$3
+  if database_exists "$shadow" && database_exists "$database" && ! database_exists "$retired"; then
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('$database', '$shadow') AND pid <> pg_backend_pid()" >/dev/null
+      if printf 'BEGIN; ALTER DATABASE "%s" RENAME TO "%s"; ALTER DATABASE "%s" RENAME TO "%s"; COMMIT;\n' "$database" "$retired" "$shadow" "$database" | "${admin[@]}" >/dev/null; then
+        return 0
+      fi
+      sleep 1
+    done
+    echo "could not swap $database while sessions keep reconnecting" >&2
+    return 1
+  fi
+  if ! database_exists "$shadow" && database_exists "$database" && database_exists "$retired"; then
+    return 0
+  fi
+  if database_exists "$shadow" && ! database_exists "$database" && database_exists "$retired"; then
+    sql "ALTER DATABASE \"$shadow\" RENAME TO \"$database\"" >/dev/null
+    return 0
+  fi
+  echo "restore swap for $database is in an unexpected state" >&2
+  return 1
+}
+
+drop_database_if_exists() {
+  if [[ $engine == postgresql ]]; then
+    sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$1' AND pid <> pg_backend_pid()" >/dev/null
+    sql "SET client_min_messages = warning; DROP DATABASE IF EXISTS \"$1\"" >/dev/null
+  else
+    sql "DROP DATABASE IF EXISTS \`$1\`"
+  fi
+}
+
+discard_restore() {
+  local shadow=$1 hex=${1#stepanel_restore_}
+  drop_database_if_exists "$shadow"
+  drop_database_if_exists "stepanel_retired_$hex"
+  rm -rf -- "${restore_root:?}/$hex"
+  sync -d "$restore_root"
+  remove_record "$registry/$shadow"
+}
+
+# finish_restore rolls one restore record forward from its recorded phase.
+# The caller holds the database and site locks.
+finish_restore() {
+  local shadow=$1 site=$2 database=$3 phase=$4 hex=${1#stepanel_restore_} retired
+  retired="stepanel_retired_$hex"
+  case "$phase" in
+    load) discard_restore "$shadow"; return 0 ;;
+    swap)
+      if [[ $engine == postgresql ]]; then postgres_finish_restore "$database" "$shadow" "$retired"; else mysql_finish_restore "$database" "$shadow" "$retired" "$restore_root/$hex"; fi
+      register_database "$shadow" "pending-restore:$site:$database:done" ;;
+    done) ;;
+    *) echo "invalid restore phase for $database" >&2; return 1 ;;
+  esac
+  discard_restore "$shadow"
+}
+
+parse_restore_record() {
+  # Sets restore_site, restore_database and restore_phase from a record.
+  local value=$1 rest
+  [[ $value == pending-restore:* ]] || return 1
+  rest=${value#pending-restore:}
+  IFS=: read -r restore_site restore_database restore_phase <<<"$rest"
+  valid_site "$restore_site" && valid_database "$restore_database" && [[ $restore_phase =~ ^(load|swap|done)$ ]]
+}
+
+finish_restores_for() {
+  # Finishes interrupted restores of one database under the caller's locks,
+  # so a dump or a new restore never observes a half-swapped database.
+  local database=$1 record shadow value
+  for record in "$registry"/stepanel_restore_*; do
+    [[ -f $record ]] || continue
+    shadow=${record##*/}; valid_restore_shadow "$shadow" || continue
+    value=$(<"$record")
+    parse_restore_record "$value" || { echo "invalid restore record $shadow" >&2; return 1; }
+    [[ $restore_database == "$database" ]] || continue
+    finish_restore "$shadow" "$restore_site" "$restore_database" "$restore_phase"
+  done
+}
+
+restore_dump() {
+  # The exit trap reads restore_state and restore_shadow, so they are global.
+  local database=$1 site=$2 hex journal
+  hex=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+  restore_shadow="stepanel_restore_$hex"
+  restore_state=load
+  journal="$restore_root/$hex"
+  valid_restore_shadow "$restore_shadow" || { echo 'cannot name the restore shadow database' >&2; return 1; }
+  ! database_exists "$restore_shadow" || { echo 'restore shadow name collision' >&2; return 1; }
+  install -d -m 0700 -o root -g root "$restore_root"
+  install -d -m 0700 -o root -g root "$journal"
+  register_database "$restore_shadow" "pending-restore:$site:$database:load"
+  # shellcheck disable=SC2329 # invoked by the EXIT trap
+  restore_failed() {
+    local exit_status=$?
+    trap - EXIT
+    if [[ $restore_state == load ]]; then
+      discard_restore "$restore_shadow" >/dev/null 2>&1 || echo "could not discard the restore shadow $restore_shadow; reconcile retries it" >&2
+      echo "$restore_unchanged_message" >&2
+    else
+      echo 'restore stopped during the swap; the next dump, restore or reconcile of this database finishes it' >&2
+    fi
+    exit "$exit_status"
+  }
+  trap restore_failed EXIT
+  if [[ $engine == postgresql ]]; then
+    local owner encoding
+    owner=$(postgres_owner "$database"); valid_user "$owner" || [[ $owner == postgres ]] || { echo 'cannot read the database owner' >&2; return 1; }
+    encoding=$(sql "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname='$database'")
+    [[ $encoding =~ ^[A-Za-z0-9_]{1,32}$ ]] || { echo 'cannot read the database encoding' >&2; return 1; }
+    sql "CREATE DATABASE \"$restore_shadow\" OWNER \"$owner\" ENCODING '$encoding' TEMPLATE template0" >/dev/null
+    # The dump carries no ownership (pg_dump --no-owner), so it loads as
+    # the database owner: objects a superuser created would be unreadable
+    # by the site's database role.
+    local role_prefix=''
+    [[ $owner == postgres ]] || role_prefix="SET ROLE \"$owner\";"
+    { printf '%s\n' "$role_prefix"; cat; } | runuser -u postgres -- psql --no-psqlrc --no-password --quiet --set ON_ERROR_STOP=1 --dbname "$restore_shadow" >/dev/null
+  else
+    mysql_create_like "$database" "$restore_shadow"
+    "$client" --no-defaults --protocol=socket --batch --binary-mode "$restore_shadow"
+    mysql_export_definitions "$restore_shadow" "$journal"
+  fi
+  restore_state=swap
+  register_database "$restore_shadow" "pending-restore:$site:$database:swap"
+  # A signal now would leave the swap half done until the next reconcile,
+  # so only SIGKILL can stop it.
+  trap '' TERM INT HUP
+  # Finishing is idempotent, so a swap that timed out behind a long live
+  # transaction is retried. The background subshell keeps errexit, which a
+  # conditional context would disable.
+  local attempt pid
+  for attempt in 1 2 3; do
+    finish_restore "$restore_shadow" "$site" "$database" swap &
+    pid=$!
+    if wait "$pid"; then
+      trap - EXIT
+      return 0
+    fi
+    (( attempt == 3 )) || sleep 5
+  done
+  return 1
+}
+
 if [[ $action == reconcile ]]; then
   (( $# == 1 )) || { echo 'usage: stepanel-dbctl reconcile' >&2; exit 64; }
   for record in "$registry"/*; do
@@ -122,10 +369,19 @@ if [[ $action == reconcile ]]; then
         site=$(record_site "$value"); valid_site "$site" || exit 1
         cleanup_user=$db_user
         lock_keys+=("site-$site" "user-$db_user") ;;
+      pending-restore:*)
+        valid_restore_shadow "$database" || { echo "invalid restore record: $database" >&2; exit 1; }
+        parse_restore_record "$value" || { echo "invalid restore record: $database" >&2; exit 1; }
+        lock_keys=("database-$restore_database" "site-$restore_site") ;;
       *) continue ;;
     esac
     lock_resources "${lock_keys[@]}"
     if [[ ! -f $record || $(<"$record") != "$value" ]]; then
+      unlock_resources
+      continue
+    fi
+    if [[ $value == pending-restore:* ]]; then
+      finish_restore "$database" "$restore_site" "$restore_database" "$restore_phase"
       unlock_resources
       continue
     fi
@@ -217,12 +473,9 @@ if [[ $action == restore-dump ]]; then
   value=$(<"$record")
   [[ $value == panel:"$site":* || $value == wordpress:"$site":* ]] || { echo 'database is not registered to this site' >&2; exit 1; }
   database_exists "$database" || { echo 'database does not exist' >&2; exit 1; }
-  if [[ $engine == postgresql ]]; then
-    runuser -u postgres -- psql --no-psqlrc --no-password --set ON_ERROR_STOP=1 --dbname "$database"
-  else
-    "$client" --no-defaults --protocol=socket --batch --binary-mode "$database"
-  fi
-  exit $?
+  finish_restores_for "$database"
+  restore_dump "$database" "$site"
+  exit 0
 fi
 
 case "$action" in
@@ -298,6 +551,10 @@ case "$action" in
     ;;
   dump)
     (( $# == 2 )) || exit 64; [[ -f $record ]] || { echo 'database is not registered as managed' >&2; exit 1; }; [[ $(<"$record") != pending-* ]] || exit 1
+    value=$(<"$record"); site=$(record_site "$value")
+    if valid_site "$site"; then lock_resources "database-$database" "site-$site"; else lock_resources "database-$database"; fi
+    finish_restores_for "$database"
+    unlock_resources
     if [[ $engine == postgresql ]]; then runuser -u postgres -- pg_dump --no-password --format=plain --clean --if-exists --no-owner --no-privileges "$database"; else dump_client=mysqldump; command -v mariadb-dump >/dev/null 2>&1 && dump_client=mariadb-dump; "$dump_client" --no-defaults --protocol=socket --single-transaction --quick --routines --events --triggers --hex-blob "$database"; fi
     ;;
   *) echo 'usage: stepanel-dbctl reconcile|list|inventory|diagnostics|sessions|settings|terminate|provision|rotate|drop-managed|restore|restore-wordpress|cleanup-wordpress|drop|dump ...' >&2; exit 64 ;;

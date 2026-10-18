@@ -71,9 +71,11 @@ Nothing is installed on the workstation itself.
 The `abrupt-loss-operations` phase holds file restore and Git activation at
 their commit boundaries with `STEPANEL_PAUSE_AT`. That hook is honored only
 on `--unsafe-lab` installs and lives in a `/run` drop-in that the reboot
-removes. Database restore is caught after its load has started, and
-control-plane writes are interrupted by a guest kill partway through a write
-loop. Each verify step checks customer files or tables and the site over
+removes. Database restore is caught after its shadow load has started, and
+its verify step requires the live tables to be exactly the pre-restore or the
+restored state, no leftover shadow databases, and a retry that keeps the
+first safety backup. Control-plane writes are interrupted by a guest kill
+partway through a write loop. Each verify step checks customer files or tables and the site over
 HTTP. Pick scenarios with `ABRUPT_LOSS_SCENARIOS`. Set
 `VM_DISK_CACHE=none` or `directsync` so writes the virtual disk acknowledged
 do not survive the kill in the host page cache. A large `DRILL_DB_DOUBLINGS`

@@ -106,9 +106,10 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		result, restoreErr = backupRestoreFiles(operationCtx, a.Config, request.Backup, access)
 	case "database":
 		var safety BackupResult
-		restoreErr = checkInterruptedDatabaseRestore(a.Config.RecoveryRoot, item.ID)
+		var previous *databaseRestoreMarker
+		previous, restoreErr = interruptedDatabaseRestore(a.Config.RecoveryRoot, item.ID, request)
 		if restoreErr == nil {
-			safety, restoreErr = createSiteBackupContext(operationCtx, a.Config, access, true, a.capacityLedger())
+			safety, restoreErr = databaseRestoreSafetyBackup(operationCtx, a.Config, access, previous, a.capacityLedger())
 		}
 		if restoreErr == nil {
 			result, restoreErr = restoreManagedDatabase(operationCtx, a.Config, request.Backup, request.Site, request.Database, markDatabaseRestoreStarted(a.Config.RecoveryRoot, item.ID, request, safety))
@@ -128,14 +129,15 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	case "offsite-database":
 		var root string
 		var cleanup func()
-		restoreErr = checkInterruptedDatabaseRestore(a.Config.RecoveryRoot, item.ID)
+		var previous *databaseRestoreMarker
+		previous, restoreErr = interruptedDatabaseRestore(a.Config.RecoveryRoot, item.ID, request)
 		if restoreErr == nil {
 			root, cleanup, restoreErr = downloadOffsiteBackupContext(operationCtx, a.Config, request.Site, request.Backup)
 		}
 		if restoreErr == nil {
 			defer cleanup()
 			var safety BackupResult
-			safety, restoreErr = createSiteBackupContext(operationCtx, a.Config, access, true, a.capacityLedger())
+			safety, restoreErr = databaseRestoreSafetyBackup(operationCtx, a.Config, access, previous, a.capacityLedger())
 			if restoreErr == nil {
 				cfg := a.Config
 				cfg.BackupRoot = root
@@ -169,11 +171,14 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	return output, nil
 }
 
-// databaseRestoreMarker records that a job began loading a dump into a live
-// database. It is written before the load and removed only when the job
-// completes, so a re-run after a crash or lease loss can tell that the
-// database may be partially restored instead of backing up that state as a
-// new safety backup and loading over it.
+// databaseRestoreMarker records that a job began restoring a dump and which
+// pre-restore safety backup it took. It is written before the load and
+// removed only when the job completes. The database helper loads into a
+// shadow database and swaps it in, finishing an interrupted swap before any
+// later dump or restore of that database, so the live database is always
+// either the pre-restore state or the restored one. A re-run cannot tell
+// which, so it reuses this safety backup instead of taking a new one that
+// might already hold the restored data.
 type databaseRestoreMarker struct {
 	JobID        string    `json:"job_id"`
 	Site         string    `json:"site"`
@@ -191,25 +196,47 @@ func databaseRestoreMarkerPath(recoveryRoot, jobID string) (string, error) {
 	return safePath(recoveryRoot, "database-restore-"+jobID+".json")
 }
 
-// checkInterruptedDatabaseRestore refuses to run a database restore job
-// again once an earlier attempt of the same job started its load.
-func checkInterruptedDatabaseRestore(recoveryRoot, jobID string) error {
+// interruptedDatabaseRestore returns the marker an earlier attempt of this
+// job left, or nil for a first attempt. A marker that cannot be read or that
+// names another site, database or safety backup stops the job: retrying
+// without the original safety backup could lose the pre-restore state.
+func interruptedDatabaseRestore(recoveryRoot, jobID string, request durableBackupRestoreRequest) (*databaseRestoreMarker, error) {
 	path, err := databaseRestoreMarkerPath(recoveryRoot, jobID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return fmt.Errorf("read database restore marker: %w", err)
+		return nil, fmt.Errorf("read database restore marker: %w", err)
 	}
 	var marker databaseRestoreMarker
 	if err := json.Unmarshal(data, &marker); err != nil {
-		return doNotRetry(fmt.Errorf("an earlier attempt of this restore began loading into the live database, which may be partially restored; its marker %s is unreadable: %w", filepath.Base(path), err))
+		return nil, doNotRetry(fmt.Errorf("an earlier attempt of this restore was interrupted and its marker %s is unreadable, so its pre-restore safety backup is unknown: %w", filepath.Base(path), err))
 	}
-	return doNotRetry(fmt.Errorf("an earlier attempt of this restore began loading %s into the live database and did not finish, so it may be partially restored; restore the pre-restore safety backup %s", marker.Database, filepath.Base(marker.SafetyBackup)))
+	if marker.Site != request.Site || marker.Database != request.Database || !validBackupName(marker.SafetyBackup) {
+		return nil, doNotRetry(fmt.Errorf("an earlier attempt of this restore was interrupted and its marker %s does not match the job", filepath.Base(path)))
+	}
+	return &marker, nil
+}
+
+// databaseRestoreSafetyBackup takes the pre-restore safety backup, or on a
+// re-run verifies and reuses the one the interrupted attempt took.
+func databaseRestoreSafetyBackup(ctx context.Context, cfg Config, access SiteCapability, previous *databaseRestoreMarker, ledger *capacityLedger) (BackupResult, error) {
+	if previous == nil {
+		return createSiteBackupContext(ctx, cfg, access, true, ledger)
+	}
+	path, err := safePath(cfg.BackupRoot, previous.SafetyBackup)
+	if err != nil {
+		return BackupResult{}, doNotRetry(fmt.Errorf("an earlier attempt of this restore was interrupted and its safety backup name is invalid: %w", err))
+	}
+	if _, err := VerifySiteBackupStrict(path, cfg.BackupSigningKey, cfg.backupDecryptionKeys()...); err != nil {
+		return BackupResult{}, doNotRetry(fmt.Errorf("an earlier attempt of this restore was interrupted and its pre-restore safety backup %s does not verify: %w", previous.SafetyBackup, err))
+	}
+	log.Printf("database restore %s resumes an interrupted attempt and reuses pre-restore safety backup %s", previous.JobID, previous.SafetyBackup)
+	return BackupResult{Path: path}, nil
 }
 
 func markDatabaseRestoreStarted(recoveryRoot, jobID string, request durableBackupRestoreRequest, safety BackupResult) func() error {
@@ -1171,10 +1198,14 @@ func backupContainsDatabase(manifest BackupManifest, database string) bool {
 	return false
 }
 
-// restoreManagedDatabase loads a backup's dump into the live database in
-// place. beforeLoad runs after every check that leaves the database untouched
-// and immediately before the load; a load failure is not retryable because
-// the database may be left partially restored.
+// databaseRestoreUnchangedMessage is what stepanel-dbctl restore-dump
+// reports when it fails before swapping the loaded shadow database in.
+const databaseRestoreUnchangedMessage = "the live database was not changed"
+
+// restoreManagedDatabase restores a backup's dump through stepanel-dbctl,
+// which loads it into a shadow database and swaps that in, so a failure
+// leaves the live database in its pre-restore or its restored state.
+// beforeLoad runs after every check and immediately before the helper.
 func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, database string, beforeLoad func() error) (BackupRestoreResult, error) {
 	if err := ctx.Err(); err != nil {
 		return BackupRestoreResult{}, err
@@ -1239,7 +1270,10 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 		}
 	}
 	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", site, database, "restore", "", dump); err != nil {
-		return BackupRestoreResult{}, doNotRetry(fmt.Errorf("restore database %s (the live database may be partially restored): %w", database, err))
+		if strings.Contains(err.Error(), databaseRestoreUnchangedMessage) {
+			return BackupRestoreResult{}, fmt.Errorf("restore database %s failed while loading; the live database was not changed: %w", database, err)
+		}
+		return BackupRestoreResult{}, fmt.Errorf("restore database %s did not report completion; the live database holds either its pre-restore or its restored state, and the next restore, backup or startup reconcile finishes an interrupted swap: %w", database, err)
 	}
 	return BackupRestoreResult{Site: site, Backup: filepath.Base(backup), Mode: "database-only", Database: database, DatabaseRestored: true, DatabasePreserved: false, Consistency: manifest.Consistency, SchemaRollback: "manual: restore the safety backup or apply a forward migration", CompletedAt: time.Now().UTC()}, nil
 }

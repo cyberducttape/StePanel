@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Make managed database restores atomic. `stepanel-dbctl restore-dump` now
+  loads into a shadow database and swaps it in only after the load succeeds,
+  so a failed or killed load leaves the live database unchanged instead of
+  partially restored. Once the swap starts it always completes: the next
+  `dump`, `restore-dump` or startup `reconcile` of the database finishes an
+  interrupted one. Failed database restores are retried again, and a retry
+  reuses the first attempt's pre-restore safety backup.
+- Fix PostgreSQL database restores leaving every restored table owned by
+  `postgres`, which the site's database role could not read. The dump now
+  loads as the database owner.
+- Add `deploy/lab/dbctl-restore-swap-smoke.sh`, which restores a database
+  with triggers, views, routines, events and foreign keys on a real
+  MySQL/MariaDB server and kills the helper at each step of the swap. CI runs
+  it against the runner's MySQL 8.0.
 - Add `deploy/lab/abrupt-loss-operation-drill.sh` and the
   `abrupt-loss-operations` KVM certification phase. They kill the whole guest
   during file restore, database restore, Git activation, and control-plane

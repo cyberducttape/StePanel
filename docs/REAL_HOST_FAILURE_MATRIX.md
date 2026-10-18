@@ -69,19 +69,31 @@ resubmits.
 | Offsite publication | Local backup unaffected | Remote staging prefix purged, or removed by the periodic staging sweep; no completion marker written | Free remote capacity and retry |
 | cPanel, WordPress and archive import | No existing site or database is touched: imports create a new site and a freshly provisioned database | The site recovery transaction rolls back; the helper drops the new database and its ownership record | Free space and re-run the import |
 | Git deploy | Live release unchanged until activation, which is the commit point | Release staging discarded; its capacity reservation released | Free space and redeploy |
-| Managed database restore (`database` and `offsite-database` modes) | **Partially restored.** The dump is loaded into the live database in place, and MySQL/MariaDB DDL auto-commits, so tables already processed are replaced and the rest are old or incomplete. The site stays online. | Restore stage removed. A full site and database safety backup taken immediately before the restore is kept, and the job error names it | Free space, then restore the safety backup named in the error. A failure once the load has started is never retried automatically. A job re-run after a crash or lost lease refuses to start, and its error names the first attempt's safety backup |
+| Managed database restore (`database` and `offsite-database` modes) | Unchanged. The dump loads into a shadow database; the live database is replaced only by the swap after a successful load | Shadow database dropped and its `pending-restore` record removed. The full site and database safety backup taken before the restore is kept, and the job error names it | Free space on the database filesystem and retry. The shadow needs room for a second copy of the database |
 
-The managed database restore is the one operation where a mid-operation
-failure leaves live customer data inconsistent. This is an open P0 item in
-[V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md). Closing it means restoring
-into a shadow database and swapping it in atomically, with admission for the
-second copy. The same exposure applies to any failure during the load, not
-only ENOSPC: a database server error, a killed helper or a lost lease. Until
-then, a `database-restore-<job>.json` marker in the recovery root records the
-start of each load. It keeps a retry from taking a new safety backup of the
-partial database and naming that backup in its error. The repository kill
-drill `restore:database` fires before this marker, so it still retries and
-completes.
+The managed database restore loads into a shadow database and swaps it in.
+The swap is the commit point:
+
+- A failure or kill before it leaves the live database unchanged. The helper
+  reports `the live database was not changed`, and startup `reconcile` drops
+  a shadow whose helper was killed.
+- After it, every step rolls forward. The next `dump`, `restore-dump` or
+  startup `reconcile` of the database finishes an interrupted swap, so a
+  safety backup or a retry never sees a half-swapped database.
+
+MySQL/MariaDB move every base table in one `RENAME TABLE`, which is atomic.
+On MySQL 8.0 and MariaDB 10.6 or later it is also crash-safe for InnoDB.
+Views, triggers, routines and events cannot change schema, so they are
+dropped and recreated from definitions exported before the swap; queries
+that use them can fail for that moment. A long transaction on the live
+database holds the swap for up to 60 seconds per attempt, and a stopped swap
+is retried twice. PostgreSQL renames both databases in one transaction after
+ending the database's sessions, so the site reconnects once.
+
+A `database-restore-<job>.json` marker in the recovery root records each
+attempt's safety backup. A retried job reuses that backup instead of taking a
+new one, because the interrupted swap may already have finished and a new
+backup would then hold the restored data.
 
 The installed WordPress recovery-proof smoke also injects a bounded MariaDB
 service outage against its disposable application and verifies that the

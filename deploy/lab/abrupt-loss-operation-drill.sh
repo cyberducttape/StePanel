@@ -340,6 +340,8 @@ PHP
         sleep 0.5
       done
       [[ -f $recovery_root/database-restore-$job.json ]] || fail 'database restore load never started'
+      field "$(<"$recovery_root/database-restore-$job.json")" safety_backup > "$state_dir/first-safety"
+      [[ -s $state_dir/first-safety ]] || fail 'database restore marker does not name its safety backup'
       sleep "$DRILL_LOAD_DELAY"
       [[ $(job_state "$job") == running ]] || fail "database restore finished within ${DRILL_LOAD_DELAY}s of starting its load; raise DRILL_DB_DOUBLINGS so the kill lands mid-load"
       sync
@@ -347,34 +349,44 @@ PHP
       ;;
     verify)
       wait_panel_ready
+      # The helper loads into a shadow database and swaps it in, so the live
+      # tables are only ever the pre-restore or the restored state, even
+      # while a retry of the job is loading.
+      db_checksum > "$work/boot.sum"
+      if cmp -s "$work/boot.sum" "$state_dir/before.sum"; then
+        live='untouched'
+      elif cmp -s "$work/boot.sum" "$state_dir/backup.sum"; then
+        live='fully restored'
+      else
+        fail 'database holds neither its pre-restore nor its restored state after the kill'
+      fi
       login
       job=$(<"$state_dir/job")
+      first_safety=$(<"$state_dir/first-safety")
       final=$(wait_terminal "$job") || fail "interrupted database restore $job did not finish ($final)"
       db_checksum > "$work/after.sum"
+      leftovers=$(find /var/lib/stepanel-privileged/db-managed -maxdepth 1 -name 'stepanel_restore_*' -printf '%f ')
+      [[ -z $leftovers ]] || fail "restore records remain after the job ended: $leftovers"
+      [[ -z $(sql "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME LIKE 'stepanel\\_%'") ]] || fail 'restore shadow or retired databases remain after the job ended'
       if [[ $final == completed ]]; then
         cmp -s "$work/after.sum" "$state_dir/backup.sum" || fail 'restore job completed but the database does not match the backup'
         [[ ! -e $recovery_root/database-restore-$job.json ]] || fail 'completed restore left its in-progress marker'
+        result_safety=$(python3 -c 'import json, os, sys; print(os.path.basename((json.loads(sys.argv[1]).get("restore") or {}).get("safety_backup", "")))' "$(api GET "/api/jobs/$job")")
+        [[ $result_safety == "$first_safety" ]] || fail "retried restore reports safety backup '$result_safety', not the first attempt's $first_safety"
         probe / | grep -Fq DRILL_DB_STATE=backup || fail 'site does not report the restored database state'
-        echo "interrupted database restore $job completed on retry; all 8 tables match the backup"
+        echo "interrupted database restore $job left the database $live after the kill and completed on retry with the first safety backup $first_safety; all 8 tables match the backup"
         return
       fi
       error=$(job_error "$job")
-      [[ $error == *'may be partially restored'* ]] || fail "database restore $job ended $final without reporting a possibly partial restore: $error"
-      safety=$(sed -n 's/.*safety backup \(was retained as \)\{0,1\}\([A-Za-z0-9._-]*\).*/\2/p' <<< "$error")
-      [[ -n $safety ]] || fail "database restore error does not name the safety backup: $error"
-      api POST /api/backups/verify "$(json site "$site" backup "$safety")" >/dev/null || fail "named safety backup $safety does not verify"
-      if cmp -s "$work/after.sum" "$state_dir/before.sum"; then
-        live='untouched'
-      elif cmp -s "$work/after.sum" "$state_dir/backup.sum"; then
-        live='fully loaded'
-      else
-        live='partially restored'
-      fi
-      response=$(api POST /api/backups/restore-database "$(json site "$site" backup "$safety" database "$db_name" confirm RESTORE_DATABASE)")
-      require_completed "$(job_id_of "$response")" "restore of safety backup $safety"
-      db_checksum | cmp -s - "$state_dir/before.sum" || fail "restoring safety backup $safety did not return the database to its pre-restore state"
+      [[ $error == *'the live database was not changed'* || $error == *'did not report completion'* ]] || fail "database restore $job ended $final without its restore outcome: $error"
+      [[ $error == *"$first_safety"* ]] || fail "database restore error does not name the first safety backup $first_safety: $error"
+      cmp -s "$work/after.sum" "$state_dir/before.sum" || cmp -s "$work/after.sum" "$state_dir/backup.sum" || fail 'failed restore left the database in neither state'
+      api POST /api/backups/verify "$(json site "$site" backup "$first_safety")" >/dev/null || fail "named safety backup $first_safety does not verify"
+      response=$(api POST /api/backups/restore-database "$(json site "$site" backup "$first_safety" database "$db_name" confirm RESTORE_DATABASE)")
+      require_completed "$(job_id_of "$response")" "restore of safety backup $first_safety"
+      db_checksum | cmp -s - "$state_dir/before.sum" || fail "restoring safety backup $first_safety did not return the database to its pre-restore state"
       probe / | grep -Fq DRILL_DB_STATE=pre || fail 'site does not report the recovered pre-restore state'
-      echo "interrupted database restore $job ended $final with the database $live; restoring named safety backup $safety recovered all 8 tables"
+      echo "interrupted database restore $job left the database $live and ended $final; restoring named safety backup $first_safety recovered all 8 tables"
       ;;
   esac
 }

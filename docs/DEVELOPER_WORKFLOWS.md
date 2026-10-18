@@ -85,8 +85,10 @@ Administrators can queue a database-only restore with `POST
 /api/backups/restore-database`, supplying `backup`, `site`, `database`, and
 `confirm=RESTORE_DATABASE`. The selected database must be registered to the
 site and present in the verified backup. StePanel creates a new verified
-pre-restore safety backup before importing the dump. Database schema rollback
-is manual; application rollback does not reverse schema migrations.
+pre-restore safety backup before importing the dump. The dump loads into a
+shadow database that is swapped in only after a successful load, so a failed
+restore leaves the live database unchanged. Database schema rollback is
+manual; application rollback does not reverse schema migrations.
 
 When an off-site rclone target is configured, administrators can queue
 `POST /api/backups/restore-offsite-files` with `backup`, `site`, and
