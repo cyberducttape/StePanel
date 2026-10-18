@@ -41,6 +41,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Reconcile the authoritative release-gate evidence row with the latest exact-
+  source repository report and live GitHub Actions states, including the 18
+  installed-host jobs still stalled at disposable systemd-host startup.
 - Reconcile `CURRENT_STATUS.md` with the latest exact-source repository gate,
   live hosted-run IDs, and the currently stalled installed-host recovery shard;
   queued and pending checks remain explicitly uncounted.
