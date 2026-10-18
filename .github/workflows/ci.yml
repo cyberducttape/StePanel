@@ -199,7 +199,7 @@ jobs:
         # authenticates as root over the socket like an installed host.
         run: |
           sudo systemctl start mysql.service
-          sudo mysql --user=root --password=root --execute="ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket"
+          sudo mysql --user=root --password=root --execute="INSTALL PLUGIN auth_socket SONAME 'auth_socket.so'; ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket"
           sudo STEPANEL_DBCTL="$PWD/deploy/integrations/stepanel-dbctl" bash deploy/lab/dbctl-restore-swap-smoke.sh
       - name: Verify clean Python dependency deployment
         run: bash deploy/lab/python-dependencies-smoke.sh
