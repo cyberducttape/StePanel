@@ -8,7 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Extend notification-retention regression coverage to verify bounded cleanup
   eventually removes aged events with no required delivery channels while
-  retaining pending deliveries.
+  retaining pending deliveries. The exact pushed commit `22fc342` passes
+  `go test ./...`, `go vet ./...`, and the focused race test; its hosted checks
+  are queued and remain unclaimed evidence.
 - Run the complete repository production gate on the current checkout
   `0ebbd86`: vet, full tests and coverage floors, race suite, repository
   recovery drills, control-plane benchmarks, mixed HTTP load, docs, dashboard,

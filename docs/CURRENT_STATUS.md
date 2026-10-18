@@ -12,6 +12,22 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
+### Follow-up validation — 2026-10-18 (`22fc342`)
+
+- This commit changes only notification-retention regression coverage and
+  documentation; production Go source is unchanged from the already hosted-
+  validated application source `633c013`.
+- On exact checkout `22fc34253b19dbc81631192bfcbcdd38c1cf7b47`,
+  `go test ./...`, `go vet ./...`, and the focused race-enabled notification
+  retention test passed. The full suite's root package completed in 68.956 s.
+- Exact-head hosted CI, CodeQL, standard installation smoke, and quota-enabled
+  installation smoke are queued ([CI](https://github.com/cyberducttape/StePanel/actions/runs/39162043679),
+  [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39162043735),
+  [install](https://github.com/cyberducttape/StePanel/actions/runs/39162043711),
+  [quota install](https://github.com/cyberducttape/StePanel/actions/runs/39162043712));
+  no hosted result is inferred. The exact-source 20-repeat cohort and N-1
+  upgrade run are also still active/queued as recorded in the release gates.
+
 ---
 
 ## Release Gate Status
