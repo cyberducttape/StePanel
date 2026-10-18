@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Record the full repository production gate on `a6e5f91`: tests, vet, coverage
+  floors, full race suite, recovery drills, benchmarks, mixed load, and
+  repository checks passed; retain the hosted and physical recovery gaps as
+  explicit NO-GO items.
 - Keep the installer exit status successful after core commit if appending the
   optional-integration status to the install journal fails; print an explicit
   warning so the committed core install is not misreported as rolled back.
