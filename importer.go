@@ -498,7 +498,7 @@ func (a *App) restoreImportedDatabase(ctx context.Context, dumpPath, database, u
 		return nil, fmt.Errorf("open database dump: %w", err)
 	}
 	restoreCtx, restoreCancel := context.WithTimeout(ctx, 15*time.Minute)
-	err = runDatabaseRestoreFromPath(restoreCtx, a.Config, "restore-dump", site, database, "restore", "", dumpPath)
+	err = runDatabaseRestoreFromPath(restoreCtx, a.Config, "restore-dump", site, database, "restore", "", dumpPath, a.capacityLedger())
 	restoreCancel()
 	if err != nil {
 		if cleanupErr := cleanup(); cleanupErr != nil {

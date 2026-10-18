@@ -112,7 +112,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 			safety, restoreErr = databaseRestoreSafetyBackup(operationCtx, a.Config, access, previous, a.capacityLedger())
 		}
 		if restoreErr == nil {
-			result, restoreErr = restoreManagedDatabase(operationCtx, a.Config, request.Backup, request.Site, request.Database, markDatabaseRestoreStarted(a.Config.RecoveryRoot, item.ID, request, safety))
+			result, restoreErr = restoreManagedDatabase(operationCtx, a.Config, request.Backup, request.Site, request.Database, markDatabaseRestoreStarted(a.Config.RecoveryRoot, item.ID, request, safety), a.capacityLedger())
 			result.SafetyBackup = safety.Path
 			restoreErr = annotateDatabaseRestoreFailure(restoreErr, safety)
 		}
@@ -141,7 +141,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 			if restoreErr == nil {
 				cfg := a.Config
 				cfg.BackupRoot = root
-				result, restoreErr = restoreManagedDatabase(operationCtx, cfg, request.Backup, request.Site, request.Database, markDatabaseRestoreStarted(a.Config.RecoveryRoot, item.ID, request, safety))
+				result, restoreErr = restoreManagedDatabase(operationCtx, cfg, request.Backup, request.Site, request.Database, markDatabaseRestoreStarted(a.Config.RecoveryRoot, item.ID, request, safety), a.capacityLedger())
 				result.SafetyBackup = safety.Path
 				restoreErr = annotateDatabaseRestoreFailure(restoreErr, safety)
 			}
@@ -835,7 +835,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 			http.Error(w, "could not journal staging database", 503)
 			return
 		}
-		_, e = restoreDatabaseIntoStagingContext(operationCtx, a.Config, stage, input)
+		_, e = restoreDatabaseIntoStagingContext(operationCtx, a.Config, stage, input, a.capacityLedger())
 		if e != nil {
 			http.Error(w, "could not restore staging database: "+e.Error(), 502)
 			return
@@ -980,9 +980,18 @@ func extractBackupArchiveContext(ctx context.Context, archive, destination strin
 	return closeErr
 }
 
-func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {
+func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage string, input RestoreToStagingRequest, ledgers ...*capacityLedger) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
+	}
+	if cfg.Production {
+		var ledger *capacityLedger
+		if len(ledgers) > 0 {
+			ledger = ledgers[0]
+		}
+		if err := requireDatabaseRestoreAdmission(cfg, ledger); err != nil {
+			return false, err
+		}
 	}
 	if !validManagedDatabaseIdentifier(input.Database, databaseNameLimit(cfg)) {
 		return false, errors.New("invalid staging database name")
@@ -1021,7 +1030,7 @@ func restoreDatabaseIntoStagingContext(ctx context.Context, cfg Config, stage st
 		return true, err
 	}
 	processKillInjection("restore", "database")
-	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", input.Site, input.TargetDatabase, "restore", "", dump); err != nil {
+	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", input.Site, input.TargetDatabase, "restore", "", dump, ledgers...); err != nil {
 		return true, fmt.Errorf("import staging database: %w", err)
 	}
 	return true, nil
@@ -1206,7 +1215,7 @@ const databaseRestoreUnchangedMessage = "the live database was not changed"
 // which loads it into a shadow database and swaps that in, so a failure
 // leaves the live database in its pre-restore or its restored state.
 // beforeLoad runs after every check and immediately before the helper.
-func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, database string, beforeLoad func() error) (BackupRestoreResult, error) {
+func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, database string, beforeLoad func() error, ledgers ...*capacityLedger) (BackupRestoreResult, error) {
 	if err := ctx.Err(); err != nil {
 		return BackupRestoreResult{}, err
 	}
@@ -1269,7 +1278,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 			return BackupRestoreResult{}, err
 		}
 	}
-	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", site, database, "restore", "", dump); err != nil {
+	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-dump", site, database, "restore", "", dump, ledgers...); err != nil {
 		if strings.Contains(err.Error(), databaseRestoreUnchangedMessage) {
 			return BackupRestoreResult{}, fmt.Errorf("restore database %s failed while loading; the live database was not changed: %w", database, err)
 		}

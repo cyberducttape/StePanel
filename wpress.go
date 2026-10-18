@@ -227,13 +227,22 @@ func (a *App) wpressImport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "status_url": filepath.Join("/api/jobs", job.ID)})
 }
 
-func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix string, force bool) (WPressResult, error) {
-	return RestoreWPressContext(context.Background(), cfg, archive, access, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix, force)
+func RestoreWPress(cfg Config, archive string, access SiteCapability, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix string, force bool, ledgers ...*capacityLedger) (WPressResult, error) {
+	return RestoreWPressContext(context.Background(), cfg, archive, access, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix, force, ledgers...)
 }
 
-func RestoreWPressContext(parent context.Context, cfg Config, archive string, access SiteCapability, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix string, force bool) (WPressResult, error) {
+func RestoreWPressContext(parent context.Context, cfg Config, archive string, access SiteCapability, dbSuffix, dbUserSuffix, dbPassword, siteURL, targetPrefix string, force bool, ledgers ...*capacityLedger) (WPressResult, error) {
 	if err := parent.Err(); err != nil {
 		return WPressResult{}, err
+	}
+	if cfg.Production && cfg.DBCtl != "" {
+		var ledger *capacityLedger
+		if len(ledgers) > 0 {
+			ledger = ledgers[0]
+		}
+		if err := requireDatabaseRestoreAdmission(cfg, ledger); err != nil {
+			return WPressResult{}, err
+		}
 	}
 	site := access.Site()
 	if err := validateWPressInput(site, dbSuffix, dbUserSuffix, dbPassword, targetPrefix, siteURL); err != nil {
@@ -373,7 +382,7 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 		return WPressResult{}, fmt.Errorf("record database recovery state: %w", err)
 	}
 	if cfg.DBCtl != "" {
-		if err := restoreWPressDatabaseWithHelperContext(ctx, cfg, site, dbName, dbUser, dbPassword, filepath.Join(source, "database.sql")); err != nil {
+		if err := restoreWPressDatabaseWithHelperContext(ctx, cfg, site, dbName, dbUser, dbPassword, filepath.Join(source, "database.sql"), ledgers...); err != nil {
 			return WPressResult{}, err
 		}
 	} else {
@@ -809,14 +818,14 @@ func cleanupWPressDatabaseContext(parent context.Context, cfg Config, dbName, db
 	return err
 }
 
-func restoreWPressDatabaseWithHelper(cfg Config, site, dbName, dbUser, password, dump string) error {
-	return restoreWPressDatabaseWithHelperContext(context.Background(), cfg, site, dbName, dbUser, password, dump)
+func restoreWPressDatabaseWithHelper(cfg Config, site, dbName, dbUser, password, dump string, ledgers ...*capacityLedger) error {
+	return restoreWPressDatabaseWithHelperContext(context.Background(), cfg, site, dbName, dbUser, password, dump, ledgers...)
 }
 
-func restoreWPressDatabaseWithHelperContext(parent context.Context, cfg Config, site, dbName, dbUser, password, dump string) error {
+func restoreWPressDatabaseWithHelperContext(parent context.Context, cfg Config, site, dbName, dbUser, password, dump string, ledgers ...*capacityLedger) error {
 	ctx, cancel := context.WithTimeout(parent, 20*time.Minute)
 	defer cancel()
-	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-wordpress", site, dbName, dbUser, password, dump); err != nil {
+	if err := runDatabaseRestoreFromPath(ctx, cfg, "restore-wordpress", site, dbName, dbUser, password, dump, ledgers...); err != nil {
 		return fmt.Errorf("restore WordPress database: %w", err)
 	}
 	return nil

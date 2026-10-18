@@ -22,9 +22,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Include the staged SQL dump size in privileged database restore admission and
   reserve against the larger of twice the incoming dump or 1.5 times the live
-  database. This closes the undercount for restores targeting an empty/new
-  database; concurrent restore reservations and real-host ENOSPC certification
-  remain separate open capacity gates.
+  database. Hold a durable, cross-process SQLite capacity reservation on the
+  configured local database filesystem for the duration of the restore, so
+  concurrent panel/worker restores cannot promise the same space. Require an
+  absolute, non-root path when `STEPANEL_DB_DATA_DIR` is explicitly configured.
+  Real-host ENOSPC certification remains an open gate.
 
 - Apply the configured per-file limit to public and private Git clones at write
   time, covering both Git packfiles and checked-out files. This is a defense-in-

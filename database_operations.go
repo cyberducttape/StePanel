@@ -145,10 +145,46 @@ func runTypedDatabaseMutation(ctx context.Context, cfg Config, input string, arg
 // path; the root broker opens it and streams it to the fixed database helper.
 // Development/lab callers retain the same helper ABI without requiring the
 // production socket.
-func runDatabaseRestoreFromPath(ctx context.Context, cfg Config, action, site, database, username, password, dumpPath string) error {
+func runDatabaseRestoreFromPath(ctx context.Context, cfg Config, action, site, database, username, password, dumpPath string, ledgers ...*capacityLedger) error {
 	if cfg.DBCtl == "" {
 		return errors.New("local database lifecycle helper is unavailable")
 	}
+	input, _, err := openRegularNoFollow(dumpPath, nil)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	info, err := input.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 {
+		return errors.New("cannot determine regular database dump size")
+	}
+	dumpBytes := strconv.FormatInt(info.Size(), 10)
+	var ledger *capacityLedger
+	if len(ledgers) > 0 {
+		ledger = ledgers[0]
+	}
+	var liveDatabaseBytes uint64
+	if cfg.Production && action == "restore-dump" && databaseServerIsLocal(cfg) {
+		inventory, inventoryErr := managedDatabaseInventory(cfg)
+		if inventoryErr != nil {
+			return fmt.Errorf("inspect live database size for restore admission: %w", inventoryErr)
+		}
+		found := false
+		for _, item := range inventory {
+			if item.Name == database {
+				liveDatabaseBytes, found = item.Bytes, true
+				break
+			}
+		}
+		if !found {
+			return errors.New("restore target is missing from managed database inventory")
+		}
+	}
+	releaseCapacity, err := reserveDatabaseRestoreCapacity(cfg, uint64(info.Size()), liveDatabaseBytes, ledger)
+	if err != nil {
+		return fmt.Errorf("database restore capacity admission failed: %w", err)
+	}
+	defer releaseCapacity()
 	if cfg.Production {
 		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
 		if err != nil {
@@ -163,16 +199,6 @@ func runDatabaseRestoreFromPath(ctx context.Context, cfg Config, action, site, d
 		}
 		return nil
 	}
-	input, _, err := openRegularNoFollow(dumpPath, nil)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	info, err := input.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 {
-		return errors.New("cannot determine regular database dump size")
-	}
-	dumpBytes := strconv.FormatInt(info.Size(), 10)
 	var stream io.Reader = input
 	args := []string{action, database}
 	switch action {

@@ -52,6 +52,15 @@ func TestValidateConfigRejectsMalformedSafetyLimit(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRequiresAbsoluteDatabaseDataDirInProduction(t *testing.T) {
+	cfg := LoadConfig()
+	cfg.Production = true
+	cfg.DBDataDir = "var/lib/mysql"
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "STEPANEL_DB_DATA_DIR must be absolute") {
+		t.Fatalf("relative database data directory error = %v", err)
+	}
+}
+
 func TestValidateConfigAcceptsOpenLiteSpeed(t *testing.T) {
 	cfg := LoadConfig()
 	cfg.WebServer = "openlitespeed"

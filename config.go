@@ -475,6 +475,15 @@ func ValidateConfig(c Config) error {
 			problems = append(problems, fmt.Errorf("%s must not be the filesystem root", name))
 		}
 	}
+	if c.DBDataDir != "" {
+		if strings.ContainsAny(c.DBDataDir, "\x00\r\n") {
+			problems = append(problems, errors.New("STEPANEL_DB_DATA_DIR contains invalid characters"))
+		} else if c.Production && !filepath.IsAbs(c.DBDataDir) {
+			problems = append(problems, errors.New("STEPANEL_DB_DATA_DIR must be absolute in production"))
+		} else if c.Production && filepath.Clean(c.DBDataDir) == string(os.PathSeparator) {
+			problems = append(problems, errors.New("STEPANEL_DB_DATA_DIR must not be the filesystem root"))
+		}
+	}
 	if c.Production {
 		for name, path := range map[string]string{
 			"STEPANEL_IMPORT_ROOT":   c.ImportRoot,

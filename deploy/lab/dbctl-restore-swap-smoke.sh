@@ -315,6 +315,21 @@ fi
 no_restore_left
 pass 'restore admission accounts for incoming SQL size before loading'
 
+for new_restore in cpmove wordpress; do
+  if [[ $new_restore == cpmove ]]; then
+    new_db_args=(restore "new_$suffix" "$site" 999999999999999999)
+  else
+    new_db_args=(restore-wordpress "new_$suffix" "new_$suffix" "$site" 999999999999999999)
+  fi
+  if "$helper" "${new_db_args[@]}" < /dev/null 2> "$work/error"; then
+    fail "$new_restore restore admitted an oversized dump for an empty target database"
+  fi
+  if ! grep -q 'the restore copy needs about' "$work/error"; then
+    fail "$new_restore empty-database restore did not reject on incoming dump size: $(cat "$work/error")"
+  fi
+done
+pass 'new cPanel and WordPress databases are admitted against incoming SQL size'
+
 if "$helper" restore-dump "$db" "other-$suffix" < "$work/backup.sql" 2>/dev/null; then fail 'restore to another site was accepted'; fi
 no_restore_left
 pass 'restore for another site is refused before any shadow is created'

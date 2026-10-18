@@ -1274,7 +1274,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, err
 	}
 	a.Metrics.RestoreStarted()
-	result, restoreErr := restoreCPMoveArchiveContext(operationCtx, a.Config, upload.Path, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs)
+	result, restoreErr := restoreCPMoveArchiveContext(operationCtx, a.Config, upload.Path, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs, a.capacityLedger())
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
 		intent.Failed(restoreErr.Error())
@@ -1470,7 +1470,7 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 		return nil, err
 	}
 	a.Metrics.RestoreStarted()
-	result, restoreErr := RestoreWPressContext(operationCtx, a.Config, request.TempPath, access, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force)
+	result, restoreErr := RestoreWPressContext(operationCtx, a.Config, request.TempPath, access, request.DBSuffix, request.DBUserSuffix, request.Password, request.SiteURL, request.TargetPrefix, request.Force, a.capacityLedger())
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
 		intent.Failed(restoreErr.Error())

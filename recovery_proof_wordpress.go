@@ -395,7 +395,7 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 	if err := txn.TrackDatabase(ManagedDatabase{Name: plan.database, User: plan.user, Kind: "wordpress"}); err != nil {
 		return result, fmt.Errorf("record proof database: %w", err)
 	}
-	if err := runDatabaseRestoreFromPath(lockCtx, a.Config, "restore-wordpress", plan.site, plan.database, plan.user, plan.password, plan.dump); err != nil {
+	if err := runDatabaseRestoreFromPath(lockCtx, a.Config, "restore-wordpress", plan.site, plan.database, plan.user, plan.password, plan.dump, a.capacityLedger()); err != nil {
 		return result, fmt.Errorf("import backed-up database as the proof database user: %w", err)
 	}
 	result.Checks = append(result.Checks, "database imported with the credentials written to wp-config.php")

@@ -263,11 +263,11 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	return info, nil
 }
 
-func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader, site SiteCapability, databases bool) (ImportResult, error) {
-	return RestoreCPMoveContext(context.Background(), cfg, file, header, site, databases)
+func RestoreCPMove(cfg Config, file multipart.File, header *multipart.FileHeader, site SiteCapability, databases bool, ledgers ...*capacityLedger) (ImportResult, error) {
+	return RestoreCPMoveContext(context.Background(), cfg, file, header, site, databases, ledgers...)
 }
 
-func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, header *multipart.FileHeader, site SiteCapability, databases bool) (ImportResult, error) {
+func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, header *multipart.FileHeader, site SiteCapability, databases bool, ledgers ...*capacityLedger) (ImportResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ImportResult{}, err
 	}
@@ -291,13 +291,22 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 	if err := temp.Close(); err != nil {
 		return ImportResult{}, err
 	}
-	return restoreCPMoveArchiveContext(ctx, cfg, tempPath, header, site, databases)
+	return restoreCPMoveArchiveContext(ctx, cfg, tempPath, header, site, databases, ledgers...)
 }
 
 // restoreCPMoveArchiveContext restores from an immutable archive already held
 // under ImportRoot. Keeping the durable upload as the extraction source avoids
 // copying a large archive into every restore stage.
-func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string, header *multipart.FileHeader, site SiteCapability, databases bool) (ImportResult, error) {
+func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string, header *multipart.FileHeader, site SiteCapability, databases bool, ledgers ...*capacityLedger) (ImportResult, error) {
+	if databases {
+		var ledger *capacityLedger
+		if len(ledgers) > 0 {
+			ledger = ledgers[0]
+		}
+		if err := requireDatabaseRestoreAdmission(cfg, ledger); err != nil {
+			return ImportResult{}, err
+		}
+	}
 	if ensureInside(cfg.ImportRoot, archive) != nil {
 		return ImportResult{}, errors.New("archive is outside the import root")
 	}
@@ -406,7 +415,7 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 
 	result := ImportResult{User: user, Home: home, FilesRestored: source != "", StagedAt: stage}
 	if databases {
-		result.DatabasesRestored, result.DatabaseErrors = restoreSQLContext(ctx, cfg, root, user, txn)
+		result.DatabasesRestored, result.DatabaseErrors = restoreSQLContext(ctx, cfg, root, user, txn, ledgers...)
 		if len(result.DatabaseErrors) > 0 {
 			return result, fmt.Errorf("database restore completed with %d error(s)", len(result.DatabaseErrors))
 		}
@@ -628,11 +637,20 @@ func extractArchiveReaderContext(ctx context.Context, input io.Reader, destinati
 	}
 }
 
-func restoreSQL(cfg Config, stage, user string, txn *SiteTransaction) ([]string, []string) {
-	return restoreSQLContext(context.Background(), cfg, stage, user, txn)
+func restoreSQL(cfg Config, stage, user string, txn *SiteTransaction, ledgers ...*capacityLedger) ([]string, []string) {
+	return restoreSQLContext(context.Background(), cfg, stage, user, txn, ledgers...)
 }
 
-func restoreSQLContext(parent context.Context, cfg Config, stage, user string, txn *SiteTransaction) ([]string, []string) {
+func restoreSQLContext(parent context.Context, cfg Config, stage, user string, txn *SiteTransaction, ledgers ...*capacityLedger) ([]string, []string) {
+	if cfg.Production && cfg.DBCtl != "" {
+		var ledger *capacityLedger
+		if len(ledgers) > 0 {
+			ledger = ledgers[0]
+		}
+		if err := requireDatabaseRestoreAdmission(cfg, ledger); err != nil {
+			return nil, []string{"restore SQL dumps: " + err.Error()}
+		}
+	}
 	matches, discoveryErr := sqlDumps(filepath.Join(stage, "mysql"))
 	restored, failures := []string{}, []string{}
 	if discoveryErr != nil {
@@ -666,7 +684,7 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 					continue
 				}
 			}
-			restoreErr := runDatabaseRestoreFromPath(ctx, cfg, "restore", user, name, user, "", dump)
+			restoreErr := runDatabaseRestoreFromPath(ctx, cfg, "restore", user, name, user, "", dump, ledgers...)
 			cancel()
 			if restoreErr != nil {
 				failures = append(failures, name+": restore failed: "+restoreErr.Error())
