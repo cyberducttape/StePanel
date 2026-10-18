@@ -40,6 +40,15 @@ if ! grep -Fq 'if ! rm -f "$temporary"; then POST_COMMIT_CLEANUP_PENDING+=' inst
   echo "post-commit transaction cleanup can still turn a committed install into a failed exit or hide leftovers" >&2
   exit 1
 fi
+core_activation_line=$(grep -nFx 'systemctl enable --now stepanel.service stepanel-worker.service' install.sh | cut -d: -f1 || true)
+readiness_gate_line=$(grep -nFx 'if (( health_ready != 1 )); then' install.sh | cut -d: -f1 || true)
+commit_line=$(grep -nFx 'INSTALL_COMMITTED=1' install.sh | cut -d: -f1 || true)
+optional_integration_line=$(grep -nFx 'declare -a POST_INSTALL_PENDING=()' install.sh | cut -d: -f1 || true)
+if [[ -z $core_activation_line || -z $readiness_gate_line || -z $commit_line || -z $optional_integration_line ]] ||
+   (( core_activation_line >= readiness_gate_line || readiness_gate_line >= commit_line || commit_line >= optional_integration_line )); then
+  echo "installer must activate core services and pass readiness before commit, then run optional integrations after commit" >&2
+  exit 1
+fi
 if ! grep -Fqx 'install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service' install.sh; then
   echo "install.sh does not install the root broker service" >&2
   exit 1

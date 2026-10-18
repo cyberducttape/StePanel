@@ -15,7 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   warning so the committed core install is not misreported as rolled back.
   Likewise report, rather than fail the committed install for, leftover private
   transaction files; expose their paths with a machine-readable cleanup status.
-  Enforce both post-commit contracts in the release checker.
+  Enforce the post-commit contracts and core-readiness-before-commit ordering
+  in the release checker.
 - Extend notification-retention regression coverage to verify bounded cleanup
   eventually removes aged events with no required delivery channels while
   retaining pending deliveries. The exact pushed commit `22fc342` passes
