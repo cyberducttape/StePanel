@@ -429,6 +429,17 @@ CREATE INDEX IF NOT EXISTS jobs_kind_owner_state_idx ON jobs(kind, owner, state)
 		}
 		return nil
 	}),
+	migration.NewMigration(20, "add the cross-process startup recovery barrier", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS startup_barrier (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			epoch INTEGER NOT NULL,
+			state TEXT NOT NULL CHECK (state IN ('recovering', 'open', 'failed')),
+			detail TEXT NOT NULL,
+			owner TEXT NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

@@ -605,6 +605,16 @@ func Main() {
 	}
 	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
 	app.startup.begin()
+	// Workers in this and the external worker process claim jobs only once
+	// the panel's startup recovery has succeeded.
+	barrier := startupBarrier{db: controlPlaneDB}
+	jobs.SetClaimGate(barrier.status)
+	var startupEpoch int64
+	if !workerMode {
+		if startupEpoch, err = barrier.begin(fmt.Sprintf("panel-%d", os.Getpid())); err != nil {
+			log.Fatalf("start control-plane recovery: %v", err)
+		}
+	}
 	// Categorized state errors feed stepanel_state_errors_total and the logs.
 	jobs.SetStateErrorObserver(app.observeStateError)
 	recoveryCorruptionObserver = func(dir string, cause error) {
@@ -657,6 +667,9 @@ func Main() {
 		}
 		if err := pruneAllGitReleases(cfg); err != nil {
 			app.observeStateError(state.NewCleanupError("git_release_retention", err, "Git release retention during startup"))
+		}
+		if err := barrier.finish(startupEpoch, errors.Join(failures...)); err != nil {
+			failures = append(failures, err)
 		}
 		startupError := errors.Join(append(failures, hostErrs...)...)
 		app.startup.setHostState(errors.Join(hostErrs...))
@@ -888,7 +901,7 @@ func Main() {
 	// every handler sees the bounded context. The server-level deadlines below
 	// use the longest supported request classes; the middleware keeps ordinary
 	// endpoints short without making large archive uploads impossible.
-	timedHandler := timeoutCfg.Middleware()(mux)
+	timedHandler := timeoutCfg.Middleware()(app.startupMutationGate(mux))
 	secureHandler := securityHeadersMiddleware(cfg)(logging(normalizeAPIErrors(timedHandler), app.Metrics, cfg.Production))
 
 	// Configure differentiated timeouts to prevent malicious clients from holding

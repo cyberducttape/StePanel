@@ -1201,6 +1201,7 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 	defer ticker.Stop()
 	requeueTicker := time.NewTicker(j.leaseDuration() / 3)
 	defer requeueTicker.Stop()
+	paused := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -1210,6 +1211,21 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				return err
 			}
 		default:
+		}
+		if open, reason := j.claimsOpen(); !open {
+			if !paused {
+				log.Printf("worker %s paused before claiming jobs: %s", owner, reason)
+				paused = true
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+			}
+			continue
+		} else if paused {
+			log.Printf("worker %s resumed claiming jobs", owner)
+			paused = false
 		}
 		item, claimed, err := j.ClaimNext(owner, kinds...)
 		if err != nil {
@@ -1513,6 +1529,22 @@ type Jobs struct {
 	integrityMu  sync.RWMutex
 	integrityAt  time.Time
 	integrityErr error
+	// claimGate, when set, must report open before a worker claims a job.
+	claimGate atomic.Pointer[func() (bool, string)]
+}
+
+// SetClaimGate makes workers claim jobs only while gate reports open. The
+// panel and the external worker use it to wait for startup recovery.
+func (j *Jobs) SetClaimGate(gate func() (bool, string)) {
+	j.claimGate.Store(&gate)
+}
+
+func (j *Jobs) claimsOpen() (bool, string) {
+	gate := j.claimGate.Load()
+	if gate == nil {
+		return true, ""
+	}
+	return (*gate)()
 }
 
 // Durable startup retains every recovery-critical active/dead-letter job and

@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Add a startup recovery barrier. Until the panel's startup recovery
+  succeeds, mutating HTTP requests return a retryable `503` with
+  `Retry-After`, and durable workers, including the external
+  `stepanel-worker`, claim no jobs. Previously a queued job or a new `POST`
+  could run while recovery was still repairing sites and databases. The
+  barrier is recorded per startup epoch in the control-plane database
+  (migration 20). A failed recovery keeps it closed until an administrator
+  fixes the failure and restarts the panel.
 - Refuse a managed database restore before loading when the database data
   filesystem would drop below its reserve (the larger of 1 GiB and 5%) after
   a shadow copy estimated at 1.5 times the live database. The shadow shares

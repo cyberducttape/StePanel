@@ -206,6 +206,30 @@ status includes the age of the latest uploaded backup, latest verified restore,
 and oldest unreplicated backup; remote object connectivity alone is not a
 recoverability proof.
 
+### Startup recovery barrier
+
+After a restart the panel listens at once, but it recovers interrupted
+operations before anything else may change state. Recovery covers database
+helper records, site recovery journals, application activations and
+WordPress maintenance. Until it succeeds:
+
+- `/readyz` reports `startup_state` as not ready.
+- Mutating HTTP requests (`POST`, `PUT`, `PATCH`, `DELETE`) get `503` with
+  `Retry-After: 5` and `"retryable": true`. Reads, `/livez`, `/readyz`,
+  `/login` and `/logout` stay available.
+- Durable workers, in the panel and in `stepanel-worker`, do not claim jobs.
+  The panel records each startup epoch in the control-plane database
+  (`startup_barrier`), and the external worker reads it, so a job queued
+  before the restart waits for recovery. A job already running in the
+  external worker when the panel restarts keeps its site lock and finishes.
+
+If recovery fails, the barrier stays closed: mutations return `503` with
+`"retryable": false` and workers stay paused. Resolve the failure shown by
+`/readyz` and restart the panel. Host reconciliation failures (routes, SSH
+access, workers, PHP, Python, tasks, resource profiles, environments) fail
+`/readyz` too, but they do not close the barrier. They are retried in the
+background, and readiness recovers when they apply.
+
 Dead-letter jobs intentionally keep readiness failed until reviewed. After
 ordinary job cleanup does not prune unresolved dead-letter records, even after
 the normal completed-job retention period; the record survives a panel restart
