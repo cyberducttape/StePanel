@@ -38,7 +38,11 @@ database owner role only while loading. A `RESET ROLE` or `SET SESSION
 AUTHORIZATION` in the dump therefore returns to a role that cannot create
 roles or databases or run programs. A PostgreSQL database owned by
 `postgres` cannot be restored. A psql `\!` in a dump runs as the unprivileged
-`stepanel_dbload` system user. A refused dump leaves the live database
+`stepanel_dbload` system user. On a MySQL or MariaDB server with binary
+logging enabled, only administrators can create triggers and stored
+functions unless `log_bin_trust_function_creators=1`. Enable it to restore
+databases that contain them; otherwise their restore is refused and the
+helper names the setting. A refused dump leaves the live database
 unchanged. `deploy/lab/dbctl-restore-swap-smoke.sh` and
 `deploy/lab/dbctl-restore-pg-smoke.sh` check this against real servers in CI.
 

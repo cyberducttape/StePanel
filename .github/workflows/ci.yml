@@ -201,6 +201,9 @@ jobs:
         run: |
           sudo systemctl start mysql.service
           sudo mysql --user=root --password=root --execute="INSTALL PLUGIN auth_socket SONAME 'auth_socket.so'; ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket"
+          # With binary logging on, MySQL lets only SUPER create triggers and
+          # functions unless this is set; restores load without SUPER.
+          sudo mysql --execute="SET PERSIST log_bin_trust_function_creators = 1"
           sudo STEPANEL_DBCTL="$PWD/deploy/integrations/stepanel-dbctl" bash deploy/lab/dbctl-restore-swap-smoke.sh
       - name: Verify database restore privileges against PostgreSQL
         # The helper reads its engine from /etc/stepanel-dbctl.conf.

@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Refuse a managed database restore before loading when the database data
+  filesystem would drop below its reserve (the larger of 1 GiB and 5%) after
+  a shadow copy estimated at 1.5 times the live database. The shadow shares
+  that filesystem with every other tenant's database.
 - Load database restores without administrative rights. MySQL/MariaDB dumps
   load as a one-time account with privileges only on the shadow database, and
   objects defined by any account other than the site's are refused.
@@ -13,7 +17,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the database owner role only while loading, so `RESET ROLE` in a dump no
   longer returns to `postgres`. MySQL dumps skip GTID statements, which only
   an administrator could restore. Restoring a PostgreSQL database owned by
-  `postgres` is now refused. `deploy/lab/dbctl-restore-pg-smoke.sh` runs
+  `postgres` is now refused. On MySQL/MariaDB with binary logging, restoring
+  triggers and stored functions now needs `log_bin_trust_function_creators=1`,
+  because the loader is not an administrator. `deploy/lab/dbctl-restore-pg-smoke.sh` runs
   hostile dumps against the runner's PostgreSQL in CI, and the MySQL smoke
   does the same.
 - `deploy/lab/upgrade-smoke.sh` no longer prints `/etc/ste-panel.env` values

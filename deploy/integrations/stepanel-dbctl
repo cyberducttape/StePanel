@@ -367,6 +367,37 @@ postgres_revoke_loader() {
   sql "SET client_min_messages = error; REVOKE \"$owner\" FROM $postgres_loader" >/dev/null
 }
 
+# The shadow is a second copy of the database on the server's data
+# filesystem, which other tenants share. A restore is admitted only if that
+# filesystem keeps its reserve after a copy estimated at one and a half times
+# the live database: the larger of 1 GiB and 5% of the filesystem.
+restore_reserve_min=$((1 << 30))
+restore_reserve_percent=5
+
+database_bytes() {
+  if [[ $engine == postgresql ]]; then
+    sql "SELECT pg_database_size('$1')"
+  else
+    sql "SELECT COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH), 0) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$1'"
+  fi
+}
+
+admit_restore_copy() {
+  local database=$1 datadir live need size available reserve
+  if [[ $engine == postgresql ]]; then datadir=$(sql 'SHOW data_directory'); else datadir=$(sql 'SELECT @@datadir'); fi
+  [[ $datadir == /* && -d $datadir ]] || { echo 'cannot locate the database data directory' >&2; return 1; }
+  live=$(database_bytes "$database")
+  read -r size available < <(df -B1 --output=size,avail "$datadir" | tail -n 1)
+  [[ $live =~ ^[0-9]+$ && $size =~ ^[0-9]+$ && $available =~ ^[0-9]+$ ]] || { echo 'cannot measure the database filesystem' >&2; return 1; }
+  need=$((live * 3 / 2))
+  reserve=$((size * restore_reserve_percent / 100))
+  (( reserve >= restore_reserve_min )) || reserve=$restore_reserve_min
+  if (( available < need + reserve )); then
+    echo "the database filesystem has $available bytes free; the restore copy needs about $need bytes plus a $reserve byte reserve" >&2
+    return 1
+  fi
+}
+
 discard_restore() {
   local shadow=$1 hex=${1#stepanel_restore_}
   if [[ $engine == postgresql ]]; then
@@ -432,6 +463,7 @@ restore_dump() {
   journal="$restore_root/$hex"
   valid_restore_shadow "$restore_shadow" || { echo 'cannot name the restore shadow database' >&2; return 1; }
   ! database_exists "$restore_shadow" || { echo 'restore shadow name collision' >&2; return 1; }
+  admit_restore_copy "$database" || { echo "$restore_unchanged_message" >&2; return 1; }
   install -d -m 0700 -o root -g root "$restore_root"
   install -d -m 0700 -o root -g root "$journal"
   register_database "$restore_shadow" "pending-restore:$site:$database:load"
@@ -473,7 +505,12 @@ restore_dump() {
     # unless the view's definer can access that schema.
     sql "GRANT ALL PRIVILEGES ON \`$restore_shadow\`.* TO '$db_user'@'localhost'"
     # --binary-mode also disables client commands such as system.
-    MYSQL_PWD=$password "$client" --no-defaults --protocol=socket --user="$loader" --batch --binary-mode "$restore_shadow"
+    if ! MYSQL_PWD=$password "$client" --no-defaults --protocol=socket --user="$loader" --batch --binary-mode "$restore_shadow"; then
+      if [[ $(sql 'SELECT CONCAT(@@log_bin, @@log_bin_trust_function_creators)') == 10 ]]; then
+        echo 'binary logging is enabled, so the server lets only administrators create triggers and stored functions; set log_bin_trust_function_creators=1 to restore them' >&2
+      fi
+      return 1
+    fi
     sql "DROP USER '$loader'@'localhost'"
     mysql_check_definers "$restore_shadow" "$db_user"
     mysql_export_definitions "$restore_shadow" "$journal" "$database"
