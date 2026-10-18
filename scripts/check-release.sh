@@ -29,6 +29,7 @@ if grep -Fq 'sudoers_tmp' install.sh; then
   echo "install.sh still provisions a panel sudoers policy" >&2
   exit 1
 fi
+bash scripts/check-smoke-workflow-bounds.sh
 if ! grep -Fq 'install_journal_record post_install planned retained "actions=$POST_INSTALL_PLAN_TEXT"' install.sh ||
    ! grep -Fq 'install_journal_record post_install started partial' deploy/lib/install-postcommit.sh ||
    ! grep -Fq 'install_journal_record post_install pending manual' deploy/lib/install-postcommit.sh ||
