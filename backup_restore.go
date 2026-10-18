@@ -1273,7 +1273,7 @@ func restoreManagedDatabase(ctx context.Context, cfg Config, backupName, site, d
 		if strings.Contains(err.Error(), databaseRestoreUnchangedMessage) {
 			return BackupRestoreResult{}, fmt.Errorf("restore database %s failed while loading; the live database was not changed: %w", database, err)
 		}
-		return BackupRestoreResult{}, fmt.Errorf("restore database %s did not report completion; the live database holds either its pre-restore or its restored state, and the next restore, backup or startup reconcile finishes an interrupted swap: %w", database, err)
+		return BackupRestoreResult{}, fmt.Errorf("restore database %s did not report completion; the live database holds either its pre-restore or its restored state, MySQL/MariaDB site logins stay refused until the swap finishes, and the next restore, backup or startup reconcile finishes it: %w", database, err)
 	}
 	return BackupRestoreResult{Site: site, Backup: filepath.Base(backup), Mode: "database-only", Database: database, DatabaseRestored: true, DatabasePreserved: false, Consistency: manifest.Consistency, SchemaRollback: "manual: restore the safety backup or apply a forward migration", CompletedAt: time.Now().UTC()}, nil
 }

@@ -84,10 +84,19 @@ The swap is the commit point:
 MySQL/MariaDB move every base table in one `RENAME TABLE`, which is atomic.
 On MySQL 8.0 and MariaDB 10.6 or later it is also crash-safe for InnoDB.
 Views, triggers, routines and events cannot change schema, so they are
-dropped and recreated from definitions exported before the swap; queries
-that use them can fail for that moment. A long transaction on the live
-database holds the swap for up to 60 seconds per attempt, and a stopped swap
-is retried twice. PostgreSQL renames both databases in one transaction after
+dropped and recreated from definitions exported before the swap. Those
+statements are not one atomic operation, so the swap runs behind a login
+fence. Every unlocked account with a grant on the database is locked, and
+its sessions and any session using the database are ended. The fence is
+released only after the tables and the object count are verified. A crash
+leaves it in place until the swap is finished. Site clients therefore see
+refused logins for the swap, never missing triggers or views. Accounts with
+global privileges, such as root, are not fenced. A transaction those
+accounts hold on the database delays the swap for up to 60 seconds per
+attempt, and a stopped swap is retried twice.
+
+`dump` holds the helper's database and site locks until the dump client
+exits, so a restore swap never runs during a `--single-transaction` dump. PostgreSQL renames both databases in one transaction after
 ending the database's sessions, so the site reconnects once.
 
 A `database-restore-<job>.json` marker in the recovery root records each

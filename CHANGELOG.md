@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Fence MySQL/MariaDB database restore swaps. Moving the tables is one
+  atomic `RENAME TABLE`, but dropping and recreating views, triggers,
+  routines and events takes several statements. Site clients could hit a
+  schema without its triggers or views during that window, or after a crash
+  in it. The helper now locks the database's accounts and ends their sessions
+  for the swap. It unlocks them only after the restored tables and objects
+  are verified, and a crash keeps them locked until the swap is finished.
+- Hold the database helper's locks for the whole `dump`, not only while it
+  finishes interrupted restores, so a restore swap cannot run during a
+  `--single-transaction` dump.
+- Fail `/readyz` when startup host reconciliation leaves routes, SSH access,
+  workers, PHP, Python, task, resource-profile or environment state
+  unapplied. Readiness used to report success after logging the failures.
+  Failed domains are now retried in the background with backoff, and
+  readiness recovers once they apply.
 - Make managed database restores atomic. `stepanel-dbctl restore-dump` now
   loads into a shadow database and swaps it in only after the load succeeds,
   so a failed or killed load leaves the live database unchanged instead of

@@ -137,6 +137,70 @@ mysql_drop_schema_objects() {
     UNION ALL SELECT 'EVENT', EVENT_NAME FROM information_schema.EVENTS WHERE EVENT_SCHEMA=@live) objects"
 }
 
+mysql_schema_object_count() {
+  sql "SELECT (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='$1') + (SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA='$1') + (SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA='$1') + (SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA='$1')"
+}
+
+# The swap drops and recreates views, triggers, routines and events in the
+# live schema in several statements, so it runs behind a login fence: every
+# unlocked account with a grant on the database is locked and its sessions,
+# and any session using the database, are ended. Clients see refused logins
+# for the swap, never a schema without its triggers or views. The fence is
+# kept until the swap is finished and verified, including across a crash.
+mysql_accounts_query() {
+  # Prints HEX(user):HEX(host) for each account to fence.
+  local database=$1 locked
+  if [[ $(sql 'SELECT VERSION()') == *MariaDB* ]]; then
+    locked="SELECT User, Host FROM mysql.global_priv WHERE COALESCE(JSON_VALUE(Priv, '\$.account_locked'), '0') NOT IN ('0', 'false')"
+  else
+    locked="SELECT User, Host FROM mysql.user WHERE account_locked = 'Y'"
+  fi
+  sql "SELECT DISTINCT CONCAT(HEX(g.User), ':', HEX(g.Host)) FROM (
+    SELECT User, Host FROM mysql.db WHERE Db = '$database'
+    UNION SELECT User, Host FROM mysql.tables_priv WHERE Db = '$database'
+    UNION SELECT User, Host FROM mysql.procs_priv WHERE Db = '$database') g
+    WHERE g.User <> '' AND (g.User, g.Host) NOT IN ($locked) ORDER BY 1"
+}
+
+mysql_fence_list() {
+  # Prints the journal's accounts as an SQL list; with "users", only names.
+  local journal=$1 mode=${2:-accounts} line list=''
+  while IFS= read -r line; do
+    [[ $line =~ ^([0-9A-F]{2})+:([0-9A-F]{2})+$ ]] || { echo 'invalid fenced account in the restore journal' >&2; return 1; }
+    [[ $mode == accounts ]] || line=${line%%:*}
+    list+="${list:+,}'$line'"
+  done < "$journal/accounts"
+  printf '%s' "$list"
+}
+
+mysql_set_fence() {
+  local database=$1 journal=$2 state=$3 accounts
+  accounts=$(mysql_fence_list "$journal")
+  [[ -n $accounts ]] || return 0
+  mysql_generated "$database" '' '' "SELECT CONCAT('ALTER USER ', QUOTE(User), '@', QUOTE(Host), ' ACCOUNT $state;') FROM mysql.user WHERE CONCAT(HEX(User), ':', HEX(Host)) IN ($accounts)"
+}
+
+mysql_fence() {
+  local database=$1 journal=$2 users condition ids id
+  mysql_set_fence "$database" "$journal" LOCK
+  users=$(mysql_fence_list "$journal" users)
+  condition="DB = '$database'"
+  [[ -z $users ]] || condition+=" OR HEX(USER) IN ($users)"
+  # A killed session stays listed until its transaction rolls back, and
+  # one may end by itself between the listing and the KILL.
+  for _ in $(seq 60); do
+    ids=$(sql "SELECT ID FROM information_schema.PROCESSLIST WHERE ID <> CONNECTION_ID() AND ($condition)")
+    [[ -n $ids ]] || return 0
+    for id in $ids; do
+      [[ $id =~ ^[0-9]+$ ]] || { echo 'invalid session ID' >&2; return 1; }
+      sql "KILL CONNECTION $id" 2>/dev/null || true
+    done
+    sleep 0.5
+  done
+  echo "sessions on $database did not end within 30 seconds" >&2
+  return 1
+}
+
 mysql_base_table_count() {
   sql "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$1' AND TABLE_TYPE NOT IN ('VIEW','SYSTEM VIEW')"
 }
@@ -154,7 +218,7 @@ mysql_export_definitions() {
   # definitions are exported from the loaded shadow and recreated in the
   # live database after the tables move. SHOW CREATE VIEW, which the dump
   # client uses, leaves references to the dumped schema unqualified.
-  local shadow=$1 journal=$2 dump_client=mysqldump hex name
+  local shadow=$1 journal=$2 live=$3 dump_client=mysqldump hex name
   local -a views=()
   command -v mariadb-dump >/dev/null 2>&1 && dump_client=mariadb-dump
   "$dump_client" --no-defaults --protocol=socket --skip-comments --no-create-info --no-data --triggers --routines --events "$shadow" > "$journal/objects.sql"
@@ -170,15 +234,21 @@ mysql_export_definitions() {
     : > "$journal/views.sql"
   fi
   mysql_base_table_count "$shadow" > "$journal/tables"
-  sync "$journal/objects.sql" "$journal/views.sql" "$journal/tables"
+  mysql_schema_object_count "$shadow" > "$journal/objects"
+  mysql_accounts_query "$live" > "$journal/accounts"
+  sync "$journal/objects.sql" "$journal/views.sql" "$journal/tables" "$journal/objects" "$journal/accounts"
   sync -d "$journal"
 }
 
 mysql_finish_restore() {
-  local database=$1 shadow=$2 retired=$3 journal=$4 expected moved remaining source target
-  [[ -r $journal/tables && -r $journal/objects.sql && -r $journal/views.sql ]] || { echo "restore journal for $database is incomplete" >&2; return 1; }
-  expected=$(<"$journal/tables"); [[ $expected =~ ^[0-9]+$ ]] || { echo "restore journal for $database is invalid" >&2; return 1; }
+  local database=$1 shadow=$2 retired=$3 journal=$4 expected expected_objects moved remaining source target objects
+  [[ -r $journal/tables && -r $journal/objects && -r $journal/accounts && -r $journal/objects.sql && -r $journal/views.sql ]] || { echo "restore journal for $database is incomplete" >&2; return 1; }
+  expected=$(<"$journal/tables"); expected_objects=$(<"$journal/objects")
+  [[ $expected =~ ^[0-9]+$ && $expected_objects =~ ^[0-9]+$ ]] || { echo "restore journal for $database is invalid" >&2; return 1; }
   database_exists "$shadow" || { echo "restore shadow for $database is missing during the swap" >&2; return 1; }
+  # Fencing again after a crash is harmless; a failure below leaves the
+  # fence in place, so no client sees a partly restored schema.
+  mysql_fence "$database" "$journal"
   remaining=$(mysql_base_table_count "$shadow")
   if (( remaining == expected )); then
     # RENAME TABLE is atomic, so the shadow still holds every table until
@@ -201,6 +271,9 @@ mysql_finish_restore() {
   "$client" --no-defaults --protocol=socket --batch --binary-mode "$database" < "$journal/objects.sql"
   target=$(mysql_base_table_count "$database")
   (( target == expected )) || { echo "restored $database holds $target tables, expected $expected" >&2; return 1; }
+  objects=$(mysql_schema_object_count "$database")
+  (( objects == expected_objects )) || { echo "restored $database holds $objects views, triggers, routines and events, expected $expected_objects" >&2; return 1; }
+  mysql_set_fence "$database" "$journal" UNLOCK
 }
 
 postgres_owner() { sql "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='$1'"; }
@@ -326,7 +399,7 @@ restore_dump() {
   else
     mysql_create_like "$database" "$restore_shadow"
     "$client" --no-defaults --protocol=socket --batch --binary-mode "$restore_shadow"
-    mysql_export_definitions "$restore_shadow" "$journal"
+    mysql_export_definitions "$restore_shadow" "$journal" "$database"
   fi
   restore_state=swap
   register_database "$restore_shadow" "pending-restore:$site:$database:swap"
@@ -554,7 +627,8 @@ case "$action" in
     value=$(<"$record"); site=$(record_site "$value")
     if valid_site "$site"; then lock_resources "database-$database" "site-$site"; else lock_resources "database-$database"; fi
     finish_restores_for "$database"
-    unlock_resources
+    # The locks stay held until the dump client exits: a restore swap or
+    # other DDL during a --single-transaction dump would corrupt it.
     if [[ $engine == postgresql ]]; then runuser -u postgres -- pg_dump --no-password --format=plain --clean --if-exists --no-owner --no-privileges "$database"; else dump_client=mysqldump; command -v mariadb-dump >/dev/null 2>&1 && dump_client=mariadb-dump; "$dump_client" --no-defaults --protocol=socket --single-transaction --quick --routines --events --triggers --hex-blob "$database"; fi
     ;;
   *) echo 'usage: stepanel-dbctl reconcile|list|inventory|diagnostics|sessions|settings|terminate|provision|rotate|drop-managed|restore|restore-wordpress|cleanup-wordpress|drop|dump ...' >&2; exit 64 ;;

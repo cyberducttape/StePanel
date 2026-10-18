@@ -104,6 +104,10 @@ type startupState struct {
 	mu         sync.RWMutex
 	inProgress bool
 	err        error
+	// hostErr holds host reconciliation failures. Unlike err it is
+	// replaced by the background retries, so readiness recovers once the
+	// host converges.
+	hostErr error
 }
 
 const uploadMultipartOverhead int64 = 32 << 20
@@ -143,6 +147,7 @@ func (s *startupState) begin() {
 	s.mu.Lock()
 	s.inProgress = true
 	s.err = nil
+	s.hostErr = nil
 	s.mu.Unlock()
 }
 
@@ -153,10 +158,16 @@ func (s *startupState) finish(err error) {
 	s.mu.Unlock()
 }
 
+func (s *startupState) setHostState(err error) {
+	s.mu.Lock()
+	s.hostErr = err
+	s.mu.Unlock()
+}
+
 func (s *startupState) status() (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.inProgress, s.err
+	return s.inProgress, errors.Join(s.err, s.hostErr)
 }
 
 // Main runs the stepanel executable: it dispatches the command-line
@@ -600,20 +611,7 @@ func Main() {
 		app.observeStateError(state.NewCorruptionError("recovery_journal", cause, "quarantined "+filepath.Base(dir)))
 	}
 	var startupAuditErr error
-	// Reconcile domains independently. A single shared deadline allowed a slow
-	// host/helper operation in an early domain to starve every later domain.
-	// Each domain remains bounded, and failures are retained in its own report.
-	reconcile := func(name string, fn func(context.Context) ([]string, map[string]string)) {
-		// Use ServiceLifecycleTimeout for reconciliation operations (config mutations, user setup, etc.)
-		// This gives each domain up to 60 seconds to reconcile, allowing for slower helper operations.
-		reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), helperServiceLifecycleTimeout)
-		defer cancelReconcile()
-		reconciled, failed := fn(reconcileCtx)
-		if len(failed) > 0 {
-			log.Printf("%s reconciliation incomplete: reconciled=%d failed=%d", name, len(reconciled), len(failed))
-		}
-	}
-	runStartup := func() {
+	runStartup := func(ctx context.Context) {
 		var failures []error
 		if startupAuditErr != nil {
 			failures = append(failures, fmt.Errorf("initialize audit chain: %w", startupAuditErr))
@@ -650,21 +648,22 @@ func Main() {
 		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour, cfg.WebRoot, cfg.MailRoot); err != nil {
 			app.observeStateError(state.NewCleanupError("site_recovery_cleanup", err, "site recovery cleanup during startup"))
 		}
+		// Host state that was not applied keeps the panel unready: the
+		// failures are published separately and retried in the background.
+		var hostFailed []hostReconciler
+		var hostErrs []error
 		if os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") != "1" {
-			reconcile("routes", app.reconcileRoutes)
-			reconcile("SSH access", app.reconcileSiteAccess)
-			reconcile("workers", app.reconcileWorkers)
-			reconcile("PHP profile", app.reconcilePHPProfiles)
-			reconcile("Python application", app.reconcilePythonApps)
-			reconcile("scheduled task", app.reconcileTasks)
-			reconcile("resource profile", app.reconcileResourceProfiles)
-			reconcile("environment", app.reconcileEnvironments)
+			hostFailed, hostErrs = runHostReconcilers(app.hostReconcilers(), helperServiceLifecycleTimeout)
 		}
 		if err := pruneAllGitReleases(cfg); err != nil {
 			app.observeStateError(state.NewCleanupError("git_release_retention", err, "Git release retention during startup"))
 		}
-		startupError := errors.Join(failures...)
-		app.startup.finish(startupError)
+		startupError := errors.Join(append(failures, hostErrs...)...)
+		app.startup.setHostState(errors.Join(hostErrs...))
+		app.startup.finish(errors.Join(failures...))
+		if len(hostFailed) > 0 {
+			go app.retryHostReconcilers(ctx, hostFailed, helperServiceLifecycleTimeout)
+		}
 		if startupError != nil {
 			log.Printf("startup recovery completed with degraded readiness: %v", startupError)
 		} else {
@@ -930,7 +929,7 @@ func Main() {
 	}()
 	// The listener is bound above, so readiness probes can connect before
 	// startup recovery finishes.
-	go runStartup()
+	go runStartup(runCtx)
 	<-runCtx.Done()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

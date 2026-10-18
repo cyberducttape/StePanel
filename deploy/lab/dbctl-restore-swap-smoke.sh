@@ -2,8 +2,10 @@
 # Verify that stepanel-dbctl restore-dump replaces a MySQL/MariaDB database
 # only by a complete swap. It restores a database with foreign keys, triggers,
 # views, routines and events, then checks that a failed load and a killed
-# load leave it unchanged, and that a helper killed at each step of the swap
-# is finished by the next dump, restore-dump or reconcile.
+# load leave it unchanged, that a helper killed before or after each DDL step
+# of the swap keeps the site's logins refused until the next dump,
+# restore-dump or reconcile finishes it, that site clients never see a
+# partial schema, and that a restore waits for a running dump.
 set -Eeuo pipefail
 
 if [[ $EUID -ne 0 && -z ${STEPANEL_DBCTL_SMOKE_UNPRIVILEGED:-} ]]; then
@@ -72,18 +74,22 @@ no_restore_left() {
   done
 }
 
-with_crash_point() {
-  # Writes a helper copy that SIGKILLs itself just before the anchor line.
-  python3 -I - "$helper" "$work/dbctl-crash" "$1" <<'PY'
+with_injection() {
+  # Writes a helper copy that runs the injected line just before the anchor.
+  python3 -I - "$helper" "$work/dbctl-crash" "$1" "$2" <<'PY'
 import sys
-source, target, anchor = sys.argv[1:4]
+source, target, anchor, injected = sys.argv[1:5]
 text = open(source).read()
 if text.count(anchor) != 1:
-    sys.exit("crash anchor not found exactly once: " + anchor)
-open(target, "w").write(text.replace(anchor, '  [[ -z ${DBCTL_CRASH:-} ]] || kill -9 "$$" "$BASHPID"\n' + anchor))
+    sys.exit("injection anchor not found exactly once: " + anchor)
+open(target, "w").write(text.replace(anchor, injected + "\n" + anchor))
 PY
   chmod 0700 "$work/dbctl-crash"
 }
+# shellcheck disable=SC2016 # the injected lines are helper source
+with_crash_point() { with_injection "$1" '  [[ -z ${DBCTL_CRASH:-} ]] || kill -9 "$$" "$BASHPID"'; }
+
+login_refused() { ! app -e 'SELECT 1' > /dev/null 2>&1; }
 
 printf '%s\n' "$password" | "$helper" provision "$db" "$db_user" "$site" utf8mb4
 mariadb_server=0
@@ -103,6 +109,8 @@ CREATE EVENT nightly ON SCHEDULE EVERY 1 DAY DO DELETE FROM audit WHERE msg = 'n
 INSERT INTO parent VALUES (1, 'a'), (2, 'b');
 INSERT INTO child VALUES (10, 1), (20, 2);
 INSERT INTO `odd``name` VALUES (7);
+CREATE TABLE filler (id INT PRIMARY KEY, body LONGTEXT) ENGINE=InnoDB;
+INSERT INTO filler VALUES (1, REPEAT('x', 400000));
 SQL
   (( mariadb_server == 0 )) || echo 'CREATE SEQUENCE seq1;'
 } | M "$db"
@@ -157,11 +165,15 @@ pass 'killed load leaves the live database unchanged and reconcile drops the sha
 
 # shellcheck disable=SC2016 # the anchors are literal helper source lines
 declare -A anchors=(
+  [after-fence]='    mysql_create_like "$database" "$retired"'
+  [after-live-drop]='    mysql_drop_schema_objects "$shadow"'
   [before-rename]='    mysql_generated "$database" "$shadow" "$retired" "SELECT CONCAT('"'"'RENAME TABLE'
   [after-rename]='  moved=$(mysql_base_table_count "$shadow")'
+  [after-live-cleanup]='  "$client" --no-defaults --protocol=socket --batch --binary-mode "$database" < "$journal/views.sql"'
   [after-views]='  "$client" --no-defaults --protocol=socket --batch --binary-mode "$database" < "$journal/objects.sql"'
+  [before-unfence]='  mysql_set_fence "$database" "$journal" UNLOCK'
 )
-for point in before-rename after-rename after-views; do
+for point in after-fence after-live-drop before-rename after-rename after-live-cleanup after-views before-unfence; do
   with_crash_point "${anchors[$point]}"
   for recovery in dump reconcile restore-dump; do
     M "$db" -e "INSERT IGNORE INTO parent VALUES (9, 'drift'); DROP VIEW IF EXISTS v_nested"
@@ -172,6 +184,7 @@ for point in before-rename after-rename after-views; do
     # until a recovery path finishes it.
     sleep 2
     grep -lqx "pending-restore:$site:$db:swap" "$registry"/stepanel_restore_* || fail "no swap-phase restore record after a kill at $point"
+    login_refused || fail "the site's database login is accepted after a kill at $point, before recovery"
     case $recovery in
       dump) "$helper" dump "$db" > /dev/null ;;
       reconcile) "$helper" reconcile ;;
@@ -179,22 +192,75 @@ for point in before-rename after-rename after-views; do
     esac
     [[ $(snapshot) == "$expected" ]] || { diff <(printf '%s\n' "$expected") <(snapshot) | head -20 >&2; fail "kill at $point finished by $recovery differs from the backup"; }
     no_restore_left
-    pass "kill at $point is finished by $recovery"
+    app -e 'SELECT n FROM v_nested; SELECT double_it(4)' > /dev/null || fail "the site's database login is refused after a kill at $point finished by $recovery"
+    pass "kill at $point keeps site logins refused until $recovery finishes it"
   done
 done
 
-rm -f "$work/reader.stop" "$work/reader.err"
-( while [[ ! -e $work/reader.stop ]]; do
-    app -e 'SELECT COUNT(*) FROM parent; SELECT COUNT(*) FROM child' > /dev/null 2>> "$work/reader.err" || echo 'read failed' >> "$work/reader.err"
+# shellcheck disable=SC2016 # the injected line is helper source
+with_injection "${anchors[before-rename]}" '    [[ ! -e ${DBCTL_FAIL_ONCE:-/nonexistent} ]] || { rm -f -- "$DBCTL_FAIL_ONCE"; false; }'
+M "$db" -e "INSERT IGNORE INTO parent VALUES (9, 'drift')"
+touch "$work/fail-once"
+DBCTL_FAIL_ONCE="$work/fail-once" "$work/dbctl-crash" restore-dump "$db" "$site" < "$work/backup.sql" 2> "$work/error" || fail "a swap that failed once was not retried: $(cat "$work/error")"
+[[ ! -e $work/fail-once ]] || fail 'the injected swap failure was not reached'
+[[ $(snapshot) == "$expected" ]] || fail 'a retried swap differs from the backup'
+no_restore_left
+app -e 'SELECT 1' > /dev/null || fail "the site's database login is refused after a retried swap"
+pass 'a failed swap step is retried and completes'
+
+# A site client may be refused or disconnected by the fence, but every
+# statement it does run sees the whole schema: views, functions and the
+# trigger, whose side effect is checked in the same transaction.
+rm -f "$work/reader.stop" "$work/reader.err" "$work/reader.ok"
+( probe=100
+  while [[ ! -e $work/reader.stop ]]; do
+    probe=$((probe + 1))
+    if out=$(app -e "START TRANSACTION; INSERT INTO parent VALUES ($probe, 'probe'); SELECT CONCAT('trigger:', COUNT(*)) FROM audit WHERE msg = 'parent $probe'; SELECT CONCAT('view:', n) FROM v_nested; SELECT CONCAT('function:', double_it(4)); COMMIT" 2>&1); then
+      if [[ $out == *trigger:1* && $out == *view:* && $out == *function:8* ]]; then echo ok >> "$work/reader.ok"; else printf 'incomplete schema: %s\n' "$out" >> "$work/reader.err"; fi
+    else
+      case $out in
+        *[Ll]ocked*|*"Lost connection"*|*"gone away"*|*"was killed"*|*interrupted*|*"Connection killed"*) ;;
+        *) printf 'unexpected error: %s\n' "$out" >> "$work/reader.err" ;;
+      esac
+    fi
   done ) &
 background=$!
+sleep 1
 for _ in 1 2 3; do "$helper" restore-dump "$db" "$site" < "$work/backup.sql"; done
+sleep 1
 touch "$work/reader.stop"
 wait "$background"
 background=''
-[[ ! -s $work/reader.err ]] || fail "table reads failed during restores: $(sort "$work/reader.err" | uniq -c)"
+[[ ! -s $work/reader.err ]] || fail "a site client saw a partial schema during restores: $(sort "$work/reader.err" | uniq -c | head -5)"
+[[ $(wc -l < "$work/reader.ok") -ge 2 ]] || fail 'the site client never completed a probe around the restores'
 no_restore_left
-pass 'concurrent table reads by the site user never failed during restores'
+pass 'site clients were refused or saw the whole schema during restores, never a partial one'
+
+# A restore must wait for a running dump: the dump below blocks on a full
+# pipe after its snapshot, while holding the helper's database lock.
+"$helper" restore-dump "$db" "$site" < "$work/backup.sql"
+before=$(snapshot)
+rm -f "$work/dump.fifo"; mkfifo "$work/dump.fifo"
+"$helper" dump "$db" > "$work/dump.fifo" &
+dump_pid=$!
+exec 8< "$work/dump.fifo"
+sleep 2
+M "$db" -e "INSERT INTO parent VALUES (77, 'drift')"
+"$helper" restore-dump "$db" "$site" < "$work/backup.sql" &
+background=$!
+sleep 3
+kill -0 "$background" 2>/dev/null || fail 'a restore finished while a dump was still running'
+if grep -lqx "pending-restore:$site:$db:"'.*' "$registry"/stepanel_restore_* 2>/dev/null; then fail 'a restore started while a dump was still running'; fi
+cat <&8 > "$work/concurrent.sql"
+exec 8<&-
+wait "$dump_pid" || fail 'the dump failed'
+wait "$background" || fail 'the restore waiting for the dump failed'
+background=''
+[[ $(snapshot) == "$expected" ]] || fail 'the restore after the dump differs from the backup'
+"$helper" restore-dump "$db" "$site" < "$work/concurrent.sql"
+[[ $(snapshot) == "$before" ]] || fail 'the dump taken during a waiting restore does not restore its snapshot'
+no_restore_left
+pass 'a restore waits for a running dump, and that dump restores exactly'
 
 if "$helper" restore-dump "$db" "other-$suffix" < "$work/backup.sql" 2>/dev/null; then fail 'restore to another site was accepted'; fi
 no_restore_left
