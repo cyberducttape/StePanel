@@ -12,24 +12,22 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest full repository gate — 2026-10-18 (`a6e5f91`)
+### Latest full repository gate — 2026-10-18 (`e50dab7`)
 
-- `bash scripts/production-gate.sh` passed on exact checkout
-  `a6e5f912e742405237e591041a8375a3cbad733f`, including full tests and coverage
-  floors, the full race suite, repository recovery drills, benchmarks, mixed
-  HTTP load, docs, dashboard, quota fixtures, action pins, assets, and shell
-  syntax. The release metadata checker and ShellCheck also passed. Exact
-  measurements are in the
-  [gate report](lab-results/2026-10-18-repository-production-gate-a6e5f91.md).
-- Go application source remains `633c013`; this checkout additionally includes
-  the installer post-commit cleanup/status handling and its release contract.
-- At report capture, exact-head CI and CodeQL were queued and standard/quota
-  install smokes pending. The 20-repeat hosted cohort remained active/queued
-  on `633c013`, with no passing shard yet; N-1 upgrade was queued. No result is
-  inferred from pending work.
-- Production remains **NO-GO**: physical host power loss, broader ENOSPC,
-  notification outage/retry, upgrade/rollback, measured capacity, platform
-  support, and independent security review remain open.
+- `bash scripts/production-gate.sh` passed on source checkout
+  `e50dab701423e84fd126a5edcbe55d3b17a34139`: vet, full tests and coverage
+  floors, full race suite, repository recovery drills, benchmarks, mixed HTTP
+  load, and repository checks. Exact measurements and scope limits are in the
+  [gate report](lab-results/2026-10-18-repository-production-gate-e50dab7.md).
+- The report-only descendant `338ea32` has no application or installer source
+  changes. At capture its CI and CodeQL runs were queued; exact-source standard
+  and quota installation smokes for `e50dab7` were pending without jobs. No
+  hosted result is inferred from those states.
+- The 20-repeat installed-host recovery cohort on `633c013` remains incomplete;
+  no repetitions are promoted from active or queued shards. Production remains
+  **NO-GO**: physical host power loss, broader ENOSPC, notification
+  outage/retry, upgrade/rollback, measured capacity, platform support, and
+  independent security review remain open.
 
 ---
 
@@ -37,7 +35,7 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate requirements and acceptance criteria.
 
-### Latest full repository gate — 2026-10-18 (`0ebbd86`)
+### Previous full repository gate — 2026-10-18 (`0ebbd86`)
 
 - `bash scripts/production-gate.sh` passed on exact checkout
   `0ebbd86a9c56b37081b132bc39fc10355f4bb9a6`. The application code is

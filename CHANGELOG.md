@@ -16,6 +16,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   still queued or pending when recorded; real-host and production certification
   gaps remain NO-GO items. See
   [`2026-10-18-repository-production-gate-e50dab7.md`](docs/lab-results/2026-10-18-repository-production-gate-e50dab7.md).
+- Reconcile the top-level production status pages with the latest exact-source
+  repository gate, distinguish queued/pending hosted checks from passes, and
+  retain the NO-GO decision until installed-host and operational gates close.
 - Record the full repository production gate on `a6e5f91`: tests, vet, coverage
   floors, full race suite, recovery drills, benchmarks, mixed load, and
   repository checks passed; retain the hosted and physical recovery gaps as

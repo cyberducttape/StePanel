@@ -9,22 +9,22 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest full repository gate — 2026-10-18 (`0ebbd86`)
+### Latest full repository gate — 2026-10-18 (`e50dab7`)
 
-The exact checkout
-`0ebbd86a9c56b37081b132bc39fc10355f4bb9a6` passed
-[`bash scripts/production-gate.sh`](./lab-results/2026-10-18-repository-production-gate-0ebbd86.md):
+The exact source checkout `e50dab701423e84fd126a5edcbe55d3b17a34139` passed
+[`bash scripts/production-gate.sh`](./lab-results/2026-10-18-repository-production-gate-e50dab7.md):
 vet, full tests and coverage floors, race detection, repository recovery
 drills, benchmarks, mixed HTTP load, documentation, dashboard, quota fixture,
 assets, action pins, and shell checks. Coverage was 56.9%; the root-package
-race suite passed in 475.085 seconds. The application code is unchanged from
-`633c013`. Hosted CI and CodeQL passed on `0ebbd86`; exact-source six-host
-installation and quota smokes passed on `633c013`.
+race suite passed in 502.760 seconds. The evidence report records exact
+measurements and limitations.
 
-The 20-repeat installed-host cohort on `633c013` was still running at capture,
-with three of ten two-iteration shards active and seven queued. No repetition
-is counted until a shard's six host jobs pass. This repository-gate pass does
-not establish host certification; production remains **NO-GO**.
+At capture, CI and CodeQL for the evidence-only descendant `338ea32` were
+queued; the exact-source installation and quota smokes for `e50dab7` were
+pending without jobs. These are not counted as passing evidence. The existing
+20-repeat installed-host cohort on `633c013` remains incomplete as described
+below. Repository-gate success does not establish host certification;
+production remains **NO-GO**.
 
 ### Exact-head hosted validation — 2026-10-18 (`633c013`)
 
