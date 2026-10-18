@@ -216,6 +216,9 @@ jobs:
             cat "$diagnostics_dir"/*.txt "$diagnostics_dir"/*.log >&2 || true
             exit "$smoke_status"
           fi
+      - name: Remove disposable systemd host
+        if: always()
+        run: timeout --foreground 15s docker rm -f stepanel-install >/dev/null 2>&1 || true
       - name: Upload install diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
