@@ -20,6 +20,10 @@ with 50 Job Center viewers and two active workers) and its measured results
 are in [`LOAD_BASELINE_2026-10-02.md`](LOAD_BASELINE_2026-10-02.md). Those
 results are also synthetic single-process measurements.
 
+High-backlog durable job-claim measurements and their limitations are recorded
+in [`CAPACITY.md`](CAPACITY.md). They are synthetic SQLite benchmarks and do
+not establish a production capacity ceiling.
+
 HTTP latency is **measured** for synthetic mixed workloads in
 [`HTTP_LOAD_BASELINE_2026-10-02.md`](HTTP_LOAD_BASELINE_2026-10-02.md): a real
 `stepanel` process with 200- and 500-site fixtures, concurrent readers, and

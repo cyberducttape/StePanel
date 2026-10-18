@@ -14,6 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Reconcile the authoritative release-gate evidence row with the latest local
   gate and the live stalled/queued installed-host recovery cohort, without
   counting incomplete runs as successful iterations.
+- Add reproducible 100k-job queue-claim measurements and query-plan comparison;
+  explicitly keep capacity certification open and correct the benchmark's
+  previously missing capacity-document reference.
 
 ### Fixed
 
