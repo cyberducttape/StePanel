@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Record the exact `6c6e018` repository production-gate results and explicitly
   distinguish passing repository checks from still-pending hosted and real-host
   certification gates.
+- Reconcile the authoritative release-gate evidence row with the latest local
+  gate and the live stalled/queued installed-host recovery cohort, without
+  counting incomplete runs as successful iterations.
 
 ### Fixed
 
