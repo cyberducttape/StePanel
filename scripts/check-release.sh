@@ -34,6 +34,12 @@ if ! grep -Fq 'install_journal_record post_install pending manual "services=${PO
   echo "post-commit optional integration journal failures can still turn a committed install into a failed exit" >&2
   exit 1
 fi
+if ! grep -Fq 'if ! rm -f "$temporary"; then POST_COMMIT_CLEANUP_PENDING+=' install.sh ||
+   ! grep -Fq 'if ! rm -rf "$INSTALL_TXN"; then POST_COMMIT_CLEANUP_PENDING+=' install.sh ||
+   ! grep -Fq "echo 'post_install_cleanup_status=complete'" install.sh; then
+  echo "post-commit transaction cleanup can still turn a committed install into a failed exit or hide leftovers" >&2
+  exit 1
+fi
 if ! grep -Fqx 'install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service' install.sh; then
   echo "install.sh does not install the root broker service" >&2
   exit 1

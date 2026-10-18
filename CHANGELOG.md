@@ -9,7 +9,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Keep the installer exit status successful after core commit if appending the
   optional-integration status to the install journal fails; print an explicit
   warning so the committed core install is not misreported as rolled back.
-  Enforce the post-commit journal failure contract in the release checker.
+  Likewise report, rather than fail the committed install for, leftover private
+  transaction files; expose their paths with a machine-readable cleanup status.
+  Enforce both post-commit contracts in the release checker.
 - Extend notification-retention regression coverage to verify bounded cleanup
   eventually removes aged events with no required delivery channels while
   retaining pending deliveries. The exact pushed commit `22fc342` passes

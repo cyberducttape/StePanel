@@ -1175,8 +1175,15 @@ control_plane_txn_commit
 INSTALL_JOURNAL_TERMINAL=1
 trap - ERR EXIT INT TERM
 install_journal_record commit complete manual "core installation committed; optional integrations are reported separately and package changes remain" || echo 'Could not append installer commit record; preserve installer output as evidence.' >&2
-for temporary in "${TXN_TEMPS[@]}"; do rm -f "$temporary"; done
-rm -rf "$INSTALL_TXN"
+declare -a POST_COMMIT_CLEANUP_PENDING=()
+for temporary in "${TXN_TEMPS[@]}"; do
+  if ! rm -f "$temporary"; then POST_COMMIT_CLEANUP_PENDING+=("$temporary"); fi
+done
+if ! rm -rf "$INSTALL_TXN"; then POST_COMMIT_CLEANUP_PENDING+=("$INSTALL_TXN"); fi
+if (( ${#POST_COMMIT_CLEANUP_PENDING[@]} )); then
+  echo 'Core installation is committed, but private installer transaction files could not all be removed:' >&2
+  printf '  %s\n' "${POST_COMMIT_CLEANUP_PENDING[@]}" >&2
+fi
 declare -a POST_INSTALL_PENDING=()
 activate_optional_service() {
   local service=$1
@@ -1215,6 +1222,13 @@ if (( ${#POST_INSTALL_PENDING[@]} )); then
 else
   echo 'post_install_status=complete'
   install_journal_record post_install complete retained "optional integrations activated or not requested" || echo 'Could not persist optional-service completion; core installation remains committed.' >&2
+fi
+if (( ${#POST_COMMIT_CLEANUP_PENDING[@]} )); then
+  printf 'post_install_cleanup_status=pending paths='
+  printf '%s ' "${POST_COMMIT_CLEANUP_PENDING[@]}"
+  printf '\n'
+else
+  echo 'post_install_cleanup_status=complete'
 fi
 install_journal_record verification complete partial "core readiness passed; inspect post_install_status for optional integrations" || echo 'Could not append installer verification record.' >&2
 install_journal_record recovery contract manual "automatic rollback covers registered files, control-plane database and core service activation; see docs/INSTALLER_RECOVERY.md" || echo 'Could not append installer recovery-contract record.' >&2
