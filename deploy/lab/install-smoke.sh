@@ -238,31 +238,53 @@ if [[ ${STEPANEL_RUN_FTPS_SMOKE:-0} == 1 ]]; then
   bash /work/deploy/lab/ftps-access-smoke.sh
 fi
 
-/usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.example.test
+/usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost
 /usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256
 bash /work/deploy/lab/task-safeguards-smoke.sh "$site"
 if [[ $STEPANEL_WEBSERVER == apache ]]; then
   apachectl -t 2>/dev/null || httpd -t
 else
   caddy validate --config /etc/caddy/Caddyfile
-  sensitive_file="/var/www/sites/$site/public/.env"
+  public_root="/var/www/sites/$site/public"
+  sensitive_file="$public_root/.env"
+  nested_env="$public_root/nested/.env.production"
+  nested_git_config="$public_root/nested/.git/config"
+  database_export="$public_root/database/export.sql"
+  archived_backup="$public_root/archives/backup.tar.gz"
   symlink_target="/var/www/sites/$site/.stepanel-caddy-outside-secret"
-  symlink_path="/var/www/sites/$site/public/stepanel-outside-secret"
+  symlink_path="$public_root/stepanel-outside-secret"
+  mkdir -p "$public_root/nested/.git" "$public_root/database" "$public_root/archives"
   printf '%s\n' 'must-not-be-served' > "$sensitive_file"
+  printf '%s\n' 'nested-secret' > "$nested_env"
+  printf '%s\n' 'git-secret' > "$nested_git_config"
+  printf '%s\n' 'database-secret' > "$database_export"
+  printf '%s\n' 'backup-secret' > "$archived_backup"
   printf '%s\n' 'must-not-be-followed' > "$symlink_target"
   ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
-  trap 'rm -f "$sensitive_file" "$symlink_target" "$symlink_path"' EXIT
-  caddy_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/.env || true)
-  [[ $caddy_status == 308 || $caddy_status == 403 || $caddy_status == 404 ]] || { echo "Caddy served a sensitive file with HTTP $caddy_status" >&2; exit 1; }
+  trap 'rm -f "$sensitive_file" "$nested_env" "$nested_git_config" "$database_export" "$archived_backup" "$symlink_target" "$symlink_path"' EXIT
+  caddy_https_status() {
+    local request_path=$1 status=000
+    for _ in {1..15}; do
+      status=$(curl --insecure --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 \
+        --resolve ci-smoke.localhost:443:127.0.0.1 "https://ci-smoke.localhost$request_path" 2>/dev/null || true)
+      [[ $status == 000 ]] || { printf '%s' "$status"; return; }
+      sleep 1
+    done
+    printf '%s' "$status"
+  }
+  for sensitive_path in /.env /nested/.env.production /nested/.git/config /database/export.sql /archives/backup.tar.gz; do
+    caddy_status=$(caddy_https_status "$sensitive_path")
+    [[ $caddy_status == 404 ]] || { echo "Caddy did not deny HTTPS access to $sensitive_path (HTTP $caddy_status)" >&2; exit 1; }
+  done
   view_root="/var/www/.stepanel-caddy-views/$site/public"
   findmnt -no OPTIONS -T "$view_root" | tr ',' '\n' | grep -Fxq nosymfollow || { echo 'Caddy document root is not mounted with nosymfollow' >&2; exit 1; }
-  symlink_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 -H 'Host: ci-smoke.example.test' http://127.0.0.1/stepanel-outside-secret || true)
-  [[ $symlink_status == 308 || $symlink_status == 403 || $symlink_status == 404 ]] || { echo "Caddy followed a document-root symlink with HTTP $symlink_status" >&2; exit 1; }
-  if /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.example.test 2>/dev/null; then
+  symlink_status=$(caddy_https_status /stepanel-outside-secret)
+  [[ $symlink_status == 404 ]] || { echo "Caddy followed or exposed a document-root symlink over HTTPS (HTTP $symlink_status)" >&2; exit 1; }
+  if /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost 2>/dev/null; then
     echo 'Caddy vhost helper published a document root containing a symlink' >&2
     exit 1
   fi
-  rm -f "$sensitive_file" "$symlink_target" "$symlink_path"
+  rm -f "$sensitive_file" "$nested_env" "$nested_git_config" "$database_export" "$archived_backup" "$symlink_target" "$symlink_path"
   trap - EXIT
 fi
 

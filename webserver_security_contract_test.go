@@ -48,7 +48,7 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		`x-systemd.requires-mounts-for=`,
 		`/var/www/.stepanel-caddy-views`,
 		`find -P "$public_root" -xdev -path "$public_root/node_modules" -prune -o -type l`,
-		`^/(node_modules(/.*)?|`,
+		`^/(.*/)?(node_modules(/.*)?|`,
 		`@stepanel_sensitive path_regexp`,
 		`respond @stepanel_sensitive 404`,
 		`file_server {`,
@@ -63,6 +63,27 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	}
 	if strings.Contains(source, "(?:") {
 		t.Fatal("Caddy path regexp uses unsupported non-capturing groups")
+	}
+	matcher := regexp.MustCompile(`(?m)^\s*@stepanel_sensitive path_regexp stepanel_sensitive (.+)$`).FindStringSubmatch(source)
+	if len(matcher) != 2 {
+		t.Fatal("Caddy sensitive-file matcher was not found")
+	}
+	policy, err := regexp.Compile(matcher[1])
+	if err != nil {
+		t.Fatalf("Caddy sensitive-file matcher is invalid: %v", err)
+	}
+	for _, path := range []string{
+		"/.env", "/nested/.env.production", "/nested/.git/config", "/deep/path/.svn/entries",
+		"/database/export.sql", "/archives/backup.tar.gz", "/nested/.htpasswd", "/node_modules/pkg/secret.js",
+	} {
+		if !policy.MatchString(path) {
+			t.Errorf("Caddy sensitive-file matcher does not reject %q", path)
+		}
+	}
+	for _, path := range []string{"/index.php", "/assets/app.css", "/api/public.json", "/nested/image.png"} {
+		if policy.MatchString(path) {
+			t.Errorf("Caddy sensitive-file matcher unexpectedly rejects ordinary content %q", path)
+		}
 	}
 }
 

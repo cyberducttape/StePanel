@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Extend Caddy's sensitive-file deny policy to nested paths and make the
+  installed-host smoke test require HTTPS 404s for root/nested secrets, VCS
+  metadata, database exports, archives, and out-of-root symlinks. The prior
+  HTTP-only checks could pass on redirect without exercising the deny rule.
 - Record the full repository production gate on `a6e5f91`: tests, vet, coverage
   floors, full race suite, recovery drills, benchmarks, mixed load, and
   repository checks passed; retain the hosted and physical recovery gaps as
