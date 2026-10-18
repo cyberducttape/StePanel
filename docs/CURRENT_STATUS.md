@@ -12,21 +12,22 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest full repository gate — 2026-10-18 (`b571cb3`)
+### Latest full repository gate — 2026-10-18 (`128386e`)
 
 - `bash scripts/production-gate.sh` passed on exact source checkout
-  `b571cb32d647615536eb607fb5b0245e35f40e79`: vet, full tests and coverage
-  floors (56.9%), full race suite (root package 476.115 seconds), repository
+  `128386e8beb40dcd965ba8c662b6da97237be7b6`: vet, full tests and coverage
+  floors (56.9%), full race suite (root package 470.765 seconds), repository
   recovery drills, benchmarks, mixed HTTP load, and repository checks. Details
-  are in the [exact-source report](lab-results/2026-10-18-repository-production-gate-b571cb3.md).
-- Current exact-head hosted runs for `2124a7b`: [CI](https://github.com/cyberducttape/StePanel/actions/runs/39172579787)
-  and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39172579797)
-  are queued; [standard install](https://github.com/cyberducttape/StePanel/actions/runs/39172579801)
-  and [quota install](https://github.com/cyberducttape/StePanel/actions/runs/39172579766)
-  are pending without jobs. These are not passing evidence.
+  are in the [exact-source report](lab-results/2026-10-18-repository-production-gate-128386e.md).
+- Exact-head hosted runs for `128386e`: [CI](https://github.com/cyberducttape/StePanel/actions/runs/39173202683)
+  and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39173202723)
+  are queued; [standard install](https://github.com/cyberducttape/StePanel/actions/runs/39173202711)
+  and [quota install](https://github.com/cyberducttape/StePanel/actions/runs/39173202728)
+  are pending. These are not passing evidence.
 - The 20-repeat installed-host cohort on `633c013` remains incomplete. At the
-  latest query, all six host jobs in its first shard were still at “Start
-  disposable systemd host”; none count as successful iterations.
+  latest query, all 18 host jobs in its three active shards remain at “Start
+  disposable systemd host”; no iteration counts are recorded. A fresh
+  two-repeat shard on `623acbb` is queued.
 - Production remains **NO-GO**: aggregate Git staging-space enforcement,
   physical host power loss, broader ENOSPC, repeated installed-host recovery,
   notification outage/retry, upgrade/rollback, measured capacity, platform
