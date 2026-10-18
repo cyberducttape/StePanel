@@ -1132,7 +1132,7 @@ func TestBrokerGitCloneUsesConcreteHelperContract(t *testing.T) {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
 	gitctl := filepath.Join(t.TempDir(), "stepanel-gitctl")
-	if err := os.WriteFile(gitctl, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+	if err := os.WriteFile(gitctl, []byte("#!/bin/sh\n[ \"$#\" -eq 7 ] && [ \"$7\" = 5368709120 ]\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	broker.gitctlPath = gitctl
@@ -1150,6 +1150,7 @@ func TestBrokerGitCloneUsesConcreteHelperContract(t *testing.T) {
 			Repository:   "git@github.com:user/repo.git",
 			Ref:          "main",
 			Destination:  destination,
+			MaxFileBytes: 5 << 30,
 			AllowedHosts: []string{"github.com"},
 		},
 	}
@@ -1173,6 +1174,7 @@ func TestValidatorGitCloneBindsDestinationAndShape(t *testing.T) {
 			Repository:   "git@github.com:user/repo.git",
 			Ref:          "main",
 			Destination:  filepath.Join(webRoot, "sites", "alpha", ".stepanel-release-123"),
+			MaxFileBytes: 5 << 30,
 			AllowedHosts: []string{"github.com"},
 		}
 	}
@@ -1190,6 +1192,8 @@ func TestValidatorGitCloneBindsDestinationAndShape(t *testing.T) {
 		"option-like ref":        func(r *GitRequest) { r.Ref = "-upload-pack=x" },
 		"https repository":       func(r *GitRequest) { r.Repository = "https://github.com/user/repo.git" },
 		"missing host allowlist": func(r *GitRequest) { r.AllowedHosts = nil },
+		"missing file limit":     func(r *GitRequest) { r.MaxFileBytes = 0 },
+		"excessive file limit":   func(r *GitRequest) { r.MaxFileBytes = 1<<50 + 1 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -345,7 +345,7 @@ func (c *Client) TaskOperation(ctx context.Context, task TaskRequest) (*Response
 
 // GitClone clones a private repository into one of the site's release
 // staging directories, restricted to the allow-listed Git hosts.
-func (c *Client) GitClone(ctx context.Context, site, repo, ref, destination string, allowedHosts []string) (*Response, error) {
+func (c *Client) GitClone(ctx context.Context, site, repo, ref, destination string, maxFileBytes int64, allowedHosts []string) (*Response, error) {
 	req := &Request{
 		RequestType: "git",
 		Git: &GitRequest{
@@ -354,6 +354,7 @@ func (c *Client) GitClone(ctx context.Context, site, repo, ref, destination stri
 			Repository:   repo,
 			Ref:          ref,
 			Destination:  destination,
+			MaxFileBytes: maxFileBytes,
 			AllowedHosts: allowedHosts,
 		},
 	}

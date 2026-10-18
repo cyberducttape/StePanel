@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Apply the configured per-file limit to public and private Git clones at write
+  time, covering both Git packfiles and checked-out files. This is a defense-in-
+  depth bound only; aggregate staging-space enforcement remains an open release
+  blocker.
 - Bound Docker host-smoke boot and diagnostic calls, and add step-level
   ceilings, so a wedged daemon or `docker logs` cannot strand CI runners while
   collecting failure evidence. Apply the same bounded-call and cleanup contract

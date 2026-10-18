@@ -325,13 +325,14 @@ type ProxyResponse struct {
 // --- Git Operations ---
 
 type GitRequest struct {
-	Action       string   `json:"action"`                // clone, delete, verify-key
-	Site         string   `json:"site,omitempty"`        // managed site for delete
-	Repository   string   `json:"repository"`            // Git URL (validated)
-	Ref          string   `json:"ref"`                   // Branch/tag
-	Destination  string   `json:"destination"`           // Clone destination (validated)
-	PrivateKey   string   `json:"private_key,omitempty"` // SSH key content
-	KnownHosts   string   `json:"known_hosts,omitempty"` // SSH known_hosts
+	Action       string   `json:"action"`                   // clone, delete, verify-key
+	Site         string   `json:"site,omitempty"`           // managed site for delete
+	Repository   string   `json:"repository"`               // Git URL (validated)
+	Ref          string   `json:"ref"`                      // Branch/tag
+	Destination  string   `json:"destination"`              // Clone destination (validated)
+	MaxFileBytes int64    `json:"max_file_bytes,omitempty"` // RLIMIT_FSIZE for Git pack and checkout files
+	PrivateKey   string   `json:"private_key,omitempty"`    // SSH key content
+	KnownHosts   string   `json:"known_hosts,omitempty"`    // SSH known_hosts
 	AllowedHosts []string `json:"allowed_hosts,omitempty"`
 }
 

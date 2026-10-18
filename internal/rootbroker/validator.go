@@ -811,6 +811,9 @@ func (v *Validator) validateGitRequest(req *GitRequest) error {
 		return err
 	}
 	if req.Action == "clone" {
+		if req.MaxFileBytes < 1 || req.MaxFileBytes > 1<<50 {
+			return fmt.Errorf("Git clone per-file byte limit is out of range")
+		}
 		if err := v.ValidateSiteName(req.Site); err != nil {
 			return fmt.Errorf("clone site: %w", err)
 		}

@@ -1804,7 +1804,7 @@ func (b *Broker) gitClone(ctx context.Context, req *GitRequest) (*Response, erro
 		}
 		allowedHosts = append(allowedHosts, host)
 	}
-	args := []string{"clone", req.Site, req.Repository, req.Ref, req.Destination, strings.Join(allowedHosts, ",")}
+	args := []string{"clone", req.Site, req.Repository, req.Ref, req.Destination, strings.Join(allowedHosts, ","), strconv.FormatInt(req.MaxFileBytes, 10)}
 	cmd := stepanelhelper.NewCommand(ctx, b.gitctlPath, args...)
 	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {

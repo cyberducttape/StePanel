@@ -73,10 +73,11 @@ func TestIntegration_RPCRoundTrip(t *testing.T) {
 			req: &Request{
 				RequestType: "git",
 				Git: &GitRequest{
-					Action:      "clone",
-					Repository:  "https://github.com/user/repo.git",
-					Ref:         "main",
-					Destination: "dest",
+					Action:       "clone",
+					Repository:   "https://github.com/user/repo.git",
+					Ref:          "main",
+					Destination:  "dest",
+					MaxFileBytes: 1 << 30,
 				},
 			},
 		},

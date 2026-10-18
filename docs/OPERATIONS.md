@@ -560,9 +560,13 @@ changes. See [`GIT_DEPLOYMENTS.md`](GIT_DEPLOYMENTS.md).
 Each checkout and build artifact is also limited by
 `STEPANEL_GIT_RELEASE_MAX_TREE_BYTES` (default 5 GiB). The configured amount is
 reserved during checkout and the unpacked tree is checked before activation.
-This is not a hard write-time quota: a clone can temporarily exceed the limit
-before the post-check rejects it. Use filesystem/account quotas for hard
-containment of untrusted or unexpectedly large repositories.
+Git clone processes are additionally constrained at write time so a single
+packfile or checked-out file cannot exceed that byte limit. This is not an
+aggregate hard write-time quota: many smaller files can still exceed the limit
+in total before the post-check rejects the tree. Use filesystem/project quotas
+for hard containment of untrusted or unexpectedly large repositories; Git
+staging remains a production release blocker until aggregate admission and
+ENOSPC behavior are proven.
 
 Use the authenticated database endpoints during an incident:
 

@@ -879,14 +879,14 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var cloneOutput []byte
 	if repository.Private {
-		cloneOutput, err = clonePrivateRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release)
+		cloneOutput, err = clonePrivateRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release, a.Config.GitReleaseMaxTreeBytes)
 	} else {
 		prlimit, lookupErr := exec.LookPath("prlimit")
 		if lookupErr != nil {
-			http.Error(w, "prlimit is required to enforce the Git clone memory ceiling", http.StatusServiceUnavailable)
+			http.Error(w, "prlimit is required to enforce Git clone memory and per-file limits", http.StatusServiceUnavailable)
 			return
 		}
-		clone := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", input.Ref, "--single-branch", "--no-tags", repository.URL, release)
+		clone := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--fsize="+strconv.FormatInt(a.Config.GitReleaseMaxTreeBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", input.Ref, "--single-branch", "--no-tags", repository.URL, release)
 		clone.Env = gitCommandEnv()
 		cloneOutput, err = runBoundedCommand(ctx, clone)
 	}
@@ -1165,9 +1165,9 @@ func latestPreviousRelease(siteRoot string) (string, error) {
 // key. Production (and the direct lab broker) use the typed root-broker clone,
 // which binds the destination to the site's release staging directory;
 // development runs the helper directly.
-func clonePrivateRepository(ctx context.Context, cfg Config, site, repositoryURL, ref, release string) ([]byte, error) {
+func clonePrivateRepository(ctx context.Context, cfg Config, site, repositoryURL, ref, release string, maxFileBytes int64) ([]byte, error) {
 	if !cfg.Production && !labDirectRootBrokerEnabled() {
-		output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.GitCtl, "clone", site, repositoryURL, ref, release, cfg.GitAllowedHosts)
+		output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.GitCtl, "clone", site, repositoryURL, ref, release, cfg.GitAllowedHosts, strconv.FormatInt(maxFileBytes, 10))
 		return output, err
 	}
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
@@ -1175,7 +1175,7 @@ func clonePrivateRepository(ctx context.Context, cfg Config, site, repositoryURL
 		return nil, fmt.Errorf("root broker is unavailable: %w", err)
 	}
 	allowedHosts := strings.FieldsFunc(cfg.GitAllowedHosts, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
-	response, err := client.GitClone(ctx, site, repositoryURL, ref, release, allowedHosts)
+	response, err := client.GitClone(ctx, site, repositoryURL, ref, release, maxFileBytes, allowedHosts)
 	if err != nil {
 		return nil, err
 	}

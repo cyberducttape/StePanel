@@ -212,14 +212,14 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	defer reservation.release()
 	var output []byte
 	if repository.Private {
-		output, err = clonePrivateRepository(ctx, a.Config, site.Site(), repository.URL, ref, release)
+		output, err = clonePrivateRepository(ctx, a.Config, site.Site(), repository.URL, ref, release, a.Config.GitReleaseMaxTreeBytes)
 	} else {
 		prlimit, lookupErr := exec.LookPath("prlimit")
 		if lookupErr != nil {
 			logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-			return "", "", errors.New("prlimit is required to enforce the Git clone memory ceiling")
+			return "", "", errors.New("prlimit is required to enforce Git clone memory and per-file limits")
 		}
-		cmd := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", ref, "--single-branch", "--no-tags", repository.URL, release)
+		cmd := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--fsize="+strconv.FormatInt(a.Config.GitReleaseMaxTreeBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", ref, "--single-branch", "--no-tags", repository.URL, release)
 		cmd.Env = gitCommandEnv()
 		output, err = runBoundedCommand(ctx, cmd)
 	}

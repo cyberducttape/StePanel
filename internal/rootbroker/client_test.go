@@ -320,10 +320,11 @@ func TestClientGitCloneRequest(t *testing.T) {
 	req := &Request{
 		RequestType: "git",
 		Git: &GitRequest{
-			Action:      "clone",
-			Repository:  "https://github.com/user/repo.git",
-			Ref:         "main",
-			Destination: "destination",
+			Action:       "clone",
+			Repository:   "https://github.com/user/repo.git",
+			Ref:          "main",
+			Destination:  "destination",
+			MaxFileBytes: 1 << 30,
 		},
 	}
 
@@ -336,5 +337,8 @@ func TestClientGitCloneRequest(t *testing.T) {
 	}
 	if decoded.Git.Repository != "https://github.com/user/repo.git" {
 		t.Errorf("Expected repository, got %s", decoded.Git.Repository)
+	}
+	if decoded.Git.MaxFileBytes != 1<<30 {
+		t.Errorf("Expected max_file_bytes=1 GiB, got %d", decoded.Git.MaxFileBytes)
 	}
 }
