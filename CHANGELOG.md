@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Split installed-host boot from its long install/recovery smoke step so GitHub
+  Actions reports boot and recovery progress accurately; preserve bounded
+  failure diagnostics and ensure the disposable host is removed on failure or
+  completion.
 - Extend Caddy's sensitive-file deny policy to nested paths and make the
   installed-host smoke test require HTTPS 404s for root/nested secrets, VCS
   metadata, database exports, archives, and out-of-root symlinks. The prior

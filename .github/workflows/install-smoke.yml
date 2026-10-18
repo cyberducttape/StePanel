@@ -101,16 +101,11 @@ jobs:
         run: docker build --build-arg BASE_IMAGE="$IMAGE" -f deploy/lab/Dockerfile.systemd -t "$HOST_IMAGE" .
       - name: Start disposable systemd host
         env:
-          IMAGE: ${{ matrix.image }}
-          DB: ${{ matrix.db }}
-          WEB: ${{ matrix.web }}
           HOST_IMAGE: stepanel-systemd-host:${{ matrix.name }}
         run: |
           set -eu
-          diagnostics_dir="$RUNNER_TEMP/stepanel-install-diagnostics"
-          mkdir -p "$diagnostics_dir"
           cleanup() { timeout --foreground 15s docker rm -f stepanel-install >/dev/null 2>&1 || true; }
-          trap cleanup EXIT
+          trap 'status=$?; if (( status != 0 )); then cleanup; fi' EXIT
           if ! timeout --foreground 15s docker info >/dev/null 2>&1; then
             echo 'Docker is unavailable or unresponsive on this runner' >&2
             timeout --foreground 15s docker info >&2 || true
@@ -159,6 +154,23 @@ jobs:
             timeout --foreground 10s docker exec stepanel-install systemctl list-jobs --no-pager >&2 || true
             timeout --foreground 10s docker exec stepanel-install systemctl --failed --no-pager >&2 || true
             docker logs stepanel-install >&2 || true
+            exit 1
+          fi
+          echo "Disposable systemd host is ready (state: $system_state)."
+      - name: Run installed-host install and recovery smoke
+        env:
+          DB: ${{ matrix.db }}
+          WEB: ${{ matrix.web }}
+        run: |
+          set -eu
+          diagnostics_dir="$RUNNER_TEMP/stepanel-install-diagnostics"
+          mkdir -p "$diagnostics_dir"
+          cleanup() { timeout --foreground 15s docker rm -f stepanel-install >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          running=$(timeout --foreground 10s docker inspect --format '{{.State.Running}}' stepanel-install 2>/dev/null || true)
+          if [[ "$running" != true ]]; then
+            echo "disposable systemd host is not running (state: ${running:-unknown})" >&2
+            timeout --foreground 10s docker logs stepanel-install >&2 || true
             exit 1
           fi
           set +e
