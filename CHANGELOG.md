@@ -19,6 +19,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Reconcile the top-level production status pages with the latest exact-source
   repository gate, distinguish queued/pending hosted checks from passes, and
   retain the NO-GO decision until installed-host and operational gates close.
+- Refresh the authoritative gate table with the latest hosted CI, CodeQL,
+  install-smoke, and recovery-cohort states; keep all queued, pending, and
+  in-progress work explicitly uncounted.
 - Record the full repository production gate on `a6e5f91`: tests, vet, coverage
   floors, full race suite, recovery drills, benchmarks, mixed load, and
   repository checks passed; retain the hosted and physical recovery gaps as
