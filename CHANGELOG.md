@@ -10,11 +10,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Apply the configured per-file limit to public and private Git clones at write
   time, covering both Git packfiles and checked-out files. This is a defense-in-
-  depth bound only; aggregate staging-space enforcement remains an open release
-  blocker. Preserve the private clone's 2 GiB address-space cap using `prlimit`
-  byte units, check that helper contract in release validation, and keep the
-  release-gate regression test precise about per-file versus aggregate limits.
-  Add a kernel-level test proving an oversized write is actually capped.
+  depth bound alongside a root-broker-managed aggregate project quota. Clone
+  staging now lives below a panel-controlled, non-tenant-writable parent; the
+  site owns its private stage while ACL inheritance preserves panel clone access
+  and read-only web-server access after publication.
+  Both Git deployment paths reserve and enforce three times the final-tree limit
+  before cloning, then require quota removal before activation. Unsupported
+  project-quota mounts fail closed. Extend the disposable quota host to verify
+  two individually sub-limit files hit the aggregate limit; host execution is
+  still needed before treating this as production-certified. Preserve the private
+  clone's 2 GiB address-space cap and kernel-enforced per-file ceiling.
 - Bound Docker host-smoke boot and diagnostic calls, and add step-level
   ceilings, so a wedged daemon or `docker logs` cannot strand CI runners while
   collecting failure evidence. Apply the same bounded-call and cleanup contract

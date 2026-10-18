@@ -1557,6 +1557,10 @@ func (b *Broker) handleGitRequest(ctx context.Context, req *GitRequest) (*Respon
 		return b.gitPublic(req)
 	case "clone":
 		return b.gitClone(ctx, req)
+	case "stage-limit":
+		return b.gitStageLimit(ctx, req)
+	case "stage-clear":
+		return b.gitStageClear(ctx, req)
 	case "verify-key":
 		return b.gitVerifyKey(ctx, req)
 	default:
@@ -1804,7 +1808,7 @@ func (b *Broker) gitClone(ctx context.Context, req *GitRequest) (*Response, erro
 		}
 		allowedHosts = append(allowedHosts, host)
 	}
-	args := []string{"clone", req.Site, req.Repository, req.Ref, req.Destination, strings.Join(allowedHosts, ","), strconv.FormatInt(req.MaxFileBytes, 10)}
+	args := []string{"clone", req.Site, req.Repository, req.Ref, req.Destination, strings.Join(allowedHosts, ","), strconv.FormatInt(req.MaxFileBytes, 10), strconv.FormatUint(uint64(req.ProjectID), 10)}
 	cmd := stepanelhelper.NewCommand(ctx, b.gitctlPath, args...)
 	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
@@ -1815,6 +1819,41 @@ func (b *Broker) gitClone(ctx context.Context, req *GitRequest) (*Response, erro
 		return nil, marshalErr
 	}
 	return &Response{OK: true, Details: details}, nil
+}
+
+func (b *Broker) gitStageLimit(ctx context.Context, req *GitRequest) (*Response, error) {
+	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site}, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	cmd := stepanelhelper.NewCommand(ctx, b.gitctlPath, "stage-limit", req.Site, siteUser, req.Destination, strconv.FormatInt(req.MaxStageBytes, 10))
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("Git aggregate staging quota failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	projectID, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 32)
+	if err != nil || projectID < 1000000000 || projectID >= 2000000000 {
+		return &Response{OK: false, Error: "Git staging helper returned an invalid project quota ID"}, nil
+	}
+	details, err := json.Marshal(GitResponse{ProjectID: uint32(projectID)})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
+}
+
+func (b *Broker) gitStageClear(ctx context.Context, req *GitRequest) (*Response, error) {
+	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site}, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	args := []string{"stage-clear", req.Site, siteUser, req.Destination, strconv.FormatUint(uint64(req.ProjectID), 10)}
+	cmd := stepanelhelper.NewCommand(ctx, b.gitctlPath, args...)
+	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("Git aggregate staging quota cleanup failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+	}
+	return &Response{OK: true}, nil
 }
 
 func (b *Broker) gitVerifyKey(ctx context.Context, req *GitRequest) (*Response, error) {

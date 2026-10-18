@@ -1132,11 +1132,11 @@ func TestBrokerGitCloneUsesConcreteHelperContract(t *testing.T) {
 		t.Fatalf("NewBroker failed: %v", err)
 	}
 	gitctl := filepath.Join(t.TempDir(), "stepanel-gitctl")
-	if err := os.WriteFile(gitctl, []byte("#!/bin/sh\n[ \"$#\" -eq 7 ] && [ \"$7\" = 5368709120 ]\n"), 0700); err != nil {
+	if err := os.WriteFile(gitctl, []byte("#!/bin/sh\n[ \"$#\" -eq 8 ] && [ \"$7\" = 5368709120 ] && [ \"$8\" = 1000000001 ]\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	broker.gitctlPath = gitctl
-	destination := filepath.Join(webRoot, "sites", "site", ".stepanel-release-test")
+	destination := filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-site-test")
 	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
 		t.Fatal(err)
 	}
@@ -1151,6 +1151,7 @@ func TestBrokerGitCloneUsesConcreteHelperContract(t *testing.T) {
 			Ref:          "main",
 			Destination:  destination,
 			MaxFileBytes: 5 << 30,
+			ProjectID:    1000000001,
 			AllowedHosts: []string{"github.com"},
 		},
 	}
@@ -1173,8 +1174,9 @@ func TestValidatorGitCloneBindsDestinationAndShape(t *testing.T) {
 			Site:         "alpha",
 			Repository:   "git@github.com:user/repo.git",
 			Ref:          "main",
-			Destination:  filepath.Join(webRoot, "sites", "alpha", ".stepanel-release-123"),
+			Destination:  filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-alpha-123"),
 			MaxFileBytes: 5 << 30,
+			ProjectID:    1000000001,
 			AllowedHosts: []string{"github.com"},
 		}
 	}
@@ -1182,10 +1184,12 @@ func TestValidatorGitCloneBindsDestinationAndShape(t *testing.T) {
 		t.Fatalf("valid clone rejected: %v", err)
 	}
 	cases := map[string]func(*GitRequest){
-		"other site's release": func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "beta", ".stepanel-release-123") },
-		"site root":            func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "alpha") },
-		"public tree":          func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "alpha", "public") },
-		"shared sites dir":     func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites") },
+		"other site's release": func(r *GitRequest) {
+			r.Destination = filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-beta-123")
+		},
+		"site root":        func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "alpha") },
+		"public tree":      func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "alpha", "public") },
+		"shared sites dir": func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites") },
 		"unclean path": func(r *GitRequest) {
 			r.Destination = filepath.Join(webRoot, "sites", "alpha") + "/x/../.stepanel-release-1"
 		},
@@ -1203,6 +1207,30 @@ func TestValidatorGitCloneBindsDestinationAndShape(t *testing.T) {
 				t.Fatal("invalid clone accepted")
 			}
 		})
+	}
+}
+
+func TestValidatorGitStageQuotaBindsManagerOwnedSiteStage(t *testing.T) {
+	webRoot := t.TempDir()
+	v := NewValidator(webRoot)
+	validPath := filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-alpha-build-123")
+	for _, request := range []*GitRequest{
+		{Action: "stage-limit", Site: "alpha", Destination: validPath, MaxStageBytes: 2 << 30},
+		{Action: "stage-clear", Site: "alpha", Destination: validPath, ProjectID: 1000000001},
+	} {
+		if err := v.ValidateRequest(&Request{RequestType: "git", Git: request}); err != nil {
+			t.Errorf("valid %s request rejected: %v", request.Action, err)
+		}
+	}
+	for _, request := range []*GitRequest{
+		{Action: "stage-limit", Site: "alpha", Destination: filepath.Join(webRoot, "sites", "beta", ".stepanel-release-alpha-123"), MaxStageBytes: 1 << 20},
+		{Action: "stage-clear", Site: "alpha", Destination: filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-beta-123"), ProjectID: 1000000001},
+		{Action: "stage-limit", Site: "alpha", Destination: validPath, MaxStageBytes: 1<<40 + 1},
+		{Action: "stage-clear", Site: "alpha", Destination: validPath, ProjectID: 999999999},
+	} {
+		if err := v.ValidateRequest(&Request{RequestType: "git", Git: request}); err == nil {
+			t.Errorf("invalid %s staging request accepted: %+v", request.Action, request)
+		}
 	}
 }
 

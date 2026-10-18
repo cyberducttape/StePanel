@@ -28,7 +28,8 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   latest query, all 18 host jobs in its three active shards remain at “Start
   disposable systemd host”; no iteration counts are recorded. A fresh
   two-repeat shard on `623acbb` is queued.
-- Production remains **NO-GO**: aggregate Git staging-space enforcement,
+- Production remains **NO-GO**: Git project-quota host validation (the new
+  ext4 aggregate-write smoke is pending; XFS remains unverified),
   physical host power loss, broader ENOSPC, repeated installed-host recovery,
   notification outage/retry, upgrade/rollback, measured capacity, platform
   support, and independent security review remain open.
@@ -139,10 +140,11 @@ This commit increased the quota smoke's `/var/www` filesystem to 8 GiB for the
 5 GiB Git staging reservation and 1 GiB free-space floor. It also requires a
 durable Git deployment job ID, detects a terminal state before the injected
 activation kill, and prints the job status on timeout. Its hosted checks were
-canceled by later pushes. The local KVM fixture now uses the same 8 GiB
-`/var/www` capacity as the hosted quota fixture. A repository check derives
-the minimum needed for Git staging plus the installer's free-space floor and
-rejects either undersized fixture.
+canceled by later pushes. That was the fixture state at this historical
+commit; the current unverified change expands both local and hosted fixtures to
+24 GiB for a 15 GiB project quota plus the installer's 5 GiB free-space floor.
+The current quota smoke also tests aggregate writes and requires active ext4
+project quotas. No hosted result is claimed until the new smoke completes.
 
 ### Prior source validation — 2026-10-17 (`a27becc`)
 

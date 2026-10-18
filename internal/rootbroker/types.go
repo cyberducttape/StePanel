@@ -325,21 +325,24 @@ type ProxyResponse struct {
 // --- Git Operations ---
 
 type GitRequest struct {
-	Action       string   `json:"action"`                   // clone, delete, verify-key
-	Site         string   `json:"site,omitempty"`           // managed site for delete
-	Repository   string   `json:"repository"`               // Git URL (validated)
-	Ref          string   `json:"ref"`                      // Branch/tag
-	Destination  string   `json:"destination"`              // Clone destination (validated)
-	MaxFileBytes int64    `json:"max_file_bytes,omitempty"` // RLIMIT_FSIZE for Git pack and checkout files
-	PrivateKey   string   `json:"private_key,omitempty"`    // SSH key content
-	KnownHosts   string   `json:"known_hosts,omitempty"`    // SSH known_hosts
-	AllowedHosts []string `json:"allowed_hosts,omitempty"`
+	Action        string   `json:"action"`                    // clone, stage-limit, stage-clear, delete, verify-key
+	Site          string   `json:"site,omitempty"`            // managed site for delete
+	Repository    string   `json:"repository"`                // Git URL (validated)
+	Ref           string   `json:"ref"`                       // Branch/tag
+	Destination   string   `json:"destination"`               // Clone destination (validated)
+	MaxFileBytes  int64    `json:"max_file_bytes,omitempty"`  // RLIMIT_FSIZE for Git pack and checkout files
+	MaxStageBytes int64    `json:"max_stage_bytes,omitempty"` // aggregate filesystem project quota for clone staging
+	ProjectID     uint32   `json:"project_id,omitempty"`      // active root-allocated quota ID for clone/clear
+	PrivateKey    string   `json:"private_key,omitempty"`     // SSH key content
+	KnownHosts    string   `json:"known_hosts,omitempty"`     // SSH known_hosts
+	AllowedHosts  []string `json:"allowed_hosts,omitempty"`
 }
 
 type GitResponse struct {
 	Cloned    bool   `json:"cloned,omitempty"`
 	Verified  bool   `json:"verified,omitempty"`
 	Deleted   bool   `json:"deleted,omitempty"`
+	ProjectID uint32 `json:"project_id,omitempty"`
 	PublicKey string `json:"public_key,omitempty"`
 	Commit    string `json:"commit,omitempty"`
 }

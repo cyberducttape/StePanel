@@ -192,7 +192,11 @@ func releaseStageExists(webRoot, site, stagedRoot string) (bool, error) {
 		return false, err
 	}
 	abs, err := filepath.Abs(stagedRoot)
-	if err != nil || filepath.Dir(abs) != siteRoot || !strings.HasPrefix(filepath.Base(abs), ".stepanel-release-") {
+	managerRoot, managerErr := safePath(webRoot, "sites", ".stepanel-manager-staging")
+	base := filepath.Base(abs)
+	legacySiteStage := filepath.Dir(abs) == siteRoot && strings.HasPrefix(base, ".stepanel-release-")
+	managerStage := managerErr == nil && filepath.Dir(abs) == managerRoot && strings.HasPrefix(base, ".stepanel-release-"+site+"-")
+	if err != nil || (!legacySiteStage && !managerStage) {
 		return false, errors.New("invalid release staging path")
 	}
 	_, err = os.Lstat(abs)

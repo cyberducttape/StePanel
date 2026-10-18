@@ -178,9 +178,9 @@ tar -czf "$run_dir/source.tar.gz" --exclude=.git --exclude=node_modules --exclud
 
 # --- Boot ------------------------------------------------------------------
 qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$image")" "$run_dir/root.qcow2" 20G
-# The install phase runs the quota smoke and must admit the 5 GiB Git staging
-# reservation while retaining the installer's 1 GiB minimum-free floor.
-qemu-img create -q -f raw "$run_dir/www.ext4" 8G
+# The install phase must admit the 15 GiB aggregate clone quota (3x the
+# 5 GiB final-tree limit) while retaining the installer's 5 GiB free-space floor.
+qemu-img create -q -f raw "$run_dir/www.ext4" 24G
 qemu-img create -q -f raw "$run_dir/enospc.ext4" 96M
 ssh-keygen -q -t ed25519 -N '' -f "$run_dir/id_ed25519"
 cat > "$run_dir/user-data" <<EOF
@@ -203,11 +203,13 @@ packages:
 runcmd:
   - |
     set -eux
-    mkfs.ext4 -F -O quota -E quotatype=usrquota /dev/vdb
+    mkfs.ext4 -F -O project,quota -E quotatype=usrquota,prjquota /dev/vdb
     install -d -m 0755 /var/www
-    printf '%s\n' '/dev/vdb /var/www ext4 usrquota 0 2' >> /etc/fstab
+    printf '%s\n' '/dev/vdb /var/www ext4 usrquota,prjquota 0 2' >> /etc/fstab
     mount /var/www
     quotaon -p -u /var/www | grep -F 'is on'
+    quotaon -P /var/www
+    quotaon -p -P /var/www | grep -F 'project quota on /var/www is on'
     mkfs.ext4 -F /dev/vdc
     install -d -m 0700 /mnt/stepanel-enospc
     printf '%s\n' '/dev/vdc /mnt/stepanel-enospc ext4 defaults 0 2' >> /etc/fstab

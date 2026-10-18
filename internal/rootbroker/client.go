@@ -345,7 +345,7 @@ func (c *Client) TaskOperation(ctx context.Context, task TaskRequest) (*Response
 
 // GitClone clones a private repository into one of the site's release
 // staging directories, restricted to the allow-listed Git hosts.
-func (c *Client) GitClone(ctx context.Context, site, repo, ref, destination string, maxFileBytes int64, allowedHosts []string) (*Response, error) {
+func (c *Client) GitClone(ctx context.Context, site, repo, ref, destination string, maxFileBytes int64, projectID uint32, allowedHosts []string) (*Response, error) {
 	req := &Request{
 		RequestType: "git",
 		Git: &GitRequest{
@@ -355,10 +355,48 @@ func (c *Client) GitClone(ctx context.Context, site, repo, ref, destination stri
 			Ref:          ref,
 			Destination:  destination,
 			MaxFileBytes: maxFileBytes,
+			ProjectID:    projectID,
 			AllowedHosts: allowedHosts,
 		},
 	}
 	return c.Execute(ctx, req)
+}
+
+// GitStageLimit installs a root-managed aggregate project quota on an empty
+// release staging directory and returns its non-reusable filesystem project ID.
+func (c *Client) GitStageLimit(ctx context.Context, site, destination string, maxStageBytes int64) (uint32, error) {
+	resp, err := c.Execute(ctx, &Request{RequestType: "git", Git: &GitRequest{
+		Action: "stage-limit", Site: site, Destination: destination, MaxStageBytes: maxStageBytes,
+	}})
+	if err != nil {
+		return 0, err
+	}
+	if !resp.OK {
+		return 0, fmt.Errorf("root broker rejected Git staging quota: %s", resp.Error)
+	}
+	var details GitResponse
+	if err := json.Unmarshal(resp.Details, &details); err != nil {
+		return 0, fmt.Errorf("decode Git staging quota response: %w", err)
+	}
+	if details.ProjectID < 1000000000 || details.ProjectID >= 2000000000 {
+		return 0, fmt.Errorf("root broker returned an invalid Git staging project ID")
+	}
+	return details.ProjectID, nil
+}
+
+// GitStageClear removes the hard project quota after the clone process has
+// exited. The root-owned helper verifies that the ID is bound to this path.
+func (c *Client) GitStageClear(ctx context.Context, site, destination string, projectID uint32) error {
+	resp, err := c.Execute(ctx, &Request{RequestType: "git", Git: &GitRequest{
+		Action: "stage-clear", Site: site, Destination: destination, ProjectID: projectID,
+	}})
+	if err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("root broker rejected Git staging quota cleanup: %s", resp.Error)
+	}
+	return nil
 }
 
 // GitDelete removes the managed deployment key for a site.

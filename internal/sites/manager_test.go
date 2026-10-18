@@ -108,8 +108,9 @@ func TestReleaseStagingPreservesRunnerLayoutAndOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateReleaseStaging: %v", err)
 	}
-	if filepath.Dir(stage) != filepath.Dir(public) {
-		t.Fatalf("release staging parent = %q, want site root %q", filepath.Dir(stage), filepath.Dir(public))
+	wantParent := filepath.Join(root, "sites", ".stepanel-manager-staging")
+	if filepath.Dir(stage) != wantParent || !strings.Contains(filepath.Base(stage), ".stepanel-release-release-site-") {
+		t.Fatalf("release staging path = %q, want site-bound staging below %q", stage, wantParent)
 	}
 	if err := os.WriteFile(filepath.Join(stage, "version"), []byte("next"), 0600); err != nil {
 		t.Fatal(err)

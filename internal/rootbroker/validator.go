@@ -801,6 +801,36 @@ func (v *Validator) validateGitRequest(req *GitRequest) error {
 	if req.Action == "delete" || req.Action == "public" || req.Action == "generate" {
 		return v.ValidateSiteName(req.Site)
 	}
+	if req.Action == "verify-key" {
+		return nil // retained as an explicit unsupported capability at dispatch
+	}
+	if req.Action == "stage-limit" || req.Action == "stage-clear" {
+		if err := v.ValidateSiteName(req.Site); err != nil {
+			return fmt.Errorf("Git staging site: %w", err)
+		}
+		if err := v.ValidateGitDestination(req.Destination); err != nil {
+			return err
+		}
+		if err := argReleasePath(0)(v, req.Destination, []string{req.Site}); err != nil {
+			return fmt.Errorf("Git staging destination: %w", err)
+		}
+		if req.Action == "stage-limit" {
+			if req.MaxStageBytes < 1 || req.MaxStageBytes > 1<<40 {
+				return errors.New("Git aggregate staging byte limit is out of range")
+			}
+			if req.ProjectID != 0 {
+				return errors.New("Git stage-limit must not include a project ID")
+			}
+			return nil
+		}
+		if req.ProjectID < 1000000000 || req.ProjectID >= 2000000000 || req.MaxStageBytes != 0 {
+			return errors.New("Git stage-clear requires a valid root-allocated project ID")
+		}
+		return nil
+	}
+	if req.Action != "clone" {
+		return fmt.Errorf("unsupported Git action %q", req.Action)
+	}
 	if err := v.ValidateGitRepository(req.Repository); err != nil {
 		return err
 	}
@@ -814,12 +844,14 @@ func (v *Validator) validateGitRequest(req *GitRequest) error {
 		if req.MaxFileBytes < 1 || req.MaxFileBytes > 1<<50 {
 			return fmt.Errorf("Git clone per-file byte limit is out of range")
 		}
+		if req.ProjectID < 1000000000 || req.ProjectID >= 2000000000 || req.MaxStageBytes != 0 {
+			return errors.New("private Git clone requires an active root-allocated project quota ID")
+		}
 		if err := v.ValidateSiteName(req.Site); err != nil {
 			return fmt.Errorf("clone site: %w", err)
 		}
-		// The clone runs as root: bind the destination to a release staging
-		// directory of the requesting site, not merely anywhere under the
-		// web root (another site's tree, or the shared sites directory).
+		// The clone runs as root: bind the destination to this site's
+		// manager-owned staging directory, which has an active project quota.
 		if err := argReleasePath(0)(v, req.Destination, []string{req.Site}); err != nil {
 			return fmt.Errorf("clone destination: %w", err)
 		}

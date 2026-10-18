@@ -31,7 +31,6 @@ var (
 	schemaPythonVersion     = regexp.MustCompile(`^3\.(12|13)$`)
 	schemaEntrypointPattern = regexp.MustCompile(`^[A-Za-z0-9_./:-]{1,160}$`)
 	schemaImagePattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]{0,180}(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$`)
-	schemaReleasePattern    = regexp.MustCompile(`^\.stepanel-release-[A-Za-z0-9-]+$`)
 	schemaRunnerScript      = regexp.MustCompile(`^(runner|pipeline)-[0-9]+\.sh$`)
 )
 
@@ -94,11 +93,15 @@ func argSitePath(sitePos int, suffix string) helperArg {
 	}
 }
 
-// argReleasePath requires {webRoot}/sites/{site}/.stepanel-release-<id>.
+// argReleasePath requires a manager-owned staging directory whose name binds
+// it to the requested site, preventing callers from assigning quota to an
+// unrelated staging tree.
 func argReleasePath(sitePos int) helperArg {
 	return func(v *Validator, value string, args []string) error {
-		siteRoot := filepath.Join(v.webRoot, "sites", args[sitePos])
-		if filepath.Clean(value) != value || filepath.Dir(value) != siteRoot || !schemaReleasePattern.MatchString(filepath.Base(value)) {
+		sitesRoot := filepath.Join(v.webRoot, "sites")
+		stageRoot := filepath.Join(sitesRoot, ".stepanel-manager-staging")
+		pattern := regexp.MustCompile(`^\.stepanel-release-` + regexp.QuoteMeta(args[sitePos]) + `-[A-Za-z0-9-]+$`)
+		if filepath.Clean(value) != value || filepath.Dir(value) != stageRoot || !pattern.MatchString(filepath.Base(value)) {
 			return fmt.Errorf("path must be a release staging directory of the site")
 		}
 		return nil

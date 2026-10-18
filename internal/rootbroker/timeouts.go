@@ -66,7 +66,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 	},
 	"git": {
 		"generate": timeoutConfig, "public": timeoutConfig, "delete": timeoutLifecycle,
-		"clone": timeoutContainer, "verify-key": timeoutConfig,
+		"clone": timeoutContainer, "verify-key": timeoutConfig, "stage-limit": timeoutConfig, "stage-clear": timeoutConfig,
 	},
 	"vhost":       {"apply": timeoutConfig, "apply-auth": timeoutConfig, "delete": timeoutConfig, "import-htaccess": timeoutConfig},
 	"proxy":       {"apply": timeoutConfig, "reload": timeoutConfig, "delete": timeoutConfig},

@@ -22,6 +22,11 @@ else
     echo '/var/www is not mounted with user quotas enabled' >&2
     exit 1
   fi
+  if ! awk '$2 == "/var/www" && $4 ~ /(^|,)(prjquota|pquota)(,|$)/ { found=1 } END { exit !found }' /proc/mounts; then
+    echo '/var/www is not mounted with project quotas enabled' >&2
+    exit 1
+  fi
+  quotaon -p -P /var/www | grep -F 'project quota on /var/www is on'
 fi
 export STEPANEL_SKIP_STARTUP_DB_RECONCILE=1
 export STEPANEL_SKIP_STARTUP_HOST_RECONCILE=1
@@ -223,6 +228,27 @@ site=ci-smoke
 mkdir -p "/var/www/sites/$site/public"
 printf '%s\n' 'smoke' > "/var/www/sites/$site/public/index.html"
 /usr/local/sbin/stepanel-sitectl seal "$site"
+
+if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
+  stage_parent=/var/www/sites/.stepanel-manager-staging
+  install -d -o stepanel -g stepanel -m 0700 "$stage_parent"
+  chmod 0711 "$stage_parent"
+  quota_stage="$stage_parent/.stepanel-release-$site-quota-smoke"
+  install -d -o stepanel -g stepanel -m 0700 "$quota_stage"
+  site_user=$(stat -c %U "/var/www/sites/$site")
+  web_group=$(sed -n 's/^STEPANEL_WEB_GROUP="\([a-z_][a-z0-9_-]*\)"$/\1/p' /etc/ste-panel.env)
+  web_gid=$(getent group "$web_group" | cut -d: -f3)
+  project_id=$(/usr/local/sbin/stepanel-gitctl stage-limit "$site" "$site_user" "$quota_stage" 1048576)
+  runuser -u stepanel -- touch "$quota_stage/panel-acl-test"
+  runuser -u "$site_user" -- dd if=/dev/zero of="$quota_stage/first.bin" bs=700K count=1 conv=fsync status=none
+  setpriv --reuid=65534 --regid=65534 --groups="$web_gid" -- test -r "$quota_stage/first.bin"
+  if runuser -u "$site_user" -- dd if=/dev/zero of="$quota_stage/second.bin" bs=700K count=1 conv=fsync status=none; then
+    echo 'aggregate Git project quota did not reject two individually sub-limit files' >&2
+    exit 1
+  fi
+  /usr/local/sbin/stepanel-gitctl stage-clear "$site" "$site_user" "$quota_stage" "$project_id"
+  rm -rf -- "$quota_stage"
+fi
 
 # prepare-root is what the typed broker runs before staged activation: the
 # full isolation contract without creating public/.

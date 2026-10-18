@@ -195,15 +195,18 @@ func (m *DefaultManager) resolveStagedRoot(name, stagedRoot string) (string, str
 	return "", "", errors.New("sites.Manager: staged path is not in a manager-owned staging root")
 }
 
-// CreateReleaseStaging allocates a temporary release in the existing site's
-// root. The runner helper intentionally accepts this layout so source trees
-// can be mounted with the site's identity and policy.
+// CreateReleaseStaging allocates a temporary release below the manager-owned
+// staging root. Site accounts cannot rename this parent or replace the clone
+// destination while an untrusted repository is being fetched.
 func (m *DefaultManager) CreateReleaseStaging(ctx context.Context, name, prefix string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	if !strings.HasPrefix(prefix, ".stepanel-release-") || !validStagingPrefix.MatchString(prefix) {
 		return "", errors.New("sites.Manager: invalid release staging prefix")
+	}
+	if !validSiteName.MatchString(name) {
+		return "", fmt.Errorf("sites.Manager: invalid site name %q", name)
 	}
 	siteRoot, err := m.resolveSiteRoot(name)
 	if err != nil {
@@ -216,7 +219,24 @@ func (m *DefaultManager) CreateReleaseStaging(ctx context.Context, name, prefix 
 	if !info.IsDir() {
 		return "", errors.New("sites.Manager: release site root is not a directory")
 	}
-	stage, err := os.MkdirTemp(siteRoot, prefix)
+	sitesRoot, err := h.SafePath(m.webRoot, "sites")
+	if err != nil {
+		return "", err
+	}
+	stageParent, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(stageParent, 0700); err != nil {
+		return "", fmt.Errorf("sites.Manager: create release staging root: %w", err)
+	}
+	// Keep the entry searchable but not tenant-writable. The panel owns this
+	// directory; Git staging directories themselves receive site ownership and
+	// a panel ACL from the root broker before cloning.
+	if err := os.Chmod(stageParent, 0711); err != nil {
+		return "", fmt.Errorf("sites.Manager: secure release staging root: %w", err)
+	}
+	stage, err := os.MkdirTemp(stageParent, ".stepanel-release-"+name+"-")
 	if err != nil {
 		return "", fmt.Errorf("sites.Manager: create release staging tree: %w", err)
 	}

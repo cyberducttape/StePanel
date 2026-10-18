@@ -12,6 +12,70 @@ git_host_allowed() {
   done
   return 1
 }
+valid_stage_path() {
+  local site=$1 destination=$2
+  [[ $destination =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[A-Za-z0-9-]+$ &&
+     -d $destination && ! -L $destination &&
+     -d /var/www/sites/.stepanel-manager-staging && ! -L /var/www/sites/.stepanel-manager-staging &&
+     $(stat -c '%U:%a' /var/www/sites/.stepanel-manager-staging) == stepanel:711 ]]
+}
+project_quota_mount() {
+  local destination=$1 mount fstype options status
+  command -v findmnt >/dev/null 2>&1 || { echo 'findmnt is required for Git staging quotas' >&2; return 1; }
+  command -v quotaon >/dev/null 2>&1 || { echo 'quotaon is required for Git staging quotas' >&2; return 1; }
+  command -v setquota >/dev/null 2>&1 || { echo 'setquota is required for Git staging quotas' >&2; return 1; }
+  command -v setfacl >/dev/null 2>&1 || { echo 'setfacl is required for Git staging quotas' >&2; return 1; }
+  [[ -f /etc/ste-panel.env && ! -L /etc/ste-panel.env && $(stat -c '%u' /etc/ste-panel.env) == 0 && $(( 8#$(stat -c '%a' /etc/ste-panel.env) & 077 )) == 0 ]] || { echo 'trusted web identity configuration is unavailable' >&2; return 1; }
+  mount=$(findmnt -no TARGET -T "$destination") || { echo 'cannot determine Git staging filesystem' >&2; return 1; }
+  fstype=$(findmnt -no FSTYPE -T "$destination") || { echo 'cannot determine Git staging filesystem type' >&2; return 1; }
+  options=$(findmnt -no OPTIONS -T "$destination") || { echo 'cannot inspect Git staging filesystem options' >&2; return 1; }
+  [[ $options =~ (^|,)(prjquota|pquota)(,|$) ]] || { echo 'Git staging filesystem must be mounted with project quotas (prjquota)' >&2; return 1; }
+  status=$(quotaon -p -P "$mount" 2>&1) || { echo "cannot inspect project quota state: $status" >&2; return 1; }
+  grep -Fq "project quota on $mount is on" <<<"$status" || { echo "project quotas are not active on $mount: $status" >&2; return 1; }
+  case "$fstype" in
+    ext4) command -v chattr >/dev/null 2>&1 || { echo 'chattr is required for ext4 project quotas' >&2; return 1; } ;;
+    xfs) command -v xfs_quota >/dev/null 2>&1 || { echo 'xfs_quota is required for XFS project quotas' >&2; return 1; } ;;
+    *) echo "Git staging project quotas are unsupported on filesystem type $fstype" >&2; return 1 ;;
+  esac
+  printf '%s\t%s\t%s\n' "$mount" "$fstype" "$(findmnt -no SOURCE -T "$destination")"
+}
+allocate_project_id() {
+  local state_root=/var/lib/stepanel/git-stage-projects lock_file sequence_file next tmp
+  install -d -m 0700 -o root -g root "$state_root"
+  lock_file="$state_root/.lock"
+  exec 9>"$lock_file"
+  flock -x 9
+  sequence_file="$state_root/.next-id"
+  if [[ -e $sequence_file ]]; then
+    [[ -f $sequence_file && ! -L $sequence_file && $(stat -c '%u:%a' "$sequence_file") == 0:600 ]] || {
+      echo 'Git project quota sequence is not a trusted root-owned file' >&2
+      return 1
+    }
+    IFS= read -r sequence < "$sequence_file" || true
+  else
+    sequence=1000000000
+  fi
+  [[ ${sequence:-} =~ ^[1-9][0-9]{8,9}$ ]] && (( sequence >= 1000000000 && sequence < 2000000000 )) || {
+    echo 'Git project quota ID sequence is invalid or exhausted' >&2
+    return 1
+  }
+  next=$((sequence + 1))
+  tmp=$(mktemp "$state_root/.next-id.XXXXXX")
+  printf '%s\n' "$next" > "$tmp"
+  chown root:root "$tmp"; chmod 0600 "$tmp"
+  sync -f "$tmp"
+  mv -f -- "$tmp" "$sequence_file"
+  sync -f "$state_root"
+  printf '%s\n' "$sequence"
+}
+set_project_id() {
+  local fstype=$1 mount=$2 path=$3 id=$4
+  case "$fstype" in
+    ext4) chattr -p "$id" +P "$path" ;;
+    xfs) xfs_quota -x -c "project -s -p $path $id" "$mount" ;;
+    *) return 1 ;;
+  esac
+}
 key_root=/etc/stepanel/git-keys
 key="$key_root/$site"
 case "$action" in
@@ -31,25 +95,95 @@ case "$action" in
     (( $# == 2 )) || exit 64
     rm -f -- "$key" "$key.pub"
     ;;
+  stage-limit)
+    (( $# == 5 )) || { echo 'usage: stepanel-gitctl stage-limit SITE SITE_USER DESTINATION MAX_STAGE_BYTES' >&2; exit 64; }
+    site_user=$3; destination=$4; max_stage_bytes=$5
+    [[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ && $max_stage_bytes =~ ^[1-9][0-9]{0,12}$ ]] || { echo 'invalid Git staging quota request' >&2; exit 1; }
+    (( max_stage_bytes <= 1099511627776 )) || { echo 'Git staging quota exceeds 1 TiB' >&2; exit 1; }
+    valid_stage_path "$site" "$destination" || { echo 'invalid Git release staging directory' >&2; exit 1; }
+    [[ -z $(find "$destination" -mindepth 1 -maxdepth 1 -print -quit) ]] || { echo 'Git release staging directory must be empty before quota assignment' >&2; exit 1; }
+    account_home=$(getent passwd "$site_user" | cut -d: -f6)
+    [[ $account_home == "/var/www/sites/$site" ]] || { echo 'Git staging account does not own the requested site' >&2; exit 1; }
+    web_group=$(sed -n 's/^STEPANEL_WEB_GROUP="\([a-z_][a-z0-9_-]*\)"$/\1/p' /etc/ste-panel.env)
+    [[ $web_group =~ ^[a-z_][a-z0-9_-]*$ ]] && getent group "$web_group" >/dev/null || { echo 'trusted web server group is invalid' >&2; exit 1; }
+    IFS=$'\t' read -r mount fstype source < <(project_quota_mount "$destination")
+    [[ -n $mount && -n $fstype && -n $source ]] || { echo 'Git staging project quota mount discovery failed' >&2; exit 1; }
+    project_root=/var/lib/stepanel/git-stage-projects
+    project_id=$(allocate_project_id) || exit 1
+    marker="$project_root/$project_id"
+    mkdir -m 0700 -- "$marker"
+    printf '%s\n%s\n%s\n' "$destination" "$mount" "$source" > "$marker/target"
+    chown root:root "$marker" "$marker/target"; chmod 0700 "$marker"; chmod 0600 "$marker/target"
+    sync -f "$marker/target"; sync -f "$project_root"
+    blocks=$(( (max_stage_bytes + 1023) / 1024 ))
+    if ! setquota -P "$project_id" 0 "$blocks" 0 0 "$mount" || ! set_project_id "$fstype" "$mount" "$destination" "$project_id"; then
+      setquota -P "$project_id" 0 0 0 0 "$mount" >/dev/null 2>&1 || true
+      rm -rf -- "$marker"
+      echo 'failed to apply aggregate Git staging project quota' >&2
+      exit 1
+    fi
+    # The manager-owned parent is searchable but not tenant-writable. Give
+    # the site ownership of its stage while preserving panel write access for
+    # clone processes; the tenant still cannot replace the parent entry.
+    if ! chown "$site_user:$web_group" "$destination" || ! chmod 2770 "$destination" ||
+       ! setfacl -m u:stepanel:rwx,g::---,g:"$web_group":rx,m::rwx,o::---,d:u::rwx,d:u:stepanel:rwx,d:u:"$site_user":rwx,d:g::---,d:g:"$web_group":rx,d:m::rwx,d:o::--- "$destination"; then
+      setquota -P "$project_id" 0 0 0 0 "$mount" >/dev/null 2>&1 || true
+      rm -rf -- "$marker"
+      echo 'failed to grant isolated Git stage access' >&2
+      exit 1
+    fi
+    printf '%s\n' "$project_id"
+    ;;
+  stage-clear)
+    (( $# == 5 )) || { echo 'usage: stepanel-gitctl stage-clear SITE SITE_USER DESTINATION PROJECT_ID' >&2; exit 64; }
+    site_user=$3; destination=$4; project_id=$5
+    [[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ && $destination =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[A-Za-z0-9-]+$ && $project_id =~ ^1[0-9]{9}$ ]] || { echo 'invalid Git staging quota cleanup request' >&2; exit 1; }
+    [[ $project_id -ge 1000000000 && $project_id -lt 2000000000 ]] || { echo 'Git project quota ID is outside its reserved range' >&2; exit 1; }
+    valid_stage_path "$site" "$destination" || { [[ ! -e $destination && ! -L $destination ]] || { echo 'invalid Git release staging directory' >&2; exit 1; }; }
+    project_root=/var/lib/stepanel/git-stage-projects
+    marker="$project_root/$project_id"
+    [[ -d $marker && ! -L $marker && -f $marker/target && ! -L $marker/target && $(stat -c '%u:%a' "$marker") == 0:700 && $(stat -c '%u:%a' "$marker/target") == 0:600 ]] || { echo 'Git project quota marker is unavailable or untrusted' >&2; exit 1; }
+    mapfile -t marker_lines < "$marker/target"
+    [[ ${#marker_lines[@]} -eq 3 && ${marker_lines[0]} == "$destination" ]] || { echo 'Git project quota marker does not match the staging path' >&2; exit 1; }
+    mount=${marker_lines[1]}; source=${marker_lines[2]}
+    if [[ -e $destination ]]; then
+      current_mount=$(findmnt -no TARGET -T "$destination") || { echo 'cannot verify Git staging filesystem during quota cleanup' >&2; exit 1; }
+      current_source=$(findmnt -no SOURCE -T "$destination") || { echo 'cannot verify Git staging device during quota cleanup' >&2; exit 1; }
+      [[ $current_mount == "$mount" && $current_source == "$source" ]] || { echo 'Git staging filesystem changed before quota cleanup' >&2; exit 1; }
+    fi
+    # Project IDs are monotonically allocated and never reused. Clearing the
+    # active hard limit is sufficient after the clone process has exited; the
+    # IDs left on the now-inert tree cannot accidentally constrain later work.
+    setquota -P "$project_id" 0 0 0 0 "$mount" || { echo 'failed to clear Git staging project quota' >&2; exit 1; }
+    rm -rf -- "$marker"
+    sync -f "$project_root"
+    ;;
   clone)
-    (( $# == 7 )) || { echo 'usage: stepanel-gitctl clone SITE REPOSITORY REF DESTINATION ALLOWED_HOSTS MAX_FILE_BYTES' >&2; exit 64; }
-    repository=$3; ref=$4; destination=$5; allowed_hosts=$6; max_file_bytes=$7
+    (( $# == 8 )) || { echo 'usage: stepanel-gitctl clone SITE REPOSITORY REF DESTINATION ALLOWED_HOSTS MAX_FILE_BYTES PROJECT_ID' >&2; exit 64; }
+    repository=$3; ref=$4; destination=$5; allowed_hosts=$6; max_file_bytes=$7; project_id=$8
     if [[ ! $max_file_bytes =~ ^[1-9][0-9]{0,15}$ ]] || (( max_file_bytes > 1125899906842624 )); then
       echo 'invalid Git per-file byte limit' >&2
       exit 1
     fi
+    [[ $project_id =~ ^1[0-9]{9}$ ]] && (( project_id >= 1000000000 && project_id < 2000000000 )) || { echo 'active Git staging quota project ID is required' >&2; exit 1; }
     [[ $allowed_hosts =~ ^[A-Za-z0-9.,-]+$ ]] || { echo 'invalid Git host allowlist' >&2; exit 1; }
-    [[ -f $key && ! -L $key && $repository =~ ^git@([A-Za-z0-9.-]+):[A-Za-z0-9._/-]+\.git$ && $ref =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ && $destination == "/var/www/sites/$site/.stepanel-release-"* ]] || { echo 'invalid private clone request' >&2; exit 1; }
+    [[ -f $key && ! -L $key && $repository =~ ^git@([A-Za-z0-9.-]+):[A-Za-z0-9._/-]+\.git$ && $ref =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ && $destination == "/var/www/sites/.stepanel-manager-staging/.stepanel-release-$site-"* ]] || { echo 'invalid private clone request' >&2; exit 1; }
     git_host=${BASH_REMATCH[1]}
     git_host_allowed "$git_host" || { echo 'repository host is not in STEPANEL_GIT_ALLOWED_HOSTS' >&2; exit 1; }
-    [[ $destination =~ ^/var/www/sites/$site/\.stepanel-release-[A-Za-z0-9-]+$ && ! -e $destination && -d "/var/www/sites/$site" && ! -L "/var/www/sites/$site" ]] || { echo 'invalid clone destination' >&2; exit 1; }
+    valid_stage_path "$site" "$destination" || { echo 'invalid clone destination' >&2; exit 1; }
+    [[ -z $(find "$destination" -mindepth 1 -maxdepth 1 -print -quit) ]] || { echo 'Git release staging directory must be empty before clone' >&2; exit 1; }
+    project_root=/var/lib/stepanel/git-stage-projects
+    marker="$project_root/$project_id"
+    [[ -d $marker && ! -L $marker && -f $marker/target && ! -L $marker/target && $(stat -c '%u:%a' "$marker") == 0:700 && $(stat -c '%u:%a' "$marker/target") == 0:600 ]] || { echo 'active Git project quota marker is unavailable or untrusted' >&2; exit 1; }
+    mapfile -t marker_lines < "$marker/target"
+    [[ ${#marker_lines[@]} -eq 3 && ${marker_lines[0]} == "$destination" ]] || { echo 'active Git project quota does not match clone destination' >&2; exit 1; }
     known_hosts=/etc/stepanel/git-known-hosts
     [[ -f $known_hosts && ! -L $known_hosts ]] || { echo 'trusted Git SSH host keys are not configured' >&2; exit 1; }
-    # Bound memory and individual pack/checkout files. This is defense in depth,
-    # not an aggregate staging-space quota.
+    # The root-owned marker above binds this clone to an active aggregate
+    # project quota; RLIMIT_FSIZE additionally caps each individual file.
     prlimit --as=2147483648 --fsize="$max_file_bytes" -- git -c credential.helper= -c core.hooksPath=/dev/null -c core.sshCommand="ssh -i $key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts -F /dev/null" \
       clone --depth 1 --branch "$ref" --single-branch --no-tags "$repository" "$destination"
     chown -R --no-dereference "$(stat -c '%u:%g' "/var/www/sites/$site")" "$destination"
     ;;
-  *) echo 'usage: stepanel-gitctl generate|public|delete|clone SITE ...' >&2; exit 64 ;;
+  *) echo 'usage: stepanel-gitctl generate|public|delete|stage-limit|stage-clear|clone SITE ...' >&2; exit 64 ;;
 esac

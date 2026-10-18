@@ -15,6 +15,18 @@ import (
 	"time"
 )
 
+func TestGitCloneStageLimitCoversAggregateCloneFootprint(t *testing.T) {
+	limit, err := gitCloneStageLimit(2 << 30)
+	if err != nil || limit != 6<<30 {
+		t.Fatalf("gitCloneStageLimit = %d, %v; want %d", limit, err, 6<<30)
+	}
+	for _, invalid := range []int64{0, gitCloneMaxStageBytes/int64(gitCloneStageMultiplier) + 1} {
+		if _, err := gitCloneStageLimit(invalid); err == nil {
+			t.Errorf("gitCloneStageLimit(%d) unexpectedly succeeded", invalid)
+		}
+	}
+}
+
 func TestGitCloneFileSizeLimitIsEnforcedByKernel(t *testing.T) {
 	prlimit, err := exec.LookPath("prlimit")
 	if err != nil {

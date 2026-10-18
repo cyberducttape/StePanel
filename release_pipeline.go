@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -204,15 +205,33 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	if err != nil {
 		return "", "", err
 	}
-	reservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-checkout", release, []capacityDemand{{Path: release, Bytes: uint64(a.Config.GitReleaseMaxTreeBytes)}})
+	stageLimit, err := gitCloneStageLimit(a.Config.GitReleaseMaxTreeBytes)
 	if err != nil {
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-		return "", "", fmt.Errorf("admit Git release staging: %w", err)
+		return "", "", err
+	}
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-checkout", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
+	if err != nil {
+		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
+		return "", "", fmt.Errorf("admit aggregate Git clone staging: %w", err)
 	}
 	defer reservation.release()
+	projectID, err := a.enableGitStageQuota(ctx, site.Site(), release, stageLimit)
+	if err != nil {
+		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
+		return "", "", fmt.Errorf("Git pipeline requires enforceable project quotas: %w", err)
+	}
+	quotaActive := true
+	defer func() {
+		if quotaActive {
+			if clearErr := a.disableGitStageQuota(site.Site(), release, projectID); clearErr != nil {
+				log.Printf("failed to clear Git pipeline project quota for %s: %v", filepath.Base(release), clearErr)
+			}
+		}
+	}()
 	var output []byte
 	if repository.Private {
-		output, err = clonePrivateRepository(ctx, a.Config, site.Site(), repository.URL, ref, release, a.Config.GitReleaseMaxTreeBytes)
+		output, err = clonePrivateRepository(ctx, a.Config, site.Site(), repository.URL, ref, release, a.Config.GitReleaseMaxTreeBytes, projectID)
 	} else {
 		prlimit, lookupErr := exec.LookPath("prlimit")
 		if lookupErr != nil {
@@ -237,6 +256,11 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", fmt.Errorf("invalid checked-out release: %s", strings.TrimSpace(string(output)))
 	}
+	if err := a.disableGitStageQuota(site.Site(), release, projectID); err != nil {
+		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
+		return "", "", fmt.Errorf("clear temporary Git staging quota: %w", err)
+	}
+	quotaActive = false
 	return release, commit, nil
 }
 

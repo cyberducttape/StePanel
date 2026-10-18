@@ -36,7 +36,34 @@ var webhookDeliveryIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0
 const (
 	gitCloneAddressSpaceBytes = uint64(2 << 30)
 	gitCloneMemoryHeadroom    = uint64(512 << 20)
+	gitCloneStageMultiplier   = uint64(3) // packed objects + checkout + filesystem metadata/headroom
+	gitCloneMaxStageBytes     = int64(1 << 40)
 )
+
+func gitCloneStageLimit(treeLimit int64) (int64, error) {
+	if treeLimit < 1 || uint64(treeLimit) > uint64(gitCloneMaxStageBytes)/gitCloneStageMultiplier {
+		return 0, errors.New("configured Git release limit cannot be safely admitted within the 1 TiB staging quota ceiling")
+	}
+	return int64(uint64(treeLimit) * gitCloneStageMultiplier), nil
+}
+
+func (a *App) enableGitStageQuota(ctx context.Context, site, destination string, limit int64) (uint32, error) {
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
+	if err != nil {
+		return 0, err
+	}
+	return client.GitStageLimit(ctx, site, destination, limit)
+}
+
+func (a *App) disableGitStageQuota(site, destination string, projectID uint32) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
+	if err != nil {
+		return err
+	}
+	return client.GitStageClear(ctx, site, destination, projectID)
+}
 
 func (a *App) acquireGitCloneAdmission(ctx context.Context) (func(), error) {
 	available, err := availableSystemMemoryBytes()
@@ -869,17 +896,35 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), input.Site, release))
 	}()
-	reservation, err := a.capacityLedger().reserve(a.Config, "git-release-staging", release, []capacityDemand{{Path: release, Bytes: uint64(a.Config.GitReleaseMaxTreeBytes)}})
+	stageLimit, err := gitCloneStageLimit(a.Config.GitReleaseMaxTreeBytes)
 	if err != nil {
-		http.Error(w, "insufficient capacity for the configured Git release limit", http.StatusInsufficientStorage)
+		http.Error(w, err.Error(), http.StatusInsufficientStorage)
+		return
+	}
+	reservation, err := a.capacityLedger().reserve(a.Config, "git-release-staging", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
+	if err != nil {
+		http.Error(w, "insufficient capacity for aggregate Git clone staging", http.StatusInsufficientStorage)
 		return
 	}
 	defer reservation.release()
+	projectID, err := a.enableGitStageQuota(operationCtx, input.Site, release, stageLimit)
+	if err != nil {
+		http.Error(w, "Git deployment requires enforceable project quotas on its staging filesystem: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	quotaActive := true
+	defer func() {
+		if quotaActive {
+			if clearErr := a.disableGitStageQuota(input.Site, release, projectID); clearErr != nil {
+				log.Printf("failed to clear Git staging project quota for %s: %v", filepath.Base(release), clearErr)
+			}
+		}
+	}()
 	ctx, cancel := context.WithTimeout(operationCtx, 10*time.Minute)
 	defer cancel()
 	var cloneOutput []byte
 	if repository.Private {
-		cloneOutput, err = clonePrivateRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release, a.Config.GitReleaseMaxTreeBytes)
+		cloneOutput, err = clonePrivateRepository(ctx, a.Config, input.Site, repository.URL, input.Ref, release, a.Config.GitReleaseMaxTreeBytes, projectID)
 	} else {
 		prlimit, lookupErr := exec.LookPath("prlimit")
 		if lookupErr != nil {
@@ -917,6 +962,11 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to remove Git metadata from release", http.StatusInternalServerError)
 		return
 	}
+	if err := a.disableGitStageQuota(input.Site, release, projectID); err != nil {
+		http.Error(w, "unable to remove temporary Git staging quota before activation: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	quotaActive = false
 	if err := operationCtx.Err(); err != nil {
 		http.Error(w, "Git activation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
@@ -1165,9 +1215,9 @@ func latestPreviousRelease(siteRoot string) (string, error) {
 // key. Production (and the direct lab broker) use the typed root-broker clone,
 // which binds the destination to the site's release staging directory;
 // development runs the helper directly.
-func clonePrivateRepository(ctx context.Context, cfg Config, site, repositoryURL, ref, release string, maxFileBytes int64) ([]byte, error) {
+func clonePrivateRepository(ctx context.Context, cfg Config, site, repositoryURL, ref, release string, maxFileBytes int64, projectID uint32) ([]byte, error) {
 	if !cfg.Production && !labDirectRootBrokerEnabled() {
-		output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.GitCtl, "clone", site, repositoryURL, ref, release, cfg.GitAllowedHosts, strconv.FormatInt(maxFileBytes, 10))
+		output, err, _ := runAllowlistedHelperOutput(ctx, cfg, nil, cfg.GitCtl, "clone", site, repositoryURL, ref, release, cfg.GitAllowedHosts, strconv.FormatInt(maxFileBytes, 10), strconv.FormatUint(uint64(projectID), 10))
 		return output, err
 	}
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", cfg.WebRoot)
@@ -1175,7 +1225,7 @@ func clonePrivateRepository(ctx context.Context, cfg Config, site, repositoryURL
 		return nil, fmt.Errorf("root broker is unavailable: %w", err)
 	}
 	allowedHosts := strings.FieldsFunc(cfg.GitAllowedHosts, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' })
-	response, err := client.GitClone(ctx, site, repositoryURL, ref, release, maxFileBytes, allowedHosts)
+	response, err := client.GitClone(ctx, site, repositoryURL, ref, release, maxFileBytes, projectID, allowedHosts)
 	if err != nil {
 		return nil, err
 	}
