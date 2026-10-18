@@ -12,7 +12,22 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest full repository gate — 2026-10-18 (`e50dab7`)
+### Latest full repository gate — 2026-10-18 (`e447ca2`)
+
+- `bash scripts/production-gate.sh` passed on exact source checkout
+  `e447ca2a28e352aa23190bc2917699d86cee5fda`: vet, full tests and coverage
+  floors (56.9%), full race suite (root package 470.922 seconds), repository
+  recovery drills, benchmarks, mixed HTTP load, and repository checks. Details
+  are in the [exact-source report](lab-results/2026-10-18-repository-production-gate-e447ca2.md).
+- At capture, exact-head CI and CodeQL were queued; standard and quota install
+  smokes were pending without jobs. No hosted result is inferred. The
+  20-repeat installed-host cohort on `633c013` remains incomplete.
+- Production remains **NO-GO**: physical host power loss, broader ENOSPC,
+  installed-host WordPress proof across the supported matrix, notification
+  outage/retry, upgrade/rollback, measured capacity, platform support, and
+  independent security review remain open.
+
+### Previous full repository gate — 2026-10-18 (`e50dab7`)
 
 - `bash scripts/production-gate.sh` passed on source checkout
   `e50dab701423e84fd126a5edcbe55d3b17a34139`: vet, full tests and coverage

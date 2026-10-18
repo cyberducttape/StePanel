@@ -9,7 +9,23 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest full repository gate — 2026-10-18 (`e50dab7`)
+### Latest full repository gate — 2026-10-18 (`e447ca2`)
+
+The exact source checkout `e447ca2a28e352aa23190bc2917699d86cee5fda` passed
+[`bash scripts/production-gate.sh`](./lab-results/2026-10-18-repository-production-gate-e447ca2.md):
+vet, full tests and coverage floors, race detection, repository recovery
+drills, benchmarks, mixed HTTP load, documentation, dashboard, quota fixture,
+assets, action pins, and shell checks. Coverage was 56.9%; the root-package
+race suite passed in 470.922 seconds. The evidence report records exact
+measurements and limits.
+
+At capture, exact-head CI and CodeQL were queued, and installation/quota runs
+were pending without jobs. These are not counted as passing. The separate
+20-repeat installed-host cohort on `633c013` remains incomplete. Repository
+gate success does not establish host certification; production remains
+**NO-GO**.
+
+### Previous full repository gate — 2026-10-18 (`e50dab7`)
 
 The exact source checkout `e50dab701423e84fd126a5edcbe55d3b17a34139` passed
 [`bash scripts/production-gate.sh`](./lab-results/2026-10-18-repository-production-gate-e50dab7.md):

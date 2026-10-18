@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Documentation
+
+- Recorded the exact-head repository production-gate results for `e447ca2` and
+  reconciled the current release status without treating queued hosted checks
+  or incomplete host-recovery evidence as passes.
+
 - Split installed-host boot from its long install/recovery smoke step so GitHub
   Actions reports boot and recovery progress accurately; preserve bounded
   failure diagnostics and remove the disposable host on normal exit, failure,
