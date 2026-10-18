@@ -311,8 +311,72 @@ drop_database_if_exists() {
   fi
 }
 
+# The dump is untrusted SQL, so it never loads with administrative
+# authority. MySQL/MariaDB load it as a per-restore account with privileges
+# only on the shadow database; it may set definers, so every definer is then
+# checked to be the site's own account. PostgreSQL loads it as the
+# non-superuser login stepanel_dbload, a member of the database owner only
+# while loading, so a RESET ROLE in the dump cannot regain superuser rights.
+postgres_loader=stepanel_dbload
+
+mysql_loader() { printf 'spl_%s' "$1"; }
+
+mysql_create_loader() {
+  local loader=$1 shadow=$2 password=$3
+  sql_secret "CREATE USER '$loader'@'localhost' IDENTIFIED BY '$password'"
+  sql "GRANT ALL PRIVILEGES ON \`$shadow\`.* TO '$loader'@'localhost'"
+  # Definers are checked after the load, so the loader may set them.
+  if [[ $(sql 'SELECT VERSION()') == *MariaDB* ]]; then
+    sql "GRANT SET USER ON *.* TO '$loader'@'localhost'"
+  elif ! sql "GRANT SET_ANY_DEFINER ON *.* TO '$loader'@'localhost'" 2>/dev/null; then
+    sql "GRANT SET_USER_ID ON *.* TO '$loader'@'localhost'"
+  fi
+}
+
+mysql_revoke_schema_grants() {
+  # Grants outlive DROP DATABASE, so a restore removes the ones it added.
+  mysql_generated "$1" '' '' "SELECT CONCAT('REVOKE ALL PRIVILEGES ON ', CHAR(96), @live, CHAR(96), '.* FROM ', QUOTE(User), '@', QUOTE(Host), ';') FROM mysql.db WHERE Db = @live"
+}
+
+mysql_check_definers() {
+  local shadow=$1 owner=$2 others
+  others=$(sql "SELECT GROUP_CONCAT(DISTINCT DEFINER ORDER BY DEFINER SEPARATOR ', ') FROM (
+    SELECT DEFINER FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='$shadow'
+    UNION ALL SELECT DEFINER FROM information_schema.VIEWS WHERE TABLE_SCHEMA='$shadow'
+    UNION ALL SELECT DEFINER FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA='$shadow'
+    UNION ALL SELECT DEFINER FROM information_schema.EVENTS WHERE EVENT_SCHEMA='$shadow') d WHERE DEFINER <> '$owner@localhost'")
+  [[ -z $others || $others == NULL ]] && return 0
+  echo "the dump defines triggers, views, routines or events as $others; only $owner@localhost may own them" >&2
+  return 1
+}
+
+postgres_ensure_loader() {
+  getent passwd "$postgres_loader" >/dev/null || useradd --system --user-group --no-create-home --home-dir / --shell /usr/sbin/nologin "$postgres_loader"
+  if [[ $(sql "SELECT COUNT(*) FROM pg_roles WHERE rolname='$postgres_loader'") == 0 ]]; then
+    sql "CREATE ROLE $postgres_loader LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" >/dev/null
+  else
+    sql "ALTER ROLE $postgres_loader LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" >/dev/null
+  fi
+}
+
+postgres_revoke_loader() {
+  local database=$1 owner
+  database_exists "$database" || return 0
+  owner=$(postgres_owner "$database")
+  valid_user "$owner" || return 0
+  sql "SET client_min_messages = error; REVOKE \"$owner\" FROM $postgres_loader" >/dev/null
+}
+
 discard_restore() {
   local shadow=$1 hex=${1#stepanel_restore_}
+  if [[ $engine == postgresql ]]; then
+    postgres_revoke_loader "$shadow"
+    postgres_revoke_loader "stepanel_retired_$hex"
+  else
+    sql "DROP USER IF EXISTS '$(mysql_loader "$hex")'@'localhost'"
+    mysql_revoke_schema_grants "$shadow"
+    mysql_revoke_schema_grants "stepanel_retired_$hex"
+  fi
   drop_database_if_exists "$shadow"
   drop_database_if_exists "stepanel_retired_$hex"
   rm -rf -- "${restore_root:?}/$hex"
@@ -361,7 +425,7 @@ finish_restores_for() {
 
 restore_dump() {
   # The exit trap reads restore_state and restore_shadow, so they are global.
-  local database=$1 site=$2 hex journal
+  local database=$1 site=$2 db_user=$3 hex journal
   hex=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
   restore_shadow="stepanel_restore_$hex"
   restore_state=load
@@ -386,20 +450,34 @@ restore_dump() {
   trap restore_failed EXIT
   if [[ $engine == postgresql ]]; then
     local owner encoding
-    owner=$(postgres_owner "$database"); valid_user "$owner" || [[ $owner == postgres ]] || { echo 'cannot read the database owner' >&2; return 1; }
+    owner=$(postgres_owner "$database")
+    [[ $owner != postgres ]] || { echo 'the database is owned by postgres; only a database with a non-superuser owner can be restored' >&2; return 1; }
+    valid_user "$owner" || { echo 'cannot read the database owner' >&2; return 1; }
     encoding=$(sql "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname='$database'")
     [[ $encoding =~ ^[A-Za-z0-9_]{1,32}$ ]] || { echo 'cannot read the database encoding' >&2; return 1; }
+    postgres_ensure_loader
     sql "CREATE DATABASE \"$restore_shadow\" OWNER \"$owner\" ENCODING '$encoding' TEMPLATE template0" >/dev/null
+    sql "GRANT \"$owner\" TO $postgres_loader" >/dev/null
     # The dump carries no ownership (pg_dump --no-owner), so it loads as
-    # the database owner: objects a superuser created would be unreadable
+    # the database owner: objects the loader created would be unreadable
     # by the site's database role.
-    local role_prefix=''
-    [[ $owner == postgres ]] || role_prefix="SET ROLE \"$owner\";"
-    { printf '%s\n' "$role_prefix"; cat; } | runuser -u postgres -- psql --no-psqlrc --no-password --quiet --set ON_ERROR_STOP=1 --dbname "$restore_shadow" >/dev/null
+    { printf 'SET ROLE "%s";\n' "$owner"; cat; } | runuser -u "$postgres_loader" -- psql --no-psqlrc --no-password --quiet --set ON_ERROR_STOP=1 --dbname "$restore_shadow" >/dev/null
+    postgres_revoke_loader "$restore_shadow"
   else
+    local loader password
+    loader=$(mysql_loader "$hex")
+    password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
     mysql_create_like "$database" "$restore_shadow"
-    "$client" --no-defaults --protocol=socket --batch --binary-mode "$restore_shadow"
+    mysql_create_loader "$loader" "$restore_shadow" "$password"
+    # MariaDB qualifies a view's columns with its schema when exporting it
+    # unless the view's definer can access that schema.
+    sql "GRANT ALL PRIVILEGES ON \`$restore_shadow\`.* TO '$db_user'@'localhost'"
+    # --binary-mode also disables client commands such as system.
+    MYSQL_PWD=$password "$client" --no-defaults --protocol=socket --user="$loader" --batch --binary-mode "$restore_shadow"
+    sql "DROP USER '$loader'@'localhost'"
+    mysql_check_definers "$restore_shadow" "$db_user"
     mysql_export_definitions "$restore_shadow" "$journal" "$database"
+    mysql_revoke_schema_grants "$restore_shadow"
   fi
   restore_state=swap
   register_database "$restore_shadow" "pending-restore:$site:$database:swap"
@@ -546,8 +624,9 @@ if [[ $action == restore-dump ]]; then
   value=$(<"$record")
   [[ $value == panel:"$site":* || $value == wordpress:"$site":* ]] || { echo 'database is not registered to this site' >&2; exit 1; }
   database_exists "$database" || { echo 'database does not exist' >&2; exit 1; }
+  db_user=${value##*:}; valid_user "$db_user" || { echo 'invalid database user in the ownership record' >&2; exit 1; }
   finish_restores_for "$database"
-  restore_dump "$database" "$site"
+  restore_dump "$database" "$site" "$db_user"
   exit 0
 fi
 
@@ -629,7 +708,10 @@ case "$action" in
     finish_restores_for "$database"
     # The locks stay held until the dump client exits: a restore swap or
     # other DDL during a --single-transaction dump would corrupt it.
-    if [[ $engine == postgresql ]]; then runuser -u postgres -- pg_dump --no-password --format=plain --clean --if-exists --no-owner --no-privileges "$database"; else dump_client=mysqldump; command -v mariadb-dump >/dev/null 2>&1 && dump_client=mariadb-dump; "$dump_client" --no-defaults --protocol=socket --single-transaction --quick --routines --events --triggers --hex-blob "$database"; fi
+    if [[ $engine == postgresql ]]; then runuser -u postgres -- pg_dump --no-password --format=plain --clean --if-exists --no-owner --no-privileges "$database"; else dump_client=mysqldump; command -v mariadb-dump >/dev/null 2>&1 && dump_client=mariadb-dump
+      # GTID statements would need SUPER to restore with the loader account.
+      gtid=(); [[ $("$dump_client" --help 2>/dev/null) != *--set-gtid-purged* ]] || gtid=(--set-gtid-purged=OFF)
+      "$dump_client" --no-defaults --protocol=socket --single-transaction --quick --routines --events --triggers --hex-blob "${gtid[@]}" "$database"; fi
     ;;
   *) echo 'usage: stepanel-dbctl reconcile|list|inventory|diagnostics|sessions|settings|terminate|provision|rotate|drop-managed|restore|restore-wordpress|cleanup-wordpress|drop|dump ...' >&2; exit 64 ;;
 esac

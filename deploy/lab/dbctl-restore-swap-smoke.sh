@@ -52,6 +52,7 @@ cleanup() {
     rm -rf -- "$registry/.restores/${record##*/stepanel_restore_}"
     rm -f -- "$record"
   done
+  M -e "DROP DATABASE IF EXISTS \`swpvictim_$suffix\`; DROP USER IF EXISTS 'swpevil_$suffix'@'localhost'" 2>/dev/null || true
   "$helper" drop-managed "$db" "$db_user" >/dev/null 2>&1 || true
   rm -f -- "$registry/.locks/database-$db.lock" "$registry/.locks/site-$site.lock" "$registry/.locks/user-$db_user.lock"
   rm -rf -- "$work"
@@ -94,6 +95,8 @@ login_refused() { ! app -e 'SELECT 1' > /dev/null 2>&1; }
 printf '%s\n' "$password" | "$helper" provision "$db" "$db_user" "$site" utf8mb4
 mariadb_server=0
 [[ $(M -e 'SELECT VERSION()') == *MariaDB* ]] && mariadb_server=1
+# The site's own account creates the objects, as an application would: a
+# restore accepts only that account as a definer.
 {
   cat <<'SQL'
 CREATE TABLE parent (id INT PRIMARY KEY, name VARCHAR(20)) ENGINE=InnoDB;
@@ -113,11 +116,11 @@ CREATE TABLE filler (id INT PRIMARY KEY, body LONGTEXT) ENGINE=InnoDB;
 INSERT INTO filler VALUES (1, REPEAT('x', 400000));
 SQL
   (( mariadb_server == 0 )) || echo 'CREATE SEQUENCE seq1;'
-} | M "$db"
+} | app
 "$helper" dump "$db" > "$work/backup.sql"
 expected=$(snapshot)
 
-M "$db" <<'SQL'
+app <<'SQL'
 INSERT INTO parent VALUES (3, 'c');
 CREATE TABLE extra (id INT);
 DROP VIEW v_nested;
@@ -145,6 +148,36 @@ grep -q 'the live database was not changed' "$work/error" || fail "failed load d
 [[ $(snapshot) == "$before" ]] || fail 'failed load changed the live database'
 no_restore_left
 pass 'failed load leaves the live database unchanged'
+
+# The dump is untrusted: the loader account holds privileges only on the
+# shadow, and definers other than the site's account are refused.
+M -e "CREATE DATABASE IF NOT EXISTS \`swpvictim_$suffix\`"
+attacks=(
+  "USE \`swpvictim_$suffix\`; CREATE TABLE pwned (id INT);"
+  "CREATE TABLE \`swpvictim_$suffix\`.pwned (id INT);"
+  "DROP DATABASE \`swpvictim_$suffix\`;"
+  "CREATE USER 'swpevil_$suffix'@'localhost';"
+  "GRANT ALL ON *.* TO '$db_user'@'localhost';"
+  "/*!40000 CREATE TABLE \`swpvictim_$suffix\`.pwned (id INT) */;"
+  "SELECT 1 INTO OUTFILE '/tmp/swp-pwned-$suffix';"
+  "CREATE DEFINER='root'@'localhost' SQL SECURITY DEFINER VIEW leak AS SELECT 1 AS x;"
+  "system touch /tmp/swp-pwned-$suffix"
+)
+for attack in "${attacks[@]}"; do
+  if printf 'CREATE TABLE innocent (id INT);\n%s\n' "$attack" | "$helper" restore-dump "$db" "$site" 2> "$work/error"; then
+    fail "a dump with an unsafe statement was restored: $attack"
+  fi
+  grep -q 'the live database was not changed' "$work/error" || fail "an unsafe dump did not report an unchanged database: $attack: $(cat "$work/error")"
+done
+[[ $(snapshot) == "$before" ]] || fail 'an unsafe dump changed the live database'
+[[ $(M -e "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='swpvictim_$suffix'") == 1 ]] || fail 'an unsafe dump dropped another database'
+[[ $(M -e "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='swpvictim_$suffix'") == 0 ]] || fail 'an unsafe dump wrote to another database'
+[[ $(M -e "SELECT COUNT(*) FROM mysql.user WHERE User LIKE 'swpevil\\_%' OR User LIKE 'spl\\_%'") == 0 ]] || fail 'an unsafe dump created an account, or a loader account remains'
+if M -e "SHOW GRANTS FOR '$db_user'@'localhost'" | grep -F 'ON *.*' | grep -qv 'GRANT USAGE ON'; then fail 'an unsafe dump widened the site account'; fi
+[[ ! -e /tmp/swp-pwned-$suffix ]] || fail 'an unsafe dump wrote a file'
+M -e "DROP DATABASE \`swpvictim_$suffix\`"
+no_restore_left
+pass 'dumps that leave the shadow, create accounts, grant, write files or forge definers are refused unchanged'
 
 mkfifo "$work/fifo"
 ( exec setsid "$helper" restore-dump "$db" "$site" < "$work/fifo" > /dev/null 2>&1 ) &

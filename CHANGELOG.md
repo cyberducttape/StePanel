@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Load database restores without administrative rights. MySQL/MariaDB dumps
+  load as a one-time account with privileges only on the shadow database, and
+  objects defined by any account other than the site's are refused.
+  PostgreSQL dumps load as the non-superuser `stepanel_dbload`, a member of
+  the database owner role only while loading, so `RESET ROLE` in a dump no
+  longer returns to `postgres`. MySQL dumps skip GTID statements, which only
+  an administrator could restore. Restoring a PostgreSQL database owned by
+  `postgres` is now refused. `deploy/lab/dbctl-restore-pg-smoke.sh` runs
+  hostile dumps against the runner's PostgreSQL in CI, and the MySQL smoke
+  does the same.
+- `deploy/lab/upgrade-smoke.sh` no longer prints `/etc/ste-panel.env` values
+  when the candidate installer fails: it lists key names and whether each is
+  set. It also refuses to run on a host that already has StePanel installed.
 - Fence MySQL/MariaDB database restore swaps. Moving the tables is one
   atomic `RENAME TABLE`, but dropping and recreating views, triggers,
   routines and events takes several statements. Site clients could hit a

@@ -26,6 +26,22 @@ time. Independent tenant databases therefore do not wait behind an unrelated
 restore or credential operation, while the database engine still enforces
 its own catalog and transactional constraints.
 
+A managed database restore treats the dump as untrusted SQL. MySQL and
+MariaDB load it into the shadow database as a one-time account with
+privileges only on that shadow, so a dump cannot switch to another schema,
+create accounts, grant privileges or write files. The client runs in binary
+mode, which disables client commands such as `system`. The loader may set
+definers, so after the load every trigger, view, routine and event must be
+defined by the site's own account, or the restore is refused. PostgreSQL
+loads as the non-superuser login `stepanel_dbload`, which belongs to the
+database owner role only while loading. A `RESET ROLE` or `SET SESSION
+AUTHORIZATION` in the dump therefore returns to a role that cannot create
+roles or databases or run programs. A PostgreSQL database owned by
+`postgres` cannot be restored. A psql `\!` in a dump runs as the unprivileged
+`stepanel_dbload` system user. A refused dump leaves the live database
+unchanged. `deploy/lab/dbctl-restore-swap-smoke.sh` and
+`deploy/lab/dbctl-restore-pg-smoke.sh` check this against real servers in CI.
+
 Passwords are accepted only on the provisioning or rotation request, streamed
 to the root helper over standard input, and never returned, logged, or added to
 the ownership registry. Update the application secret immediately after a

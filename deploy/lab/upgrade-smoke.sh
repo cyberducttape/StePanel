@@ -12,6 +12,12 @@ if [[ -n "$broken_root" && ( ! -x "$broken_root/install.sh" || ! -x "$broken_roo
   echo "invalid deliberately broken release tree: $broken_root" >&2
   exit 1
 fi
+# Lab only: the smoke installs and replaces StePanel and prints diagnostics
+# on failure, so it refuses a host that already has an installation.
+if [[ -e /etc/ste-panel.env || -e /opt/stepanel ]]; then
+  echo 'upgrade smoke refuses a host with an existing StePanel installation; run it on a disposable host' >&2
+  exit 1
+fi
 if [[ ! -f /sys/fs/cgroup/cgroup.controllers && ! -d /sys/fs/cgroup/systemd ]]; then
   echo 'upgrade smoke requires a systemd-compatible cgroup hierarchy' >&2
   exit 77
@@ -83,8 +89,10 @@ chmod 0600 /var/lib/ste-panel/jobs.json
 
 cd "$candidate_root"
 if ! ./install.sh --unsafe-lab; then
-  echo 'candidate installer failed; captured runtime environment:' >&2
-  sed -n '1,120p' /etc/ste-panel.env >&2 || true
+  # Key names only: the environment holds the session, audit and account
+  # keys, which must never reach CI logs.
+  echo 'candidate installer failed; runtime environment keys (values withheld):' >&2
+  sed -n -e 's/^\([A-Z_][A-Z0-9_]*\)=$/  \1 empty/p' -e 's/^\([A-Z_][A-Z0-9_]*\)=.\{1,\}/  \1 set/p' /etc/ste-panel.env >&2 || true
   systemctl show stepanel.service -p FragmentPath -p ExecStart -p EnvironmentFiles -p MainPID --no-pager >&2 || true
   echo 'candidate audit files:' >&2
   stat -c '%n mode=%a uid=%u gid=%g size=%s' /var/lib/ste-panel/audit.jsonl /var/lib/ste-panel/audit.jsonl.state /var/lib/ste-panel/audit.jsonl.lock 2>&1 || true
