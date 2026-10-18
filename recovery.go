@@ -548,7 +548,7 @@ func recoverSiteTransactionsWithRename(root, site string, renameForSite func(con
 			if quarantineErr := quarantineRecoveryTransaction(root, dir, err); quarantineErr != nil {
 				failures = append(failures, fmt.Errorf("quarantine invalid transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
 			} else {
-				failures = append(failures, fmt.Errorf("quarantined invalid transaction %s: %w", entry.Name(), err))
+				failures = append(failures, &quarantinedJournalError{dir: filepath.Join(root, entry.Name()), cause: err, err: fmt.Errorf("quarantined invalid transaction %s: %w", entry.Name(), err)})
 			}
 			continue
 		}
@@ -556,7 +556,7 @@ func recoverSiteTransactionsWithRename(root, site string, renameForSite func(con
 			if quarantineErr := quarantineRecoveryTransaction(root, dir, err); quarantineErr != nil {
 				failures = append(failures, fmt.Errorf("quarantine unsafe transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
 			} else {
-				failures = append(failures, fmt.Errorf("quarantined unsafe transaction %s: %w", entry.Name(), err))
+				failures = append(failures, &quarantinedJournalError{dir: filepath.Join(root, entry.Name()), cause: err, err: fmt.Errorf("quarantined unsafe transaction %s: %w", entry.Name(), err)})
 			}
 			continue
 		}
@@ -638,7 +638,7 @@ func recoverTransactionDatabases(cfg Config, root string, lockSite siteLocker, s
 			if quarantineErr := quarantineRecoveryTransaction(root, filepath.Join(root, entry.Name()), err); quarantineErr != nil {
 				failures = append(failures, fmt.Errorf("quarantine invalid transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
 			} else {
-				failures = append(failures, fmt.Errorf("quarantined invalid transaction %s: %w", entry.Name(), err))
+				failures = append(failures, &quarantinedJournalError{dir: filepath.Join(root, entry.Name()), cause: err, err: fmt.Errorf("quarantined invalid transaction %s: %w", entry.Name(), err)})
 			}
 			continue
 		}
@@ -646,7 +646,7 @@ func recoverTransactionDatabases(cfg Config, root string, lockSite siteLocker, s
 			if quarantineErr := quarantineRecoveryTransaction(root, filepath.Join(root, entry.Name()), err); quarantineErr != nil {
 				failures = append(failures, fmt.Errorf("quarantine unsafe transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
 			} else {
-				failures = append(failures, fmt.Errorf("quarantined unsafe transaction %s: %w", entry.Name(), err))
+				failures = append(failures, &quarantinedJournalError{dir: filepath.Join(root, entry.Name()), cause: err, err: fmt.Errorf("quarantined unsafe transaction %s: %w", entry.Name(), err)})
 			}
 			continue
 		}
@@ -674,16 +674,42 @@ func recoverTransactionDatabases(cfg Config, root string, lockSite siteLocker, s
 	return recovered, errors.Join(failures...)
 }
 
-// recoveryCorruptionObserver is told about every quarantined recovery
-// journal; the application reports it as a corruption-category state error.
-var recoveryCorruptionObserver func(dir string, cause error)
+// quarantinedJournalError reports a recovery journal that was moved to
+// quarantine. Callers that own metrics find these with quarantinedJournals
+// and report them as corruption-category state errors.
+type quarantinedJournalError struct {
+	dir   string
+	cause error
+	err   error
+}
+
+func (e *quarantinedJournalError) Error() string { return e.err.Error() }
+func (e *quarantinedJournalError) Unwrap() error { return e.err }
+
+// quarantinedJournals returns every quarantined journal in an error tree,
+// including joined errors.
+func quarantinedJournals(err error) []*quarantinedJournalError {
+	if err == nil {
+		return nil
+	}
+	if quarantined, ok := err.(*quarantinedJournalError); ok {
+		return []*quarantinedJournalError{quarantined}
+	}
+	var found []*quarantinedJournalError
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, inner := range wrapped.Unwrap() {
+			found = append(found, quarantinedJournals(inner)...)
+		}
+	case interface{ Unwrap() error }:
+		found = quarantinedJournals(wrapped.Unwrap())
+	}
+	return found
+}
 
 // quarantineRecoveryTransaction removes malformed journal entries from the
 // active recovery scan while preserving them for operator inspection.
 func quarantineRecoveryTransaction(root, dir string, cause error) error {
-	if recoveryCorruptionObserver != nil {
-		recoveryCorruptionObserver(dir, cause)
-	}
 	quarantine := filepath.Join(root, "quarantine")
 	if err := os.MkdirAll(quarantine, 0700); err != nil {
 		return err

@@ -3,6 +3,7 @@ package stepanel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -399,15 +400,15 @@ func TestQuarantinedRecoveryJournalIsReportedAsCorruption(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(broken, "transaction.json"), []byte("{broken"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	var reported []string
-	previous := recoveryCorruptionObserver
-	recoveryCorruptionObserver = func(dir string, cause error) { reported = append(reported, filepath.Base(dir)) }
-	t.Cleanup(func() { recoveryCorruptionObserver = previous })
-	// Recovery reports the malformed entry as an error after quarantining it.
-	if _, err := RecoverSiteTransactions(root, t.TempDir(), t.TempDir()); err == nil {
+	// Recovery reports the malformed entry as an error after quarantining it,
+	// typed so the panel can count it as corruption.
+	_, err := RecoverSiteTransactions(root, t.TempDir(), t.TempDir())
+	if err == nil {
 		t.Fatal("malformed journal was not reported")
 	}
-	if len(reported) != 1 || reported[0] != "broken" {
+	wrapped := fmt.Errorf("startup recovery: %w", errors.Join(errors.New("other failure"), err))
+	reported := quarantinedJournals(wrapped)
+	if len(reported) != 1 || filepath.Base(reported[0].dir) != "broken" || reported[0].cause == nil || !strings.Contains(reported[0].Error(), "quarantined invalid transaction broken") {
 		t.Fatalf("reported %v, want the quarantined journal", reported)
 	}
 }

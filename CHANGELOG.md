@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Document what each backup guarantees and its limits, in
+  `docs/DR_OBJECTIVES.md`:
+  - the per-field consistency classes in the manifest, and the absence of
+    a file-plus-database consistency group;
+  - which workloads need snapshots or downtime;
+  - the enforced limits: 2 GiB per file, 20 GiB per backup, sequential
+    database dumps, and restore headroom.
+- Report quarantined recovery journals through a typed error that the
+  panel turns into a corruption state error. This replaces a package-level
+  observer variable.
 - Add a startup recovery barrier. Until the panel's startup recovery
   succeeds, mutating HTTP requests return a retryable `503` with
   `Retry-After`, and durable workers, including the external

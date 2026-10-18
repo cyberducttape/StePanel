@@ -617,9 +617,6 @@ func Main() {
 	}
 	// Categorized state errors feed stepanel_state_errors_total and the logs.
 	jobs.SetStateErrorObserver(app.observeStateError)
-	recoveryCorruptionObserver = func(dir string, cause error) {
-		app.observeStateError(state.NewCorruptionError("recovery_journal", cause, "quarantined "+filepath.Base(dir)))
-	}
 	var startupAuditErr error
 	runStartup := func(ctx context.Context) {
 		var failures []error
@@ -634,7 +631,11 @@ func Main() {
 				failures = append(failures, err)
 			}
 		}
-		failures = append(failures, recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext, app.Resources)...)
+		recoveryFailures := recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext, app.Resources)
+		for _, quarantined := range quarantinedJournals(errors.Join(recoveryFailures...)) {
+			app.observeStateError(state.NewCorruptionError("recovery_journal", quarantined.cause, "quarantined "+filepath.Base(quarantined.dir)))
+		}
+		failures = append(failures, recoveryFailures...)
 		if _, err := recoverAppActivationJournals(cfg); err != nil {
 			failures = append(failures, fmt.Errorf("recover application activations: %w", err))
 		}

@@ -20,6 +20,51 @@ quiesced application point in time. Workloads needing a smaller RPO or
 application-consistent recovery require operator-managed database PITR,
 filesystem snapshots, and application quiesce hooks.
 
+## Backup consistency classes
+
+Each backup manifest states what its backup guarantees. `POST
+/api/backups/verify` returns the same fields:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `filesystem_consistency` | `crash-consistent` | Files are read one after another while the site keeps running. A file written during the backup can be captured mid-write, and two files can come from different moments. |
+| `database_consistency` | `logical-dump`, `not-included` | Each managed database is dumped on its own: `mysqldump --single-transaction` or `pg_dump`. Each dump is a consistent point in time for InnoDB and PostgreSQL tables. MyISAM and MEMORY tables are not consistent, and separate databases come from separate moments. The database helper holds its lock for the whole dump, so a restore swap cannot interleave. Other DDL can: a schema migration running during a MySQL dump can invalidate it. |
+| `application_consistency` | `web-requests-quiesced`, `not-verified` | `web-requests-quiesced` means WordPress maintenance mode held off web requests for the backup. Cron, CLI and queue workers keep running, so it is not application-quiesced. Every other workload is `not-verified`. |
+| `filesystem_snapshot` | always `false` | StePanel has no LVM, ZFS or Btrfs snapshot integration, so files and databases are never captured as one atomic group. |
+| `archive_verified`, `database_dump_verified` | `true`/`false` | The archive checksum and each dump were verified after writing. This proves integrity, not recoverability. |
+
+Restore proof is separate. A backup rehearsal extracts the backup into a
+disposable site and records `application_proof` when the built-in WordPress
+proof ran, or `application_proof_skipped` with the reason. Only a rehearsal
+with an application proof shows that the application starts from that
+backup.
+
+Choose a different method for these workloads:
+
+- Workloads that need files and databases from one moment: use
+  operator-managed filesystem snapshots, or a maintenance window with the
+  application stopped.
+- Workloads with schema migrations during the backup window: schedule
+  backups outside it.
+- Workloads on non-transactional engines: plan downtime.
+
+## Backup size limits
+
+These limits are enforced, not tuning defaults:
+
+| Limit | Value | Enforced at |
+| --- | --- | --- |
+| One file in a site backup | 2 GiB | Backup creation fails on the first larger file |
+| All entries in one site backup | 20 GiB | Backup creation fails when the running total passes it |
+| Managed database dumps | Sequential, one database at a time | Backup wall-clock time grows with the sum of the site's databases |
+| Database restore shadow copy | 1.5 × live size plus the larger of 1 GiB and 5% of the database filesystem | Restore is refused before loading |
+
+Measure tenant file and database sizes before migrating a site onto
+StePanel. Sites with media libraries, artifact stores or databases near these
+limits need snapshot or object-storage backups outside StePanel. Logical
+dump and restore time grows with database size. Time one real restore per
+large tenant, rather than inferring its RTO from smaller sites.
+
 ## Release evidence
 
 For every release candidate, record the actual elapsed RTO and achieved RPO
