@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Run the complete repository production gate on the current checkout
+  `0ebbd86`: vet, full tests and coverage floors, race suite, repository
+  recovery drills, control-plane benchmarks, mixed HTTP load, docs, dashboard,
+  quota-fixture, asset, action-pin, and shell checks passed. The report records
+  measurements and separates this evidence from external host and production
+  certification gates.
 - Record exact-head hosted evidence for `633c013`: CI, CodeQL, the six-host
   Ubuntu/AlmaLinux/Rocky × Apache/Caddy installation smoke, and the
   quota-enabled Ubuntu smoke passed. The installed-host run restored and

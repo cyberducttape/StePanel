@@ -18,6 +18,21 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for complete gate requirements and acceptance criteria.
 
+### Latest full repository gate — 2026-10-18 (`0ebbd86`)
+
+- `bash scripts/production-gate.sh` passed on exact checkout
+  `0ebbd86a9c56b37081b132bc39fc10355f4bb9a6`. The application code is
+  unchanged from `633c013`; hosted CI and CodeQL passed on `0ebbd86`, and the
+  exact application source passed six-host install and quota-enabled smoke.
+- The gate passed vet, tests and coverage floors (56.9% aggregate), the full
+  race suite (root package 475.085 seconds), four repository recovery drills,
+  control-plane benchmarks, mixed HTTP load (p95 14.717 ms), docs, dashboard,
+  quota fixture, assets, pinned actions, and shell checks.
+- The exact-source 20-repeat host cohort was still running at capture: three
+  of ten unique two-iteration shards active and seven queued. This does not
+  close the repetition gate. Full measurements and limitations are in the
+  [repository gate report](lab-results/2026-10-18-repository-production-gate-0ebbd86.md).
+
 ### Exact-head hosted validation — 2026-10-18 (`633c013`)
 
 - Exact-head [CI](https://github.com/cyberducttape/StePanel/actions/runs/39147354411),
