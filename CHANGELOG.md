@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- README Docker, release-install, Kubernetes, and Helm examples now generate a
+  valid unpadded Base32 administrator TOTP secret instead of passing the
+  invalid placeholder.
 - Installer journals the optional post-commit action plan before committing the
   core installation, then records each action's start and outcome so a crash
   cannot leave requested optional-service work silently unaccounted for; CI

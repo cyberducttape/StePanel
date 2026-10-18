@@ -107,12 +107,14 @@ Kubernetes runtime and flags it with a Deployment Mode warning.
 
 ```sh
 docker build -t stepanel:local .
+ADMIN_TOTP_SECRET="$(openssl rand 20 | base32 | tr -d '=\n')"
+printf 'Save and enroll this administrator TOTP secret before continuing: %s\n' "$ADMIN_TOTP_SECRET"
 docker run --rm -p 8080:8080 \
   -e STEPANEL_TLS_TERMINATED=1 \
   -e STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
   -e STEPANEL_SESSION_SECRET="$(openssl rand -hex 32)" \
   -e STEPANEL_AUDIT_KEY="$(openssl rand -hex 32)" \
-  -e STEPANEL_ADMIN_TOTP_SECRET='BASE32_SECRET' \
+  -e STEPANEL_ADMIN_TOTP_SECRET="$ADMIN_TOTP_SECRET" \
   -e STEPANEL_ACCOUNT_KEY="$(openssl rand -hex 32)" \
   -e STEPANEL_ENVIRONMENT_KEY="$(openssl rand -hex 32)" \
   -e STEPANEL_BACKUP_SIGNING_KEY="$(openssl rand -hex 32)" \

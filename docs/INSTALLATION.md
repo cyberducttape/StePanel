@@ -117,9 +117,11 @@ ACCOUNT_KEY=$(openssl rand -hex 32)
 ENVIRONMENT_KEY=$(openssl rand -hex 32)
 BACKUP_SIGNING_KEY=$(openssl rand -hex 32)
 BACKUP_ENCRYPTION_KEY=$(openssl rand -hex 32)
+ADMIN_TOTP_SECRET="$(openssl rand 20 | base32 | tr -d '=\n')"
+printf 'Save and enroll this administrator TOTP secret before continuing: %s\n' "$ADMIN_TOTP_SECRET"
 
 sudo STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
-  STEPANEL_ADMIN_TOTP_SECRET='BASE32_SECRET' \
+  STEPANEL_ADMIN_TOTP_SECRET="$ADMIN_TOTP_SECRET" \
   STEPANEL_ACCOUNT_KEY="$ACCOUNT_KEY" \
   STEPANEL_ENVIRONMENT_KEY="$ENVIRONMENT_KEY" \
   STEPANEL_BACKUP_SIGNING_KEY="$BACKUP_SIGNING_KEY" \

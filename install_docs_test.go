@@ -46,4 +46,25 @@ func TestInstallDocsProvideEverySecretTheManifestsRequire(t *testing.T) {
 			t.Errorf("README container example omits production-required %s", name)
 		}
 	}
+	totpGeneration := "ADMIN_TOTP_SECRET=\"$(openssl rand 20 | base32 | tr -d '=\\n')\""
+	for _, example := range []struct {
+		path  string
+		value string
+	}{
+		{path: "README.md", value: "-e STEPANEL_ADMIN_TOTP_SECRET=\"$ADMIN_TOTP_SECRET\""},
+		{path: "docs/INSTALLATION.md", value: "STEPANEL_ADMIN_TOTP_SECRET=\"$ADMIN_TOTP_SECRET\""},
+		{path: "deploy/kubernetes/README.md", value: "--from-literal=admin-totp-secret=\"$ADMIN_TOTP_SECRET\""},
+		{path: "deploy/helm/stepanel/README.md", value: "--from-literal=admin-totp-secret=\"$ADMIN_TOTP_SECRET\""},
+	} {
+		data, err := os.ReadFile(example.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), totpGeneration) || !strings.Contains(string(data), example.value) {
+			t.Errorf("%s must generate and pass a valid unpadded Base32 administrator TOTP secret", example.path)
+		}
+		if strings.Contains(string(data), "BASE32_SECRET") {
+			t.Errorf("%s must not use the invalid BASE32_SECRET placeholder", example.path)
+		}
+	}
 }

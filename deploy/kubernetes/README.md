@@ -8,11 +8,13 @@
 Create the secret out-of-band, then apply the manifest:
 
 ```sh
+ADMIN_TOTP_SECRET="$(openssl rand 20 | base32 | tr -d '=\n')"
+printf 'Save and enroll this administrator TOTP secret before continuing: %s\n' "$ADMIN_TOTP_SECRET"
 kubectl -n stepanel create secret generic stepanel-secrets \
   --from-literal=admin-password='change-me' \
   --from-literal=session-secret="$(openssl rand -hex 32)" \
   --from-literal=audit-key="$(openssl rand -hex 32)" \
-  --from-literal=admin-totp-secret='BASE32_SECRET' \
+  --from-literal=admin-totp-secret="$ADMIN_TOTP_SECRET" \
   --from-literal=account-key="$(openssl rand -hex 32)" \
   --from-literal=environment-key="$(openssl rand -hex 32)" \
   --from-literal=backup-signing-key="$(openssl rand -hex 32)" \
@@ -22,7 +24,8 @@ kubectl apply -f deploy/kubernetes/stepanel.yaml
 ```
 
 The production manifest requires TOTP MFA and an offsite rclone target. Replace
-the example values before applying. Configure an HTTPS ingress in a namespace
+the example values before applying, and enroll the printed TOTP secret in the
+administrator's authenticator. Configure an HTTPS ingress in a namespace
 labelled `stepanel.ingress=true`; the manifest sets
 `STEPANEL_TLS_TERMINATED=1` because ingress traffic is the only allowed pod
 ingress path.
