@@ -1170,6 +1170,29 @@ if (( health_ready != 1 )); then
   systemctl show stepanel.service -p MainPID -p NoNewPrivileges -p RestrictSUIDSGID -p ProtectSystem -p ProtectHome -p PrivateTmp -p PrivateDevices -p RestrictNamespaces -p ReadWritePaths 2>/dev/null || true
   false
 fi
+# Persist the optional work list before the core commit. If the process or host
+# stops afterward, the journal identifies actions not yet started.
+declare -a POST_INSTALL_PENDING=() POST_INSTALL_PLAN=()
+if [[ "$INSTALL_SECURITY" == "1" ]]; then POST_INSTALL_PLAN+=(enable:stepanel-malware-guard); fi
+if [[ "$INSTALL_MAIL" == "1" && "$ACTIVATE_MAIL" == "1" ]]; then
+  POST_INSTALL_PLAN+=("enable:$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)" enable:dovecot "enable:$MAIL_SPAM_SERVICE")
+elif [[ "$INSTALL_MAIL" == "1" ]]; then
+  [[ "$MAIL_EXIM_PREEXISTING" == "1" ]] || POST_INSTALL_PLAN+=("disable:$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)")
+  [[ "$MAIL_DOVECOT_PREEXISTING" == "1" ]] || POST_INSTALL_PLAN+=(disable:dovecot)
+  [[ "$MAIL_SPAM_PREEXISTING" == "1" ]] || POST_INSTALL_PLAN+=("disable:$MAIL_SPAM_SERVICE")
+fi
+if [[ "$INSTALL_FTP" == "1" && "$ACTIVATE_FTP" == "1" ]]; then
+  POST_INSTALL_PLAN+=(enable:vsftpd)
+elif [[ "$INSTALL_FTP" == "1" && "$FTP_PREEXISTING" == "0" ]]; then
+  POST_INSTALL_PLAN+=(disable:vsftpd)
+fi
+if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then POST_INSTALL_PLAN+=(enable:certbot.timer); fi
+if [[ "$INSTALL_FAIL2BAN" == "1" ]]; then POST_INSTALL_PLAN+=(configure:fail2ban); fi
+POST_INSTALL_PLAN_TEXT=none
+if (( ${#POST_INSTALL_PLAN[@]} )); then
+  POST_INSTALL_PLAN_TEXT=$(IFS=,; printf '%s' "${POST_INSTALL_PLAN[*]}")
+fi
+install_journal_record post_install planned retained "actions=$POST_INSTALL_PLAN_TEXT"
 INSTALL_COMMITTED=1
 control_plane_txn_commit
 INSTALL_JOURNAL_TERMINAL=1
@@ -1184,41 +1207,43 @@ if (( ${#POST_COMMIT_CLEANUP_PENDING[@]} )); then
   echo 'Core installation is committed, but private installer transaction files could not all be removed:' >&2
   printf '  %s\n' "${POST_COMMIT_CLEANUP_PENDING[@]}" >&2
 fi
-declare -a POST_INSTALL_PENDING=()
-activate_optional_service() {
-  local service=$1
-  if ! systemctl enable --now "$service"; then
-    POST_INSTALL_PENDING+=("$service")
-    echo "Post-install activation pending: $service (core installation is committed; retry with systemctl enable --now $service)." >&2
-  fi
-}
-if [[ "$INSTALL_SECURITY" == "1" ]]; then activate_optional_service stepanel-malware-guard; fi
+. "$ROOT_DIR/deploy/lib/install-postcommit.sh"
+if [[ "$INSTALL_SECURITY" == "1" ]]; then
+  install_optional_postcommit_action stepanel-malware-guard 'systemctl enable --now stepanel-malware-guard' systemctl enable --now stepanel-malware-guard
+fi
 if [[ "$INSTALL_MAIL" == "1" && "$ACTIVATE_MAIL" == "1" ]]; then
-  activate_optional_service "$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)"
-  activate_optional_service dovecot
-  activate_optional_service "$MAIL_SPAM_SERVICE"
+  mail_service="$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)"
+  install_optional_postcommit_action "$mail_service" "systemctl enable --now $mail_service" systemctl enable --now "$mail_service"
+  install_optional_postcommit_action dovecot 'systemctl enable --now dovecot' systemctl enable --now dovecot
+  install_optional_postcommit_action "$MAIL_SPAM_SERVICE" "systemctl enable --now $MAIL_SPAM_SERVICE" systemctl enable --now "$MAIL_SPAM_SERVICE"
 elif [[ "$INSTALL_MAIL" == "1" ]]; then
-  [[ "$MAIL_EXIM_PREEXISTING" == "1" ]] || systemctl disable --now "$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)" 2>/dev/null || true
-  [[ "$MAIL_DOVECOT_PREEXISTING" == "1" ]] || systemctl disable --now dovecot 2>/dev/null || true
-  [[ "$MAIL_SPAM_PREEXISTING" == "1" ]] || systemctl disable --now "$MAIL_SPAM_SERVICE" 2>/dev/null || true
+  if [[ "$MAIL_EXIM_PREEXISTING" == "0" ]]; then
+    mail_service="$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)"
+    install_optional_postcommit_action "disable:$mail_service" "systemctl disable --now $mail_service" systemctl disable --now "$mail_service"
+  fi
+  if [[ "$MAIL_DOVECOT_PREEXISTING" == "0" ]]; then
+    install_optional_postcommit_action disable:dovecot 'systemctl disable --now dovecot' systemctl disable --now dovecot
+  fi
+  if [[ "$MAIL_SPAM_PREEXISTING" == "0" ]]; then
+    install_optional_postcommit_action "disable:$MAIL_SPAM_SERVICE" "systemctl disable --now $MAIL_SPAM_SERVICE" systemctl disable --now "$MAIL_SPAM_SERVICE"
+  fi
 fi
 if [[ "$INSTALL_FTP" == "1" && "$ACTIVATE_FTP" == "1" ]]; then
-  activate_optional_service vsftpd
+  install_optional_postcommit_action vsftpd 'systemctl enable --now vsftpd' systemctl enable --now vsftpd
 elif [[ "$INSTALL_FTP" == "1" && "$FTP_PREEXISTING" == "0" ]]; then
-  systemctl disable --now vsftpd 2>/dev/null || true
+  install_optional_postcommit_action disable:vsftpd 'systemctl disable --now vsftpd' systemctl disable --now vsftpd
 fi
-if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then activate_optional_service certbot.timer; fi
+if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then
+  install_optional_postcommit_action certbot.timer 'systemctl enable --now certbot.timer' systemctl enable --now certbot.timer
+fi
 if [[ "$INSTALL_FAIL2BAN" == "1" ]]; then
-  if ! bash "$APP_DIR/integrations/install-fail2ban.sh" --yes --jails "$FAIL2BAN_JAILS" --ignore-ip "$FAIL2BAN_IGNORE_IP"; then
-    POST_INSTALL_PENDING+=(fail2ban)
-    echo 'Post-install configuration pending: fail2ban (core installation is committed; rerun the integration installer after resolving the error).' >&2
-  fi
+  install_optional_postcommit_action fail2ban 'rerun the integration installer after resolving the error' bash "$APP_DIR/integrations/install-fail2ban.sh" --yes --jails "$FAIL2BAN_JAILS" --ignore-ip "$FAIL2BAN_IGNORE_IP"
 fi
 if (( ${#POST_INSTALL_PENDING[@]} )); then
-  printf 'post_install_status=pending services='
+  printf 'post_install_status=pending actions='
   printf '%s ' "${POST_INSTALL_PENDING[@]}"
   printf '\n'
-  install_journal_record post_install pending manual "services=${POST_INSTALL_PENDING[*]}" || echo 'Could not persist optional-service status; preserve installer output and inspect the services listed above.' >&2
+  install_journal_record post_install pending manual "actions=${POST_INSTALL_PENDING[*]}" || echo 'Could not persist optional-action status; preserve installer output and inspect the actions listed above.' >&2
 else
   echo 'post_install_status=complete'
   install_journal_record post_install complete retained "optional integrations activated or not requested" || echo 'Could not persist optional-service completion; core installation remains committed.' >&2

@@ -31,7 +31,7 @@ run python3 scripts/check-grafana-dashboard.py
 run python3 scripts/check-quota-fixtures.py
 run bash scripts/check-action-pins.sh
 run bash scripts/validate-assets.sh
-run bash -n install.sh deploy/lab/*.sh scripts/*.sh
+run bash -n install.sh deploy/lib/*.sh deploy/lab/*.sh scripts/*.sh
 
 printf '\nRepository production gate passed.\n'
 printf 'Real-host ENOSPC, power-loss, distro, screenshot, and load-capacity evidence remain external gates.\n'

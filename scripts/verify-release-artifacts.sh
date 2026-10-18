@@ -87,6 +87,13 @@ for archive in "${archives[@]}"; do
         fi
     done
 
+    if tar -tzf "$archive" | grep -Eq '(^|/)deploy/lib/install-postcommit\.sh$'; then
+        echo "  ✓ installer post-commit recovery helper present"
+    else
+        echo "  ✗ FAIL: deploy/lib/install-postcommit.sh missing" >&2
+        exit 1
+    fi
+
     # Verify binary is present
     if tar -tzf "$archive" | grep -Eq '(^|/)stepanel$'; then
         echo "  ✓ stepanel binary present"

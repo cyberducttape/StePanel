@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Installer journals the optional post-commit action plan before committing the
+  core installation, then records each action's start and outcome so a crash
+  cannot leave requested optional-service work silently unaccounted for; CI
+  exercises success/failure outcomes, syntax-checks the installer libraries,
+  and verifies the helper is included in release archives.
+
 ### Documentation
 
 - Recorded the exact-head repository production-gate results for `e447ca2` and

@@ -109,9 +109,14 @@ func TestInstallerJournalsBeforeMutationAndRecordsPartialRollbackContract(t *tes
 	if !strings.Contains(text, `install_journal_record recovery required manual "registered files and core service state restored where possible; packages, repository/module changes and unregistered host configuration may remain"`) {
 		t.Fatal("installer rollback must report that pre-transaction host changes may remain")
 	}
-	certbotActivation := strings.Index(text, `if [[ "$INSTALL_TLS" == "1" && "$WEB_SERVER" == "apache" ]]; then activate_optional_service certbot.timer; fi`)
-	if certbotActivation < 0 || !strings.Contains(text, `POST_INSTALL_PENDING+=("$service")`) {
-		t.Fatal("requested Certbot timer activation failures must be visible as pending post-install work")
+	postCommitPlan := strings.Index(text, "install_journal_record post_install planned retained \"actions=$POST_INSTALL_PLAN_TEXT\"")
+	installCommit := strings.Index(text, "INSTALL_COMMITTED=1")
+	optionalLibrary := strings.Index(text, ". \"$ROOT_DIR/deploy/lib/install-postcommit.sh\"")
+	if postCommitPlan < 0 || installCommit < 0 || optionalLibrary < 0 || postCommitPlan > installCommit || optionalLibrary < installCommit {
+		t.Fatal("optional post-commit actions must be durably planned before core commit and run through the journaled action helper")
+	}
+	if !strings.Contains(text, "install_optional_postcommit_action certbot.timer") || !strings.Contains(text, "install_optional_postcommit_action fail2ban") {
+		t.Fatal("requested Certbot and Fail2ban work must use the journaled optional-action helper")
 	}
 	contractDoc, err := os.ReadFile("docs/INSTALLER_RECOVERY.md")
 	if err != nil {
@@ -138,6 +143,67 @@ func TestInstallerJournalsBeforeMutationAndRecordsPartialRollbackContract(t *tes
 		if markerAt < 0 || changeAt < 0 || markerAt > changeAt {
 			t.Errorf("installer must journal %q before %q", checkpoint.marker, checkpoint.change)
 		}
+	}
+}
+
+func TestInstallerOptionalPostCommitActionRecordsOutcome(t *testing.T) {
+	lib, err := filepath.Abs("deploy/lib/install-postcommit.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name        string
+		exit        string
+		journalFail string
+		wantStatus  string
+		wantPending string
+		wantRecords int
+	}{
+		{name: "success", exit: "0", wantStatus: "complete", wantPending: "POST_INSTALL_PENDING=()", wantRecords: 2},
+		{name: "action failure", exit: "7", wantStatus: "pending", wantPending: "vsftpd", wantRecords: 2},
+		{name: "completion journal failure", exit: "0", journalFail: "2", wantPending: "installer_journal", wantRecords: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			journal := filepath.Join(t.TempDir(), "journal.tsv")
+			actionLog := filepath.Join(t.TempDir(), "action.log")
+			script := ". \"$LIB\"\n" +
+				"JOURNAL_CALLS=0\n" +
+				"install_journal_record() { JOURNAL_CALLS=$((JOURNAL_CALLS + 1)); [[ $JOURNAL_CALLS != \"$JOURNAL_FAIL_ON\" ]] || return 9; printf '%s|%s\\n' \"$2\" \"$4\" >> \"$JOURNAL\"; }\n" +
+				"systemctl() { printf 'called\\n' >> \"$ACTION_LOG\"; return \"$SYSTEMCTL_EXIT\"; }\n" +
+				"POST_INSTALL_PENDING=()\n" +
+				"install_optional_postcommit_action vsftpd 'systemctl enable --now vsftpd' systemctl enable --now vsftpd\n" +
+				"declare -p POST_INSTALL_PENDING\n"
+			cmd := exec.Command("bash", "-c", script)
+			cmd.Env = append(os.Environ(),
+				"LIB="+lib,
+				"JOURNAL="+journal,
+				"ACTION_LOG="+actionLog,
+				"SYSTEMCTL_EXIT="+tc.exit,
+				"JOURNAL_FAIL_ON="+tc.journalFail,
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("post-commit action exited unexpectedly: %v\n%s", err, output)
+			}
+			if !strings.Contains(string(output), tc.wantPending) {
+				t.Fatalf("pending output = %q, want %q", output, tc.wantPending)
+			}
+			records, err := os.ReadFile(journal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSpace(string(records)), "\n")
+			if len(lines) != tc.wantRecords || !strings.HasPrefix(lines[0], "started|action=vsftpd") ||
+				(tc.wantRecords == 2 && !strings.HasPrefix(lines[1], tc.wantStatus+"|action=vsftpd")) {
+				t.Fatalf("journal records = %#v", lines)
+			}
+			if !strings.Contains(string(output), tc.wantPending) {
+				t.Fatalf("pending state missing from output %q", output)
+			}
+			if _, err := os.Stat(actionLog); err != nil {
+				t.Fatalf("optional action was not attempted: %v", err)
+			}
+		})
 	}
 }
 

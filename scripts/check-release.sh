@@ -29,9 +29,11 @@ if grep -Fq 'sudoers_tmp' install.sh; then
   echo "install.sh still provisions a panel sudoers policy" >&2
   exit 1
 fi
-if ! grep -Fq 'install_journal_record post_install pending manual "services=${POST_INSTALL_PENDING[*]}" || echo ' install.sh ||
-   ! grep -Fq 'install_journal_record post_install complete retained "optional integrations activated or not requested" || echo ' install.sh; then
-  echo "post-commit optional integration journal failures can still turn a committed install into a failed exit" >&2
+if ! grep -Fq 'install_journal_record post_install planned retained "actions=$POST_INSTALL_PLAN_TEXT"' install.sh ||
+   ! grep -Fq 'install_journal_record post_install started partial' deploy/lib/install-postcommit.sh ||
+   ! grep -Fq 'install_journal_record post_install pending manual' deploy/lib/install-postcommit.sh ||
+   ! grep -Fq 'install_journal_record post_install complete retained' deploy/lib/install-postcommit.sh; then
+  echo "optional post-commit actions are not durably planned and individually journaled" >&2
   exit 1
 fi
 if ! grep -Fq 'if ! rm -f "$temporary"; then POST_COMMIT_CLEANUP_PENDING+=' install.sh ||
@@ -43,10 +45,11 @@ fi
 core_activation_line=$(grep -nFx 'systemctl enable --now stepanel.service stepanel-worker.service' install.sh | cut -d: -f1 || true)
 readiness_gate_line=$(grep -nFx 'if (( health_ready != 1 )); then' install.sh | cut -d: -f1 || true)
 commit_line=$(grep -nFx 'INSTALL_COMMITTED=1' install.sh | cut -d: -f1 || true)
-optional_integration_line=$(grep -nFx 'declare -a POST_INSTALL_PENDING=()' install.sh | cut -d: -f1 || true)
-if [[ -z $core_activation_line || -z $readiness_gate_line || -z $commit_line || -z $optional_integration_line ]] ||
-   (( core_activation_line >= readiness_gate_line || readiness_gate_line >= commit_line || commit_line >= optional_integration_line )); then
-  echo "installer must activate core services and pass readiness before commit, then run optional integrations after commit" >&2
+post_commit_plan_line=$(grep -nFx 'install_journal_record post_install planned retained "actions=$POST_INSTALL_PLAN_TEXT"' install.sh | cut -d: -f1 || true)
+post_commit_action_line=$(grep -nF 'install_optional_postcommit_action stepanel-malware-guard' install.sh | cut -d: -f1 || true)
+if [[ -z $core_activation_line || -z $readiness_gate_line || -z $post_commit_plan_line || -z $commit_line || -z $post_commit_action_line ]] ||
+   (( core_activation_line >= readiness_gate_line || readiness_gate_line >= post_commit_plan_line || post_commit_plan_line >= commit_line || commit_line >= post_commit_action_line )); then
+  echo "installer must activate core services and pass readiness before commit; optional actions must be planned before and attempted after commit" >&2
   exit 1
 fi
 if ! grep -Fqx 'install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service' install.sh; then
