@@ -29,6 +29,11 @@ if grep -Fq 'sudoers_tmp' install.sh; then
   echo "install.sh still provisions a panel sudoers policy" >&2
   exit 1
 fi
+if ! grep -Fq 'install_journal_record post_install pending manual "services=${POST_INSTALL_PENDING[*]}" || echo ' install.sh ||
+   ! grep -Fq 'install_journal_record post_install complete retained "optional integrations activated or not requested" || echo ' install.sh; then
+  echo "post-commit optional integration journal failures can still turn a committed install into a failed exit" >&2
+  exit 1
+fi
 if ! grep -Fqx 'install -m 0644 "$ROOT_DIR/deploy/stepanel-root-broker.service" /etc/systemd/system/stepanel-root-broker.service' install.sh; then
   echo "install.sh does not install the root broker service" >&2
   exit 1

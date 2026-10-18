@@ -1211,10 +1211,10 @@ if (( ${#POST_INSTALL_PENDING[@]} )); then
   printf 'post_install_status=pending services='
   printf '%s ' "${POST_INSTALL_PENDING[@]}"
   printf '\n'
-  install_journal_record post_install pending manual "services=${POST_INSTALL_PENDING[*]}"
+  install_journal_record post_install pending manual "services=${POST_INSTALL_PENDING[*]}" || echo 'Could not persist optional-service status; preserve installer output and inspect the services listed above.' >&2
 else
   echo 'post_install_status=complete'
-  install_journal_record post_install complete retained "optional integrations activated or not requested"
+  install_journal_record post_install complete retained "optional integrations activated or not requested" || echo 'Could not persist optional-service completion; core installation remains committed.' >&2
 fi
 install_journal_record verification complete partial "core readiness passed; inspect post_install_status for optional integrations" || echo 'Could not append installer verification record.' >&2
 install_journal_record recovery contract manual "automatic rollback covers registered files, control-plane database and core service activation; see docs/INSTALLER_RECOVERY.md" || echo 'Could not append installer recovery-contract record.' >&2
