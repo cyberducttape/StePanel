@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+- Extend notification-retention regression coverage to verify bounded cleanup
+  eventually removes aged events with no required delivery channels while
+  retaining pending deliveries.
 - Run the complete repository production gate on the current checkout
   `0ebbd86`: vet, full tests and coverage floors, race suite, repository
   recovery drills, control-plane benchmarks, mixed HTTP load, docs, dashboard,

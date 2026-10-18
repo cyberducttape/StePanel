@@ -218,6 +218,15 @@ func TestOperatorNotificationRetentionUsesRequiredChannelsAndPrunesWithoutConfig
 	if agedCompleted != 0 {
 		t.Fatalf("second batch left %d aged completed events", agedCompleted)
 	}
+	if err := store.flush(context.Background(), Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM operator_notification_events WHERE id='unconfigured'`).Scan(&unconfigured); err != nil {
+		t.Fatal(err)
+	}
+	if unconfigured != 0 {
+		t.Fatalf("aged event with no required delivery channels was not eventually pruned: %d", unconfigured)
+	}
 	webhookCfg := Config{AlertWebhookURL: "https://alerts.example.test/hook", AlertWebhookSecret: strings.Repeat("s", 32)}
 	items, err := store.pending(context.Background(), webhookCfg, operatorNotificationBatch)
 	if err != nil {
