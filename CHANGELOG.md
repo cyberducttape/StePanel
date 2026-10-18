@@ -47,6 +47,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Align the authoritative production-gate document's latest-run summary with
+  the exact-source `128386e` report and measurements.
 - Reconcile the authoritative release-gate evidence row with the latest exact-
   source repository report and live GitHub Actions states, including the 18
   installed-host jobs still stalled at disposable systemd-host startup.
