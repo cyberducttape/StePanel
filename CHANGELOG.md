@@ -12,7 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   time, covering both Git packfiles and checked-out files. This is a defense-in-
   depth bound only; aggregate staging-space enforcement remains an open release
   blocker. Preserve the private clone's 2 GiB address-space cap using `prlimit`
-  byte units, and check that helper contract in release validation.
+  byte units, check that helper contract in release validation, and keep the
+  release-gate regression test precise about per-file versus aggregate limits.
 - Bound Docker host-smoke boot and diagnostic calls, and add step-level
   ceilings, so a wedged daemon or `docker logs` cannot strand CI runners while
   collecting failure evidence. Apply the same bounded-call and cleanup contract

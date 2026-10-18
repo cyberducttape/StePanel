@@ -53,7 +53,7 @@ func TestOneDotZeroScopeExcludesPlatformWork(t *testing.T) {
 }
 
 // TestGitCloneDiskAdmissionRemainsAnExplicitReleaseGate prevents a logical
-// reservation and a post-checkout size check from being mistaken for a hard
+// reservation and a per-file RLIMIT_FSIZE from being mistaken for an aggregate
 // filesystem limit. The release claim must change only with an enforced write
 // boundary and corresponding failure evidence.
 func TestGitCloneDiskAdmissionRemainsAnExplicitReleaseGate(t *testing.T) {
@@ -63,10 +63,11 @@ func TestGitCloneDiskAdmissionRemainsAnExplicitReleaseGate(t *testing.T) {
 	}
 	doc := strings.ToLower(string(data))
 	for _, required := range []string{
-		"hard write-time limits for git release staging",
+		"aggregate write-time limits for git release staging",
 		"❌ open — production blocker",
-		"git clone` writes the pack and checkout before that size check",
-		"cannot prevent a malicious or unexpectedly large repository from exhausting `/var/www`",
+		"`rlimit_fsize` to bound each individual pack or checkout file at write time",
+		"does not limit aggregate staging bytes",
+		"many smaller files can still exhaust `/var/www`",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Errorf("production gate must retain Git staging disk-admission limitation %q", required)
