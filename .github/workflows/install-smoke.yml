@@ -95,28 +95,36 @@ jobs:
           go build -trimpath -ldflags='-s -w' -o stepanel ./cmd/stepanel
           go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root
       - name: Build disposable systemd host image
+        timeout-minutes: 20
         env:
           IMAGE: ${{ matrix.image }}
           HOST_IMAGE: stepanel-systemd-host:${{ matrix.name }}
         run: docker build --build-arg BASE_IMAGE="$IMAGE" -f deploy/lab/Dockerfile.systemd -t "$HOST_IMAGE" .
       - name: Start disposable systemd host
+        timeout-minutes: 12
         env:
           HOST_IMAGE: stepanel-systemd-host:${{ matrix.name }}
         run: |
           set -eu
-          cleanup() { timeout --foreground 15s docker rm -f stepanel-install >/dev/null 2>&1 || true; }
+          docker_bounded() {
+            local deadline=$1
+            shift
+            timeout --foreground --kill-after=2s "$deadline" docker "$@"
+          }
+          docker_diag() { docker_bounded 10s "$@"; }
+          cleanup() { timeout --foreground --kill-after=2s 15s docker rm -f stepanel-install >/dev/null 2>&1 || true; }
           trap 'status=$?; if (( status != 0 )); then cleanup; fi' EXIT
-          if ! timeout --foreground 15s docker info >/dev/null 2>&1; then
+          if ! docker_bounded 15s info >/dev/null 2>&1; then
             echo 'Docker is unavailable or unresponsive on this runner' >&2
-            timeout --foreground 15s docker info >&2 || true
-            timeout --foreground 15s docker ps -a >&2 || true
+            docker_bounded 15s info >&2 || true
+            docker_diag ps -a >&2 || true
             exit 77
           fi
           if [[ ! -f /sys/fs/cgroup/cgroup.controllers && ! -d /sys/fs/cgroup/systemd ]]; then
             echo 'Runner does not provide a systemd-compatible cgroup hierarchy' >&2
             exit 77
           fi
-          if ! timeout --foreground 30s docker run -d --privileged --name stepanel-install \
+          if ! docker_bounded 30s run -d --privileged --name stepanel-install \
               --security-opt=no-new-privileges:false \
               --userns=host \
               --cgroupns=host \
@@ -124,9 +132,9 @@ jobs:
               -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
               -v "$PWD:/work" "$HOST_IMAGE" /sbin/init; then
             echo 'Docker did not create the disposable systemd host within 30 seconds' >&2
-            docker info >&2 || true
-            docker ps -a >&2 || true
-            docker events --since 1m --until 0s >&2 || true
+            docker_diag info >&2 || true
+            docker_diag ps -a >&2 || true
+            docker_diag events --since 1m --until 0s >&2 || true
             exit 1
           fi
           systemd_ready=0
@@ -138,7 +146,7 @@ jobs:
             # `is-system-running` exits nonzero for "degraded" as well as
             # "starting"; a container host commonly has an irrelevant failed
             # unit, so boot completion is the readiness condition here.
-            system_state=$(timeout --foreground 5s docker exec stepanel-install systemctl is-system-running 2>/dev/null || true)
+            system_state=$(docker_bounded 5s exec stepanel-install systemctl is-system-running 2>/dev/null || true)
             if [[ "$system_state" == running || "$system_state" == degraded ]]; then
               systemd_ready=1
               break
@@ -147,13 +155,13 @@ jobs:
           done
           if [[ "$system_state" == degraded ]]; then
             echo 'disposable systemd host booted degraded; failed units:' >&2
-            timeout --foreground 10s docker exec stepanel-install systemctl --failed --no-pager >&2 || true
+            docker_diag exec stepanel-install systemctl --failed --no-pager >&2 || true
           fi
           if [[ "$systemd_ready" != 1 ]]; then
             echo "disposable systemd host did not finish booting (state: ${system_state:-none})" >&2
-            timeout --foreground 10s docker exec stepanel-install systemctl list-jobs --no-pager >&2 || true
-            timeout --foreground 10s docker exec stepanel-install systemctl --failed --no-pager >&2 || true
-            docker logs stepanel-install >&2 || true
+            docker_diag exec stepanel-install systemctl list-jobs --no-pager >&2 || true
+            docker_diag exec stepanel-install systemctl --failed --no-pager >&2 || true
+            docker_diag logs --tail 200 stepanel-install >&2 || true
             exit 1
           fi
           echo "Disposable systemd host is ready (state: $system_state)."
@@ -163,14 +171,20 @@ jobs:
           WEB: ${{ matrix.web }}
         run: |
           set -eu
+          docker_bounded() {
+            local deadline=$1
+            shift
+            timeout --foreground --kill-after=2s "$deadline" docker "$@"
+          }
+          docker_diag() { docker_bounded 10s "$@"; }
           diagnostics_dir="$RUNNER_TEMP/stepanel-install-diagnostics"
           mkdir -p "$diagnostics_dir"
-          cleanup() { timeout --foreground 15s docker rm -f stepanel-install >/dev/null 2>&1 || true; }
+          cleanup() { timeout --foreground --kill-after=2s 15s docker rm -f stepanel-install >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-          running=$(timeout --foreground 10s docker inspect --format '{{.State.Running}}' stepanel-install 2>/dev/null || true)
+          running=$(docker_diag inspect --format '{{.State.Running}}' stepanel-install 2>/dev/null || true)
           if [[ "$running" != true ]]; then
             echo "disposable systemd host is not running (state: ${running:-unknown})" >&2
-            timeout --foreground 10s docker logs stepanel-install >&2 || true
+            docker_diag logs --tail 200 stepanel-install >&2 || true
             exit 1
           fi
           set +e
@@ -183,7 +197,7 @@ jobs:
           # Full-matrix runs exercise every restore checkpoint and are opt-in
           # because they need substantially more wall-clock time on TCG/shared
           # CI hosts.
-          timeout --foreground ${{ inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '80m' }} docker exec \
+          timeout --foreground --kill-after=5s ${{ inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '80m' }} docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
             -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
@@ -196,23 +210,23 @@ jobs:
           if [[ "$smoke_status" != 0 ]]; then
             echo "install smoke exited with status $smoke_status; collecting host diagnostics" >&2
             cat "$diagnostics_dir/install-smoke-output.txt" >&2 || true
-            docker exec stepanel-install systemctl status stepanel.service stepanel-worker.service --no-pager >"$diagnostics_dir/systemctl-status.txt" 2>&1 || true
-            docker exec stepanel-install journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 >"$diagnostics_dir/journal.txt" 2>&1 || true
-            docker exec stepanel-install systemctl show stepanel.service stepanel-worker.service \
+            docker_diag exec stepanel-install systemctl status stepanel.service stepanel-worker.service --no-pager >"$diagnostics_dir/systemctl-status.txt" 2>&1 || true
+            docker_diag exec stepanel-install journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 >"$diagnostics_dir/journal.txt" 2>&1 || true
+            docker_diag exec stepanel-install systemctl show stepanel.service stepanel-worker.service \
               -p ActiveState -p SubState -p Result -p ExecMainStatus -p MainPID \
               -p NoNewPrivileges -p RestrictSUIDSGID -p ProtectSystem -p ProtectHome \
               -p PrivateTmp -p PrivateDevices -p RestrictNamespaces -p ReadWritePaths >"$diagnostics_dir/systemctl-properties.txt" 2>&1 || true
-            docker exec stepanel-install systemctl status stepanel-root-broker.service --no-pager >"$diagnostics_dir/root-broker-status.txt" 2>&1 || true
-            docker exec stepanel-install sh -c 'systemctl list-unit-files --type=service --no-legend "php*-fpm.service" "php-fpm.service" | awk "{print \$1}" | xargs -r systemctl status --no-pager' >"$diagnostics_dir/php-fpm-status.txt" 2>&1 || true
-            docker exec stepanel-install sh -c 'systemctl list-unit-files --type=service --no-legend "php*-fpm.service" "php-fpm.service" | awk "{print \$1}" | xargs -r journalctl -n 200 --no-pager -u' >"$diagnostics_dir/php-fpm-journal.txt" 2>&1 || true
-            docker exec stepanel-install find /run/php /run/php-fpm -maxdepth 1 -type s -name "stepanel-*" -ls >"$diagnostics_dir/php-fpm-sockets.txt" 2>&1 || true
-            docker exec stepanel-install systemctl show stepanel-root-broker.service \
+            docker_diag exec stepanel-install systemctl status stepanel-root-broker.service --no-pager >"$diagnostics_dir/root-broker-status.txt" 2>&1 || true
+            docker_diag exec stepanel-install sh -c 'systemctl list-unit-files --type=service --no-legend "php*-fpm.service" "php-fpm.service" | awk "{print \$1}" | xargs -r systemctl status --no-pager' >"$diagnostics_dir/php-fpm-status.txt" 2>&1 || true
+            docker_diag exec stepanel-install sh -c 'systemctl list-unit-files --type=service --no-legend "php*-fpm.service" "php-fpm.service" | awk "{print \$1}" | xargs -r journalctl -n 200 --no-pager -u' >"$diagnostics_dir/php-fpm-journal.txt" 2>&1 || true
+            docker_diag exec stepanel-install find /run/php /run/php-fpm -maxdepth 1 -type s -name "stepanel-*" -ls >"$diagnostics_dir/php-fpm-sockets.txt" 2>&1 || true
+            docker_diag exec stepanel-install systemctl show stepanel-root-broker.service \
               -p ActiveState -p SubState -p Result -p ExecMainStatus -p MainPID \
               -p NoNewPrivileges -p PrivateDevices -p ProtectSystem -p RestrictNamespaces \
               -p ReadWritePaths >"$diagnostics_dir/root-broker-properties.txt" 2>&1 || true
-            docker exec stepanel-install systemctl cat stepanel-root-broker.service >"$diagnostics_dir/root-broker-unit.txt" 2>&1 || true
-            docker exec stepanel-install journalctl -u stepanel-root-broker.service --no-pager -n 200 >"$diagnostics_dir/root-broker-journal.txt" 2>&1 || true
-            docker logs stepanel-install >"$diagnostics_dir/container.log" 2>&1 || true
+            docker_diag exec stepanel-install systemctl cat stepanel-root-broker.service >"$diagnostics_dir/root-broker-unit.txt" 2>&1 || true
+            docker_diag exec stepanel-install journalctl -u stepanel-root-broker.service --no-pager -n 200 >"$diagnostics_dir/root-broker-journal.txt" 2>&1 || true
+            docker_diag logs --tail 200 stepanel-install >"$diagnostics_dir/container.log" 2>&1 || true
             cat "$diagnostics_dir"/*.txt "$diagnostics_dir"/*.log >&2 || true
             exit "$smoke_status"
           fi

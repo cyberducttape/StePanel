@@ -41,11 +41,21 @@ jobs:
           mv /tmp/stepanel-broken/stepanel /tmp/stepanel-broken/stepanel.real
           install -m 0755 /tmp/stepanel-candidate/deploy/lab/broken-candidate.sh /tmp/stepanel-broken/stepanel
       - name: Build disposable systemd host image
+        timeout-minutes: 20
         run: docker build --build-arg BASE_IMAGE=ubuntu:24.04 -f deploy/lab/Dockerfile.systemd -t stepanel-upgrade-systemd-host .
       - name: Upgrade v0.6.0 on a disposable systemd host
+        timeout-minutes: 45
         run: |
           set -eu
-          docker run -d --privileged --name stepanel-upgrade \
+          docker_bounded() {
+            local deadline=$1
+            shift
+            timeout --foreground --kill-after=2s "$deadline" docker "$@"
+          }
+          docker_diag() { docker_bounded 10s "$@"; }
+          cleanup() { docker_diag rm -f stepanel-upgrade >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker_bounded 30s run -d --privileged --name stepanel-upgrade \
             --cgroupns=host \
             --tmpfs /run --tmpfs /run/lock \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
@@ -53,28 +63,26 @@ jobs:
             -v /tmp/stepanel-candidate:/work/candidate:ro \
             -v /tmp/stepanel-broken:/work/broken:ro \
             stepanel-upgrade-systemd-host /sbin/init
-          cleanup() { docker rm -f stepanel-upgrade >/dev/null 2>&1 || true; }
-          trap cleanup EXIT
           systemd_ready=0
           for _ in $(seq 1 30); do
-            if docker exec stepanel-upgrade systemctl is-system-running >/dev/null 2>&1; then
+            if docker_diag exec stepanel-upgrade systemctl is-system-running >/dev/null 2>&1; then
               systemd_ready=1
               break
             fi
             sleep 2
           done
           if [[ "$systemd_ready" != 1 ]]; then
-            docker logs stepanel-upgrade >&2 || true
+            docker_diag logs --tail 200 stepanel-upgrade >&2 || true
             exit 1
           fi
           set +e
-          docker exec stepanel-upgrade /work/candidate/deploy/lab/upgrade-smoke.sh /work/previous /work/candidate /work/broken
+          timeout --foreground --kill-after=5s 40m docker exec stepanel-upgrade /work/candidate/deploy/lab/upgrade-smoke.sh /work/previous /work/candidate /work/broken
           smoke_status=$?
           if [[ "$smoke_status" != 0 ]]; then
             echo '--- upgrade smoke output diagnostics ---' >&2
-            docker exec stepanel-upgrade systemctl status stepanel.service stepanel-worker.service --no-pager >&2 || true
-            docker exec stepanel-upgrade journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 >&2 || true
-            docker exec stepanel-upgrade sh -c 'curl -sS http://127.0.0.1:8090/readyz || true' >&2 || true
-            docker logs stepanel-upgrade >&2 || true
+            docker_diag exec stepanel-upgrade systemctl status stepanel.service stepanel-worker.service --no-pager >&2 || true
+            docker_diag exec stepanel-upgrade journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 200 >&2 || true
+            docker_diag exec stepanel-upgrade sh -c 'curl -sS http://127.0.0.1:8090/readyz || true' >&2 || true
+            docker_diag logs --tail 200 stepanel-upgrade >&2 || true
           fi
           exit "$smoke_status"

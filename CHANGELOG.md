@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Bound Docker host-smoke boot and diagnostic calls, and add step-level
+  ceilings, so a wedged daemon or `docker logs` cannot strand CI runners while
+  collecting failure evidence. Apply the same bounded-call and cleanup contract
+  to the N-1 upgrade smoke.
 - README Docker, release-install, Kubernetes, and Helm examples now generate a
   valid unpadded Base32 administrator TOTP secret instead of passing the
   invalid placeholder.
