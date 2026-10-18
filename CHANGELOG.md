@@ -22,6 +22,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Explicitly track Git clone disk admission as an open production blocker:
   release-size validation happens after Git has written objects and checked out
   the tree, so the logical capacity reservation does not prevent ENOSPC.
+- Record the exact `a291b57` repository production-gate pass, including full
+  Go tests, coverage floors, race detection, repository recovery drills,
+  benchmarks, mixed load, and documentation checks. Hosted checks and the
+  installed-host repetition cohort remain uncounted/open; production remains
+  NO-GO.
 
 ### Documentation
 
