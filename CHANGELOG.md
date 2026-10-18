@@ -41,6 +41,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Reconcile `CURRENT_STATUS.md` with the latest exact-source repository gate,
+  live hosted-run IDs, and the currently stalled installed-host recovery shard;
+  queued and pending checks remain explicitly uncounted.
 - Record the full repository production-gate pass on exact source `b571cb3`,
   including the full race suite and recovery drills. Explicitly retain the open
   aggregate Git staging, host-recovery, installed-host repetition, and capacity
