@@ -53,8 +53,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Initialize the SQLite fencing-lock schema before activating the root broker,
   and make the broker reject missing or incomplete control-plane schemas,
-  including incorrect fencing-column types, at startup instead of deferring
-  the mismatch until a privileged mutation.
+  including incorrect column types and missing uniqueness constraints, at
+  startup instead of deferring the mismatch until a privileged mutation.
 - Add direct coverage for bounded state-file reads and record a fresh full
   repository production-gate pass with exact-source evidence.
 - Reconcile the finite release-gate table with the latest exact-source gate

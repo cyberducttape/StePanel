@@ -123,6 +123,11 @@ func openFencingDatabase(path string) (*sql.DB, error) {
 // broker must refuse an unrelated, stale, or partially initialized database,
 // never create or migrate its own fencing state. The panel initializer
 // creates resource_locks before the service is started.
+type fencingColumnSpec struct {
+	typeName   string
+	primaryKey bool
+}
+
 func validateFencingDatabaseSchema(db *sql.DB) error {
 	if db == nil {
 		return errors.New("fencing database is required")
@@ -134,28 +139,28 @@ func validateFencingDatabaseSchema(db *sql.DB) error {
 	if version == 0 {
 		return errors.New("control-plane migration ledger is empty")
 	}
-	for table, expected := range map[string]map[string]string{
+	for table, expected := range map[string]map[string]fencingColumnSpec{
 		"resource_locks": {
-			"resource_key": "TEXT",
-			"owner_id":     "TEXT",
-			"lease_until":  "INTEGER",
-			"generation":   "INTEGER",
-			"acquired_at":  "INTEGER",
+			"resource_key": {typeName: "TEXT", primaryKey: true},
+			"owner_id":     {typeName: "TEXT"},
+			"lease_until":  {typeName: "INTEGER"},
+			"generation":   {typeName: "INTEGER"},
+			"acquired_at":  {typeName: "INTEGER"},
 		},
 		"site_identities": {
-			"site":       "TEXT",
-			"username":   "TEXT",
-			"created_at": "INTEGER",
+			"site":       {typeName: "TEXT", primaryKey: true},
+			"username":   {typeName: "TEXT"},
+			"created_at": {typeName: "INTEGER"},
 		},
 	} {
 		if err := validateSQLiteTableColumns(db, table, expected); err != nil {
 			return err
 		}
 	}
-	return nil
+	return validateSQLiteUniqueColumnIndex(db, "site_identities", "username")
 }
 
-func validateSQLiteTableColumns(db *sql.DB, table string, expected map[string]string) error {
+func validateSQLiteTableColumns(db *sql.DB, table string, expected map[string]fencingColumnSpec) error {
 	// Table names are constants supplied by the schema contract above, not
 	// request data. PRAGMA table_info has no bind-parameter form.
 	rows, err := db.Query("PRAGMA table_info(" + table + ")")
@@ -170,9 +175,12 @@ func validateSQLiteTableColumns(db *sql.DB, table string, expected map[string]st
 		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
 			return fmt.Errorf("read %s schema: %w", table, err)
 		}
-		if want, required := expected[name]; required {
-			if !strings.EqualFold(strings.TrimSpace(columnType), want) {
-				return fmt.Errorf("%s.%s has type %q, want %s", table, name, columnType, want)
+		if spec, required := expected[name]; required {
+			if !strings.EqualFold(strings.TrimSpace(columnType), spec.typeName) {
+				return fmt.Errorf("%s.%s has type %q, want %s", table, name, columnType, spec.typeName)
+			}
+			if spec.primaryKey && primaryKey == 0 {
+				return fmt.Errorf("%s.%s is not a primary key", table, name)
 			}
 			delete(expected, name)
 		}
@@ -192,6 +200,68 @@ func validateSQLiteTableColumns(db *sql.DB, table string, expected map[string]st
 		return fmt.Errorf("%s is missing required columns: %s", table, strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+func validateSQLiteUniqueColumnIndex(db *sql.DB, table, column string) error {
+	// Table names are fixed by validateFencingDatabaseSchema.
+	rows, err := db.Query("PRAGMA index_list(" + table + ")")
+	if err != nil {
+		return fmt.Errorf("inspect %s indexes: %w", table, err)
+	}
+	type index struct {
+		name string
+	}
+	var indexes []index
+	for rows.Next() {
+		var sequence, unique, partial int
+		var name, origin string
+		if err := rows.Scan(&sequence, &name, &unique, &origin, &partial); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("read %s indexes: %w", table, err)
+		}
+		if unique == 1 && partial == 0 {
+			indexes = append(indexes, index{name: name})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("iterate %s indexes: %w", table, err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close %s indexes: %w", table, err)
+	}
+	for _, candidate := range indexes {
+		quoted := strings.ReplaceAll(candidate.name, "'", "''")
+		indexRows, err := db.Query("PRAGMA index_info('" + quoted + "')")
+		if err != nil {
+			return fmt.Errorf("inspect %s unique index: %w", table, err)
+		}
+		columns := make([]string, 0, 1)
+		for indexRows.Next() {
+			var sequence, cid int
+			var name sql.NullString
+			if err := indexRows.Scan(&sequence, &cid, &name); err != nil {
+				_ = indexRows.Close()
+				return fmt.Errorf("read %s unique index: %w", table, err)
+			}
+			if !name.Valid {
+				columns = nil
+				break
+			}
+			columns = append(columns, name.String)
+		}
+		if err := indexRows.Err(); err != nil {
+			_ = indexRows.Close()
+			return fmt.Errorf("iterate %s unique index: %w", table, err)
+		}
+		if err := indexRows.Close(); err != nil {
+			return fmt.Errorf("close %s unique index: %w", table, err)
+		}
+		if len(columns) == 1 && columns[0] == column {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s.%s has no non-partial unique index", table, column)
 }
 
 // executor runs one decoded broker request. The subprocess transport uses the

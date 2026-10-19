@@ -105,6 +105,23 @@ func TestValidateFencingDatabaseSchemaRejectsTextLeaseDeadline(t *testing.T) {
 	}
 }
 
+func TestValidateFencingDatabaseSchemaRequiresUniqueSiteIdentityUsername(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nonunique-identities.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE control_plane_migrations(version INTEGER PRIMARY KEY); INSERT INTO control_plane_migrations VALUES(20);
+		CREATE TABLE resource_locks(resource_key TEXT PRIMARY KEY, owner_id TEXT NOT NULL, lease_until INTEGER NOT NULL, generation INTEGER NOT NULL, acquired_at INTEGER NOT NULL);
+		CREATE TABLE site_identities(site TEXT PRIMARY KEY, username TEXT NOT NULL, created_at INTEGER NOT NULL);`); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateFencingDatabaseSchema(db); err == nil {
+		t.Fatal("site identities without a unique username index unexpectedly passed validation")
+	}
+}
+
 func TestOpenFencingDatabaseBusyWaitFitsLeaseSafetyMargin(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control-plane.db")
 	seed, err := sql.Open("sqlite", "file:"+path)
