@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record the exact-source repository gate for `6e8e280`, including the
+  near-expiry broker-fencing fix and complete local gate results; preserve the
+  NO-GO decision and accurately classify hosted checks as queued/pending.
 - Record the exact-source production-gate result for `6cef641`, including
   database-schema constraint validation; keep pending hosted checks and open
   real-host certification gates separate from repository test evidence.

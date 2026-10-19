@@ -9,21 +9,31 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest repository production gate — 2026-10-19 (`6cef641`)
+### Latest repository production gate — 2026-10-19 (`6e8e280`)
 
-The exact code source `6cef6413edd7ad97d44be376dbb978b3ae1caf6f` passed
-[`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-6cef641.md):
+The exact code source `6e8e28057f6e454cfa8e9f22c466c9e5f4684c62` passed
+[`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-6e8e280.md):
 `go vet`, the complete test suite and coverage floors (57.1% aggregate), the
-full race suite (root package 474.209 seconds), repository recovery drills,
+full race suite (root package 474.346 seconds), repository recovery drills,
 benchmarks, mixed HTTP load, documentation, dashboard, quota fixture, assets,
-action pins, and shell syntax. This source also fails root-broker startup when
-the configured database lacks required control-plane, fencing-lock, or
-site-identity schema, or lacks required primary/unique constraints and column
-types. Hosted CI/CodeQL and installed-host smokes for this source are pending
-without assigned runners and are not passing evidence. Real-host ENOSPC, physical power loss,
-installed-host aggregate quota behavior (including XFS), repeated
-installed-host recovery, and capacity certification remain open. Production
-remains **NO-GO**.
+action pins, and shell syntax. Root-broker admission now enforces the lease
+watchdog safety margin before a privileged helper starts; a near-expiry lease
+is rejected before the interval-delayed watchdog check. See the
+[exact-source report](./lab-results/2026-10-19-repository-production-gate-6e8e280.md).
+At 2026-10-19 05:10 UTC, exact-head [CI](https://github.com/cyberducttape/StePanel/actions/runs/39202180471)
+and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39202180478)
+were queued, and standard [install](https://github.com/cyberducttape/StePanel/actions/runs/39202180473)
+and [quota install](https://github.com/cyberducttape/StePanel/actions/runs/39202180489)
+were pending without assigned jobs; none count as passes. Real-host ENOSPC,
+physical power loss, installed-host aggregate quota behavior (including XFS),
+repeated installed-host recovery, and capacity certification remain open.
+Production remains **NO-GO**.
+
+### Previous repository production gate — 2026-10-19 (`6cef641`)
+
+Exact-source evidence is retained in the
+[6cef641 report](./lab-results/2026-10-19-repository-production-gate-6cef641.md);
+it is superseded by the latest gate above and does not close host certification.
 
 ### Latest full repository gate — 2026-10-19 (`c291614`)
 
@@ -309,7 +319,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Ten installed-host smoke runs have passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations, including database-backed WordPress recovery ([current exact-head run 39147354348](https://github.com/cyberducttape/StePanel/actions/runs/39147354348)). `INSTALLATION.md` lists these combinations explicitly as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Open | The repository production gate passed on exact source `6cef641` ([report](./lab-results/2026-10-19-repository-production-gate-6cef641.md)): full tests/coverage floors, race suite, repository recovery drills, benchmarks, mixed load, and docs checks. At 2026-10-19 04:51 UTC, exact-head CI/CodeQL were queued and install smokes pending without assigned jobs. Three older-source `633c013` recovery runs remain active at disposable-host startup and do not certify current source. The 20-repeat installed-host cohort and real-host aggregate quota behavior remain unverified. |
+| Release documentation reconciled with executable evidence | ⚠️ Open | The repository production gate passed on exact source `6e8e280` ([report](./lab-results/2026-10-19-repository-production-gate-6e8e280.md)): full tests/coverage floors, race suite, repository recovery drills, benchmarks, mixed load, and docs checks. At 2026-10-19 05:10 UTC, exact-head CI/CodeQL were queued and install smokes pending without assigned jobs. Three older-source `633c013` recovery runs remain active and do not certify current source. The 20-repeat installed-host cohort and real-host aggregate quota behavior remain unverified. |
 
 The repository production gate was rerun on the exact pushed commit `ee563eb`
 and passed, including coverage thresholds, the complete race suite,
