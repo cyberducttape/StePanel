@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensure quota-enabled host fixtures can admit the largest Git staging job."""
+"""Validate quota-enabled host fixture capacity and ext4 setup syntax."""
 
 from pathlib import Path
 import re
@@ -29,6 +29,31 @@ def fixture_capacity(path: Path) -> int:
     return amount * (GIB if match.group(2) == "G" else 1 << 20)
 
 
+def validate_ext4_quota_setup(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    commands = [
+        line.strip()
+        for line in text.splitlines()
+        if "mkfs.ext4" in line and "/dev/vdb" in line
+    ]
+    if len(commands) != 1:
+        raise ValueError(
+            f"{path.relative_to(ROOT)} must define exactly one /dev/vdb ext4 formatter"
+        )
+    command = commands[0]
+    features = re.search(r"(?:^|\s)-O\s+([^\s]+)", command)
+    quota_types = re.search(r"(?:^|\s)-E\s+quotatype=([^\s]+)", command)
+    enabled_features = set(features.group(1).split(",")) if features else set()
+    if not {"project", "quota"}.issubset(enabled_features):
+        raise ValueError(
+            f"{path.relative_to(ROOT)} must enable ext4 project and quota features"
+        )
+    if not quota_types or set(quota_types.group(1).split(":")) != {"usrquota", "prjquota"}:
+        raise ValueError(
+            f"{path.relative_to(ROOT)} must use colon-separated usrquota:prjquota types"
+        )
+
+
 def main() -> int:
     required = required_capacity()
     fixtures = (
@@ -36,6 +61,7 @@ def main() -> int:
         ROOT / "deploy/lab/local-kvm-certification.sh",
     )
     for fixture in fixtures:
+        validate_ext4_quota_setup(fixture)
         actual = fixture_capacity(fixture)
         if actual < required:
             print(
