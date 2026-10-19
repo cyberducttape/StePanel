@@ -12,7 +12,23 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest exact-source repository gate — 2026-10-19 (`2ebd28d`)
+### Latest exact-source repository gate — 2026-10-19 (`abb4f65`)
+
+- `bash scripts/production-gate.sh` passed on exact checkout
+  `abb4f6530038dc98d674d9cd59423a16ce4e26ce`: coverage was 56.9%, all package
+  floors passed, and the full race suite passed (root package 474.732 seconds).
+  Repository recovery drills, benchmarks, mixed HTTP load, and documentation /
+  release checks also passed. See the
+  [exact-source report](lab-results/2026-10-19-repository-production-gate-abb4f65.md).
+- At capture, exact-head CI and CodeQL were queued; standard and quota-enabled
+  installation smokes were pending. These are not passes.
+- Production remains **NO-GO** pending installed-host aggregate quota
+  validation (including XFS), the 20-repeat recovery cohort, physical power-loss
+  and broader ENOSPC evidence, notification outage/retry, capacity
+  certification, supported-platform/upgrade policy, and independent security
+  review.
+
+### Previous exact-source repository gate — 2026-10-19 (`2ebd28d`)
 
 - `bash scripts/production-gate.sh` passed on exact checkout
   `2ebd28dce1379e9e5a596adfe6ba1c732dde668d`: coverage was 56.9%, all package

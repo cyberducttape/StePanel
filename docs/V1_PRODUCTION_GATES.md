@@ -9,7 +9,20 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest full repository gate — 2026-10-19 (`2ebd28d`)
+### Latest full repository gate — 2026-10-19 (`abb4f65`)
+
+The exact source checkout `abb4f6530038dc98d674d9cd59423a16ce4e26ce` passed
+[`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-abb4f65.md):
+vet, full tests and coverage floors, race detection, repository recovery
+drills, benchmarks, mixed HTTP load, documentation, dashboard, quota fixture,
+assets, action pins, and shell checks. Coverage was 56.9%; the root-package
+race suite passed in 474.732 seconds. Exact-head CI and CodeQL were queued;
+standard/quota install smokes were pending at capture. None are counted as
+passes. Real-host ENOSPC, physical power loss, installed-host aggregate quota
+behavior (including XFS), the 20-repeat installed-host cohort, and capacity
+certification remain open. Production remains **NO-GO**.
+
+### Previous full repository gate — 2026-10-19 (`2ebd28d`)
 
 The exact source checkout `2ebd28dce1379e9e5a596adfe6ba1c732dde668d` passed
 [`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-2ebd28d.md):
@@ -227,7 +240,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Ten installed-host smoke runs have passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations, including database-backed WordPress recovery ([current exact-head run 39147354348](https://github.com/cyberducttape/StePanel/actions/runs/39147354348)). `INSTALLATION.md` lists these combinations explicitly as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Open | The exact-source repository gate passed on `d79e831` ([report](./lab-results/2026-10-19-repository-production-gate-d79e831.md)). At capture, exact-head CI was queued, CodeQL and standard/quota installation smokes were pending; none are counted as passes. The 20-repeat installed-host cohort and real-host aggregate quota behavior remain unverified. |
+| Release documentation reconciled with executable evidence | ⚠️ Open | The exact-source repository gate passed on `abb4f65` ([report](./lab-results/2026-10-19-repository-production-gate-abb4f65.md)). At capture, exact-head CI and CodeQL were queued, and standard/quota installation smokes were pending; none are counted as passes. The 20-repeat installed-host cohort and real-host aggregate quota behavior remain unverified. |
 
 The repository production gate was rerun on the exact pushed commit `ee563eb`
 and passed, including coverage thresholds, the complete race suite,

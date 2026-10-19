@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record the exact-source production-gate pass on `abb4f65`, including full
+  race, recovery-drill, benchmark, and mixed-load results; retain the open
+  installed-host and operational release gates.
 - Record the exact-source production-gate pass on `2ebd28d`, including full
   race, recovery-drill, benchmark, and mixed-load results; hosted and real-host
   certification gates remain explicitly open.
