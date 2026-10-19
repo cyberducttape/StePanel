@@ -12,7 +12,10 @@ Restart=on-failure
 RestartSec=1s
 UMask=0007
 NoNewPrivileges=true
-PrivateDevices=true
+# Quota tools resolve the block device behind a mount; see the production unit.
+DevicePolicy=closed
+CapabilityBoundingSet=~CAP_MKNOD CAP_SYS_RAWIO
+SystemCallFilter=~@raw-io
 PrivateTmp=true
 ProtectSystem=strict
 RestrictNamespaces=true

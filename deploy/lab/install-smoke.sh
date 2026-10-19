@@ -143,10 +143,13 @@ if [[ ! -S /run/stepanel-root-broker.sock ]]; then
   exit 1
 fi
 systemctl is-active --quiet stepanel-root-broker.service
-root_broker_props=$(systemctl show stepanel-root-broker.service -p NoNewPrivileges -p PrivateDevices -p PrivateTmp -p ProtectSystem -p RestrictNamespaces)
+root_broker_props=$(systemctl show stepanel-root-broker.service -p NoNewPrivileges -p DevicePolicy -p PrivateTmp -p ProtectSystem -p RestrictNamespaces)
 root_broker_rw_paths=$(systemctl show stepanel-root-broker.service -p ReadWritePaths --value)
+root_broker_caps=$(systemctl show stepanel-root-broker.service -p CapabilityBoundingSet --value)
 grep -Fxq 'NoNewPrivileges=yes' <<<"$root_broker_props"
-grep -Fxq 'PrivateDevices=yes' <<<"$root_broker_props"
+# The broker sees host device nodes for quota tools but cannot open disks.
+grep -Fxq 'DevicePolicy=closed' <<<"$root_broker_props"
+if grep -Eq '(^| )cap_(mknod|sys_rawio)( |$)' <<<"$root_broker_caps"; then echo "root broker keeps raw device capabilities: $root_broker_caps" >&2; exit 1; fi
 grep -Fxq 'PrivateTmp=yes' <<<"$root_broker_props"
 grep -Fxq 'ProtectSystem=strict' <<<"$root_broker_props"
 grep -Fxq 'RestrictNamespaces=yes' <<<"$root_broker_props"

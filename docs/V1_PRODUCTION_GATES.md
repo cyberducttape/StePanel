@@ -1053,7 +1053,11 @@ upgraded to remove the transitional sudo policy.
 
 The transient rootless build service uses a closed device policy with access
 only to `/dev/fuse`, required by the unprivileged overlay storage driver. The
-privileged broker and panel/worker services retain `PrivateDevices=true`.
+panel and worker services retain `PrivateDevices=true`. The privileged broker
+uses `DevicePolicy=closed` without `CAP_MKNOD`, `CAP_SYS_RAWIO` or `@raw-io`
+system calls instead of a private `/dev`. The quota tools it runs for site and
+Git staging quotas need to resolve the block device behind `/var/www`, and the
+closed device policy still refuses to open it.
 
 **Acceptance Criteria:**
 - [x] Failure injection framework implemented at transaction init/commit

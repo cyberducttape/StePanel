@@ -28,6 +28,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Deny `backup`, `backups` and `private` directories in Caddy only where the
   path exists in the document root. Application routes such as `/private/`
   or a `/category/backups/` page reach PHP again.
+- Let the root broker run quota tools. `PrivateDevices=true` hid the block
+  device behind `/var/www`, so `setquota` and `quotaon` failed with "Cannot
+  stat() mounted device". That broke Git staging quotas and per-site disk
+  quotas whenever they were applied through the broker. The broker now uses
+  `DevicePolicy=closed` without `CAP_MKNOD`, `CAP_SYS_RAWIO` or `@raw-io`
+  system calls, so it can see device nodes but still cannot open a disk.
 - Split the installed Git deploy recovery smoke by host. Hosts without
   project quotas (the Docker install matrix) now verify that a Git deploy is
   refused with the project-quota error and leaves the site unchanged. The

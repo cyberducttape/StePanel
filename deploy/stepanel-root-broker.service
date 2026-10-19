@@ -16,7 +16,13 @@ TimeoutStopSec=2h5min
 UMask=0007
 NoNewPrivileges=true
 PrivateTmp=true
-PrivateDevices=true
+# The quota tools that apply site and Git staging quotas resolve the block
+# device behind each mount, which a private /dev hides. Keep everything else
+# PrivateDevices= provides: the cgroup device policy still refuses to open any
+# disk, and the capabilities and system calls for raw device access stay out.
+DevicePolicy=closed
+CapabilityBoundingSet=~CAP_MKNOD CAP_SYS_RAWIO
+SystemCallFilter=~@raw-io
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
