@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record the full exact-source repository production-gate pass on `7d042ad`,
+  its coverage, race, recovery-drill, benchmark and mixed-load evidence, while
+  retaining the NO-GO decision for open hosted and installed-host gates.
 - Record the exact pushed-source production-gate pass on `1ed5e8a`, including
   full race, recovery-drill, benchmark, and mixed-load results. Preserve the
   NO-GO decision and distinguish queued/pending hosted checks from passes.
