@@ -20,6 +20,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Reserve the full accepted WPress expanded-tree allowance on both import and
+  site-staging filesystems for the duration of extraction and activation. This
+  makes capacity admission cross-process and independent of compressed upload
+  size; document that this ledger reservation is not a kernel-enforced quota.
+
 - Include the staged SQL dump size in privileged database restore admission and
   reserve against the larger of twice the incoming dump or 1.5 times the live
   database. Hold a durable, cross-process SQLite capacity reservation on the

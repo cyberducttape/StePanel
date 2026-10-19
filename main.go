@@ -1460,11 +1460,6 @@ func (a *App) handleWPressJob(ctx context.Context, item Job) ([]byte, error) {
 	if err := a.reconcileInterruptedSiteWithLease(operationCtx, request.Site, a.siteManager); err != nil {
 		return nil, fmt.Errorf("reconcile interrupted WordPress restore: %w", err)
 	}
-	// The staged archive is already on disk; extraction and the site staging
-	// tree each need about its size again.
-	if err := a.capacityLedger().check(a.Config, "WPress restore", stagedArchiveDemands(a.Config, uint64(request.Size))); err != nil {
-		return nil, err
-	}
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, request.Actor, "wordpress.restore", request.Site, "staged WPress archive")
 	if err != nil {
 		return nil, err

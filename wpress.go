@@ -244,6 +244,19 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 			return WPressResult{}, err
 		}
 	}
+	// The extractor's output size is not knowable from the compressed archive.
+	// Hold the full accepted tree budget on both filesystems until extraction,
+	// validation, and site staging finish so concurrent panel/worker operations
+	// cannot spend the same capacity. validateWPressTree enforces this 20 GiB
+	// bound after extraction; the reservation is admission control, not a kernel
+	// quota on the extractor itself.
+	if len(ledgers) > 0 && ledgers[0] != nil {
+		reservation, err := ledgers[0].reserve(cfg, "WPress restore", cfg.ImportRoot, wpressRestoreDemands(cfg))
+		if err != nil {
+			return WPressResult{}, err
+		}
+		defer reservation.release()
+	}
 	site := access.Site()
 	if err := validateWPressInput(site, dbSuffix, dbUserSuffix, dbPassword, targetPrefix, siteURL); err != nil {
 		return WPressResult{}, err
@@ -451,6 +464,14 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	}
 	committed = true
 	return WPressResult{Site: site, Home: home, Database: dbName, DatabaseUser: dbUser, SourcePrefix: sourcePrefix, TargetPrefix: targetPrefix, FilesRestored: true, DatabaseRestored: true, URLReplaced: urlReplaced, MetadataApplied: metadata.PluginsPresent || metadata.TemplatePresent || metadata.StylesheetPresent, HTAccessRestored: metadata.HTAccessPresent, StagedAt: txn.dir}, nil
+}
+
+func wpressRestoreDemands(cfg Config) []capacityDemand {
+	maximumTree := uint64(maxBackupBytes)
+	return []capacityDemand{
+		{Path: cfg.ImportRoot, Bytes: maximumTree},
+		{Path: filepath.Join(cfg.WebRoot, "sites"), Bytes: maximumTree},
+	}
 }
 
 func readWPressPackageMetadata(path string) (wpressPackageMetadata, error) {

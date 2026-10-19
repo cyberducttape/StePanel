@@ -80,6 +80,34 @@ func TestValidateWPressTreeEnforcesEntryLimit(t *testing.T) {
 	}
 }
 
+func TestWPressRestoreAdmissionUsesExpandedTreeLimit(t *testing.T) {
+	cfg := Config{ImportRoot: "/srv/imports", WebRoot: "/srv/www"}
+	demands := wpressRestoreDemands(cfg)
+	if len(demands) != 2 {
+		t.Fatalf("got %d WPress capacity demands, want import and site staging", len(demands))
+	}
+	wantBytes := uint64(maxBackupBytes)
+	wantPaths := map[string]bool{
+		cfg.ImportRoot:                      false,
+		filepath.Join(cfg.WebRoot, "sites"): false,
+	}
+	for _, demand := range demands {
+		if demand.Bytes != wantBytes {
+			t.Errorf("demand for %s = %d bytes, want full expanded-tree limit %d", demand.Path, demand.Bytes, wantBytes)
+		}
+		if _, ok := wantPaths[demand.Path]; !ok {
+			t.Errorf("unexpected WPress capacity path %q", demand.Path)
+		} else {
+			wantPaths[demand.Path] = true
+		}
+	}
+	for path, seen := range wantPaths {
+		if !seen {
+			t.Errorf("missing WPress capacity reservation for %s", path)
+		}
+	}
+}
+
 func TestValidateWPressTreeRejectsSymlink(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Symlink("/etc/passwd", filepath.Join(root, "unsafe")); err != nil {
