@@ -55,6 +55,10 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		`.env`,
 		`.git`,
 		`.htpasswd`,
+		`\.ssh(/.*)?`,
+		`\.aws(/.*)?`,
+		`\.gnupg(/.*)?`,
+		`(backup|backups|private)(/.*)?`,
 		`\.(sql|sqlite`,
 	} {
 		if !strings.Contains(source, required) {
@@ -74,7 +78,10 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	}
 	for _, path := range []string{
 		"/.env", "/nested/.env.production", "/nested/.git/config", "/deep/path/.svn/entries",
-		"/database/export.sql", "/archives/backup.tar.gz", "/nested/.htpasswd", "/node_modules/pkg/secret.js",
+		"/database/export.sql", "/database/export.dump", "/archives/backup.tar.gz",
+		"/archives/export.sql.bz2", "/archives/site.7z", "/keys/server.pem", "/keys/server.key",
+		"/.ssh/id_ed25519", "/.aws/credentials", "/.gnupg/private-keys-v1.d/key",
+		"/backups/site.tar.gz", "/private/config.php", "/nested/.htpasswd", "/node_modules/pkg/secret.js",
 	} {
 		if !policy.MatchString(path) {
 			t.Errorf("Caddy sensitive-file matcher does not reject %q", path)

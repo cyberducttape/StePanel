@@ -57,6 +57,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   state from causing unbounded startup allocation.
 - Bound application-manifest, Node version-file, and proxy snapshot reads during
   site listing and Node deployments.
+- Expand Caddy's generated deny policy to cover database dumps, compressed
+  archives, private keys, and common private/backup directories.
 - Enforce byte ceilings while reading durable JSON-backed account, route,
   schedule, resource, PHP, SSH, Redis, worker, task, Composer, and domain-claim
   state files; this prevents corrupted local metadata from being fully loaded
