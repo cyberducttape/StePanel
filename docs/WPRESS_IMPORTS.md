@@ -49,13 +49,14 @@ site transaction is rolled back.
 
 Uploads stream once into a private staged object; archive space and
 `STEPANEL_MIN_FREE_BYTES` are admitted before the body is read. Before restore,
-StePanel holds a durable cross-process capacity reservation for the maximum
-accepted expanded tree (20 GiB) on both the import and site-staging filesystems.
-The extractor's output is checked against that limit after extraction. This
-reservation prevents concurrent StePanel operations from overcommitting the
-same estimated capacity, but is not an OS-enforced quota on the extractor; host
-ENOSPC testing remains required. API clients must send the `backup` file part
-after every other form field.
+StePanel parses every fixed-size WPress header, rejects absolute/traversal and
+duplicate output paths, checks record bounds and the 20 GiB expanded-tree cap,
+then holds a durable cross-process capacity reservation for the declared
+expanded size on both the import and site-staging filesystems. The extracted
+tree is independently checked afterward. The reservation coordinates StePanel
+operations but is not an OS-enforced quota on the extractor; host ENOSPC testing
+remains required. API clients must send the `backup` file part after every
+other form field.
 
 Archives are extracted into a private staging directory. Symlinks are rejected,
 the database dump is not copied into the public site, and a failed overwrite

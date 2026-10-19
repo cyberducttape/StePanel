@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -12,11 +13,15 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"github.com/cyberducttape/StePanel/internal/upload"
 )
@@ -26,6 +31,14 @@ var wpressPrefixPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,31}$`)
 var databasePasswordPattern = regexp.MustCompile(`^[A-Za-z0-9!@#%^*_=+.,:-]{16,128}$`)
 var wordpressPluginPathPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,255}$`)
 var wordpressThemeSlugPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
+
+const (
+	wpressHeaderSize   = 4377
+	wpressNameEnd      = 255
+	wpressSizeEnd      = 269
+	wpressPrefixOffset = 281
+	wpressMaxFileBytes = uint64(2 << 30)
+)
 
 type wpressPackageMetadata struct {
 	PluginsPresent    bool
@@ -244,19 +257,6 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 			return WPressResult{}, err
 		}
 	}
-	// The extractor's output size is not knowable from the compressed archive.
-	// Hold the full accepted tree budget on both filesystems until extraction,
-	// validation, and site staging finish so concurrent panel/worker operations
-	// cannot spend the same capacity. validateWPressTree enforces this 20 GiB
-	// bound after extraction; the reservation is admission control, not a kernel
-	// quota on the extractor itself.
-	if len(ledgers) > 0 && ledgers[0] != nil {
-		reservation, err := ledgers[0].reserve(cfg, "WPress restore", cfg.ImportRoot, wpressRestoreDemands(cfg))
-		if err != nil {
-			return WPressResult{}, err
-		}
-		defer reservation.release()
-	}
 	site := access.Site()
 	if err := validateWPressInput(site, dbSuffix, dbUserSuffix, dbPassword, targetPrefix, siteURL); err != nil {
 		return WPressResult{}, err
@@ -270,14 +270,32 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if len(dbName) > 64 || len(dbUser) > 32 {
 		return WPressResult{}, errors.New("database name or user is too long")
 	}
+	if archiveInfo, err := os.Stat(archive); err != nil || !archiveInfo.Mode().IsRegular() || archiveInfo.Size() > cfg.MaxUpload && cfg.MaxUpload > 0 {
+		return WPressResult{}, errors.New("WPress archive is missing, not regular, or exceeds the configured upload limit")
+	}
+	maxEntries := cfg.MaxEntries
+	if maxEntries <= 0 {
+		maxEntries = 1000000
+	}
+	expandedBytes, err := inspectWPressArchive(archive, maxEntries)
+	if err != nil {
+		return WPressResult{}, fmt.Errorf("validate WPress archive before extraction: %w", err)
+	}
+	// WPress headers provide the exact uncompressed sizes. Validate every
+	// output path and aggregate size before invoking the third-party extractor,
+	// which otherwise writes archive-controlled paths before our tree checks.
+	if len(ledgers) > 0 && ledgers[0] != nil {
+		reservation, err := ledgers[0].reserve(cfg, "WPress restore", cfg.ImportRoot, wpressRestoreDemands(cfg, expandedBytes))
+		if err != nil {
+			return WPressResult{}, err
+		}
+		defer reservation.release()
+	}
 	stage, stageLock, err := createImportStage(cfg.ImportRoot, "wpress-restore-")
 	if err != nil {
 		return WPressResult{}, err
 	}
 	defer removeImportStage(stage, stageLock)
-	if archiveInfo, err := os.Stat(archive); err != nil || !archiveInfo.Mode().IsRegular() || archiveInfo.Size() > cfg.MaxUpload && cfg.MaxUpload > 0 {
-		return WPressResult{}, errors.New("WPress archive is missing, not regular, or exceeds the configured upload limit")
-	}
 	extracted := filepath.Join(stage, "extracted")
 	if err := os.MkdirAll(filepath.Join(stage, "tmp"), 0700); err != nil {
 		return WPressResult{}, err
@@ -292,10 +310,6 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	}
 	if err := validateExtractionLayout(stage, extracted); err != nil {
 		return WPressResult{}, err
-	}
-	maxEntries := cfg.MaxEntries
-	if maxEntries <= 0 {
-		maxEntries = 1000000
 	}
 	if err := validateWPressTree(extracted, maxEntries); err != nil {
 		return WPressResult{}, err
@@ -466,12 +480,125 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	return WPressResult{Site: site, Home: home, Database: dbName, DatabaseUser: dbUser, SourcePrefix: sourcePrefix, TargetPrefix: targetPrefix, FilesRestored: true, DatabaseRestored: true, URLReplaced: urlReplaced, MetadataApplied: metadata.PluginsPresent || metadata.TemplatePresent || metadata.StylesheetPresent, HTAccessRestored: metadata.HTAccessPresent, StagedAt: txn.dir}, nil
 }
 
-func wpressRestoreDemands(cfg Config) []capacityDemand {
-	maximumTree := uint64(maxBackupBytes)
+func wpressRestoreDemands(cfg Config, expandedBytes uint64) []capacityDemand {
 	return []capacityDemand{
-		{Path: cfg.ImportRoot, Bytes: maximumTree},
-		{Path: filepath.Join(cfg.WebRoot, "sites"), Bytes: maximumTree},
+		{Path: cfg.ImportRoot, Bytes: expandedBytes},
+		{Path: filepath.Join(cfg.WebRoot, "sites"), Bytes: expandedBytes},
 	}
+}
+
+// inspectWPressArchive bounds and validates the complete WPress record stream
+// before the external extractor can create any files. The third-party format
+// stores a fixed header followed by the declared file bytes for each record.
+func inspectWPressArchive(archive string, maxEntries int) (uint64, error) {
+	file, info, err := stepanelhelper.OpenRegularNoFollow(archive, nil)
+	if err != nil {
+		return 0, fmt.Errorf("open archive without following links: %w", err)
+	}
+	defer file.Close()
+	if info.Size() < 0 {
+		return 0, errors.New("archive has an invalid size")
+	}
+	if maxEntries <= 0 {
+		maxEntries = 1000000
+	}
+	var total uint64
+	paths := make(map[string]struct{})
+	for entries := 0; ; entries++ {
+		header := make([]byte, wpressHeaderSize)
+		read, readErr := io.ReadFull(file, header)
+		if errors.Is(readErr, io.EOF) && read == 0 {
+			return total, nil
+		}
+		if readErr != nil {
+			return 0, errors.New("archive ends inside a WPress header")
+		}
+		if allZeroBytes(header) {
+			return total, nil
+		}
+		if entries >= maxEntries {
+			return 0, errors.New("archive contains too many WPress entries")
+		}
+		name := readWPressField(header[:wpressNameEnd])
+		sizeText := strings.TrimSpace(readWPressField(header[wpressNameEnd:wpressSizeEnd]))
+		prefix := readWPressField(header[wpressPrefixOffset:])
+		if err := validateWPressEntryPath(prefix, name); err != nil {
+			return 0, err
+		}
+		entryPath := path.Join(prefix, name)
+		if _, duplicate := paths[entryPath]; duplicate {
+			return 0, errors.New("archive contains a duplicate WPress output path")
+		}
+		paths[entryPath] = struct{}{}
+		if sizeText == "" || !decimalDigits(sizeText) {
+			return 0, errors.New("archive contains an invalid WPress entry size")
+		}
+		size, err := strconv.ParseUint(sizeText, 10, 64)
+		if err != nil || size > wpressMaxFileBytes || size > uint64(maxBackupBytes) || total > uint64(maxBackupBytes)-size {
+			return 0, errors.New("archive exceeds WPress file or expanded-size limits")
+		}
+		offset, err := file.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return 0, fmt.Errorf("inspect WPress archive offset: %w", err)
+		}
+		remaining := info.Size() - offset
+		if remaining < 0 || size > uint64(remaining) {
+			return 0, errors.New("archive ends inside a WPress entry")
+		}
+		if _, err := file.Seek(int64(size), io.SeekCurrent); err != nil {
+			return 0, fmt.Errorf("advance WPress archive: %w", err)
+		}
+		total += size
+	}
+}
+
+func allZeroBytes(data []byte) bool {
+	for _, value := range data {
+		if value != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func readWPressField(data []byte) string {
+	if nul := bytes.IndexByte(data, 0); nul >= 0 {
+		data = data[:nul]
+	}
+	return string(data)
+}
+
+func decimalDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func validateWPressEntryPath(prefix, name string) error {
+	if !utf8.ValidString(prefix) || !utf8.ValidString(name) || name == "" || strings.ContainsAny(prefix+name, "\\\x00") {
+		return errors.New("archive contains an invalid WPress path")
+	}
+	for _, part := range []string{prefix, name} {
+		if path.IsAbs(part) {
+			return errors.New("archive contains an absolute WPress path")
+		}
+		for _, component := range strings.Split(part, "/") {
+			if component == ".." || component == "." || len(component) > 255 {
+				return errors.New("archive contains an unsafe WPress path component")
+			}
+		}
+	}
+	joined := path.Join(prefix, name)
+	if len(joined) > 4096 || joined == "." || path.IsAbs(joined) || !filepath.IsLocal(filepath.FromSlash(joined)) {
+		return errors.New("archive contains a WPress path outside its extraction root")
+	}
+	return nil
 }
 
 func readWPressPackageMetadata(path string) (wpressPackageMetadata, error) {

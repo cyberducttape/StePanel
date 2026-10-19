@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,6 +72,102 @@ func TestInspectCPMoveRejectsMissingMetadata(t *testing.T) {
 	}
 }
 
+func TestInspectWPressArchiveAcceptsSafeRecordsAndSumsExpandedBytes(t *testing.T) {
+	archive := writeWPressFixture(t,
+		wpressFixtureEntry{prefix: "wordpress", name: "database.sql", data: []byte("sql")},
+		wpressFixtureEntry{prefix: "wordpress/wp-content", name: "index.php", data: []byte("php!!")},
+	)
+	expanded, err := inspectWPressArchive(archive, 10)
+	if err != nil {
+		t.Fatalf("inspect valid archive: %v", err)
+	}
+	if expanded != uint64(len("sql")+len("php!!")) {
+		t.Fatalf("expanded size = %d, want %d", expanded, len("sql")+len("php!!"))
+	}
+}
+
+func TestInspectWPressArchiveRejectsTraversalBeforeExtraction(t *testing.T) {
+	for name, entry := range map[string]wpressFixtureEntry{
+		"parent component in name":   {name: "../escape", data: []byte("x")},
+		"parent component in prefix": {prefix: "../../outside", name: "escape", data: []byte("x")},
+		"absolute name":              {name: "/tmp/escape", data: []byte("x")},
+		"absolute prefix":            {prefix: "/tmp", name: "escape", data: []byte("x")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			archive := writeWPressFixture(t, entry)
+			if _, err := inspectWPressArchive(archive, 10); err == nil {
+				t.Fatal("unsafe archive path passed pre-extraction validation")
+			}
+		})
+	}
+}
+
+func TestRestoreWPressRejectsTraversalBeforeStartingExtractor(t *testing.T) {
+	root := t.TempDir()
+	importRoot := filepath.Join(root, "imports")
+	if err := os.MkdirAll(importRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	archive := writeWPressFixture(t, wpressFixtureEntry{name: "../../escape", data: []byte("x")})
+	marker := filepath.Join(root, "extractor-ran")
+	extractor := filepath.Join(root, "extractor")
+	script := fmt.Sprintf("#!/bin/sh\n: > %q\n", marker)
+	if err := os.WriteFile(extractor, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{ImportRoot: importRoot, MaxUpload: 1 << 20, WPressExtract: extractor, WPCLI: "/bin/true"}
+	_, err := RestoreWPress(cfg, archive, AuthorizedSite{site: "account"}, "db", "user", "aValidPassword123", "", "wp_", false)
+	if err == nil {
+		t.Fatal("path-traversing WPress archive was accepted")
+	}
+	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("external extractor ran before archive validation: stat marker error = %v", statErr)
+	}
+}
+
+func TestInspectWPressArchiveRejectsTruncationAndEntryOverflow(t *testing.T) {
+	t.Run("truncated payload", func(t *testing.T) {
+		archive := writeWPressFixture(t, wpressFixtureEntry{name: "database.sql", data: []byte("sql")})
+		if err := os.Truncate(archive, int64(wpressHeaderSize+2)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := inspectWPressArchive(archive, 10); err == nil {
+			t.Fatal("truncated WPress entry was accepted")
+		}
+	})
+	t.Run("entry count", func(t *testing.T) {
+		archive := writeWPressFixture(t,
+			wpressFixtureEntry{name: "one", data: []byte("1")},
+			wpressFixtureEntry{name: "two", data: []byte("2")},
+		)
+		if _, err := inspectWPressArchive(archive, 1); err == nil {
+			t.Fatal("WPress entry count above the limit was accepted")
+		}
+	})
+	t.Run("duplicate output path", func(t *testing.T) {
+		archive := writeWPressFixture(t,
+			wpressFixtureEntry{name: "database.sql", data: []byte("first")},
+			wpressFixtureEntry{name: "database.sql", data: []byte("second")},
+		)
+		if _, err := inspectWPressArchive(archive, 10); err == nil {
+			t.Fatal("duplicate WPress output path was accepted")
+		}
+	})
+	t.Run("expanded size", func(t *testing.T) {
+		header := make([]byte, wpressHeaderSize)
+		copy(header[:wpressNameEnd], "large")
+		copy(header[wpressNameEnd:wpressSizeEnd], fmt.Sprintf("%014d", uint64(maxBackupBytes)+1))
+		copy(header[wpressPrefixOffset:], "wordpress")
+		archive := filepath.Join(t.TempDir(), "oversized.wpress")
+		if err := os.WriteFile(archive, append(header, make([]byte, wpressHeaderSize)...), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := inspectWPressArchive(archive, 10); err == nil {
+			t.Fatal("WPress expanded size above the limit was accepted")
+		}
+	})
+}
+
 func TestValidateWPressTreeEnforcesEntryLimit(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "one"), "1")
@@ -82,18 +179,18 @@ func TestValidateWPressTreeEnforcesEntryLimit(t *testing.T) {
 
 func TestWPressRestoreAdmissionUsesExpandedTreeLimit(t *testing.T) {
 	cfg := Config{ImportRoot: "/srv/imports", WebRoot: "/srv/www"}
-	demands := wpressRestoreDemands(cfg)
+	const expandedBytes = uint64(1234)
+	demands := wpressRestoreDemands(cfg, expandedBytes)
 	if len(demands) != 2 {
 		t.Fatalf("got %d WPress capacity demands, want import and site staging", len(demands))
 	}
-	wantBytes := uint64(maxBackupBytes)
 	wantPaths := map[string]bool{
 		cfg.ImportRoot:                      false,
 		filepath.Join(cfg.WebRoot, "sites"): false,
 	}
 	for _, demand := range demands {
-		if demand.Bytes != wantBytes {
-			t.Errorf("demand for %s = %d bytes, want full expanded-tree limit %d", demand.Path, demand.Bytes, wantBytes)
+		if demand.Bytes != expandedBytes {
+			t.Errorf("demand for %s = %d bytes, want inspected expanded size %d", demand.Path, demand.Bytes, expandedBytes)
 		}
 		if _, ok := wantPaths[demand.Path]; !ok {
 			t.Errorf("unexpected WPress capacity path %q", demand.Path)
@@ -106,6 +203,31 @@ func TestWPressRestoreAdmissionUsesExpandedTreeLimit(t *testing.T) {
 			t.Errorf("missing WPress capacity reservation for %s", path)
 		}
 	}
+}
+
+type wpressFixtureEntry struct {
+	prefix string
+	name   string
+	data   []byte
+}
+
+func writeWPressFixture(t *testing.T, entries ...wpressFixtureEntry) string {
+	t.Helper()
+	var archive []byte
+	for _, entry := range entries {
+		header := make([]byte, wpressHeaderSize)
+		copy(header[:wpressNameEnd], entry.name)
+		copy(header[wpressNameEnd:wpressSizeEnd], fmt.Sprintf("%014d", len(entry.data)))
+		copy(header[wpressPrefixOffset:], entry.prefix)
+		archive = append(archive, header...)
+		archive = append(archive, entry.data...)
+	}
+	archive = append(archive, make([]byte, wpressHeaderSize)...)
+	path := filepath.Join(t.TempDir(), "fixture.wpress")
+	if err := os.WriteFile(path, archive, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestValidateWPressTreeRejectsSymlink(t *testing.T) {

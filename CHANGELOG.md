@@ -29,10 +29,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
-- Reserve the full accepted WPress expanded-tree allowance on both import and
-  site-staging filesystems for the duration of extraction and activation. This
-  makes capacity admission cross-process and independent of compressed upload
-  size; document that this ledger reservation is not a kernel-enforced quota.
+- Preflight WPress record paths and sizes before invoking the external
+  extractor. Reject traversal/absolute/duplicate paths, malformed or truncated
+  records, entry-count overflow, and expanded-size overflow, and reserve the
+  inspected expansion across both affected filesystems before extraction.
+- Reconcile the production-gate contract with WPress pre-extraction path and
+  size validation while keeping real-host recovery evidence open.
 
 - Include the staged SQL dump size in privileged database restore admission and
   reserve against the larger of twice the incoming dump or 1.5 times the live
