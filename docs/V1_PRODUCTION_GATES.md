@@ -9,7 +9,20 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest full repository gate — 2026-10-19 (`ad9a43a`)
+### Latest full repository gate — 2026-10-19 (`d79e831`)
+
+The exact source checkout `d79e831e07434d195ad081c7562d02b85b14d382` passed
+[`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-d79e831.md):
+vet, full tests and coverage floors, race detection, repository recovery
+drills, benchmarks, mixed HTTP load, documentation, dashboard, quota fixture,
+assets, action pins, and shell checks. Coverage was 56.9%; the root-package
+race suite passed in 472.031 seconds. Exact-head hosted CI was queued; CodeQL
+and standard/quota install smokes were pending at capture. None are counted as
+passes. Real-host ENOSPC, physical power loss, installed-host aggregate quota
+behavior (including XFS), the 20-repeat installed-host cohort, and capacity
+certification remain open. Production remains **NO-GO**.
+
+### Previous full repository gate — 2026-10-19 (`ad9a43a`)
 
 The exact source checkout `ad9a43aa8761c4d9b52d6132fc46221c791dc004` passed
 [`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-ad9a43a.md):
@@ -201,7 +214,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Ten installed-host smoke runs have passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations, including database-backed WordPress recovery ([current exact-head run 39147354348](https://github.com/cyberducttape/StePanel/actions/runs/39147354348)). `INSTALLATION.md` lists these combinations explicitly as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Open | The latest exact-source repository gate passed on `6c6e018` ([report](./lab-results/2026-10-18-repository-production-gate-6c6e018.md)); the aggregate Git quota implementation is locally verified but exact-head hosted and installed-host validation remains unproven. At the 2026-10-18 23:31 UTC capture, hosted CI and CodeQL for the documentation-only descendant `b920e7f` were queued; exact-source install smokes for `6c6e018` were pending without jobs. These are not counted as passes. The 20-repeat installed-host cohort on `633c013` remains stalled: shards 01–03 and two jobs in shard 04 are reported in progress at “Start disposable systemd host,” while the remaining host jobs are queued. No iteration counts are recorded. See the [cohort run list](./lab-results/2026-10-18-hosted-validation-633c013.md#twenty-repeat-installed-host-cohort). |
+| Release documentation reconciled with executable evidence | ⚠️ Open | The exact-source repository gate passed on `d79e831` ([report](./lab-results/2026-10-19-repository-production-gate-d79e831.md)). At capture, exact-head CI was queued, CodeQL and standard/quota installation smokes were pending; none are counted as passes. The 20-repeat installed-host cohort and real-host aggregate quota behavior remain unverified. |
 
 The repository production gate was rerun on the exact pushed commit `ee563eb`
 and passed, including coverage thresholds, the complete race suite,
