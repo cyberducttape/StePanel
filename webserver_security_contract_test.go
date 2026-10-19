@@ -94,6 +94,61 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	}
 }
 
+func TestApacheVHostDeniesSensitiveFilesAndDirectories(t *testing.T) {
+	sourceBytes, err := os.ReadFile("deploy/integrations/stepanel-vhostctl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	files := regexp.MustCompile(`(?m)^\s*<FilesMatch "([^"]+)">`).FindStringSubmatch(source)
+	directories := regexp.MustCompile(`(?m)^\s*<DirectoryMatch "([^"]+)">`).FindStringSubmatch(source)
+	if len(files) != 2 || len(directories) != 2 {
+		t.Fatalf("Apache vhost is missing sensitive-file/directory deny policy")
+	}
+	// The patterns are in an unquoted shell heredoc; Bash reduces each escaped
+	// backslash pair to one before Apache receives the generated config.
+	filePolicy, err := regexp.Compile(strings.ReplaceAll(files[1], `\\`, `\`))
+	if err != nil {
+		t.Fatalf("Apache sensitive-file policy is invalid: %v", err)
+	}
+	directoryPattern := strings.ReplaceAll(directories[1], "$site", "example")
+	directoryPolicy, err := regexp.Compile(strings.ReplaceAll(directoryPattern, `\\`, `\`))
+	if err != nil {
+		t.Fatalf("Apache sensitive-directory policy is invalid: %v", err)
+	}
+	for _, name := range []string{
+		".env", ".env.production", "export.sql", "export.dump", "export.sql.gz",
+		"backup.tar.zst", "private.pem", "private.key", "credentials.p12",
+	} {
+		if !filePolicy.MatchString(name) {
+			t.Errorf("Apache sensitive-file policy does not reject %q", name)
+		}
+	}
+	for _, path := range []string{
+		"/var/www/sites/example/public/.git/config",
+		"/var/www/sites/example/public/nested/.ssh/id_ed25519",
+		"/var/www/sites/example/public/backups/weekly/archive.zip",
+		"/var/www/sites/example/public/node_modules/package/secret.js",
+	} {
+		if !directoryPolicy.MatchString(path) {
+			t.Errorf("Apache sensitive-directory policy does not reject %q", path)
+		}
+	}
+	for _, name := range []string{"index.php", "app.css", "api.json"} {
+		if filePolicy.MatchString(name) {
+			t.Errorf("Apache sensitive-file policy unexpectedly rejects %q", name)
+		}
+	}
+	for _, path := range []string{
+		"/var/www/sites/example/public/assets/app.js",
+		"/var/www/sites/example/public/.well-known/acme-challenge/token",
+	} {
+		if directoryPolicy.MatchString(path) {
+			t.Errorf("Apache sensitive-directory policy unexpectedly rejects %q", path)
+		}
+	}
+}
+
 func TestCaddyFastCGIUsesCanonicalSiteRoot(t *testing.T) {
 	source := string(mustReadTestFile(t, "deploy/integrations/stepanel-caddy-vhostctl"))
 	if !strings.Contains(source, `if [[ -f "$public_root/index.php" && ! -L "$public_root/index.php" ]]`) ||
