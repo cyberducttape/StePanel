@@ -20,9 +20,9 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   The four repository recovery drills, benchmarks, mixed HTTP load, and
   documentation/release checks also passed. See the
   [exact-source report](lab-results/2026-10-19-repository-production-gate-ad9a43a.md).
-- The current documentation-only head is `1c6db08`; its exact-head CI and
-  CodeQL are queued. The installation-smoke runs for the code commit are
-  pending without jobs. No hosted result is inferred.
+- The latest hosted CI and CodeQL runs are for documentation-only commit
+  `1c6db08` and remain queued; installation-smoke runs for the code-bearing
+  commit are pending without jobs. No hosted result is inferred.
 - Production remains **NO-GO** pending installed-host aggregate quota
   validation (including XFS), the 20-repeat recovery cohort, physical power-loss
   and broader ENOSPC evidence, notification outage/retry, capacity certification,

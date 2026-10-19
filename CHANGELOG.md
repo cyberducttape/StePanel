@@ -12,6 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `ad9a43a`, its measurements, and the still-open host-certification gates.
 - Reconcile the current project status summary with the exact-source gate
   report and current hosted-run state.
+- Clarify that the queued hosted CI/CodeQL runs belong to the prior
+  documentation-only commit, not the current branch head.
 
 - Record the exact `6c6e018` repository production-gate results and explicitly
   distinguish passing repository checks from still-pending hosted and real-host
