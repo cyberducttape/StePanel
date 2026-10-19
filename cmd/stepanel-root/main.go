@@ -100,7 +100,7 @@ func openFencingDatabase(path string) (*sql.DB, error) {
 	u := &url.URL{Scheme: "file", Path: filepath.Clean(path)}
 	query := url.Values{}
 	query.Set("mode", "rw")
-	query.Add("_pragma", "busy_timeout(5000)")
+	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", rootbroker.FencingDatabaseBusyTimeout.Milliseconds()))
 	u.RawQuery = query.Encode()
 	db, err := sql.Open("sqlite", u.String())
 	if err != nil {

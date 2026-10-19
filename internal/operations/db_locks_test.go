@@ -70,6 +70,39 @@ func TestVerifyFencingTokenWithinContextBoundsPoolWait(t *testing.T) {
 	}
 }
 
+func TestVerifyFencingTokenWithinContextBoundsSQLiteLockWait(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fencing-busy.sqlite")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(100)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(2)
+	if _, err := db.Exec(`CREATE TABLE resource_locks (resource_key TEXT, owner_id TEXT, generation INTEGER, lease_until INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	connection, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(context.Background(), `BEGIN EXCLUSIVE`); err != nil {
+		t.Fatal(err)
+	}
+	defer connection.ExecContext(context.Background(), `ROLLBACK`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err = VerifyFencingTokenWithinContext(ctx, db, FencingToken{ResourceKey: "site:demo", OwnerID: "worker", Generation: 1}, time.Second)
+	if err == nil {
+		t.Fatal("verification unexpectedly succeeded while SQLite held an exclusive lock")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("verification blocked for %s, want the configured short SQLite busy timeout", elapsed)
+	}
+}
+
 // openTwoHandles returns two independent *sql.DB handles pointed at the same
 // on-disk file, together with a cleanup. The two-handle setup is what makes
 // these tests meaningful cross-process regressions: a single *sql.DB with

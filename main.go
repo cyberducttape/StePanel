@@ -1925,9 +1925,9 @@ func logJSON(r *http.Request, status int, duration time.Duration) {
 }
 
 // controlPlaneLeaseTime is the duration of durable resource leases. Owners
-// renew every third of it; the root broker's fencing watchdog cancels an
-// operation whose lease has under rootbroker.LeaseWatchMargin left, so this
-// must stay well above that margin (see TestLeaseTimeLeavesWatchdogHeadroom).
+// renew every third of it; the root broker's watchdog needs enough margin for
+// its poll interval, bounded database-error grace, and SQLite busy timeout.
+// See TestLeaseTimeLeavesWatchdogHeadroom.
 const controlPlaneLeaseTime = 2 * time.Minute
 
 type requestIDContextKey struct{}

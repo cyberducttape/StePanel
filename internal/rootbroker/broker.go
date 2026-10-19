@@ -196,7 +196,11 @@ const (
 	// FencingDBErrorGrace is the maximum bounded interval during which a
 	// transient control-plane outage may interrupt a running mutation. The
 	// broker fails closed after this interval because it cannot prove ownership.
-	FencingDBErrorGrace = 15 * time.Second
+	FencingDBErrorGrace = 10 * time.Second
+	// FencingDatabaseBusyTimeout bounds SQLite's internal busy handler. The
+	// driver may not interrupt a busy-handler sleep when QueryContext expires,
+	// so this must remain shorter than the lease-watch safety margin.
+	FencingDatabaseBusyTimeout = time.Second
 )
 
 // Execute handles an RPC request and returns the response.

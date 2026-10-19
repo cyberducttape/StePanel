@@ -41,7 +41,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Bound root-broker fencing-token database checks by the request/watchdog
   context so a busy SQLite connection pool cannot stall privileged admission
-  or lease-loss monitoring indefinitely. Add pool-saturation regressions.
+  or lease-loss monitoring indefinitely. Bound SQLite's non-interruptible busy
+  handler below the lease-safety margin; add pool and database-lock regressions.
 - Enforce the WPress `package.json` 4 MiB limit while reading, rather than
   after an unbounded read, and reject symlinked or non-regular metadata files.
   Add oversized-file and symlink regression tests.

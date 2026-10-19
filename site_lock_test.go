@@ -397,6 +397,10 @@ func TestRecoveredSiteLockCarriesFencingToken(t *testing.T) {
 // for a lost lease, with room for a missed renewal tick.
 func TestLeaseTimeLeavesWatchdogHeadroom(t *testing.T) {
 	healthyMinimum := controlPlaneLeaseTime * 2 / 3
+	watchdogWindow := rootbroker.LeaseWatchInterval + rootbroker.FencingDBErrorGrace + rootbroker.FencingDatabaseBusyTimeout
+	if watchdogWindow >= rootbroker.LeaseWatchMargin {
+		t.Fatalf("fencing watchdog window %s must remain below lease verification margin %s", watchdogWindow, rootbroker.LeaseWatchMargin)
+	}
 	if need := 2 * (rootbroker.LeaseWatchMargin + rootbroker.LeaseWatchInterval); healthyMinimum < need {
 		t.Fatalf("lease time %s leaves %s for a live owner; the fencing watchdog needs at least %s", controlPlaneLeaseTime, healthyMinimum, need)
 	}

@@ -54,6 +54,54 @@ func TestOpenFencingDatabaseOpensInitializedDatabaseReadWrite(t *testing.T) {
 	}
 }
 
+func TestOpenFencingDatabaseBusyWaitFitsLeaseSafetyMargin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-plane.db")
+	seed, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seed.Exec(`CREATE TABLE initialized (value TEXT NOT NULL)`); err != nil {
+		_ = seed.Close()
+		t.Fatal(err)
+	}
+	if err := seed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := openFencingDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	locker, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locker.Close()
+	lockConn, err := locker.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockConn.Close()
+	if _, err := lockConn.ExecContext(context.Background(), `BEGIN EXCLUSIVE`); err != nil {
+		t.Fatal(err)
+	}
+	defer lockConn.ExecContext(context.Background(), `ROLLBACK`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	var value string
+	err = db.QueryRowContext(ctx, `SELECT value FROM initialized`).Scan(&value)
+	if err == nil {
+		t.Fatal("query unexpectedly succeeded while another connection held an exclusive lock")
+	}
+	if elapsed := time.Since(started); elapsed > rootbroker.FencingDatabaseBusyTimeout+500*time.Millisecond {
+		t.Fatalf("SQLite lock wait took %s, exceeding configured busy timeout %s", elapsed, rootbroker.FencingDatabaseBusyTimeout)
+	}
+}
+
 // slowExecutor blocks site requests until released and answers health
 // immediately, standing in for a long privileged operation.
 type slowExecutor struct {
