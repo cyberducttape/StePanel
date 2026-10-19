@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record the exact-source production-gate result for `6cef641`, including
+  database-schema constraint validation; keep pending hosted checks and open
+  real-host certification gates separate from repository test evidence.
 - Record the exact-source production gate for `f88a001`, including strict
   broker fencing-schema validation and repository-level results; retain the
   explicit NO-GO status for outstanding hosted and real-host certification.

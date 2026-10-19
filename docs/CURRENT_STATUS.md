@@ -12,18 +12,19 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest exact-source repository gate — 2026-10-19 (`f88a001`)
+### Latest exact-source repository gate — 2026-10-19 (`6cef641`)
 
 - `bash scripts/production-gate.sh` passed on exact code source
-  `f88a001db6857b80344cdef265d8b4dc0e0b2e1c`: 57.1% aggregate coverage, all
-  package floors, full race suite (root package 479.851 seconds), repository
+  `6cef6413edd7ad97d44be376dbb978b3ae1caf6f`: 57.1% aggregate coverage, all
+  package floors, full race suite (root package 474.209 seconds), repository
   recovery drills, benchmarks, mixed HTTP load, and documentation/release
-  checks. The broker now fails startup if the opened database lacks the
-  control-plane migration ledger, lock schema with correct column types, or
-  site-identity schema. See the
-  [exact-source report](lab-results/2026-10-19-repository-production-gate-f88a001.md).
-- Hosted CI, CodeQL, and current-source installation smokes have not yet
-  completed. None count as passing evidence.
+  checks. The broker rejects missing or malformed control-plane, lock, and
+  site-identity schemas, including missing fencing primary/unique constraints.
+  See the
+  [exact-source report](lab-results/2026-10-19-repository-production-gate-6cef641.md).
+- At 2026-10-19 04:51 UTC, exact-source CI and CodeQL were queued and both
+  install smokes were pending without assigned jobs. None count as passing
+  evidence.
 - The older `633c013` recovery shards remain stuck at disposable systemd-host
   startup and do not certify current source. Production remains **NO-GO** for
   the open real-host recovery, quota/XFS, repeated-matrix, capacity, live-alert,
