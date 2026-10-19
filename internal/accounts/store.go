@@ -15,6 +15,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	statefile "github.com/cyberducttape/StePanel/internal/state"
 	"sync"
 	"time"
 
@@ -76,15 +78,15 @@ func NewStore(path string, accountKey ...string) (*Store, error) {
 		h := sha256.Sum256([]byte(accountKey[0]))
 		store.key = h[:]
 	}
-	data, err := os.ReadFile(path)
+	data, err := statefile.ReadFileBounded(path, 1<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return store, nil
 	}
+	if errors.Is(err, statefile.ErrFileTooLarge) {
+		return nil, errors.New("account state exceeds 1 MiB")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read account state: %w", err)
-	}
-	if len(data) > 1<<20 {
-		return nil, errors.New("account state exceeds 1 MiB")
 	}
 	var accounts []HostingAccount
 	if err := json.Unmarshal(data, &accounts); err != nil {

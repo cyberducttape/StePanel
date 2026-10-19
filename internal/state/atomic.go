@@ -11,6 +11,7 @@ import (
 )
 
 var (
+	ErrFileTooLarge = errors.New("state file exceeds size limit")
 	stateMkdirAll   = os.MkdirAll
 	stateCreateTemp = os.CreateTemp
 	stateRemove     = os.Remove
@@ -21,6 +22,27 @@ var (
 	stateSync       = func(file *os.File) error { return file.Sync() }
 	stateClose      = func(file *os.File) error { return file.Close() }
 )
+
+// ReadFileBounded reads at most maxBytes+1 bytes, so callers can reject an
+// oversized state file without first allocating memory proportional to it.
+func ReadFileBounded(path string, maxBytes int64) ([]byte, error) {
+	if maxBytes < 0 || maxBytes == int64(^uint64(0)>>1) {
+		return nil, errors.New("invalid state file size limit")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, ErrFileTooLarge
+	}
+	return data, nil
+}
 
 // RemoveDurable removes path and fsyncs its parent directory. A missing path
 // is treated as an idempotent cleanup, but the parent is still synced so the

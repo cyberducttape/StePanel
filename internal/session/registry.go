@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"sync"
 	"time"
@@ -107,19 +106,11 @@ func Open(path string) (*Registry, error) {
 }
 
 func readRegistryState(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > 1<<20 {
+	data, err := statefile.ReadFileBounded(path, 1<<20)
+	if errors.Is(err, statefile.ErrFileTooLarge) {
 		return nil, errors.New("session state exceeds 1 MiB")
 	}
-	return data, nil
+	return data, err
 }
 
 func (r *Registry) Add(id, username string, expiry int64) error {

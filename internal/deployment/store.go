@@ -72,9 +72,12 @@ func OpenDB(db *sql.DB, legacyPath string) (*Store, error) {
 
 func Open(path string) (*Store, error) {
 	s := &Store{path: path, values: []Record{}}
-	d, err := os.ReadFile(path)
+	d, err := statefile.ReadFileBounded(path, 4<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
+	}
+	if errors.Is(err, statefile.ErrFileTooLarge) {
+		return nil, errors.New("deployment state exceeds 4 MiB")
 	}
 	if err != nil {
 		return nil, err
