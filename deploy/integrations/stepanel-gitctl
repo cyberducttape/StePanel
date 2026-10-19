@@ -13,12 +13,15 @@ git_host_allowed() {
   return 1
 }
 valid_stage_path() {
-  local site=$1 destination=$2
+  local site=$1 destination=$2 owner mode
   # The decimal suffix (from os.MkdirTemp) keeps site blog from matching blog-2 stages.
   [[ $destination =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[0-9]+$ &&
      -d $destination && ! -L $destination &&
-     -d /var/www/sites/.stepanel-manager-staging && ! -L /var/www/sites/.stepanel-manager-staging &&
-     $(stat -c '%U:%a' /var/www/sites/.stepanel-manager-staging) == stepanel:711 ]]
+     -d /var/www/sites/.stepanel-manager-staging && ! -L /var/www/sites/.stepanel-manager-staging ]] || return 1
+  # The sites root is setgid, which new directories inherit; only the owner
+  # and the permission bits matter for keeping tenants out of the parent.
+  read -r owner mode < <(stat -c '%U %a' /var/www/sites/.stepanel-manager-staging)
+  [[ $owner == stepanel && $mode =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0777) == 0711 ))
 }
 project_quota_mount() {
   local destination=$1 mount fstype options status

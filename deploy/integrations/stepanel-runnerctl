@@ -15,7 +15,10 @@ command -v systemd-run >/dev/null || { echo 'systemd-run is required for isolate
 [[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || { echo 'invalid persisted site Unix account' >&2; exit 1; }
 id "$site_user" >/dev/null 2>&1 || { echo 'site user is unavailable' >&2; exit 1; }
 if [[ $root =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release- ]]; then
-  [[ $(stat -c '%U:%a' /var/www/sites/.stepanel-manager-staging) == stepanel:711 && $(stat -c %U "$root") == "$site_user" ]] || { echo 'release staging ownership is invalid' >&2; exit 1; }
+  # The setgid bit inherited from /var/www/sites is ignored; owner and
+  # permission bits keep tenants from replacing the staging parent.
+  read -r stage_parent_owner stage_parent_mode < <(stat -c '%U %a' /var/www/sites/.stepanel-manager-staging)
+  [[ $stage_parent_owner == stepanel && $stage_parent_mode =~ ^[0-7]{3,4}$ ]] && (( (8#$stage_parent_mode & 0777) == 0711 )) && [[ $(stat -c %U "$root") == "$site_user" ]] || { echo 'release staging ownership is invalid' >&2; exit 1; }
 fi
 site_uid=$(id -u "$site_user")
 site_gid=$(id -g "$site_user")

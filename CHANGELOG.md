@@ -28,6 +28,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Deny `backup`, `backups` and `private` directories in Caddy only where the
   path exists in the document root. Application routes such as `/private/`
   or a `/category/backups/` page reach PHP again.
+- Ignore the setgid bit that `.stepanel-manager-staging` inherits from
+  `/var/www/sites` (mode 2711) when `stepanel-gitctl` and `stepanel-runnerctl`
+  check the parent directory. The exact `711` comparison refused staging roots
+  that were made with `install -d`/`chmod`, which keep that bit on directories.
 - Remove a dead assignment in the broker fencing watchdog that failed
   staticcheck (SA4006).
 - Size the quota fixture check for the aggregate Git clone quota of 3× the
