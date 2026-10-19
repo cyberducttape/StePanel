@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Update the MySQL atomic-restore smoke test's capacity-admission injection
+  anchor to match the helper's dump-size-aware reservation call.
+
 ### Documentation
 
 - Record the complete production-gate pass on exact code commit `c0113dd`,

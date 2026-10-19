@@ -296,7 +296,7 @@ no_restore_left
 pass 'a restore waits for a running dump, and that dump restores exactly'
 
 # shellcheck disable=SC2016 # the anchor and injected line are helper source
-with_injection '  admit_restore_copy "$database" || { echo "$restore_unchanged_message" >&2; return 1; }' '  restore_reserve_percent=100'
+with_injection '  admit_restore_copy "$database" "$dump_bytes" || { echo "$restore_unchanged_message" >&2; return 1; }' '  restore_reserve_percent=100'
 if "$work/dbctl-crash" restore-dump "$db" "$site" < "$work/backup.sql" 2> "$work/error"; then fail 'a restore without room for its copy was admitted'; fi
 if ! grep -q 'the restore copy needs about' "$work/error" || ! grep -q 'the live database was not changed' "$work/error"; then fail "a restore without room did not report an unchanged database: $(cat "$work/error")"; fi
 no_restore_left
