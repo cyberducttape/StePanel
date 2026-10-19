@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record the exact-source production-gate pass on `2ebd28d`, including full
+  race, recovery-drill, benchmark, and mixed-load results; hosted and real-host
+  certification gates remain explicitly open.
 - Record the complete repository production-gate pass on exact commit
   `d79e831`, including full race, recovery-drill, benchmark, and mixed-load
   results. Keep hosted checks and real-host production-certification gates
