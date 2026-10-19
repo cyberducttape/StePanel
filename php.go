@@ -40,9 +40,12 @@ var phpSizePattern = regexp.MustCompile(`^[1-9][0-9]{0,4}M$`)
 
 func OpenPHPProfileStore(path string) (*PHPProfileStore, error) {
 	s := &PHPProfileStore{path: path, values: map[string]PHPProfile{}}
-	d, e := os.ReadFile(path)
+	d, e := readStateFile(path, 4<<20)
 	if errors.Is(e, os.ErrNotExist) {
 		return s, nil
+	}
+	if errors.Is(e, errStateFileTooLarge) {
+		return nil, errors.New("PHP profile state exceeds 4 MiB")
 	}
 	if e != nil {
 		return nil, e

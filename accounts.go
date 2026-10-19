@@ -192,15 +192,15 @@ func OpenAccountStore(path string, accountKey ...string) (*AccountStore, error) 
 	if err := store.configureAccountKey(accountKey); err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path, 1<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return store, nil
 	}
+	if errors.Is(err, errStateFileTooLarge) {
+		return nil, errors.New("account state exceeds 1 MiB")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read account state: %w", err)
-	}
-	if len(data) > 1<<20 {
-		return nil, errors.New("account state exceeds 1 MiB")
 	}
 	var accounts []HostingAccount
 	if err := json.Unmarshal(data, &accounts); err != nil {

@@ -30,15 +30,15 @@ type RouteStore struct {
 
 func OpenRouteStore(path string) (*RouteStore, error) {
 	s := &RouteStore{path: path, values: map[string]RouteDesired{}}
-	b, err := os.ReadFile(path)
+	b, err := readStateFile(path, 4<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
 	}
+	if errors.Is(err, errStateFileTooLarge) {
+		return nil, errors.New("route state exceeds 4 MiB")
+	}
 	if err != nil {
 		return nil, err
-	}
-	if len(b) > 4<<20 {
-		return nil, errors.New("route state exceeds 4 MiB")
 	}
 	if err := json.Unmarshal(b, &s.values); err != nil {
 		return nil, err

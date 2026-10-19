@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -39,20 +38,15 @@ var lookupDomainTXT = func(ctx context.Context, name string) ([]string, error) {
 
 func OpenDomainClaimStore(path string) (*DomainClaimStore, error) {
 	s := &DomainClaimStore{path: path, values: map[string]DomainClaim{}}
-	file, err := os.Open(path)
+	b, err := readStateFile(path, maxDomainClaimStateBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
 	}
+	if errors.Is(err, errStateFileTooLarge) {
+		return nil, errors.New("domain claim state exceeds 4 MiB")
+	}
 	if err != nil {
 		return nil, err
-	}
-	defer file.Close()
-	b, err := io.ReadAll(io.LimitReader(file, maxDomainClaimStateBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("read domain claim state: %w", err)
-	}
-	if len(b) > maxDomainClaimStateBytes {
-		return nil, errors.New("domain claim state exceeds 4 MiB")
 	}
 	if err := json.Unmarshal(b, &s.values); err != nil {
 		return nil, err

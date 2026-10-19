@@ -45,6 +45,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Enforce byte ceilings while reading durable JSON-backed account, route,
+  schedule, resource, PHP, SSH, Redis, worker, task, Composer, and domain-claim
+  state files; this prevents corrupted local metadata from being fully loaded
+  into memory before size validation.
 - Enforce the 4 MiB domain-claim state limit while reading the file, so an
   oversized or corrupted local state file cannot trigger an unbounded read
   before rejection; add an oversized-file regression test.

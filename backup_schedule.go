@@ -30,15 +30,15 @@ type backupScheduleOutboxItem struct {
 
 func openBackupSchedules(path string) (*backupSchedules, error) {
 	s := &backupSchedules{path: path, items: map[string]BackupSchedule{}}
-	b, err := os.ReadFile(path)
+	b, err := readStateFile(path, 1<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
 	}
+	if errors.Is(err, errStateFileTooLarge) {
+		return nil, errors.New("backup schedule state exceeds 1 MiB")
+	}
 	if err != nil {
 		return nil, err
-	}
-	if len(b) > 1<<20 {
-		return nil, errors.New("backup schedule state exceeds 1 MiB")
 	}
 	if err := json.Unmarshal(b, &s.items); err != nil {
 		return nil, fmt.Errorf("decode backup schedules: %w", err)

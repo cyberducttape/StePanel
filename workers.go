@@ -35,9 +35,12 @@ var workerTypes = map[string]bool{"laravel": true, "horizon": true, "node": true
 
 func OpenWorkerStore(path string) (*WorkerStore, error) {
 	s := &WorkerStore{path: path, values: map[string]Worker{}}
-	d, e := os.ReadFile(path)
+	d, e := readStateFile(path, 4<<20)
 	if errors.Is(e, os.ErrNotExist) {
 		return s, nil
+	}
+	if errors.Is(e, errStateFileTooLarge) {
+		return nil, errors.New("worker state exceeds 4 MiB")
 	}
 	if e != nil {
 		return nil, e

@@ -91,9 +91,12 @@ type TaskStore struct {
 
 func OpenTaskStore(path string) (*TaskStore, error) {
 	s := &TaskStore{path: path, values: map[string]ScheduledTask{}}
-	d, err := os.ReadFile(path)
+	d, err := readStateFile(path, 4<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
+	}
+	if errors.Is(err, errStateFileTooLarge) {
+		return nil, errors.New("task state exceeds 4 MiB")
 	}
 	if err != nil {
 		return nil, err

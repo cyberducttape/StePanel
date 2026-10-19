@@ -390,9 +390,12 @@ func (a *App) applyAccountResourceEnvelopeContext(ctx context.Context, account s
 
 func OpenResourceStore(path string) (*ResourceStore, error) {
 	s := &ResourceStore{path: path, values: map[string]ResourceProfile{}}
-	d, e := os.ReadFile(path)
+	d, e := readStateFile(path, 4<<20)
 	if errors.Is(e, os.ErrNotExist) {
 		return s, nil
+	}
+	if errors.Is(e, errStateFileTooLarge) {
+		return nil, errors.New("resource state exceeds 4 MiB")
 	}
 	if e != nil {
 		return nil, e

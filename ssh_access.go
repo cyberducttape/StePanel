@@ -36,9 +36,12 @@ type SiteAccessStore struct {
 
 func OpenSiteAccessStore(path string) (*SiteAccessStore, error) {
 	s := &SiteAccessStore{path: path, values: map[string]SiteAccess{}}
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path, 4<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
+	}
+	if errors.Is(err, errStateFileTooLarge) {
+		return nil, errors.New("SSH access state exceeds 4 MiB")
 	}
 	if err != nil {
 		return nil, err

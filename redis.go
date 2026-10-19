@@ -26,9 +26,12 @@ type RedisAllocationStore struct {
 
 func OpenRedisAllocationStore(path string) (*RedisAllocationStore, error) {
 	s := &RedisAllocationStore{path: path, values: map[string]RedisAllocation{}}
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path, 4<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
+	}
+	if errors.Is(err, errStateFileTooLarge) {
+		return nil, errors.New("Redis allocation state exceeds 4 MiB")
 	}
 	if err != nil {
 		return nil, err

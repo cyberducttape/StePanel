@@ -30,9 +30,12 @@ type ComposerStore struct {
 
 func OpenComposerStore(path string) (*ComposerStore, error) {
 	s := &ComposerStore{path: path, latest: map[string]ComposerOperation{}}
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path, 4<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
+	}
+	if errors.Is(err, errStateFileTooLarge) {
+		return nil, errors.New("Composer state exceeds 4 MiB")
 	}
 	if err != nil {
 		return nil, err
