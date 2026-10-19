@@ -972,6 +972,14 @@ func initializeControlPlaneDatabase(path string) error {
 	if err != nil {
 		return fmt.Errorf("initialize control-plane database: %w", err)
 	}
+	// The root broker starts before the panel and must never observe a
+	// successfully opened but incomplete fencing schema. Create the lock table
+	// while the unprivileged panel account owns the database, before the
+	// installer activates the broker service.
+	if _, err := operations.NewDBLocks(db, "installer-schema-check", controlPlaneLeaseTime); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("initialize control-plane fencing schema: %w", err)
+	}
 	if err := db.Close(); err != nil {
 		return fmt.Errorf("close initialized control-plane database: %w", err)
 	}

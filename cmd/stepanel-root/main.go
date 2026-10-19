@@ -111,7 +111,44 @@ func openFencingDatabase(path string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping existing fencing database: %w", err)
 	}
+	if err := validateFencingDatabaseSchema(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("validate existing fencing database: %w", err)
+	}
 	return db, nil
+}
+
+// validateFencingDatabaseSchema is deliberately read-only: the privileged
+// broker must refuse an unrelated, stale, or partially initialized database,
+// never create or migrate its own fencing state. The panel initializer
+// creates resource_locks before the service is started.
+func validateFencingDatabaseSchema(db *sql.DB) error {
+	if db == nil {
+		return errors.New("fencing database is required")
+	}
+	var version int
+	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM control_plane_migrations`).Scan(&version); err != nil {
+		return fmt.Errorf("read control-plane migration ledger: %w", err)
+	}
+	if version == 0 {
+		return errors.New("control-plane migration ledger is empty")
+	}
+	for _, query := range []struct {
+		name string
+		sql  string
+	}{
+		{"resource lock table", `SELECT resource_key, owner_id, lease_until, generation, acquired_at FROM resource_locks LIMIT 0`},
+		{"site identity table", `SELECT site, username, created_at FROM site_identities LIMIT 0`},
+	} {
+		rows, err := db.Query(query.sql)
+		if err != nil {
+			return fmt.Errorf("check %s: %w", query.name, err)
+		}
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("close %s schema check: %w", query.name, err)
+		}
+	}
+	return nil
 }
 
 // executor runs one decoded broker request. The subprocess transport uses the

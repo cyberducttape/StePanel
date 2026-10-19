@@ -73,6 +73,9 @@ func TestInitializeControlPlaneDatabaseCreatesServiceOwnedSchema(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='capacity_reservations'`).Scan(&exists); err != nil || exists != 1 {
 		t.Fatalf("initialized database schema lookup = %d, %v", exists, err)
 	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='resource_locks'`).Scan(&exists); err != nil || exists != 1 {
+		t.Fatalf("initialized fencing schema lookup = %d, %v", exists, err)
+	}
 }
 
 func TestInitializeControlPlaneDatabaseRequiresAbsolutePath(t *testing.T) {

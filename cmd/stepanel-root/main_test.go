@@ -37,7 +37,7 @@ func TestOpenFencingDatabaseOpensInitializedDatabaseReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seed.Exec(`CREATE TABLE initialized (value TEXT NOT NULL)`); err != nil {
+	if err := createFencingSchemaForTest(seed); err != nil {
 		_ = seed.Close()
 		t.Fatal(err)
 	}
@@ -49,8 +49,42 @@ func TestOpenFencingDatabaseOpensInitializedDatabaseReadWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`INSERT INTO initialized(value) VALUES ('broker-write')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO resource_locks(resource_key,owner_id,lease_until,generation,acquired_at) VALUES ('test','broker-write',1,1,1)`); err != nil {
 		t.Fatalf("broker could not write initialized database: %v", err)
+	}
+}
+
+func TestOpenFencingDatabaseRejectsUnrelatedSQLiteDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "unrelated.db")
+	seed, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seed.Exec(`CREATE TABLE unrelated(value TEXT)`); err != nil {
+		_ = seed.Close()
+		t.Fatal(err)
+	}
+	if err := seed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if db, err := openFencingDatabase(path); err == nil {
+		_ = db.Close()
+		t.Fatal("broker accepted an unrelated SQLite database")
+	}
+}
+
+func TestValidateFencingDatabaseSchemaRejectsMissingIdentitySchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "incomplete.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE control_plane_migrations(version INTEGER PRIMARY KEY); INSERT INTO control_plane_migrations VALUES(20); CREATE TABLE resource_locks(resource_key TEXT, owner_id TEXT, lease_until INTEGER, generation INTEGER, acquired_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateFencingDatabaseSchema(db); err == nil {
+		t.Fatal("incomplete fencing schema unexpectedly passed validation")
 	}
 }
 
@@ -60,7 +94,7 @@ func TestOpenFencingDatabaseBusyWaitFitsLeaseSafetyMargin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seed.Exec(`CREATE TABLE initialized (value TEXT NOT NULL)`); err != nil {
+	if err := createFencingSchemaForTest(seed); err != nil {
 		_ = seed.Close()
 		t.Fatal(err)
 	}
@@ -93,13 +127,21 @@ func TestOpenFencingDatabaseBusyWaitFitsLeaseSafetyMargin(t *testing.T) {
 	defer cancel()
 	started := time.Now()
 	var value string
-	err = db.QueryRowContext(ctx, `SELECT value FROM initialized`).Scan(&value)
+	err = db.QueryRowContext(ctx, `SELECT owner_id FROM resource_locks WHERE resource_key='missing'`).Scan(&value)
 	if err == nil {
 		t.Fatal("query unexpectedly succeeded while another connection held an exclusive lock")
 	}
 	if elapsed := time.Since(started); elapsed > rootbroker.FencingDatabaseBusyTimeout+500*time.Millisecond {
 		t.Fatalf("SQLite lock wait took %s, exceeding configured busy timeout %s", elapsed, rootbroker.FencingDatabaseBusyTimeout)
 	}
+}
+
+func createFencingSchemaForTest(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE control_plane_migrations(version INTEGER PRIMARY KEY);
+		INSERT INTO control_plane_migrations(version) VALUES(20);
+		CREATE TABLE resource_locks(resource_key TEXT PRIMARY KEY, owner_id TEXT NOT NULL, lease_until INTEGER NOT NULL, generation INTEGER NOT NULL, acquired_at INTEGER NOT NULL);
+		CREATE TABLE site_identities(site TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL);`)
+	return err
 }
 
 // slowExecutor blocks site requests until released and answers health
