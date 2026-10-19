@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -133,20 +134,62 @@ func validateFencingDatabaseSchema(db *sql.DB) error {
 	if version == 0 {
 		return errors.New("control-plane migration ledger is empty")
 	}
-	for _, query := range []struct {
-		name string
-		sql  string
-	}{
-		{"resource lock table", `SELECT resource_key, owner_id, lease_until, generation, acquired_at FROM resource_locks LIMIT 0`},
-		{"site identity table", `SELECT site, username, created_at FROM site_identities LIMIT 0`},
+	for table, expected := range map[string]map[string]string{
+		"resource_locks": {
+			"resource_key": "TEXT",
+			"owner_id":     "TEXT",
+			"lease_until":  "INTEGER",
+			"generation":   "INTEGER",
+			"acquired_at":  "INTEGER",
+		},
+		"site_identities": {
+			"site":       "TEXT",
+			"username":   "TEXT",
+			"created_at": "INTEGER",
+		},
 	} {
-		rows, err := db.Query(query.sql)
-		if err != nil {
-			return fmt.Errorf("check %s: %w", query.name, err)
+		if err := validateSQLiteTableColumns(db, table, expected); err != nil {
+			return err
 		}
-		if err := rows.Close(); err != nil {
-			return fmt.Errorf("close %s schema check: %w", query.name, err)
+	}
+	return nil
+}
+
+func validateSQLiteTableColumns(db *sql.DB, table string, expected map[string]string) error {
+	// Table names are constants supplied by the schema contract above, not
+	// request data. PRAGMA table_info has no bind-parameter form.
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return fmt.Errorf("inspect %s schema: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("read %s schema: %w", table, err)
 		}
+		if want, required := expected[name]; required {
+			if !strings.EqualFold(strings.TrimSpace(columnType), want) {
+				return fmt.Errorf("%s.%s has type %q, want %s", table, name, columnType, want)
+			}
+			delete(expected, name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate %s schema: %w", table, err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close %s schema: %w", table, err)
+	}
+	if len(expected) != 0 {
+		missing := make([]string, 0, len(expected))
+		for column := range expected {
+			missing = append(missing, column)
+		}
+		sort.Strings(missing)
+		return fmt.Errorf("%s is missing required columns: %s", table, strings.Join(missing, ", "))
 	}
 	return nil
 }
