@@ -61,6 +61,39 @@ func TestReadWPressPackageMetadataRejectsUnsafePlugin(t *testing.T) {
 	}
 }
 
+func TestReadWPressPackageMetadataBoundsOversizedFileRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "package.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(int64(wpressMaxPackageBytes) + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readWPressPackageMetadata(path); err == nil || !strings.Contains(err.Error(), "4 MiB limit") {
+		t.Fatalf("oversized package.json error = %v, want 4 MiB limit", err)
+	}
+}
+
+func TestReadWPressPackageMetadataDoesNotFollowSymlinks(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.json")
+	if err := os.WriteFile(target, []byte(`{"Template":"twentytwentyfour"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "package.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readWPressPackageMetadata(link); err == nil {
+		t.Fatal("package.json symlink was followed")
+	}
+}
+
 func TestInspectCPMoveRejectsMissingMetadata(t *testing.T) {
 	file, err := os.CreateTemp(t.TempDir(), "empty-*")
 	if err != nil {

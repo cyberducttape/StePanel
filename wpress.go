@@ -33,11 +33,12 @@ var wordpressPluginPathPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,255}$`)
 var wordpressThemeSlugPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
 
 const (
-	wpressHeaderSize   = 4377
-	wpressNameEnd      = 255
-	wpressSizeEnd      = 269
-	wpressPrefixOffset = 281
-	wpressMaxFileBytes = uint64(2 << 30)
+	wpressHeaderSize      = 4377
+	wpressNameEnd         = 255
+	wpressSizeEnd         = 269
+	wpressPrefixOffset    = 281
+	wpressMaxFileBytes    = uint64(2 << 30)
+	wpressMaxPackageBytes = 4 << 20
 )
 
 type wpressPackageMetadata struct {
@@ -602,14 +603,19 @@ func validateWPressEntryPath(prefix, name string) error {
 }
 
 func readWPressPackageMetadata(path string) (wpressPackageMetadata, error) {
-	data, err := os.ReadFile(path)
+	file, _, err := stepanelhelper.OpenRegularNoFollow(path, nil)
 	if errors.Is(err, os.ErrNotExist) {
 		return wpressPackageMetadata{}, nil
 	}
 	if err != nil {
 		return wpressPackageMetadata{}, err
 	}
-	if len(data) > 4<<20 {
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, int64(wpressMaxPackageBytes)+1))
+	if err != nil {
+		return wpressPackageMetadata{}, fmt.Errorf("read package.json: %w", err)
+	}
+	if len(data) > wpressMaxPackageBytes {
 		return wpressPackageMetadata{}, errors.New("package.json exceeds the 4 MiB limit")
 	}
 	var raw struct {

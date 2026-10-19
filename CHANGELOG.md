@@ -33,6 +33,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Enforce the WPress `package.json` 4 MiB limit while reading, rather than
+  after an unbounded read, and reject symlinked or non-regular metadata files.
+  Add oversized-file and symlink regression tests.
 - Preflight WPress record paths and sizes before invoking the external
   extractor. Reject traversal/absolute/duplicate paths, malformed or truncated
   records, entry-count overflow, and expanded-size overflow, and reserve the

@@ -45,7 +45,8 @@ When present, `package.json` metadata is applied after the database and files
 are restored: the archived active plugin list, theme, and stylesheet are
 updated through WP-CLI, and the base64-encoded `Server[".htaccess"]` payload is
 decoded into the site's document root. Invalid metadata is rejected and the
-site transaction is rolled back.
+site transaction is rolled back. Metadata reads are limited to 4 MiB before
+JSON parsing and reject symlinked/non-regular files.
 
 Uploads stream once into a private staged object; archive space and
 `STEPANEL_MIN_FREE_BYTES` are admitted before the body is read. Before restore,
