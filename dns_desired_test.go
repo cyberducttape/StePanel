@@ -29,6 +29,24 @@ func TestDNSDesiredStateSurvivesTransitions(t *testing.T) {
 	}
 }
 
+func TestDNSDesiredStateRejectsOversizedFileBeforeFullRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dns.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate((4 << 20) + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenDNSDesiredStore(path); err == nil || err.Error() != "DNS desired state exceeds 4 MiB" {
+		t.Fatalf("oversized DNS state error = %v", err)
+	}
+}
+
 func TestDNSDesiredResultRollsBackMemoryWhenPersistenceFails(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "dns.json")

@@ -41,15 +41,15 @@ type DNSDesiredStore struct {
 
 func OpenDNSDesiredStore(path string) (*DNSDesiredStore, error) {
 	store := &DNSDesiredStore{path: path, values: map[string]DNSDesiredRecord{}}
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path, 4<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return store, nil
 	}
+	if errors.Is(err, errStateFileTooLarge) {
+		return nil, errors.New("DNS desired state exceeds 4 MiB")
+	}
 	if err != nil {
 		return nil, err
-	}
-	if len(data) > 4<<20 {
-		return nil, errors.New("DNS desired state exceeds 4 MiB")
 	}
 	if err := json.Unmarshal(data, &store.values); err != nil {
 		return nil, fmt.Errorf("decode DNS desired state: %w", err)

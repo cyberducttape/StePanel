@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -79,11 +80,8 @@ func New(path string) *Registry {
 
 func Open(path string) (*Registry, error) {
 	registry := &Registry{path: path, Entries: make(map[string]Entry)}
-	data, err := os.ReadFile(path)
+	data, err := readRegistryState(path)
 	if err == nil {
-		if len(data) > 1<<20 {
-			return nil, errors.New("session state exceeds 1 MiB")
-		}
 		if err := json.Unmarshal(data, &registry.Entries); err != nil {
 			var legacy map[string]int64
 			if legacyErr := json.Unmarshal(data, &legacy); legacyErr != nil {
@@ -106,6 +104,22 @@ func Open(path string) (*Registry, error) {
 		return nil, err
 	}
 	return registry, nil
+}
+
+func readRegistryState(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 1<<20 {
+		return nil, errors.New("session state exceeds 1 MiB")
+	}
+	return data, nil
 }
 
 func (r *Registry) Add(id, username string, expiry int64) error {
