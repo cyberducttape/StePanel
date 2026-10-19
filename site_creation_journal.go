@@ -28,7 +28,8 @@ import (
 // trail becomes the durable record of the creation.
 
 const (
-	creationJournalVersion = 1
+	creationJournalVersion   = 1
+	maxLifecycleJournalBytes = 1 << 20
 
 	stepInitialized     = "INITIALIZED"
 	stepPersisted       = "PERSISTED"
@@ -83,7 +84,7 @@ func loadOrCreateCreationJournal(recoveryRoot, jobID, site, actor string) (*crea
 	if err := os.MkdirAll(recoveryRoot, 0700); err != nil {
 		return nil, fmt.Errorf("prepare recovery root: %w", err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path, maxLifecycleJournalBytes)
 	if err == nil {
 		var journal creationJournal
 		if err := json.Unmarshal(data, &journal); err != nil {

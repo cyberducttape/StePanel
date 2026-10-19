@@ -115,7 +115,7 @@ func loadOrCreateTerminationJournal(recoveryRoot, jobID, site, actor string) (*t
 	if err := os.MkdirAll(recoveryRoot, 0700); err != nil {
 		return nil, fmt.Errorf("prepare recovery root: %w", err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path, maxLifecycleJournalBytes)
 	if err == nil {
 		var journal terminationJournal
 		if err := json.Unmarshal(data, &journal); err != nil {

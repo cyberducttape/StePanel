@@ -189,6 +189,8 @@ type databaseRestoreMarker struct {
 
 var databaseRestoreJobIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
+const maxDatabaseRestoreMarkerBytes = 1 << 20
+
 func databaseRestoreMarkerPath(recoveryRoot, jobID string) (string, error) {
 	if strings.TrimSpace(recoveryRoot) == "" || !databaseRestoreJobIDPattern.MatchString(jobID) || strings.Contains(jobID, "..") {
 		return "", errors.New("database restore marker requires a recovery root and a valid job ID")
@@ -205,11 +207,14 @@ func interruptedDatabaseRestore(recoveryRoot, jobID string, request durableBacku
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path, maxDatabaseRestoreMarkerBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
+		if errors.Is(err, errStateFileTooLarge) {
+			return nil, doNotRetry(fmt.Errorf("an earlier attempt of this restore left an oversized marker, so its pre-restore safety backup is unknown: %w", err))
+		}
 		return nil, fmt.Errorf("read database restore marker: %w", err)
 	}
 	var marker databaseRestoreMarker

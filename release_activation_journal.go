@@ -14,6 +14,7 @@ import (
 )
 
 const releaseActivationJournalVersion = 1
+const maxReleaseActivationJournalBytes = 1 << 20
 
 // releaseActivationJournal closes the crash window between publishing a
 // release and sealing the site. The filesystem swap is performed by
@@ -110,7 +111,7 @@ func recoverReleaseActivationJournalsFor(cfg Config, site string) ([]string, err
 			continue
 		}
 		path := filepath.Join(cfg.RecoveryRoot, entry.Name())
-		data, err := os.ReadFile(path)
+		data, err := readStateFile(path, maxReleaseActivationJournalBytes)
 		if err != nil {
 			return recovered, fmt.Errorf("read release activation journal %s: %w", entry.Name(), err)
 		}

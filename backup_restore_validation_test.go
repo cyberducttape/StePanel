@@ -371,3 +371,26 @@ func TestDatabaseRestoreMarkerResumesWithFirstSafetyBackup(t *testing.T) {
 		}
 	}
 }
+
+func TestInterruptedDatabaseRestoreRejectsOversizedMarker(t *testing.T) {
+	root := t.TempDir()
+	path, err := databaseRestoreMarkerPath(root, "job-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxDatabaseRestoreMarkerBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = interruptedDatabaseRestore(root, "job-1", durableBackupRestoreRequest{Site: "account", Database: "account_blog"})
+	if !errors.Is(err, errStateFileTooLarge) || !isNonRetryableJobError(err) {
+		t.Fatalf("oversized restore marker error = %v, want non-retryable size error", err)
+	}
+}

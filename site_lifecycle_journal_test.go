@@ -41,6 +41,25 @@ func TestTerminationJournalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTerminationJournalRejectsOversizedRecord(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "site-termination-job.oversized.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxLifecycleJournalBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadOrCreateTerminationJournal(root, "job.oversized", "example", "admin"); !errors.Is(err, errStateFileTooLarge) {
+		t.Fatalf("oversized termination journal error = %v, want errStateFileTooLarge", err)
+	}
+}
+
 // TestTerminationJournalSurvivesProcessKill exercises the failure boundary
 // with a real child process. The child starts the next destructive step and
 // is killed before it can mark that step complete; the parent then performs
