@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,6 +40,11 @@ type nodeDeploymentSnapshot struct {
 	hadProxy       bool
 	proxyPath      string
 }
+
+const (
+	maxNodeVersionFileBytes = 4 << 10
+	maxProxyConfigFileBytes = 1 << 20
+)
 
 func (a *App) startNodeDeployment(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || !a.Auth.CSRF(r) {
@@ -148,15 +154,15 @@ func (a *App) snapshotNodeDeployment(input nodeDeploymentRequest) (nodeDeploymen
 		return nodeDeploymentSnapshot{}, err
 	}
 	snapshot := nodeDeploymentSnapshot{}
-	snapshot.nvmrc, snapshot.hadNVMRC, err = readOptionalFile(filepath.Join(root, ".nvmrc"))
+	snapshot.nvmrc, snapshot.hadNVMRC, err = readOptionalFile(filepath.Join(root, ".nvmrc"), maxNodeVersionFileBytes)
 	if err != nil {
 		return snapshot, err
 	}
-	snapshot.manifest, snapshot.hadManifest, err = readOptionalFile(filepath.Join(a.Config.AppRoot, input.Site+".json"))
+	snapshot.manifest, snapshot.hadManifest, err = readOptionalFile(filepath.Join(a.Config.AppRoot, input.Site+".json"), maxAppStateFileBytes)
 	if err != nil {
 		return snapshot, err
 	}
-	snapshot.manifestBak, snapshot.hadManifestBak, err = readOptionalFile(filepath.Join(a.Config.AppRoot, input.Site+".json.bak"))
+	snapshot.manifestBak, snapshot.hadManifestBak, err = readOptionalFile(filepath.Join(a.Config.AppRoot, input.Site+".json.bak"), maxAppStateFileBytes)
 	if err != nil {
 		return snapshot, err
 	}
@@ -164,16 +170,33 @@ func (a *App) snapshotNodeDeployment(input nodeDeploymentRequest) (nodeDeploymen
 	if err != nil {
 		return snapshot, err
 	}
-	snapshot.proxy, snapshot.hadProxy, err = readOptionalFile(snapshot.proxyPath)
+	snapshot.proxy, snapshot.hadProxy, err = readOptionalFile(snapshot.proxyPath, maxProxyConfigFileBytes)
 	return snapshot, err
 }
 
-func readOptionalFile(path string) ([]byte, bool, error) {
-	data, err := os.ReadFile(path)
+func readOptionalFile(path string, maxBytes int64) ([]byte, bool, error) {
+	if maxBytes <= 0 {
+		return nil, false, errors.New("optional file size limit must be positive")
+	}
+	file, _, err := openRegularNoFollow(path, nil)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}
-	return data, err == nil, err
+	if err != nil {
+		return nil, false, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	closeErr := file.Close()
+	if readErr != nil {
+		return nil, false, readErr
+	}
+	if closeErr != nil {
+		return nil, false, closeErr
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, false, fmt.Errorf("%w: optional file exceeds %d bytes", errStateFileTooLarge, maxBytes)
+	}
+	return data, true, nil
 }
 
 func restoreOptionalFile(path string, data []byte, existed bool, mode os.FileMode) error {

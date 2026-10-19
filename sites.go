@@ -382,7 +382,7 @@ func managedAppsWithError(root string) ([]AppManifest, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(root, entry.Name()))
+		data, err := readStateFile(filepath.Join(root, entry.Name()), maxAppStateFileBytes)
 		if err != nil {
 			return nil, fmt.Errorf("read application manifest %s: %w", entry.Name(), err)
 		}

@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,24 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestManagedAppsRejectsOversizedManifest(t *testing.T) {
+	root := t.TempDir()
+	file, err := os.Create(filepath.Join(root, "example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxAppStateFileBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := managedAppsWithError(root); !errors.Is(err, errStateFileTooLarge) {
+		t.Fatalf("oversized app manifest error = %v, want errStateFileTooLarge", err)
+	}
+}
 
 func TestSiteDeployUsesValidatedVHostHelper(t *testing.T) {
 	root := t.TempDir()
