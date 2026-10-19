@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   report and current hosted-run state.
 - Clarify that the queued hosted CI/CodeQL runs belong to the prior
   documentation-only commit, not the current branch head.
+- Keep the status summary tied to live branch-run state without pinning it to a
+  superseded documentation-only SHA.
 
 - Record the exact `6c6e018` repository production-gate results and explicitly
   distinguish passing repository checks from still-pending hosted and real-host
