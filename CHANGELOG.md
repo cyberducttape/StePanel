@@ -57,6 +57,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Reserve off-site restore archive capacity from the bounded manifest size
+  before transfer, enforce that size as the transfer ceiling, verify the exact
+  downloaded length, and keep the reservation tied to staging cleanup.
 - Enforce the fencing watchdog safety margin during privileged-operation
   admission, so a lease near expiry is rejected before the delayed first
   watchdog check can allow a helper to overlap with a lease takeover.

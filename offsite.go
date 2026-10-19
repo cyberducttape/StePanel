@@ -425,10 +425,18 @@ func (a *App) uploadOffsiteBackup(ctx context.Context, result BackupResult) erro
 // recursive copy, which keeps the restore boundary tied to the configured
 // provider layout.
 func downloadOffsiteBackup(cfg Config, site, backupName string) (string, func(), error) {
-	return downloadOffsiteBackupContext(context.Background(), cfg, site, backupName)
+	return downloadOffsiteBackupWithLedgerContext(context.Background(), cfg, site, backupName, &capacityLedger{})
 }
 
 func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, backupName string) (string, func(), error) {
+	return downloadOffsiteBackupWithLedgerContext(parent, cfg, site, backupName, &capacityLedger{})
+}
+
+// downloadOffsiteBackupWithLedgerContext admits the declared archive size
+// against the shared capacity ledger before transferring archive bytes. The
+// hold stays attached to the returned staging cleanup until the caller has
+// finished using the downloaded archive.
+func downloadOffsiteBackupWithLedgerContext(parent context.Context, cfg Config, site, backupName string, ledger *capacityLedger) (string, func(), error) {
 	if safeUser(site) == "" || !validBackupName(backupName) {
 		return "", func() {}, errors.New("invalid offsite backup identity")
 	}
@@ -451,7 +459,11 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 	if err != nil {
 		return "", func() {}, err
 	}
-	cleanup := func() { removeImportStage(root, stageLock) }
+	var reservation *capacityReservation
+	cleanup := func() {
+		removeImportStage(root, stageLock)
+		reservation.release()
+	}
 	remoteRoot, err := buildOffsiteRemoteRoot(cfg.OffsiteTarget, site, backupName)
 	if err != nil {
 		cleanup()
@@ -490,9 +502,31 @@ func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, back
 		cleanup()
 		return "", func() {}, errors.New("downloaded offsite manifest declares an invalid archive")
 	}
-	if err := downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, manifest.Archive, maxOffsiteObjectBytes); err != nil {
+	if manifest.Bytes <= 0 || manifest.Bytes > maxOffsiteObjectBytes {
+		cleanup()
+		return "", func() {}, fmt.Errorf("downloaded offsite manifest declares an archive size outside the 1..%d byte limit", maxOffsiteObjectBytes)
+	}
+	if ledger == nil {
+		ledger = &capacityLedger{}
+	}
+	reservation, err = ledger.reserve(cfg, "offsite-backup-download", root, []capacityDemand{{Path: root, Bytes: uint64(manifest.Bytes)}})
+	if err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("admit offsite archive download: %w", err)
+	}
+	if err := downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, manifest.Archive, manifest.Bytes); err != nil {
 		cleanup()
 		return "", func() {}, err
+	}
+	archivePath := filepath.Join(root, manifest.Archive)
+	archiveInfo, err := os.Lstat(archivePath)
+	if err != nil || !archiveInfo.Mode().IsRegular() || archiveInfo.Size() != manifest.Bytes {
+		cleanup()
+		return "", func() {}, errors.New("downloaded offsite archive size does not match its manifest")
+	}
+	if err := reservation.consume(archiveInfo.Size()); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("record offsite archive capacity consumption: %w", err)
 	}
 	if err := downloadOffsiteObjectLimit(transferCtx, remoteRoot, root, manifest.Archive+".sha256", maxOffsiteChecksumBytes); err != nil {
 		cleanup()
@@ -727,7 +761,7 @@ func RunOffsiteRecoveryProof(cfg Config) (backupRehearsalResult, error) {
 		return backupRehearsalResult{}, fmt.Errorf("choose offsite backup: %w", err)
 	}
 	ref := refs[index.Int64()]
-	root, cleanup, err := downloadOffsiteBackupContext(context.Background(), cfg, ref.Site, ref.Backup)
+	root, cleanup, err := downloadOffsiteBackupWithLedgerContext(context.Background(), cfg, ref.Site, ref.Backup, &capacityLedger{})
 	if err != nil {
 		return backupRehearsalResult{}, err
 	}

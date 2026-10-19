@@ -119,7 +119,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 	case "offsite-files":
 		var root string
 		var cleanup func()
-		root, cleanup, restoreErr = downloadOffsiteBackupContext(operationCtx, a.Config, request.Site, request.Backup)
+		root, cleanup, restoreErr = downloadOffsiteBackupWithLedgerContext(operationCtx, a.Config, request.Site, request.Backup, a.capacityLedger())
 		if restoreErr == nil {
 			defer cleanup()
 			cfg := a.Config
@@ -132,7 +132,7 @@ func (a *App) handleBackupRestoreJob(ctx context.Context, item Job) ([]byte, err
 		var previous *databaseRestoreMarker
 		previous, restoreErr = interruptedDatabaseRestore(a.Config.RecoveryRoot, item.ID, request)
 		if restoreErr == nil {
-			root, cleanup, restoreErr = downloadOffsiteBackupContext(operationCtx, a.Config, request.Site, request.Backup)
+			root, cleanup, restoreErr = downloadOffsiteBackupWithLedgerContext(operationCtx, a.Config, request.Site, request.Backup, a.capacityLedger())
 		}
 		if restoreErr == nil {
 			defer cleanup()
@@ -650,7 +650,7 @@ func (a *App) backupRestoreOffsiteToStaging(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "API token lacks the backup:restore scope", http.StatusForbidden)
 		return
 	}
-	root, cleanup, err := downloadOffsiteBackup(a.Config, input.SourceSite, input.Backup)
+	root, cleanup, err := downloadOffsiteBackupWithLedgerContext(context.Background(), a.Config, input.SourceSite, input.Backup, a.capacityLedger())
 	if err != nil {
 		http.Error(w, "could not download offsite backup: "+err.Error(), http.StatusBadGateway)
 		return

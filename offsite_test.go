@@ -448,7 +448,7 @@ case "$1" in
 copy) src=$(remote "$2"); dst=$(remote "$3"); mkdir -p "$dst"; cp -a "$src"/. "$dst"/ ;;
 check) exit 0 ;;
 lsf) dir=$(remote "$2"); [ -d "$dir" ] || exit 3; (cd "$dir" && find . -type f | sed 's#^\./##') ;;
-copyto) src=$(remote "$2"); dst=$(remote "$3"); [ -f "$src" ] || exit 3; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
+copyto) if [ -n "${RCLONE_COPYTO_LOG:-}" ]; then printf '%s\n' "$2" >> "$RCLONE_COPYTO_LOG"; fi; src=$(remote "$2"); dst=$(remote "$3"); [ -f "$src" ] || exit 3; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
 purge) rm -rf "$(remote "$2")" ;;
 *) echo "unsupported fake rclone command" >&2; exit 1 ;;
 esac
@@ -460,6 +460,75 @@ esac
 	t.Setenv("RCLONE_FAKE_ROOT", fakeRemote)
 	cfg := Config{WebRoot: webRoot, BackupRoot: filepath.Join(root, "backups"), ImportRoot: filepath.Join(root, "imports"), OffsiteTarget: "s3:bucket/stepanel"}
 	return cfg, filepath.Join(fakeRemote, "bucket", "stepanel")
+}
+
+func TestOffsiteDownloadReservesDeclaredSizeBeforeTransferAndReleasesAfterCleanup(t *testing.T) {
+	root := t.TempDir()
+	cfg, _ := offsiteTestRemote(t, root)
+	backup, err := CreateSiteBackup(cfg, AuthorizedSite{site: "account"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := uploadOffsiteContext(t.Context(), cfg, backup); err != nil {
+		t.Fatal(err)
+	}
+	copyLog := filepath.Join(root, "copyto.log")
+	t.Setenv("RCLONE_COPYTO_LOG", copyLog)
+
+	// Fetch bounded metadata first, but reject an impossible disk reserve
+	// before transferring the declared archive object.
+	rejectedCfg := cfg
+	rejectedCfg.MinFreeBytes = ^uint64(0) / 2
+	if _, cleanup, err := downloadOffsiteBackupWithLedgerContext(t.Context(), rejectedCfg, "account", filepath.Base(backup.Path), &capacityLedger{}); err == nil || !strings.Contains(err.Error(), "insufficient free space") {
+		cleanup()
+		t.Fatalf("offsite archive admission error = %v, want insufficient capacity", err)
+	}
+	copyCalls, err := os.ReadFile(copyLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(copyCalls), "manifest.json") || !strings.Contains(string(copyCalls), offsiteCompleteMarker) {
+		t.Fatalf("expected bounded metadata downloads before admission, got %q", copyCalls)
+	}
+	if strings.Contains(string(copyCalls), "backup.tar.gz") {
+		t.Fatalf("archive was transferred before capacity admission: %q", copyCalls)
+	}
+
+	db, err := openControlPlaneDB(filepath.Join(root, "control-plane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ledger, err := newCapacityLedger(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MinFreeBytes = 1
+	downloaded, cleanup, err := downloadOffsiteBackupWithLedgerContext(t.Context(), cfg, "account", filepath.Base(backup.Path), ledger)
+	if err != nil {
+		t.Fatalf("admitted offsite download: %v", err)
+	}
+	if _, err := VerifySiteBackupStrict(downloaded, ""); err != nil {
+		cleanup()
+		t.Fatalf("downloaded backup failed strict verification: %v", err)
+	}
+	var count int
+	var held int64
+	if err := db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(bytes), 0) FROM capacity_reservations WHERE workflow='offsite-backup-download'`).Scan(&count, &held); err != nil {
+		cleanup()
+		t.Fatal(err)
+	}
+	if count != 1 || held != 0 {
+		cleanup()
+		t.Fatalf("download reservation before cleanup = rows %d, held %d; want one row and transferred bytes consumed", count, held)
+	}
+	cleanup()
+	if err := db.QueryRow(`SELECT COUNT(*) FROM capacity_reservations WHERE workflow='offsite-backup-download'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("offsite download reservation rows after cleanup = %d, want 0", count)
+	}
 }
 
 // TestRecoveryAfterInterruptedOffsitePublication checks that a publication
