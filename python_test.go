@@ -94,3 +94,23 @@ func TestReconcilePythonAppsReportsCorruptManifest(t *testing.T) {
 		t.Fatalf("failed applications = %#v, want corrupt manifest failure", failed)
 	}
 }
+
+func TestReconcilePythonAppsRejectsOversizedManifest(t *testing.T) {
+	appRoot := t.TempDir()
+	path := filepath.Join(appRoot, "large-python.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxAppStateFileBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, failed := (&App{Config: Config{AppRoot: appRoot}}).reconcilePythonApps(context.Background())
+	if failed["large-python.json"] == "" {
+		t.Fatalf("oversized Python manifest was not reported: %#v", failed)
+	}
+}

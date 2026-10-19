@@ -76,6 +76,7 @@ func (info CPMoveInfo) response(uploadID string) CPMoveInspectionResponse {
 }
 
 const maxCPMoveExpandedBytes int64 = 80 << 30
+const maxCPMoveUploadMetadataBytes = 16 << 10
 
 // randomSecret uses base64.RawURLEncoding, whose first character may be '-'
 // or '_' as well as an alphanumeric. Keep the full URL-safe alphabet valid.
@@ -106,7 +107,7 @@ func readCPMoveUpload(root, id string) (cpmoveUpload, error) {
 	if !cpmoveUploadIDPattern.MatchString(id) {
 		return cpmoveUpload{}, errors.New("invalid upload ID")
 	}
-	data, err := os.ReadFile(cpmoveUploadMetadataPath(root, id))
+	data, err := readStateFile(cpmoveUploadMetadataPath(root, id), maxCPMoveUploadMetadataBytes)
 	if err != nil {
 		return cpmoveUpload{}, err
 	}

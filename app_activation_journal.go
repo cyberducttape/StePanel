@@ -12,6 +12,7 @@ import (
 )
 
 const appActivationJournalVersion = 3
+const maxAppActivationJournalBytes = 8 << 20
 
 // appActivationJournal makes application runtime and manifest publication
 // recoverable across process death. An uncommitted journal always restores
@@ -106,7 +107,7 @@ func recoverAppActivationJournals(cfg Config) ([]string, error) {
 			continue
 		}
 		path := filepath.Join(cfg.AppRoot, entry.Name())
-		data, err := os.ReadFile(path)
+		data, err := readStateFile(path, maxAppActivationJournalBytes)
 		if err != nil {
 			return recovered, err
 		}

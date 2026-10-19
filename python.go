@@ -153,7 +153,7 @@ func (a *App) reconcilePythonApps(ctx context.Context) (reconciled []string, fai
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "-python.json") {
 			continue
 		}
-		data, readErr := os.ReadFile(filepath.Join(a.Config.AppRoot, entry.Name()))
+		data, readErr := readStateFile(filepath.Join(a.Config.AppRoot, entry.Name()), maxAppStateFileBytes)
 		if readErr != nil {
 			failed[entry.Name()] = readErr.Error()
 			continue

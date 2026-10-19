@@ -45,6 +45,25 @@ func TestReadCPMoveUploadRejectsPathTraversalID(t *testing.T) {
 	}
 }
 
+func TestReadCPMoveUploadRejectsOversizedMetadata(t *testing.T) {
+	root := t.TempDir()
+	const id = "upload-metadata"
+	file, err := os.Create(cpmoveUploadMetadataPath(root, id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxCPMoveUploadMetadataBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readCPMoveUpload(root, id); !errors.Is(err, errStateFileTooLarge) {
+		t.Fatalf("oversized upload metadata error = %v, want errStateFileTooLarge", err)
+	}
+}
+
 func TestReadCPMoveUploadAcceptsURLSafeBase64LeadingCharacters(t *testing.T) {
 	root := t.TempDir()
 	for _, id := range []string{"-abc_def", "_abc-def"} {

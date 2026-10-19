@@ -278,3 +278,23 @@ func TestRestoreAppActivationRemovesNewManifestByValidatedDirectoryEntry(t *test
 		t.Fatalf("stop args = %q, error = %v", called, err)
 	}
 }
+
+func TestRecoverAppActivationJournalsRejectsOversizedJournal(t *testing.T) {
+	appRoot := t.TempDir()
+	path := filepath.Join(appRoot, ".activation-oversized.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxAppActivationJournalBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = recoverAppActivationJournals(Config{AppRoot: appRoot})
+	if !errors.Is(err, errStateFileTooLarge) {
+		t.Fatalf("oversized app activation journal error = %v, want errStateFileTooLarge", err)
+	}
+}
