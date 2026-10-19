@@ -45,6 +45,10 @@ jobs:
       RECOVERY_MATRIX_SHARD: ${{ inputs.recovery_matrix_shard || '' }}
     strategy:
       fail-fast: false
+      # A repeated recovery cohort may contain many independent shards. Limit
+      # each shard to one host combination so dispatching ten shards does not
+      # occupy sixty hosted runners and starve ordinary CI/install checks.
+      max-parallel: ${{ inputs.recovery_matrix_repeats > 1 && 1 || 6 }}
       matrix:
         include:
           - name: ubuntu-24.04-caddy-mariadb

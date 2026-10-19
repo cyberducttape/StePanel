@@ -30,6 +30,11 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   review.
 - The quota fixture correction passes its repository syntax/feature gate, but
   successful hosted installation and quota enforcement are still unverified.
+- The older-source (`633c013`) 20-repeat recovery cohort remains incomplete:
+  three of ten six-host shards passed at the latest capture; several shards
+  are still active and four remain queued. None of these results certify the
+  current source. Repeat-mode shards are now limited to one host combination
+  each to prevent future cohorts from flooding the runner pool.
 
 ### Previous exact-source repository gate — 2026-10-19 (`91f402d`)
 

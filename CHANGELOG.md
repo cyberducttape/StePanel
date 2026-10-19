@@ -45,6 +45,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Limit each repeated installation-recovery shard to one OS/web-server matrix
+  job at a time, preventing large multi-shard certification cohorts from
+  saturating hosted runners and starving ordinary CI.
 - Correct the ext4 quota-smoke fixture's `mke2fs` quota-type delimiter so the
   installed-host project-quota test reaches formatting, installation, and
   enforcement checks instead of failing during filesystem setup. Record the
