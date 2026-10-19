@@ -123,11 +123,18 @@ func VerifyFencingToken(db *sql.DB, token FencingToken) error {
 // stopped renewing; acting before it expires means no other owner can have
 // acquired the resource yet.
 func VerifyFencingTokenWithin(db *sql.DB, token FencingToken, margin time.Duration) error {
+	return VerifyFencingTokenWithinContext(context.Background(), db, token, margin)
+}
+
+// VerifyFencingTokenWithinContext verifies a fencing token without waiting
+// indefinitely for a pooled SQLite connection or a database lock. Callers at
+// privileged boundaries should always pass an operation-scoped context.
+func VerifyFencingTokenWithinContext(ctx context.Context, db *sql.DB, token FencingToken, margin time.Duration) error {
 	if db == nil || token.ResourceKey == "" || token.OwnerID == "" || token.Generation <= 0 {
 		return ErrLeaseLost
 	}
 	var present int
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		SELECT 1 FROM resource_locks
 		WHERE resource_key = ? AND owner_id = ? AND generation = ? AND lease_until > ?
 	`, token.ResourceKey, token.OwnerID, token.Generation, time.Now().Add(margin).UnixNano()).Scan(&present)

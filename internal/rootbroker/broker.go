@@ -214,7 +214,10 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 			return &Response{OK: false, Error: "fencing token required for mutating request"}, nil
 		}
 		for _, token := range req.Fencing {
-			if err := operations.VerifyFencingToken(b.fencingDB, token); err != nil {
+			verifyCtx, verifyCancel := context.WithTimeout(ctx, b.fencingQueryTimeout())
+			err := operations.VerifyFencingTokenWithinContext(verifyCtx, b.fencingDB, token, 0)
+			verifyCancel()
+			if err != nil {
 				return &Response{OK: false, Error: fmt.Sprintf("fencing token rejected: %v", err)}, nil
 			}
 		}
@@ -226,6 +229,13 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 		return resp, err
 	}
 	return b.dispatch(ctx, req)
+}
+
+func (b *Broker) fencingQueryTimeout() time.Duration {
+	if b.leaseWatchInterval > 0 {
+		return b.leaseWatchInterval
+	}
+	return LeaseWatchInterval
 }
 
 // watchFencing cancels a privileged operation whose admitting lease is lost
@@ -242,39 +252,72 @@ func (b *Broker) watchFencing(parent context.Context, tokens []operations.Fencin
 	errorSince := make(map[string]time.Time)
 	go func() {
 		defer close(finished)
-		ticker := time.NewTicker(b.leaseWatchInterval)
-		defer ticker.Stop()
+		queryInterval := b.fencingQueryTimeout()
+		grace := b.fencingDBErrorGrace
+		if grace <= 0 {
+			grace = FencingDBErrorGrace
+		}
+		retryInterval := min(queryInterval, time.Second)
+		if grace/4 > 0 {
+			retryInterval = min(retryInterval, grace/4)
+		}
+		delay := queryInterval
 		for {
+			timer := time.NewTimer(delay)
 			select {
 			case <-done:
+				timer.Stop()
 				return
-			case <-ticker.C:
-				for _, token := range tokens {
-					err := operations.VerifyFencingTokenWithin(b.fencingDB, token, b.leaseWatchMargin)
-					key := fmt.Sprintf("%s/%s/%d", token.ResourceKey, token.OwnerID, token.Generation)
-					if errors.Is(err, operations.ErrLeaseLost) {
-						lost = fmt.Errorf("lease %s generation %d", token.ResourceKey, token.Generation)
-						b.logger.Printf("fencing lease lost during execution; cancelling: %v", lost)
+			case <-timer.C:
+			}
+			hadError := false
+			for _, token := range tokens {
+				key := fmt.Sprintf("%s/%s/%d", token.ResourceKey, token.OwnerID, token.Generation)
+				checkStarted := time.Now()
+				checkTimeout := queryInterval
+				for _, started := range errorSince {
+					remaining := grace - checkStarted.Sub(started)
+					if remaining <= 0 {
+						lost = fmt.Errorf("fencing database unavailable for %s", grace)
+						b.logger.Printf("fencing watchdog grace expired; cancelling: %v", lost)
 						cancel()
 						return
 					}
-					if err != nil {
-						started, ok := errorSince[key]
-						if !ok {
-							started = time.Now()
-							errorSince[key] = started
-						}
-						if time.Since(started) >= b.fencingDBErrorGrace {
-							lost = fmt.Errorf("fencing database unavailable for %s", b.fencingDBErrorGrace)
+					checkTimeout = min(checkTimeout, remaining)
+				}
+				checkCtx, checkCancel := context.WithTimeout(ctx, checkTimeout)
+				err := operations.VerifyFencingTokenWithinContext(checkCtx, b.fencingDB, token, b.leaseWatchMargin)
+				checkCancel()
+				if errors.Is(err, operations.ErrLeaseLost) {
+					lost = fmt.Errorf("lease %s generation %d", token.ResourceKey, token.Generation)
+					b.logger.Printf("fencing lease lost during execution; cancelling: %v", lost)
+					cancel()
+					return
+				}
+				if err != nil {
+					started, ok := errorSince[key]
+					if !ok {
+						started = checkStarted
+						errorSince[key] = started
+					}
+					for _, errorStarted := range errorSince {
+						if time.Since(errorStarted) >= grace {
+							lost = fmt.Errorf("fencing database unavailable for %s", grace)
 							b.logger.Printf("fencing watchdog cannot verify lease; cancelling: %v: %v", lost, err)
 							cancel()
 							return
 						}
-						b.logger.Printf("fencing watchdog check failed; grace period remains: %v", err)
-						continue
 					}
-					delete(errorSince, key)
+					b.logger.Printf("fencing watchdog check failed; grace period remains: %v", err)
+					hadError = true
+					continue
 				}
+				delete(errorSince, key)
+			}
+			if hadError {
+				delay = retryInterval
+			} else {
+				delay = queryInterval
 			}
 		}
 	}()

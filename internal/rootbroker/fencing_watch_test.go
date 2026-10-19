@@ -124,6 +124,28 @@ func TestBrokerCancelsOperationWhenFencingDatabaseIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestBrokerFencingAdmissionHonorsRequestCancellationWhilePoolIsBusy(t *testing.T) {
+	broker, db, completed := fencedWordPressBroker(t, "5")
+	db.SetMaxOpenConns(1)
+	connection, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+
+	started := time.Now()
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "wordpress", Fencing: demoLease, WordPress: &WordPressRequest{Action: "core-update", Site: "demo"}})
+	if err != nil || response == nil || response.OK || !strings.Contains(response.Error, "context deadline exceeded") {
+		t.Fatalf("response = %#v, error %v; want bounded fencing admission failure", response, err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("fencing admission blocked for %s while its only DB connection was busy", elapsed)
+	}
+	if _, err := os.Stat(completed); err == nil {
+		t.Fatal("privileged helper ran without a completed fencing check")
+	}
+}
+
 // Read-only database actions back administrator views and hold no lease;
 // every mutating database action must still be fenced.
 func TestDatabaseFencingDistinguishesReads(t *testing.T) {
