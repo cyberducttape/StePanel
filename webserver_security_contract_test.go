@@ -78,7 +78,7 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	}
 	for _, path := range []string{
 		"/.env", "/nested/.env.production", "/nested/.git/config", "/deep/path/.svn/entries",
-		"/database/export.sql", "/database/export.dump", "/archives/backup.tar.gz",
+		"/database/export.sql", "/database/export.dump", "/debug/debug.log", "/archives/backup.tar.gz",
 		"/archives/export.sql.bz2", "/archives/site.7z", "/keys/server.pem", "/keys/server.key",
 		"/.ssh/id_ed25519", "/.aws/credentials", "/.gnupg/private-keys-v1.d/key",
 		"/backups/site.tar.gz", "/private/config.php", "/nested/.htpasswd", "/node_modules/pkg/secret.js",
@@ -117,7 +117,7 @@ func TestApacheVHostDeniesSensitiveFilesAndDirectories(t *testing.T) {
 		t.Fatalf("Apache sensitive-directory policy is invalid: %v", err)
 	}
 	for _, name := range []string{
-		".env", ".env.production", "export.sql", "export.dump", "export.sql.gz",
+		".env", ".env.production", "export.sql", "export.dump", "debug.log", "debug.log.1", "export.sql.gz",
 		"backup.tar.zst", "private.pem", "private.key", "credentials.p12",
 	} {
 		if !filePolicy.MatchString(name) {

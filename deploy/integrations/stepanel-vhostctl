@@ -107,7 +107,7 @@ case "$action" in
         AllowOverride FileInfo
         Require all granted
     </Directory>
-    <FilesMatch "(?i)(^\\.|\\.(sql|sqlite3?|db|dump|bak|backup|old|orig|save|tar|tgz|zip|7z|rar|gz|bz2|xz|zst|enc|pem|key|p12|pfx)(\\..*)?$)">
+    <FilesMatch "(?i)(^\\.|\\.(sql|sqlite3?|db|dump|log|bak|backup|old|orig|save|tar|tgz|zip|7z|rar|gz|bz2|xz|zst|enc|pem|key|p12|pfx)(\\..*)?$)">
         Require all denied
     </FilesMatch>
     <DirectoryMatch "(?i)^/var/www/sites/$site/public/(.*/)?(node_modules|\\.git|\\.svn|\\.hg|\\.ssh|\\.aws|\\.gnupg|backup|backups|private)(/|$)">

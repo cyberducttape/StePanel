@@ -145,7 +145,7 @@ case "$action" in
     {
       printf '# Managed by StePanel. Manual changes will be replaced.\n%s {\n\troot * %s\n\tencode zstd gzip\n' "$domain" "$view_root_path"
       cat <<'EOF'
-		@stepanel_sensitive path_regexp stepanel_sensitive (?i)^/(.*/)?(node_modules(/.*)?|\.env(\.[^/]*)?|\.git(/.*)?|\.svn(/.*)?|\.hg(/.*)?|\.ssh(/.*)?|\.aws(/.*)?|\.gnupg(/.*)?|\.htpasswd|\.htaccess|(backup|backups|private)(/.*)?|[^/]+\.(sql|sqlite3?|db|dump|bak|backup|old|orig|save|tar|tgz|zip|7z|rar|gz|bz2|xz|zst|enc|pem|key|p12|pfx)(\.[^/]*)?)$
+		@stepanel_sensitive path_regexp stepanel_sensitive (?i)^/(.*/)?(node_modules(/.*)?|\.env(\.[^/]*)?|\.git(/.*)?|\.svn(/.*)?|\.hg(/.*)?|\.ssh(/.*)?|\.aws(/.*)?|\.gnupg(/.*)?|\.htpasswd|\.htaccess|(backup|backups|private)(/.*)?|[^/]+\.(sql|sqlite3?|db|dump|log|bak|backup|old|orig|save|tar|tgz|zip|7z|rar|gz|bz2|xz|zst|enc|pem|key|p12|pfx)(\.[^/]*)?)$
 	respond @stepanel_sensitive 404
 EOF
       if [[ -f "/var/www/sites/$site/.stepanel-staging-noindex" && ! -L "/var/www/sites/$site/.stepanel-staging-noindex" ]]; then printf '\theader X-Robots-Tag "noindex, nofollow"\n'; fi
