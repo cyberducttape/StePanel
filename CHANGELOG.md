@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Record the complete repository production-gate pass on exact commit
   `ad9a43a`, its measurements, and the still-open host-certification gates.
+- Reconcile the current project status summary with the exact-source gate
+  report and current hosted-run state.
 
 - Record the exact `6c6e018` repository production-gate results and explicitly
   distinguish passing repository checks from still-pending hosted and real-host

@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-18
+**Last Updated:** 2026-10-19
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -12,16 +12,17 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest exact-source repository gate — 2026-10-18 (`6c6e018`)
+### Latest exact-source repository gate — 2026-10-19 (`ad9a43a`)
 
 - `bash scripts/production-gate.sh` passed on exact checkout
-  `6c6e018adcce396344525d0735e88942e64679e9`: coverage was 56.8%, all package
-  floors passed, and the full race suite passed (root package 475.424 seconds).
+  `ad9a43aa8761c4d9b52d6132fc46221c791dc004`: coverage was 56.8%, all package
+  floors passed, and the full race suite passed (root package 471.926 seconds).
   The four repository recovery drills, benchmarks, mixed HTTP load, and
   documentation/release checks also passed. See the
-  [exact-source report](lab-results/2026-10-18-repository-production-gate-6c6e018.md).
-- At capture, exact-head CI and CodeQL were queued; standard and quota-enabled
-  install smokes were pending without jobs. No hosted result is inferred.
+  [exact-source report](lab-results/2026-10-19-repository-production-gate-ad9a43a.md).
+- The current documentation-only head is `1c6db08`; its exact-head CI and
+  CodeQL are queued. The installation-smoke runs for the code commit are
+  pending without jobs. No hosted result is inferred.
 - Production remains **NO-GO** pending installed-host aggregate quota
   validation (including XFS), the 20-repeat recovery cohort, physical power-loss
   and broader ENOSPC evidence, notification outage/retry, capacity certification,
