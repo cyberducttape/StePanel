@@ -32,8 +32,9 @@ func fencedWordPressBroker(t *testing.T, runFor string) (*Broker, *sql.DB, strin
 		t.Fatal(err)
 	}
 	completed := filepath.Join(root, "completed")
+	started := filepath.Join(root, "started")
 	helper := filepath.Join(root, "appctl")
-	if err := os.WriteFile(helper, []byte("#!/bin/sh\nsleep "+runFor+"\n: > "+completed+"\n"), 0o700); err != nil {
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n: > "+started+"\nsleep "+runFor+"\n: > "+completed+"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	broker, err := newBrokerWithFencingDB(root, t.TempDir(), log.New(io.Discard, "", 0), &fakeHost{}, db)
@@ -93,6 +94,28 @@ func TestBrokerCancelsOperationBeforeLeaseExpires(t *testing.T) {
 	}
 	if _, err := os.Stat(completed); err == nil {
 		t.Fatal("helper completed although its owner stopped renewing")
+	}
+}
+
+// Admission must enforce the watchdog margin itself. Otherwise a lease with
+// less time remaining than the first polling interval can expire and be taken
+// over while the privileged helper is already mutating the host.
+func TestBrokerRejectsNearExpiryLeaseBeforeStartingHelper(t *testing.T) {
+	broker, db, completed := fencedWordPressBroker(t, "1")
+	broker.leaseWatchInterval = 500 * time.Millisecond
+	broker.leaseWatchMargin = 300 * time.Millisecond
+	if _, err := db.Exec(`UPDATE resource_locks SET lease_until = ?`, time.Now().Add(100*time.Millisecond).UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+	response, err := broker.Execute(context.Background(), &Request{RequestType: "wordpress", Fencing: demoLease, WordPress: &WordPressRequest{Action: "core-update", Site: "demo"}})
+	if err != nil || response.OK || !strings.Contains(response.Error, "fencing token rejected") {
+		t.Fatalf("response = %#v, %v; want admission rejection inside safety margin", response, err)
+	}
+	if _, err := os.Stat(completed); err == nil {
+		t.Fatal("helper completed despite admission rejection")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(completed), "started")); !os.IsNotExist(err) {
+		t.Fatalf("helper started despite admission rejection: stat error %v", err)
 	}
 }
 

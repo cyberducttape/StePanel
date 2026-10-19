@@ -54,6 +54,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Enforce the fencing watchdog safety margin during privileged-operation
+  admission, so a lease near expiry is rejected before the delayed first
+  watchdog check can allow a helper to overlap with a lease takeover.
 - Initialize the SQLite fencing-lock schema before activating the root broker,
   and make the broker reject missing or incomplete control-plane schemas,
   including incorrect column types and missing uniqueness constraints, at

@@ -695,6 +695,12 @@ have no production callers; the flows above use staging instead.
       SSH access, database operations, and account mutations.
 - ✅ Resource enforcement acquires both site and owning-account fences, so
       resource updates cannot race account suspension.
+- ✅ Root-broker admission enforces the lease-watch safety margin before
+      starting a privileged helper; near-expiry leases are rejected rather
+      than waiting for the watchdog's first interval-delayed check. The
+      regression test exercises that admission boundary. Killing the broker
+      during installed-host mutations and proving takeover/reconciliation
+      remain separate open Gate 5 evidence.
 - ✅ Two independent SQLite connections now exercise all five conflicting
       mutation lock scenarios; an OS-process regression test also proves
       hold/block/reacquire behavior across panel/worker-style processes.

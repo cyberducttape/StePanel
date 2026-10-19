@@ -219,7 +219,10 @@ func (b *Broker) Execute(ctx context.Context, req *Request) (*Response, error) {
 		}
 		for _, token := range req.Fencing {
 			verifyCtx, verifyCancel := context.WithTimeout(ctx, b.fencingQueryTimeout())
-			err := operations.VerifyFencingTokenWithinContext(verifyCtx, b.fencingDB, token, 0)
+			// Reject leases already inside the watchdog safety margin. The
+			// watchdog's first check is interval-delayed; admitting a nearly
+			// expired lease here could let the helper mutate after takeover.
+			err := operations.VerifyFencingTokenWithinContext(verifyCtx, b.fencingDB, token, b.leaseWatchMargin)
 			verifyCancel()
 			if err != nil {
 				return &Response{OK: false, Error: fmt.Sprintf("fencing token rejected: %v", err)}, nil
