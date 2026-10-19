@@ -53,6 +53,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   recovery journals so malformed local files cannot force unbounded allocation.
 - Bound reads of lifecycle and release-activation journals and database-restore
   markers, failing closed when recovery metadata exceeds its documented limit.
+- Bound legacy environment-store reads to prevent malformed persisted secrets
+  state from causing unbounded startup allocation.
 - Enforce byte ceilings while reading durable JSON-backed account, route,
   schedule, resource, PHP, SSH, Redis, worker, task, Composer, and domain-claim
   state files; this prevents corrupted local metadata from being fully loaded

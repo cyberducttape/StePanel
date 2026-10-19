@@ -3,6 +3,7 @@ package stepanel
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -48,6 +49,24 @@ func TestEnvironmentStoreRequiresKeyForSecretState(t *testing.T) {
 	}
 	if _, err := OpenEnvironmentStore(path, ""); err == nil || !strings.Contains(err.Error(), "encryption key") {
 		t.Fatalf("OpenEnvironmentStore without key error = %v; want encryption-key error", err)
+	}
+}
+
+func TestEnvironmentStoreRejectsOversizedLegacyState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "environment.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxEnvironmentStateBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenEnvironmentStore(path, "test-environment-key"); !errors.Is(err, errStateFileTooLarge) {
+		t.Fatalf("oversized environment state error = %v, want errStateFileTooLarge", err)
 	}
 }
 

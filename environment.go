@@ -181,6 +181,7 @@ type EnvironmentStore struct {
 // environmentSecretPrefix marks secrets sealed by secretbox. It cannot occur
 // in the legacy format, which is plain base64.
 const environmentSecretPrefix = "v2:"
+const maxEnvironmentStateBytes = 4 << 20
 
 func OpenEnvironmentStore(path, secret string) (*EnvironmentStore, error) {
 	store := &EnvironmentStore{path: path, values: map[string]map[string]environmentValue{}, legacyAllowed: true}
@@ -193,7 +194,7 @@ func OpenEnvironmentStore(path, secret string) (*EnvironmentStore, error) {
 		}
 		store.box = box
 	}
-	data, err := os.ReadFile(path)
+	data, err := readStateFile(path, maxEnvironmentStateBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return store, nil
 	}
