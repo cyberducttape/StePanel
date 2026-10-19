@@ -53,6 +53,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   registry files.
 - Centralize bounded state-file reads and apply the 1 MiB ceiling to legacy
   account/session imports and a 4 MiB ceiling to deployment-history files.
+- Cover the shared bounded-read utility's size boundary, missing-file, invalid
+  limit, and read-error behavior directly in its package tests.
 - Enforce the 4 MiB domain-claim state limit while reading the file, so an
   oversized or corrupted local state file cannot trigger an unbounded read
   before rejection; add an oversized-file regression test.
