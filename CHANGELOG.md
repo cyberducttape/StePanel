@@ -28,6 +28,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Deny `backup`, `backups` and `private` directories in Caddy only where the
   path exists in the document root. Application routes such as `/private/`
   or a `/category/backups/` page reach PHP again.
+- Split the installed Git deploy recovery smoke by host. Hosts without
+  project quotas (the Docker install matrix) now verify that a Git deploy is
+  refused with the project-quota error and leaves the site unchanged. The
+  activation-kill recovery drill runs on the quota-enabled host, which fails
+  the smoke if project quotas are not on. Since Git deploys began requiring
+  project quotas, the matrix had been failing on every distribution.
 - Ignore the setgid bit that `.stepanel-manager-staging` inherits from
   `/var/www/sites` (mode 2711) when `stepanel-gitctl` and `stepanel-runnerctl`
   check the parent directory. The exact `711` comparison refused staging roots

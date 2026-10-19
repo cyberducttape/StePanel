@@ -2,6 +2,7 @@
 # Exercise a real Git deployment across a SIGKILL during activation. Git
 # deployments are durable site operations, so the process killed is the one
 # running jobs: the worker service in external worker mode, else the panel.
+# On hosts without project quotas, verify instead that the deploy is refused.
 set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'deploy recovery smoke must run as root' >&2; exit 1; }
@@ -77,6 +78,42 @@ csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$cookies")
 [[ -n $session && -n $csrf ]] || { echo 'deploy recovery login did not issue session and CSRF cookies' >&2; exit 1; }
 cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
+git_deploy_request() {
+  python3 - "$DEPLOY_RECOVERY_SMOKE_SITE" <<'PY'
+import json, sys
+print(json.dumps({"site": sys.argv[1], "repository": "https://github.com/octocat/Hello-World.git", "ref": "master"}))
+PY
+}
+
+# Git deployments need project quotas on the staging filesystem and fail
+# closed without them. Hosts without project quotas (the Docker install
+# matrix) verify that refusal; the quota-enabled host runs the kill drill.
+# quotaon -p exits non-zero when the quota is on, so read its state line.
+project_quota_state=
+if command -v quotaon >/dev/null; then project_quota_state=$(quotaon -p -P /var/www 2>&1 || true); fi
+if [[ $project_quota_state != *'project quota on /var/www ('*') is on'* ]]; then
+  if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
+    echo "the quota-enabled smoke host does not report project quotas on /var/www: ${project_quota_state:-quotaon unavailable}" >&2
+    exit 1
+  fi
+  queued=$(curl --silent --show-error --max-time 120 -H "Cookie: $cookie_header" -H "X-CSRF-Token: $csrf" \
+    -H 'Content-Type: application/json' --data "$(git_deploy_request)" "$PANEL/api/sites/git-deploy" || true)
+  job_id=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("job_id", ""))' "$queued" 2>/dev/null || true)
+  [[ -n $job_id ]] || { echo "Git deploy request did not return a durable job: $queued" >&2; exit 1; }
+  state=
+  for _ in $(seq 1 120); do
+    job=$(curl --silent --max-time 10 -H "Cookie: $cookie_header" "$PANEL/api/jobs/$job_id" || true)
+    state=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("state", ""))' "$job" 2>/dev/null || true)
+    [[ $state == dead-letter || $state == failed || $state == completed || $state == cancelled ]] && break
+    sleep 1
+  done
+  [[ $state == dead-letter || $state == failed ]] || { echo "Git deploy without project quotas ended as '$state': $job" >&2; exit 1; }
+  grep -q 'requires enforceable project quotas' <<< "$job" || { echo "Git deploy without project quotas failed for another reason: $job" >&2; exit 1; }
+  grep -Fx 'original release survives interrupted deployment' "$public/deploy-recovery-marker.txt" >/dev/null
+  echo 'deploy recovery smoke passed (no project quotas: Git deployment was refused and the live site is unchanged)'
+  exit 0
+fi
+
 printf '%s\n' '[Service]' "Environment=STEPANEL_KILL_AT=$DEPLOY_KILL_AT" > "$dropin"
 systemctl daemon-reload
 systemctl restart "$service"
@@ -96,11 +133,7 @@ queued=$(curl --silent --show-error --max-time 120 \
   -H "Cookie: $cookie_header" \
   -H "X-CSRF-Token: $csrf" \
   -H 'Content-Type: application/json' \
-  --data "$(python3 - "$DEPLOY_RECOVERY_SMOKE_SITE" <<'PY'
-import json, sys
-print(json.dumps({"site": sys.argv[1], "repository": "https://github.com/octocat/Hello-World.git", "ref": "master"}))
-PY
-)" \
+  --data "$(git_deploy_request)" \
   "$PANEL/api/sites/git-deploy")
 set -e
 job_id=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("job_id", ""))' "$queued" 2>/dev/null || true)
