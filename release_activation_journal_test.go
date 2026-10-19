@@ -218,3 +218,21 @@ func TestRecoverPreparedReleaseDoesNotRollbackAnUnstartedSwap(t *testing.T) {
 		t.Fatalf("staged release was not discarded: %v", err)
 	}
 }
+
+func TestReleaseStageExistsBindsManagerStagesToTheirSite(t *testing.T) {
+	webRoot := t.TempDir()
+	stageRoot := filepath.Join(webRoot, "sites", ".stepanel-manager-staging")
+	own := filepath.Join(stageRoot, ".stepanel-release-blog-123")
+	other := filepath.Join(stageRoot, ".stepanel-release-blog-2-123")
+	for _, dir := range []string{filepath.Join(webRoot, "sites", "blog"), own, other} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if exists, err := releaseStageExists(webRoot, "blog", own); err != nil || !exists {
+		t.Fatalf("own stage exists = %v, %v", exists, err)
+	}
+	if _, err := releaseStageExists(webRoot, "blog", other); err == nil {
+		t.Fatal("site blog accepted a release stage of site blog-2")
+	}
+}

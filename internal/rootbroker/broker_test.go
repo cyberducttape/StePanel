@@ -1136,7 +1136,7 @@ func TestBrokerGitCloneUsesConcreteHelperContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	broker.gitctlPath = gitctl
-	destination := filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-site-test")
+	destination := filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-site-4242")
 	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
 		t.Fatal(err)
 	}
@@ -1187,6 +1187,10 @@ func TestValidatorGitCloneBindsDestinationAndShape(t *testing.T) {
 		"other site's release": func(r *GitRequest) {
 			r.Destination = filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-beta-123")
 		},
+		// Site alpha's pattern must not reach a stage of site alpha-2.
+		"release of a site sharing the name prefix": func(r *GitRequest) {
+			r.Destination = filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-alpha-2-123")
+		},
 		"site root":        func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "alpha") },
 		"public tree":      func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites", "alpha", "public") },
 		"shared sites dir": func(r *GitRequest) { r.Destination = filepath.Join(webRoot, "sites") },
@@ -1213,7 +1217,7 @@ func TestValidatorGitCloneBindsDestinationAndShape(t *testing.T) {
 func TestValidatorGitStageQuotaBindsManagerOwnedSiteStage(t *testing.T) {
 	webRoot := t.TempDir()
 	v := NewValidator(webRoot)
-	validPath := filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-alpha-build-123")
+	validPath := filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-alpha-123")
 	for _, request := range []*GitRequest{
 		{Action: "stage-limit", Site: "alpha", Destination: validPath, MaxStageBytes: 2 << 30},
 		{Action: "stage-clear", Site: "alpha", Destination: validPath, ProjectID: 1000000001},
@@ -1225,6 +1229,7 @@ func TestValidatorGitStageQuotaBindsManagerOwnedSiteStage(t *testing.T) {
 	for _, request := range []*GitRequest{
 		{Action: "stage-limit", Site: "alpha", Destination: filepath.Join(webRoot, "sites", "beta", ".stepanel-release-alpha-123"), MaxStageBytes: 1 << 20},
 		{Action: "stage-clear", Site: "alpha", Destination: filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-beta-123"), ProjectID: 1000000001},
+		{Action: "stage-limit", Site: "alpha", Destination: filepath.Join(webRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-alpha-2-123"), MaxStageBytes: 1 << 20},
 		{Action: "stage-limit", Site: "alpha", Destination: validPath, MaxStageBytes: 1<<40 + 1},
 		{Action: "stage-clear", Site: "alpha", Destination: validPath, ProjectID: 999999999},
 	} {

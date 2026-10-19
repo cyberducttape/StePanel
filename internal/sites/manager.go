@@ -43,6 +43,23 @@ var validSiteName = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 var validStagedComponent = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,127}|\.stepanel-[A-Za-z0-9._-]{1,127})$`)
 var validStagingPrefix = regexp.MustCompile(`^[A-Za-z0-9._-]{1,48}-?$`)
 
+// IsReleaseStagingName reports whether component names a release stage that
+// CreateReleaseStaging allocated for site. os.MkdirTemp appends a decimal
+// suffix, so requiring digits after "<site>-" keeps site "blog" from claiming
+// a stage of site "blog-2".
+func IsReleaseStagingName(site, component string) bool {
+	suffix, ok := strings.CutPrefix(component, ".stepanel-release-"+site+"-")
+	if !ok || suffix == "" || !validSiteName.MatchString(site) {
+		return false
+	}
+	for _, r := range suffix {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // Site is the state returned by manager operations that create or return
 // a managed site.
 type Site struct {
@@ -255,6 +272,11 @@ func (m *DefaultManager) DiscardReleaseStaging(ctx context.Context, name, staged
 	}
 	if parent == "" || !strings.HasPrefix(component, ".stepanel-release-") {
 		return errors.New("sites.Manager: path is not a release staging tree")
+	}
+	if managerRoot, err := h.SafePath(m.webRoot, "sites", ".stepanel-manager-staging"); err != nil {
+		return err
+	} else if parent == managerRoot && !IsReleaseStagingName(name, component) {
+		return errors.New("sites.Manager: release staging tree belongs to another site")
 	}
 	owned, err := h.SafePath(parent, component)
 	if err != nil {

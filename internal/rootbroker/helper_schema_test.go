@@ -8,7 +8,7 @@ import (
 func TestTypedRequestFixedCommandArgumentsAreValid(t *testing.T) {
 	v := NewValidator("/var/www")
 	public := "/var/www/sites/demo/public"
-	release := "/var/www/sites/.stepanel-manager-staging/.stepanel-release-demo-20260101-abc"
+	release := "/var/www/sites/.stepanel-manager-staging/.stepanel-release-demo-2026010112"
 	image := "docker.io/library/node:20.12@sha256:" + strings.Repeat("a", 64)
 	for _, tc := range []struct {
 		name, action string

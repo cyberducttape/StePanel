@@ -100,7 +100,9 @@ func argReleasePath(sitePos int) helperArg {
 	return func(v *Validator, value string, args []string) error {
 		sitesRoot := filepath.Join(v.webRoot, "sites")
 		stageRoot := filepath.Join(sitesRoot, ".stepanel-manager-staging")
-		pattern := regexp.MustCompile(`^\.stepanel-release-` + regexp.QuoteMeta(args[sitePos]) + `-[A-Za-z0-9-]+$`)
+		// The manager names stages with os.MkdirTemp, whose suffix is decimal.
+		// A digits-only suffix keeps site "blog" from matching "blog-2" stages.
+		pattern := regexp.MustCompile(`^\.stepanel-release-` + regexp.QuoteMeta(args[sitePos]) + `-[0-9]+$`)
 		if filepath.Clean(value) != value || filepath.Dir(value) != stageRoot || !pattern.MatchString(filepath.Base(value)) {
 			return fmt.Errorf("path must be a release staging directory of the site")
 		}

@@ -206,10 +206,11 @@ runcmd:
     mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdb
     install -d -m 0755 /var/www
     printf '%s\n' '/dev/vdb /var/www ext4 usrquota,prjquota 0 2' >> /etc/fstab
+    # The ext4 quota feature keeps quota files in hidden inodes and turns
+    # enforcement on at mount, so only verify the state here.
     mount /var/www
-    quotaon -p -u /var/www | grep -F 'is on'
-    quotaon -P /var/www
-    quotaon -p -P /var/www | grep -F 'project quota on /var/www is on'
+    quotaon -p -u /var/www | grep -E '^user quota on /var/www \(.*\) is on'
+    quotaon -p -P /var/www | grep -E '^project quota on /var/www \(.*\) is on'
     mkfs.ext4 -F /dev/vdc
     install -d -m 0700 /mnt/stepanel-enospc
     printf '%s\n' '/dev/vdc /mnt/stepanel-enospc ext4 defaults 0 2' >> /etc/fstab

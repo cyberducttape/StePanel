@@ -302,10 +302,8 @@ func (b *Broker) watchFencing(parent context.Context, tokens []operations.Fencin
 					return
 				}
 				if err != nil {
-					started, ok := errorSince[key]
-					if !ok {
-						started = checkStarted
-						errorSince[key] = started
+					if _, ok := errorSince[key]; !ok {
+						errorSince[key] = checkStarted
 					}
 					for _, errorStarted := range errorSince {
 						if time.Since(errorStarted) >= grace {

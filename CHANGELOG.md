@@ -8,6 +8,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Pass the capacity ledger from production staging database clones to their
+  restore. Restore admission refuses to run without a ledger, so every
+  production staging clone with a database failed at the import step.
+- Read `quotaon -p` by its `TYPE quota on MOUNT (DEVICE) is on` state line.
+  The command exits non-zero when the quota is on, and the old checks also
+  looked for text it never prints. As a result the Git staging helper refused
+  every correctly configured host, and the production installer would have
+  refused hosts with user quotas on. The installer also accepted a quota
+  reported as off.
+- Fix the quota-enabled smoke and local KVM fixtures: load the quota format
+  module before mounting an ext4 filesystem created with the `quota` feature.
+  Only verify quota state after mounting, because that feature turns
+  enforcement on at mount and `quotacheck`/`quotaon` then fail.
+- Bind release staging names to their site with a decimal-only suffix in the
+  root broker, `stepanel-gitctl`, `stepanel-runnerctl`, release recovery and
+  `SiteManager.DiscardReleaseStaging`. Previously, a request for site `blog`
+  also matched the stages of site `blog-2`.
+- Deny `backup`, `backups` and `private` directories in Caddy only where the
+  path exists in the document root. Application routes such as `/private/`
+  or a `/category/backups/` page reach PHP again.
+- Remove a dead assignment in the broker fencing watchdog that failed
+  staticcheck (SA4006).
+- Size the quota fixture check for the aggregate Git clone quota of 3× the
+  tree limit.
 - Update the MySQL atomic-restore smoke test's capacity-admission injection
   anchor to match the helper's dump-size-aware reservation call.
 

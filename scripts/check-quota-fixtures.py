@@ -13,11 +13,14 @@ GIB = 1 << 30
 def required_capacity() -> int:
     config = (ROOT / "config.go").read_text(encoding="utf-8")
     installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+    git_deploy = (ROOT / "git_deploy.go").read_text(encoding="utf-8")
     tree_match = re.search(r"GitReleaseMaxTreeBytes:\s*(\d+)\s*<<\s*30", config)
     free_match = re.search(r'MIN_FREE_BYTES="\$\{STEPANEL_MIN_FREE_BYTES:-(\d+)\}"', installer)
-    if not tree_match or not free_match:
+    # Git staging reserves the aggregate clone quota, a multiple of the tree limit.
+    multiplier_match = re.search(r"gitCloneStageMultiplier\s*=\s*uint64\((\d+)\)", git_deploy)
+    if not tree_match or not free_match or not multiplier_match:
         raise ValueError("cannot determine default Git staging or minimum-free reservation")
-    return int(tree_match.group(1)) * GIB + int(free_match.group(1))
+    return int(tree_match.group(1)) * int(multiplier_match.group(1)) * GIB + int(free_match.group(1))
 
 
 def fixture_capacity(path: Path) -> int:

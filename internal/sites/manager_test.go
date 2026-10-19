@@ -112,8 +112,18 @@ func TestReleaseStagingPreservesRunnerLayoutAndOwnership(t *testing.T) {
 	if filepath.Dir(stage) != wantParent || !strings.Contains(filepath.Base(stage), ".stepanel-release-release-site-") {
 		t.Fatalf("release staging path = %q, want site-bound staging below %q", stage, wantParent)
 	}
+	if !IsReleaseStagingName("release-site", filepath.Base(stage)) {
+		t.Fatalf("CreateReleaseStaging name %q is not recognised as the site's stage", filepath.Base(stage))
+	}
 	if err := os.WriteFile(filepath.Join(stage, "version"), []byte("next"), 0600); err != nil {
 		t.Fatal(err)
+	}
+	// Site "release" shares the name prefix and must not discard this stage.
+	if err := os.MkdirAll(filepath.Join(root, "sites", "release", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DiscardReleaseStaging(context.Background(), "release", stage); err == nil {
+		t.Fatal("DiscardReleaseStaging removed another site's release stage")
 	}
 	if err := m.DiscardReleaseStaging(context.Background(), "release-site", stage); err != nil {
 		t.Fatalf("DiscardReleaseStaging: %v", err)

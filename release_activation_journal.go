@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"github.com/cyberducttape/StePanel/internal/state"
 )
 
@@ -196,7 +197,7 @@ func releaseStageExists(webRoot, site, stagedRoot string) (bool, error) {
 	managerRoot, managerErr := safePath(webRoot, "sites", ".stepanel-manager-staging")
 	base := filepath.Base(abs)
 	legacySiteStage := filepath.Dir(abs) == siteRoot && strings.HasPrefix(base, ".stepanel-release-")
-	managerStage := managerErr == nil && filepath.Dir(abs) == managerRoot && strings.HasPrefix(base, ".stepanel-release-"+site+"-")
+	managerStage := managerErr == nil && filepath.Dir(abs) == managerRoot && siteauthority.IsReleaseStagingName(site, base)
 	if err != nil || (!legacySiteStage && !managerStage) {
 		return false, errors.New("invalid release staging path")
 	}

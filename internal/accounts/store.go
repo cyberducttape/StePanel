@@ -15,11 +15,10 @@ import (
 	"os"
 	"sort"
 	"strings"
-
-	statefile "github.com/cyberducttape/StePanel/internal/state"
 	"sync"
 	"time"
 
+	statefile "github.com/cyberducttape/StePanel/internal/state"
 	"golang.org/x/crypto/bcrypt"
 )
 

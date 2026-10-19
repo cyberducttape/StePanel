@@ -26,7 +26,9 @@ else
     echo '/var/www is not mounted with project quotas enabled' >&2
     exit 1
   fi
-  quotaon -p -P /var/www | grep -F 'project quota on /var/www is on'
+  # quotaon -p exits non-zero when the quota is on; check its state line.
+  project_quota_state=$(quotaon -p -P /var/www 2>&1 || true)
+  [[ $project_quota_state == *'project quota on /var/www ('*') is on'* ]] || { echo "project quotas are not on for /var/www: $project_quota_state" >&2; exit 1; }
 fi
 export STEPANEL_SKIP_STARTUP_DB_RECONCILE=1
 export STEPANEL_SKIP_STARTUP_HOST_RECONCILE=1
@@ -233,7 +235,7 @@ if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
   stage_parent=/var/www/sites/.stepanel-manager-staging
   install -d -o stepanel -g stepanel -m 0700 "$stage_parent"
   chmod 0711 "$stage_parent"
-  quota_stage="$stage_parent/.stepanel-release-$site-quota-smoke"
+  quota_stage="$stage_parent/.stepanel-release-$site-424242"
   install -d -o stepanel -g stepanel -m 0700 "$quota_stage"
   site_user=$(stat -c %U "/var/www/sites/$site")
   web_group=$(sed -n 's/^STEPANEL_WEB_GROUP="\([a-z_][a-z0-9_-]*\)"$/\1/p' /etc/ste-panel.env)

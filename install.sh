@@ -451,13 +451,11 @@ else
   dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl "${RHEL_CURL_PACKAGES[@]}" git util-linux sudo logrotate
 fi
 if (( UNSAFE_LAB == 0 )); then
-  quota_status=$(quotaon -p -u /var/www 2>&1) || {
-    echo 'production requires active user quotas on /var/www; quotaon failed:' >&2
-    echo "$quota_status" >&2
-    exit 1
-  }
-  if ! grep -Fq 'user quota on /var/www' <<<"$quota_status"; then
-    echo 'production requires active user quotas on /var/www; quotaon did not report user quotas enabled.' >&2
+  # quotaon -p exits with the number of quota types that are on, so its exit
+  # status is not an error signal. Require its "is on" state line instead.
+  quota_status=$(quotaon -p -u /var/www 2>&1 || true)
+  if [[ $quota_status != *'user quota on /var/www ('*') is on'* ]]; then
+    echo 'production requires active user quotas on /var/www; quotaon did not report user quotas on.' >&2
     echo "$quota_status" >&2
     exit 1
   fi

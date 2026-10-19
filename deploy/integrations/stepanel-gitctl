@@ -14,7 +14,8 @@ git_host_allowed() {
 }
 valid_stage_path() {
   local site=$1 destination=$2
-  [[ $destination =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[A-Za-z0-9-]+$ &&
+  # The decimal suffix (from os.MkdirTemp) keeps site blog from matching blog-2 stages.
+  [[ $destination =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[0-9]+$ &&
      -d $destination && ! -L $destination &&
      -d /var/www/sites/.stepanel-manager-staging && ! -L /var/www/sites/.stepanel-manager-staging &&
      $(stat -c '%U:%a' /var/www/sites/.stepanel-manager-staging) == stepanel:711 ]]
@@ -30,8 +31,10 @@ project_quota_mount() {
   fstype=$(findmnt -no FSTYPE -T "$destination") || { echo 'cannot determine Git staging filesystem type' >&2; return 1; }
   options=$(findmnt -no OPTIONS -T "$destination") || { echo 'cannot inspect Git staging filesystem options' >&2; return 1; }
   [[ $options =~ (^|,)(prjquota|pquota)(,|$) ]] || { echo 'Git staging filesystem must be mounted with project quotas (prjquota)' >&2; return 1; }
-  status=$(quotaon -p -P "$mount" 2>&1) || { echo "cannot inspect project quota state: $status" >&2; return 1; }
-  grep -Fq "project quota on $mount is on" <<<"$status" || { echo "project quotas are not active on $mount: $status" >&2; return 1; }
+  # quotaon -p exits with the number of quota types that are on, so read its
+  # "project quota on MOUNT (DEVICE) is on" line rather than its exit status.
+  status=$(quotaon -p -P "$mount" 2>&1 || true)
+  [[ $status == *"project quota on $mount ("*") is on"* ]] || { echo "project quotas are not active on $mount: $status" >&2; return 1; }
   case "$fstype" in
     ext4) command -v chattr >/dev/null 2>&1 || { echo 'chattr is required for ext4 project quotas' >&2; return 1; } ;;
     xfs) command -v xfs_quota >/dev/null 2>&1 || { echo 'xfs_quota is required for XFS project quotas' >&2; return 1; } ;;
@@ -137,7 +140,7 @@ case "$action" in
   stage-clear)
     (( $# == 5 )) || { echo 'usage: stepanel-gitctl stage-clear SITE SITE_USER DESTINATION PROJECT_ID' >&2; exit 64; }
     site_user=$3; destination=$4; project_id=$5
-    [[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ && $destination =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[A-Za-z0-9-]+$ && $project_id =~ ^1[0-9]{9}$ ]] || { echo 'invalid Git staging quota cleanup request' >&2; exit 1; }
+    [[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ && $destination =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[0-9]+$ && $project_id =~ ^1[0-9]{9}$ ]] || { echo 'invalid Git staging quota cleanup request' >&2; exit 1; }
     [[ $project_id -ge 1000000000 && $project_id -lt 2000000000 ]] || { echo 'Git project quota ID is outside its reserved range' >&2; exit 1; }
     valid_stage_path "$site" "$destination" || { [[ ! -e $destination && ! -L $destination ]] || { echo 'invalid Git release staging directory' >&2; exit 1; }; }
     project_root=/var/lib/stepanel/git-stage-projects

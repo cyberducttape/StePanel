@@ -59,6 +59,7 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		`\.aws(/.*)?`,
 		`\.gnupg(/.*)?`,
 		`(backup|backups|private)(/.*)?`,
+		`respond @stepanel_sensitive_dirs 404`,
 		`\.(sql|sqlite`,
 	} {
 		if !strings.Contains(source, required) {
@@ -81,15 +82,35 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		"/database/export.sql", "/database/export.dump", "/debug/debug.log", "/archives/backup.tar.gz",
 		"/archives/export.sql.bz2", "/archives/site.7z", "/keys/server.pem", "/keys/server.key",
 		"/.ssh/id_ed25519", "/.aws/credentials", "/.gnupg/private-keys-v1.d/key",
-		"/backups/site.tar.gz", "/private/config.php", "/nested/.htpasswd", "/node_modules/pkg/secret.js",
+		"/backups/site.tar.gz", "/nested/.htpasswd", "/node_modules/pkg/secret.js",
 	} {
 		if !policy.MatchString(path) {
 			t.Errorf("Caddy sensitive-file matcher does not reject %q", path)
 		}
 	}
-	for _, path := range []string{"/index.php", "/assets/app.css", "/api/public.json", "/nested/image.png"} {
+	// backup, backups and private are ordinary words in application routes,
+	// so they are denied only for paths that exist in the document root.
+	for _, path := range []string{"/index.php", "/assets/app.css", "/api/public.json", "/nested/image.png", "/private/", "/blog/backups"} {
 		if policy.MatchString(path) {
 			t.Errorf("Caddy sensitive-file matcher unexpectedly rejects ordinary content %q", path)
+		}
+	}
+	dirs := regexp.MustCompile(`(?m)^\s*@stepanel_sensitive_dirs \{\n\s*path_regexp stepanel_sensitive_dirs (.+)\n\s*file \{path\} \{path\}/\n\s*\}$`).FindStringSubmatch(source)
+	if len(dirs) != 2 {
+		t.Fatal("Caddy sensitive-directory matcher must require the path to exist")
+	}
+	dirPolicy, err := regexp.Compile(dirs[1])
+	if err != nil {
+		t.Fatalf("Caddy sensitive-directory matcher is invalid: %v", err)
+	}
+	for _, path := range []string{"/backups/notes.txt", "/private/config.php", "/nested/backup/", "/PRIVATE/x"} {
+		if !dirPolicy.MatchString(path) {
+			t.Errorf("Caddy sensitive-directory matcher does not cover %q", path)
+		}
+	}
+	for _, path := range []string{"/privacy", "/backup-plan.html", "/index.php"} {
+		if dirPolicy.MatchString(path) {
+			t.Errorf("Caddy sensitive-directory matcher unexpectedly covers %q", path)
 		}
 	}
 }
