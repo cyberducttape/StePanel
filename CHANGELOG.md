@@ -8,8 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
-- Record the exact-source production gate for `0b5879d`, including the broker
-  fencing-schema startup validation and repository-level results; retain the
+- Record the exact-source production gate for `f88a001`, including strict
+  broker fencing-schema validation and repository-level results; retain the
   explicit NO-GO status for outstanding hosted and real-host certification.
 - Record the full exact-source repository production-gate pass on `7d042ad`,
   its coverage, race, recovery-drill, benchmark and mixed-load evidence, while

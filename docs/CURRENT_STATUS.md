@@ -12,15 +12,16 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest exact-source repository gate — 2026-10-19 (`0b5879d`)
+### Latest exact-source repository gate — 2026-10-19 (`f88a001`)
 
 - `bash scripts/production-gate.sh` passed on exact code source
-  `0b5879d8e35299a0565a0292f888aa6e5e302b8f`: 57.1% aggregate coverage, all
-  package floors, full race suite (root package 476.916 seconds), repository
+  `f88a001db6857b80344cdef265d8b4dc0e0b2e1c`: 57.1% aggregate coverage, all
+  package floors, full race suite (root package 479.851 seconds), repository
   recovery drills, benchmarks, mixed HTTP load, and documentation/release
   checks. The broker now fails startup if the opened database lacks the
-  control-plane migration ledger, lock schema, or site-identity schema. See the
-  [exact-source report](lab-results/2026-10-19-repository-production-gate-0b5879d.md).
+  control-plane migration ledger, lock schema with correct column types, or
+  site-identity schema. See the
+  [exact-source report](lab-results/2026-10-19-repository-production-gate-f88a001.md).
 - Hosted CI, CodeQL, and current-source installation smokes have not yet
   completed. None count as passing evidence.
 - The older `633c013` recovery shards remain stuck at disposable systemd-host
