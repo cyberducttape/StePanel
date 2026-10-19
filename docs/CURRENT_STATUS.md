@@ -12,25 +12,31 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest exact-source repository gate — 2026-10-19 (`6e8e280`)
+### Latest exact-source repository gate — 2026-10-19 (`c0113dd`)
 
 - `bash scripts/production-gate.sh` passed on exact code source
-  `6e8e28057f6e454cfa8e9f22c466c9e5f4684c62`: 57.1% aggregate coverage, every
-  package floor, full race suite (root package 474.346 seconds), repository
+  `c0113dd4f7da75c3d3624811d813686a6a8589f5`: 57.1% aggregate coverage, every
+  package floor, full race suite (root package 472.072 seconds), repository
   recovery drills, benchmarks, mixed HTTP load, and documentation/release
-  checks. The broker now rejects a lease inside its watchdog margin before
-  starting a privileged helper. See the
-  [exact-source report](lab-results/2026-10-19-repository-production-gate-6e8e280.md).
-- At 2026-10-19 05:10 UTC, exact-head CI and CodeQL were queued; standard and
-  quota-enabled install smokes were pending without assigned jobs. These are
-  not passing evidence ([CI](https://github.com/cyberducttape/StePanel/actions/runs/39202180471),
-  [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39202180478),
-  [standard install](https://github.com/cyberducttape/StePanel/actions/runs/39202180473),
-  [quota install](https://github.com/cyberducttape/StePanel/actions/runs/39202180489)).
-- Three older-source `633c013` recovery runs remain in progress and do not
-  certify current source. Production remains **NO-GO** for real-host recovery,
-  quota/XFS, repeated-matrix, capacity, live-alert, platform/upgrade, and
-  independent-security gates below.
+  checks. This commit reserves capacity before off-site archive downloads and
+  holds the reservation through staging cleanup. See the
+  [exact-source report](lab-results/2026-10-19-repository-production-gate-c0113dd.md).
+- At 2026-10-19 05:27 UTC, exact-head [CI](https://github.com/cyberducttape/StePanel/actions/runs/39203702895)
+  and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39203702910)
+  were queued; standard [install](https://github.com/cyberducttape/StePanel/actions/runs/39203703063)
+  and [quota install](https://github.com/cyberducttape/StePanel/actions/runs/39203702833)
+  were pending. These are not passing evidence.
+- Production remains **NO-GO** for real-host recovery, quota/XFS, repeated
+  installed-host recovery, capacity, live-alert, platform/upgrade, and
+  independent-security gates below. Older-source recovery runs do not certify
+  this commit.
+
+### Previous exact-source repository gate — 2026-10-19 (`6e8e280`)
+
+The exact-source repository gate passed on `6e8e280`; see its
+[run report](lab-results/2026-10-19-repository-production-gate-6e8e280.md).
+It is superseded by the `c0113dd` exact-source run above and does not close
+hosted or real-host certification gates.
 
 ### Previous exact-source repository gate — 2026-10-19 (`6cef641`)
 

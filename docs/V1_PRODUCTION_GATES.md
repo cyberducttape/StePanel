@@ -9,25 +9,30 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest repository production gate — 2026-10-19 (`6e8e280`)
+### Latest repository production gate — 2026-10-19 (`c0113dd`)
 
-The exact code source `6e8e28057f6e454cfa8e9f22c466c9e5f4684c62` passed
-[`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-6e8e280.md):
+The exact code source `c0113dd4f7da75c3d3624811d813686a6a8589f5` passed
+[`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-c0113dd.md):
 `go vet`, the complete test suite and coverage floors (57.1% aggregate), the
-full race suite (root package 474.346 seconds), repository recovery drills,
+full race suite (root package 472.072 seconds), repository recovery drills,
 benchmarks, mixed HTTP load, documentation, dashboard, quota fixture, assets,
-action pins, and shell syntax. Root-broker admission now enforces the lease
-watchdog safety margin before a privileged helper starts; a near-expiry lease
-is rejected before the interval-delayed watchdog check. See the
-[exact-source report](./lab-results/2026-10-19-repository-production-gate-6e8e280.md).
-At 2026-10-19 05:10 UTC, exact-head [CI](https://github.com/cyberducttape/StePanel/actions/runs/39202180471)
-and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39202180478)
-were queued, and standard [install](https://github.com/cyberducttape/StePanel/actions/runs/39202180473)
-and [quota install](https://github.com/cyberducttape/StePanel/actions/runs/39202180489)
-were pending without assigned jobs; none count as passes. Real-host ENOSPC,
-physical power loss, installed-host aggregate quota behavior (including XFS),
-repeated installed-host recovery, and capacity certification remain open.
-Production remains **NO-GO**.
+action pins, and shell syntax. The change reserves declared archive capacity
+before off-site transfer and retains the reservation for the staged artifact's
+lifetime. See the
+[exact-source report](./lab-results/2026-10-19-repository-production-gate-c0113dd.md).
+At 2026-10-19 05:27 UTC, exact-head [CI](https://github.com/cyberducttape/StePanel/actions/runs/39203702895)
+and [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39203702910)
+were queued; standard [install](https://github.com/cyberducttape/StePanel/actions/runs/39203703063)
+and [quota install](https://github.com/cyberducttape/StePanel/actions/runs/39203702833)
+were pending. These do not count as passes. Real-host ENOSPC, physical power
+loss, installed-host quota behavior (including XFS), repeated installed-host
+recovery, and capacity certification remain open. Production remains **NO-GO**.
+
+### Previous repository production gate — 2026-10-19 (`6e8e280`)
+
+Exact-source evidence is retained in the
+[6e8e280 report](./lab-results/2026-10-19-repository-production-gate-6e8e280.md);
+it is superseded by the latest gate above and does not close host certification.
 
 ### Previous repository production gate — 2026-10-19 (`6cef641`)
 

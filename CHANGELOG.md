@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record the complete production-gate pass on exact code commit `c0113dd`,
+  including full race, recovery-drill, benchmark, mixed-load, and static checks;
+  preserve the NO-GO decision and distinguish newly queued hosted checks from
+  passing evidence.
 - Record the exact-source repository gate for `6e8e280`, including the
   near-expiry broker-fencing fix and complete local gate results; preserve the
   NO-GO decision and accurately classify hosted checks as queued/pending.
