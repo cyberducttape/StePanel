@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-18
+**Last Updated:** 2026-10-19
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -9,7 +9,22 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest full repository gate — 2026-10-18 (`6c6e018`)
+### Latest full repository gate — 2026-10-19 (`ad9a43a`)
+
+The exact source checkout `ad9a43aa8761c4d9b52d6132fc46221c791dc004` passed
+[`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-ad9a43a.md):
+vet, full tests and coverage floors, race detection, repository recovery
+drills, benchmarks, mixed HTTP load, documentation, dashboard, quota fixture,
+assets, action pins, and shell checks. Coverage was 56.8%; the root-package
+race suite passed in 471.926 seconds. Exact-head hosted CI and CodeQL were
+queued, and standard/quota install smokes were pending without running jobs at
+capture; none are counted as passes.
+
+Real-host ENOSPC, physical power loss, installed-host aggregate quota behavior
+(including XFS), the 20-repeat installed-host cohort, and capacity
+certification remain open. Production remains **NO-GO**.
+
+### Previous full repository gate — 2026-10-18 (`6c6e018`)
 
 The exact source checkout `6c6e018adcce396344525d0735e88942e64679e9` passed
 [`bash scripts/production-gate.sh`](./lab-results/2026-10-18-repository-production-gate-6c6e018.md):
