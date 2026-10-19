@@ -27,6 +27,10 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   and broader ENOSPC evidence, notification outage/retry, capacity
   certification, supported-platform/upgrade policy, and independent security
   review.
+- A prior quota-enabled smoke failed before installation because of a fixture
+  `mke2fs` option delimiter. The fixture is corrected, but a successful hosted
+  rerun remains necessary; see the
+  [failure and correction report](lab-results/2026-10-19-quota-smoke-fixture-failure-39183265054.md).
 
 ### Previous exact-source repository gate — 2026-10-19 (`abb4f65`)
 

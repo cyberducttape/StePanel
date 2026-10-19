@@ -203,7 +203,7 @@ packages:
 runcmd:
   - |
     set -eux
-    mkfs.ext4 -F -O project,quota -E quotatype=usrquota,prjquota /dev/vdb
+    mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdb
     install -d -m 0755 /var/www
     printf '%s\n' '/dev/vdb /var/www ext4 usrquota,prjquota 0 2' >> /etc/fstab
     mount /var/www

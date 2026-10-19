@@ -23,6 +23,17 @@ installed-host aggregate quota behavior (including XFS), the 20-repeat
 installed-host cohort, and capacity certification remain open. Production
 remains **NO-GO**.
 
+### Quota-smoke fixture failure and correction — 2026-10-19
+
+Quota-enabled run [39183265054](./lab-results/2026-10-19-quota-smoke-fixture-failure-39183265054.md)
+failed during disposable-guest filesystem setup: `mke2fs` rejected the
+comma-separated `quotatype=usrquota,prjquota` option before StePanel was
+installed. Both the GitHub Actions fixture and local KVM harness now use the
+documented colon-separated syntax. Local formatter parsing and fixture checks
+pass, but this does not establish guest quota activation or StePanel quota
+enforcement. The exact-source hosted quota smoke must pass before this gate can
+close.
+
 ### Previous full repository gate — 2026-10-19 (`abb4f65`)
 
 The exact source checkout `abb4f6530038dc98d674d9cd59423a16ce4e26ce` passed

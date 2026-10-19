@@ -42,6 +42,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Correct the ext4 quota-smoke fixture's `mke2fs` quota-type delimiter so the
+  installed-host project-quota test reaches formatting, installation, and
+  enforcement checks instead of failing during filesystem setup. Record the
+  original pre-install failure and require a successful hosted rerun.
 - Bound root-broker fencing-token database checks by the request/watchdog
   context so a busy SQLite connection pool cannot stall privileged admission
   or lease-loss monitoring indefinitely. Bound SQLite's non-interruptible busy
