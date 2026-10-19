@@ -2,7 +2,9 @@ package stepanel
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -55,6 +57,23 @@ func TestDomainClaimStorePersistsAndProtectsOwnership(t *testing.T) {
 	}
 	if _, ok := reopened.get("example.com"); ok {
 		t.Fatal("domain claim remained after site removal")
+	}
+}
+
+func TestOpenDomainClaimStoreBoundsFileRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "domain-claims.json")
+	if err := os.WriteFile(path, []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenDomainClaimStore(path); err != nil {
+		t.Fatalf("valid domain claim state: %v", err)
+	}
+	if err := os.Truncate(path, maxDomainClaimStateBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	_, err := OpenDomainClaimStore(path)
+	if err == nil || !strings.Contains(err.Error(), "exceeds 4 MiB") {
+		t.Fatalf("oversized domain claim state error = %v", err)
 	}
 }
 

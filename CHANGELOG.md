@@ -45,6 +45,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Enforce the 4 MiB domain-claim state limit while reading the file, so an
+  oversized or corrupted local state file cannot trigger an unbounded read
+  before rejection; add an oversized-file regression test.
 - Limit each repeated installation-recovery shard to one OS/web-server matrix
   job at a time, preventing large multi-shard certification cohorts from
   saturating hosted runners and starving ordinary CI.
