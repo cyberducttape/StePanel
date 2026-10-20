@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -162,16 +163,67 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "build artifact is unsafe", 422)
 		return
 	}
-	if err := validateGitReleaseSize(artifact, a.Config.GitReleaseMaxTreeBytes); err != nil {
+	artifactBytes, err := gitReleaseTreeSize(artifact, a.Config.GitReleaseMaxTreeBytes)
+	if err != nil {
 		_ = a.recordDeployment(input.Site, "build", "failed", "artifact size limit exceeded", result, artifact) // failure already marks readiness
 		http.Error(w, "build artifact exceeds the release size limit", 422)
 		return
 	}
 	if err := a.discardSiteReleaseStaging(operationCtx, input.Site, release); err != nil {
+		log.Printf("release pipeline checkout cleanup failed for site %s: %v", input.Site, err)
+		_ = a.recordDeployment(input.Site, "build", "failed", "could not discard Git checkout staging: "+err.Error(), result, release)
 		http.Error(w, "could not replace source with artifact", 500)
 		return
 	}
-	if err := os.Rename(artifact, release); err != nil {
+	// The runner artifact and Git checkout may be governed by different quota
+	// identities. A rename can therefore fail even on the same filesystem. Copy
+	// the validated artifact into a fresh manager-owned stage and reserve the
+	// temporary duplicate space before writing it.
+	release, err = a.createSiteReleaseStaging(operationCtx, input.Site, ".stepanel-release-")
+	if err != nil {
+		log.Printf("release pipeline staging directory creation failed for site %s: %v", input.Site, err)
+		_ = a.recordDeployment(input.Site, "build", "failed", "could not create artifact staging directory: "+err.Error(), result, artifact)
+		http.Error(w, "could not create release staging directory", 500)
+		return
+	}
+	artifactReservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-artifact", release, []capacityDemand{{Path: release, Bytes: uint64(artifactBytes)}})
+	if err != nil {
+		log.Printf("release pipeline artifact admission failed for site %s: %v", input.Site, err)
+		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, artifact)
+		http.Error(w, "insufficient capacity to stage build artifact", http.StatusInsufficientStorage)
+		return
+	}
+	defer artifactReservation.release()
+	if err := copyGitArtifactTree(operationCtx, artifact, release, a.Config.GitReleaseMaxTreeBytes, artifactBytes); err != nil {
+		log.Printf("release pipeline artifact copy failed for site %s: %v", input.Site, err)
+		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, artifact)
+		http.Error(w, "could not stage build artifact", 500)
+		return
+	}
+	if err := removeSiteBuildArtifact(a.Config.WebRoot, input.Site); err != nil {
+		log.Printf("release pipeline artifact cleanup failed for site %s: %v", input.Site, err)
+		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, artifact)
+		http.Error(w, "could not clean up build artifact", 500)
+		return
+	}
+	if err := ctx.Err(); err != nil {
+		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, release)
+		http.Error(w, "release cancelled before activation", http.StatusConflict)
+		return
+	}
+	if _, err := os.Stat(release); err != nil {
+		log.Printf("release pipeline staged artifact disappeared for site %s: %v", input.Site, err)
+		_ = a.recordDeployment(input.Site, "build", "failed", "staged artifact disappeared: "+err.Error(), result, release)
+		http.Error(w, "could not stage build artifact", 500)
+		return
+	}
+	if err := validateGitRelease(release, a.Config.MaxEntries); err != nil {
+		_ = a.recordDeployment(input.Site, "build", "failed", "staged artifact unsafe: "+err.Error(), result, release)
+		http.Error(w, "staged build artifact is unsafe", 422)
+		return
+	}
+	if _, err := gitReleaseTreeSize(release, a.Config.GitReleaseMaxTreeBytes); err != nil {
+		_ = a.recordDeployment(input.Site, "build", "failed", "staged artifact exceeded size limit: "+err.Error(), result, release)
 		http.Error(w, "could not stage build artifact", 500)
 		return
 	}
@@ -189,6 +241,139 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	result.Previous = previous
 	a.finishCommittedRelease(operationCtx, siteRoot, "activation", "atomic built release activated", release, &result, false)
 	writeJSON(w, 202, result)
+}
+
+func copyGitArtifactTree(ctx context.Context, source, destination string, maxBytes, expectedBytes int64) error {
+	if maxBytes < 1 || expectedBytes < 0 || expectedBytes > maxBytes {
+		return errors.New("invalid release artifact copy size")
+	}
+	rootInfo, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return errors.New("release artifact root is not a real directory")
+	}
+	destinationInfo, err := os.Lstat(destination)
+	if err != nil {
+		return err
+	}
+	if destinationInfo.Mode()&os.ModeSymlink != 0 || !destinationInfo.IsDir() {
+		return errors.New("release staging root is not a real directory")
+	}
+	var total int64
+	err = filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("release artifact contains a symlink: %s", filepath.Base(path))
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		target := filepath.Join(destination, rel)
+		if err := rejectSymlinkParents(target, destination); err != nil {
+			return err
+		}
+		if existing, statErr := os.Lstat(target); statErr == nil {
+			if existing.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("release staging destination is a symlink: %s", filepath.Base(target))
+			}
+			return fmt.Errorf("release staging destination already exists: %s", filepath.Base(target))
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return statErr
+		}
+		if info.IsDir() {
+			mode := (info.Mode().Perm() & 0555) | 0700
+			if err := os.Mkdir(target, mode); err != nil {
+				return err
+			}
+			return os.Chmod(target, mode)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("release artifact contains a special file: %s", filepath.Base(path))
+		}
+		if info.Size() < 0 || info.Size() > maxBytes-total {
+			return errors.New("release artifact changed beyond its admitted size")
+		}
+		in, _, err := openRegularNoFollow(path, info)
+		if err != nil {
+			return err
+		}
+		mode := (info.Mode().Perm() & 0555) | 0600
+		out, err := openWriteNoFollow(target, mode)
+		if err != nil {
+			_ = in.Close()
+			return err
+		}
+		written, copyErr := io.CopyN(out, contextReader{ctx: ctx, reader: in}, info.Size())
+		if copyErr == nil && written != info.Size() {
+			copyErr = io.ErrUnexpectedEOF
+		}
+		if copyErr == nil {
+			copyErr = out.Chmod(mode)
+		}
+		if copyErr == nil {
+			copyErr = out.Sync()
+		}
+		closeOutErr := out.Close()
+		closeInErr := in.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeOutErr != nil {
+			return closeOutErr
+		}
+		if closeInErr != nil {
+			return closeInErr
+		}
+		total += written
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if total != expectedBytes {
+		return fmt.Errorf("release artifact changed during staging: copied %d bytes, expected %d", total, expectedBytes)
+	}
+	return nil
+}
+
+func removeSiteBuildArtifact(webRoot, site string) error {
+	web, err := os.OpenRoot(webRoot)
+	if err != nil {
+		return err
+	}
+	defer web.Close()
+	sites, err := openChildRoot(web, "sites")
+	if err != nil {
+		return err
+	}
+	defer sites.Close()
+	siteRoot, err := openChildRoot(sites, site)
+	if err != nil {
+		return err
+	}
+	defer siteRoot.Close()
+	artifact, err := siteRoot.Lstat(".stepanel-artifact")
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if artifact.Mode()&os.ModeSymlink != 0 || !artifact.IsDir() {
+		return errors.New("release artifact changed to a non-directory")
+	}
+	return siteRoot.RemoveAll(".stepanel-artifact")
 }
 
 func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, repository gitRepository, ref string) (string, string, error) {

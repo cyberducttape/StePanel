@@ -14,6 +14,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Allow Git commit inspection for the exact canonical staging checkout path,
   whose site-account ownership differs from the panel, without trusting a
   broad or inherited `safe.directory` setting.
+- Copy validated release-pipeline artifacts into a fresh release stage instead
+  of renaming across site and project-quota domains; reserve the duplicate
+  artifact space and preserve safe executable bits during the handoff.
+- Record failed pipeline artifact handoffs in deployment history and remove
+  consumed artifacts through a site-root directory handle.
 - Preserve the active site's fencing token while clearing Git staging quotas,
   allowing cleanup after request cancellation while still rejecting a lost lease.
 - Pass the capacity ledger from production staging database clones to their

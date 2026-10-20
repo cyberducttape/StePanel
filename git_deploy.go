@@ -1347,8 +1347,13 @@ func validateGitRelease(root string, maxEntries int) error {
 }
 
 func validateGitReleaseSize(root string, maxBytes int64) error {
+	_, err := gitReleaseTreeSize(root, maxBytes)
+	return err
+}
+
+func gitReleaseTreeSize(root string, maxBytes int64) (int64, error) {
 	if maxBytes < 1 {
-		return errors.New("release size limit must be positive")
+		return 0, errors.New("release size limit must be positive")
 	}
 	var total int64
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -1378,9 +1383,9 @@ func validateGitReleaseSize(root string, maxBytes int64) error {
 		return nil
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return nil
+	return total, nil
 }
 
 func newRequestID() string {
