@@ -5,6 +5,36 @@ runner_owner_pid=$BASHPID
 # Commands below run as the site account, which may not be able to enter the
 # caller's working directory.
 cd /
+# Cleanup deliberately accepts no path or command. The broker resolves the
+# persisted account; deletion runs with that account's authority, never root's.
+if [[ ${1:-} == artifact-cleanup ]]; then
+  [[ $# -eq 3 ]] || exit 64
+  site=$2 site_user=$3
+  [[ $site =~ ^[a-z0-9_-]{1,32}$ && $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || exit 64
+  site_root="/var/www/sites/$site"
+  [[ -d $site_root && ! -L $site_root && $(stat -c %U -- "$site_root") == "$site_user" ]] || { echo 'invalid site ownership' >&2; exit 1; }
+  artifact="$site_root/.stepanel-artifact"
+  [[ ! -L $artifact ]] || { echo 'artifact must not be a symlink' >&2; exit 1; }
+  [[ -e $artifact ]] || exit 0
+  [[ -d $artifact ]] || exit 1
+  cleanup_log_dir=$(mktemp -d /run/stepanel-runner-cleanup.XXXXXXXX)
+  chmod 0700 "$cleanup_log_dir"
+  cleanup_unit="stepanel-runner-${runner_owner_pid}.service"
+  trap 'systemctl --no-block stop "$cleanup_unit" >/dev/null 2>&1 || true; rm -f -- "$cleanup_log_dir/output"; rmdir -- "$cleanup_log_dir"' EXIT
+  status=0
+  systemd-run --quiet --wait --collect --service-type=exec --unit="$cleanup_unit" \
+    --property="StandardOutput=append:$cleanup_log_dir/output" \
+    --property="StandardError=append:$cleanup_log_dir/output" \
+    --uid="$site_user" --gid="$site_user" --working-directory=/ \
+    --property=NoNewPrivileges=yes --property=PrivateTmp=yes \
+    --property=ProtectHome=yes --property=ProtectSystem=strict \
+    --property=ProtectProc=invisible --property="ReadWritePaths=$site_root" \
+    --property=PartOf=stepanel-root-broker.service \
+    --property=RuntimeMaxSec=2min --property=TimeoutStopSec=5s \
+    -- /usr/bin/rm -rf -- "$artifact" || status=$?
+  [[ ! -f $cleanup_log_dir/output ]] || cat -- "$cleanup_log_dir/output"
+  exit "$status"
+fi
 [[ $# -eq 11 && $1 == "build" ]] || { echo 'usage: stepanel-runnerctl build SITE SITE_USER IMAGE ROOT SCRIPT CPU_PERCENT MEMORY_MB TASKS_MAX NETWORK_MODE MAX_IMAGE_BYTES' >&2; exit 64; }
 site=$2 site_user=$3 image=$4 root=$5 script=$6 cpu_percent=$7 memory_mb=$8 tasks_max=$9 network_mode=${10} max_image_bytes=${11}
 [[ $site =~ ^[a-z0-9_-]{1,32}$ && $image =~ ^[a-z0-9][a-z0-9._/-]{0,180}(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$ && $cpu_percent =~ ^[0-9]+$ && $memory_mb =~ ^[0-9]+$ && $tasks_max =~ ^[0-9]+$ && $max_image_bytes =~ ^[0-9]+$ && $cpu_percent -ge 25 && $cpu_percent -le 6400 && $memory_mb -ge 64 && $memory_mb -le 1048576 && $tasks_max -ge 16 && $tasks_max -le 100000 && $max_image_bytes -gt 0 && ( $network_mode == "none" || $network_mode == "egress" ) && ( $root == "/var/www/sites/$site/public" || $root =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[0-9]+$ ) ]] || { echo 'invalid build request' >&2; exit 1; }

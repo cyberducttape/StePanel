@@ -452,14 +452,17 @@ func (b *Broker) handleEnvironmentRequest(ctx context.Context, req *EnvironmentR
 }
 
 func (b *Broker) handleRunnerRequest(ctx context.Context, req *RunnerRequest) (*Response, error) {
-	if req == nil || req.Action != "build" {
-		return &Response{OK: false, Error: "runner request must specify build"}, nil
+	if req == nil || (req.Action != "build" && req.Action != "artifact-cleanup") {
+		return &Response{OK: false, Error: "runner request must specify build or artifact-cleanup"}, nil
 	}
 	siteUser, err := b.resolveSiteUser(&SiteRequest{Site: req.Site, SiteUser: req.SiteUser}, false)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 	args := []string{"build", req.Site, siteUser, req.Image, req.Root, req.Script, strconv.Itoa(req.CPUPercent), strconv.Itoa(req.MemoryMB), strconv.Itoa(req.TasksMax), req.NetworkMode, strconv.FormatInt(req.MaxImageBytes, 10)}
+	if req.Action == "artifact-cleanup" {
+		args = []string{req.Action, req.Site, siteUser}
+	}
 	cmd := stepanelhelper.NewCommand(ctx, b.runnerctlPath, args...)
 	output, err := stepanelhelper.RunCappedWithCleanup(ctx, cmd, maxBrokerCommandOutput, func() {
 		if cmd.Process != nil {
@@ -467,7 +470,7 @@ func (b *Broker) handleRunnerRequest(ctx context.Context, req *RunnerRequest) (*
 		}
 	})
 	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("runner build failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+		return &Response{OK: false, Error: fmt.Sprintf("runner %s failed: %v: %s", req.Action, err, strings.TrimSpace(string(output)))}, nil
 	}
 	return &Response{OK: true}, nil
 }

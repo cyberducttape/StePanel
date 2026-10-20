@@ -45,7 +45,7 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		"apply": timeoutLifecycle, "delete": timeoutLifecycle, "start": timeoutLifecycle, "stop": timeoutLifecycle,
 		"restart": timeoutLifecycle,
 	},
-	"runner":      {"build": timeoutContainer},
+	"runner":      {"build": timeoutContainer, "artifact-cleanup": 3 * time.Minute},
 	"task":        {"apply": timeoutLifecycle, "delete": timeoutLifecycle, "kill": timeoutLifecycle, "history": timeoutConfig},
 	"environment": {"apply": timeoutLifecycle},
 	"resource":    {"apply-account": timeoutConfig, "apply-site": timeoutConfig, "status": timeoutConfig},

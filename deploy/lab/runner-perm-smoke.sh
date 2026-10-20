@@ -122,4 +122,16 @@ if (( selinux )); then
   [[ $artifact_type == "$public_type" ]] || { echo "artifact label $artifact_type does not match the site's $public_type" >&2; exit 1; }
 fi
 
+# The panel can copy artifacts but must not need write access to their contents.
+# Exercise removal under the real tenant identity, including idempotent retry.
+/usr/local/sbin/stepanel-runnerctl artifact-cleanup "$RUNNER_TEST_SITE" "$site_user"
+[[ ! -e $artifact && ! -L $artifact ]] || { echo 'artifact cleanup failed' >&2; exit 1; }
+/usr/local/sbin/stepanel-runnerctl artifact-cleanup "$RUNNER_TEST_SITE" "$site_user"
+ln -s -- "$site_root/public" "$artifact"
+if /usr/local/sbin/stepanel-runnerctl artifact-cleanup "$RUNNER_TEST_SITE" "$site_user"; then
+  echo 'artifact cleanup accepted a symlink' >&2
+  exit 1
+fi
+[[ -d $site_root/public && -L $artifact ]] || { echo 'symlink cleanup modified the source' >&2; exit 1; }
+rm -- "$artifact"
 echo "runner-perm smoke passed"

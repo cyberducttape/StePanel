@@ -398,6 +398,12 @@ func (v *Validator) validateEnvironmentRequest(req *EnvironmentRequest) error {
 }
 
 func (v *Validator) validateRunnerRequest(req *RunnerRequest) error {
+	if req != nil && req.Action == "artifact-cleanup" {
+		if req.SiteUser != "" || req.Image != "" || req.Root != "" || req.Script != "" || req.CPUPercent != 0 || req.MemoryMB != 0 || req.TasksMax != 0 || req.NetworkMode != "" || req.MaxImageBytes != 0 {
+			return errors.New("artifact cleanup accepts only a site")
+		}
+		return v.ValidateSiteName(req.Site)
+	}
 	if req == nil || req.Action != "build" {
 		return errors.New("runner request must specify build")
 	}

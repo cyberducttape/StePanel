@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Clean consumed production build artifacts through a site-only broker action
+  running as the persisted site account. This fixes quota-host pipeline failures
+  caused by panel-side deletion of site-owned artifact directories.
+
 - Run checked-out Git commit identification with the same sanitized environment
   as the clone in Git deploys and release pipelines, and retain bounded command
   diagnostics in internal logs when commit resolution fails.

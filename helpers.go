@@ -388,6 +388,9 @@ func runRunnerBuild(ctx context.Context, cfg Config, request rootbroker.RunnerRe
 		}
 		return nil
 	}
+	if request.Action == "artifact-cleanup" {
+		return removeSiteBuildArtifact(cfg.WebRoot, request.Site)
+	}
 	return runHelperCommand(ctx, cfg, cfg.RunnerCtl, "build", request.Site, request.Image, request.Root, request.Script,
 		itoa(request.CPUPercent), itoa(request.MemoryMB), itoa(request.TasksMax), request.NetworkMode, strconv.FormatInt(request.MaxImageBytes, 10))
 }

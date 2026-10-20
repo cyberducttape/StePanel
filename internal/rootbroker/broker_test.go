@@ -977,19 +977,12 @@ func TestBrokerRunnerBuildUsesConcreteHelperContract(t *testing.T) {
 	helper := filepath.Join(root, "runnerctl")
 	image := "ghcr.io/containerd/busybox:1.36@sha256:" + strings.Repeat("a", 64)
 	public := filepath.Join(root, "sites", "demo", "public")
-	script := "#!/bin/sh\n[ \"$1\" = build ] && [ \"$2\" = demo ] && [ \"$3\" = " + image + " ] && [ \"$4\" = \"" + public + "\" ] && [ \"$5\" = /var/lib/ste-panel/apps/pipeline-123.sh ] && [ \"$6\" = 100 ] && [ \"$7\" = 512 ] && [ \"$8\" = 128 ] && [ \"$9\" = none ] && [ \"${10}\" = 5368709120 ]\n"
-	if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
-		t.Fatal(err)
-	}
 	broker, err := newTestBroker(t, root, log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
 	broker.runnerctlPath = helper
-	if err := os.WriteFile(helper, []byte("#!/bin/sh\n[ \"$1\" = build ] && [ \"$2\" = demo ] && [ \"$3\" = "+siteidentity.UnixUser("demo")+" ] && [ \"$4\" = "+image+" ] && [ \"$5\" = \""+public+"\" ] && [ \"$6\" = /var/lib/stepanel/apps/pipeline-123.sh ] && [ \"$7\" = 100 ] && [ \"$8\" = 512 ] && [ \"$9\" = 128 ] && [ \"${10}\" = none ] && [ \"${11}\" = 5368709120 ]\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n[ \"$#\" = 11 ] && [ \"$1\" = build ] && [ \"$2\" = demo ] && [ \"$3\" = "+siteidentity.UnixUser("demo")+" ] && [ \"$4\" = "+image+" ] && [ \"$5\" = \""+public+"\" ] && [ \"$6\" = /var/lib/ste-panel/apps/pipeline-123.sh ] && [ \"$7\" = 100 ] && [ \"$8\" = 512 ] && [ \"$9\" = 128 ] && [ \"${10}\" = none ] && [ \"${11}\" = 5368709120 ]\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	response, err := broker.Execute(context.Background(), &Request{RequestType: "runner", Runner: &RunnerRequest{
@@ -997,6 +990,13 @@ func TestBrokerRunnerBuildUsesConcreteHelperContract(t *testing.T) {
 	}})
 	if err != nil || response == nil || !response.OK {
 		t.Fatalf("runner response = %#v, error = %v", response, err)
+	}
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n[ \"$#\" = 3 ] && [ \"$1\" = artifact-cleanup ] && [ \"$2\" = demo ] && [ \"$3\" = "+siteidentity.UnixUser("demo")+" ]\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	response, err = broker.Execute(context.Background(), &Request{RequestType: "runner", Runner: &RunnerRequest{Action: "artifact-cleanup", Site: "demo"}})
+	if err != nil || response == nil || !response.OK {
+		t.Fatalf("cleanup response = %#v, error = %v", response, err)
 	}
 }
 

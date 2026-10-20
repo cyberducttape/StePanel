@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+func TestRunnerArtifactCleanupAcceptsOnlySite(t *testing.T) {
+	v := NewValidator("/var/www")
+	for _, tc := range []struct {
+		req   RunnerRequest
+		valid bool
+	}{
+		{RunnerRequest{Action: "artifact-cleanup", Site: "demo"}, true},
+		{RunnerRequest{Action: "artifact-cleanup", Site: "../demo"}, false},
+		{RunnerRequest{Action: "artifact-cleanup", Site: "demo", Root: "/tmp"}, false},
+		{RunnerRequest{Action: "artifact-cleanup", Site: "demo", SiteUser: "root"}, false},
+		{RunnerRequest{Action: "artifact-cleanup", Site: "demo", Script: "anything"}, false},
+	} {
+		if err := v.validateRunnerRequest(&tc.req); (err == nil) != tc.valid {
+			t.Errorf("%+v: %v", tc.req, err)
+		}
+	}
+}
+
 func TestValidateSiteName(t *testing.T) {
 	v := NewValidator("/var/www")
 

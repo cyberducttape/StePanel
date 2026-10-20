@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 // ReleasePipelineRequest accepts a declarative build which must write the
@@ -200,7 +202,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not stage build artifact", 500)
 		return
 	}
-	if err := removeSiteBuildArtifact(a.Config.WebRoot, input.Site); err != nil {
+	if err := runRunnerBuild(operationCtx, a.Config, rootbroker.RunnerRequest{Action: "artifact-cleanup", Site: input.Site}); err != nil {
 		log.Printf("release pipeline artifact cleanup failed for site %s: %v", input.Site, err)
 		_ = a.recordDeployment(input.Site, "build", "failed", err.Error(), result, artifact)
 		http.Error(w, "could not clean up build artifact", 500)
