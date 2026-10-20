@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Run checked-out Git commit identification with the same sanitized environment
+  as the clone in Git deploys and release pipelines, and retain bounded command
+  diagnostics in internal logs when commit resolution fails.
 - Preserve the active site's fencing token while clearing Git staging quotas,
   allowing cleanup after request cancellation while still rejecting a lost lease.
 - Pass the capacity ledger from production staging database clones to their

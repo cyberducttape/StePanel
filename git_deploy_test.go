@@ -289,6 +289,40 @@ func TestGitCommandEnvDoesNotInheritDeploymentControls(t *testing.T) {
 	}
 }
 
+func TestIdentifyGitCommitIgnoresInheritedGitDirectory(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	repository := t.TempDir()
+	for _, args := range [][]string{{"init", "--quiet", repository}, {"-C", repository, "config", "user.name", "StePanel test"}, {"-C", repository, "config", "user.email", "test@example.invalid"}} {
+		if output, err := exec.Command(gitPath, args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("commit identity test\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"-C", repository, "add", "README.md"}, {"-C", repository, "commit", "--quiet", "-m", "test"}} {
+		if output, err := exec.Command(gitPath, args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	other := t.TempDir()
+	t.Setenv("GIT_DIR", filepath.Join(other, "not-a-repository"))
+	contaminated := exec.Command(gitPath, "-C", repository, "rev-parse", "HEAD")
+	if output, err := contaminated.CombinedOutput(); err == nil {
+		t.Fatalf("unsanitized git command unexpectedly ignored inherited GIT_DIR, output=%s", output)
+	}
+	got, err := identifyGitCommit(context.Background(), gitPath, repository)
+	if err != nil {
+		t.Fatalf("identifyGitCommit failed with hostile inherited GIT_DIR: %v", err)
+	}
+	if !gitCommitPattern.MatchString(got) {
+		t.Fatalf("identifyGitCommit returned invalid commit %q", got)
+	}
+}
+
 func TestGitRollbackAtomicallySwapsPreviousRelease(t *testing.T) {
 	webRoot := filepath.Join(t.TempDir(), "www")
 	siteRoot := filepath.Join(webRoot, "sites", "example")

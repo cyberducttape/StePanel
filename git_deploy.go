@@ -946,14 +946,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, sanitizeGitError(string(cloneOutput)), http.StatusBadGateway)
 		return
 	}
-	commitOutput, err := runBoundedCommand(ctx, exec.CommandContext(ctx, gitPath, "-C", release, "rev-parse", "HEAD"))
+	commit, err := identifyGitCommit(ctx, gitPath, release)
 	if err != nil {
+		log.Printf("Git checkout commit identification failed for site %s: %v", input.Site, err)
 		http.Error(w, "unable to identify checked-out commit", http.StatusBadGateway)
-		return
-	}
-	commit := strings.TrimSpace(string(commitOutput))
-	if !gitCommitPattern.MatchString(commit) {
-		http.Error(w, "Git returned an invalid commit identifier", http.StatusBadGateway)
 		return
 	}
 	if err := validateGitRelease(release, a.Config.MaxEntries); err != nil {
@@ -1261,6 +1257,24 @@ func gitCommandEnv() []string {
 		"GIT_CONFIG_SYSTEM=/dev/null",
 		"GIT_CONFIG_GLOBAL=/dev/null",
 	}
+}
+
+func identifyGitCommit(ctx context.Context, gitPath, repositoryPath string) (string, error) {
+	cmd := exec.CommandContext(ctx, gitPath, "-C", repositoryPath, "rev-parse", "HEAD")
+	cmd.Env = gitCommandEnv()
+	output, err := runBoundedCommand(ctx, cmd)
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail != "" {
+			return "", fmt.Errorf("git rev-parse HEAD: %w: %s", err, detail)
+		}
+		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
+	}
+	commit := strings.TrimSpace(string(output))
+	if !gitCommitPattern.MatchString(commit) {
+		return "", errors.New("git rev-parse HEAD returned an invalid commit identifier")
+	}
+	return commit, nil
 }
 
 func validateGitAllowedHosts(value string) error {

@@ -246,13 +246,12 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", err
 	}
-	commitOutput, err := runBoundedCommand(ctx, exec.CommandContext(ctx, gitPath, "-C", release, "rev-parse", "HEAD"))
+	commit, err := identifyGitCommit(ctx, gitPath, release)
 	if err != nil {
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", err
 	}
-	commit := strings.TrimSpace(string(commitOutput))
-	if !gitCommitPattern.MatchString(commit) || validateGitRelease(release, a.Config.MaxEntries) != nil || validateGitReleaseSize(release, a.Config.GitReleaseMaxTreeBytes) != nil || os.RemoveAll(filepath.Join(release, ".git")) != nil {
+	if validateGitRelease(release, a.Config.MaxEntries) != nil || validateGitReleaseSize(release, a.Config.GitReleaseMaxTreeBytes) != nil || os.RemoveAll(filepath.Join(release, ".git")) != nil {
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", fmt.Errorf("invalid checked-out release: %s", strings.TrimSpace(string(output)))
 	}
