@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Run checked-out Git commit identification with the same sanitized environment
   as the clone in Git deploys and release pipelines, and retain bounded command
   diagnostics in internal logs when commit resolution fails.
+- Allow Git commit inspection for the exact canonical staging checkout path,
+  whose site-account ownership differs from the panel, without trusting a
+  broad or inherited `safe.directory` setting.
 - Preserve the active site's fencing token while clearing Git staging quotas,
   allowing cleanup after request cancellation while still rejecting a lost lease.
 - Pass the capacity ledger from production staging database clones to their

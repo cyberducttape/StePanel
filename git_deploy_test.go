@@ -323,6 +323,42 @@ func TestIdentifyGitCommitIgnoresInheritedGitDirectory(t *testing.T) {
 	}
 }
 
+func TestGitCommitInspectionAllowsOnlyExactCheckoutOwnership(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	repository := t.TempDir()
+	for _, args := range [][]string{{"init", "--quiet", repository}, {"-C", repository, "config", "user.name", "StePanel test"}, {"-C", repository, "config", "user.email", "test@example.invalid"}, {"-C", repository, "commit", "--quiet", "--allow-empty", "-m", "test"}} {
+		if output, err := exec.Command(gitPath, args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+
+	// Git exposes this test-only switch to simulate a checkout owned by a
+	// different user without requiring root or changing filesystem ownership.
+	testEnv := append(gitCommandEnv(), "GIT_TEST_ASSUME_DIFFERENT_OWNER=1")
+	baseline := exec.Command(gitPath, "-C", repository, "rev-parse", "HEAD")
+	baseline.Env = testEnv
+	if output, err := baseline.CombinedOutput(); err == nil || !strings.Contains(string(output), "dubious ownership") {
+		t.Fatalf("ownership simulation did not trigger Git's safe-directory check: err=%v output=%s", err, output)
+	}
+
+	args, err := gitCommitInspectionArgs(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspection := exec.Command(gitPath, args...)
+	inspection.Env = testEnv
+	output, err := inspection.CombinedOutput()
+	if err != nil {
+		t.Fatalf("exact-checkout safe.directory did not permit inspection: %v: %s", err, output)
+	}
+	if !gitCommitPattern.MatchString(strings.TrimSpace(string(output))) {
+		t.Fatalf("inspection returned invalid commit identifier %q", strings.TrimSpace(string(output)))
+	}
+}
+
 func TestGitRollbackAtomicallySwapsPreviousRelease(t *testing.T) {
 	webRoot := filepath.Join(t.TempDir(), "www")
 	siteRoot := filepath.Join(webRoot, "sites", "example")

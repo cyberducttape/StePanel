@@ -1259,8 +1259,27 @@ func gitCommandEnv() []string {
 	}
 }
 
+func gitCommitInspectionArgs(repositoryPath string) ([]string, error) {
+	absolutePath, err := filepath.Abs(repositoryPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Git checkout path: %w", err)
+	}
+	checkoutPath, err := filepath.EvalSymlinks(absolutePath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Git checkout path: %w", err)
+	}
+	// Staged releases are intentionally owned by the target site account, not
+	// the panel process. Trust only this exact, already-resolved checkout path;
+	// never inherit a user's global safe.directory wildcard or bless all repos.
+	return []string{"-c", "safe.directory=" + checkoutPath, "-C", checkoutPath, "rev-parse", "HEAD"}, nil
+}
+
 func identifyGitCommit(ctx context.Context, gitPath, repositoryPath string) (string, error) {
-	cmd := exec.CommandContext(ctx, gitPath, "-C", repositoryPath, "rev-parse", "HEAD")
+	args, err := gitCommitInspectionArgs(repositoryPath)
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, gitPath, args...)
 	cmd.Env = gitCommandEnv()
 	output, err := runBoundedCommand(ctx, cmd)
 	if err != nil {
