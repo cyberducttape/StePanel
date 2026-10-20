@@ -224,7 +224,7 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	quotaActive := true
 	defer func() {
 		if quotaActive {
-			if clearErr := a.disableGitStageQuota(site.Site(), release, projectID); clearErr != nil {
+			if clearErr := a.disableGitStageQuota(ctx, site.Site(), release, projectID); clearErr != nil {
 				log.Printf("failed to clear Git pipeline project quota for %s: %v", filepath.Base(release), clearErr)
 			}
 		}
@@ -256,7 +256,7 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", fmt.Errorf("invalid checked-out release: %s", strings.TrimSpace(string(output)))
 	}
-	if err := a.disableGitStageQuota(site.Site(), release, projectID); err != nil {
+	if err := a.disableGitStageQuota(ctx, site.Site(), release, projectID); err != nil {
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
 		return "", "", fmt.Errorf("clear temporary Git staging quota: %w", err)
 	}

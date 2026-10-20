@@ -13,7 +13,25 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/operations"
 )
+
+func TestGitStageCleanupContextRetainsFenceAfterCancellation(t *testing.T) {
+	token := operations.FencingToken{ResourceKey: "site:alpha", OwnerID: "owner", Generation: 7}
+	parent, cancelParent := context.WithCancel(operations.WithFencingTokens(context.Background(), token))
+	cancelParent()
+
+	cleanup, cancelCleanup := gitStageCleanupContext(parent)
+	defer cancelCleanup()
+	if err := cleanup.Err(); err != nil {
+		t.Fatalf("cleanup context inherited request cancellation: %v", err)
+	}
+	got := operations.FencingTokens(cleanup)
+	if len(got) != 1 || got[0] != token {
+		t.Fatalf("cleanup fencing tokens = %#v, want %#v", got, []operations.FencingToken{token})
+	}
+}
 
 func TestGitCloneStageLimitCoversAggregateCloneFootprint(t *testing.T) {
 	limit, err := gitCloneStageLimit(2 << 30)

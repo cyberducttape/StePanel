@@ -55,8 +55,14 @@ func (a *App) enableGitStageQuota(ctx context.Context, site, destination string,
 	return client.GitStageLimit(ctx, site, destination, limit)
 }
 
-func (a *App) disableGitStageQuota(site, destination string, projectID uint32) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+func gitStageCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	// Cleanup must outlive ordinary request cancellation while retaining the
+	// fencing token. The broker still rejects cleanup after lease takeover.
+	return context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+}
+
+func (a *App) disableGitStageQuota(ctx context.Context, site, destination string, projectID uint32) error {
+	ctx, cancel := gitStageCleanupContext(ctx)
 	defer cancel()
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
 	if err != nil {
@@ -915,7 +921,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	quotaActive := true
 	defer func() {
 		if quotaActive {
-			if clearErr := a.disableGitStageQuota(input.Site, release, projectID); clearErr != nil {
+			if clearErr := a.disableGitStageQuota(operationCtx, input.Site, release, projectID); clearErr != nil {
 				log.Printf("failed to clear Git staging project quota for %s: %v", filepath.Base(release), clearErr)
 			}
 		}
@@ -962,7 +968,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unable to remove Git metadata from release", http.StatusInternalServerError)
 		return
 	}
-	if err := a.disableGitStageQuota(input.Site, release, projectID); err != nil {
+	if err := a.disableGitStageQuota(operationCtx, input.Site, release, projectID); err != nil {
 		http.Error(w, "unable to remove temporary Git staging quota before activation: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
