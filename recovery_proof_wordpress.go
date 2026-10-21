@@ -341,10 +341,15 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 			return result, fmt.Errorf("initialize site manager: %w", err)
 		}
 	}
-	staging, err := manager.CreateStaging(lockCtx, ".stepanel-proof-")
+	staging, stagingOwner, err := manager.CreateStagingLease(lockCtx, ".stepanel-proof-")
 	if err != nil {
 		return result, fmt.Errorf("create proof staging: %w", err)
 	}
+	defer func() {
+		if err := manager.ReleaseStagingLease(staging, stagingOwner); err != nil {
+			log.Printf("release recovery-proof staging lease for %s: %v", plan.site, err)
+		}
+	}()
 	activated := false
 	defer func() {
 		if !activated {

@@ -20,8 +20,9 @@ func TestGateOneDocumentMatchesManager(t *testing.T) {
 	sort.Strings(methods)
 	want := []string{
 		"ActivateStaged", "ActivateStagedReplacing", "CleanupOrphanedStaging",
-		"Clone", "Create", "CreateReleaseStagingLease", "CreateStaging", "Delete",
+		"Clone", "Create", "CreateReleaseStagingLease", "CreateStagingLease", "Delete",
 		"DiscardReleaseStaging", "DiscardStaging", "RollbackStagedActivation",
+		"ReleaseStagingLease",
 	}
 	sort.Strings(want)
 	if !reflect.DeepEqual(methods, want) {

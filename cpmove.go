@@ -354,10 +354,15 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("initialize site manager: %w", err)
 	}
-	managerStage, err := manager.CreateStaging(ctx, ".stepanel-cpmove-")
+	managerStage, stagingOwner, err := manager.CreateStagingLease(ctx, ".stepanel-cpmove-")
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("create site manager staging tree: %w", err)
 	}
+	defer func() {
+		if err := manager.ReleaseStagingLease(managerStage, stagingOwner); err != nil {
+			log.Printf("release cpmove staging lease for %s: %v", user, err)
+		}
+	}()
 	activated := false
 	defer func() {
 		if !activated {

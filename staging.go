@@ -228,11 +228,16 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not begin staging transaction", 503)
 		return
 	}
-	managerStage, err := createSiteManagerStaging(operationCtx, a.Config, ".stepanel-staging-")
+	managerStage, managerStageOwner, err := createSiteManagerStaging(operationCtx, a.Config, ".stepanel-staging-")
 	if err != nil {
 		http.Error(w, "could not create lifecycle staging tree", 503)
 		return
 	}
+	defer func() {
+		if err := releaseSiteManagerStagingLease(a.Config, managerStage, managerStageOwner); err != nil {
+			log.Printf("release staging-clone lease for %s: %v", input.Site, err)
+		}
+	}()
 	managerActivated := false
 	defer func() {
 		if !managerActivated {

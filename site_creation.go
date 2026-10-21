@@ -285,10 +285,15 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 			return nil, fmt.Errorf("initialize site manager: %w", err)
 		}
 	}
-	staging, err := manager.CreateStaging(operationCtx, ".stepanel-create-")
+	staging, stagingOwner, err := manager.CreateStagingLease(operationCtx, ".stepanel-create-")
 	if err != nil {
 		return nil, fmt.Errorf("create site staging: %w", err)
 	}
+	defer func() {
+		if err := manager.ReleaseStagingLease(staging, stagingOwner); err != nil {
+			log.Printf("release site-creation staging lease for %s: %v", req.Site, err)
+		}
+	}()
 	activated := false
 	defer func() {
 		if !activated {

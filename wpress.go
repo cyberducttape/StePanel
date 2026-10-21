@@ -335,10 +335,15 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if err != nil {
 		return WPressResult{}, err
 	}
-	managerStage, err := createSiteManagerStaging(ctx, cfg, ".stepanel-wpress-")
+	managerStage, managerStageOwner, err := createSiteManagerStaging(ctx, cfg, ".stepanel-wpress-")
 	if err != nil {
 		return WPressResult{}, fmt.Errorf("create lifecycle staging tree: %w", err)
 	}
+	defer func() {
+		if err := releaseSiteManagerStagingLease(cfg, managerStage, managerStageOwner); err != nil {
+			log.Printf("release WordPress restore lease for %s: %v", site, err)
+		}
+	}()
 	managerActivated := false
 	defer func() {
 		if !managerActivated {

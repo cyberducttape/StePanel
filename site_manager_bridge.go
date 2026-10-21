@@ -42,12 +42,21 @@ func activateStagedSiteWithConfig(ctx context.Context, cfg Config, name, stagedR
 	return nil
 }
 
-func createSiteManagerStaging(ctx context.Context, cfg Config, prefix string) (string, error) {
+func createSiteManagerStaging(ctx context.Context, cfg Config, prefix string) (string, *os.File, error) {
 	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
 	if err != nil {
-		return "", fmt.Errorf("initialize site manager: %w", err)
+		return "", nil, fmt.Errorf("initialize site manager: %w", err)
 	}
-	return manager.CreateStaging(ctx, prefix)
+	return manager.CreateStagingLease(ctx, prefix)
+}
+
+func releaseSiteManagerStagingLease(cfg Config, stagedRoot string, owner *os.File) error {
+	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	if err != nil {
+		_ = owner.Close()
+		return fmt.Errorf("initialize site manager to release staging lease: %w", err)
+	}
+	return manager.ReleaseStagingLease(stagedRoot, owner)
 }
 
 func discardSiteManagerStaging(ctx context.Context, cfg Config, stagedRoot string) error {

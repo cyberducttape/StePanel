@@ -50,6 +50,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Retain legacy release staging trees that lack an ownership lease during
   orphan cleanup. Their age alone cannot prove no deployment or recovery work
   still owns them; new stages continue to use cross-process leases.
+- Add cross-process ownership leases to manager staging trees used by site
+  creation, imports, restores, and recovery proofs. Orphan cleanup now requires
+  a lease before reclaiming any new stage and leaves legacy unleased trees for
+  operator review.
 - Protect Git and release-pipeline staging trees with cross-process ownership
   leases stored outside tenant-writable trees. Remove the lease-free staging
   API; orphan cleanup checks ownership before using age as a garbage-collection

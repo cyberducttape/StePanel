@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -366,10 +367,15 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 			return nil, fmt.Errorf("initialize site manager for staging: %w", err)
 		}
 	}
-	stagingDir, err := manager.CreateStaging(operationCtx, ".stepanel-import-")
+	stagingDir, stagingOwner, err := manager.CreateStagingLease(operationCtx, ".stepanel-import-")
 	if err != nil {
 		return nil, fmt.Errorf("create import staging directory: %w", err)
 	}
+	defer func() {
+		if err := manager.ReleaseStagingLease(stagingDir, stagingOwner); err != nil {
+			log.Printf("release import staging lease for %s: %v", req.SiteName, err)
+		}
+	}()
 
 	activated := false
 	defer func() {

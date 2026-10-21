@@ -752,11 +752,16 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "backup site files are not a directory", http.StatusUnprocessableEntity)
 		return
 	}
-	managerStage, stageErr := createSiteManagerStaging(operationCtx, a.Config, ".stepanel-backup-restore-")
+	managerStage, managerStageOwner, stageErr := createSiteManagerStaging(operationCtx, a.Config, ".stepanel-backup-restore-")
 	if stageErr != nil {
 		http.Error(w, "could not create lifecycle staging tree", 503)
 		return
 	}
+	defer func() {
+		if err := releaseSiteManagerStagingLease(a.Config, managerStage, managerStageOwner); err != nil {
+			log.Printf("release backup staging-restore lease for %s: %v", input.Site, err)
+		}
+	}()
 	var txn *SiteTransaction
 	managerActivated := false
 	defer func() {
@@ -1108,10 +1113,15 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	managerStage, err := createSiteManagerStaging(ctx, cfg, ".stepanel-backup-")
+	managerStage, managerStageOwner, err := createSiteManagerStaging(ctx, cfg, ".stepanel-backup-")
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("create lifecycle staging tree: %w", err)
 	}
+	defer func() {
+		if err := releaseSiteManagerStagingLease(cfg, managerStage, managerStageOwner); err != nil {
+			log.Printf("release backup restore lease for %s: %v", siteName, err)
+		}
+	}()
 	managerActivated := false
 	defer func() {
 		if !managerActivated {
