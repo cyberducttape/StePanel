@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Run documentation link and source-reference checks in a focused workflow,
+  and skip the full main-branch integration suite for Markdown-only pushes.
+  Documentation changes remain checked without spending the race, recovery,
+  database, and container certification budget on prose-only commits.
 - Split pull-request fast validation from the main-branch integration suite.
   Formatting, vet, Go and frontend unit tests remain required on every PR;
   race, recovery, ENOSPC, database, container and deployment integration checks
