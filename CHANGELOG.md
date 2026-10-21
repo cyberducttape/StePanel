@@ -13,6 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Reconcile the current status and release-gate evidence with the latest
+  workflow-only commit, recording the documentation check result separately
+  from pending integration and installed-host checks.
 - Run documentation link and source-reference checks in a focused workflow,
   and skip the full main-branch integration suite for Markdown-only pushes.
   Documentation changes remain checked without spending the race, recovery,

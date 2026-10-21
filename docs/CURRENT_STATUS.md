@@ -12,7 +12,7 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest exact-source repository gate — 2026-10-21 (`d931c6a`)
+### Latest code-source repository gate — 2026-10-21 (`d931c6a`)
 
 - The repository production-gate commands passed on exact source
   `d931c6aa9f50194ec8430ac7262853b7900eb1e6`: 57.2% aggregate coverage, all
@@ -22,13 +22,18 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   documentation reference; after correcting it, the reference check and all
   remaining commands passed. See the
   [exact-source report](lab-results/2026-10-21-repository-gate-d931c6a.md).
-- At capture, exact-head [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39538628057)
-  passed. [Integration CI](https://github.com/cyberducttape/StePanel/actions/runs/39538628072)
-  and the six-combination
-  [installed-host smoke](https://github.com/cyberducttape/StePanel/actions/runs/39538628104)
-  were in progress; the
-  [quota-enabled install smoke](https://github.com/cyberducttape/StePanel/actions/runs/39538628063)
-  was queued. In-progress and queued checks are not passes.
+- The later `c9712da` change modifies CI workflow selection and documentation
+  only; it does not change Go/application source. Its focused
+  [documentation workflow](https://github.com/cyberducttape/StePanel/actions/runs/39540812284)
+  passed. At 2026-10-21 03:51 UTC, CodeQL for that head was in progress and
+  integration and installation workflows were pending. These are not passes.
+- The six-combination installed-host run
+  [39538628104](https://github.com/cyberducttape/StePanel/actions/runs/39538628104)
+  and integration run
+  [39538628072](https://github.com/cyberducttape/StePanel/actions/runs/39538628072)
+  for code source `d931c6a` remained in progress at that capture; quota run
+  [39538628063](https://github.com/cyberducttape/StePanel/actions/runs/39538628063)
+  was cancelled before execution. None is passing evidence yet.
 - Production remains **NO-GO** for physical power-loss and repeated installed-host
   recovery, XFS quota behavior, full application restore across supported web
   servers, alert outage/retry, capacity certification, upgrade/rollback policy,
