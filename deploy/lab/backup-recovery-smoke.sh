@@ -33,6 +33,7 @@ database_user=''
 staging_site=''
 staging_database=''
 staging_user=''
+staging_unix_user=''
 staging_route=''
 dump_restore_permissions() {
   local site_root="/var/www/sites/$BACKUP_RECOVERY_SMOKE_SITE"
@@ -445,12 +446,73 @@ PY
   }
   /usr/local/sbin/stepanel-dbctl dump "$staging_database" > "$work/staging-database.sql"
   grep -Fq 'database restore smoke' "$work/staging-database.sql"
+  staging_unix_user=$(getent passwd | awk -F: -v home="/var/www/sites/$staging_site" '$6 == home { print $1; exit }')
+  [[ $staging_unix_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || {
+    echo "could not resolve immutable staging-site identity: $staging_site ($staging_unix_user)" >&2
+    exit 1
+  }
   echo "staging restore recovery smoke passed (worker $before was killed at $STAGING_RESTORE_KILL_AT; files, route, HTTP and database verified)"
 
-  /usr/local/sbin/stepanel-vhostctl delete "$staging_route"
-  /usr/local/sbin/stepanel-sitectl delete "$staging_site"
-  /usr/local/sbin/stepanel-dbctl drop-managed "$staging_database" "$staging_user"
+  # Clean up through the canonical durable lifecycle path, not by deriving a
+  # legacy username or deleting the route/files/database independently. This
+  # also checks that a completed restore can be safely removed as a site.
+  printf '%s\n' '[Service]' \
+    'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \
+    'Environment=STEPANEL_KILL_AT=' > "$dropin"
+  systemctl daemon-reload
+  systemctl restart stepanel-worker.service
+  systemctl is-active --quiet stepanel-worker.service
+  wait_for_panel_ready 'before staging-site cleanup'
+  response=$(curl --fail --silent --show-error --max-time 30 \
+    -H "Cookie: $cookie_header" \
+    -H "X-CSRF-Token: $csrf" \
+    -H 'Content-Type: application/json' \
+    --data "$(python3 - "$staging_site" <<'PY'
+import json, sys
+site = sys.argv[1]
+print(json.dumps({"site": site, "confirmation": "DELETE " + site}))
+PY
+)" \
+    "$PANEL/api/sites/terminate")
+  staging_termination_job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^\"]*\)".*/\1/p')
+  [[ -n $staging_termination_job_id ]] || {
+    echo "staging-site termination did not return a durable job: $response" >&2
+    exit 1
+  }
+  staging_termination_status=''
+  staging_termination_state=''
+  for _ in $(seq 1 360); do
+    staging_termination_status=$(curl --fail --silent --show-error --max-time 10 \
+      -H "Cookie: $cookie_header" "$PANEL/api/jobs/$staging_termination_job_id")
+    staging_termination_state=$(printf '%s' "$staging_termination_status" | sed -n 's/.*"state":"\([^\"]*\)".*/\1/p')
+    case "$staging_termination_state" in
+      completed) break ;;
+      failed|dead-letter|cancelled)
+        echo "staging-site termination ended in $staging_termination_state: $staging_termination_status" >&2
+        exit 1
+        ;;
+    esac
+    sleep 1
+  done
+  [[ $staging_termination_state == completed ]] || {
+    echo "staging-site termination did not complete: ${staging_termination_status:-}" >&2
+    exit 1
+  }
   [[ ! -e "/var/www/sites/$staging_site" ]] || { echo "staging test site cleanup failed: $staging_site" >&2; exit 1; }
+  if getent passwd "$staging_unix_user" >/dev/null; then
+    echo "staging-site Unix identity survived canonical termination: $staging_unix_user" >&2
+    exit 1
+  fi
+  for route_path in "/etc/caddy/stepanel.d/$staging_route" \
+    "/etc/apache2/stepanel-sites/$staging_route" \
+    "/etc/httpd/conf.d/stepanel-sites/$staging_route"; do
+    [[ ! -e $route_path ]] || { echo "staging route survived canonical termination: $route_path" >&2; exit 1; }
+  done
+  if /usr/local/sbin/stepanel-dbctl dump "$staging_database" > "$work/staging-database-after-termination.sql" 2>&1; then
+    echo "staging database survived canonical termination: $staging_database" >&2
+    exit 1
+  fi
+  echo "staging restore lifecycle cleanup passed (site, route, account and database removed)"
   staging_site=''
 fi
 

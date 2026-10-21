@@ -16,8 +16,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Extend the installed-host recovery matrix to kill and recover workers at
   `restore:provision` and `restore:provisioned`, then verify the isolated
   staging site's files, web-server route, HTTP response, and restored database.
-  The new drill is implemented and syntax/identity-validated; real-host
-  execution is still pending.
+  Tear down the resulting site through the durable lifecycle workflow and
+  verify its route, account, and database are removed. The new drill is
+  implemented and syntax/identity-validated; real-host execution is still
+  pending.
 - Include the backup recovery smoke script in integration CI's Bash syntax and
   ShellCheck checks.
 - Make the GitHub Action pin check fail closed when its search dependency is
