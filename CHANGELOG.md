@@ -13,6 +13,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Split pull-request fast validation from the main-branch integration suite.
+  Formatting, vet, Go and frontend unit tests remain required on every PR;
+  race, recovery, ENOSPC, database, container and deployment integration checks
+  continue on main and manual runs. Run the quota-enabled VM installation smoke
+  on main/manual instead of allocating a long-lived guest for every PR. Quote
+  guest commands correctly and scope its ShellCheck suppression to a command
+  that intentionally expands variables on the remote VM.
 - Remove import, restore and release stage trees outside the root-wide
   stage coordination lock. Each stage's own lock already keeps cleanup away,
   and coordination only protects lock pathnames, but deleting a large restore
