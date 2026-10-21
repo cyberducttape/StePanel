@@ -13,6 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Set the explicit unsafe-lab flag for direct site-helper calls in abrupt-loss
+  drills; without it, the helper correctly rejects the legacy account-less
+  invocation and the recovery drill stops before reaching its fault boundary.
 - Clean consumed production build artifacts through a site-only broker action
   running as the persisted site account. This fixes quota-host pipeline failures
   caused by panel-side deletion of site-owned artifact directories.

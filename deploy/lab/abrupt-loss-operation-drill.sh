@@ -166,7 +166,10 @@ backup_site() {
 snapshot() { (cd "$public" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum); }
 
 publish_route() {
-  /usr/local/sbin/stepanel-sitectl seal "$site"
+  # This lab calls the helper directly rather than through the root broker.
+  # The unsafe-lab installation guard above makes the legacy two-argument
+  # helper form available so it can derive the disposable site's account.
+  STEPANEL_UNSAFE_LAB=1 /usr/local/sbin/stepanel-sitectl seal "$site"
   /usr/local/sbin/stepanel-vhostctl apply "$site" "$domain"
 }
 
