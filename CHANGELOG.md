@@ -13,6 +13,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Remove import, restore and release stage trees outside the root-wide
+  stage coordination lock. Each stage's own lock already keeps cleanup away,
+  and coordination only protects lock pathnames, but deleting a large restore
+  stage held it for the whole delete. That stalled every new backup, import
+  and restore stage behind it. `removeImportStage` also leaked the stage lock
+  when coordination could not be taken, which left the stage looking in use
+  until the panel restarted. Discarding an already-activated release stage now
+  removes its leftover lease file as well.
 - Bind the README Docker evaluation example to host loopback and document
   trusted-proxy and private-network/firewall requirements for production.
 - Serialize import-stage lock creation, reclamation, and unlinking with a
