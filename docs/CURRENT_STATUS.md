@@ -32,9 +32,8 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   `c9712da7279533970fe6cd0b5b89b45309e23bb5`, whose application source is
   unchanged from `d931c6a`: Ubuntu 24.04, Rocky Linux 9, and AlmaLinux 9, each
   with Caddy and Apache ([run 39540812270](https://github.com/cyberducttape/StePanel/actions/runs/39540812270)).
-  The quota-enabled host run for the same workflow commit is still in progress
-  ([run 39540812247](https://github.com/cyberducttape/StePanel/actions/runs/39540812247));
-  it is not yet passing evidence.
+  The quota-enabled host run for the same workflow commit also passed its
+  `quota-install` job ([run 39540812247](https://github.com/cyberducttape/StePanel/actions/runs/39540812247)).
 - A separate disposable Rocky 9 KVM run built from exact source `7cd215f`
   is executing the full recovery matrix once. At 2026-10-21 05:06 UTC, boot
   and the listed cpmove, backup, file/database restore, termination, suspension,

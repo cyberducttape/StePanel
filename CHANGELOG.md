@@ -26,8 +26,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   from pending integration and installed-host checks.
 - Refresh release evidence with the passing six-combination hosted installation
   matrix and exact-head integration, CodeQL, and documentation results. Keep
-  the quota run and one-repeat full Rocky KVM matrix explicitly in progress;
-  neither is recorded as production certification.
+  the then-running quota job and one-repeat full Rocky KVM matrix explicitly
+  distinct from production certification; record quota completion separately.
+- Record successful completion of the quota-enabled hosted installation smoke;
+  the separately running exact-source Rocky KVM failure matrix remains partial.
 - Run documentation link and source-reference checks in a focused workflow,
   and skip the full main-branch integration suite for Markdown-only pushes.
   Documentation changes remain checked without spending the race, recovery,

@@ -19,10 +19,12 @@ The six-combination installed-host workflow completed successfully on
 passed all six jobs. This workflow commit changes workflow selection and docs,
 not application source; the tested application source matches `d931c6a`.
 
-The quota-enabled production-install smoke for that workflow commit was still
-running at capture:
+At the original 05:06 UTC capture, the quota-enabled production-install smoke
+was still running. A later status check on 2026-10-21 found the workflow
+completed successfully, including its `quota-install` job:
 [quota install run 39540812247](https://github.com/cyberducttape/StePanel/actions/runs/39540812247).
-Do not treat it as a pass until its terminal result is inspected.
+This is hosted install/quota evidence for the `d931c6a` application source, not
+evidence for physical power loss, XFS quotas, or the full failure matrix.
 
 Exact source `7cd215f8a49863bce4c21fa6f35a8889ade1500c` passed:
 
