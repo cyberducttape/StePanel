@@ -46,6 +46,8 @@ var validStagingPrefix = regexp.MustCompile(`^[A-Za-z0-9._-]{1,48}-?$`)
 const releaseStageOwnerLock = ".stepanel-stage-owner-"
 const releaseStageCoordinationLock = ".stepanel-release-coordination.lock"
 
+var errReleaseStageLeaseMissing = errors.New("release staging lease is missing")
+
 // IsReleaseStagingName reports whether component names a release stage that
 // CreateReleaseStaging allocated for site. os.MkdirTemp appends a decimal
 // suffix, so requiring digits after "<site>-" keeps site "blog" from claiming
@@ -328,7 +330,7 @@ func releaseManagerStageLock(lock *os.File) {
 func tryLockReleaseStage(path string) (lock *os.File, active bool, err error) {
 	lock, err = os.OpenFile(releaseStageOwnerLockPath(path), os.O_RDWR, 0600)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil // Legacy stage: age remains only an eligibility check.
+		return nil, false, errReleaseStageLeaseMissing
 	}
 	if err != nil {
 		return nil, false, err
@@ -442,6 +444,11 @@ func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan t
 			releasePath := filepath.Join(siteRoot, release.Name())
 			owner, active, err := tryLockReleaseStage(releasePath)
 			if err != nil {
+				if errors.Is(err, errReleaseStageLeaseMissing) {
+					// A legacy stage has no ownership record. Age alone cannot
+					// prove that it is abandoned, so leave it for operator review.
+					continue
+				}
 				return removed, fmt.Errorf("sites.Manager: inspect release ownership %s: %w", release.Name(), err)
 			}
 			if active {
@@ -511,6 +518,10 @@ func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan t
 			var active bool
 			owner, active, err = tryLockReleaseStage(filepath.Join(stageParent, entry.Name()))
 			if err != nil {
+				if errors.Is(err, errReleaseStageLeaseMissing) {
+					// Do not infer ownership from mtime for legacy release trees.
+					continue
+				}
 				return removed, fmt.Errorf("sites.Manager: inspect release ownership %s: %w", entry.Name(), err)
 			}
 			if active {

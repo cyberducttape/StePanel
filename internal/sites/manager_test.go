@@ -176,6 +176,29 @@ func TestCleanupOrphanedReleaseStaging(t *testing.T) {
 	}
 }
 
+func TestCleanupOrphanedReleaseStagingRequiresOwnershipLease(t *testing.T) {
+	m, root := newManager(t)
+	legacy := filepath.Join(root, "sites", "legacy", ".stepanel-release-legacy-123")
+	if err := os.MkdirAll(legacy, 0750); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-24 * time.Hour)
+	if err := os.Chtimes(legacy, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := m.CleanupOrphanedStaging(context.Background(), time.Hour)
+	if err != nil {
+		t.Fatalf("CleanupOrphanedStaging: %v", err)
+	}
+	if removed != 0 {
+		t.Fatalf("removed=%d, want legacy stage without ownership evidence to be retained", removed)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("legacy stage was removed without ownership evidence: %v", err)
+	}
+}
+
 func TestActivateStagedReplacingCanRollback(t *testing.T) {
 	m, root := newManager(t)
 	public := filepath.Join(root, "sites", "replace-site", "public")
