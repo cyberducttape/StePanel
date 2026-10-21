@@ -313,6 +313,8 @@ func (t *SiteTransaction) cleanupDatabases(ctx context.Context, cfg Config) erro
 		switch database.Kind {
 		case "cpmove":
 			err = dropDatabase(ctx, cfg, database.Name)
+		case "panel":
+			_, err = runDatabaseHelperContext(ctx, cfg, time.Minute, "", "drop-managed", database.Name, database.User)
 		case "wordpress":
 			err = cleanupWPressDatabaseContext(ctx, cfg, database.Name, database.User)
 		default:
@@ -338,9 +340,9 @@ func validateManagedDatabase(database ManagedDatabase) error {
 		if database.User != "" {
 			return errors.New("cpmove database must not specify a user")
 		}
-	case "wordpress":
+	case "panel", "wordpress":
 		if !validManagedDatabaseIdentifier(database.User, 32) {
-			return errors.New("invalid managed WordPress database user")
+			return errors.New("invalid managed database user")
 		}
 	default:
 		return errors.New("invalid managed database kind")

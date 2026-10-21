@@ -411,15 +411,41 @@ PY
       -H "Cookie: $cookie_header" "$PANEL/api/jobs/$staging_restore_job_id")
     staging_state=$(printf '%s' "$staging_status" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
     case "$staging_state" in
-      completed) break ;;
-      failed|dead-letter|cancelled)
+      completed|dead-letter) break ;;
+      failed|cancelled)
         echo "staging restore recovery job $staging_restore_job_id ended in $staging_state: $staging_status" >&2
         exit 1
         ;;
     esac
     sleep 1
   done
-  [[ $staging_state == completed ]] || { echo "staging restore recovery job did not complete: ${staging_status:-}" >&2; exit 1; }
+  if [[ $staging_state == dead-letter ]]; then
+    # Site operations are intentionally not replayed after a worker crash: a
+    # deployment may have been superseded by its requester. Staging restore
+    # must instead compensate all partially provisioned resources before the
+    # operation is surfaced for operator review.
+    staging_root="/var/www/sites/$staging_site"
+    [[ ! -e $staging_root ]] || { echo "interrupted staging restore left a partial site tree: $staging_root" >&2; exit 1; }
+    for route_path in "/etc/caddy/stepanel.d/$staging_route" \
+      "/etc/apache2/stepanel-sites/$staging_route" \
+      "/etc/httpd/conf.d/$staging_route"; do
+      [[ ! -e $route_path ]] || { echo "interrupted staging restore left a route: $route_path" >&2; exit 1; }
+    done
+    if getent passwd | awk -F: -v home="$staging_root" '$6 == home { found=1 } END { exit !found }'; then
+      echo "interrupted staging restore left a Unix account for $staging_site" >&2
+      exit 1
+    fi
+    if /usr/local/sbin/stepanel-dbctl dump "$staging_database" > "$work/staging-database.sql" 2>/dev/null; then
+      echo "interrupted staging restore left managed database $staging_database" >&2
+      exit 1
+    fi
+    [[ -f "/var/www/sites/$BACKUP_RECOVERY_SMOKE_SITE/public/index.html" ]] || {
+      echo "interrupted staging restore disturbed source site $BACKUP_RECOVERY_SMOKE_SITE" >&2
+      exit 1
+    }
+    echo "staging restore rollback smoke passed (worker $before was killed at $STAGING_RESTORE_KILL_AT; dead-lettered and partial site, route, account, database removed)"
+  else
+    [[ $staging_state == completed ]] || { echo "staging restore recovery job did not complete: ${staging_status:-}" >&2; exit 1; }
 
   public_root="/var/www/sites/$staging_site/public"
   [[ -f "$public_root/index.html" && -f "/var/www/sites/$staging_site/.stepanel-staging-noindex" ]] || {
@@ -514,6 +540,7 @@ PY
   fi
   echo "staging restore lifecycle cleanup passed (site, route, account and database removed)"
   staging_site=''
+  fi
 fi
 
   printf '%s\n' '[Service]' \

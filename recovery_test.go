@@ -248,6 +248,9 @@ func TestRecoverTransactionDatabasesCleansJournalBeforeSiteRollback(t *testing.T
 	if err := txn.TrackDatabase(ManagedDatabase{Name: "site_wordpress", User: "site_wordpress", Kind: "wordpress"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := txn.TrackDatabase(ManagedDatabase{Name: "site_staging", User: "site_staging", Kind: "panel"}); err != nil {
+		t.Fatal(err)
+	}
 	writeTestFile(t, filepath.Join(home, "index.html"), "partial")
 	logPath := filepath.Join(root, "dbctl.log")
 	helper := filepath.Join(root, "dbctl")
@@ -278,7 +281,7 @@ func TestRecoverTransactionDatabasesCleansJournalBeforeSiteRollback(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "drop site_archive\ncleanup-wordpress site_wordpress site_wordpress\n"
+	want := "drop site_archive\ncleanup-wordpress site_wordpress site_wordpress\ndrop-managed site_staging site_staging\n"
 	if string(data) != want {
 		t.Fatalf("database cleanup calls = %q, want %q", data, want)
 	}

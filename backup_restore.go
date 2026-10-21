@@ -841,7 +841,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if hasDatabase {
-		if e = txn.TrackDatabase(ManagedDatabase{Name: input.TargetDatabase, User: input.TargetUser, Kind: "wordpress"}); e != nil {
+		if e = txn.TrackDatabase(ManagedDatabase{Name: input.TargetDatabase, User: input.TargetUser, Kind: "panel"}); e != nil {
 			http.Error(w, "could not journal staging database", 503)
 			return
 		}

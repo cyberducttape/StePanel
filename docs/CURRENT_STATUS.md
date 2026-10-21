@@ -912,11 +912,16 @@ extraction on a dedicated ext4 filesystem ([results](lab-results/2026-10-11-real
 - Physical power loss / unclean disk-cache loss, beyond killing the QEMU process
 - Managed-database outage during an operation and verified recovery
 - Real-host drills for the `restore:provision` and `restore:provisioned`
-  boundaries (restore-to-staging database path). The full-matrix harness now
-  exercises these checkpoints and verifies staged files, route, HTTP response,
-  and database after recovery, then removes the site through durable site
-  termination and verifies route, account, and database cleanup; execution on
-  a fresh KVM guest is pending.
+  boundaries (restore-to-staging database path). A focused Rocky Linux 9
+  installed-host smoke now exercises `restore:provisioned`: the worker is
+  killed after the managed database and staging site are provisioned, recovery
+  dead-letters the non-replayable site operation, and the smoke verifies the
+  staged files, route, Unix account, and database are removed while the source
+  site remains intact. The same run passed the separate backup, file-restore,
+  database-restore, and termination interruption checks. This is one focused
+  run, not a completed full matrix or repeated certification. The companion
+  `restore:provision` checkpoint also passed in an earlier focused guest run
+  ([2026-10-21 evidence](lab-results/2026-10-21-rocky9-staging-restore-provisioned.md)).
 - Recovery-time measurement (< 5 minute success criterion)
 
 **Next Action:** Run the full recovery matrix on a KVM guest at

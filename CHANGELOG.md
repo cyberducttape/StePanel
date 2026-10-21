@@ -17,9 +17,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `restore:provision` and `restore:provisioned`, then verify the isolated
   staging site's files, web-server route, HTTP response, and restored database.
   Tear down the resulting site through the durable lifecycle workflow and
-  verify its route, account, and database are removed. The new drill is
-  implemented and syntax/identity-validated; real-host execution is still
-  pending.
+  verify its route, account, and database are removed. Validate crash rollback
+  by requiring a dead-lettered operation to leave no partial site resources.
+- Register staging-restore databases as panel-managed resources so interrupted
+  provisioning uses the matching `drop-managed` cleanup operation rather than
+  the WordPress-only cleanup path.
 - Include the backup recovery smoke script in integration CI's Bash syntax and
   ShellCheck checks.
 - Make the GitHub Action pin check fail closed when its search dependency is
