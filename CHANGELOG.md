@@ -44,6 +44,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   wrappers that were no-ops; active timeout behavior remains in route middleware.
 - Update the real-ENOSPC restore regression to allow the persistent stage
   coordination lock while still rejecting unexpected leftover staging files.
+- Record a focused Rocky Linux 9 ext4 quota-backed ENOSPC lab pass for backup
+  and file-restore recovery, including the initial assertion failure and the
+  scope limits of this evidence.
 - Protect Git and release-pipeline staging trees with cross-process ownership
   leases stored outside tenant-writable trees. Remove the lease-free staging
   API; orphan cleanup checks ownership before using age as a garbage-collection
