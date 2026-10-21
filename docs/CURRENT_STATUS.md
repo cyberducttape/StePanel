@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-19
+**Last Updated:** 2026-10-21
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -12,7 +12,30 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Latest exact-source repository gate — 2026-10-19 (`c0113dd`)
+### Latest exact-source repository gate — 2026-10-21 (`d931c6a`)
+
+- The repository production-gate commands passed on exact source
+  `d931c6aa9f50194ec8430ac7262853b7900eb1e6`: 57.2% aggregate coverage, all
+  package floors, full race suite (root package 480.659 seconds), four recovery
+  drills, control-plane benchmarks, mixed HTTP load, and documentation/release
+  checks. The first aggregate invocation stopped on a stale staging-method
+  documentation reference; after correcting it, the reference check and all
+  remaining commands passed. See the
+  [exact-source report](lab-results/2026-10-21-repository-gate-d931c6a.md).
+- At capture, exact-head [CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/39538628057)
+  passed. [Integration CI](https://github.com/cyberducttape/StePanel/actions/runs/39538628072)
+  and the six-combination
+  [installed-host smoke](https://github.com/cyberducttape/StePanel/actions/runs/39538628104)
+  were in progress; the
+  [quota-enabled install smoke](https://github.com/cyberducttape/StePanel/actions/runs/39538628063)
+  was queued. In-progress and queued checks are not passes.
+- Production remains **NO-GO** for physical power-loss and repeated installed-host
+  recovery, XFS quota behavior, full application restore across supported web
+  servers, alert outage/retry, capacity certification, upgrade/rollback policy,
+  and independent security review. Repository gate success does not close
+  these release gates.
+
+### Previous exact-source repository gate — 2026-10-19 (`c0113dd`)
 
 - `bash scripts/production-gate.sh` passed on exact code source
   `c0113dd4f7da75c3d3624811d813686a6a8589f5`: 57.1% aggregate coverage, every

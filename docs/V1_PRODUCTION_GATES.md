@@ -636,13 +636,13 @@ and this gate now describes the implementation as it is:
 
 **How each operation actually flows:**
 ```
-create  → site.create job (site_creation.go): SiteManager.CreateStaging() + template
+create  → site.create job (site_creation.go): SiteManager.CreateStagingLease() + template
           → broker/stepanel-sitectl prepare (account, PHP-FPM pool)
           → SiteManager.ActivateStaged() → broker seal; on failure (or after an
           unclean shutdown) broker delete + SiteManager.Delete() remove the new site
-import  → SiteManager.CreateStaging() + domain extract + SiteManager.ActivateStaged()
-clone   → SiteManager.CreateStaging() + copy (staging.go) + SiteManager.ActivateStaged()
-restore → SiteManager.CreateStaging() + domain restore + SiteManager.ActivateStaged()
+import  → SiteManager.CreateStagingLease() + domain extract + SiteManager.ActivateStaged()
+clone   → SiteManager.CreateStagingLease() + copy (staging.go) + SiteManager.ActivateStaged()
+restore → SiteManager.CreateStagingLease() + domain restore + SiteManager.ActivateStaged()
 release → SiteManager.CreateReleaseStagingLease() + build + SiteManager.ActivateStagedReplacing()
           (rollback: SiteManager.RollbackStagedActivation())
 update  → domain handlers + root broker (PHP runtime, resources, quota); SiteManager is not involved
@@ -1065,7 +1065,7 @@ closed device policy still refuses to open it.
 - [x] Multi-point process-kill/restart drills cover all 5 operations at repository level — `crash_drill_test.go` kills a child process with SIGKILL at every instrumented boundary of backup (4), file restore (4), termination (9), and account suspension (2), then runs the production startup recovery (`recoverUncleanShutdown`) or resumes the durable job and verifies the final state; deploy activation is covered by `TestReleaseActivationRecoversAfterProcessKill`. Hosted installed-host runs remain the evidence for real services
 - [x] No mysterious half-states discovered — the drills found two real leaks, both fixed: restore scratch trees under the import root and manager staging trees were never cleaned after a crash
 - [x] Recovery is deterministic at repository level — 114 consecutive SIGKILL drills (6 repetitions of all 19 kill points) recovered to the same verified state
-- [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM (partial: backup and file-restore ENOSPC passed on 2026-10-12 Rocky and 2026-10-14 quota-enabled Ubuntu runs; publication, import, database restore, and physical power loss remain; see [Rocky run](lab-results/2026-10-12-rocky9-kvm-certification.md) and [Ubuntu run](lab-results/2026-10-14-quota-install-smoke.md))
+- [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM (partial: backup and file-restore ENOSPC passed on 2026-10-12 Rocky and 2026-10-14 quota-enabled Ubuntu runs; a 2026-10-21 Rocky 9 ext4 quota-backed rerun of those two tests passed using test source `687613a`, not the current `d931c6a` head; publication, import, database restore, and physical power loss remain. See [Rocky run](lab-results/2026-10-12-rocky9-kvm-certification.md), [Ubuntu run](lab-results/2026-10-14-quota-install-smoke.md), and [2026-10-21 focused run](lab-results/2026-10-21-rocky9-enospc.md))
 - [ ] Repeat the real-host recovery matrix 20–50 times per operation/fault
   combination, with post-boot invariant evidence retained (see
   `docs/REAL_HOST_FAILURE_MATRIX.md`)

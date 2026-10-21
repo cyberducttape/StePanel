@@ -223,7 +223,7 @@ Three layers own site lifecycle (see Gate 1 in [V1_PRODUCTION_GATES.md](docs/V1_
 - **Privilege executor**: the root broker and helpers own accounts, PHP-FPM, SSH, quotas, and services. `stepanel-sitectl delete` is the single documented privileged path that removes a canonical tree; `SiteManager.Delete()` finalizes it.
 
 **Staging areas** (temporary workspaces granted by SiteManager) may be mutated by domain components, but:
-- Must be obtained via `SiteManager.CreateStaging()` (or `CreateReleaseStagingLease()` for releases; retain and close the returned lease after activation/discard)
+- Must be obtained via `SiteManager.CreateStagingLease()` (or `CreateReleaseStagingLease()` for releases); retain the lease until activation/discard, then release manager-stage leases through `ReleaseStagingLease()` and close release-stage lease files after their manager workflow completes
 - Must be activated/discarded only via `SiteManager.ActivateStaged*()` or `SiteManager.DiscardStaging()`
 - Must never persist paths or assume existence across operation boundaries
 

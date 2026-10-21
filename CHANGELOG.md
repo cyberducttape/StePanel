@@ -54,6 +54,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   creation, imports, restores, and recovery proofs. Orphan cleanup now requires
   a lease before reclaiming any new stage and leaves legacy unleased trees for
   operator review.
+- Refresh lifecycle API documentation to use `CreateStagingLease()` and record
+  exact-source repository gate results without implying that hosted checks or
+  real-host certification are complete.
 - Protect Git and release-pipeline staging trees with cross-process ownership
   leases stored outside tenant-writable trees. Remove the lease-free staging
   API; orphan cleanup checks ownership before using age as a garbage-collection
