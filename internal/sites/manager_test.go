@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -104,10 +106,11 @@ func TestReleaseStagingPreservesRunnerLayoutAndOwnership(t *testing.T) {
 	if err := os.MkdirAll(public, 0750); err != nil {
 		t.Fatal(err)
 	}
-	stage, err := m.CreateReleaseStaging(context.Background(), "release-site", ".stepanel-release-")
+	stage, owner, err := m.CreateReleaseStagingLease(context.Background(), "release-site", ".stepanel-release-")
 	if err != nil {
 		t.Fatalf("CreateReleaseStaging: %v", err)
 	}
+	defer owner.Close()
 	wantParent := filepath.Join(root, "sites", ".stepanel-manager-staging")
 	if filepath.Dir(stage) != wantParent || !strings.Contains(filepath.Base(stage), ".stepanel-release-release-site-") {
 		t.Fatalf("release staging path = %q, want site-bound staging below %q", stage, wantParent)
@@ -131,7 +134,7 @@ func TestReleaseStagingPreservesRunnerLayoutAndOwnership(t *testing.T) {
 	if _, err := os.Stat(stage); !os.IsNotExist(err) {
 		t.Fatalf("release staging tree still exists: %v", err)
 	}
-	if _, err := m.CreateReleaseStaging(context.Background(), "missing", ".stepanel-release-"); err == nil {
+	if _, _, err := m.CreateReleaseStagingLease(context.Background(), "missing", ".stepanel-release-"); err == nil {
 		t.Fatal("CreateReleaseStaging accepted an unmanaged site")
 	}
 }
@@ -143,10 +146,11 @@ func TestCleanupOrphanedReleaseStaging(t *testing.T) {
 		if err := os.MkdirAll(public, 0750); err != nil {
 			t.Fatal(err)
 		}
-		stage, err := m.CreateReleaseStaging(context.Background(), site, ".stepanel-release-")
+		stage, owner, err := m.CreateReleaseStagingLease(context.Background(), site, ".stepanel-release-")
 		if err != nil {
 			t.Fatalf("CreateReleaseStaging(%s): %v", site, err)
 		}
+		_ = owner.Close() // Model a process that exited before cleanup.
 		if err := os.WriteFile(filepath.Join(stage, "partial-artifact"), []byte("incomplete"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -181,10 +185,11 @@ func TestActivateStagedReplacingCanRollback(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(public, "version"), []byte("old"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	stage, err := m.CreateReleaseStaging(context.Background(), "replace-site", ".stepanel-release-")
+	stage, owner, err := m.CreateReleaseStagingLease(context.Background(), "replace-site", ".stepanel-release-")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer owner.Close()
 	if err := os.WriteFile(filepath.Join(stage, "version"), []byte("new"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -557,10 +562,11 @@ func TestActivateStagedReplacingRestoresPreviousWhenSyncFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(public, "version"), []byte("old"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	stage, err := m.CreateReleaseStaging(context.Background(), "sync-site", ".stepanel-release-")
+	stage, owner, err := m.CreateReleaseStagingLease(context.Background(), "sync-site", ".stepanel-release-")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer owner.Close()
 	if err := os.WriteFile(filepath.Join(stage, "version"), []byte("new"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -632,10 +638,11 @@ func TestActivateStagedReplacingRefusesUndurableStage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(public, "version"), []byte("old"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	stage, err := m.CreateReleaseStaging(context.Background(), "durable-site", ".stepanel-release-")
+	stage, owner, err := m.CreateReleaseStagingLease(context.Background(), "durable-site", ".stepanel-release-")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer owner.Close()
 	injected := errors.New("injected EIO during data sync")
 	original := syncTree
 	syncTree = func(context.Context, string) error { return injected }
@@ -670,14 +677,16 @@ func TestCleanupOrphanedStagingSparesTreesStillInUse(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "sites", "demo", "public"), 0750); err != nil {
 		t.Fatal(err)
 	}
-	abandonedRelease, err := m.CreateReleaseStaging(context.Background(), "demo", ".stepanel-release-")
+	abandonedRelease, abandonedOwner, err := m.CreateReleaseStagingLease(context.Background(), "demo", ".stepanel-release-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	liveRelease, err := m.CreateReleaseStaging(context.Background(), "demo", ".stepanel-release-")
+	_ = abandonedOwner.Close()
+	liveRelease, liveOwner, err := m.CreateReleaseStagingLease(context.Background(), "demo", ".stepanel-release-")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer liveOwner.Close()
 	abandonedStage, err := m.CreateStaging(context.Background(), ".stepanel-backup-")
 	if err != nil {
 		t.Fatal(err)
@@ -701,5 +710,93 @@ func TestCleanupOrphanedStagingSparesTreesStillInUse(t *testing.T) {
 		if exists := err == nil; exists != want {
 			t.Errorf("%s exists=%v, want %v", filepath.Base(path), exists, want)
 		}
+	}
+}
+
+func TestCleanupOrphanedStagingHonorsCrossProcessLease(t *testing.T) {
+	if stage := os.Getenv("STEPANEL_TEST_RELEASE_LEASE_STAGE"); stage != "" {
+		owner, err := os.OpenFile(releaseStageOwnerLockPath(stage), os.O_RDWR, 0600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer owner.Close()
+		if err := syscall.Flock(int(owner.Fd()), syscall.LOCK_EX); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(os.Getenv("STEPANEL_TEST_RELEASE_LEASE_READY"), []byte("ready"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for {
+			if _, err := os.Stat(os.Getenv("STEPANEL_TEST_RELEASE_LEASE_STOP")); err == nil {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	m, root := newManager(t)
+	if err := os.MkdirAll(filepath.Join(root, "sites", "demo", "public"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	stage, owner, err := m.CreateReleaseStagingLease(context.Background(), "demo", ".stepanel-release-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = owner.Close()
+	if _, err := os.Stat(filepath.Join(stage, releaseStageOwnerLock)); !os.IsNotExist(err) {
+		t.Fatalf("lease must not be stored in tenant-owned staging tree: %v", err)
+	}
+	if _, err := os.Stat(releaseStageOwnerLockPath(stage)); err != nil {
+		t.Fatalf("panel-owned sibling lease missing: %v", err)
+	}
+	old := time.Now().Add(-4 * time.Hour)
+	if err := os.Chtimes(stage, old, old); err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(root, "lease-ready")
+	stop := filepath.Join(root, "lease-stop")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestCleanupOrphanedStagingHonorsCrossProcessLease$")
+	cmd.Env = append(os.Environ(), "STEPANEL_TEST_RELEASE_LEASE_STAGE="+stage,
+		"STEPANEL_TEST_RELEASE_LEASE_READY="+ready, "STEPANEL_TEST_RELEASE_LEASE_STOP="+stop)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waited := false
+	defer func() {
+		if !waited {
+			_ = os.WriteFile(stop, []byte("stop"), 0600)
+			_ = cmd.Wait()
+		}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("lease subprocess did not acquire ownership")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	removed, err := m.CleanupOrphanedStaging(context.Background(), time.Hour)
+	if err != nil || removed != 0 {
+		t.Fatalf("cleanup removed=%d err=%v while another process owned stage", removed, err)
+	}
+	if _, err := os.Stat(stage); err != nil {
+		t.Fatalf("active release stage was removed: %v", err)
+	}
+	if err := os.WriteFile(stop, []byte("stop"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("lease subprocess: %v", err)
+	}
+	waited = true
+	removed, err = m.CleanupOrphanedStaging(context.Background(), time.Hour)
+	if err != nil || removed != 1 {
+		t.Fatalf("cleanup after lease release removed=%d err=%v, want 1", removed, err)
+	}
+	if _, err := os.Stat(releaseStageOwnerLockPath(stage)); !os.IsNotExist(err) {
+		t.Fatalf("stale owner lock was not removed with the stage: %v", err)
 	}
 }

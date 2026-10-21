@@ -894,13 +894,14 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseGitSlot()
-	release, err := a.createSiteReleaseStaging(operationCtx, input.Site, ".stepanel-release-")
+	release, releaseOwner, err := a.createSiteReleaseStaging(operationCtx, input.Site, ".stepanel-release-")
 	if err != nil {
 		http.Error(w, "unable to create release staging directory", http.StatusInternalServerError)
 		return
 	}
 	defer func() {
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), input.Site, release))
+		_ = releaseOwner.Close()
 	}()
 	stageLimit, err := gitCloneStageLimit(a.Config.GitReleaseMaxTreeBytes)
 	if err != nil {

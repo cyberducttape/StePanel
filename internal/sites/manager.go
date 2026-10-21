@@ -43,6 +43,9 @@ var validSiteName = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 var validStagedComponent = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,127}|\.stepanel-[A-Za-z0-9._-]{1,127})$`)
 var validStagingPrefix = regexp.MustCompile(`^[A-Za-z0-9._-]{1,48}-?$`)
 
+const releaseStageOwnerLock = ".stepanel-stage-owner-"
+const releaseStageCoordinationLock = ".stepanel-release-coordination.lock"
+
 // IsReleaseStagingName reports whether component names a release stage that
 // CreateReleaseStaging allocated for site. os.MkdirTemp appends a decimal
 // suffix, so requiring digits after "<site>-" keeps site "blog" from claiming
@@ -79,7 +82,7 @@ type Manager interface {
 	Create(ctx context.Context, req *CreateRequest) (*Site, error)
 	CreateStaging(ctx context.Context, prefix string) (string, error)
 	DiscardStaging(ctx context.Context, stagedRoot string) error
-	CreateReleaseStaging(ctx context.Context, name, prefix string) (string, error)
+	CreateReleaseStagingLease(ctx context.Context, name, prefix string) (string, *os.File, error)
 	DiscardReleaseStaging(ctx context.Context, name, stagedRoot string) error
 	CleanupOrphanedStaging(ctx context.Context, olderThan time.Duration) (int, error)
 	ActivateStagedReplacing(ctx context.Context, name, stagedRoot string) (string, error)
@@ -212,52 +215,115 @@ func (m *DefaultManager) resolveStagedRoot(name, stagedRoot string) (string, str
 	return "", "", errors.New("sites.Manager: staged path is not in a manager-owned staging root")
 }
 
-// CreateReleaseStaging allocates a temporary release below the manager-owned
-// staging root. Site accounts cannot rename this parent or replace the clone
-// destination while an untrusted repository is being fetched.
-func (m *DefaultManager) CreateReleaseStaging(ctx context.Context, name, prefix string) (string, error) {
+// CreateReleaseStagingLease allocates a temporary release below the
+// manager-owned staging root and returns a lock held for the lifetime of the
+// caller's release preparation. Site accounts cannot rename this parent or
+// replace the clone destination while an untrusted repository is fetched.
+// Cleanup treats age only as eligibility and skips stages with active leases.
+func (m *DefaultManager) CreateReleaseStagingLease(ctx context.Context, name, prefix string) (string, *os.File, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if !strings.HasPrefix(prefix, ".stepanel-release-") || !validStagingPrefix.MatchString(prefix) {
-		return "", errors.New("sites.Manager: invalid release staging prefix")
+		return "", nil, errors.New("sites.Manager: invalid release staging prefix")
 	}
 	if !validSiteName.MatchString(name) {
-		return "", fmt.Errorf("sites.Manager: invalid site name %q", name)
+		return "", nil, fmt.Errorf("sites.Manager: invalid site name %q", name)
 	}
 	siteRoot, err := m.resolveSiteRoot(name)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	info, err := os.Stat(siteRoot)
 	if err != nil {
-		return "", fmt.Errorf("sites.Manager: inspect release site root: %w", err)
+		return "", nil, fmt.Errorf("sites.Manager: inspect release site root: %w", err)
 	}
 	if !info.IsDir() {
-		return "", errors.New("sites.Manager: release site root is not a directory")
+		return "", nil, errors.New("sites.Manager: release site root is not a directory")
 	}
 	sitesRoot, err := h.SafePath(m.webRoot, "sites")
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	stageParent, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := os.MkdirAll(stageParent, 0700); err != nil {
-		return "", fmt.Errorf("sites.Manager: create release staging root: %w", err)
+		return "", nil, fmt.Errorf("sites.Manager: create release staging root: %w", err)
 	}
 	// Keep the entry searchable but not tenant-writable. The panel owns this
 	// directory; Git staging directories themselves receive site ownership and
 	// a panel ACL from the root broker before cloning.
 	if err := os.Chmod(stageParent, 0711); err != nil {
-		return "", fmt.Errorf("sites.Manager: secure release staging root: %w", err)
+		return "", nil, fmt.Errorf("sites.Manager: secure release staging root: %w", err)
 	}
+	coordination, err := acquireManagerStageCoordination(stageParent, releaseStageCoordinationLock)
+	if err != nil {
+		return "", nil, fmt.Errorf("sites.Manager: coordinate release staging: %w", err)
+	}
+	defer releaseManagerStageLock(coordination)
 	stage, err := os.MkdirTemp(stageParent, ".stepanel-release-"+name+"-")
 	if err != nil {
-		return "", fmt.Errorf("sites.Manager: create release staging tree: %w", err)
+		return "", nil, fmt.Errorf("sites.Manager: create release staging tree: %w", err)
 	}
-	return stage, nil
+	owner, err := os.OpenFile(releaseStageOwnerLockPath(stage), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	if err == nil {
+		err = syscall.Flock(int(owner.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	}
+	if err != nil {
+		if owner != nil {
+			_ = owner.Close()
+		}
+		_ = os.RemoveAll(stage)
+		_ = os.Remove(releaseStageOwnerLockPath(stage))
+		return "", nil, fmt.Errorf("sites.Manager: acquire release staging ownership: %w", err)
+	}
+	return stage, owner, nil
+}
+
+func releaseStageOwnerLockPath(stage string) string {
+	return filepath.Join(filepath.Dir(stage), releaseStageOwnerLock+filepath.Base(stage))
+}
+
+func acquireManagerStageCoordination(root, name string) (*os.File, error) {
+	lock, err := os.OpenFile(filepath.Join(root, name), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	return lock, nil
+}
+
+func releaseManagerStageLock(lock *os.File) {
+	if lock == nil {
+		return
+	}
+	_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	_ = lock.Close()
+}
+
+// tryLockReleaseStage returns active=true when another process owns the
+// stage. The cleanup caller must retain lock through directory removal.
+func tryLockReleaseStage(path string) (lock *os.File, active bool, err error) {
+	lock, err = os.OpenFile(releaseStageOwnerLockPath(path), os.O_RDWR, 0600)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil // Legacy stage: age remains only an eligibility check.
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, true, nil
+		}
+		return nil, false, err
+	}
+	return lock, false, nil
 }
 
 // DiscardReleaseStaging removes only a release staging tree allocated under
@@ -277,6 +343,12 @@ func (m *DefaultManager) DiscardReleaseStaging(ctx context.Context, name, staged
 		return err
 	} else if parent == managerRoot && !IsReleaseStagingName(name, component) {
 		return errors.New("sites.Manager: release staging tree belongs to another site")
+	} else if parent == managerRoot {
+		coordination, err := acquireManagerStageCoordination(parent, releaseStageCoordinationLock)
+		if err != nil {
+			return fmt.Errorf("sites.Manager: coordinate release discard: %w", err)
+		}
+		defer releaseManagerStageLock(coordination)
 	}
 	owned, err := h.SafePath(parent, component)
 	if err != nil {
@@ -295,16 +367,18 @@ func (m *DefaultManager) DiscardReleaseStaging(ctx context.Context, name, staged
 	if err := os.RemoveAll(owned); err != nil {
 		return fmt.Errorf("sites.Manager: discard release staging tree: %w", err)
 	}
+	if parent == filepath.Join(m.webRoot, "sites", ".stepanel-manager-staging") {
+		if err := os.Remove(releaseStageOwnerLockPath(owned)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("sites.Manager: remove release staging lease: %w", err)
+		}
+	}
 	return nil
 }
 
-// CleanupOrphanedStaging removes staging trees that a crashed or killed
-// operation left behind: per-site release checkouts (.stepanel-release-*)
-// and lifecycle staging trees under .stepanel-manager-staging. Only trees
-// untouched for longer than olderThan are removed, so a caller passing more
-// than the longest operation timeout never deletes a tree a live operation,
-// including one in another process, is still using. Previous releases kept
-// for rollback are not staging and are left alone.
+// CleanupOrphanedStaging removes old staging trees only after checking active
+// release-owner leases. Age controls garbage-collection eligibility; it is
+// not used as proof that a release operation has stopped. Previous releases
+// kept for rollback are never considered staging.
 func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan time.Duration) (int, error) {
 	sitesRoot, err := h.SafePath(m.webRoot, "sites")
 	if err != nil {
@@ -345,9 +419,19 @@ func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan t
 			if !strings.HasPrefix(release.Name(), ".stepanel-release-") || !abandoned(release) {
 				continue
 			}
+			releasePath := filepath.Join(siteRoot, release.Name())
+			owner, active, err := tryLockReleaseStage(releasePath)
+			if err != nil {
+				return removed, fmt.Errorf("sites.Manager: inspect release ownership %s: %w", release.Name(), err)
+			}
+			if active {
+				continue
+			}
 			if err := m.DiscardReleaseStaging(ctx, siteEntry.Name(), filepath.Join(siteRoot, release.Name())); err != nil {
+				releaseManagerStageLock(owner)
 				return removed, err
 			}
+			releaseManagerStageLock(owner)
 			removed++
 		}
 	}
@@ -355,9 +439,45 @@ func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan t
 	if err != nil {
 		return removed, fmt.Errorf("sites.Manager: resolve staging root: %w", err)
 	}
+	coordination, err := acquireManagerStageCoordination(stageParent, releaseStageCoordinationLock)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return removed, fmt.Errorf("sites.Manager: coordinate staging cleanup: %w", err)
+	}
+	if coordination != nil {
+		defer releaseManagerStageLock(coordination)
+	}
 	staged, err := os.ReadDir(stageParent)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return removed, fmt.Errorf("sites.Manager: read staging root: %w", err)
+	}
+	for _, entry := range staged {
+		if !strings.HasPrefix(entry.Name(), releaseStageOwnerLock) {
+			continue
+		}
+		stagePath := filepath.Join(stageParent, strings.TrimPrefix(entry.Name(), releaseStageOwnerLock))
+		if _, err := os.Lstat(stagePath); !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		lockPath := filepath.Join(stageParent, entry.Name())
+		owner, err := os.OpenFile(lockPath, os.O_RDWR, 0600)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return removed, fmt.Errorf("sites.Manager: inspect stale release lease %s: %w", entry.Name(), err)
+		}
+		if err := syscall.Flock(int(owner.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+			_ = owner.Close()
+			if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+				continue
+			}
+			return removed, fmt.Errorf("sites.Manager: lock stale release lease %s: %w", entry.Name(), err)
+		}
+		removeErr := os.Remove(lockPath)
+		releaseManagerStageLock(owner)
+		if removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return removed, fmt.Errorf("sites.Manager: remove stale release lease %s: %w", entry.Name(), removeErr)
+		}
 	}
 	for _, entry := range staged {
 		if err := ctx.Err(); err != nil {
@@ -366,9 +486,29 @@ func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan t
 		if !abandoned(entry) {
 			continue
 		}
-		if err := m.DiscardStaging(ctx, filepath.Join(stageParent, entry.Name())); err != nil {
+		var owner *os.File
+		if strings.HasPrefix(entry.Name(), ".stepanel-release-") {
+			var active bool
+			owner, active, err = tryLockReleaseStage(filepath.Join(stageParent, entry.Name()))
+			if err != nil {
+				return removed, fmt.Errorf("sites.Manager: inspect release ownership %s: %w", entry.Name(), err)
+			}
+			if active {
+				continue
+			}
+		}
+		stagePath := filepath.Join(stageParent, entry.Name())
+		if err := m.DiscardStaging(ctx, stagePath); err != nil {
+			releaseManagerStageLock(owner)
 			return removed, err
 		}
+		if owner != nil {
+			if err := os.Remove(releaseStageOwnerLockPath(stagePath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				releaseManagerStageLock(owner)
+				return removed, fmt.Errorf("sites.Manager: remove release staging lease %s: %w", entry.Name(), err)
+			}
+		}
+		releaseManagerStageLock(owner)
 		removed++
 	}
 	return removed, nil

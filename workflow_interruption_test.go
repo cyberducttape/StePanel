@@ -119,9 +119,10 @@ func (f interruptionFixture) assertQuiescent(t *testing.T) {
 		switch {
 		case name == ".stepanel-recovery":
 		case name == ".stepanel-manager-staging":
-			// The manager's permanent staging container must hold no trees.
-			if staged, _ := os.ReadDir(filepath.Join(sites, name)); len(staged) != 0 {
-				t.Errorf("manager staging not discarded: %d tree(s) in %s", len(staged), name)
+			// Only the permanent coordination inode may remain in the manager's
+			// staging container after an operation.
+			if staged, _ := os.ReadDir(filepath.Join(sites, name)); len(staged) > 1 || (len(staged) == 1 && staged[0].Name() != ".stepanel-release-coordination.lock") {
+				t.Errorf("manager staging not discarded: entries=%v", staged)
 			}
 		case strings.HasPrefix(name, ".stepanel-"):
 			t.Errorf("lifecycle staging left behind: %s", name)
@@ -153,6 +154,9 @@ func (f interruptionFixture) assertQuiescent(t *testing.T) {
 	}
 	imports, _ := os.ReadDir(f.cfg.ImportRoot)
 	for _, entry := range imports {
+		if entry.Name() == ".stepanel-stage-coordination.lock" {
+			continue // Stable lock inode shared by import-stage lifecycle operations.
+		}
 		t.Errorf("restore stage left behind: %s", entry.Name())
 	}
 }
@@ -268,10 +272,11 @@ func TestWorkflowInterruption_DeployThenRestore(t *testing.T) {
 	f.writeSite(t, versionTwo)
 	app := &App{Config: f.cfg}
 
-	release, err := app.createSiteReleaseStaging(context.Background(), f.site.Site(), ".stepanel-release-")
+	release, owner, err := app.createSiteReleaseStaging(context.Background(), f.site.Site(), ".stepanel-release-")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer owner.Close()
 	writeTestFile(t, filepath.Join(release, "index.html"), "v3")
 
 	t.Setenv("STEPANEL_FAIL_AT", "deploy:activate")

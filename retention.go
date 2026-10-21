@@ -33,6 +33,12 @@ var temporaryImportStagePrefixes = []string{
 // its scratch directory. Cleanup only removes stages whose ownership lock is
 // not held, so a slow transfer cannot be mistaken for abandoned work.
 func createImportStage(root, prefix string) (string, *os.File, error) {
+	coordination, err := acquireImportStageCoordination(root)
+	if err != nil {
+		return "", nil, err
+	}
+	defer releaseBackupStageLock(coordination)
+
 	path, err := os.MkdirTemp(root, prefix)
 	if err != nil {
 		return "", nil, err
@@ -55,7 +61,31 @@ func importStageLockPath(path string) string {
 	return filepath.Join(filepath.Dir(path), ".stepanel-stage-lock-"+filepath.Base(path))
 }
 
+// acquireImportStageCoordination serializes stage-lock pathname lifecycle
+// operations. Per-stage flock files protect long-running work; this stable
+// root lock prevents an opener from racing an unlink and acquiring a lock on
+// a replacement inode. The coordination lock itself is never removed.
+func acquireImportStageCoordination(root string) (*os.File, error) {
+	lock, err := os.OpenFile(filepath.Join(root, ".stepanel-stage-coordination.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	return lock, nil
+}
+
 func removeImportStage(path string, lock *os.File) {
+	coordination, err := acquireImportStageCoordination(filepath.Dir(path))
+	if err != nil {
+		// Keep the lock pathname if coordination cannot be established. An
+		// orphaned stage can be reclaimed later; unlinking without coordination
+		// would reintroduce the split-inode race.
+		return
+	}
+	defer releaseBackupStageLock(coordination)
 	_ = os.RemoveAll(path)
 	_ = releaseBackupStageLock(lock)
 	_ = os.Remove(importStageLockPath(path))
@@ -74,6 +104,15 @@ func isTemporaryImportStage(name string) bool {
 // older than maxAge, and temporary scratch trees abandoned for longer than
 // orphanedStagingMinAge. A missing root has nothing to clean.
 func CleanupImportStages(root string, maxAge time.Duration) error {
+	coordination, err := acquireImportStageCoordination(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer releaseBackupStageLock(coordination)
+
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -103,12 +142,13 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 						_ = lock.Close()
 						return lockErr
 					}
-					_ = releaseBackupStageLock(lock)
 				}
 				if lockErr == nil {
 					if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+						_ = releaseBackupStageLock(lock)
 						return err
 					}
+					_ = releaseBackupStageLock(lock)
 				}
 			}
 			continue
@@ -145,7 +185,9 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 				}
 				_ = releaseBackupStageLock(lock)
 				if lock != nil {
-					_ = os.Remove(lockPath)
+					if err := os.Remove(lockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+						return err
+					}
 				}
 			}
 			continue

@@ -129,7 +129,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		historyUnavailable(w, r)
 		return
 	}
-	release, commit, err := a.checkoutPipelineRelease(ctx, access, repository, input.Ref)
+	release, commit, releaseOwner, err := a.checkoutPipelineRelease(ctx, access, repository, input.Ref)
 	if err != nil {
 		_ = a.recordDeployment(input.Site, "checkout", "failed", err.Error(), result, "") // failure already marks readiness
 		http.Error(w, "Git checkout failed", 502)
@@ -138,6 +138,9 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	result.Commit = commit
 	defer func() {
 		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), input.Site, release))
+		if releaseOwner != nil {
+			_ = releaseOwner.Close()
+		}
 	}()
 	if input.Backup {
 		if err := a.recordDeployment(input.Site, "backup", "running", "pre-activation backup started", result, ""); err != nil {
@@ -177,11 +180,13 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not replace source with artifact", 500)
 		return
 	}
+	_ = releaseOwner.Close()
+	releaseOwner = nil
 	// The runner artifact and Git checkout may be governed by different quota
 	// identities. A rename can therefore fail even on the same filesystem. Copy
 	// the validated artifact into a fresh manager-owned stage and reserve the
 	// temporary duplicate space before writing it.
-	release, err = a.createSiteReleaseStaging(operationCtx, input.Site, ".stepanel-release-")
+	release, releaseOwner, err = a.createSiteReleaseStaging(operationCtx, input.Site, ".stepanel-release-")
 	if err != nil {
 		log.Printf("release pipeline staging directory creation failed for site %s: %v", input.Site, err)
 		_ = a.recordDeployment(input.Site, "build", "failed", "could not create artifact staging directory: "+err.Error(), result, artifact)
@@ -378,35 +383,39 @@ func removeSiteBuildArtifact(webRoot, site string) error {
 	return siteRoot.RemoveAll(".stepanel-artifact")
 }
 
-func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, repository gitRepository, ref string) (string, string, error) {
+func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, repository gitRepository, ref string) (string, string, *os.File, error) {
 	releaseGitSlot, err := a.acquireGitCloneAdmission(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("Git pipeline rejected by host memory admission: %w", err)
+		return "", "", nil, fmt.Errorf("Git pipeline rejected by host memory admission: %w", err)
 	}
 	defer releaseGitSlot()
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	release, err := a.createSiteReleaseStaging(ctx, site.Site(), ".stepanel-release-")
+	release, releaseOwner, err := a.createSiteReleaseStaging(ctx, site.Site(), ".stepanel-release-")
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
+	transferred := false
+	defer func() {
+		if !transferred {
+			logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
+			_ = releaseOwner.Close()
+		}
+	}()
 	stageLimit, err := gitCloneStageLimit(a.Config.GitReleaseMaxTreeBytes)
 	if err != nil {
-		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-		return "", "", err
+		return "", "", nil, err
 	}
 	reservation, err := a.capacityLedger().reserve(a.Config, "git-pipeline-checkout", release, []capacityDemand{{Path: release, Bytes: uint64(stageLimit)}})
 	if err != nil {
-		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-		return "", "", fmt.Errorf("admit aggregate Git clone staging: %w", err)
+		return "", "", nil, fmt.Errorf("admit aggregate Git clone staging: %w", err)
 	}
 	defer reservation.release()
 	projectID, err := a.enableGitStageQuota(ctx, site.Site(), release, stageLimit)
 	if err != nil {
-		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-		return "", "", fmt.Errorf("Git pipeline requires enforceable project quotas: %w", err)
+		return "", "", nil, fmt.Errorf("Git pipeline requires enforceable project quotas: %w", err)
 	}
 	quotaActive := true
 	defer func() {
@@ -422,32 +431,28 @@ func (a *App) checkoutPipelineRelease(ctx context.Context, site SiteCapability, 
 	} else {
 		prlimit, lookupErr := exec.LookPath("prlimit")
 		if lookupErr != nil {
-			logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-			return "", "", errors.New("prlimit is required to enforce Git clone memory and per-file limits")
+			return "", "", nil, errors.New("prlimit is required to enforce Git clone memory and per-file limits")
 		}
 		cmd := exec.CommandContext(ctx, prlimit, "--as="+strconv.FormatUint(gitCloneAddressSpaceBytes, 10), "--fsize="+strconv.FormatInt(a.Config.GitReleaseMaxTreeBytes, 10), "--", gitPath, "-c", "credential.helper=", "clone", "--depth", "1", "--branch", ref, "--single-branch", "--no-tags", repository.URL, release)
 		cmd.Env = gitCommandEnv()
 		output, err = runBoundedCommand(ctx, cmd)
 	}
 	if err != nil {
-		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-		return "", "", err
+		return "", "", nil, err
 	}
 	commit, err := identifyGitCommit(ctx, gitPath, release)
 	if err != nil {
-		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-		return "", "", err
+		return "", "", nil, err
 	}
 	if validateGitRelease(release, a.Config.MaxEntries) != nil || validateGitReleaseSize(release, a.Config.GitReleaseMaxTreeBytes) != nil || os.RemoveAll(filepath.Join(release, ".git")) != nil {
-		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-		return "", "", fmt.Errorf("invalid checked-out release: %s", strings.TrimSpace(string(output)))
+		return "", "", nil, fmt.Errorf("invalid checked-out release: %s", strings.TrimSpace(string(output)))
 	}
 	if err := a.disableGitStageQuota(ctx, site.Site(), release, projectID); err != nil {
-		logStagingDiscardFailure(release, a.discardSiteReleaseStaging(context.Background(), site.Site(), release))
-		return "", "", fmt.Errorf("clear temporary Git staging quota: %w", err)
+		return "", "", nil, fmt.Errorf("clear temporary Git staging quota: %w", err)
 	}
 	quotaActive = false
-	return release, commit, nil
+	transferred = true
+	return release, commit, releaseOwner, nil
 }
 
 func (a *App) runPipelineBuild(ctx context.Context, site, image string, commands []string, root string) error {

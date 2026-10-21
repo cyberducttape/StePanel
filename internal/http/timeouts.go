@@ -109,32 +109,6 @@ func (tc TimeoutConfiguration) ApplyToServer(srv *http.Server) {
 	srv.IdleTimeout = 30 * time.Second
 }
 
-// UploadHandler wraps an upload handler with extended timeouts
-// Use this for /api/cpmove/import, /api/wpress/restore, etc.
-func (tc TimeoutConfiguration) UploadHandler(handler http.HandlerFunc) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set per-request timeout for this upload
-		// In practice, this requires more sophisticated handling via context
-		handler(w, r)
-	})
-}
-
-// DownloadHandler wraps a download handler with extended write timeout
-// Use this for /api/backup/download, /api/export, etc.
-func (tc TimeoutConfiguration) DownloadHandler(handler http.HandlerFunc) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handler(w, r)
-	})
-}
-
-// LongPollHandler wraps a handler that supports long-polling
-// Use this for activity feeds, status polling, etc.
-func (tc TimeoutConfiguration) LongPollHandler(handler http.HandlerFunc) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handler(w, r)
-	})
-}
-
 // Rationale for timeout choices:
 //
 // ORDINARY API (10s read/write):

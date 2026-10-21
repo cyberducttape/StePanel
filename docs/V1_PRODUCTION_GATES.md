@@ -643,7 +643,7 @@ create  → site.create job (site_creation.go): SiteManager.CreateStaging() + te
 import  → SiteManager.CreateStaging() + domain extract + SiteManager.ActivateStaged()
 clone   → SiteManager.CreateStaging() + copy (staging.go) + SiteManager.ActivateStaged()
 restore → SiteManager.CreateStaging() + domain restore + SiteManager.ActivateStaged()
-release → SiteManager.CreateReleaseStaging() + build + SiteManager.ActivateStagedReplacing()
+release → SiteManager.CreateReleaseStagingLease() + build + SiteManager.ActivateStagedReplacing()
           (rollback: SiteManager.RollbackStagedActivation())
 update  → domain handlers + root broker (PHP runtime, resources, quota); SiteManager is not involved
 delete  → lifecycle job: backups, services, tasks, routes, databases

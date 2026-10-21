@@ -13,6 +13,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Serialize import-stage lock creation, reclamation, and unlinking with a
+  persistent per-root coordination lock, preventing split-inode advisory-lock
+  races between cleanup and stage creation. Update recovery assertions to
+  recognize this permanent coordination inode. Remove unused HTTP timeout
+  wrappers that were no-ops; active timeout behavior remains in route middleware.
+- Protect Git and release-pipeline staging trees with cross-process ownership
+  leases stored outside tenant-writable trees. Remove the lease-free staging
+  API; orphan cleanup checks ownership before using age as a garbage-collection
+  threshold, and stage allocation is coordinated with cleanup.
 - Set the explicit unsafe-lab flag for direct site-helper calls in abrupt-loss
   drills; without it, the helper correctly rejects the legacy account-less
   invocation and the recovery drill stops before reaching its fault boundary.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
@@ -75,16 +76,16 @@ func (a *App) discardSiteStaging(ctx context.Context, stagedRoot string) error {
 	return discardSiteManagerStaging(ctx, a.Config, stagedRoot)
 }
 
-func (a *App) createSiteReleaseStaging(ctx context.Context, name, prefix string) (string, error) {
+func (a *App) createSiteReleaseStaging(ctx context.Context, name, prefix string) (string, *os.File, error) {
 	manager := a.siteManager
 	if manager == nil {
 		var err error
 		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
 		if err != nil {
-			return "", fmt.Errorf("initialize site manager: %w", err)
+			return "", nil, fmt.Errorf("initialize site manager: %w", err)
 		}
 	}
-	return manager.CreateReleaseStaging(ctx, name, prefix)
+	return manager.CreateReleaseStagingLease(ctx, name, prefix)
 }
 
 func (a *App) discardSiteReleaseStaging(ctx context.Context, name, stagedRoot string) error {

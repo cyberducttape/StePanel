@@ -2,9 +2,11 @@ package stepanel
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -128,5 +130,125 @@ func TestCleanupImportStagesSkipsActiveLongRunningRestore(t *testing.T) {
 	}
 	if _, err := os.Stat(stage); err != nil {
 		t.Fatalf("active restore stage was removed: %v", err)
+	}
+}
+
+func TestImportStageCoordinationLockHasStableIdentity(t *testing.T) {
+	root := t.TempDir()
+	coordinationPath := filepath.Join(root, ".stepanel-stage-coordination.lock")
+	first, err := acquireImportStageCoordination(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstInfo, err := os.Stat(coordinationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := releaseBackupStageLock(first); err != nil {
+		t.Fatal(err)
+	}
+
+	stage, lock, err := createImportStage(root, "offsite-restore-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	removeImportStage(stage, lock)
+	if err := CleanupImportStages(root, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	lastInfo, err := os.Stat(coordinationPath)
+	if err != nil {
+		t.Fatalf("stable coordination lock was removed: %v", err)
+	}
+	firstStat, ok := firstInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Skip("filesystem does not expose inode identity")
+	}
+	lastStat, ok := lastInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Skip("filesystem does not expose inode identity")
+	}
+	if firstStat.Ino != lastStat.Ino {
+		t.Fatalf("coordination lock inode changed: %d -> %d", firstStat.Ino, lastStat.Ino)
+	}
+}
+
+func TestImportStageLeaseProcessHelper(t *testing.T) {
+	root := os.Getenv("STEPANEL_TEST_IMPORT_STAGE_ROOT")
+	if root == "" {
+		return
+	}
+	id := os.Getenv("STEPANEL_TEST_IMPORT_STAGE_ID")
+	stage, lock, err := createImportStage(root, "offsite-restore-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseBackupStageLock(lock)
+	old := time.Now().Add(-orphanedStagingMinAge - time.Hour)
+	if err := os.Chtimes(stage, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ready-"+id), []byte(stage), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(root, "stop")); err == nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestImportStageCleanupCoordinatesAcrossThreeProcesses(t *testing.T) {
+	root := t.TempDir()
+	commands := make([]*exec.Cmd, 0, 2)
+	stages := make([]string, 0, 2)
+	for _, id := range []string{"one", "two"} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestImportStageLeaseProcessHelper$")
+		cmd.Env = append(os.Environ(), "STEPANEL_TEST_IMPORT_STAGE_ROOT="+root, "STEPANEL_TEST_IMPORT_STAGE_ID="+id)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		commands = append(commands, cmd)
+	}
+	stopChildren := func() {
+		_ = os.WriteFile(filepath.Join(root, "stop"), []byte("stop"), 0600)
+		for _, cmd := range commands {
+			_ = cmd.Wait()
+		}
+	}
+	defer stopChildren()
+	deadline := time.Now().Add(5 * time.Second)
+	for _, id := range []string{"one", "two"} {
+		ready := filepath.Join(root, "ready-"+id)
+		for {
+			data, err := os.ReadFile(ready)
+			if err == nil {
+				stages = append(stages, string(data))
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("stage-owner subprocesses failed to start")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if err := CleanupImportStages(root, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range stages {
+		if _, err := os.Stat(stage); err != nil {
+			t.Fatalf("cleanup removed a live subprocess stage %s: %v", stage, err)
+		}
+	}
+	stopChildren()
+	commands = nil
+	if err := CleanupImportStages(root, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range stages {
+		if _, err := os.Stat(stage); !os.IsNotExist(err) {
+			t.Errorf("abandoned stage remains after owners exited: %s (%v)", stage, err)
+		}
 	}
 }

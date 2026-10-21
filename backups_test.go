@@ -1026,7 +1026,7 @@ func TestBackupRehearsalValidatesAndCleansTemporaryExtraction(t *testing.T) {
 	if result.EntriesVerified != 1 || result.FilesExtracted != 1 || result.BytesExtracted != int64(len("backup")) {
 		t.Fatalf("unexpected rehearsal result: %#v", result)
 	}
-	if entries, err := os.ReadDir(importRoot); err != nil || len(entries) != 0 {
+	if entries, err := os.ReadDir(importRoot); err != nil || len(entries) != 1 || entries[0].Name() != ".stepanel-stage-coordination.lock" {
 		t.Fatalf("rehearsal staging was not cleaned: entries=%#v err=%v", entries, err)
 	}
 	data, err := os.ReadFile(filepath.Join(webRoot, "sites", "account", "public", "index.html"))

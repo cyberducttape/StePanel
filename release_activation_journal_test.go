@@ -24,10 +24,11 @@ func TestReleaseActivationRecoversAfterProcessKill(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		staged, err := manager.CreateReleaseStaging(context.Background(), "example", ".stepanel-release-crash-")
+		staged, owner, err := manager.CreateReleaseStagingLease(context.Background(), "example", ".stepanel-release-crash-")
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer owner.Close()
 		if err := os.WriteFile(filepath.Join(staged, "index.html"), []byte("new"), 0640); err != nil {
 			t.Fatal(err)
 		}
