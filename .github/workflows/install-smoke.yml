@@ -1,11 +1,6 @@
 name: Installation smoke
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'CHANGELOG.md'
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
@@ -27,9 +22,9 @@ on:
         type: string
 
 concurrency:
-  # Preserve long-running evidence across newer pushes. Repeated recovery
-  # shards must have independent groups so GitHub does not replace all but the
-  # latest pending shard for the same workflow event.
+  # Preserve long-running scheduled and release-candidate evidence. Repeated
+  # recovery shards must have independent groups so GitHub does not replace
+  # all but the latest pending shard for the same workflow event.
   group: stepanel-install-smoke-${{ github.ref }}-${{ github.event_name }}-${{ inputs.recovery_matrix_shard || 'default' }}
   cancel-in-progress: false
 

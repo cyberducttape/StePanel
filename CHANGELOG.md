@@ -13,6 +13,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Keep the six-distro installation matrix on its nightly/manual release-candidate
+  schedule and the quota-enabled host drill weekly/manual, rather than launching
+  both long-running host certifications on every main-branch push. Main pushes
+  still run the integration suite; release acceptance still requires explicit
+  repeated host and quota evidence.
 - Reconcile the current status and release-gate evidence with the latest
   workflow-only commit, recording the documentation check result separately
   from pending integration and installed-host checks.

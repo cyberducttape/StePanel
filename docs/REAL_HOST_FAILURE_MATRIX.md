@@ -17,6 +17,14 @@ The matrix script rejects values above 50 and gives every iteration isolated
 site/account names. `RECOVERY_MATRIX_REPEATS=1` is the normal smoke default;
 20–50 repetitions are intended for destructive soak runs.
 
+The six-distribution installation/recovery matrix runs nightly and can be
+dispatched for a release candidate; it is intentionally not started by every
+push to `main`. Dispatch quota-enabled installed-host certification separately
+with `gh workflow run quota-install-smoke.yml --ref main`. The quota workflow
+also runs weekly. Record the exact tested commit and retain all run artifacts;
+scheduled or single-iteration success does not replace the 20–50 repeat
+release-candidate cohort below.
+
 The GitHub installed-host workflow is sharded because a sequential 20-repeat
 job exceeds the hosted runner's six-hour limit. A recovery shard accepts one or
 two iterations; two-iteration shards require unique IDs so Actions concurrency

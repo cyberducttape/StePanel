@@ -1,11 +1,8 @@
 name: Quota-enabled production install smoke
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'CHANGELOG.md'
+  schedule:
+    - cron: '41 4 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -13,9 +10,8 @@ permissions:
 
 concurrency:
   group: stepanel-quota-smoke-${{ github.ref }}
-  # This guest can spend nearly two hours in recovery drills. Keep the active
-  # run alive when a newer commit arrives; GitHub will retain the latest
-  # pending run without canceling evidence already being collected.
+  # This guest can spend nearly two hours in recovery drills. Keep active
+  # certification evidence alive rather than canceling it for another run.
   cancel-in-progress: false
 
 jobs:
