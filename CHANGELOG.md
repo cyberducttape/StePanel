@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Bind the README Docker evaluation example to host loopback and document
+  trusted-proxy and private-network/firewall requirements for production.
 - Serialize import-stage lock creation, reclamation, and unlinking with a
   persistent per-root coordination lock, preventing split-inode advisory-lock
   races between cleanup and stage creation. Update recovery assertions to

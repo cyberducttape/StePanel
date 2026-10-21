@@ -109,7 +109,7 @@ Kubernetes runtime and flags it with a Deployment Mode warning.
 docker build -t stepanel:local .
 ADMIN_TOTP_SECRET="$(openssl rand 20 | base32 | tr -d '=\n')"
 printf 'Save and enroll this administrator TOTP secret before continuing: %s\n' "$ADMIN_TOTP_SECRET"
-docker run --rm -p 8080:8080 \
+docker run --rm -p 127.0.0.1:8080:8080 \
   -e STEPANEL_TLS_TERMINATED=1 \
   -e STEPANEL_ADMIN_PASSWORD='use-a-password-manager' \
   -e STEPANEL_SESSION_SECRET="$(openssl rand -hex 32)" \
@@ -136,10 +136,14 @@ evaluation/integration mode, not a substitute for the native production
 installer. The generated keys above are
 for a throwaway trial: for a real installation generate them once, store them in
 your secret manager, and back them up, because encrypted environment state and
-signed backups cannot be read without them. `STEPANEL_TLS_TERMINATED=1` means this container
-must be reachable only through a trusted HTTPS reverse proxy; do not expose
-the published port directly to an untrusted network. Mount provider
-credentials through your secret manager; do not bake them into the image.
+signed backups cannot be read without them. This local example binds the
+published port to host loopback. `STEPANEL_TLS_TERMINATED=1` means the container
+must be reachable only through a trusted HTTPS reverse proxy. For production
+reverse-proxy deployments, use a private container network or explicit firewall
+policy and configure `STEPANEL_TRUSTED_PROXY_CIDRS` for the proxy's actual
+addresses; never publish the HTTP port directly to an untrusted network. Mount
+provider credentials through your secret manager; do not bake them into the
+image.
 
 ### Server installation from a release
 

@@ -46,6 +46,15 @@ func TestInstallDocsProvideEverySecretTheManifestsRequire(t *testing.T) {
 			t.Errorf("README container example omits production-required %s", name)
 		}
 	}
+	if !strings.Contains(string(readme), "docker run --rm -p 127.0.0.1:8080:8080 \\") {
+		t.Error("README container example must publish its HTTP port on loopback only")
+	}
+	if strings.Contains(string(readme), "docker run --rm -p 8080:8080 \\") {
+		t.Error("README container example must not publish its HTTP port on all host interfaces")
+	}
+	if !strings.Contains(string(readme), "STEPANEL_TRUSTED_PROXY_CIDRS") {
+		t.Error("README must explain trusted proxy configuration for production reverse proxies")
+	}
 	totpGeneration := "ADMIN_TOTP_SECRET=\"$(openssl rand 20 | base32 | tr -d '=\\n')\""
 	for _, example := range []struct {
 		path  string
