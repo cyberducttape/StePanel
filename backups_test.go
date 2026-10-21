@@ -308,12 +308,18 @@ func TestRestoreFilesRecoversFromRealENOSPC(t *testing.T) {
 			artifacts = append(artifacts, entry)
 		}
 	}
-	if len(artifacts) != 1 || artifacts[0].Name() != filepath.Base(fillPath) {
-		names := make([]string, 0, len(artifacts))
-		for _, entry := range artifacts {
-			names = append(names, entry.Name())
+	wantArtifacts := map[string]bool{
+		filepath.Base(fillPath):             true,
+		".stepanel-stage-coordination.lock": true,
+	}
+	for _, entry := range artifacts {
+		if !wantArtifacts[entry.Name()] {
+			t.Errorf("unexpected restore staging artifact after ENOSPC: %q", entry.Name())
 		}
-		t.Fatalf("restore staging after ENOSPC = %q, want only the filler", names)
+		delete(wantArtifacts, entry.Name())
+	}
+	for name := range wantArtifacts {
+		t.Errorf("restore staging after ENOSPC is missing expected artifact %q", name)
 	}
 	if err := os.Remove(fillPath); err != nil {
 		t.Fatal(err)
