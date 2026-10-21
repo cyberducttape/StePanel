@@ -234,6 +234,20 @@ mkdir -p "/var/www/sites/$site/public"
 printf '%s\n' 'smoke' > "/var/www/sites/$site/public/index.html"
 /usr/local/sbin/stepanel-sitectl seal "$site"
 
+# This fixture is created directly through the host helper after the panel's
+# startup identity migration. Restart once so the legacy site account is
+# durably registered before later Git deployment tests use the broker's
+# persisted-identity contract.
+systemctl restart stepanel.service
+for _ in $(seq 1 60); do
+  if systemctl is-active --quiet stepanel.service && \
+     curl --fail --silent --max-time 2 http://127.0.0.1:8090/readyz >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8090/readyz >/dev/null
+
 if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
   stage_parent=/var/www/sites/.stepanel-manager-staging
   install -d -o stepanel -g stepanel -m 0700 "$stage_parent"
