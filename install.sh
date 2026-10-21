@@ -459,6 +459,13 @@ if (( UNSAFE_LAB == 0 )); then
     echo "$quota_status" >&2
     exit 1
   fi
+  # Git deployments and release pipelines need project quotas on the staging
+  # filesystem and refuse to run without them; say so before installing.
+  project_quota_status=$(quotaon -p -P /var/www 2>&1 || true)
+  if [[ $project_quota_status != *'project quota on /var/www ('*') is on'* ]]; then
+    echo 'warning: project quotas are not on for /var/www, so Git deployments and release pipelines will be refused.' >&2
+    echo '  Mount /var/www with prjquota (ext4 also needs the project and quota features) to enable them.' >&2
+  fi
 fi
 if [[ "$WEB_SERVER" == "apache" ]]; then
   if [[ "$PKG" == "apt" ]]; then apt-get install -y apache2; APACHE_SERVICE=apache2; else dnf install -y httpd; APACHE_SERVICE=httpd; fi

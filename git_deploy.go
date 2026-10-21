@@ -47,7 +47,14 @@ func gitCloneStageLimit(treeLimit int64) (int64, error) {
 	return int64(uint64(treeLimit) * gitCloneStageMultiplier), nil
 }
 
+// enableGitStageQuota installs the aggregate staging quota through the root
+// broker. Development runs have no broker and no root helper, so they keep
+// the capacity reservation and per-file limit only and report project ID 0;
+// production and the lab broker always go through the broker and fail closed.
 func (a *App) enableGitStageQuota(ctx context.Context, site, destination string, limit int64) (uint32, error) {
+	if !a.Config.Production && !labDirectRootBrokerEnabled() {
+		return 0, nil
+	}
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
 	if err != nil {
 		return 0, err
@@ -62,6 +69,9 @@ func gitStageCleanupContext(ctx context.Context) (context.Context, context.Cance
 }
 
 func (a *App) disableGitStageQuota(ctx context.Context, site, destination string, projectID uint32) error {
+	if projectID == 0 && !a.Config.Production && !labDirectRootBrokerEnabled() {
+		return nil // enableGitStageQuota installed no quota in development.
+	}
 	ctx, cancel := gitStageCleanupContext(ctx)
 	defer cancel()
 	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)

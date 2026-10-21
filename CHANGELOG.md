@@ -20,6 +20,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   on main/manual instead of allocating a long-lived guest for every PR. Quote
   guest commands correctly and scope its ShellCheck suppression to a command
   that intentionally expands variables on the remote VM.
+- Let development runs (no production flag and no lab broker) deploy public
+  Git repositories again. The Git staging quota step called the root broker
+  unconditionally, so local Git deploys failed. Development keeps the
+  capacity reservation and per-file limit; production still fails closed.
+- Warn during production installs when `/var/www` lacks project quotas,
+  because Git deployments and release pipelines refuse to run without them.
+  Previously the install succeeded and every Git deploy was refused later.
 - Remove import, restore and release stage trees outside the root-wide
   stage coordination lock. Each stage's own lock already keeps cleanup away,
   and coordination only protects lock pathnames, but deleting a large restore

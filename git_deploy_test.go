@@ -725,3 +725,24 @@ func TestCommittedReleaseIsNeverReportedAsCancelled(t *testing.T) {
 		})
 	}
 }
+
+func TestGitStageQuotaIsSkippedOnlyInDevelopment(t *testing.T) {
+	t.Setenv("STEPANEL_LAB_DIRECT_ROOT_BROKER", "")
+	dev := &App{Config: Config{WebRoot: t.TempDir()}}
+	projectID, err := dev.enableGitStageQuota(context.Background(), "site", "/unused", 1<<20)
+	if err != nil || projectID != 0 {
+		t.Fatalf("development quota = %d, %v; want no broker call", projectID, err)
+	}
+	if err := dev.disableGitStageQuota(context.Background(), "site", "/unused", 0); err != nil {
+		t.Fatalf("development quota cleanup = %v", err)
+	}
+	// Production must reach the broker and fail closed when it is absent.
+	prod := &App{Config: Config{Production: true, WebRoot: t.TempDir()}}
+	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", filepath.Join(t.TempDir(), "missing.sock"))
+	if _, err := prod.enableGitStageQuota(context.Background(), "site", "/unused", 1<<20); err == nil {
+		t.Fatal("production Git staging quota succeeded without the root broker")
+	}
+	if err := prod.disableGitStageQuota(context.Background(), "site", "/unused", 0); err == nil {
+		t.Fatal("production Git staging quota cleanup succeeded without the root broker")
+	}
+}

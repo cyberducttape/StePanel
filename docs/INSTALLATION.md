@@ -30,6 +30,12 @@ equivalent disposable-host coverage. The executable matrix is published in
 `.github/workflows/install-smoke.yml` and
 `.github/workflows/quota-install-smoke.yml`.
 
+Production installs require user quotas on `/var/www`. Git deployments and
+release pipelines also need project quotas there: mount `/var/www` with
+`usrquota,prjquota` (ext4 additionally needs the `project` and `quota`
+filesystem features). Without project quotas the installer prints a warning
+and completes, but those features refuse to run.
+
 The default is `STEPANEL_WEBSERVER=caddy`. Set `STEPANEL_WEBSERVER=apache` or
 `STEPANEL_WEBSERVER=openlitespeed` to opt into another webserver. OpenLiteSpeed
 installations require the OpenLiteSpeed package repository to be configured;
