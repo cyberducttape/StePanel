@@ -22,18 +22,26 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   documentation reference; after correcting it, the reference check and all
   remaining commands passed. See the
   [exact-source report](lab-results/2026-10-21-repository-gate-d931c6a.md).
-- The later `c9712da` change modifies CI workflow selection and documentation
-  only; it does not change Go/application source. Its focused
-  [documentation workflow](https://github.com/cyberducttape/StePanel/actions/runs/39540812284)
-  passed. At 2026-10-21 03:51 UTC, CodeQL for that head was in progress and
-  integration and installation workflows were pending. These are not passes.
-- The six-combination installed-host run
-  [39538628104](https://github.com/cyberducttape/StePanel/actions/runs/39538628104)
-  and integration run
-  [39538628072](https://github.com/cyberducttape/StePanel/actions/runs/39538628072)
-  for code source `d931c6a` remained in progress at that capture; quota run
-  [39538628063](https://github.com/cyberducttape/StePanel/actions/runs/39538628063)
-  was cancelled before execution. None is passing evidence yet.
+- Later workflow/documentation commits do not change Go/application source.
+  Exact-head integration CI, CodeQL, and documentation checks all passed on
+  `7cd215f8a49863bce4c21fa6f35a8889ade1500c` (runs
+  [39541304606](https://github.com/cyberducttape/StePanel/actions/runs/39541304606),
+  [39541304596](https://github.com/cyberducttape/StePanel/actions/runs/39541304596),
+  and [39541304565](https://github.com/cyberducttape/StePanel/actions/runs/39541304565)).
+- The six-combination hosted installation matrix passed on workflow commit
+  `c9712da7279533970fe6cd0b5b89b45309e23bb5`, whose application source is
+  unchanged from `d931c6a`: Ubuntu 24.04, Rocky Linux 9, and AlmaLinux 9, each
+  with Caddy and Apache ([run 39540812270](https://github.com/cyberducttape/StePanel/actions/runs/39540812270)).
+  The quota-enabled host run for the same workflow commit is still in progress
+  ([run 39540812247](https://github.com/cyberducttape/StePanel/actions/runs/39540812247));
+  it is not yet passing evidence.
+- A separate disposable Rocky 9 KVM run built from exact source `7cd215f`
+  is executing the full recovery matrix once. At 2026-10-21 05:06 UTC, boot
+  and the listed cpmove, backup, file/database restore, termination, suspension,
+  and deployment worker-interruption cases had passed; the full matrix and
+  subsequent power-loss/ENOSPC phases had not completed. This is partial
+  evidence, not certification. See the
+  [in-progress host evidence record](lab-results/2026-10-21-hosted-smokes-and-kvm-progress.md).
 - Production remains **NO-GO** for physical power-loss and repeated installed-host
   recovery, XFS quota behavior, full application restore across supported web
   servers, alert outage/retry, capacity certification, upgrade/rollback policy,

@@ -24,6 +24,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Reconcile the current status and release-gate evidence with the latest
   workflow-only commit, recording the documentation check result separately
   from pending integration and installed-host checks.
+- Refresh release evidence with the passing six-combination hosted installation
+  matrix and exact-head integration, CodeQL, and documentation results. Keep
+  the quota run and one-repeat full Rocky KVM matrix explicitly in progress;
+  neither is recorded as production certification.
 - Run documentation link and source-reference checks in a focused workflow,
   and skip the full main-branch integration suite for Markdown-only pushes.
   Documentation changes remain checked without spending the race, recovery,
