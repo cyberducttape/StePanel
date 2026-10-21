@@ -25,16 +25,16 @@
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     button.disabled = true;
-    status.textContent = 'Deploying…';
+    StepanelUI.setStatus(status, 'Deploying…', 'pending');
     const data = Object.fromEntries(new FormData(form));
     data.node_version = data.version;
     delete data.version;
     data.port = Number(data.port);
     try {
       await api.post('/api/deployments', data);
-      status.textContent = 'Deployment queued; monitor its durable job for completion.';
+      StepanelUI.setStatus(status, 'Deployment queued; follow it in Operations.', 'pending');
     } catch (error) {
-      status.textContent = error.message;
+      StepanelUI.setStatus(status, error.message, 'error');
     } finally {
       button.disabled = false;
     }

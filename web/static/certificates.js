@@ -8,16 +8,16 @@
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     button.disabled = true;
-    status.textContent = 'Requesting certificate…';
+    StepanelUI.setStatus(status, 'Requesting certificate…', 'pending');
     try {
       const body = Object.fromEntries(new FormData(form));
       const data = await StepanelForms.submitJSON('/api/certificates/issue', body);
-      status.textContent = 'Certificate request queued; follow it in Operations.';
+      StepanelUI.setStatus(status, 'Certificate request queued; follow it in Operations.', 'pending');
       const job = await StepanelJobs.wait(data.job_id);
-      if (job.state === 'completed') status.textContent = 'Certificate issued; verify the Apache site configuration.';
+      if (job.state === 'completed') StepanelUI.setStatus(status, 'Certificate issued; verify the Apache site configuration.', 'success');
       else throw new Error(job.error || 'Certificate issuance failed');
     } catch (error) {
-      status.textContent = error.message;
+      StepanelUI.setStatus(status, error.message, 'error');
     } finally {
       button.disabled = false;
     }

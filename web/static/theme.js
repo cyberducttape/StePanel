@@ -15,13 +15,17 @@
     windows31: { label: 'Windows 3.1', description: 'A sharper classic desktop treatment with hard-edged depth.', colors: ['#008080', '#c0c0c0', '#000080'] },
   };
 
+  // Until someone picks a mode, follow the operating system's light or dark
+  // preference; an explicit choice in the Appearance dialog always wins.
+  const systemPrefersDark = () => !window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches;
+
   const readState = () => {
-    const defaults = { theme: 'default', dark: true, scale: 100 };
+    const defaults = { theme: 'default', dark: systemPrefersDark(), scale: 100 };
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
       return {
         theme: themes[saved.theme] ? saved.theme : defaults.theme,
-        dark: saved.dark !== false,
+        dark: typeof saved.dark === 'boolean' ? saved.dark : defaults.dark,
         scale: Math.min(150, Math.max(90, Number(saved.scale) || defaults.scale)),
       };
     } catch (_) {

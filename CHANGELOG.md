@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- Polish the panel interface:
+  - **Capability report:** "Why can't I do this?" now groups unavailable
+    operations by area. Each one has a readable name, a status pill and the
+    exact next step: which variable to set in `/etc/ste-panel.env`, then
+    restart StePanel.
+  - **Status messages:** migration, deployment and certificate forms colour
+    their messages by outcome (pending, success, warning or error) instead of
+    showing every message as a green success box.
+  - **Colour scheme:** the default theme follows the operating system's light
+    or dark preference until a choice is saved in Appearance.
+  - **Light mode:** it now meets WCAG AA contrast across the overview, site
+    workspace, tabs and confirmation dialogs. The site workspace components
+    also follow the selected theme instead of staying dark.
+  - **Phone layout:** pages no longer scroll sideways on a 390 px screen,
+    because long configuration names in check notes now wrap.
+  - **Footer:** the last footer links stay clear of the floating Operations
+    button.
+
 ### Security
 
 - Upgrade CI, release and container builds to Go 1.26.10, which includes the
