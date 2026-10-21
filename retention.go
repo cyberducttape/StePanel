@@ -78,17 +78,35 @@ func acquireImportStageCoordination(root string) (*os.File, error) {
 }
 
 func removeImportStage(path string, lock *os.File) {
+	// The held stage lock already keeps cleanup away from this tree, so remove
+	// it before taking the root-wide coordination lock: a large delete must not
+	// stall every other import, restore and backup stage.
+	_ = os.RemoveAll(path)
 	coordination, err := acquireImportStageCoordination(filepath.Dir(path))
 	if err != nil {
-		// Keep the lock pathname if coordination cannot be established. An
-		// orphaned stage can be reclaimed later; unlinking without coordination
-		// would reintroduce the split-inode race.
+		// Keep the lock pathname if coordination cannot be established;
+		// unlinking without it would reintroduce the split-inode race. Cleanup
+		// reclaims the pathname once this process has released the lock.
+		_ = releaseBackupStageLock(lock)
 		return
 	}
 	defer releaseBackupStageLock(coordination)
-	_ = os.RemoveAll(path)
 	_ = releaseBackupStageLock(lock)
 	_ = os.Remove(importStageLockPath(path))
+}
+
+// outsideStageCoordination runs a tree removal with the root coordination
+// lock released. Coordination guards lock-file pathnames only; the caller owns
+// the tree through its stage lock or its retention age.
+func outsideStageCoordination(coordination *os.File, remove func() error) error {
+	if err := syscall.Flock(int(coordination.Fd()), syscall.LOCK_UN); err != nil {
+		return err
+	}
+	removeErr := remove()
+	if err := syscall.Flock(int(coordination.Fd()), syscall.LOCK_EX); err != nil {
+		return errors.Join(removeErr, err)
+	}
+	return removeErr
 }
 
 func isTemporaryImportStage(name string) bool {
@@ -179,7 +197,7 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 				} else if !errors.Is(lockErr, os.ErrNotExist) {
 					return lockErr
 				}
-				if err := os.RemoveAll(path); err != nil {
+				if err := outsideStageCoordination(coordination, func() error { return os.RemoveAll(path) }); err != nil {
 					_ = releaseBackupStageLock(lock)
 					return err
 				}
@@ -196,7 +214,7 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 			continue
 		}
 		if entry.IsDir() && restoreStagePattern.MatchString(entry.Name()) {
-			if err := os.RemoveAll(path); err != nil {
+			if err := outsideStageCoordination(coordination, func() error { return os.RemoveAll(path) }); err != nil {
 				return err
 			}
 		} else if !entry.IsDir() && isOrphanUpload(entry.Name()) {

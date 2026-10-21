@@ -252,3 +252,49 @@ func TestImportStageCleanupCoordinatesAcrossThreeProcesses(t *testing.T) {
 		}
 	}
 }
+
+// Removing a stage tree must not wait for the root coordination lock, which
+// every other stage creation and cleanup shares; only the lock pathname does.
+func TestRemoveImportStageDeletesTreeWithoutCoordination(t *testing.T) {
+	root := t.TempDir()
+	stage, lock, err := createImportStage(root, "backup-restore-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "payload"), []byte("data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	coordination, err := acquireImportStageCoordination(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		removeImportStage(stage, lock)
+		close(done)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Lstat(stage); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("stage tree was not removed while another holder had coordination")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := os.Lstat(importStageLockPath(stage)); err != nil {
+		t.Fatalf("lock pathname was unlinked without coordination: %v", err)
+	}
+	if err := releaseBackupStageLock(coordination); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("removeImportStage did not finish after coordination was released")
+	}
+	if _, err := os.Lstat(importStageLockPath(stage)); !os.IsNotExist(err) {
+		t.Fatalf("lock pathname remains after removal: %v", err)
+	}
+}

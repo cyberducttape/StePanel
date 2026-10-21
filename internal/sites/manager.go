@@ -298,6 +298,23 @@ func acquireManagerStageCoordination(root, name string) (*os.File, error) {
 	return lock, nil
 }
 
+// outsideManagerStageCoordination removes a tree with the coordination lock
+// released. Coordination guards lease pathnames only; the caller holds the
+// stage's owner lease, or the stage predates leases and is past its age limit.
+func outsideManagerStageCoordination(coordination *os.File, remove func() error) error {
+	if coordination == nil {
+		return remove()
+	}
+	if err := syscall.Flock(int(coordination.Fd()), syscall.LOCK_UN); err != nil {
+		return err
+	}
+	removeErr := remove()
+	if err := syscall.Flock(int(coordination.Fd()), syscall.LOCK_EX); err != nil {
+		return errors.Join(removeErr, err)
+	}
+	return removeErr
+}
+
 func releaseManagerStageLock(lock *os.File) {
 	if lock == nil {
 		return
@@ -343,31 +360,34 @@ func (m *DefaultManager) DiscardReleaseStaging(ctx context.Context, name, staged
 		return err
 	} else if parent == managerRoot && !IsReleaseStagingName(name, component) {
 		return errors.New("sites.Manager: release staging tree belongs to another site")
-	} else if parent == managerRoot {
-		coordination, err := acquireManagerStageCoordination(parent, releaseStageCoordinationLock)
-		if err != nil {
-			return fmt.Errorf("sites.Manager: coordinate release discard: %w", err)
-		}
-		defer releaseManagerStageLock(coordination)
 	}
 	owned, err := h.SafePath(parent, component)
 	if err != nil {
 		return err
 	}
 	info, err := os.Lstat(owned)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// Already activated or removed; its lease pathname may remain.
+	case err != nil:
 		return fmt.Errorf("sites.Manager: inspect release staging tree: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
+	case info.Mode()&os.ModeSymlink != 0:
 		return errors.New("sites.Manager: refuse to remove symlinked release staging tree")
+	default:
+		// The caller holds the stage's owner lease, which keeps cleanup away,
+		// so the tree is removed before coordination: a large delete must not
+		// stall every other release stage. Coordination guards only the lease
+		// pathname.
+		if err := os.RemoveAll(owned); err != nil {
+			return fmt.Errorf("sites.Manager: discard release staging tree: %w", err)
+		}
 	}
-	if err := os.RemoveAll(owned); err != nil {
-		return fmt.Errorf("sites.Manager: discard release staging tree: %w", err)
-	}
-	if parent == filepath.Join(m.webRoot, "sites", ".stepanel-manager-staging") {
+	if managerRoot, err := h.SafePath(m.webRoot, "sites", ".stepanel-manager-staging"); err == nil && parent == managerRoot {
+		coordination, err := acquireManagerStageCoordination(parent, releaseStageCoordinationLock)
+		if err != nil {
+			return fmt.Errorf("sites.Manager: coordinate release discard: %w", err)
+		}
+		defer releaseManagerStageLock(coordination)
 		if err := os.Remove(releaseStageOwnerLockPath(owned)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("sites.Manager: remove release staging lease: %w", err)
 		}
@@ -498,7 +518,7 @@ func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan t
 			}
 		}
 		stagePath := filepath.Join(stageParent, entry.Name())
-		if err := m.DiscardStaging(ctx, stagePath); err != nil {
+		if err := outsideManagerStageCoordination(coordination, func() error { return m.DiscardStaging(ctx, stagePath) }); err != nil {
 			releaseManagerStageLock(owner)
 			return removed, err
 		}
