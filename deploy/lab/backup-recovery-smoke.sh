@@ -23,12 +23,17 @@ command -v systemctl >/dev/null || { echo 'backup recovery smoke requires system
 : "${RESTORE_KILL_AT:=restore:activate}"
 : "${DATABASE_RESTORE_KILL_AT:=restore:database}"
 : "${TERMINATE_KILL_AT:=terminate:site-state}"
+: "${STAGING_RESTORE_KILL_AT:=}"
 
 dropin_dir=/run/systemd/system/stepanel-worker.service.d
 dropin="$dropin_dir/recovery-smoke.conf"
 work=''
 database_name=''
 database_user=''
+staging_site=''
+staging_database=''
+staging_user=''
+staging_route=''
 dump_restore_permissions() {
   local site_root="/var/www/sites/$BACKUP_RECOVERY_SMOKE_SITE"
   local recovery_root='/var/www/sites/.stepanel-recovery'
@@ -312,6 +317,142 @@ printf '%s\n' \
     | python3 -c 'import json, sys; database = sys.argv[1]; items = json.load(sys.stdin).get("backups", []); matches = [item["path"].rstrip("/").rsplit("/", 1)[-1] for item in items if database in item.get("databases", [])]; print(matches[0] if matches else "")' "$database_name"
   )
   [[ -n "$database_backup_name" ]] || { echo 'database-inclusive backup was not listed' >&2; exit 1; }
+
+  if [[ -n "$STAGING_RESTORE_KILL_AT" ]]; then
+    [[ $STAGING_RESTORE_KILL_AT == restore:provision || $STAGING_RESTORE_KILL_AT == restore:provisioned ]] || {
+      echo "unsupported staging restore kill point: $STAGING_RESTORE_KILL_AT" >&2
+      exit 64
+    }
+    # Exercise the database restore-to-staging path on an actual installed
+    # host. These provisioning checkpoints used to have unit-only coverage.
+    site_hash=$(printf '%s' "$BACKUP_RECOVERY_SMOKE_SITE" | sha256sum | cut -c1-6)
+    staging_site="${BACKUP_RECOVERY_SMOKE_SITE:0:13}-st-$site_hash"
+    staging_domain="$staging_site.localhost"
+    staging_database="${staging_site//-/_}_db"
+    staging_user="${staging_site//-/_}_u"
+    staging_password='ci-staging-restore-password-2345'
+    staging_route="site-${staging_site}-${staging_domain//./_}"
+    if [[ -d /etc/caddy ]]; then
+      staging_route+=.caddy
+    else
+      staging_route+=.conf
+    fi
+    [[ ! -e "/var/www/sites/$staging_site" ]] || {
+      echo "staging recovery destination already exists: $staging_site" >&2
+      exit 1
+    }
+
+    printf '%s\n' '[Service]' \
+      'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \
+      "Environment=STEPANEL_KILL_AT=$STAGING_RESTORE_KILL_AT" > "$dropin"
+    systemctl daemon-reload
+    systemctl restart stepanel-worker.service
+    systemctl is-active --quiet stepanel-worker.service
+    wait_for_panel_ready
+    before=$(systemctl show stepanel-worker.service -p MainPID --value)
+
+    response=$(curl --fail --silent --show-error --max-time 30 \
+      -H "Cookie: $cookie_header" \
+      -H "X-CSRF-Token: $csrf" \
+      -H 'Content-Type: application/json' \
+      --data "$(python3 - "$database_backup_name" "$staging_site" "$staging_domain" "$database_name" "$staging_database" "$staging_user" "$staging_password" <<'PY'
+import json, sys
+backup, site, domain, database, target_database, target_user, password = sys.argv[1:]
+print(json.dumps({
+    "backup": backup,
+    "site": site,
+    "domain": domain,
+    "database": database,
+    "target_database": target_database,
+    "target_user": target_user,
+    "target_password": password,
+}))
+PY
+)" \
+      "$PANEL/api/backups/restore-to-staging")
+  staging_restore_job_id=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^"]*\)".*/\1/p')
+  [[ -n "$staging_restore_job_id" ]] || { echo "staging restore did not return a durable job: $response" >&2; exit 1; }
+
+  killed=0
+  staging_status=''
+  for _ in $(seq 1 240); do
+    current=$(systemctl show stepanel-worker.service -p MainPID --value)
+    if [[ $current =~ ^[1-9][0-9]*$ && $current != "$before" ]]; then
+      killed=1
+      systemctl stop stepanel-worker.service || true
+      rm -f -- "$dropin"
+      systemctl daemon-reload
+      systemctl start stepanel-worker.service
+      wait_for_panel_ready
+      break
+    fi
+    staging_status=$(curl --fail --silent --show-error --max-time 10 \
+      -H "Cookie: $cookie_header" "$PANEL/api/jobs/$staging_restore_job_id")
+    staging_state=$(printf '%s' "$staging_status" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+    case "$staging_state" in
+      completed)
+        echo "staging restore completed before injected kill point $STAGING_RESTORE_KILL_AT: $staging_status" >&2
+        exit 1
+        ;;
+      failed|dead-letter|cancelled)
+        echo "staging restore ended in $staging_state before injected kill point $STAGING_RESTORE_KILL_AT: $staging_status" >&2
+        exit 1
+        ;;
+    esac
+    sleep 1
+  done
+  (( killed )) || { echo "worker PID never changed; staging restore kill point $STAGING_RESTORE_KILL_AT was not observed" >&2; exit 1; }
+
+  staging_state=''
+  staging_status=''
+  for _ in $(seq 1 360); do
+    staging_status=$(curl --fail --silent --show-error --max-time 10 \
+      -H "Cookie: $cookie_header" "$PANEL/api/jobs/$staging_restore_job_id")
+    staging_state=$(printf '%s' "$staging_status" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+    case "$staging_state" in
+      completed) break ;;
+      failed|dead-letter|cancelled)
+        echo "staging restore recovery job $staging_restore_job_id ended in $staging_state: $staging_status" >&2
+        exit 1
+        ;;
+    esac
+    sleep 1
+  done
+  [[ $staging_state == completed ]] || { echo "staging restore recovery job did not complete: ${staging_status:-}" >&2; exit 1; }
+
+  public_root="/var/www/sites/$staging_site/public"
+  [[ -f "$public_root/index.html" && -f "/var/www/sites/$staging_site/.stepanel-staging-noindex" ]] || {
+    echo "staging restore did not publish the expected isolated site: $staging_site" >&2
+    exit 1
+  }
+  grep -Fx 'stepanel cpmove import smoke' "$public_root/index.html" >/dev/null
+  [[ -f "/etc/caddy/stepanel.d/$staging_route" || \
+     -f "/etc/apache2/stepanel-sites/$staging_route" || \
+     -f "/etc/httpd/conf.d/stepanel-sites/$staging_route" ]] || {
+    echo "staging restore did not publish its webserver route: $staging_route" >&2
+    exit 1
+  }
+  if [[ -d /etc/caddy ]]; then
+    staging_http=$(curl --insecure --fail --silent --show-error --max-time 10 \
+      --resolve "$staging_domain:443:127.0.0.1" "https://$staging_domain/")
+  else
+    staging_http=$(curl --fail --silent --show-error --max-time 10 \
+      --resolve "$staging_domain:80:127.0.0.1" "http://$staging_domain/")
+  fi
+  [[ $staging_http == *'stepanel cpmove import smoke'* ]] || {
+    echo "restored staging site did not serve the expected HTTP content: $staging_domain" >&2
+    exit 1
+  }
+  /usr/local/sbin/stepanel-dbctl dump "$staging_database" > "$work/staging-database.sql"
+  grep -Fq 'database restore smoke' "$work/staging-database.sql"
+  echo "staging restore recovery smoke passed (worker $before was killed at $STAGING_RESTORE_KILL_AT; files, route, HTTP and database verified)"
+
+  /usr/local/sbin/stepanel-vhostctl delete "$staging_route"
+  /usr/local/sbin/stepanel-sitectl delete "$staging_site"
+  /usr/local/sbin/stepanel-dbctl drop-managed "$staging_database" "$staging_user"
+  [[ ! -e "/var/www/sites/$staging_site" ]] || { echo "staging test site cleanup failed: $staging_site" >&2; exit 1; }
+  staging_site=''
+fi
 
   printf '%s\n' '[Service]' \
     'Environment=STEPANEL_LAB_DIRECT_ROOT_BROKER=1' \

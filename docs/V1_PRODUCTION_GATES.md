@@ -1027,8 +1027,8 @@ verified, with no staging left behind). A backup hitting real ENOSPC on a
 dedicated filesystem failed without publishing anything partial. The run also
 found and fixed five defects invisible to container CI. It is one run, a QEMU
 kill is not physical power loss, and ENOSPC was exercised only for backup;
-the `restore:provision`/`restore:provisioned` boundaries have no real-host
-drill yet. See
+the `restore:provision`/`restore:provisioned` real-host drill was added to the
+full-matrix harness after this run and has not yet been executed. See
 [lab-results/2026-10-09-rocky9-kvm-certification.md](./lab-results/2026-10-09-rocky9-kvm-certification.md).
 
 The 2026-10-12 Rocky Linux 9 KVM run adds one full 108-check install/matrix

@@ -32,6 +32,7 @@ validate_full_site_names() {
     'cpmove cpmove:activate'
     'backup backup:init' 'backup backup:archive' 'backup backup:verify' 'backup backup:commit'
     'restore restore:database' 'restore restore:verify' 'restore restore:extract'
+    'restore restore:provision' 'restore restore:provisioned'
     'restore restore:activate' 'restore restore:commit'
     'terminate terminate:init' 'terminate terminate:backup' 'terminate terminate:database'
     'terminate terminate:routes' 'terminate terminate:proxies' 'terminate terminate:tasks'
@@ -116,9 +117,9 @@ if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
   # backup and database so a killed worker cannot contaminate the next case.
   #
   # restore:provision and restore:provisioned are reached only by the
-  # restore-to-staging database path (restoreDatabaseIntoStagingContext),
-  # which no real-host drill exercises yet; they are covered by unit-level
-  # failure injection only.
+  # restore-to-staging database path (restoreDatabaseIntoStagingContext).
+  # The drill below kills the worker at each checkpoint, recovers the durable
+  # job, then verifies the staged files, route, HTTP response and database.
   for boundary in restore:database restore:verify restore:extract restore:activate restore:commit; do
     site=$(full_site restore "$boundary")
     if [[ $boundary == restore:database ]]; then
@@ -131,6 +132,17 @@ if [[ ${RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
       RESTORE_KILL_AT="$file_boundary" DATABASE_RESTORE_KILL_AT="$database_boundary" \
       TERMINATE_KILL_AT=terminate:site-state DATABASE_RESTORE_RECOVERY=1 \
       bash "$repo/backup-recovery-smoke.sh"
+  done
+  # The database restore-to-staging path has two additional durable
+  # provisioning boundaries. Exercise them with a real staged site, database,
+  # webserver route, and HTTP probe rather than relying on unit fault tests.
+  for boundary in restore:provision restore:provisioned; do
+    site=$(full_site restore "$boundary")
+    CPMOVE_SMOKE_SITE="$site" bash "$repo/cpmove-import-smoke.sh"
+    BACKUP_RECOVERY_SMOKE_SITE="$site" BACKUP_KILL_AT=backup:archive \
+      RESTORE_KILL_AT=restore:activate DATABASE_RESTORE_KILL_AT=restore:database \
+      STAGING_RESTORE_KILL_AT="$boundary" TERMINATE_KILL_AT=terminate:site-state \
+      DATABASE_RESTORE_RECOVERY=1 bash "$repo/backup-recovery-smoke.sh"
   done
   for boundary in terminate:init terminate:backup terminate:database terminate:routes terminate:proxies terminate:tasks terminate:services terminate:site-state terminate:ownership; do
     site=$(full_site terminate "$boundary")

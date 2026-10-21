@@ -912,7 +912,9 @@ extraction on a dedicated ext4 filesystem ([results](lab-results/2026-10-11-real
 - Physical power loss / unclean disk-cache loss, beyond killing the QEMU process
 - Managed-database outage during an operation and verified recovery
 - Real-host drills for the `restore:provision` and `restore:provisioned`
-  boundaries (restore-to-staging database path)
+  boundaries (restore-to-staging database path). The full-matrix harness now
+  exercises these checkpoints and verifies staged files, route, HTTP response,
+  and database after recovery; execution on a fresh KVM guest is pending.
 - Recovery-time measurement (< 5 minute success criterion)
 
 **Next Action:** Run the full recovery matrix on a KVM guest at
