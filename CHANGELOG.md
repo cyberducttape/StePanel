@@ -13,6 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Make the GitHub Action pin check fail closed when its search dependency is
+  missing or no workflow actions were inspected; exercise valid, invalid,
+  empty, missing-directory, and missing-dependency cases in CI.
 - Keep the six-distro installation matrix on its nightly/manual release-candidate
   schedule and the quota-enabled host drill weekly/manual, rather than launching
   both long-running host certifications on every main-branch push. Main pushes

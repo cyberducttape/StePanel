@@ -31,6 +31,7 @@ run bash scripts/check-smoke-workflow-bounds.sh
 run python3 scripts/check-grafana-dashboard.py
 run python3 scripts/check-quota-fixtures.py
 run bash scripts/check-action-pins.sh
+run bash scripts/test-check-action-pins.sh
 run bash scripts/validate-assets.sh
 run bash -n install.sh deploy/lib/*.sh deploy/lab/*.sh scripts/*.sh
 
