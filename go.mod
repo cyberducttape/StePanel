@@ -4,7 +4,7 @@ go 1.26.0
 
 // Builds use the patched toolchain that release, Docker, and CI pin
 // (scripts/check-release.sh keeps them in sync).
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/distribution/reference v0.6.0

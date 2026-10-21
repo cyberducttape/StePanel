@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security
+
+- Upgrade CI, release and container builds to Go 1.26.10, which includes the
+  standard-library fix for GO-2026-6809 in `crypto/x509`.
+
 ### Fixed
 
 - Clean consumed production build artifacts through a site-only broker action
