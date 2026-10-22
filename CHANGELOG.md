@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Lay the groundwork for cPanel-style hosting accounts (ADR-0007):
+  - **Control plane:** migration 21 adds `account_identities` (one Unix user
+    per hosting account, never reused) and `site_placements` (a site is
+    `public_html` or a domain directory inside its account's home).
+  - **Validation:** the new `internal/sitelayout` package checks account
+    names against system and reserved users and derives document roots.
+  - **Configuration:** `STEPANEL_HOME_ROOT` sets where account homes live;
+    production pins it to `/home`.
+  - **Legacy guard:** the per-site identity allocator refuses a site that is
+    already placed in an account.
+
 ### Changed
 
 - Polish the panel interface:

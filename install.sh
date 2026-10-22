@@ -988,6 +988,7 @@ TXN_TEMPS+=("$env_tmp")
   write_env STEPANEL_DB_USER "$DB_USER"
   write_env STEPANEL_IMPORT_ROOT "$DATA_DIR/imports"
   write_env STEPANEL_WEB_ROOT /var/www
+  write_env STEPANEL_HOME_ROOT /home
   if (( UNSAFE_LAB == 1 )); then
     write_env STEPANEL_UNSAFE_LAB 1
     for bypass_var in "${requested_bypasses[@]}"; do write_env "$bypass_var" 1; done

@@ -18,6 +18,7 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/migration"
 	"github.com/cyberducttape/StePanel/internal/recovery"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 	"github.com/cyberducttape/StePanel/internal/sqliteutil"
 	_ "modernc.org/sqlite"
 )
@@ -438,6 +439,12 @@ CREATE INDEX IF NOT EXISTS jobs_kind_owner_state_idx ON jobs(kind, owner, state)
 			owner TEXT NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`)
+		return err
+	}),
+	migration.NewMigration(21, "place sites inside hosting-account homes", func(tx *sql.Tx) error {
+		// ADR-0007: hosting accounts own a Unix user and home; placed sites
+		// are document roots inside it. Unplaced sites keep the legacy layout.
+		_, err := tx.Exec(sitelayout.Schema)
 		return err
 	}),
 }

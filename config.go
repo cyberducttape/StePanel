@@ -24,6 +24,9 @@ type Config struct {
 	SiteCtl, VHostCtl, Certbot, DBCtl, RunnerCtl, GitCtl, TaskCtl                            string
 	WPressExtract, WPCLI, AuditLog, JobState, SessionState, AccountState, RecoveryRoot, Sudo string
 	RecoveryProofCommand                                                                     string
+	// HomeRoot holds hosting-account homes (ADR-0007): an account's main site
+	// is served from HomeRoot/<user>/public_html. Production pins it to /home.
+	HomeRoot string
 	// WordPressRecoveryProof selects when rehearsals run the built-in WordPress
 	// proof: manual (default), always, or off.
 	WordPressRecoveryProof                     string
@@ -81,7 +84,7 @@ type Config struct {
 }
 
 func LoadConfig() Config {
-	c := Config{WebServer: "caddy", Listen: "127.0.0.1:8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", TaskCtl: "/usr/local/sbin/stepanel-taskctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", RunnerAllowedRegistries: "docker.io,ghcr.io,quay.io", RunnerNetworkMode: "none", RunnerMaxImageBytes: defaultRunnerMaxImageBytes, MaxUpload: 20 << 30, MaxEntries: 1000000, MaxConcurrentJobs: 2, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, GitReleaseMaxTreeBytes: 5 << 30, MinFreeBytes: 5 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200, RehearsalIntervalHours: 24, AlertSMTPPort: 587}
+	c := Config{WebServer: "caddy", Listen: "127.0.0.1:8080", ImportRoot: "data/imports", BackupRoot: "data/backups", WebRoot: "data/www", HomeRoot: "data/home", MailRoot: "data/mail", NVMDir: "data/nvm", ProxyRoot: "data/proxy", VHostRoot: "data/vhosts", AppRoot: "data/apps", MalwareRoot: "data/quarantine", AppCtl: "/usr/local/sbin/stepanel-appctl", ProxyCtl: "/usr/local/sbin/stepanel-proxyctl", VHostCtl: "/usr/local/sbin/stepanel-vhostctl", RunnerCtl: "/usr/local/sbin/stepanel-runnerctl", GitCtl: "/usr/local/sbin/stepanel-gitctl", TaskCtl: "/usr/local/sbin/stepanel-taskctl", Certbot: "/usr/local/sbin/stepanel-certbot", WPressExtract: "/usr/local/bin/wpress-extract", WPCLI: "/usr/local/bin/wp", AuditLog: "data/stepanel-audit.jsonl", JobState: "data/jobs.json", SessionState: "data/sessions.json", AccountState: "data/accounts.json", ControlPlaneDB: "data/stepanel-control.db", RecoveryRoot: "data/www/sites/.stepanel-recovery", GitAllowedHosts: "github.com,gitlab.com,bitbucket.org", RunnerAllowedRegistries: "docker.io,ghcr.io,quay.io", RunnerNetworkMode: "none", RunnerMaxImageBytes: defaultRunnerMaxImageBytes, MaxUpload: 20 << 30, MaxEntries: 1000000, MaxConcurrentJobs: 2, StageRetentionHours: 168, GitReleaseRetention: 3, GitReleaseMaxAgeHours: 168, GitReleaseMaxBytes: 5 << 30, GitReleaseMaxTreeBytes: 5 << 30, MinFreeBytes: 5 << 30, FTPPassiveMin: 40100, FTPPassiveMax: 40200, RehearsalIntervalHours: 24, AlertSMTPPort: 587}
 	c.HSTSIncludeSubdomains, c.HSTSPreload = true, true
 	c.RecoveryProofCommand = os.Getenv("STEPANEL_RECOVERY_PROOF_COMMAND")
 	c.WordPressRecoveryProof = recoveryProofModeManual
@@ -104,6 +107,9 @@ func LoadConfig() Config {
 	}
 	if v := os.Getenv("STEPANEL_WEB_ROOT"); v != "" {
 		c.WebRoot = v
+	}
+	if v := os.Getenv("STEPANEL_HOME_ROOT"); v != "" {
+		c.HomeRoot = v
 	}
 	if v := os.Getenv("STEPANEL_MAIL_ROOT"); v != "" {
 		c.MailRoot = v
@@ -455,6 +461,7 @@ func ValidateConfig(c Config) error {
 		"STEPANEL_IMPORT_ROOT":   c.ImportRoot,
 		"STEPANEL_BACKUP_ROOT":   c.BackupRoot,
 		"STEPANEL_WEB_ROOT":      c.WebRoot,
+		"STEPANEL_HOME_ROOT":     c.HomeRoot,
 		"STEPANEL_MAIL_ROOT":     c.MailRoot,
 		"STEPANEL_NVM_DIR":       c.NVMDir,
 		"STEPANEL_PROXY_ROOT":    c.ProxyRoot,
@@ -525,6 +532,10 @@ func ValidateConfig(c Config) error {
 		// web root makes every privileged site and application operation fail.
 		if filepath.Clean(c.WebRoot) != "/var/www" {
 			problems = append(problems, errors.New("production requires STEPANEL_WEB_ROOT=/var/www to match the privileged helpers"))
+		}
+		// Account homes are pinned for the same reason (ADR-0007).
+		if filepath.Clean(c.HomeRoot) != "/home" {
+			problems = append(problems, errors.New("production requires STEPANEL_HOME_ROOT=/home to match the privileged helpers"))
 		}
 		if len(strings.TrimSpace(c.EnvironmentKey)) < 32 || strings.ContainsAny(c.EnvironmentKey, "\r\n") {
 			problems = append(problems, errors.New("production requires STEPANEL_ENVIRONMENT_KEY of at least 32 characters without newlines"))

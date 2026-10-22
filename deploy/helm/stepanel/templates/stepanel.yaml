@@ -82,6 +82,7 @@ spec:
             - {name: STEPANEL_IMPORT_ROOT, value: "/var/lib/ste-panel/imports"}
             - {name: STEPANEL_BACKUP_ROOT, value: "/var/lib/ste-panel/backups"}
             - {name: STEPANEL_WEB_ROOT, value: "/var/www"}
+            - {name: STEPANEL_HOME_ROOT, value: "/var/lib/ste-panel/home"}
             - {name: STEPANEL_MAIL_ROOT, value: "/var/lib/ste-panel/mail"}
             - {name: STEPANEL_NVM_DIR, value: "/var/lib/ste-panel/nvm"}
             - {name: STEPANEL_PROXY_ROOT, value: "/var/lib/ste-panel/proxy"}

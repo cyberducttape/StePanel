@@ -14,7 +14,7 @@ only and must not be treated as an independent live source after migration.
 | Audit chain | `STEPANEL_AUDIT_LOG` and `.state` | Required | HMAC key required | Restore together with audit key and verify |
 | Runtime configuration | `/etc/ste-panel.env` or deployment secret store | Required | Yes | Restore with matching keys |
 | Site recovery journals | `STEPANEL_RECOVERY_ROOT` | Required during active changes | No | Start panel and reconcile journals |
-| Site data and local backups | `STEPANEL_WEB_ROOT`, `STEPANEL_BACKUP_ROOT` | Required | Customer data | Restore files and database data separately |
+| Site data and local backups | `STEPANEL_WEB_ROOT`, `STEPANEL_HOME_ROOT` (hosting-account homes, ADR-0007), `STEPANEL_BACKUP_ROOT` | Required | Customer data | Restore files and database data separately |
 | Git trust and deploy keys | `/etc/stepanel/git-known-hosts`, `/etc/stepanel/git-keys` | Review/regenerate | Yes | Review or regenerate per site |
 | rclone/provider configuration | `RCLONE_CONFIG` and provider secret store | External requirement | Yes | Re-provision and validate destination |
 | Legacy JSON stores | Paths beside `STEPANEL_JOB_STATE` | Migration-only | Some are sensitive | Preserve during upgrade until migration verified |

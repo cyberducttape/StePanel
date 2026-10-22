@@ -39,6 +39,7 @@ ENV HOME=/opt/stepanel \
     STEPANEL_IMPORT_ROOT=/var/lib/ste-panel/imports \
     STEPANEL_BACKUP_ROOT=/var/lib/ste-panel/backups \
     STEPANEL_WEB_ROOT=/var/www \
+    STEPANEL_HOME_ROOT=/var/lib/ste-panel/home \
     STEPANEL_MAIL_ROOT=/var/lib/ste-panel/mail \
     STEPANEL_NVM_DIR=/var/lib/ste-panel/nvm \
     STEPANEL_PROXY_ROOT=/var/lib/ste-panel/proxy \

@@ -57,3 +57,20 @@ func TestMigrateExistingRejectsLegacyCollision(t *testing.T) {
 		t.Fatal("legacy identity collision was accepted")
 	}
 }
+
+func TestResolveOrAllocateRefusesSitesPlacedInAnAccount(t *testing.T) {
+	db := testIdentityDB(t)
+	if _, err := db.Exec(`CREATE TABLE site_placements (site TEXT PRIMARY KEY, account TEXT NOT NULL, unix_user TEXT NOT NULL, kind TEXT NOT NULL, directory TEXT NOT NULL, created_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO site_placements VALUES ('shop', 'alice', 'alice', 'addon', 'shop.example.org', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if user, err := ResolveOrAllocate(db, "shop"); err == nil {
+		t.Fatalf("placed site was given per-site account %q", user)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM site_identities`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("site identities = %d, %v", count, err)
+	}
+}

@@ -27,6 +27,15 @@ func ResolveOrAllocate(db *sql.DB, site string) (string, error) {
 		return "", fmt.Errorf("begin site identity transaction: %w", err)
 	}
 	defer tx.Rollback()
+	// A site placed inside a hosting-account home (ADR-0007) uses the
+	// account's Unix user and must never also get a per-site account.
+	var placed int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM site_placements WHERE site = ?`, site).Scan(&placed); err != nil && !strings.Contains(err.Error(), "no such table") {
+		return "", fmt.Errorf("check site placement: %w", err)
+	}
+	if placed > 0 {
+		return "", fmt.Errorf("site %q is placed in a hosting account and has no per-site Unix account", site)
+	}
 	var username string
 	err = tx.QueryRow(`SELECT username FROM site_identities WHERE site = ?`, site).Scan(&username)
 	if err == nil {
