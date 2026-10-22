@@ -94,6 +94,12 @@ unmanaged home.
   each other; isolation is between accounts. The `site_identities` uniqueness
   rule continues to apply only to legacy sites.
 - Quotas, SSH/SFTP and FTPS become account-level.
+- The panel, worker and broker units can no longer use `ProtectHome=true`:
+  they need `/home` writable. Ordinary permissions still keep the
+  unprivileged panel account out of homes StePanel does not manage, and the
+  root helpers act only on `stepanel-users` members.
+- Production requires user quotas on the filesystem holding `/home` as well
+  as `/var/www`.
 - The rollout is phased so CI stays green: placements and path resolution,
   then the site manager and broker, then the helpers and installer, then the
   cpmove restore, then the customer panel.

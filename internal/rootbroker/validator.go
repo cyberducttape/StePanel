@@ -14,6 +14,7 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/safehttp"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
 var taskNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
@@ -347,6 +348,8 @@ func (v *Validator) ValidateRequest(req *Request) error {
 		return v.validateProxyRequest(req.Proxy)
 	case "git":
 		return v.validateGitRequest(req.Git)
+	case "account":
+		return v.validateAccountRequest(req.Account)
 	case "certificate":
 		return v.validateCertificateRequest(req.Certificate)
 	case "task":
@@ -503,7 +506,10 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 	if err := v.ValidateSiteName(req.Site); err != nil {
 		return fmt.Errorf("invalid site name: %w", err)
 	}
-	if req.SiteUser != "" && !regexp.MustCompile(`^sp-[a-z0-9][a-z0-9-]{1,28}$`).MatchString(req.SiteUser) {
+	// A legacy site has a per-site sp-* account; a site placed in a hosting
+	// account runs as the account user. resolveSiteUser then requires the
+	// name to match the site's recorded identity or placement.
+	if req.SiteUser != "" && !regexp.MustCompile(`^sp-[a-z0-9][a-z0-9-]{1,28}$`).MatchString(req.SiteUser) && sitelayout.ValidUnixUser(req.SiteUser) != nil {
 		return errors.New("invalid persisted site Unix account")
 	}
 	if req.PHPWorkers > 0 {

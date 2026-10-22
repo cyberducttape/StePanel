@@ -173,8 +173,10 @@ func TestSiteSealAppliesACLAfterChmod(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(helper)
-	chmod := strings.Index(text, `find "$site_root" -type d -exec chmod 2750 {} +`)
-	acl := strings.Index(text, `setfacl -R -m u:stepanel:rwX "$site_root"`)
+	// Each tree (the legacy site root, or a placed site's document root and
+	// private state) is chmodded in the seal loop before the ACL loop.
+	chmod := strings.Index(text, `find "$tree" -type d -exec chmod 2750 {} +`)
+	acl := strings.Index(text, `setfacl -R -m u:stepanel:rwX "$tree"`)
 	if chmod < 0 || acl < 0 || acl < chmod {
 		t.Fatalf("sitectl must chmod the site tree before applying the panel ACL (chmod at %d, setfacl at %d)", chmod, acl)
 	}

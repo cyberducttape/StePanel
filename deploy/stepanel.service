@@ -35,7 +35,10 @@ SystemCallErrorNumber=EPERM
 # All host mutations cross the root-owned broker socket; this process has no
 # sudo capability and only needs to write panel/site state.
 ProtectSystem=strict
-ProtectHome=true
+# Hosting-account homes under /home hold placed sites (ADR-0007), so /home
+# stays visible and writable; ordinary permissions keep this unprivileged
+# account out of homes that StePanel does not manage.
+ProtectHome=false
 PrivateDevices=true
 PrivateTmp=true
 ProtectProc=invisible
@@ -46,7 +49,7 @@ ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
 RestrictRealtime=true
-ReadWritePaths=/var/lib/ste-panel /var/www/sites /var/backups/stepanel
+ReadWritePaths=/var/lib/ste-panel /var/www/sites /var/backups/stepanel /home
 
 [Install]
 WantedBy=multi-user.target

@@ -36,10 +36,40 @@ if [[ ! -d $socket_root ]]; then
 fi
 
 site_user=$3
-[[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || { echo 'invalid persisted site Unix account' >&2; exit 1; }
-site_root="/var/www/sites/$site"
-public_root="$site_root/public"
-php_state="$site_root/.php"
+location_lib=/usr/local/lib/stepanel/site-location.sh
+[[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-site-location.sh
+. "$location_lib"
+# Sets site_placed, site_home, site_private, public_root and php_state. A
+# site placed in a hosting account (ADR-0007) runs as the account's user.
+stepanel_site_location "$site" || exit 1
+if (( site_placed )); then
+  stepanel_require_site_user "$site_user" || exit 1
+else
+  [[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || { echo 'invalid persisted site Unix account' >&2; exit 1; }
+fi
+site_root=$site_home
+
+if [[ $action == delete ]] && (( site_placed )); then
+  [[ $# == 3 ]] || { echo 'usage: stepanel-sitectl delete SITE SITE_USER' >&2; exit 64; }
+  # A placed site shares its account's user, home, SSH and FTPS access with
+  # the account's other sites; remove only what belongs to this site.
+  for pool in /etc/php/*/fpm/pool.d/stepanel-"$site".conf /etc/php-fpm.d/stepanel-"$site".conf; do
+    [[ -e $pool && ! -L $pool ]] || continue
+    rm -f "$pool"
+  done
+  for unit in $(systemctl list-unit-files --type=service --no-legend 'php*-fpm.service' 'php-fpm.service' 2>/dev/null | awk '{print $1}'); do
+    systemctl reload "$unit" 2>/dev/null || true
+  done
+  for tree in "$public_root" "$site_home/.stepanel-previous-$site_directory-"* "$site_private"; do
+    [[ -e $tree || -L $tree ]] || continue
+    [[ -d $tree && ! -L $tree ]] || { echo "refusing to delete $tree: not a real directory" >&2; exit 1; }
+    rm -rf --one-file-system -- "$tree"
+  done
+  rm -f -- "$stepanel_site_registry/$site/location"
+  rmdir -- "$stepanel_site_registry/$site" 2>/dev/null || true
+  exit 0
+fi
 
 if [[ $action == delete ]]; then
   [[ $# == 3 ]] || { echo 'usage: stepanel-sitectl delete SITE SITE_USER' >&2; exit 64; }
@@ -99,17 +129,29 @@ ensure_site_user() {
   return 1
 }
 
-ensure_site_user
-[[ -d /var/www/sites && ! -L /var/www/sites ]] || { echo 'shared site root is missing or unsafe' >&2; exit 1; }
-chmod 2711 /var/www/sites
-# prepare-root applies the full isolation contract except creating the
-# public tree, which the panel publishes through the site manager's staged
-# activation (cPanel import, archive import, restore).
-if [[ $action == prepare-root ]]; then
-  install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root"
-  action=prepare
+if (( site_placed )); then
+  # The account helper created and validated the user and home; a placed
+  # site never creates or adopts a Unix account here.
+  install -d -m 2750 -o "$site_user" -g "$web_group" "$site_private"
+  if [[ $action == prepare-root ]]; then
+    action=prepare
+  elif [[ $action == prepare ]]; then
+    [[ ! -L $public_root ]] || { echo 'document root must not be a symlink' >&2; exit 1; }
+    install -d -m 2750 -o "$site_user" -g "$web_group" "$public_root"
+  fi
 else
-  install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root" "$public_root"
+  ensure_site_user
+  [[ -d /var/www/sites && ! -L /var/www/sites ]] || { echo 'shared site root is missing or unsafe' >&2; exit 1; }
+  chmod 2711 /var/www/sites
+  # prepare-root applies the full isolation contract except creating the
+  # public tree, which the panel publishes through the site manager's staged
+  # activation (cPanel import, archive import, restore).
+  if [[ $action == prepare-root ]]; then
+    install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root"
+    action=prepare
+  else
+    install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root" "$public_root"
+  fi
 fi
 install -d -m 0750 -o "$site_user" -g "$web_group" "$php_state" "$php_state/sessions" "$php_state/tmp"
 
@@ -439,15 +481,26 @@ php_max_children=5
 parse_config_file "$profile" || { echo 'failed to parse PHP runtime configuration' >&2; exit 1; }
 parse_config_file "$php_state/resources.env" || { echo 'failed to parse PHP resources configuration' >&2; exit 1; }
 
-if [[ $action == seal && -d $site_root/public ]]; then
+if [[ $action == seal && -d $public_root ]]; then
+  [[ ! -L $public_root ]] || { echo 'document root must not be a symlink' >&2; exit 1; }
   # Only the document root is served. Runtime trees beside it, such as the
   # Python virtualenv, and node_modules (never served) legitimately use links.
-  symlink=$(find -P "$site_root/public" -xdev -path "$site_root/public/node_modules" -prune -o -type l -print -quit)
+  symlink=$(find -P "$public_root" -xdev -path "$public_root/node_modules" -prune -o -type l -print -quit)
   [[ -z $symlink ]] || { echo "site document root contains a symlink and cannot be sealed: $symlink" >&2; exit 1; }
 fi
+# A legacy site owns its whole root. A placed site owns only its document
+# root and private state; the account's home and other sites are untouched.
+if (( site_placed )); then
+  site_trees=("$public_root" "$site_private")
+else
+  site_trees=("$site_root")
+fi
 if [[ $action == seal ]]; then
-  chown -R "$site_user:$web_group" "$site_root"
-  find "$site_root" -type d -exec chmod 2750 {} +
+  for tree in "${site_trees[@]}"; do
+    [[ -d $tree && ! -L $tree ]] || continue
+    chown -R "$site_user:$web_group" "$tree"
+    find "$tree" -type d -exec chmod 2750 {} +
+  done
 fi
 
 # Apply ACLs after any chmod: chmod on a directory with an ACL resets the ACL
@@ -458,12 +511,15 @@ if [[ $action == prepare || $action == seal ]]; then
   # ACLs are established when a tree is first staged/published. Their
   # directory defaults cover files and directories created later, so routine
   # runtime/resource changes do not rescan the whole site.
-  setfacl -R -m u:stepanel:rwX "$site_root"
-  # The site root itself is the parent used for atomic publication and
-  # recovery renames. Keep its panel access explicit even when an ACL mask was
-  # rewritten by a host-specific chmod implementation.
+  for tree in "${site_trees[@]}"; do
+    [[ -d $tree && ! -L $tree ]] || continue
+    setfacl -R -m u:stepanel:rwX "$tree"
+    find "$tree" -type d -exec setfacl -m d:u:stepanel:rwx {} +
+  done
+  # The site root (a placed site's home) is the parent used for atomic
+  # publication and recovery renames. Keep its panel access explicit even
+  # when an ACL mask was rewritten by a host-specific chmod implementation.
   setfacl -m u:stepanel:rwx "$site_root"
-  find "$site_root" -type d -exec setfacl -m d:u:stepanel:rwx {} +
 fi
 
 pool_targets=()

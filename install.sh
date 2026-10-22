@@ -459,6 +459,15 @@ if (( UNSAFE_LAB == 0 )); then
     echo "$quota_status" >&2
     exit 1
   fi
+  # Hosting-account homes hold placed sites (ADR-0007); account quotas are
+  # applied to the filesystem holding /home.
+  home_mount=$(findmnt -no TARGET -T /home 2>/dev/null || true)
+  home_quota_status=$(quotaon -p -u "${home_mount:-/home}" 2>&1 || true)
+  if [[ -z $home_mount || $home_quota_status != *"user quota on $home_mount ("*") is on"* ]]; then
+    echo "production requires active user quotas on the filesystem holding /home (${home_mount:-unknown}); quotaon did not report user quotas on." >&2
+    echo "$home_quota_status" >&2
+    exit 1
+  fi
   # Git deployments and release pipelines need project quotas on the staging
   # filesystem and refuse to run without them; say so before installing.
   project_quota_status=$(quotaon -p -P /var/www 2>&1 || true)
@@ -802,6 +811,8 @@ managed_targets=(
   /usr/local/sbin/stepanel-gitctl
   /usr/local/sbin/stepanel-proxyctl
   /usr/local/sbin/stepanel-sitectl
+  /usr/local/sbin/stepanel-userctl
+  /usr/local/lib/stepanel/site-location.sh
   /usr/local/sbin/stepanel-vhostctl
   /usr/local/sbin/stepanel-dbctl
   /usr/local/sbin/stepanel-runnerctl
@@ -888,6 +899,10 @@ else
   install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-proxyctl" /usr/local/sbin/stepanel-proxyctl
 fi
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-sitectl" /usr/local/sbin/stepanel-sitectl
+install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-userctl" /usr/local/sbin/stepanel-userctl
+# Root-owned and not writable: every privileged helper sources it.
+install -d -m 0755 -o root -g root /usr/local/lib/stepanel
+install -m 0644 -o root -g root "$ROOT_DIR/deploy/integrations/stepanel-site-location.sh" /usr/local/lib/stepanel/site-location.sh
 if [[ "$WEB_SERVER" == "caddy" ]]; then
   install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-caddy-vhostctl" /usr/local/sbin/stepanel-vhostctl
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then
@@ -958,6 +973,14 @@ chown "$APP_USER:$WEB_GROUP" /var/www/sites
 # enforces its own read/write boundary below this execute-only parent.
 chmod 2711 /var/www/sites
 install -d -m 0700 -o "$APP_USER" -g "$APP_USER" /var/www/sites/.stepanel-recovery
+# Hosting accounts (ADR-0007): each account user joins stepanel-users, the
+# group every helper requires before acting on a home. Site location records
+# are root-owned, and placed sites stage on the /home filesystem so their
+# activation stays one rename.
+getent group stepanel-users >/dev/null || groupadd --system stepanel-users
+install -d -m 0755 -o root -g root /etc/stepanel /etc/stepanel/sites
+install -d -m 0755 -o root -g root /home
+install -d -m 0711 -o "$APP_USER" -g "$APP_USER" /home/.stepanel-manager-staging
 write_env() {
   local key=$1 value=$2
   [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || { echo "Invalid newline in $key." >&2; exit 1; }
@@ -1070,6 +1093,14 @@ if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
     restorecon -RF "${restorecon_paths[@]}"
   fi
   if command -v setsebool >/dev/null 2>&1; then setsebool -P httpd_can_network_connect 1; fi
+  # Placed sites are served from /home (ADR-0007). The targeted policy
+  # already labels ~/public_html; label addon and subdomain roots and the
+  # per-site PHP state the same way, and let the web server use home dirs.
+  if command -v setsebool >/dev/null 2>&1; then setsebool -P httpd_enable_homedirs 1; fi
+  if command -v semanage >/dev/null 2>&1; then
+    semanage fcontext -a -t httpd_user_content_t '/home/[^/]+/([a-z0-9-]+\.)+[a-z][a-z0-9-]*(/.*)?' 2>/dev/null || semanage fcontext -m -t httpd_user_content_t '/home/[^/]+/([a-z0-9-]+\.)+[a-z][a-z0-9-]*(/.*)?'
+    semanage fcontext -a -t httpd_user_rw_content_t '/home/[^/]+/\.stepanel/sites/[^/]+/php(/.*)?' 2>/dev/null || semanage fcontext -m -t httpd_user_rw_content_t '/home/[^/]+/\.stepanel/sites/[^/]+/php(/.*)?'
+  fi
   install_journal_record selinux_configuration complete manual "SELinux labels and persistent booleans are outside installer rollback"
 fi
 systemctl daemon-reload

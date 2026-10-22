@@ -137,6 +137,11 @@ func requestLockKeys(req *Request) []string {
 			// Engine-wide reads (inventory); dbctl locks its own catalog.
 			add("dbctl", "engine")
 		}
+	case "account":
+		add("account", req.Account.Account)
+		if req.Account.Site != "" {
+			add("site", req.Account.Site)
+		}
 	case "git":
 		if req.Git.Site != "" {
 			add("site", req.Git.Site)

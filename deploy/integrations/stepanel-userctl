@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# Manage StePanel hosting-account Unix users and site placements (ADR-0007).
+#
+#   stepanel-userctl account-ensure USER
+#   stepanel-userctl account-delete USER
+#   stepanel-userctl account-quota USER DISK_MB INODES
+#   stepanel-userctl account-quota-clear USER
+#   stepanel-userctl place SITE USER KIND DIRECTORY
+#   stepanel-userctl unplace SITE USER
+#
+# An account user is created by this helper and joins the root-managed
+# stepanel-users group. Every other helper refuses to act on a user outside
+# that group, so a request can never steer root at a system account or an
+# unmanaged home. Existing users are never adopted.
+set -Eeuo pipefail
+
+[[ $EUID -eq 0 ]] || { echo 'must run as root' >&2; exit 1; }
+cd /
+location_lib=/usr/local/lib/stepanel/site-location.sh
+[[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-site-location.sh
+. "$location_lib"
+
+action=${1:-}
+web_group_config=/etc/ste-panel.env
+[[ -f $web_group_config && ! -L $web_group_config && $(stat -c %u "$web_group_config") == 0 && $(( 8#$(stat -c %a "$web_group_config") & 077 )) == 0 ]] || { echo 'authoritative web identity configuration is unavailable' >&2; exit 1; }
+web_group=$(sed -n 's/^STEPANEL_WEB_GROUP="\([a-z_][a-z0-9_-]*\)"$/\1/p' "$web_group_config")
+[[ $web_group =~ ^[a-z_][a-z0-9_-]*$ ]] && getent group "$web_group" >/dev/null || { echo 'configured web server group is invalid' >&2; exit 1; }
+getent group "$stepanel_managed_group" >/dev/null || { echo "the $stepanel_managed_group group is missing; reinstall StePanel" >&2; exit 1; }
+[[ -d $stepanel_home_root && ! -L $stepanel_home_root ]] || { echo 'the home root is missing or unsafe' >&2; exit 1; }
+
+valid_name() { [[ $1 =~ ^[a-z_][a-z0-9_-]{0,31}$ && $1 != root && $1 != sp-* && $1 != stepanel* && $1 != systemd-* ]]; }
+
+# account_sites USER lists the sites whose location record names USER.
+account_sites() {
+  local user=$1 record
+  [[ -d $stepanel_site_registry ]] || return 0
+  for record in "$stepanel_site_registry"/*/location; do
+    [[ -f $record && ! -L $record ]] || continue
+    if grep -Fxq -- "user=$user" "$record"; then
+      basename "$(dirname "$record")"
+    fi
+  done
+}
+
+ensure_registry() {
+  install -d -m 0755 -o root -g root "$stepanel_site_registry"
+}
+
+case "$action" in
+  account-ensure)
+    (( $# == 2 )) || { echo 'usage: stepanel-userctl account-ensure USER' >&2; exit 64; }
+    user=$2
+    valid_name "$user" || { echo 'invalid account name' >&2; exit 1; }
+    home="$stepanel_home_root/$user"
+    if getent passwd "$user" >/dev/null; then
+      stepanel_account_user_valid "$user" || { echo "Unix user $user already exists and is not a StePanel hosting account" >&2; exit 1; }
+    else
+      [[ ! -e $home && ! -L $home ]] || { echo "$home already exists; refusing to adopt it" >&2; exit 1; }
+      for (( attempt = 1; attempt <= 20; attempt++ )); do
+        if output=$(useradd --create-home --home-dir "$home" --shell /usr/sbin/nologin --user-group --groups "$stepanel_managed_group" -K UMASK=0077 "$user" 2>&1); then
+          break
+        fi
+        # useradd serializes through the account database; retry only the
+        # known transient lock contention.
+        [[ $output == *"cannot lock /etc/passwd"* || $output == *"cannot lock /etc/group"* ]] || { printf '%s\n' "$output" >&2; exit 1; }
+        sleep 0.25
+      done
+      stepanel_account_user_valid "$user" || { echo "could not create hosting account $user" >&2; exit 1; }
+      usermod --lock "$user" >/dev/null
+    fi
+    command -v setfacl >/dev/null 2>&1 || { echo 'setfacl is required for account isolation' >&2; exit 1; }
+    # 0711: the web server and PHP-FPM reach document roots without being
+    # able to list the home. The panel publishes document roots into the
+    # home by rename, so it keeps explicit access to the home directory.
+    chown "$user:$user" "$home"
+    chmod 0711 "$home"
+    setfacl -m u:stepanel:rwx "$home"
+    install -d -m 0711 -o "$user" -g "$user" "$home/.stepanel"
+    install -d -m 0711 -o "$user" -g "$user" "$home/.stepanel/sites"
+    printf '%s\n' "$user"
+    ;;
+  account-delete)
+    (( $# == 2 )) || { echo 'usage: stepanel-userctl account-delete USER' >&2; exit 64; }
+    user=$2
+    valid_name "$user" || { echo 'invalid account name' >&2; exit 1; }
+    if ! getent passwd "$user" >/dev/null; then
+      exit 0
+    fi
+    stepanel_account_user_valid "$user" || { echo "refusing to delete $user: not a StePanel hosting account" >&2; exit 1; }
+    remaining=$(account_sites "$user")
+    [[ -z $remaining ]] || { echo "account $user still has sites: $(tr '\n' ' ' <<<"$remaining")" >&2; exit 1; }
+    pkill -KILL -u "$user" 2>/dev/null || true
+    home="$stepanel_home_root/$user"
+    if [[ -d $home && ! -L $home ]]; then
+      rm -rf --one-file-system -- "$home"
+    fi
+    userdel "$user"
+    ;;
+  account-quota|account-quota-clear)
+    user=${2:-}
+    valid_name "$user" && stepanel_account_user_valid "$user" || { echo 'invalid hosting account' >&2; exit 1; }
+    command -v setquota >/dev/null 2>&1 || { echo 'setquota is required and filesystem quotas are not available' >&2; exit 1; }
+    home="$stepanel_home_root/$user"
+    mount=$(findmnt -no TARGET -T "$home") || { echo 'could not determine the home filesystem mount' >&2; exit 1; }
+    options=$(findmnt -no OPTIONS -T "$home") || { echo 'could not inspect the home filesystem quota options' >&2; exit 1; }
+    [[ $options =~ (^|,)(usrquota|uquota|usrjquota)(=|,|$) ]] || { echo 'the home filesystem is not mounted with user quotas enabled' >&2; exit 1; }
+    if [[ $action == account-quota-clear ]]; then
+      (( $# == 2 )) || exit 64
+      setquota -u "$user" 0 0 0 0 "$mount"
+      printf 'account_quota_cleared\tmount=%s\n' "$mount"
+      exit 0
+    fi
+    (( $# == 4 )) || { echo 'usage: stepanel-userctl account-quota USER DISK_MB INODES' >&2; exit 64; }
+    disk_mb=$3; inodes=$4
+    [[ $disk_mb =~ ^[0-9]+$ && $inodes =~ ^[0-9]+$ ]] && (( disk_mb >= 64 && disk_mb <= 1048576 && inodes >= 1000 && inodes <= 1000000000 )) || { echo 'account quota out of range' >&2; exit 1; }
+    blocks=$(( disk_mb * 1024 ))
+    setquota -u "$user" "$blocks" "$blocks" "$inodes" "$inodes" "$mount"
+    printf 'account_quota_applied\tmount=%s\tdisk_mb=%s\tinodes=%s\n' "$mount" "$disk_mb" "$inodes"
+    ;;
+  place)
+    (( $# == 5 )) || { echo 'usage: stepanel-userctl place SITE USER KIND DIRECTORY' >&2; exit 64; }
+    site=$2 user=$3 kind=$4 directory=$5
+    [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
+    stepanel_account_user_valid "$user" || { echo "$user is not a StePanel hosting account" >&2; exit 1; }
+    stepanel_site_directory_valid "$directory" || { echo 'invalid document root directory' >&2; exit 1; }
+    case "$kind:$directory" in
+      main:public_html) ;;
+      addon:public_html|subdomain:public_html) echo 'only the main site is served from public_html' >&2; exit 1 ;;
+      addon:*|subdomain:*) ;;
+      *) echo 'invalid site kind' >&2; exit 1 ;;
+    esac
+    [[ ! -e /var/www/sites/$site && ! -L /var/www/sites/$site ]] || { echo "site $site already uses the legacy /var/www/sites layout" >&2; exit 1; }
+    ensure_registry
+    record_dir="$stepanel_site_registry/$site"
+    record="$record_dir/location"
+    content=$(printf 'user=%s\ndirectory=%s' "$user" "$directory")
+    if [[ -e $record || -L $record ]]; then
+      [[ -f $record && ! -L $record && $(<"$record") == "$content" ]] || { echo "site $site is already placed elsewhere" >&2; exit 1; }
+    else
+      for other in "$stepanel_site_registry"/*/location; do
+        [[ -f $other && ! -L $other ]] || continue
+        [[ $(<"$other") != "$content" ]] || { echo "directory $directory of $user is already used by site $(basename "$(dirname "$other")")" >&2; exit 1; }
+      done
+      install -d -m 0755 -o root -g root "$record_dir"
+      staged=$(mktemp "$record_dir/.location.XXXXXX")
+      printf '%s\n' "$content" > "$staged"
+      chown root:root "$staged"; chmod 0644 "$staged"
+      mv -f "$staged" "$record"
+    fi
+    stepanel_site_location "$site"
+    install -d -m 2750 -o "$user" -g "$web_group" "$site_private" "$php_state" "$php_state/sessions" "$php_state/tmp"
+    printf '%s\t%s\n' "$user" "$public_root"
+    ;;
+  unplace)
+    (( $# == 3 )) || { echo 'usage: stepanel-userctl unplace SITE USER' >&2; exit 64; }
+    site=$2 user=$3
+    [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] && valid_name "$user" || { echo 'invalid site or account' >&2; exit 1; }
+    record="$stepanel_site_registry/$site/location"
+    [[ -e $record || -L $record ]] || exit 0
+    [[ -f $record && ! -L $record ]] && grep -Fxq -- "user=$user" "$record" || { echo "site $site is not placed in account $user" >&2; exit 1; }
+    stepanel_site_location "$site"
+    [[ ! -e $public_root ]] || { echo "site $site still has a document root; delete the site first" >&2; exit 1; }
+    if [[ -d $site_private && ! -L $site_private ]]; then
+      rm -rf --one-file-system -- "$site_private"
+    fi
+    rm -f -- "$record"
+    rmdir -- "$stepanel_site_registry/$site"
+    ;;
+  *)
+    echo 'usage: stepanel-userctl account-ensure|account-delete|account-quota|account-quota-clear|place|unplace ...' >&2
+    exit 64
+    ;;
+esac

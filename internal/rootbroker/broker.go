@@ -59,11 +59,13 @@ type Broker struct {
 	proxyctlPath         string
 	runnerctlPath        string
 	gitctlPath           string
-	gitKeyRoot           string
-	validator            *Validator
-	logger               *log.Logger
-	host                 hostOps
-	fencingDB            *sql.DB
+	// userctl overrides the installed stepanel-userctl path in tests.
+	userctl    string
+	gitKeyRoot string
+	validator  *Validator
+	logger     *log.Logger
+	host       hostOps
+	fencingDB  *sql.DB
 	// leaseWatchInterval and leaseWatchMargin drive the fencing watchdog
 	// for mutating requests; see watchFencing.
 	leaseWatchInterval  time.Duration
@@ -355,6 +357,8 @@ func (b *Broker) dispatch(ctx context.Context, req *Request) (*Response, error) 
 		return b.handleProxyRequest(ctx, req.Proxy)
 	case "git":
 		return b.handleGitRequest(ctx, req.Git)
+	case "account":
+		return b.handleAccountRequest(ctx, req.Account)
 	case "certificate":
 		return b.handleCertificateRequest(ctx, req.Certificate)
 	case "task":
@@ -1085,6 +1089,16 @@ func (b *Broker) resolveSiteUser(req *SiteRequest, allocate bool) (string, error
 			return req.SiteUser, nil
 		}
 		return siteidentity.UnixUser(req.Site), nil
+	}
+	// A site placed in a hosting account (ADR-0007) runs as the account's
+	// user and never gets a per-site identity.
+	if placedUser, placed, err := placedSiteUser(b.fencingDB, req.Site); err != nil {
+		return "", fmt.Errorf("resolve hosting-account placement for site %q: %w", req.Site, err)
+	} else if placed {
+		if req.SiteUser != "" && req.SiteUser != placedUser {
+			return "", fmt.Errorf("site identity mismatch for %q: request %q, account user %q", req.Site, req.SiteUser, placedUser)
+		}
+		return placedUser, nil
 	}
 	var username string
 	err := b.fencingDB.QueryRow(`SELECT username FROM site_identities WHERE site = ?`, req.Site).Scan(&username)

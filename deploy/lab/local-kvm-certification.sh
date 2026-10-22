@@ -86,6 +86,7 @@ start_guest() {
     -drive "file=$run_dir/root.qcow2,if=virtio,format=qcow2,cache=$disk_cache" \
     -drive "file=$run_dir/www.ext4,if=virtio,format=raw,cache=$disk_cache" \
     -drive "file=$run_dir/enospc.ext4,if=virtio,format=raw,cache=$disk_cache" \
+    -drive "file=$run_dir/home.ext4,if=virtio,format=raw,cache=$disk_cache" \
     -drive "file=$run_dir/seed.iso,if=virtio,media=cdrom,readonly=on" \
     -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$port-:22" \
     -device virtio-net-pci,netdev=net0 \
@@ -182,6 +183,8 @@ qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$image")" "$run_dir/root.qc
 # 5 GiB final-tree limit) while retaining the installer's 5 GiB free-space floor.
 qemu-img create -q -f raw "$run_dir/www.ext4" 24G
 qemu-img create -q -f raw "$run_dir/enospc.ext4" 96M
+# Hosting-account homes (ADR-0007) need user quotas too.
+qemu-img create -q -f raw "$run_dir/home.ext4" 4G
 ssh-keygen -q -t ed25519 -N '' -f "$run_dir/id_ed25519"
 cat > "$run_dir/user-data" <<EOF
 #cloud-config
@@ -215,6 +218,15 @@ runcmd:
     install -d -m 0700 /mnt/stepanel-enospc
     printf '%s\n' '/dev/vdc /mnt/stepanel-enospc ext4 defaults 0 2' >> /etc/fstab
     mount /mnt/stepanel-enospc
+    # Move existing homes onto a quota-enabled filesystem mounted at /home.
+    mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdd
+    install -d -m 0700 /mnt/stepanel-home
+    mount /dev/vdd /mnt/stepanel-home
+    cp -a /home/. /mnt/stepanel-home/
+    umount /mnt/stepanel-home
+    printf '%s\n' '/dev/vdd /home ext4 usrquota,prjquota 0 2' >> /etc/fstab
+    mount /home
+    quotaon -p -u /home | grep -E '^user quota on /home \(.*\) is on'
     touch /var/lib/stepanel-cert-ready
 EOF
 printf 'instance-id: stepanel-cert\nlocal-hostname: stepanel-cert\n' > "$run_dir/meta-data"

@@ -42,6 +42,10 @@ type Request struct {
 	// Git operations: clone, verify-key
 	Git *GitRequest `json:"git,omitempty"`
 
+	// Hosting-account operations: ensure, delete, quota, quota-clear, place,
+	// unplace (ADR-0007).
+	Account *AccountRequest `json:"account,omitempty"`
+
 	// Certificate requests expose only the bounded issuance operation; they
 	// cannot select an executable, arbitrary arguments, or certificate paths.
 	Certificate *CertificateRequest `json:"certificate,omitempty"`

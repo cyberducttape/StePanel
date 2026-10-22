@@ -634,6 +634,11 @@ func ValidateConfig(c Config) error {
 			if err := validateWebRootFilesystemQuotas(c.WebRoot); err != nil {
 				problems = append(problems, err)
 			}
+			// Hosting-account sites live in /home (ADR-0007); account quotas
+			// are applied there with setquota -u by stepanel-userctl.
+			if err := validateHomeRootFilesystemQuotas(c.HomeRoot); err != nil {
+				problems = append(problems, err)
+			}
 		}
 	}
 	return errors.Join(problems...)
@@ -736,12 +741,22 @@ func validateEncryptionKey(key string, name string) error {
 // are advertised to customers, they must be enforceable, otherwise customers
 // cannot use the disk quota allocation they are paying for.
 func validateWebRootFilesystemQuotas(webRoot string) error {
-	if webRoot == "" {
-		return errors.New("STEPANEL_WEB_ROOT is not configured; cannot validate filesystem quota support")
+	return validateUserQuotaFilesystem("STEPANEL_WEB_ROOT", "the sites tree", webRoot)
+}
+
+// validateHomeRootFilesystemQuotas applies the same rule to the filesystem
+// holding hosting-account homes.
+func validateHomeRootFilesystemQuotas(homeRoot string) error {
+	return validateUserQuotaFilesystem("STEPANEL_HOME_ROOT", "hosting-account homes", homeRoot)
+}
+
+func validateUserQuotaFilesystem(setting, purpose, root string) error {
+	if root == "" {
+		return fmt.Errorf("%s is not configured; cannot validate filesystem quota support", setting)
 	}
-	webRootAbs, err := filepath.Abs(webRoot)
+	webRootAbs, err := filepath.Abs(root)
 	if err != nil {
-		return fmt.Errorf("cannot resolve STEPANEL_WEB_ROOT to an absolute path: %w", err)
+		return fmt.Errorf("cannot resolve %s to an absolute path: %w", setting, err)
 	}
 	mounts, err := os.ReadFile("/proc/mounts")
 	if err != nil {
@@ -767,15 +782,15 @@ func validateWebRootFilesystemQuotas(webRoot string) error {
 		}
 	}
 	if best == "" {
-		return errors.New("could not identify a mountpoint hosting the sites tree; cannot validate quota support")
+		return fmt.Errorf("could not identify a mountpoint hosting %s; cannot validate quota support", purpose)
 	}
 	// Customer limits are applied with setquota -u by stepanel-sitectl, so
 	// group-only and project-only quota options are not sufficient. Accept the
 	// filesystem-specific user-quota spellings supported by that helper.
 	if !hasUserQuotaMountOption(bestOptions) {
-		return fmt.Errorf("mount %s hosting the sites tree does not have user quota options enabled (usrquota, uquota, or usrjquota); "+
+		return fmt.Errorf("mount %s hosting %s does not have user quota options enabled (usrquota, uquota, or usrjquota); "+
 			"plans cannot advertise per-customer disk quotas without filesystem enforcement. "+
-			"Configure user quotas on the mount and enable with mount -o remount,usrquota /var/www or update fstab", best)
+			"Configure user quotas on the mount and enable with mount -o remount,usrquota %s or update fstab", best, purpose, best)
 	}
 	return nil
 }

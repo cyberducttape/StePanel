@@ -196,7 +196,8 @@ func TestSiteHelperUsesAuthoritativeWebIdentityAndRejectsSymlinks(t *testing.T) 
 	for _, required := range []string{
 		`STEPANEL_WEB_GROUP`,
 		`STEPANEL_PHP_SOCKET_ROOT`,
-		`find -P "$site_root/public" -xdev -path "$site_root/public/node_modules" -prune -o -type l`,
+		`find -P "$public_root" -xdev -path "$public_root/node_modules" -prune -o -type l`,
+		`stepanel_site_location "$site"`,
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("site helper is missing protection %q", required)

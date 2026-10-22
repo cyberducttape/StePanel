@@ -64,6 +64,10 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		"dump": timeoutBulk, "restore": timeoutBulk, "restore-dump": timeoutBulk, "restore-wordpress": timeoutBulk,
 		"provision": timeoutDatabase, "rotate": timeoutDatabase, "drop": timeoutDatabase, "drop-managed": timeoutDatabase, "cleanup-wordpress": timeoutDatabase,
 	},
+	"account": {
+		"ensure": timeoutLifecycle, "delete": timeoutLifecycle, "quota": timeoutConfig,
+		"quota-clear": timeoutConfig, "place": timeoutConfig, "unplace": timeoutLifecycle,
+	},
 	"git": {
 		"generate": timeoutConfig, "public": timeoutConfig, "delete": timeoutLifecycle,
 		"clone": timeoutContainer, "verify-key": timeoutConfig, "stage-limit": timeoutConfig, "stage-clear": timeoutConfig,
@@ -120,6 +124,10 @@ func RequestTimeout(req *Request) time.Duration {
 	case "git":
 		if req.Git != nil {
 			table, action = typedTimeouts["git"], req.Git.Action
+		}
+	case "account":
+		if req.Account != nil {
+			table, action = typedTimeouts["account"], req.Account.Action
 		}
 	case "vhost":
 		if req.Vhost != nil {

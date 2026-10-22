@@ -53,6 +53,8 @@ jobs:
           # exercise activation recovery, not reject Git admission by design.
           qemu-img create -f raw "$vm_root/www.ext4" 24G
           qemu-img create -f raw "$vm_root/enospc.ext4" 96M
+          # Hosting-account homes (ADR-0007) need user quotas too.
+          qemu-img create -f raw "$vm_root/home.ext4" 4G
 
           ssh-keygen -q -t ed25519 -N '' -f "$vm_root/id_ed25519"
           vm_pubkey=$(<"$vm_root/id_ed25519.pub")
@@ -95,6 +97,16 @@ jobs:
               install -d -m 0700 /mnt/stepanel-enospc
               printf '%s\\n' '/dev/vdc /mnt/stepanel-enospc ext4 defaults 0 2' >> /etc/fstab
               mount /dev/vdc /mnt/stepanel-enospc
+              # Move the existing homes, including vmtest's SSH keys, onto a
+              # quota-enabled filesystem before mounting it over /home.
+              mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdd
+              install -d -m 0700 /mnt/stepanel-home
+              mount /dev/vdd /mnt/stepanel-home
+              cp -a /home/. /mnt/stepanel-home/
+              umount /mnt/stepanel-home
+              printf '%s\\n' '/dev/vdd /home ext4 usrquota,prjquota 0 2' >> /etc/fstab
+              mount /home
+              quotaon -p -u /home | grep -E '^user quota on /home \(.*\) is on'
               touch /run/stepanel-quota-ready
           EOF
           cloud-localds "$vm_root/seed.iso" "$vm_root/user-data"
@@ -106,6 +118,7 @@ jobs:
               -drive "file=$guest_image,if=virtio,format=qcow2" \
               -drive "file=$vm_root/www.ext4,if=virtio,format=raw" \
               -drive "file=$vm_root/enospc.ext4,if=virtio,format=raw" \
+              -drive "file=$vm_root/home.ext4,if=virtio,format=raw" \
               -drive "file=$vm_root/seed.iso,if=virtio,media=cdrom,readonly=on" \
               -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
               -device virtio-net-pci,netdev=net0 \

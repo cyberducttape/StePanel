@@ -413,3 +413,22 @@ func (c *Client) GitPublic(ctx context.Context, site string) (*Response, error) 
 func (c *Client) GitGenerate(ctx context.Context, site string) (*Response, error) {
 	return c.Execute(ctx, &Request{RequestType: "git", Git: &GitRequest{Action: "generate", Site: site}})
 }
+
+// AccountRequest runs one hosting-account operation (ADR-0007) and decodes
+// the account user and, for place, the document root the helper published.
+func (c *Client) AccountRequest(ctx context.Context, req AccountRequest) (AccountResponse, error) {
+	resp, err := c.Execute(ctx, &Request{RequestType: "account", Account: &req})
+	if err != nil {
+		return AccountResponse{}, err
+	}
+	if !resp.OK {
+		return AccountResponse{}, fmt.Errorf("root broker rejected account %s: %s", req.Action, resp.Error)
+	}
+	var details AccountResponse
+	if len(resp.Details) > 0 {
+		if err := json.Unmarshal(resp.Details, &details); err != nil {
+			return AccountResponse{}, fmt.Errorf("decode account %s response: %w", req.Action, err)
+		}
+	}
+	return details, nil
+}

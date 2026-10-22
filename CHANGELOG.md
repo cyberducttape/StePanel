@@ -25,6 +25,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
     sites sharing a home never collide. Deleting a placed site removes only
     its own document root and releases, never the home. Unplaced sites keep
     the legacy layout.
+  - **Privileged side:** new `stepanel-userctl` creates hosting-account
+    users in the root-managed `stepanel-users` group with a 0711
+    `/home/<user>`. It writes root-owned site location records in
+    `/etc/stepanel/sites`, and manages account quotas on the `/home`
+    filesystem. A shared, root-owned site location library is the one
+    root-side mapping from a site to its document root; `stepanel-sitectl`
+    uses it to prepare, seal and delete placed sites without touching the
+    account's home or other sites. The root broker gains an `account` request,
+    checked against the control-plane records, and resolves placed sites to
+    their account user.
+  - **Installer and services:** the installer creates the group, registry and
+    home staging root, requires user quotas on the filesystem holding `/home`
+    for production, and labels home document roots for SELinux. The panel,
+    worker and broker units can now reach `/home`.
 
 ### Changed
 
