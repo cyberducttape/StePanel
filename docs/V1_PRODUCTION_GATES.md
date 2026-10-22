@@ -626,7 +626,13 @@ and this gate now describes the implementation as it is:
    - Staging is published only by `SiteManager.ActivateStaged*` and discarded
      only by `SiteManager.DiscardStaging()`.
    - Staging paths are never persisted across operation boundaries.
-2. **Canonical sites**: `{webRoot}/sites/{siteName}`.
+2. **Canonical sites**: `{webRoot}/sites/{siteName}` for legacy sites, and
+   for sites placed in a hosting account (ADR-0007) the document root
+   `{homeRoot}/{user}/public_html` or `{homeRoot}/{user}/{domain}`. Placed
+   sites stage under `{homeRoot}/.stepanel-manager-staging`
+   (`SiteManager.CreateSiteStagingLease()`), so activation stays one rename on
+   the home filesystem; deleting one removes only its document root and its
+   preserved releases, never the shared home.
    - Unprivileged code publishes, replaces, and removes canonical trees only
      through `SiteManager`.
    - The privileged teardown helper (`stepanel-sitectl delete`) also removes

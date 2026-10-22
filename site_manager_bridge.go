@@ -2,16 +2,49 @@ package stepanel
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
-func newSiteManagerForConfig(cfg Config) (siteauthority.Manager, error) {
-	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+// sitePlacementDB is the control-plane database that places sites inside
+// hosting-account homes (ADR-0007). Startup registers it once the database
+// is open; until then, and in unit tests that never register one, managers
+// see every site in the legacy layout.
+var sitePlacementDB atomic.Pointer[sql.DB]
+
+func registerSitePlacementDB(db *sql.DB) { sitePlacementDB.Store(db) }
+
+// newSiteManagerForConfig is the one constructor for site managers. With a
+// registered control plane and a home root, placed sites resolve to their
+// account home; every other site keeps the legacy web-root layout.
+func newSiteManagerForConfig(cfg Config) (*siteauthority.DefaultManager, error) {
+	webRoot, err := filepath.Abs(cfg.WebRoot)
+	if err != nil {
+		return nil, fmt.Errorf("initialize site manager: resolve web root: %w", err)
+	}
+	db := sitePlacementDB.Load()
+	if db == nil || strings.TrimSpace(cfg.HomeRoot) == "" {
+		manager, err := siteauthority.NewDefaultManager(webRoot)
+		if err != nil {
+			return nil, fmt.Errorf("initialize site manager: %w", err)
+		}
+		return manager, nil
+	}
+	homeRoot, err := filepath.Abs(cfg.HomeRoot)
+	if err != nil {
+		return nil, fmt.Errorf("initialize site manager: resolve home root: %w", err)
+	}
+	manager, err := siteauthority.NewAccountManager(webRoot, homeRoot, func(site string) (sitelayout.Placement, error) {
+		return sitelayout.Get(db, site)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("initialize site manager: %w", err)
 	}
@@ -32,7 +65,7 @@ func (a *App) activateStagedSite(ctx context.Context, name, stagedRoot string) e
 }
 
 func activateStagedSiteWithConfig(ctx context.Context, cfg Config, name, stagedRoot string) error {
-	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	manager, err := newSiteManagerForConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("initialize site manager: %w", err)
 	}
@@ -43,7 +76,7 @@ func activateStagedSiteWithConfig(ctx context.Context, cfg Config, name, stagedR
 }
 
 func createSiteManagerStaging(ctx context.Context, cfg Config, prefix string) (string, *os.File, error) {
-	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	manager, err := newSiteManagerForConfig(cfg)
 	if err != nil {
 		return "", nil, fmt.Errorf("initialize site manager: %w", err)
 	}
@@ -51,7 +84,7 @@ func createSiteManagerStaging(ctx context.Context, cfg Config, prefix string) (s
 }
 
 func releaseSiteManagerStagingLease(cfg Config, stagedRoot string, owner *os.File) error {
-	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	manager, err := newSiteManagerForConfig(cfg)
 	if err != nil {
 		_ = owner.Close()
 		return fmt.Errorf("initialize site manager to release staging lease: %w", err)
@@ -60,7 +93,7 @@ func releaseSiteManagerStagingLease(cfg Config, stagedRoot string, owner *os.Fil
 }
 
 func discardSiteManagerStaging(ctx context.Context, cfg Config, stagedRoot string) error {
-	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	manager, err := newSiteManagerForConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("initialize site manager: %w", err)
 	}
@@ -89,7 +122,7 @@ func (a *App) createSiteReleaseStaging(ctx context.Context, name, prefix string)
 	manager := a.siteManager
 	if manager == nil {
 		var err error
-		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
+		manager, err = newSiteManagerForConfig(a.Config)
 		if err != nil {
 			return "", nil, fmt.Errorf("initialize site manager: %w", err)
 		}
@@ -101,7 +134,7 @@ func (a *App) discardSiteReleaseStaging(ctx context.Context, name, stagedRoot st
 	manager := a.siteManager
 	if manager == nil {
 		var err error
-		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
+		manager, err = newSiteManagerForConfig(a.Config)
 		if err != nil {
 			return fmt.Errorf("initialize site manager: %w", err)
 		}
@@ -113,7 +146,7 @@ func (a *App) activateReplacingSite(ctx context.Context, name, stagedRoot string
 	manager := a.siteManager
 	if manager == nil {
 		var err error
-		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
+		manager, err = newSiteManagerForConfig(a.Config)
 		if err != nil {
 			return "", fmt.Errorf("initialize site manager: %w", err)
 		}
@@ -125,7 +158,7 @@ func (a *App) rollbackReplacingSite(ctx context.Context, name, previous string) 
 	manager := a.siteManager
 	if manager == nil {
 		var err error
-		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
+		manager, err = newSiteManagerForConfig(a.Config)
 		if err != nil {
 			return fmt.Errorf("initialize site manager: %w", err)
 		}
@@ -138,7 +171,7 @@ func (a *App) deleteSiteTree(ctx context.Context, name string) error {
 	manager := a.siteManager
 	if manager == nil {
 		var err error
-		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
+		manager, err = newSiteManagerForConfig(a.Config)
 		if err != nil {
 			return fmt.Errorf("initialize site manager: %w", err)
 		}

@@ -337,7 +337,7 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 
 	manager := a.siteManager
 	if manager == nil {
-		if manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot); err != nil {
+		if manager, err = newSiteManagerForConfig(a.Config); err != nil {
 			return result, fmt.Errorf("initialize site manager: %w", err)
 		}
 	}

@@ -18,6 +18,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
     production pins it to `/home`.
   - **Legacy guard:** the per-site identity allocator refuses a site that is
     already placed in an account.
+  - **Site manager:** sites placed in an account are created, activated,
+    replaced, rolled back and deleted at `/home/<user>/public_html` or
+    `/home/<user>/<domain>`. Stages for them live on the home filesystem
+    (`CreateSiteStagingLease`), and preserved releases are named per site so
+    sites sharing a home never collide. Deleting a placed site removes only
+    its own document root and releases, never the home. Unplaced sites keep
+    the legacy layout.
 
 ### Changed
 

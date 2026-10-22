@@ -23,7 +23,6 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/archivesafe"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
-	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
 type CPMoveInfo struct {
@@ -350,7 +349,7 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	if err != nil {
 		return ImportResult{}, err
 	}
-	manager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	manager, err := newSiteManagerForConfig(cfg)
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("initialize site manager: %w", err)
 	}

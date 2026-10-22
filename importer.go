@@ -14,7 +14,6 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/archivesafe"
 	"github.com/cyberducttape/StePanel/internal/importer"
-	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
 // durableArchiveImportRequest is the job payload for archive imports
@@ -362,7 +361,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 
 	manager := a.siteManager
 	if manager == nil {
-		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
+		manager, err = newSiteManagerForConfig(a.Config)
 		if err != nil {
 			return nil, fmt.Errorf("initialize site manager for staging: %w", err)
 		}

@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-
-	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
 // Site creation publishes a new, isolated site from a template. It follows
@@ -280,7 +278,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 
 	manager := a.siteManager
 	if manager == nil {
-		manager, err = siteauthority.NewDefaultManager(a.Config.WebRoot)
+		manager, err = newSiteManagerForConfig(a.Config)
 		if err != nil {
 			return nil, fmt.Errorf("initialize site manager: %w", err)
 		}

@@ -83,6 +83,7 @@ type Site struct {
 type Manager interface {
 	Create(ctx context.Context, req *CreateRequest) (*Site, error)
 	CreateStagingLease(ctx context.Context, prefix string) (string, *os.File, error)
+	CreateSiteStagingLease(ctx context.Context, name, prefix string) (string, *os.File, error)
 	ReleaseStagingLease(stagedRoot string, owner *os.File) error
 	DiscardStaging(ctx context.Context, stagedRoot string) error
 	CreateReleaseStagingLease(ctx context.Context, name, prefix string) (string, *os.File, error)
@@ -121,6 +122,10 @@ type CloneRequest struct {
 // and reuse across handlers.
 type DefaultManager struct {
 	webRoot string
+	// homeRoot and placements are set by NewAccountManager for the
+	// hosting-account layout (ADR-0007); unset, every site is legacy.
+	homeRoot   string
+	placements PlacementLookup
 }
 
 // NewDefaultManager validates and stores the configured web root. It
@@ -147,13 +152,14 @@ func (m *DefaultManager) resolveSiteRoot(name string) (string, error) {
 	return h.SafePath(m.webRoot, "sites", name)
 }
 
-// resolvePublicRoot returns the site's public/ path with the same safety
-// guarantees as resolveSiteRoot.
+// resolvePublicRoot returns the site's document root: public/ for a legacy
+// site, its public_html or domain directory for a placed site.
 func (m *DefaultManager) resolvePublicRoot(name string) (string, error) {
-	if !validSiteName.MatchString(name) {
-		return "", fmt.Errorf("sites.Manager: invalid site name %q", name)
+	loc, err := m.location(name)
+	if err != nil {
+		return "", err
 	}
-	return h.SafePath(m.webRoot, "sites", name, "public")
+	return loc.docRoot, nil
 }
 
 func (m *DefaultManager) resolveStagedRoot(name, stagedRoot string) (string, string, error) {
@@ -170,10 +176,22 @@ func (m *DefaultManager) resolveStagedRoot(name, stagedRoot string) (string, str
 		return "", "", errors.New("sites.Manager: invalid staged path component")
 	}
 	parent := filepath.Dir(absStaged)
-	siteRoot, err := m.resolveSiteRoot(name)
+	loc, err := m.location(name)
 	if err != nil {
 		return "", "", err
 	}
+	if loc.placed {
+		// Activation must be one rename, so a placed site only accepts
+		// stages from the staging root on its home filesystem.
+		if parent != loc.stageRoot {
+			return "", "", errors.New("sites.Manager: a placed site accepts stages only from the account staging root")
+		}
+		if _, err := h.SafePath(loc.stageRoot, component); err != nil {
+			return "", "", err
+		}
+		return loc.stageRoot, component, nil
+	}
+	siteRoot := loc.container
 	if parent == siteRoot {
 		if !strings.HasPrefix(component, ".stepanel-previous-") && !strings.HasPrefix(component, ".stepanel-release-") {
 			return "", "", errors.New("sites.Manager: direct site path is not a manager-owned release")
@@ -233,25 +251,18 @@ func (m *DefaultManager) CreateReleaseStagingLease(ctx context.Context, name, pr
 	if !validSiteName.MatchString(name) {
 		return "", nil, fmt.Errorf("sites.Manager: invalid site name %q", name)
 	}
-	siteRoot, err := m.resolveSiteRoot(name)
+	loc, err := m.location(name)
 	if err != nil {
 		return "", nil, err
 	}
-	info, err := os.Stat(siteRoot)
+	info, err := os.Stat(loc.container)
 	if err != nil {
 		return "", nil, fmt.Errorf("sites.Manager: inspect release site root: %w", err)
 	}
 	if !info.IsDir() {
 		return "", nil, errors.New("sites.Manager: release site root is not a directory")
 	}
-	sitesRoot, err := h.SafePath(m.webRoot, "sites")
-	if err != nil {
-		return "", nil, err
-	}
-	stageParent, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
-	if err != nil {
-		return "", nil, err
-	}
+	stageParent := loc.stageRoot
 	if err := os.MkdirAll(stageParent, 0700); err != nil {
 		return "", nil, fmt.Errorf("sites.Manager: create release staging root: %w", err)
 	}
@@ -359,9 +370,11 @@ func (m *DefaultManager) DiscardReleaseStaging(ctx context.Context, name, staged
 	if parent == "" || !strings.HasPrefix(component, ".stepanel-release-") {
 		return errors.New("sites.Manager: path is not a release staging tree")
 	}
-	if managerRoot, err := h.SafePath(m.webRoot, "sites", ".stepanel-manager-staging"); err != nil {
+	inStageRoot, err := m.isStageRoot(parent)
+	if err != nil {
 		return err
-	} else if parent == managerRoot && !IsReleaseStagingName(name, component) {
+	}
+	if inStageRoot && !IsReleaseStagingName(name, component) {
 		return errors.New("sites.Manager: release staging tree belongs to another site")
 	}
 	owned, err := h.SafePath(parent, component)
@@ -385,7 +398,7 @@ func (m *DefaultManager) DiscardReleaseStaging(ctx context.Context, name, staged
 			return fmt.Errorf("sites.Manager: discard release staging tree: %w", err)
 		}
 	}
-	if managerRoot, err := h.SafePath(m.webRoot, "sites", ".stepanel-manager-staging"); err == nil && parent == managerRoot {
+	if inStageRoot {
 		coordination, err := acquireManagerStageCoordination(parent, stageCoordinationLock)
 		if err != nil {
 			return fmt.Errorf("sites.Manager: coordinate release discard: %w", err)
@@ -463,10 +476,24 @@ func (m *DefaultManager) CleanupOrphanedStaging(ctx context.Context, olderThan t
 			removed++
 		}
 	}
-	stageParent, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
+	roots, err := m.stageRoots()
 	if err != nil {
-		return removed, fmt.Errorf("sites.Manager: resolve staging root: %w", err)
+		return removed, fmt.Errorf("sites.Manager: resolve staging roots: %w", err)
 	}
+	for _, stageParent := range roots {
+		cleaned, err := m.cleanupStageRoot(ctx, stageParent, abandoned)
+		removed += cleaned
+		if err != nil {
+			return removed, err
+		}
+	}
+	return removed, nil
+}
+
+// cleanupStageRoot removes abandoned, unleased stages and stale lease files
+// from one manager staging directory.
+func (m *DefaultManager) cleanupStageRoot(ctx context.Context, stageParent string, abandoned func(os.DirEntry) bool) (int, error) {
+	removed := 0
 	coordination, err := acquireManagerStageCoordination(stageParent, stageCoordinationLock)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return removed, fmt.Errorf("sites.Manager: coordinate staging cleanup: %w", err)
@@ -551,14 +578,32 @@ func (m *DefaultManager) CreateStagingLease(ctx context.Context, prefix string) 
 	if !validStagingPrefix.MatchString(prefix) {
 		return "", nil, errors.New("sites.Manager: invalid staging prefix")
 	}
-	sitesRoot, err := h.SafePath(m.webRoot, "sites")
+	stageParent, err := m.legacyStageRoot()
 	if err != nil {
 		return "", nil, err
 	}
-	stageParent, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
+	return createStagingLeaseIn(stageParent, prefix)
+}
+
+// CreateSiteStagingLease allocates a stage on the same filesystem as site
+// name's document root, so ActivateStaged can publish it with one rename. A
+// site placed in a hosting-account home stages under the home staging root;
+// a legacy site behaves exactly like CreateStagingLease.
+func (m *DefaultManager) CreateSiteStagingLease(ctx context.Context, name, prefix string) (string, *os.File, error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
+	if !validStagingPrefix.MatchString(prefix) {
+		return "", nil, errors.New("sites.Manager: invalid staging prefix")
+	}
+	loc, err := m.location(name)
 	if err != nil {
 		return "", nil, err
 	}
+	return createStagingLeaseIn(loc.stageRoot, prefix)
+}
+
+func createStagingLeaseIn(stageParent, prefix string) (string, *os.File, error) {
 	if err := os.MkdirAll(stageParent, 0700); err != nil {
 		return "", nil, fmt.Errorf("sites.Manager: create staging root: %w", err)
 	}
@@ -594,23 +639,19 @@ func (m *DefaultManager) ReleaseStagingLease(stagedRoot string, owner *os.File) 
 	if owner == nil {
 		return nil
 	}
-	sitesRoot, err := h.SafePath(m.webRoot, "sites")
-	if err != nil {
-		_ = owner.Close()
-		return err
-	}
-	managerRoot, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
-	if err != nil {
-		_ = owner.Close()
-		return err
-	}
 	absStage, err := filepath.Abs(stagedRoot)
 	if err != nil {
 		_ = owner.Close()
 		return err
 	}
+	managerRoot := filepath.Dir(absStage)
+	owned, err := m.isStageRoot(managerRoot)
+	if err != nil {
+		_ = owner.Close()
+		return err
+	}
 	component := filepath.Base(absStage)
-	if filepath.Dir(absStage) != managerRoot || !strings.HasPrefix(component, ".stepanel-") || !validStagedComponent.MatchString(component) {
+	if !owned || !strings.HasPrefix(component, ".stepanel-") || !validStagedComponent.MatchString(component) {
 		_ = owner.Close()
 		return errors.New("sites.Manager: cannot release lease for unowned staging path")
 	}
@@ -643,19 +684,14 @@ func (m *DefaultManager) DiscardStaging(ctx context.Context, stagedRoot string) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	sitesRoot, err := h.SafePath(m.webRoot, "sites")
-	if err != nil {
-		return err
-	}
-	managerRoot, err := h.SafePath(sitesRoot, ".stepanel-manager-staging")
-	if err != nil {
-		return err
-	}
 	absStaged, err := filepath.Abs(stagedRoot)
 	if err != nil {
 		return err
 	}
-	if filepath.Dir(absStaged) != managerRoot {
+	managerRoot := filepath.Dir(absStaged)
+	if owned, err := m.isStageRoot(managerRoot); err != nil {
+		return err
+	} else if !owned {
 		return errors.New("sites.Manager: staged path is not manager-owned")
 	}
 	component := filepath.Base(absStaged)
@@ -682,14 +718,14 @@ func (m *DefaultManager) DiscardStaging(ctx context.Context, stagedRoot string) 
 	return nil
 }
 
-func (m *DefaultManager) inspectStaged(name, stagedRoot string) (string, string, string, error) {
-	destination, err := m.resolvePublicRoot(name)
+func (m *DefaultManager) inspectStaged(name, stagedRoot string) (location, string, error) {
+	loc, err := m.location(name)
 	if err != nil {
-		return "", "", "", err
+		return location{}, "", err
 	}
 	stagedParent, stagedName, err := m.resolveStagedRoot(name, stagedRoot)
 	if err != nil {
-		return "", "", "", err
+		return location{}, "", err
 	}
 	// Resolve the requested component through a directory entry obtained from
 	// the manager-owned parent. The final filesystem call therefore uses a
@@ -699,25 +735,37 @@ func (m *DefaultManager) inspectStaged(name, stagedRoot string) (string, string,
 	var stagedInfo os.FileInfo
 	entries, err := os.ReadDir(stagedParent)
 	if err != nil {
-		return "", "", "", fmt.Errorf("sites.Manager: inspect staging parent: %w", err)
+		return location{}, "", fmt.Errorf("sites.Manager: inspect staging parent: %w", err)
 	}
 	for _, entry := range entries {
 		if entry.Name() == stagedName {
 			stagedEntry = filepath.Join(stagedParent, entry.Name())
 			stagedInfo, err = entry.Info()
 			if err != nil {
-				return "", "", "", fmt.Errorf("sites.Manager: inspect staged site: %w", err)
+				return location{}, "", fmt.Errorf("sites.Manager: inspect staged site: %w", err)
 			}
 			break
 		}
 	}
 	if stagedEntry == "" {
-		return "", "", "", errors.New("sites.Manager: staged site does not exist")
+		return location{}, "", errors.New("sites.Manager: staged site does not exist")
 	}
 	if stagedInfo.Mode()&os.ModeSymlink != 0 || !stagedInfo.IsDir() {
-		return "", "", "", errors.New("sites.Manager: staged site must be a directory")
+		return location{}, "", errors.New("sites.Manager: staged site must be a directory")
 	}
-	return filepath.Dir(destination), destination, stagedEntry, nil
+	return loc, stagedEntry, nil
+}
+
+// prepareActivationParent makes sure a document root has somewhere to go: a
+// legacy site root is created on demand, a placed site's home must exist.
+func prepareActivationParent(loc location) error {
+	if loc.placed {
+		return requireAccountHome(loc)
+	}
+	if err := os.MkdirAll(loc.container, 0750); err != nil {
+		return fmt.Errorf("sites.Manager: prepare activation parent: %w", err)
+	}
+	return nil
 }
 
 // ActivateStaged publishes a fully prepared public tree under the manager's
@@ -727,10 +775,11 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	_, destination, stagedEntry, err := m.inspectStaged(name, stagedRoot)
+	loc, stagedEntry, err := m.inspectStaged(name, stagedRoot)
 	if err != nil {
 		return nil, err
 	}
+	destination := loc.docRoot
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -739,8 +788,8 @@ func (m *DefaultManager) ActivateStaged(ctx context.Context, name, stagedRoot st
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("sites.Manager: inspect activation destination: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
-		return nil, fmt.Errorf("sites.Manager: prepare activation parent: %w", err)
+	if err := prepareActivationParent(loc); err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -760,10 +809,11 @@ func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stag
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	siteRoot, destination, stagedEntry, err := m.inspectStaged(name, stagedRoot)
+	loc, stagedEntry, err := m.inspectStaged(name, stagedRoot)
 	if err != nil {
 		return "", err
 	}
+	siteRoot, destination := loc.container, loc.docRoot
 	// Make the staged release durable before the current release is moved
 	// aside, so a crash can never leave an unwritten tree published.
 	if err := syncTree(ctx, stagedEntry); err != nil {
@@ -777,7 +827,7 @@ func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stag
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return "", errors.New("sites.Manager: activation destination must be a directory")
 		}
-		previousName := ".stepanel-previous-" + fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+		previousName := loc.previousPrefix + fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 		previous, err = h.SafePath(siteRoot, previousName)
 		if err != nil {
 			return "", err
@@ -791,8 +841,8 @@ func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stag
 	if err := ctx.Err(); err != nil {
 		return "", restorePreviousRelease(previous, destination, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0750); err != nil {
-		return "", restorePreviousRelease(previous, destination, fmt.Errorf("sites.Manager: prepare activation parent: %w", err))
+	if err := prepareActivationParent(loc); err != nil {
+		return "", restorePreviousRelease(previous, destination, err)
 	}
 	if err := renameDurable(stagedEntry, destination); err != nil {
 		return "", restorePreviousRelease(previous, destination, fmt.Errorf("sites.Manager: activate staged release: %w", err))
@@ -804,14 +854,11 @@ func (m *DefaultManager) ActivateStagedReplacing(ctx context.Context, name, stag
 // manager-generated previous release. An empty previous path removes the
 // newly-created site tree.
 func (m *DefaultManager) RollbackStagedActivation(ctx context.Context, name, previous string) error {
-	destination, err := m.resolvePublicRoot(name)
+	loc, err := m.location(name)
 	if err != nil {
 		return err
 	}
-	siteRoot, err := m.resolveSiteRoot(name)
-	if err != nil {
-		return err
-	}
+	siteRoot, destination := loc.container, loc.docRoot
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -829,7 +876,7 @@ func (m *DefaultManager) RollbackStagedActivation(ctx context.Context, name, pre
 		return nil
 	}
 	absPrevious, err := filepath.Abs(previous)
-	if err != nil || filepath.Dir(absPrevious) != siteRoot || !strings.HasPrefix(filepath.Base(absPrevious), ".stepanel-previous-") {
+	if err != nil || filepath.Dir(absPrevious) != siteRoot || !strings.HasPrefix(filepath.Base(absPrevious), loc.previousPrefix) {
 		return errors.New("sites.Manager: invalid previous release path")
 	}
 	previous, err = h.SafePath(siteRoot, filepath.Base(absPrevious))
@@ -933,10 +980,14 @@ func (m *DefaultManager) Create(ctx context.Context, req *CreateRequest) (*Site,
 	if req == nil {
 		return nil, errors.New("sites.Manager: nil CreateRequest")
 	}
-	publicRoot, err := m.resolvePublicRoot(req.Name)
+	loc, err := m.location(req.Name)
 	if err != nil {
 		return nil, err
 	}
+	if loc.placed {
+		return m.createPlaced(ctx, req, loc)
+	}
+	publicRoot := loc.docRoot
 	if _, err := os.Stat(publicRoot); err == nil {
 		return nil, fmt.Errorf("sites.Manager: site %q already exists", req.Name)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -986,6 +1037,46 @@ func (m *DefaultManager) Create(ctx context.Context, req *CreateRequest) (*Site,
 	}, nil
 }
 
+// createPlaced publishes an empty document root inside the account home
+// through a stage on the same filesystem and one rename.
+func (m *DefaultManager) createPlaced(ctx context.Context, req *CreateRequest, loc location) (*Site, error) {
+	if err := requireAccountHome(loc); err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(loc.docRoot); err == nil {
+		return nil, fmt.Errorf("sites.Manager: site %q already exists", req.Name)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("sites.Manager: inspect target: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(loc.stageRoot, 0700); err != nil {
+		return nil, fmt.Errorf("sites.Manager: create account staging root: %w", err)
+	}
+	stage, err := os.MkdirTemp(loc.stageRoot, ".create-")
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: create site stage: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.RemoveAll(stage)
+		}
+	}()
+	if err := os.Chmod(stage, 0750); err != nil {
+		return nil, fmt.Errorf("sites.Manager: set document root mode: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := renameDurable(stage, loc.docRoot); err != nil {
+		return nil, fmt.Errorf("sites.Manager: publish document root: %w", err)
+	}
+	committed = true
+	return &Site{Name: req.Name, Status: "ready", CreatedAt: time.Now().UTC(), WebRoot: loc.docRoot, PHPVersion: req.PHPVersion, Owner: req.AccountOwner}, nil
+}
+
 // Clone copies a site's public tree into an isolated staging directory and
 // atomically publishes the destination site directory. Symlinks and special
 // files are rejected rather than copied, and cancellation removes the stage
@@ -1001,10 +1092,14 @@ func (m *DefaultManager) Clone(ctx context.Context, req *CloneRequest) (*Site, e
 	if err != nil {
 		return nil, err
 	}
-	destination, err := m.resolveSiteRoot(req.DestName)
+	destLoc, err := m.location(req.DestName)
 	if err != nil {
 		return nil, err
 	}
+	if destLoc.placed {
+		return m.clonePlaced(ctx, req, source, destLoc)
+	}
+	destination := destLoc.container
 	sourceInfo, err := os.Lstat(source)
 	if err != nil {
 		return nil, fmt.Errorf("sites.Manager: inspect clone source: %w", err)
@@ -1050,6 +1145,45 @@ func (m *DefaultManager) Clone(ctx context.Context, req *CloneRequest) (*Site, e
 	}
 	committed = true
 	return &Site{Name: req.DestName, Status: "ready", CreatedAt: time.Now().UTC(), WebRoot: filepath.Join(destination, "public"), Owner: req.AccountOwner}, nil
+}
+
+// clonePlaced copies source into a stage on the account home filesystem and
+// publishes it as the destination document root with one rename.
+func (m *DefaultManager) clonePlaced(ctx context.Context, req *CloneRequest, source string, loc location) (*Site, error) {
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: inspect clone source: %w", err)
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.IsDir() {
+		return nil, errors.New("sites.Manager: clone source must be a directory")
+	}
+	if err := requireAccountHome(loc); err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(loc.docRoot); err == nil {
+		return nil, fmt.Errorf("sites.Manager: site %q already exists", req.DestName)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("sites.Manager: inspect clone destination: %w", err)
+	}
+	if err := os.MkdirAll(loc.stageRoot, 0700); err != nil {
+		return nil, fmt.Errorf("sites.Manager: create account staging root: %w", err)
+	}
+	stage, err := os.MkdirTemp(loc.stageRoot, ".clone-")
+	if err != nil {
+		return nil, fmt.Errorf("sites.Manager: create clone stage: %w", err)
+	}
+	defer os.RemoveAll(stage)
+	tree := filepath.Join(stage, "tree")
+	if err := copySiteTree(ctx, source, tree); err != nil {
+		return nil, fmt.Errorf("sites.Manager: stage clone: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := renameDurable(tree, loc.docRoot); err != nil {
+		return nil, fmt.Errorf("sites.Manager: activate clone: %w", err)
+	}
+	return &Site{Name: req.DestName, Status: "ready", CreatedAt: time.Now().UTC(), WebRoot: loc.docRoot, Owner: req.AccountOwner}, nil
 }
 
 func copySiteTree(ctx context.Context, source, destination string) error {
@@ -1202,8 +1336,12 @@ func (m *DefaultManager) Delete(ctx context.Context, name string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !validSiteName.MatchString(name) {
-		return fmt.Errorf("sites.Manager: invalid site name %q", name)
+	loc, err := m.location(name)
+	if err != nil {
+		return err
+	}
+	if loc.placed {
+		return deletePlaced(ctx, loc)
 	}
 	sites, err := openSitesRoot(m.webRoot)
 	if err != nil {
@@ -1216,6 +1354,66 @@ func (m *DefaultManager) Delete(ctx context.Context, name string) error {
 	}
 	if closeErr != nil {
 		return fmt.Errorf("sites.Manager: close sites directory: %w", closeErr)
+	}
+	return nil
+}
+
+// deletePlaced removes a placed site's document root and its preserved
+// releases relative to an opened handle on the account home. The home itself
+// belongs to the account and other sites, so it is never removed here, and
+// nothing inside the home can redirect deletion outside it.
+func deletePlaced(ctx context.Context, loc location) error {
+	home, err := os.OpenRoot(loc.container)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("sites.Manager: open account home: %w", err)
+	}
+	defer home.Close()
+	if err := removeEntryAtRoot(ctx, home, loc.docName); err != nil {
+		return err
+	}
+	listing, err := home.Open(".")
+	if err != nil {
+		return fmt.Errorf("sites.Manager: list account home: %w", err)
+	}
+	entries, err := listing.ReadDir(-1)
+	closeErr := listing.Close()
+	if err != nil {
+		return fmt.Errorf("sites.Manager: list account home: %w", err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("sites.Manager: close account home listing: %w", closeErr)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), loc.previousPrefix) {
+			if err := removeEntryAtRoot(ctx, home, entry.Name()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// removeEntryAtRoot removes one directory entry below root, refusing symlink
+// and non-directory leaves. A missing entry is already removed.
+func removeEntryAtRoot(ctx context.Context, root *os.Root, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	info, err := root.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("sites.Manager: inspect %s: %w", name, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("sites.Manager: refuse to delete %s: not a real directory", name)
+	}
+	if err := root.RemoveAll(name); err != nil {
+		return fmt.Errorf("sites.Manager: remove %s: %w", name, err)
 	}
 	return nil
 }

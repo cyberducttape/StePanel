@@ -413,6 +413,8 @@ func Main() {
 		log.Fatalf("open control-plane database: %v", err)
 	}
 	defer controlPlaneDB.Close()
+	// Site managers resolve placed sites to hosting-account homes (ADR-0007).
+	registerSitePlacementDB(controlPlaneDB)
 	if err := siteidentity.MigrateExisting(controlPlaneDB, cfg.WebRoot); err != nil {
 		log.Fatalf("migrate site Unix identities: %v", err)
 	}
@@ -425,7 +427,7 @@ func Main() {
 	if err != nil {
 		log.Fatalf("initialize operator notification outbox: %v", err)
 	}
-	siteManager, err := siteauthority.NewDefaultManager(cfg.WebRoot)
+	siteManager, err := newSiteManagerForConfig(cfg)
 	if err != nil {
 		log.Fatalf("initialize site lifecycle manager: %v", err)
 	}

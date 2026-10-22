@@ -20,7 +20,7 @@ func TestGateOneDocumentMatchesManager(t *testing.T) {
 	sort.Strings(methods)
 	want := []string{
 		"ActivateStaged", "ActivateStagedReplacing", "CleanupOrphanedStaging",
-		"Clone", "Create", "CreateReleaseStagingLease", "CreateStagingLease", "Delete",
+		"Clone", "Create", "CreateReleaseStagingLease", "CreateSiteStagingLease", "CreateStagingLease", "Delete",
 		"DiscardReleaseStaging", "DiscardStaging", "RollbackStagedActivation",
 		"ReleaseStagingLease",
 	}

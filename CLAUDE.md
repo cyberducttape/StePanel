@@ -219,11 +219,11 @@ Extract new domains with clear interface contracts. This enables testing, mockin
 
 Three layers own site lifecycle (see Gate 1 in [V1_PRODUCTION_GATES.md](docs/V1_PRODUCTION_GATES.md)):
 - **Lifecycle orchestration**: root-package lifecycle handlers and durable jobs decide to create, publish, or remove a site and own locks, ordering, audit, and recovery.
-- **Filesystem primitive**: `internal/sites.Manager` is the only unprivileged code that publishes, replaces, or removes **canonical sites** (`{webRoot}/sites/{siteName}/*`).
+- **Filesystem primitive**: `internal/sites.Manager` is the only unprivileged code that publishes, replaces, or removes **canonical sites** (`{webRoot}/sites/{siteName}/*` for legacy sites; `{homeRoot}/{user}/public_html` or `{homeRoot}/{user}/{domain}` for sites placed in a hosting account, ADR-0007).
 - **Privilege executor**: the root broker and helpers own accounts, PHP-FPM, SSH, quotas, and services. `stepanel-sitectl delete` is the single documented privileged path that removes a canonical tree; `SiteManager.Delete()` finalizes it.
 
 **Staging areas** (temporary workspaces granted by SiteManager) may be mutated by domain components, but:
-- Must be obtained via `SiteManager.CreateStagingLease()` (or `CreateReleaseStagingLease()` for releases); retain the lease until activation/discard, then release manager-stage leases through `ReleaseStagingLease()` and close release-stage lease files after their manager workflow completes
+- Must be obtained via `SiteManager.CreateStagingLease()`, `CreateSiteStagingLease()` for a site placed in a hosting account (its stage must share the home filesystem), or `CreateReleaseStagingLease()` for releases; retain the lease until activation/discard, then release manager-stage leases through `ReleaseStagingLease()` and close release-stage lease files after their manager workflow completes
 - Must be activated/discarded only via `SiteManager.ActivateStaged*()` or `SiteManager.DiscardStaging()`
 - Must never persist paths or assume existence across operation boundaries
 
