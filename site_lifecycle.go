@@ -119,7 +119,7 @@ func (a *App) siteTermination(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "confirmation must exactly match DELETE "+input.Site, http.StatusUnprocessableEntity)
 		return
 	}
-	root, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	root, err := siteDocRoot(a.Config, input.Site)
 	if err != nil {
 		http.Error(w, "invalid site", http.StatusUnprocessableEntity)
 		return

@@ -349,7 +349,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 	// jobs may contain a legacy web_root field, but unknown JSON is ignored;
 	// accepting it here would let a tampered payload redirect lifecycle
 	// mutation to a different tree.
-	canonical, err := safePath(a.Config.WebRoot, "sites", req.SiteName, "public")
+	canonical, err := siteDocRoot(a.Config, req.SiteName)
 	if err != nil {
 		return nil, fmt.Errorf("resolve canonical site: %w", err)
 	}

@@ -149,7 +149,7 @@ func (a *App) handleNodeDeploymentJob(ctx context.Context, item Job) ([]byte, er
 }
 
 func (a *App) snapshotNodeDeployment(input nodeDeploymentRequest) (nodeDeploymentSnapshot, error) {
-	root, err := existingManagedSiteRoot(a.Config.WebRoot, input.Site)
+	root, err := existingManagedSiteState(a.Config, input.Site)
 	if err != nil {
 		return nodeDeploymentSnapshot{}, err
 	}
@@ -212,7 +212,7 @@ func restoreOptionalFile(path string, data []byte, existed bool, mode os.FileMod
 var proxyBackendPattern = regexp.MustCompile(`(?m)^\s*ProxyPass / http://([^/]+)/`)
 
 func (a *App) rollbackNodeDeployment(ctx context.Context, input nodeDeploymentRequest, snapshot nodeDeploymentSnapshot, cause error) error {
-	root, err := existingManagedSiteRoot(a.Config.WebRoot, input.Site)
+	root, err := existingManagedSiteState(a.Config, input.Site)
 	if err == nil {
 		err = restoreOptionalFile(filepath.Join(root, ".nvmrc"), snapshot.nvmrc, snapshot.hadNVMRC, 0640)
 	}

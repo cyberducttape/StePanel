@@ -55,11 +55,11 @@ func (a *App) wordpressAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "wp-cli is not installed", 503)
 		return
 	}
-	if _, err := existingManagedSitePublicRoot(a.Config.WebRoot, site); err != nil {
+	if _, err := existingManagedDocRoot(a.Config, site); err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}
-	installed, err := managedSiteFileExists(a.Config.WebRoot, site, "", "wp-config.php")
+	installed, err := managedSiteFileExists(a.Config, site, "", "wp-config.php")
 	if err != nil || !installed {
 		http.Error(w, "WordPress is not installed for this site", 422)
 		return
@@ -103,7 +103,7 @@ func (a *App) wordpressStatus(w http.ResponseWriter, r *http.Request) {
 	if !a.requireCustomerScope(w, r, "site:read") {
 		return
 	}
-	installed, err := managedSiteFileExists(a.Config.WebRoot, site, "", "wp-config.php")
+	installed, err := managedSiteFileExists(a.Config, site, "", "wp-config.php")
 	if err != nil {
 		installed = false
 	}

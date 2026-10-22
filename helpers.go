@@ -146,11 +146,11 @@ func existingManagedSitePublicRoot(webRoot, site string) (string, error) {
 	return "", os.ErrNotExist
 }
 
-func managedSiteFileExists(webRoot, site, directory, filename string) (bool, error) {
+func managedSiteFileExists(cfg Config, site, directory, filename string) (bool, error) {
 	if filename == "" || filepath.Base(filename) != filename {
 		return false, errors.New("invalid managed site filename")
 	}
-	root, err := existingManagedSitePublicRoot(webRoot, site)
+	root, err := existingManagedDocRoot(cfg, site)
 	if err != nil {
 		return false, err
 	}
@@ -389,7 +389,7 @@ func runRunnerBuild(ctx context.Context, cfg Config, request rootbroker.RunnerRe
 		return nil
 	}
 	if request.Action == "artifact-cleanup" {
-		return removeSiteBuildArtifact(cfg.WebRoot, request.Site)
+		return removeSiteBuildArtifactFor(cfg, request.Site)
 	}
 	return runHelperCommand(ctx, cfg, cfg.RunnerCtl, "build", request.Site, request.Image, request.Root, request.Script,
 		itoa(request.CPUPercent), itoa(request.MemoryMB), itoa(request.TasksMax), request.NetworkMode, strconv.FormatInt(request.MaxImageBytes, 10))

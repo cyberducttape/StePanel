@@ -322,7 +322,7 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if source == "" {
 		return WPressResult{}, errors.New("archive must contain WordPress files and database.sql")
 	}
-	home, err := safePath(cfg.WebRoot, "sites", site, "public")
+	home, err := siteDocRoot(cfg, site)
 	if err != nil {
 		return WPressResult{}, err
 	}
@@ -847,7 +847,7 @@ func configureWordPress(cfg Config, site, dbName, dbUser, dbPassword, prefix str
 }
 
 func configureWordPressContext(ctx context.Context, cfg Config, site, dbName, dbUser, dbPassword, prefix string) error {
-	exists, err := managedSiteFileExists(cfg.WebRoot, site, "", "wp-config.php")
+	exists, err := managedSiteFileExists(cfg, site, "", "wp-config.php")
 	if err != nil {
 		return fmt.Errorf("inspect wp-config.php: %w", err)
 	}

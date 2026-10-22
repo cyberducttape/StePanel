@@ -1851,7 +1851,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 			}
 			for _, site := range sites {
 				site = safeUser(site)
-				root, pathErr := safePath(a.Config.WebRoot, "sites", site, "public")
+				root, pathErr := siteDocRoot(a.Config, site)
 				if site == "" || pathErr != nil {
 					http.Error(w, "invalid assigned site", http.StatusUnprocessableEntity)
 					return
@@ -1983,7 +1983,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, site := range input.Sites {
 			site = safeUser(site)
-			root, pathErr := safePath(a.Config.WebRoot, "sites", site, "public")
+			root, pathErr := siteDocRoot(a.Config, site)
 			if site == "" || pathErr != nil {
 				http.Error(w, "invalid assigned site", http.StatusUnprocessableEntity)
 				return

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
 var siteVHostNamePattern = regexp.MustCompile(`^site-[a-z0-9_-]{1,32}-[a-z0-9_-]+\.(conf|caddy)$`)
@@ -36,6 +37,11 @@ type siteOverview struct {
 	Proxies       []proxyInfo   `json:"proxies"`
 	DatabaseCount int           `json:"database_count"`
 	Exists        bool          `json:"exists"`
+	// Account, Kind and Directory describe a site placed in a hosting
+	// account (ADR-0007): its main public_html or an addon/subdomain root.
+	Account   string `json:"account,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Directory string `json:"directory,omitempty"`
 }
 
 func (a *App) canAccessSite(r *http.Request, site string) bool {
@@ -87,7 +93,7 @@ func (a *App) buildSiteOverviewSnapshot() ([]siteOverview, error) {
 			siteNames = cached
 		} else {
 			var err error
-			siteNames, err = managedSiteNames(filepath.Join(a.Config.WebRoot, "sites"))
+			siteNames, err = allManagedSiteNames(a.Config)
 			if err != nil {
 				return nil, fmt.Errorf("inspect managed sites: %w", err)
 			}
@@ -95,7 +101,7 @@ func (a *App) buildSiteOverviewSnapshot() ([]siteOverview, error) {
 		}
 	} else {
 		var err error
-		siteNames, err = managedSiteNames(filepath.Join(a.Config.WebRoot, "sites"))
+		siteNames, err = allManagedSiteNames(a.Config)
 		if err != nil {
 			return nil, fmt.Errorf("inspect managed sites: %w", err)
 		}
@@ -206,6 +212,34 @@ func (a *App) buildSiteOverviewSnapshot() ([]siteOverview, error) {
 	return result, nil
 }
 
+// allManagedSiteNames lists legacy sites under the web root and sites placed
+// in hosting accounts (ADR-0007), without duplicates.
+func allManagedSiteNames(cfg Config) ([]string, error) {
+	names, err := managedSiteNames(filepath.Join(cfg.WebRoot, "sites"))
+	if err != nil {
+		return nil, err
+	}
+	db := sitePlacementDB.Load()
+	if db == nil {
+		return names, nil
+	}
+	placements, err := sitelayout.AllSites(db)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		seen[name] = true
+	}
+	for _, placement := range placements {
+		if !seen[placement.Site] {
+			names = append(names, placement.Site)
+			seen[placement.Site] = true
+		}
+	}
+	return names, nil
+}
+
 func managedSiteNames(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -288,9 +322,22 @@ func newSiteOverview(cfg Config, site string) (*siteOverview, error) {
 // the error resolving it), so the list handler can resolve every site from
 // one directory scan instead of rescanning the sites directory per site.
 func siteOverviewAt(cfg Config, site, siteRoot string, err error) (*siteOverview, error) {
+	if location, locationErr := siteLocationFor(cfg, site); locationErr != nil {
+		return nil, locationErr
+	} else if location.Placed {
+		info, statErr := os.Lstat(location.DocRoot)
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return nil, statErr
+		}
+		return &siteOverview{
+			Site: site, DocumentRoot: location.DocRoot, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{},
+			Exists:  statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0,
+			Account: location.Placement.Account, Kind: string(location.Placement.Kind), Directory: location.Placement.Directory,
+		}, nil
+	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			missingRoot, pathErr := safePath(cfg.WebRoot, "sites", site, "public")
+			missingRoot, pathErr := siteDocRoot(cfg, site)
 			if pathErr != nil {
 				return &siteOverview{Site: site, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}}, pathErr
 			}
@@ -462,7 +509,7 @@ func (a *App) siteDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	publicRoot, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	publicRoot, err := siteDocRoot(a.Config, input.Site)
 	if err != nil {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return

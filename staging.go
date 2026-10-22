@@ -119,12 +119,12 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	source, err := safePath(a.Config.WebRoot, "sites", input.Source, "public")
+	source, err := siteDocRoot(a.Config, input.Source)
 	if err != nil {
 		http.Error(w, "invalid source", 422)
 		return
 	}
-	dest, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	dest, err := siteDocRoot(a.Config, input.Site)
 	if err != nil {
 		http.Error(w, "invalid destination", 422)
 		return
@@ -133,7 +133,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "source site does not exist", 422)
 		return
 	}
-	marker, err := safePath(a.Config.WebRoot, "sites", input.Site, ".stepanel-staging-noindex")
+	marker, err := sitePrivatePath(a.Config, input.Site, ".stepanel-staging-noindex")
 	if err != nil {
 		http.Error(w, "invalid staging marker path", 422)
 		return

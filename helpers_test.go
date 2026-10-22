@@ -147,7 +147,7 @@ func TestManagedSiteFileExistsRejectsSymlink(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(public, "wp-config.php")); err != nil {
 		t.Fatal(err)
 	}
-	installed, err := managedSiteFileExists(webRoot, "demo", "", "wp-config.php")
+	installed, err := managedSiteFileExists(Config{WebRoot: webRoot}, "demo", "", "wp-config.php")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -370,7 +370,7 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 		return result, fmt.Errorf("write proof wp-config.php: %w", err)
 	}
 
-	canonical, err := safePath(a.Config.WebRoot, "sites", plan.site, "public")
+	canonical, err := siteDocRoot(a.Config, plan.site)
 	if err != nil {
 		return result, err
 	}

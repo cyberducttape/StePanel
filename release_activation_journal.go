@@ -133,7 +133,7 @@ func recoverReleaseActivationJournalsFor(cfg Config, site string) ([]string, err
 		ctx := context.Background()
 		switch journal.State {
 		case "prepared":
-			public, err := safePath(cfg.WebRoot, "sites", journal.Site, "public")
+			public, err := siteDocRoot(cfg, journal.Site)
 			if err != nil {
 				return recovered, fmt.Errorf("resolve prepared release activation %s: %w", journal.ID, err)
 			}
@@ -142,7 +142,7 @@ func recoverReleaseActivationJournalsFor(cfg Config, site string) ([]string, err
 				return recovered, fmt.Errorf("inspect prepared release activation %s: %w", journal.ID, err)
 			}
 			_, publicErr := os.Lstat(public)
-			previous, findErr := findPreviousRelease(cfg.WebRoot, journal.Site)
+			previous, findErr := findPreviousRelease(cfg, journal.Site)
 			if findErr != nil {
 				return recovered, fmt.Errorf("inspect prepared release activation %s: %w", journal.ID, findErr)
 			}
@@ -208,14 +208,15 @@ func releaseStageExists(webRoot, site, stagedRoot string) (bool, error) {
 	return err == nil, err
 }
 
-func findPreviousRelease(webRoot, site string) (string, error) {
+func findPreviousRelease(cfg Config, site string) (string, error) {
 	if safeUser(site) == "" {
 		return "", errors.New("invalid site name")
 	}
-	siteRoot, err := safePath(webRoot, "sites", site)
+	location, err := siteLocationFor(cfg, site)
 	if err != nil {
 		return "", err
 	}
+	siteRoot := location.Home
 	entries, err := os.ReadDir(siteRoot)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
@@ -225,7 +226,7 @@ func findPreviousRelease(webRoot, site string) (string, error) {
 	}
 	var previous string
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), ".stepanel-previous-") {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), location.PreviousPrefix) {
 			continue
 		}
 		candidate, pathErr := safePath(siteRoot, entry.Name())

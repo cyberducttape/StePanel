@@ -42,7 +42,7 @@ func runWordPress(ctx context.Context, cfg Config, request rootbroker.WordPressR
 		}
 		return result, nil
 	}
-	root, err := safePath(cfg.WebRoot, "sites", request.Site, "public")
+	root, err := siteDocRoot(cfg, request.Site)
 	if err != nil {
 		return rootbroker.WordPressResponse{}, err
 	}

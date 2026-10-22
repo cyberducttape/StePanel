@@ -25,10 +25,15 @@ func (a *App) siteUsage(w http.ResponseWriter, r *http.Request) {
 	if !a.requireCustomerScope(w, r, "site:read") {
 		return
 	}
-	root, err := safePath(a.Config.WebRoot, "sites", site)
+	location, err := siteLocationFor(a.Config, site)
 	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
+	}
+	// A placed site shares its account home; measure only its document root.
+	root := location.Home
+	if location.Placed {
+		root = location.DocRoot
 	}
 	usage, err := usagecalc.Measure(root, a.Config.MaxEntries)
 	if err != nil && !errors.Is(err, usagecalc.ErrLimit) {

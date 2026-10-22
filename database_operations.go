@@ -383,7 +383,7 @@ func (a *App) databaseCollection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid database, user, site, or password; passwords must be 20-128 supported characters", http.StatusUnprocessableEntity)
 			return
 		}
-		if _, err := existingManagedSitePublicRoot(a.Config.WebRoot, in.Site); err != nil {
+		if _, err := existingManagedDocRoot(a.Config, in.Site); err != nil {
 			http.Error(w, "owning site document root does not exist", http.StatusUnprocessableEntity)
 			return
 		}

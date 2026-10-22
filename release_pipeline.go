@@ -91,12 +91,12 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 422)
 		return
 	}
-	siteRoot, err := existingManagedSiteRoot(a.Config.WebRoot, input.Site)
+	siteRoot, err := existingManagedSiteState(a.Config, input.Site)
 	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}
-	if _, err := safePath(a.Config.WebRoot, "sites", input.Site, "public"); err != nil {
+	if _, err := siteDocRoot(a.Config, input.Site); err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
 	}
@@ -246,7 +246,7 @@ func (a *App) releasePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	outcome = input.Repository + "@" + commit
 	result.Previous = previous
-	a.finishCommittedRelease(operationCtx, siteRoot, "activation", "atomic built release activated", release, &result, false)
+	a.finishCommittedRelease(operationCtx, "activation", "atomic built release activated", release, &result, false)
 	writeJSON(w, 202, result)
 }
 
@@ -352,6 +352,38 @@ func copyGitArtifactTree(ctx context.Context, source, destination string, maxByt
 		return fmt.Errorf("release artifact changed during staging: copied %d bytes, expected %d", total, expectedBytes)
 	}
 	return nil
+}
+
+// removeSiteBuildArtifactFor removes the build artifact from the site's
+// private state: the legacy site root, or a placed site's private directory
+// (ADR-0007). Deletion is rooted at an opened handle on that directory.
+func removeSiteBuildArtifactFor(cfg Config, site string) error {
+	location, err := siteLocationFor(cfg, site)
+	if err != nil {
+		return err
+	}
+	if !location.Placed {
+		return removeSiteBuildArtifact(cfg.WebRoot, site)
+	}
+	private, err := os.OpenRoot(location.Private)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer private.Close()
+	artifact, err := private.Lstat(".stepanel-artifact")
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if artifact.Mode()&os.ModeSymlink != 0 || !artifact.IsDir() {
+		return errors.New("release artifact changed to a non-directory")
+	}
+	return private.RemoveAll(".stepanel-artifact")
 }
 
 func removeSiteBuildArtifact(webRoot, site string) error {

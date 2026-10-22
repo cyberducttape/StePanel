@@ -45,6 +45,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
     runner sees only a placed site's private directory, not the rest of
     `/home`. The broker's validators take the same placement-aware document
     and staging roots, and fail closed when a placement cannot be read.
+  - **Panel side:** a Go mirror of the location library (`siteLocationFor`)
+    supplies document roots, per-site state and release prefixes to backups,
+    apps, workers, Composer, WP-CLI, staging, restores, Git deploys and
+    release pipelines. Site listings include placed sites with their account,
+    kind and directory. Release pruning and rollback only ever touch a placed
+    site's own releases in the shared home.
 
 ### Changed
 

@@ -105,7 +105,7 @@ func (a *App) backupSchedules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "managed database backup requires the local database helper", 422)
 			return
 		}
-		if _, err := existingManagedSitePublicRoot(a.Config.WebRoot, in.Site); err != nil {
+		if _, err := existingManagedDocRoot(a.Config, in.Site); err != nil {
 			http.Error(w, "site document root does not exist", 422)
 			return
 		}

@@ -69,7 +69,7 @@ func (a *App) selectNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "requested Node version is not installed", 422)
 		return
 	}
-	siteRoot, err := existingManagedSiteRoot(a.Config.WebRoot, input.Site)
+	siteRoot, err := existingManagedSiteState(a.Config, input.Site)
 	if err != nil {
 		http.Error(w, "site document root does not exist", http.StatusUnprocessableEntity)
 		return

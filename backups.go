@@ -159,7 +159,7 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "managed database backup requires the local database helper", http.StatusUnprocessableEntity)
 			return
 		}
-		publicRoot, pathErr := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+		publicRoot, pathErr := siteDocRoot(a.Config, input.Site)
 		if pathErr != nil {
 			http.Error(w, "invalid site", http.StatusUnprocessableEntity)
 			return
@@ -215,7 +215,7 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 	if safeUser(siteName) == "" {
 		return result, errors.New("invalid backup site")
 	}
-	publicRoot, err := safePath(cfg.WebRoot, "sites", siteName, "public")
+	publicRoot, err := siteDocRoot(cfg, siteName)
 	if err != nil {
 		return result, err
 	}

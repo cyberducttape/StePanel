@@ -218,3 +218,23 @@ func Remove(db *sql.DB, site string) error {
 	}
 	return nil
 }
+
+// AllSites lists every placed site, ordered by site name.
+func AllSites(db *sql.DB) ([]Placement, error) {
+	rows, err := db.Query(`SELECT site, account, unix_user, kind, directory FROM site_placements ORDER BY site`)
+	if err != nil {
+		return nil, fmt.Errorf("list placed sites: %w", err)
+	}
+	defer rows.Close()
+	var placements []Placement
+	for rows.Next() {
+		var p Placement
+		var kind string
+		if err := rows.Scan(&p.Site, &p.Account, &p.UnixUser, &kind, &p.Directory); err != nil {
+			return nil, fmt.Errorf("read placed site: %w", err)
+		}
+		p.Kind = Kind(kind)
+		placements = append(placements, p)
+	}
+	return placements, rows.Err()
+}

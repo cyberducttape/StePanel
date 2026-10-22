@@ -707,7 +707,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 
 	// Determine if database restoration is requested
 	hasDatabase := input.Database != "" && input.TargetDatabase != "" && input.TargetUser != "" && input.TargetPassword != ""
-	dest, e := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	dest, e := siteDocRoot(a.Config, input.Site)
 	if e != nil {
 		http.Error(w, "invalid destination", 422)
 		return
@@ -818,7 +818,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "could not prepare isolated staging site", 502)
 		return
 	}
-	marker, markerErr := safePath(a.Config.WebRoot, "sites", input.Site, ".stepanel-staging-noindex")
+	marker, markerErr := sitePrivatePath(a.Config, input.Site, ".stepanel-staging-noindex")
 	if markerErr != nil {
 		http.Error(w, "invalid staging marker path", 422)
 		return
@@ -1105,7 +1105,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if !info.IsDir() {
 		return BackupRestoreResult{}, errors.New("backup site files are not a directory")
 	}
-	dest, err := safePath(cfg.WebRoot, "sites", siteName, "public")
+	dest, err := siteDocRoot(cfg, siteName)
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}

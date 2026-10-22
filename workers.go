@@ -221,7 +221,7 @@ func (a *App) workers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid worker definition", 422)
 		return
 	}
-	root, pathErr := safePath(a.Config.WebRoot, "sites", site, "public")
+	root, pathErr := siteDocRoot(a.Config, site)
 	if pathErr != nil {
 		http.Error(w, "invalid worker root", 422)
 		return

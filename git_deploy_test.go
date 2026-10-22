@@ -714,7 +714,7 @@ func TestCommittedReleaseIsNeverReportedAsCancelled(t *testing.T) {
 			}
 			release := filepath.Join(root, "sites", "example", ".stepanel-release-abc")
 			result := gitDeployResult{DeploymentID: "deployment-1", Site: "example", Commit: "abc"}
-			app.finishCommittedRelease(ctx, filepath.Join(root, "sites", "example"), "activation", "activated", release, &result, true)
+			app.finishCommittedRelease(ctx, "activation", "activated", release, &result, true)
 			if result.Outcome != test.outcome || result.Activated != ".stepanel-release-abc" || result.HistoryError != "" {
 				t.Fatalf("result = %#v, want outcome %q for the live release", result, test.outcome)
 			}

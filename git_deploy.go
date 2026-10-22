@@ -27,6 +27,7 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
 var gitRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$`)
@@ -352,14 +353,14 @@ const (
 
 // finishCommittedRelease records the outcome of a release that activation
 // has already made live.
-func (a *App) finishCommittedRelease(ctx context.Context, siteRoot, stage, detail, release string, result *gitDeployResult, prune bool) {
+func (a *App) finishCommittedRelease(ctx context.Context, stage, detail, release string, result *gitDeployResult, prune bool) {
 	result.Activated = filepath.Base(release)
 	result.Outcome = releaseOutcomeActivated
 	if ctx.Err() != nil {
 		result.Outcome = releaseOutcomeReconciliationPending
 		detail += "; mutation lock lost after activation, release retention deferred"
 	} else if prune {
-		if err := pruneGitReleasesWithPolicy(siteRoot, a.Config.GitReleaseRetention, time.Duration(a.Config.GitReleaseMaxAgeHours)*time.Hour, a.Config.GitReleaseMaxBytes); err != nil {
+		if err := pruneSiteReleases(a.Config, result.Site); err != nil {
 			log.Printf("Git release retention for %s: %v", result.Site, err)
 		}
 	}
@@ -887,12 +888,10 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	publicRoot, err := existingManagedSitePublicRoot(a.Config.WebRoot, input.Site)
-	if err != nil {
+	if _, err := existingManagedDocRoot(a.Config, input.Site); err != nil {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
 	}
-	siteRoot := filepath.Dir(publicRoot)
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
 		http.Error(w, "Git is not installed", http.StatusServiceUnavailable)
@@ -1005,7 +1004,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 	deployed = true
 	intent.Completed(input.Repository + "@" + commit)
 	result.Previous = previous
-	a.finishCommittedRelease(operationCtx, siteRoot, "activation", "atomic Git release activated", release, &result, true)
+	a.finishCommittedRelease(operationCtx, "activation", "atomic Git release activated", release, &result, true)
 	writeJSON(w, http.StatusAccepted, result)
 }
 
@@ -1024,7 +1023,7 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "confirmation must exactly match ROLLBACK <site>", http.StatusUnprocessableEntity)
 		return
 	}
-	siteRoot, err := safePath(a.Config.WebRoot, "sites", input.Site)
+	location, err := siteLocationFor(a.Config, input.Site)
 	if err != nil {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return
@@ -1039,7 +1038,7 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	previous, err := latestPreviousRelease(siteRoot)
+	previous, err := latestPreviousRelease(location.Home, location.PreviousPrefix)
 	if err != nil {
 		http.Error(w, "no previous Git release is available", http.StatusConflict)
 		return
@@ -1048,7 +1047,7 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "previous release failed safety validation", http.StatusConflict)
 		return
 	}
-	if _, err := existingManagedSitePublicRoot(a.Config.WebRoot, input.Site); err != nil {
+	if _, err := existingManagedDocRoot(a.Config, input.Site); err != nil {
 		http.Error(w, "active site release is unavailable", http.StatusConflict)
 		return
 	}
@@ -1071,7 +1070,7 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 	}
 	intent.Completed(filepath.Base(previous))
 	result := gitDeployResult{DeploymentID: deploymentID, Site: input.Site, Previous: filepath.Base(replaced)}
-	a.finishCommittedRelease(operationCtx, siteRoot, "rollback", "rolled back to an earlier Git release", previous, &result, true)
+	a.finishCommittedRelease(operationCtx, "rollback", "rolled back to an earlier Git release", previous, &result, true)
 	response := map[string]string{"site": input.Site, "activated": result.Activated, "replaced_release": filepath.Base(replaced), "deployment_id": deploymentID, "outcome": result.Outcome}
 	if result.HistoryError != "" {
 		response["history_error"] = result.HistoryError
@@ -1084,6 +1083,21 @@ func pruneGitReleases(siteRoot string, retain int) error {
 }
 
 func pruneGitReleasesWithPolicy(siteRoot string, retain int, maxAge time.Duration, maxBytes int64) error {
+	return pruneReleasesWithPrefix(siteRoot, ".stepanel-previous-", retain, maxAge, maxBytes)
+}
+
+// pruneSiteReleases applies the configured retention to one site's preserved
+// releases. A site placed in a hosting account prunes only its own prefix in
+// the shared home (ADR-0007).
+func pruneSiteReleases(cfg Config, site string) error {
+	location, err := siteLocationFor(cfg, site)
+	if err != nil {
+		return err
+	}
+	return pruneReleasesWithPrefix(location.Home, location.PreviousPrefix, cfg.GitReleaseRetention, time.Duration(cfg.GitReleaseMaxAgeHours)*time.Hour, cfg.GitReleaseMaxBytes)
+}
+
+func pruneReleasesWithPrefix(siteRoot, prefix string, retain int, maxAge time.Duration, maxBytes int64) error {
 	if retain < 1 {
 		return errors.New("release retention must preserve at least one rollback release")
 	}
@@ -1098,7 +1112,7 @@ func pruneGitReleasesWithPolicy(siteRoot string, retain int, maxAge time.Duratio
 	}
 	items := []candidate{}
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasPrefix(entry.Name(), ".stepanel-previous-") {
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasPrefix(entry.Name(), prefix) {
 			continue
 		}
 		info, err := entry.Info()
@@ -1193,10 +1207,22 @@ func pruneAllGitReleases(cfg Config) error {
 			return fmt.Errorf("%s: %w", entry.Name(), err)
 		}
 	}
+	// Sites placed in hosting accounts keep releases in the account home.
+	if db := sitePlacementDB.Load(); db != nil {
+		placements, err := sitelayout.AllSites(db)
+		if err != nil {
+			return err
+		}
+		for _, placement := range placements {
+			if err := pruneSiteReleases(cfg, placement.Site); err != nil {
+				return fmt.Errorf("%s: %w", placement.Site, err)
+			}
+		}
+	}
 	return nil
 }
 
-func latestPreviousRelease(siteRoot string) (string, error) {
+func latestPreviousRelease(siteRoot, prefix string) (string, error) {
 	entries, err := os.ReadDir(siteRoot)
 	if err != nil {
 		return "", err
@@ -1207,7 +1233,7 @@ func latestPreviousRelease(siteRoot string) (string, error) {
 	}
 	var latest candidate
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasPrefix(entry.Name(), ".stepanel-previous-") {
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasPrefix(entry.Name(), prefix) {
 			continue
 		}
 		info, err := entry.Info()

@@ -192,10 +192,13 @@ func (a *App) releaseSiteReservation(actor, site string) {
 // tree is not enough: a site whose public tree is missing still owns its
 // account, PHP pool and state.
 func (a *App) siteExists(site string) (bool, error) {
-	root, err := safePath(a.Config.WebRoot, "sites", site)
+	// A placed site's private state directory exists from placement until
+	// teardown, like a legacy site's root (ADR-0007).
+	location, err := siteLocationFor(a.Config, site)
 	if err != nil {
 		return false, err
 	}
+	root := location.Private
 	if _, err := os.Lstat(root); err == nil {
 		return true, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -264,7 +267,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	} else if exists {
 		return nil, fmt.Errorf("site %q already exists", req.Site)
 	}
-	canonical, err := safePath(a.Config.WebRoot, "sites", req.Site, "public")
+	canonical, err := siteDocRoot(a.Config, req.Site)
 	if err != nil {
 		return nil, fmt.Errorf("resolve site root: %w", err)
 	}

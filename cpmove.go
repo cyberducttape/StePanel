@@ -345,7 +345,7 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	if err != nil {
 		return ImportResult{}, err
 	}
-	home, err := safePath(cfg.WebRoot, "sites", user, "public")
+	home, err := siteDocRoot(cfg, user)
 	if err != nil {
 		return ImportResult{}, err
 	}

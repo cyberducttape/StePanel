@@ -39,7 +39,7 @@ func (a *App) nodeTooling(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insufficient token scope for Node operations", http.StatusForbidden)
 		return
 	}
-	root, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	root, err := siteDocRoot(a.Config, input.Site)
 	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return

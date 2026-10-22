@@ -201,7 +201,7 @@ func (a *App) htaccessMigration(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, conversion)
 		return
 	}
-	publicRoot, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	publicRoot, err := siteDocRoot(a.Config, input.Site)
 	if err != nil {
 		http.Error(w, "invalid site root", http.StatusUnprocessableEntity)
 		return

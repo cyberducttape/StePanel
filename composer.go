@@ -111,7 +111,7 @@ func (a *App) composer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	root, err := safePath(a.Config.WebRoot, "sites", site, "public")
+	root, err := siteDocRoot(a.Config, site)
 	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return

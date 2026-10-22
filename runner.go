@@ -76,7 +76,7 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	root, err := safePath(a.Config.WebRoot, "sites", input.Site, "public")
+	root, err := siteDocRoot(a.Config, input.Site)
 	if err != nil {
 		http.Error(w, "invalid site root", 422)
 		return
@@ -118,7 +118,7 @@ func (a *App) runnerBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "runner.build", input.Site, input.Image)
-	artifact, err := safePath(a.Config.WebRoot, "sites", input.Site, ".stepanel-artifact")
+	artifact, err := sitePrivatePath(a.Config, input.Site, ".stepanel-artifact")
 	if err != nil {
 		http.Error(w, "invalid build artifact path", 500)
 		return

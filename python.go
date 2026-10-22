@@ -72,7 +72,7 @@ func (a *App) pythonDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var rootErr error
-	app.Root, rootErr = safePath(a.Config.WebRoot, "sites", app.Site, "public")
+	app.Root, rootErr = siteDocRoot(a.Config, app.Site)
 	if rootErr != nil {
 		http.Error(w, "invalid site root", 422)
 		return
