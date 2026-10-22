@@ -71,7 +71,7 @@ func TestGitReleaseMetricsExposeInventoryReadFailures(t *testing.T) {
 	}
 
 	var output strings.Builder
-	writeGitReleaseMetrics(&output, root)
+	writeGitReleaseMetrics(&output, Config{WebRoot: root})
 	if !strings.Contains(output.String(), "stepanel_git_release_inventory_errors 1") {
 		t.Fatalf("inventory error metric missing: %s", output.String())
 	}

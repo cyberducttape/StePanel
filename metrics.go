@@ -447,23 +447,24 @@ func writeBackupScheduleMetrics(w io.Writer, schedules []BackupSchedule) {
 	}
 }
 
-func writeGitReleaseMetrics(w io.Writer, webRoot string) {
+// writeGitReleaseMetrics counts the previous releases kept beside every
+// managed site's document root: in {webRoot}/sites/{site} for a legacy site,
+// in the account home with the site's own prefix for a placed site.
+func writeGitReleaseMetrics(w io.Writer, cfg Config) {
 	var totalBytes int64
 	var total int
 	var inventoryErrors int
-	root := filepath.Join(webRoot, "sites")
-	entries, err := os.ReadDir(root)
+	sites, err := allManagedSiteNames(cfg)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			inventoryErrors++
-		}
-		entries = nil
+		inventoryErrors++
 	}
-	for _, site := range entries {
-		if !site.IsDir() {
+	for _, site := range sites {
+		location, err := siteLocationFor(cfg, site)
+		if err != nil {
+			inventoryErrors++
 			continue
 		}
-		children, err := os.ReadDir(filepath.Join(root, site.Name()))
+		children, err := os.ReadDir(location.Home)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				inventoryErrors++
@@ -471,10 +472,10 @@ func writeGitReleaseMetrics(w io.Writer, webRoot string) {
 			continue
 		}
 		for _, release := range children {
-			if !release.IsDir() || release.Type()&os.ModeSymlink != 0 || !strings.HasPrefix(release.Name(), ".stepanel-previous-") {
+			if !release.IsDir() || release.Type()&os.ModeSymlink != 0 || !strings.HasPrefix(release.Name(), location.PreviousPrefix) {
 				continue
 			}
-			size, err := gitReleaseSize(filepath.Join(root, site.Name(), release.Name()))
+			size, err := gitReleaseSize(filepath.Join(location.Home, release.Name()))
 			if err == nil {
 				total++
 				totalBytes += size

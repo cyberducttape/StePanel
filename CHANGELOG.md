@@ -137,6 +137,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Count previous Git releases of sites in hosting accounts in
+  `stepanel_git_release_bytes` and `stepanel_git_releases_total`; the metric
+  only looked in `/var/www/sites`.
 - Extend the installed-host recovery matrix to kill and recover workers at
   `restore:provision` and `restore:provisioned`, then verify the isolated
   staging site's files, web-server route, HTTP response, and restored database.

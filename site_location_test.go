@@ -3,6 +3,7 @@ package stepanel
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,5 +93,30 @@ func TestPruningAPlacedSiteKeepsOtherSitesReleases(t *testing.T) {
 	previous, err := latestPreviousRelease(home, ".stepanel-previous-public_html-")
 	if err != nil || filepath.Base(previous) != ".stepanel-previous-public_html-2" {
 		t.Fatalf("main site rollback candidate = %s, %v", previous, err)
+	}
+}
+
+func TestGitReleaseMetricsCountPlacedAndLegacySites(t *testing.T) {
+	cfg := placedSiteConfig(t)
+	home := filepath.Join(cfg.HomeRoot, "alice")
+	for _, dir := range []string{
+		filepath.Join(home, ".stepanel-previous-public_html-1"),
+		filepath.Join(home, ".stepanel-previous-shop.example.org-1"),
+		filepath.Join(home, "public_html"),
+		filepath.Join(cfg.WebRoot, "sites", "legacy", ".stepanel-previous-1"),
+	} {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("release"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var output strings.Builder
+	writeGitReleaseMetrics(&output, cfg)
+	for _, want := range []string{"stepanel_git_releases_total 3\n", "stepanel_git_release_bytes 21\n", "stepanel_git_release_inventory_errors 0\n"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("metrics missing %q:\n%s", want, output.String())
+		}
 	}
 }

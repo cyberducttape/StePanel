@@ -1092,7 +1092,7 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	if a.Schedules != nil {
 		writeBackupScheduleMetrics(w, a.Schedules.list())
 	}
-	writeGitReleaseMetrics(w, a.Config.WebRoot)
+	writeGitReleaseMetrics(w, a.Config)
 }
 func (a *App) services(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"services": ServiceSummaries(a.Config), "time": time.Now().UTC()})
