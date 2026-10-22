@@ -66,6 +66,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
     site, so restore snapshots and rollbacks stay renames. Journals are bound
     to that home root on reload, and the broker's snapshot boundary follows
     the placement.
+  - **cPanel restores:** a cpmove backup restores into a hosting account
+    named after the cPanel user. `public_html` becomes the main site at
+    `/home/<user>/public_html`. Each addon domain and subdomain becomes its
+    own site at `/home/<user>/<domain>`, copied from its original document
+    root as recorded in the backup's `userdata`; classic nested roots inside
+    `public_html` move to their own directory instead of being copied twice.
+    Parked domains are reported as aliases. Document roots outside the
+    account are refused, and a domain that cannot be restored is reported
+    and fully cleaned up. Accounts that already exist as legacy sites keep
+    that layout.
 
 ### Changed
 

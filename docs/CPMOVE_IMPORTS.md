@@ -20,7 +20,34 @@ a distinct archive or an intentional retry after reviewing the prior job.
 6. Restore SQL only when the database dump is trusted and compatible.
 7. Review the staged archive and application logs before removing it.
 
-Website files are copied to `/var/www/sites/<username>/public`. SQL files found
+Website files are restored into a hosting account named after the cPanel user
+(see [ADR-0007](adr/0007-home-account-layout.md)), the same layout cPanel uses:
+
+| In the backup | Restored to |
+| --- | --- |
+| `homedir/public_html` (main domain) | `/home/<username>/public_html` |
+| An addon domain | its own site at `/home/<username>/<addon-domain>` |
+| A subdomain | its own site at `/home/<username>/<sub.domain>` |
+| A parked domain | listed as an alias of the main site |
+
+StePanel reads the domains and their document roots from the backup's
+`userdata` files. Addon and subdomain files come from each domain's original
+document root, so both the classic layout (`public_html/<addon>`) and the
+current one (`/home/<user>/<addon>`) restore correctly. A nested document root
+is moved to the domain's own directory rather than kept as a second copy
+inside `public_html`. A document root outside the account's home is refused.
+Each restored domain is created and cleaned up as a unit. A domain that cannot
+be restored, for example because another site already serves that directory,
+is reported in the job's `domain_errors` and leaves nothing behind. Routes are
+not published automatically; publish each domain once its DNS points at this
+server.
+
+The cPanel username must be usable as a Unix account name: it starts with a
+lowercase letter and is not a system or reserved name. An account that
+already exists as a legacy site under `/var/www/sites/<username>` keeps that
+layout, and its files are restored to `/var/www/sites/<username>/public`.
+
+SQL files found
 under the archive's `mysql` directory, including nested dump directories, are
 restored to databases named `<username>_<database>`. If the dump name already
 starts with the selected account prefix, StePanel preserves that database name

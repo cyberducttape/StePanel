@@ -23,6 +23,7 @@ import (
 
 	"github.com/cyberducttape/StePanel/internal/archivesafe"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
 type CPMoveInfo struct {
@@ -163,6 +164,23 @@ type ImportResult struct {
 	MailboxesStaged   []string `json:"mailboxes_staged,omitempty"`
 	MailErrors        []string `json:"mail_errors,omitempty"`
 	StagedAt          string   `json:"staged_at"`
+	// Account and the domain fields describe a restore into a hosting
+	// account (ADR-0007): the main domain is served from public_html, addon
+	// and subdomains become their own sites beside it, and parked domains
+	// are aliases of the main site waiting for a route.
+	Account       string           `json:"account,omitempty"`
+	MainDomain    string           `json:"main_domain,omitempty"`
+	ParkedDomains []string         `json:"parked_domains,omitempty"`
+	Domains       []ImportedDomain `json:"domains,omitempty"`
+	DomainErrors  []string         `json:"domain_errors,omitempty"`
+}
+
+// ImportedDomain is an addon or subdomain restored as its own site.
+type ImportedDomain struct {
+	Domain       string `json:"domain"`
+	Site         string `json:"site"`
+	Kind         string `json:"kind"`
+	DocumentRoot string `json:"document_root"`
 }
 
 func InspectCPMove(file multipart.File, header *multipart.FileHeader) (CPMoveInfo, error) {
@@ -345,6 +363,32 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	if err != nil {
 		return ImportResult{}, err
 	}
+	// Restore into a hosting account named after the cPanel user (ADR-0007):
+	// the main domain is served from /home/<user>/public_html and addon and
+	// subdomains become their own sites beside it. A site that already
+	// exists in the legacy layout keeps it.
+	db := sitePlacementDB.Load()
+	_, legacyErr := existingManagedSiteRoot(cfg.WebRoot, user)
+	intoAccount := db != nil && legacyErr != nil
+	var plan cpmoveDomainPlan
+	placedByJob := false
+	if intoAccount {
+		if plan, err = planCPMoveDomains(root, user); err != nil {
+			return ImportResult{}, fmt.Errorf("read the backup's domains: %w", err)
+		}
+		main := sitelayout.Placement{Site: user, Account: user, UnixUser: user, Kind: sitelayout.KindMain, Directory: sitelayout.MainDirectory}
+		if placedByJob, err = placeSiteInAccount(ctx, cfg, db, main); err != nil {
+			return ImportResult{}, fmt.Errorf("place the cPanel account %s in a hosting account: %w", user, err)
+		}
+	}
+	importCommitted := false
+	defer func() {
+		if placedByJob && !importCommitted {
+			if err := unplaceSite(context.WithoutCancel(ctx), cfg, db, user); err != nil {
+				log.Printf("forget placement of failed cpmove restore %s: %v", user, err)
+			}
+		}
+	}()
 	home, err := siteDocRoot(cfg, user)
 	if err != nil {
 		return ImportResult{}, err
@@ -353,7 +397,7 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("initialize site manager: %w", err)
 	}
-	managerStage, stagingOwner, err := manager.CreateStagingLease(ctx, ".stepanel-cpmove-")
+	managerStage, stagingOwner, err := manager.CreateSiteStagingLease(ctx, user, ".stepanel-cpmove-")
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("create site manager staging tree: %w", err)
 	}
@@ -404,7 +448,7 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 		} else if len(findings) > 0 {
 			return ImportResult{}, fmt.Errorf("restore blocked: suspicious PHP heuristic scan found %d file(s) requiring review", len(findings))
 		}
-		if err = copyTreeContext(ctx, source, managerStage); err != nil {
+		if err = copyTreeExcludingContext(ctx, source, managerStage, plan.MainExcludes); err != nil {
 			return ImportResult{}, err
 		}
 	}
@@ -467,6 +511,11 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 		return result, fmt.Errorf("commit site recovery transaction: %w", err)
 	}
 	committed = true
+	importCommitted = true
+	if intoAccount {
+		result.Account, result.MainDomain, result.ParkedDomains = user, plan.MainDomain, plan.Parked
+		result.Domains, result.DomainErrors = restoreCPMoveDomainSites(ctx, cfg, db, manager, user, plan)
+	}
 	return result, nil
 }
 
@@ -823,6 +872,14 @@ func copyTree(src, dst string) error {
 }
 
 func copyTreeContext(ctx context.Context, src, dst string) error {
+	return copyTreeExcludingContext(ctx, src, dst, nil)
+}
+
+// copyTreeExcludingContext copies src into dst, skipping the directories
+// whose path relative to src is in exclude. A cPanel backup's addon and
+// subdomain document roots nested in public_html are restored as their own
+// sites instead of a second copy inside the main site.
+func copyTreeExcludingContext(ctx context.Context, src, dst string, exclude map[string]bool) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -836,6 +893,9 @@ func copyTreeContext(ctx context.Context, src, dst string) error {
 		rel, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
+		}
+		if info.IsDir() && exclude[rel] {
+			return filepath.SkipDir
 		}
 		target := filepath.Join(dst, rel)
 		if err := rejectSymlinkParents(target, dst); err != nil {
