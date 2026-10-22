@@ -10,3 +10,4 @@ product-positioning or recruiting material.
 - [ADR-0004: Verified, recoverable changes](0004-verified-recoverable-changes.md)
 - [ADR-0005: Incremental Go package boundaries](0005-incremental-go-package-boundaries.md)
 - [ADR-0006: Keyed serialization of site mutations](0006-site-mutation-serialization.md)
+- [ADR-0007: Hosting accounts own a Unix home with cPanel-style document roots](0007-home-account-layout.md)
