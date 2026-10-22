@@ -202,9 +202,6 @@ func beginManagedSiteTransaction(ctx context.Context, cfg Config, home, kind str
 	} else if location.Placed {
 		snapshotRoot = homeRecoveryRoot(cfg.HomeRoot)
 	}
-	if snapshot == nil {
-		return nil, errors.New("site snapshot callback is required")
-	}
 	return beginSiteTransaction(cfg.RecoveryRoot, snapshotRoot, home, kind, access, snapshot)
 }
 
