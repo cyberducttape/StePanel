@@ -45,7 +45,7 @@
       set('accountDatabasesLimit', `${data.database_limit} database${data.database_limit === 1 ? '' : 's'} included · ${data.databases_percent || 0}% used`);
       const sitesBar = document.querySelector('#accountSitesBar');
       const databasesBar = document.querySelector('#accountDatabasesBar');
-      const markUsage = (bar, percent) => {
+      const markUsage = (bar, percent, label) => {
         if (!bar) return;
         const value = Math.min(100, percent || 0);
         bar.style.width = `${value}%`;
@@ -55,9 +55,10 @@
         bar.parentElement.setAttribute('aria-valuenow', String(value));
         bar.parentElement.setAttribute('aria-valuemin', '0');
         bar.parentElement.setAttribute('aria-valuemax', '100');
+        bar.parentElement.setAttribute('aria-label', label);
       };
-      markUsage(sitesBar, data.sites_percent);
-      markUsage(databasesBar, data.databases_percent);
+      markUsage(sitesBar, data.sites_percent, 'Sites used of plan limit');
+      markUsage(databasesBar, data.databases_percent, 'Databases used of plan limit');
       renderPlanResources(data);
       set('accountMFA', data.mfa_enabled ? 'MFA enabled' : 'MFA setup needed');
       set('accountSecurityNote', data.password_reset_required ? 'Password update required.' : (data.mfa_enrollment_required ? 'MFA enrollment required.' : 'Credentials are scoped to this tenant.'));

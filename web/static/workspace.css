@@ -812,7 +812,9 @@ body[data-theme] .topbar { background: var(--appearance-surface) !important; bor
 body[data-theme] .workspace-sidebar .brand,
 body[data-theme] .workspace-context strong,
 body[data-theme] .hero h1,
+body[data-theme] .section-heading h1,
 body[data-theme] .section-heading h2,
+body[data-theme] .card-heading h1,
 body[data-theme] .card-heading h2,
 body[data-theme] .metric strong,
 body[data-theme] .site-card h3,
@@ -1357,7 +1359,7 @@ textarea[aria-invalid="true"] {
 .usage-bar.warning span { background: var(--warning, #d97706); }
 .usage-bar.critical span { background: var(--danger, #dc2626); }
 .account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
-.account-actions [role="status"] { color: var(--muted, #667085); font-size: .82rem; }
+.account-actions [role="status"] { color: #52677a; font-size: .82rem; }
 .account-actions [role="status"].warning { color: var(--warning, #a15c00); }
 .account-tokens { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line, #d8dee8); }
 .account-tokens summary { cursor: pointer; font-weight: 650; }
@@ -1372,11 +1374,11 @@ textarea[aria-invalid="true"] {
 .account-inventory { display: grid; gap: 8px; margin: 16px 0 20px; }
 .account-inventory-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 14px 16px; border: 1px solid var(--line, #d8dee8); border-radius: 10px; background: var(--surface, #f8fafc); }
 .account-inventory-row strong, .account-inventory-row small { display: block; }
-.account-inventory-row small { margin-top: 5px; color: var(--muted, #667085); }
+.account-inventory-row small { margin-top: 5px; color: #52677a; }
 .account-inventory-actions { display: flex; align-items: center; gap: 10px; }
 .member-role { min-width: 108px; padding: 7px 8px; border: 1px solid var(--line, #d8dee8); border-radius: 6px; background: var(--surface, #f8fafc); color: inherit; font: inherit; }
 .account-edit { position: relative; }
-.account-edit summary { cursor: pointer; color: var(--muted, #667085); font-size: .8rem; }
+.account-edit summary { cursor: pointer; color: #52677a; font-size: .8rem; }
 .account-edit-form { position: absolute; z-index: 2; right: 0; display: grid; gap: 8px; min-width: 250px; padding: 12px; border: 1px solid var(--line, #d8dee8); border-radius: 10px; background: var(--panel, #fff); box-shadow: 0 12px 30px rgba(15, 23, 42, .16); }
 .account-edit-form input, .account-edit-form select { min-width: 0; padding: 7px 8px; border: 1px solid var(--line, #d8dee8); border-radius: 6px; background: inherit; color: inherit; }
 .account-edit-form output { color: var(--muted, #667085); font-size: .78rem; }
@@ -1416,21 +1418,23 @@ textarea[aria-invalid="true"] {
 /* With a workspace open, the list becomes a narrow rail beside it. */
 .site-overview:has(> .site-detail:not([hidden])) > .site-overview-grid { grid-column: 1; grid-template-columns: minmax(0, 1fr); }
 
-/* Create a site: one compact row (name, starting point, action) rather than
-   a tall stacked form above the list. Subgrid lines labels and inputs up. */
+/* Create a site: the name and where the site lives in its hosting account
+   (account, type, domain) flow into as many columns as fit, with the action
+   on its own row, rather than a tall stacked form above the list. */
 .site-overview > .site-create-form {
   max-width: none;
   margin-top: 0;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
   column-gap: 14px;
-  row-gap: 5px;
+  row-gap: 14px;
   padding: 18px 20px;
   border: 1px solid var(--panel-line, #293544);
   border-radius: 12px;
 }
-.site-create-form > h3 { grid-column: 1 / -1; margin: 0 0 8px; font-size: 15px; }
-.site-create-form > .field { grid-row: 2 / span 3; display: grid; grid-template-rows: subgrid; gap: 5px; margin: 0; }
-.site-create-form > .primary-action { grid-column: 3; grid-row: 3; align-self: stretch; white-space: nowrap; }
+.site-create-form > h2,
+.site-create-form > h3 { grid-column: 1 / -1; margin: 0; font-size: 15px; letter-spacing: normal; }
+.site-create-form > .field { display: flex; flex-direction: column; gap: 5px; margin: 0; min-width: 0; }
+.site-create-form > .primary-action { grid-column: 1 / -1; justify-self: start; white-space: nowrap; }
 .site-create-form > output { grid-column: 1 / -1; }
 .site-create-form > output:empty { display: none; }
 body[data-theme] .site-overview > .site-create-form { border-color: var(--appearance-line) !important; }
@@ -1438,7 +1442,7 @@ body[data-theme] .site-overview > .site-create-form { border-color: var(--appear
 /* Site cards: the backup line is its own fact, flagged when missing. */
 .site-card .site-card-backup { margin-top: 4px; }
 .site-card .site-card-backup.warning,
-body[data-theme] .site-card .site-card-backup.warning { color: var(--panel-warning, #f0b35a) !important; font-weight: 650; }
+body[data-theme] .site-card .site-card-backup.warning { color: var(--appearance-warn, #a65d17) !important; font-weight: 650; }
 
 /* Text values ("professional", "Unavailable") must fit their stat card. */
 .metric { min-width: 0; container-type: inline-size; }
@@ -1468,8 +1472,7 @@ button { transition: background-color .2s ease, border-color .2s ease, color .2s
 }
 @media (max-width: 720px) {
   .site-overview > .site-create-form { grid-template-columns: minmax(0, 1fr); }
-  .site-create-form > .field { grid-row: auto; grid-template-rows: none; display: flex; }
-  .site-create-form > .primary-action { grid-column: 1; grid-row: auto; min-height: 44px; }
+  .site-create-form > .primary-action { min-height: 44px; }
   /* Two stats per row keeps the summary within one screen on phones. */
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .metric { min-height: 0; padding: 16px; }

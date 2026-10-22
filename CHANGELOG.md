@@ -8,6 +8,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Give customers their own panel at `/panel` (`web/panel.html`); customers
+  signing in at `/` are sent there and administrators keep the operator
+  dashboard:
+  - **Views:** Home (account, system user, home directory and each website's
+    document root), Websites (the existing per-site workspace), Files,
+    Domains & SSL, Databases & backups, PHP, cron & logs, Account and
+    Activity.
+  - **API:** `GET /api/account/hosting` returns the account summary.
+  - **Site creation:** the customer and administrator forms choose the
+    website's type (main, addon or subdomain) and domain; administrators can
+    also name the hosting account.
+  - **Shared templates:** the appearance dialog and Operations drawer move to
+    `web/partials.html`.
+  - **Accessibility:** fixed contrast on the customer inventory, the account
+    status line and the site cards' backup warning; the plan usage bars now
+    have accessible names. A new Playwright journey
+    (`tests/e2e/customer-panel.spec.js`) provisions a customer, signs in with
+    MFA and runs axe on every view.
 - Add a customer file manager for sites in hosting accounts (ADR-0007):
   - **API:** `/api/sites/files/{site}` lists, reads, downloads, writes,
     creates directories, renames and deletes inside the site's document

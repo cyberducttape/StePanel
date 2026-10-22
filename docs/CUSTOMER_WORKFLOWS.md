@@ -2,12 +2,44 @@
 
 This guide describes self-service workflows available to customers in the shared-hosting beta.
 
+## The Customer Panel
+
+Customers sign in at the panel address and land on `/panel`, a page of their
+own (administrators keep the operator dashboard at `/`). Its sections are:
+
+- **Home:** the hosting account, its system user and home directory
+  (`/home/USER`), and each website with its document root.
+- **Websites:** add a website and open a website's workspace for domains,
+  PHP, deployments, databases, backups, logs, workers, scheduled tasks,
+  security and settings.
+- **Files:** the file manager described below.
+- **Domains & SSL:** every connected domain, with a link to connect more.
+- **Databases & backups** and **PHP, cron & logs:** shortcuts into each
+  website's workspace.
+- **Account:** plan and limits, team members, password, MFA and API tokens.
+- **Activity:** recent operations and the account's audit trail.
+
+`GET /api/account/hosting` returns the same account summary for scripts
+(token scope `site:read`).
+
+## Hosting Account Layout
+
+Like cPanel, a hosting account is one system user with a home directory. The
+main website is served from `/home/USER/public_html`; each addon domain or
+subdomain website is served from `/home/USER/DOMAIN`. PHP state for a website
+lives in `/home/USER/.stepanel/sites/SITE`. Everything in the home belongs to
+the account's system user, which is also the user an SFTP login, cron tasks
+and PHP run as.
+
 ## Create a Site
 
-Account owners can create a blank PHP site within their plan. The site gets
-its own system account, PHP-FPM pool, and a placeholder page, and is assigned
-to your account before creation starts. Creation runs as a durable job; if it
-fails, nothing is left behind and the site no longer counts against your plan.
+Account owners can create a blank PHP site within their plan. The first
+website becomes the main site in `public_html`; later ones are addon domains
+(or subdomains) and need their domain, which also names their folder. The
+site gets a PHP-FPM pool running as the account's system user and a
+placeholder page, and is assigned to your account before creation starts.
+Creation runs as a durable job; if it fails, nothing is left behind and the
+site no longer counts against your plan.
 
 ```bash
 curl -X POST "https://panel.example.com/api/sites" \
@@ -16,6 +48,11 @@ curl -X POST "https://panel.example.com/api/sites" \
   -H "Content-Type: application/json" \
   -d '{"site": "mysite", "template": "php"}'
 ```
+
+Add `"kind": "addon"` (or `"subdomain"`) and `"domain": "shop.example.org"`
+to create a website in its own folder; `"kind": "main"` asks for
+`public_html` explicitly. Without a kind, the first website is the main one
+and later ones are addon domains.
 
 The response is `202 Accepted` with a `job_id` and a `status_url` to follow.
 An API token needs the `site:deploy` scope.
@@ -32,6 +69,29 @@ use the tenant-scoped Git deployment workflow described in
 [Git deployments](GIT_DEPLOYMENTS.md); the repository and ref are validated,
 the deployment runs as a durable job, and the site must have a configured
 deploy key or use a public repository allowed by the host policy.
+
+## Manage Files
+
+The file manager browses and edits a website's document root. Every change
+runs as the account's system user, exactly as over SFTP, under the site's
+mutation lock, and is recorded in the account's audit trail
+(`site.files.write`, `site.files.mkdir`, `site.files.rename`,
+`site.files.delete`).
+
+- Open files up to 2 MiB in the editor; save or upload files up to 4 MiB.
+  Use SFTP for larger files.
+- Saving replaces the file atomically and keeps its permissions; new files
+  are created with mode 0640 and new folders with 0750.
+- Renames never replace an existing file. Deleting a folder deletes
+  everything in it.
+- Paths outside the document root, `..`, and symbolic links are refused.
+- Websites from before hosting accounts (in `/var/www/sites`) are not
+  available in the file manager.
+
+API tokens need `files:read` to list, read and download, and `files:write`
+to change files. Viewers can read files; developers can also change them.
+The endpoints are listed under `/api/sites/files/` in the
+[OpenAPI contract](openapi.yaml).
 
 ## Deploy from Git
 

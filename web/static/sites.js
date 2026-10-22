@@ -293,10 +293,16 @@
   window.addEventListener('popstate', (event) => {
     if (event.state && event.state.site) {
       openWorkspace(event.state.site, event.state.tab, { pushHistory: false });
-    } else if (!detail.hidden) {
+    } else if (!detail.hidden && !parseWorkspaceHash()) {
       detail.hidden = true;
       detail.replaceChildren();
     }
+  });
+  // A followed #site=NAME&tab=TAB link (the customer panel links straight
+  // to a site's tab) opens that workspace.
+  window.addEventListener('hashchange', () => {
+    const target = parseWorkspaceHash();
+    if (target) openWorkspace(target.site, target.tab, { pushHistory: false });
   });
 
   // ---------------------------------------------------------------------
@@ -1358,9 +1364,12 @@
       event.preventDefault();
       const site = createForm.elements.site.value.trim();
       const template = createForm.elements.template.value;
+      // Where the site lives in its hosting account (ADR-0007).
+      const optional = (name) => (createForm.elements[name] ? createForm.elements[name].value.trim() : '');
+      const placement = { account: optional('account'), kind: optional('kind'), domain: optional('domain').toLowerCase() };
       createStatus.textContent = `Queuing ${site}…`;
       try {
-        const queued = await postJSON('/api/sites', { site, template });
+        const queued = await postJSON('/api/sites', { site, template, ...placement });
         createStatus.textContent = `Creating ${site}: preparing its account and PHP pool…`;
         for (let attempt = 0; attempt < 90; attempt += 1) {
           await new Promise((resolve) => setTimeout(resolve, 2000));

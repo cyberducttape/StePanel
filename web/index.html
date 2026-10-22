@@ -16,7 +16,6 @@
       <nav class="workspace-nav" aria-label="Primary">
         <a class="is-active" href="#main"><span aria-hidden="true">⌂</span>Overview</a>
         <a href="#sites"><span aria-hidden="true">◌</span>Sites</a>
-        {{ if not .IsAdministrator }}<a href="#account"><span aria-hidden="true">◎</span>Account</a>{{ end }}
         {{ if .IsAdministrator }}<a href="#migrations"><span aria-hidden="true">⇄</span>Migrations</a><a href="#deploy"><span aria-hidden="true">↗</span>Deployments</a><a href="#accounts"><span aria-hidden="true">◎</span>Customers</a><a href="#database"><span aria-hidden="true">▤</span>Databases</a><a href="#operations"><span aria-hidden="true">◫</span>Infrastructure</a><a href="#security"><span aria-hidden="true">◇</span>Security</a>{{ end }}
         <a href="#jobs"><span aria-hidden="true">◷</span>Activity / Jobs</a>
       </nav>
@@ -28,12 +27,7 @@
       <div class="workspace-context"><span class="eyebrow">Hosting workspace</span><strong id="workspaceContextTitle">{{ if .IsAdministrator }}Operator overview{{ else }}Your sites{{ end }}</strong></div>
       <div class="topbar-meta"><time datetime="{{ .Now.Format "2006-01-02" }}">{{ .Now.Format "02 Jan 2006" }}</time>{{ if .AuthEnabled }}<form action="/logout" method="post"><input type="hidden" name="csrf" value="{{ .CSRF }}"><button class="avatar" type="submit" aria-label="Sign out {{ .Username }}">{{ if .Username }}{{ .Username }}{{ else }}admin{{ end }} <span aria-hidden="true">↗</span></button></form>{{ end }}</div>
     </header>
-    <button class="job-center-toggle" id="jobCenterToggle" type="button" aria-controls="jobCenter" aria-expanded="false">Operations <span id="jobCenterCount" aria-label="active operations">0</span></button>
-    <aside class="job-center" id="jobCenter" aria-labelledby="jobCenterHeading" hidden>
-      <div class="job-center-header"><h2 id="jobCenterHeading" tabindex="-1">Operations</h2><button class="appearance-close" id="jobCenterClose" type="button" aria-label="Close operations">×</button></div>
-      <p class="job-center-subtitle">Durable work stays here after you navigate or reload.</p>
-      <div id="jobCenterList" aria-live="polite"><p class="job-center-empty">Loading operations…</p></div>
-    </aside>
+    {{ template "job-center" . }}
     <main class="content" id="main">
       <section class="hero">
         <div><p class="eyebrow">{{ if .IsAdministrator }}Hosting control plane{{ else }}Your hosting workspace{{ end }}</p><h1>{{ if .IsAdministrator }}Manage your sites with confidence{{ else }}Welcome back, {{ .Username }}{{ end }}</h1><p class="lede">{{ if .IsAdministrator }}Domains, applications, databases, and verified backups in one place.{{ else }}Your assigned sites, domains, and verified recovery points—without exposing other customers’ data.{{ end }}</p><p class="import-note">{{ if .IsAdministrator }}Every change is recorded. Backups are verified before they are marked ready.{{ else }}{{ .Account.Plan }} plan · {{ .AccountSiteCount }} assigned site{{ if ne .AccountSiteCount 1 }}s{{ end }} · MFA-protected account{{ end }}</p></div>
@@ -45,30 +39,6 @@
         <article class="metric"><span class="metric-label">Latest verified backup</span><strong class="metric-text" id="backupFreshness">—</strong><span class="metric-note">Private recovery point freshness</span></article>
         <article class="metric"><span class="metric-label">{{ if .IsAdministrator }}Needs attention{{ else }}Your plan{{ end }}</span><strong{{ if not .IsAdministrator }} class="metric-text"{{ end }}>{{ if .IsAdministrator }}{{ .Alerts }}{{ else }}{{ .Account.Plan }}{{ end }}</strong><span class="metric-note {{ if .IsAdministrator }}warning{{ end }}">{{ if .IsAdministrator }}Platform checks requiring review{{ else }}Site access is limited to your assigned workspace{{ end }}</span></article>
       </section>
-      {{ if not .IsAdministrator }}<section class="account-panel" id="account" aria-labelledby="account-heading">
-        <div class="section-heading"><div><p class="eyebrow">Customer account</p><h2 id="account-heading">Your plan and access</h2></div><span class="account-status" id="accountStatus" role="status" aria-live="polite">Loading account details…</span></div>
-        <div class="account-grid">
-          <article class="account-card"><span class="metric-label">Plan</span><strong id="accountPlan">{{ .Account.Plan }}</strong><small id="accountRole">Tenant owner</small><small id="accountCreated">Tenant account</small></article>
-          <article class="account-card"><span class="metric-label">Sites</span><strong id="accountSites">{{ .AccountSiteCount }}</strong><small id="accountSitesLimit">Assigned sites</small><div class="usage-bar"><span id="accountSitesBar"></span></div></article>
-          <article class="account-card"><span class="metric-label">Databases</span><strong id="accountDatabases">—</strong><small id="accountDatabasesLimit">Managed databases</small><div class="usage-bar"><span id="accountDatabasesBar"></span></div></article>
-          <article class="account-card"><span class="metric-label">Security</span><strong id="accountMFA">MFA protected</strong><small id="accountSecurityNote">Credentials are scoped to this tenant.</small></article>
-        </div>
-        <div class="account-plan-envelope">
-          <div class="section-heading"><div><span class="metric-label">Plan resource envelope</span><small class="muted">Host limits applied to assigned sites</small></div></div>
-          <div id="accountPlanResources" class="account-resource-grid"></div>
-        </div>
-        <details class="account-security" id="accountTeam" hidden>
-          <summary>Manage tenant team</summary>
-          <p class="import-copy">Invite separate logins for this tenant without sharing the owner credential. Members inherit this tenant’s assigned sites and never receive access to another tenant.</p>
-          <form id="accountMemberForm" class="token-form"><div class="field"><label for="accountMemberUsername">Member username</label><input id="accountMemberUsername" name="username" pattern="[a-z0-9_-]{1,32}" required></div><div class="field"><label for="accountMemberPassword">Temporary password</label><input id="accountMemberPassword" name="password" type="password" minlength="20" required></div><div class="field"><label for="accountMemberTOTP">Authenticator secret</label><input id="accountMemberTOTP" name="totp_secret" pattern="[A-Z2-7=]{16,128}" required></div><div class="field"><label for="accountMemberRole">Role</label><select id="accountMemberRole" name="role"><option value="manager">Manager</option><option value="developer">Developer</option><option value="viewer">Viewer</option></select></div><button class="quiet-action" type="submit">Add team member</button><output id="accountMemberStatus" role="status" aria-live="polite"></output></form>
-          <div id="accountMemberList" class="token-list"><span class="muted">Loading team members…</span></div>
-        </details>
-        <div class="account-actions"><button class="quiet-action" type="button" id="reviewTokenSecurity">Review token security</button><a class="quiet-action" href="#accountActivity">View account activity</a><button class="quiet-action" type="button" id="revokeOtherSessions">Sign out other sessions</button><span id="accountSecurityStatus" role="status" aria-live="polite"></span><span id="accountActionStatus" role="status" aria-live="polite"></span></div>
-        <div class="account-activity" id="accountActivity"><span class="metric-label">Verified tenant activity</span><div id="accountActivityList" class="token-list"><span class="muted">Loading activity…</span></div></div>
-        <details class="account-tokens"><summary>Manage automation tokens</summary><p class="import-copy">Create credentials for CI or deployment tools. Tokens are limited to this tenant and shown only once.</p><form id="accountTokenForm" class="token-form"><div class="field"><label for="accountTokenName">Token name</label><input id="accountTokenName" name="name" maxlength="80" placeholder="Deploy pipeline" required></div><div class="field"><label for="accountTokenExpiry">Expiration <span class="hint">(optional)</span></label><input id="accountTokenExpiry" name="expires_at" type="date"><small class="hint">Short-lived tokens reduce the impact of a leaked credential.</small></div><div class="token-scopes"><span class="metric-label">Permissions</span><label><input type="checkbox" name="scope" value="site:read" checked> Read sites</label><label><input type="checkbox" name="scope" value="deploy:write"> Deploy</label><label><input type="checkbox" name="scope" value="environment:read"> Read environment</label><label><input type="checkbox" name="scope" value="environment:write"> Write environment</label><label><input type="checkbox" name="scope" value="backup:read"> Read backups</label><label><input type="checkbox" name="scope" value="backup:create"> Create backups</label><label><input type="checkbox" name="scope" value="backup:restore"> Restore backups</label><label><input type="checkbox" name="scope" value="database:read"> Read databases</label><label><input type="checkbox" name="scope" value="database:write"> Write databases</label><label><input type="checkbox" name="scope" value="ssh:read"> Read SSH</label><label><input type="checkbox" name="scope" value="ssh:write"> Write SSH</label><label><input type="checkbox" name="scope" value="logs:read"> Read logs</label><label><input type="checkbox" name="scope" value="files:read"> Read files</label><label><input type="checkbox" name="scope" value="files:write"> Write files</label><label><input type="checkbox" name="scope" value="redis:read"> Read Redis</label><label><input type="checkbox" name="scope" value="redis:write"> Write Redis</label></div><button class="primary-action" type="submit">Create token</button><output id="accountTokenStatus" role="status" aria-live="polite"></output></form><div id="accountTokenList" class="token-list"></div></details>
-        <details class="account-security"><summary>Change account password</summary><form id="accountPasswordForm" class="token-form"><div class="field"><label for="accountPassword">New password</label><input id="accountPassword" name="password" type="password" minlength="16" autocomplete="new-password" required><small class="hint">Use a unique password of at least 16 characters.</small></div><button class="quiet-action" type="submit">Change password</button><output id="accountPasswordStatus" role="status" aria-live="polite"></output></form></details>
-        <details class="account-security" id="accountMFASetup"><summary>Configure authenticator MFA</summary><p class="import-copy">Enter the base32 secret from your approved authenticator setup. It is stored encrypted and never returned by the panel.</p><form id="accountMFAForm" class="token-form"><div class="field"><label for="accountTOTPSecret">Authenticator secret</label><input id="accountTOTPSecret" name="totp_secret" pattern="[A-Z2-7=]{16,128}" autocomplete="off" required></div><button class="quiet-action" type="submit">Save MFA secret</button><output id="accountMFAStatus" role="status" aria-live="polite"></output></form></details>
-      </section>{{ end }}
       <section class="onboarding" id="start" aria-labelledby="start-heading">
         <div><p class="eyebrow">Start here</p><h2 id="start-heading">What would you like to do?</h2><p>Start with a guided task. You can review the result and recent activity from the site workspace.</p></div>
         <div class="onboarding-actions">{{ if .IsAdministrator }}<a class="task-card" href="#migrations"><strong>Move a cPanel site</strong><span>Inspect a backup before restoring it.</span></a>{{ end }}<a class="task-card" href="#sites"><strong>Manage a site</strong><span>Connect a domain or create a verified backup.</span></a>{{ if .IsAdministrator }}<a class="task-card" href="#deploy"><strong>Deploy an application</strong><span>Route a local Node application safely.</span></a>{{ else }}<a class="task-card" href="#jobs"><strong>Review activity</strong><span>Track work performed for your sites.</span></a>{{ end }}</div>
@@ -88,7 +58,7 @@
       <section class="import-panel site-overview" id="sites" aria-labelledby="sites-heading">
         <div class="section-heading"><div><p class="eyebrow">Developer workspace</p><h2 id="sites-heading">Managed sites</h2></div><a class="quiet-action" href="/api/sites/overview">View JSON →</a></div>
         <p class="import-copy">See the essentials for each site, then connect a domain, create a verified backup, or inspect its resources. Sensitive credentials are never displayed.</p>
-        {{ if .CanCreateSite }}<form id="siteCreateForm" class="token-form site-create-form" aria-labelledby="site-create-heading"><h3 id="site-create-heading">{{ if .IsAdministrator }}Create a site{{ else }}Create a site in this account{{ end }}</h3><div class="field"><label for="siteCreateName">Site name</label><input id="siteCreateName" name="site" required pattern="[a-z0-9_\-]{1,32}" maxlength="32" autocomplete="off" spellcheck="false"><small class="hint">Lowercase letters, digits, dashes and underscores. It also names the site’s isolated system account.</small></div><div class="field"><label for="siteCreateTemplate">Starting point</label><select id="siteCreateTemplate" name="template"><option value="php">Blank PHP site</option></select></div><button class="primary-action" type="submit">Create site</button><output id="siteCreateStatus" role="status" aria-live="polite"></output></form>{{ end }}
+        {{ if .CanCreateSite }}<form id="siteCreateForm" class="token-form site-create-form" aria-labelledby="site-create-heading"><h3 id="site-create-heading">{{ if .IsAdministrator }}Create a site{{ else }}Create a site in this account{{ end }}</h3><div class="field"><label for="siteCreateName">Site name</label><input id="siteCreateName" name="site" required pattern="[a-z0-9_\-]{1,32}" maxlength="32" autocomplete="off" spellcheck="false"><small class="hint">Lowercase letters, digits, dashes and underscores.</small></div>{{ if .IsAdministrator }}<div class="field"><label for="siteCreateAccount">Hosting account <span class="hint">(optional)</span></label><input id="siteCreateAccount" name="account" pattern="[a-z_][a-z0-9_\-]{0,31}" maxlength="32" autocomplete="off" spellcheck="false"><small class="hint">The account’s system user and home directory, <span class="mono">/home/ACCOUNT</span>. Defaults to the site name.</small></div>{{ end }}<div class="field"><label for="siteCreateKind">Type</label><select id="siteCreateKind" name="kind"><option value="">Automatic: main domain first, then addon</option><option value="main">Main domain (public_html)</option><option value="addon">Addon domain</option><option value="subdomain">Subdomain</option></select></div><div class="field"><label for="siteCreateDomain">Domain <span class="hint">(addon domains and subdomains)</span></label><input id="siteCreateDomain" name="domain" maxlength="253" autocomplete="off" spellcheck="false"><small class="hint">Names the site’s folder in the account’s home directory.</small></div><div class="field"><label for="siteCreateTemplate">Starting point</label><select id="siteCreateTemplate" name="template"><option value="php">Blank PHP site</option></select></div><button class="primary-action" type="submit">Create site</button><output id="siteCreateStatus" role="status" aria-live="polite"></output></form>{{ end }}
         <p class="import-note" id="siteOverviewStatus" role="status" aria-live="polite">Loading managed sites…</p>
         <div id="siteOverview" class="site-overview-grid"></div>
         <div id="siteDetail" class="site-detail" hidden aria-live="polite"></div>
@@ -128,28 +98,7 @@
       </footer>
     </main>
   </div>
-<dialog class="appearance-dialog" id="appearanceDialog" aria-labelledby="appearanceHeading">
-  <form method="dialog" class="appearance-form" id="appearanceForm">
-    <div class="appearance-dialog-header"><div><p class="eyebrow">Personal workspace</p><h2 id="appearanceHeading">Appearance</h2></div><button type="button" class="appearance-close" id="appearanceClose" aria-label="Close appearance settings">×</button></div>
-    <p class="appearance-intro">Choose a color pack and interface size. These preferences stay in this browser and never change site or server settings.</p>
-    <div class="appearance-field"><label for="appearanceTheme">Color pack</label><select id="appearanceTheme" name="theme">
-      <option value="default">StePanel Dark</option>
-      <option value="classic-green">Classic Green</option>
-      <option value="classic-amber">Classic Amber</option>
-      <option value="classic-white">Classic White</option>
-      <option value="retro-neon">Retro 80s Neon</option>
-      <option value="high-contrast">High Contrast</option>
-      <option value="terminal-blue">Terminal Blue</option>
-      <option value="commodore64">Commodore 64</option>
-      <option value="windows95">Windows 95</option>
-      <option value="windows31">Windows 3.1</option>
-    </select><p class="appearance-theme-description" id="appearanceThemeDescription" aria-live="polite">Modern control-room blue with quiet green status accents.</p></div>
-    <div class="appearance-swatches" id="appearanceSwatches" aria-label="Theme preview"></div>
-    <label class="appearance-check" id="appearanceDarkRow"><input type="checkbox" id="appearanceDark"> <span>Use dark mode</span><small>Only available for the StePanel pack.</small></label>
-    <div class="appearance-field"><label for="appearanceScale">Interface size <output id="appearanceScaleValue">100%</output></label><input id="appearanceScale" type="range" min="90" max="150" step="5" value="100"></div>
-    <div class="appearance-dialog-actions"><button type="button" class="quiet-action" id="appearanceReset">Reset appearance</button><button type="submit" class="primary-action">Done</button></div>
-  </form>
-</dialog>
+{{ template "appearance-dialog" . }}
 <script src="/static/api.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/forms.js?v={{ .AssetVersion }}" defer></script>
 <script src="/static/ui.js?v={{ .AssetVersion }}" defer></script>

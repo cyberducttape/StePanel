@@ -38,8 +38,10 @@ import (
 )
 
 type App struct {
-	Config                   Config
-	View                     *template.Template
+	Config Config
+	View   *template.Template
+	// PanelView renders the customer panel (web/panel.html).
+	PanelView                *template.Template
 	AssetVersion             string
 	Auth                     Auth
 	Jobs                     *Jobs
@@ -576,11 +578,10 @@ func Main() {
 	bindState(domains, "domain-claims", &domains.values, domains.persistLocked)
 	// Recovery and reconciliation are started after the HTTP control plane is
 	// listening. Readiness remains false until this work has completed.
-	viewData, err := webAssets.ReadFile("web/index.html")
+	view, panelView, err := loadViews()
 	if err != nil {
-		log.Fatalf("load embedded dashboard: %v", err)
+		log.Fatalf("load embedded views: %v", err)
 	}
-	view := template.Must(template.New("index.html").Funcs(template.FuncMap{"add": func(a, b int) int { return a + b }}).Parse(string(viewData)))
 	staticAssets, err := fs.Sub(webAssets, "web/static")
 	if err != nil {
 		log.Fatalf("load embedded static assets: %v", err)
@@ -605,7 +606,7 @@ func Main() {
 	if err != nil {
 		log.Fatalf("initialize capacity ledger: %v", err)
 	}
-	app := &App{Config: cfg, View: view, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
+	app := &App{Config: cfg, View: view, PanelView: panelView, AssetVersion: assetVersion, Auth: auth, Jobs: jobs, Metrics: NewMetrics(), Schedules: schedules, Accounts: accounts, Environments: environments, Redis: redisAllocations, DNSDesired: dnsDesired, Routes: routes, Domains: domains, Access: access, Workers: workers, Composer: composer, PHP: phpProfiles, Tasks: tasks, APITokens: auth.apiTokens, Deployments: deployments, Resources: resources, Webhooks: webhookConfigStore, Notifications: notifications, AuditOutbox: auditOutbox, BackupIndex: backupIndex, Recovery: recoveryStore, webhookReplayCache: NewDurableWebhookReplayCache(controlPlaneDB, 5*time.Minute), dbLocks: dbLocks, siteManager: siteManager, capacity: capacity}
 	app.startup.begin()
 	// Workers in this and the external worker process claim jobs only once
 	// the panel's startup recovery has succeeded.
@@ -768,6 +769,7 @@ func Main() {
 	mux.Handle("/login", allowMethods(http.HandlerFunc(app.Auth.Login), http.MethodGet, http.MethodPost))
 	mux.Handle("/logout", allowMethods(http.HandlerFunc(app.Auth.Logout), http.MethodPost))
 	mux.Handle("/", allowMethods(app.Auth.Require(http.HandlerFunc(app.dashboard)), http.MethodGet, http.MethodHead))
+	mux.Handle("/panel", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerPanel)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/health", allowMethods(http.HandlerFunc(app.health), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/health/operational", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.operationalHealth)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/capabilities", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.handleCapabilities)), http.MethodGet, http.MethodHead))
@@ -886,6 +888,7 @@ func Main() {
 	mux.Handle("/api/account/tokens/", allowMethods(app.Auth.Require(http.HandlerFunc(app.apiTokens)), http.MethodDelete))
 	mux.Handle("/api/account/security", allowMethods(app.Auth.Require(http.HandlerFunc(app.customerSecurityCenter)), http.MethodGet))
 	mux.Handle("/api/account/me", allowMethods(app.Auth.Require(http.HandlerFunc(app.accountMe)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/account/hosting", allowMethods(app.Auth.Require(http.HandlerFunc(app.accountHosting)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/account/members", allowMethods(app.Auth.Require(http.HandlerFunc(app.accountMembers)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/account/members/", allowMethods(app.Auth.Require(http.HandlerFunc(app.accountMembers)), http.MethodPatch, http.MethodDelete))
 	mux.Handle("/api/account/activity", allowMethods(app.Auth.Require(http.HandlerFunc(app.accountActivity)), http.MethodGet, http.MethodHead))
@@ -999,6 +1002,11 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		csrf = cookie.Value
 	}
 	isAdministrator := a.Auth.IsAdministrator(r)
+	if !isAdministrator && a.PanelView != nil {
+		// Customers have their own panel (web/panel.html).
+		http.Redirect(w, r, "/panel", http.StatusSeeOther)
+		return
+	}
 	canCreateSite := isAdministrator
 	servers := ServiceSummaries(a.Config)
 	jobs, jobsErr := a.Jobs.ListSummariesWithError(8)

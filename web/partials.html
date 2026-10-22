@@ -1,0 +1,31 @@
+{{/* Shared by the operator dashboard (index.html) and the customer panel (panel.html). */}}
+{{ define "job-center" }}<button class="job-center-toggle" id="jobCenterToggle" type="button" aria-controls="jobCenter" aria-expanded="false">Operations <span id="jobCenterCount" aria-label="active operations">0</span></button>
+<aside class="job-center" id="jobCenter" aria-labelledby="jobCenterHeading" hidden>
+  <div class="job-center-header"><h2 id="jobCenterHeading" tabindex="-1">Operations</h2><button class="appearance-close" id="jobCenterClose" type="button" aria-label="Close operations">×</button></div>
+  <p class="job-center-subtitle">Durable work stays here after you navigate or reload.</p>
+  <div id="jobCenterList" aria-live="polite"><p class="job-center-empty">Loading operations…</p></div>
+</aside>
+{{ end }}
+{{ define "appearance-dialog" }}<dialog class="appearance-dialog" id="appearanceDialog" aria-labelledby="appearanceHeading">
+  <form method="dialog" class="appearance-form" id="appearanceForm">
+    <div class="appearance-dialog-header"><div><p class="eyebrow">Personal workspace</p><h2 id="appearanceHeading">Appearance</h2></div><button type="button" class="appearance-close" id="appearanceClose" aria-label="Close appearance settings">×</button></div>
+    <p class="appearance-intro">Choose a color pack and interface size. These preferences stay in this browser and never change site or server settings.</p>
+    <div class="appearance-field"><label for="appearanceTheme">Color pack</label><select id="appearanceTheme" name="theme">
+      <option value="default">StePanel Dark</option>
+      <option value="classic-green">Classic Green</option>
+      <option value="classic-amber">Classic Amber</option>
+      <option value="classic-white">Classic White</option>
+      <option value="retro-neon">Retro 80s Neon</option>
+      <option value="high-contrast">High Contrast</option>
+      <option value="terminal-blue">Terminal Blue</option>
+      <option value="commodore64">Commodore 64</option>
+      <option value="windows95">Windows 95</option>
+      <option value="windows31">Windows 3.1</option>
+    </select><p class="appearance-theme-description" id="appearanceThemeDescription" aria-live="polite">Modern control-room blue with quiet green status accents.</p></div>
+    <div class="appearance-swatches" id="appearanceSwatches" aria-label="Theme preview"></div>
+    <label class="appearance-check" id="appearanceDarkRow"><input type="checkbox" id="appearanceDark"> <span>Use dark mode</span><small>Only available for the StePanel pack.</small></label>
+    <div class="appearance-field"><label for="appearanceScale">Interface size <output id="appearanceScaleValue">100%</output></label><input id="appearanceScale" type="range" min="90" max="150" step="5" value="100"></div>
+    <div class="appearance-dialog-actions"><button type="button" class="quiet-action" id="appearanceReset">Reset appearance</button><button type="submit" class="primary-action">Done</button></div>
+  </form>
+</dialog>
+{{ end }}

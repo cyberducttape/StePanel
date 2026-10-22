@@ -592,6 +592,10 @@ paths:
     get:
       summary: Measure bounded regular-file usage for a site without following symlinks
       responses: {'200': {description: Bytes, file count, directory count and completeness}}
+  /api/account/hosting:
+    get:
+      summary: Read the caller's hosting account, its Unix user and home, and each accessible site's placement and document root
+      responses: {'200': {description: Account, Unix user, home directory and sites (main site first)}, '403': {description: Not a customer account}}
   /api/sites/files/:
     get:
       summary: List a directory or read a file inside a hosting-account site's document root

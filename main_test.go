@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	httputil "github.com/cyberducttape/StePanel/internal/http"
-	"html/template"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -37,13 +36,9 @@ func TestHealthAndMetricsEndpoints(t *testing.T) {
 }
 
 func TestEmbeddedDashboardTemplate(t *testing.T) {
-	data, err := webAssets.ReadFile("web/index.html")
+	view, _, err := loadViews()
 	if err != nil {
-		t.Fatal(err)
-	}
-	view, err := template.New("index.html").Funcs(template.FuncMap{"add": func(a, b int) int { return a + b }}).Parse(string(data))
-	if err != nil {
-		t.Fatalf("parse embedded dashboard: %v", err)
+		t.Fatalf("parse embedded views: %v", err)
 	}
 	var rendered bytes.Buffer
 	if err := view.Execute(&rendered, map[string]any{"Title": "StePanel", "AssetVersion": "test-assets", "Now": time.Now(), "Servers": []ServiceSummary{{Name: "apache2", Status: "active"}}, "Healthy": 1, "Alerts": 0, "Security": []SecurityCheck{}, "Jobs": []Job{}, "Capabilities": map[string]bool{}, "IsAdministrator": true, "Database": DatabaseAdmin{Engine: "mysql", Version: "default", Host: "local socket", Service: "mysql", Status: "missing", Client: "mariadb", AdminProduct: "phpMyAdmin", AdminURL: "/phpmyadmin"}}); err != nil {

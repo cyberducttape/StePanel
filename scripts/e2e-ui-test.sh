@@ -32,7 +32,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TEST_ROOT"/{imports,backups,www,mail,nvm,proxy,vhosts,apps,quarantine,recovery}
+mkdir -p "$TEST_ROOT"/{imports,backups,www,home,mail,nvm,proxy,vhosts,apps,quarantine,recovery}
 mkdir -p "$SCREENSHOT_DIR"
 
 if curl --fail --silent --max-time 1 "$BASE_URL/livez" >/dev/null 2>&1; then
@@ -50,6 +50,7 @@ STEPANEL_BACKUP_SIGNING_KEY="e2e-ui-backup-key-012345678901234567" \
 STEPANEL_LISTEN="127.0.0.1:$TEST_PORT" \
 STEPANEL_IMPORT_ROOT="$TEST_ROOT/imports" \
 STEPANEL_WEB_ROOT="$TEST_ROOT/www" \
+STEPANEL_HOME_ROOT="$TEST_ROOT/home" \
 STEPANEL_BACKUP_ROOT="$TEST_ROOT/backups" \
 STEPANEL_MAIL_ROOT="$TEST_ROOT/mail" \
 STEPANEL_NVM_DIR="$TEST_ROOT/nvm" \

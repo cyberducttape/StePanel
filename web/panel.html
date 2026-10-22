@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ .Title }} · your hosting</title><link rel="icon" href="/static/favicon.svg?v={{ .AssetVersion }}" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css?v={{ .AssetVersion }}"><link rel="stylesheet" href="/static/import.css?v={{ .AssetVersion }}"><link rel="stylesheet" href="/static/workspace.css?v={{ .AssetVersion }}"><link rel="stylesheet" href="/static/panel.css?v={{ .AssetVersion }}">
+</head>
+<body class="customer-panel" data-is-administrator="false" data-account-role="{{ if .Account.Role }}{{ .Account.Role }}{{ else }}owner{{ end }}" data-webserver="{{ .Config.WebServer }}">
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <div class="app-shell">
+    <div class="nav-backdrop" id="navBackdrop" hidden></div>
+    <aside class="workspace-sidebar" id="workspaceSidebar" aria-label="Panel navigation">
+      <a class="brand" href="/panel" aria-label="StePanel home"><span class="brand-mark">S</span><span>StePanel</span></a>
+      <p class="sidebar-label">Your hosting</p>
+      <nav class="workspace-nav" aria-label="Primary">
+        <a href="#home"><span aria-hidden="true">⌂</span>Home</a>
+        <a href="#websites"><span aria-hidden="true">◌</span>Websites</a>
+        <a href="#files"><span aria-hidden="true">▦</span>Files</a>
+        <a href="#domains"><span aria-hidden="true">⇄</span>Domains &amp; SSL</a>
+        <a href="#data"><span aria-hidden="true">▤</span>Databases &amp; backups</a>
+        <a href="#runtime"><span aria-hidden="true">⚙</span>PHP, cron &amp; logs</a>
+        <a href="#account"><span aria-hidden="true">◎</span>Account</a>
+        <a href="#activity"><span aria-hidden="true">◷</span>Activity</a>
+      </nav>
+      <div class="sidebar-footer" id="controlPlaneStatus" role="status" aria-live="polite"><span class="pulse" id="controlPlanePulse" aria-hidden="true"></span><span id="controlPlaneLabel">Checking control plane…</span><button type="button" class="appearance-trigger" id="controlPlaneDetailsToggle" aria-expanded="false" aria-controls="controlPlaneDetails">Details</button><button type="button" class="appearance-trigger" id="appearanceTrigger" aria-haspopup="dialog"><span aria-hidden="true">⚙</span><span>Appearance</span></button><ul class="control-plane-details" id="controlPlaneDetails" hidden></ul></div>
+    </aside>
+    <header class="topbar">
+      <button type="button" class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="workspaceSidebar" aria-label="Open navigation"><span aria-hidden="true">☰</span></button>
+      <a class="mobile-brand brand" href="/panel" aria-label="StePanel home"><span class="brand-mark">S</span><span>StePanel</span></a>
+      <div class="workspace-context"><span class="eyebrow">Your hosting</span><strong id="workspaceContextTitle">Home</strong></div>
+      <div class="topbar-meta"><time datetime="{{ .Now.Format "2006-01-02" }}">{{ .Now.Format "02 Jan 2006" }}</time>{{ if .AuthEnabled }}<form action="/logout" method="post"><input type="hidden" name="csrf" value="{{ .CSRF }}"><button class="avatar" type="submit" aria-label="Sign out {{ .Username }}">{{ .Username }} <span aria-hidden="true">↗</span></button></form>{{ end }}</div>
+    </header>
+    {{ template "job-center" . }}
+    <main class="content" id="main">
+      <section class="panel-view" id="home" aria-labelledby="home-heading" data-view="home">
+        <div class="hero">
+          <div><p class="eyebrow">Your hosting account</p><h1 id="home-heading">Welcome back, {{ .Username }}</h1><p class="lede">Your websites, files, domains, databases and backups in one place.</p><p class="import-note">{{ .Account.Plan }} plan · {{ .AccountSiteCount }} website{{ if ne .AccountSiteCount 1 }}s{{ end }}</p></div>
+          <a class="primary-action button-link" href="#files">Open the file manager</a>
+        </div>
+        <div class="account-grid panel-account-facts" aria-label="Hosting account">
+          <article class="account-card"><span class="metric-label">Account</span><strong id="panelAccount">—</strong><small>Hosting account name</small></article>
+          <article class="account-card"><span class="metric-label">System user</span><strong class="mono" id="panelUnixUser">—</strong><small>Owns your files and runs your sites</small></article>
+          <article class="account-card"><span class="metric-label">Home directory</span><strong class="mono panel-path" id="panelHome">—</strong><small>Your main website is served from public_html</small></article>
+          <article class="account-card"><span class="metric-label">Plan</span><strong>{{ .Account.Plan }}</strong><small>Limits are on the Account page</small></article>
+        </div>
+        <div class="section-heading"><div><p class="eyebrow">Websites</p><h2>Your websites</h2></div><a class="quiet-action" href="#websites">Manage websites →</a></div>
+        <p class="import-note" id="panelSitesStatus" role="status" aria-live="polite">Loading your websites…</p>
+        <ul class="resource-list panel-site-list" id="panelSiteList"></ul>
+      </section>
+
+      <section class="import-panel site-overview panel-view" id="websites" aria-labelledby="sites-heading" data-view="websites" hidden>
+        <div class="section-heading"><div><p class="eyebrow">Websites</p><h1 id="sites-heading">Manage websites</h1></div></div>
+        <p class="import-copy">Open a website to manage its domains, PHP version, deployments, databases, backups, logs, scheduled tasks and security.</p>
+        {{ if .CanCreateSite }}<form id="siteCreateForm" class="token-form site-create-form" aria-labelledby="site-create-heading"><h2 id="site-create-heading">Add a website</h2>
+          <div class="field"><label for="siteCreateName">Website name</label><input id="siteCreateName" name="site" required pattern="[a-z0-9_\-]{1,32}" maxlength="32" autocomplete="off" spellcheck="false"><small class="hint">Lowercase letters, digits, dashes and underscores. Used to name the website in this panel.</small></div>
+          <div class="field"><label for="siteCreateKind">Type</label><select id="siteCreateKind" name="kind"><option value="">Automatic: main domain first, then addon</option><option value="addon">Addon domain</option><option value="subdomain">Subdomain</option><option value="main">Main domain</option></select><small class="hint">The main domain is served from <span class="mono">public_html</span>; each addon domain or subdomain gets its own folder in your home directory.</small></div>
+          <div class="field"><label for="siteCreateDomain">Domain <span class="hint">(addon domains and subdomains)</span></label><input id="siteCreateDomain" name="domain" maxlength="253" autocomplete="off" spellcheck="false" placeholder="shop.example.org"><small class="hint">Also names the website’s folder, for example <span class="mono">~/shop.example.org</span>.</small></div>
+          <div class="field"><label for="siteCreateTemplate">Starting point</label><select id="siteCreateTemplate" name="template"><option value="php">Blank PHP site</option></select></div>
+          <button class="primary-action" type="submit">Add website</button><output id="siteCreateStatus" role="status" aria-live="polite"></output></form>{{ end }}
+        <p class="import-note" id="siteOverviewStatus" role="status" aria-live="polite">Loading websites…</p>
+        <h2 class="visually-hidden" id="siteListHeading">Your websites</h2>
+        <div id="siteOverview" class="site-overview-grid" aria-labelledby="siteListHeading"></div>
+        <div id="siteDetail" class="site-detail" hidden aria-live="polite"></div>
+      </section>
+
+      <section class="import-panel panel-view" id="files" aria-labelledby="files-heading" data-view="files" hidden>
+        <div class="section-heading"><div><p class="eyebrow">File manager</p><h1 id="files-heading">Files</h1></div></div>
+        <p class="import-copy">Browse and edit your websites’ files. Changes are made as your account’s system user, exactly as over SFTP, and every change is recorded in your activity.</p>
+        <div class="file-manager" id="fileManager">
+          <div class="file-manager-bar">
+            <div class="field"><label for="fileSite">Website</label><select id="fileSite"></select></div>
+            <nav class="file-breadcrumbs" id="fileBreadcrumbs" aria-label="Current folder"></nav>
+          </div>
+          <div class="file-manager-toolbar" id="fileToolbar" role="toolbar" aria-label="File actions">
+            <button type="button" class="quiet-action" id="fileNewFolder">New folder</button>
+            <button type="button" class="quiet-action" id="fileNewFile">New file</button>
+            <label class="quiet-action file-upload-label" for="fileUpload">Upload files</label><input type="file" id="fileUpload" multiple class="visually-hidden">
+            <button type="button" class="quiet-action" id="fileRefresh">Refresh</button>
+          </div>
+          <form class="file-name-form" id="fileNameForm" hidden><div class="field"><label for="fileNameInput" id="fileNameLabel">Name</label><input id="fileNameInput" name="name" maxlength="255" autocomplete="off" spellcheck="false" required></div><button type="submit" class="primary-action" id="fileNameSubmit">Create</button><button type="button" class="quiet-action" id="fileNameCancel">Cancel</button></form>
+          <p class="import-note" id="fileStatus" role="status" aria-live="polite">Choose a website to browse its files.</p>
+          <div class="file-table-wrap"><table class="file-table" id="fileTable" hidden><caption class="visually-hidden">Folder contents</caption><thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col">Modified</th><th scope="col">Permissions</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead><tbody id="fileRows"></tbody></table></div>
+          <section class="file-editor" id="fileEditor" aria-labelledby="fileEditorHeading" hidden>
+            <div class="section-heading"><h2 id="fileEditorHeading">Edit file</h2><div class="file-editor-actions"><button type="button" class="primary-action" id="fileEditorSave">Save</button><button type="button" class="quiet-action" id="fileEditorClose">Close</button></div></div>
+            <label class="visually-hidden" for="fileEditorText">File contents</label>
+            <textarea id="fileEditorText" spellcheck="false" autocomplete="off" wrap="off"></textarea>
+            <output id="fileEditorStatus" role="status" aria-live="polite"></output>
+          </section>
+        </div>
+      </section>
+
+      <section class="import-panel panel-view" id="domains" aria-labelledby="domains-heading" data-view="domains" hidden>
+        <div class="section-heading"><div><p class="eyebrow">Domains &amp; SSL</p><h1 id="domains-heading">Domains</h1></div></div>
+        <p class="import-copy">Every domain connected to your websites. Point a domain’s DNS A/AAAA records at this server, then connect it from the website’s Domains tab; you prove ownership with a DNS TXT record.</p>
+        <p class="import-note">{{ if eq .Config.WebServer "caddy" }}HTTPS certificates are issued and renewed automatically once a connected domain resolves to this server.{{ else }}HTTPS certificates for connected domains are issued by your hosting provider.{{ end }}</p>
+        <p class="import-note" id="panelDomainsStatus" role="status" aria-live="polite">Loading domains…</p>
+        <div class="file-table-wrap"><table class="file-table" id="panelDomainTable" hidden><caption class="visually-hidden">Connected domains</caption><thead><tr><th scope="col">Domain</th><th scope="col">Website</th><th scope="col">Document root</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead><tbody id="panelDomainRows"></tbody></table></div>
+        <div class="section-heading"><h2>Connect a domain</h2></div>
+        <ul class="resource-list" id="panelDomainSites"></ul>
+      </section>
+
+      <section class="import-panel panel-view" id="data" aria-labelledby="data-heading" data-view="data" hidden>
+        <div class="section-heading"><div><p class="eyebrow">Databases &amp; backups</p><h1 id="data-heading">Databases and backups</h1></div></div>
+        <p class="import-copy">Create databases, rotate credentials, take verified backups and restore them. Each website’s data is managed from its own workspace.</p>
+        <ul class="resource-list" id="panelDataSites"></ul>
+      </section>
+
+      <section class="import-panel panel-view" id="runtime" aria-labelledby="runtime-heading" data-view="runtime" hidden>
+        <div class="section-heading"><div><p class="eyebrow">PHP, cron &amp; logs</p><h1 id="runtime-heading">PHP, scheduled tasks and logs</h1></div></div>
+        <p class="import-copy">Choose a PHP version and limits, schedule cron tasks that run as your account, and read access and error logs.</p>
+        <ul class="resource-list" id="panelRuntimeSites"></ul>
+      </section>
+
+      <section class="account-panel panel-view" id="account" aria-labelledby="account-heading" data-view="account">
+        <div class="section-heading"><div><p class="eyebrow">Customer account</p><h1 id="account-heading">Your plan and access</h1></div><span class="account-status" id="accountStatus" role="status" aria-live="polite">Loading account details…</span></div>
+        <div class="account-grid">
+          <article class="account-card"><span class="metric-label">Plan</span><strong id="accountPlan">{{ .Account.Plan }}</strong><small id="accountRole">Tenant owner</small><small id="accountCreated">Tenant account</small></article>
+          <article class="account-card"><span class="metric-label">Sites</span><strong id="accountSites">{{ .AccountSiteCount }}</strong><small id="accountSitesLimit">Assigned sites</small><div class="usage-bar"><span id="accountSitesBar"></span></div></article>
+          <article class="account-card"><span class="metric-label">Databases</span><strong id="accountDatabases">—</strong><small id="accountDatabasesLimit">Managed databases</small><div class="usage-bar"><span id="accountDatabasesBar"></span></div></article>
+          <article class="account-card"><span class="metric-label">Security</span><strong id="accountMFA">MFA protected</strong><small id="accountSecurityNote">Credentials are scoped to this tenant.</small></article>
+        </div>
+        <div class="account-plan-envelope">
+          <div class="section-heading"><div><span class="metric-label">Plan resource envelope</span><small class="muted">Host limits applied to assigned sites</small></div></div>
+          <div id="accountPlanResources" class="account-resource-grid"></div>
+        </div>
+        <details class="account-security" id="accountTeam" hidden>
+          <summary>Manage tenant team</summary>
+          <p class="import-copy">Invite separate logins for this tenant without sharing the owner credential. Members inherit this tenant’s assigned sites and never receive access to another tenant.</p>
+          <form id="accountMemberForm" class="token-form"><div class="field"><label for="accountMemberUsername">Member username</label><input id="accountMemberUsername" name="username" pattern="[a-z0-9_-]{1,32}" required></div><div class="field"><label for="accountMemberPassword">Temporary password</label><input id="accountMemberPassword" name="password" type="password" minlength="20" required></div><div class="field"><label for="accountMemberTOTP">Authenticator secret</label><input id="accountMemberTOTP" name="totp_secret" pattern="[A-Z2-7=]{16,128}" required></div><div class="field"><label for="accountMemberRole">Role</label><select id="accountMemberRole" name="role"><option value="manager">Manager</option><option value="developer">Developer</option><option value="viewer">Viewer</option></select></div><button class="quiet-action" type="submit">Add team member</button><output id="accountMemberStatus" role="status" aria-live="polite"></output></form>
+          <div id="accountMemberList" class="token-list"><span class="muted">Loading team members…</span></div>
+        </details>
+        <div class="account-actions"><button class="quiet-action" type="button" id="reviewTokenSecurity">Review token security</button><a class="quiet-action" href="#activity">View account activity</a><button class="quiet-action" type="button" id="revokeOtherSessions">Sign out other sessions</button><span id="accountSecurityStatus" role="status" aria-live="polite"></span><span id="accountActionStatus" role="status" aria-live="polite"></span></div>
+        <details class="account-tokens"><summary>Manage automation tokens</summary><p class="import-copy">Create credentials for CI or deployment tools. Tokens are limited to this tenant and shown only once.</p><form id="accountTokenForm" class="token-form"><div class="field"><label for="accountTokenName">Token name</label><input id="accountTokenName" name="name" maxlength="80" placeholder="Deploy pipeline" required></div><div class="field"><label for="accountTokenExpiry">Expiration <span class="hint">(optional)</span></label><input id="accountTokenExpiry" name="expires_at" type="date"><small class="hint">Short-lived tokens reduce the impact of a leaked credential.</small></div><div class="token-scopes"><span class="metric-label">Permissions</span><label><input type="checkbox" name="scope" value="site:read" checked> Read sites</label><label><input type="checkbox" name="scope" value="deploy:write"> Deploy</label><label><input type="checkbox" name="scope" value="environment:read"> Read environment</label><label><input type="checkbox" name="scope" value="environment:write"> Write environment</label><label><input type="checkbox" name="scope" value="backup:read"> Read backups</label><label><input type="checkbox" name="scope" value="backup:create"> Create backups</label><label><input type="checkbox" name="scope" value="backup:restore"> Restore backups</label><label><input type="checkbox" name="scope" value="database:read"> Read databases</label><label><input type="checkbox" name="scope" value="database:write"> Write databases</label><label><input type="checkbox" name="scope" value="ssh:read"> Read SSH</label><label><input type="checkbox" name="scope" value="ssh:write"> Write SSH</label><label><input type="checkbox" name="scope" value="logs:read"> Read logs</label><label><input type="checkbox" name="scope" value="files:read"> Read files</label><label><input type="checkbox" name="scope" value="files:write"> Write files</label><label><input type="checkbox" name="scope" value="redis:read"> Read Redis</label><label><input type="checkbox" name="scope" value="redis:write"> Write Redis</label></div><button class="primary-action" type="submit">Create token</button><output id="accountTokenStatus" role="status" aria-live="polite"></output></form><div id="accountTokenList" class="token-list"></div></details>
+        <details class="account-security"><summary>Change account password</summary><form id="accountPasswordForm" class="token-form"><div class="field"><label for="accountPassword">New password</label><input id="accountPassword" name="password" type="password" minlength="16" autocomplete="new-password" required><small class="hint">Use a unique password of at least 16 characters.</small></div><button class="quiet-action" type="submit">Change password</button><output id="accountPasswordStatus" role="status" aria-live="polite"></output></form></details>
+        <details class="account-security" id="accountMFASetup"><summary>Configure authenticator MFA</summary><p class="import-copy">Enter the base32 secret from your approved authenticator setup. It is stored encrypted and never returned by the panel.</p><form id="accountMFAForm" class="token-form"><div class="field"><label for="accountTOTPSecret">Authenticator secret</label><input id="accountTOTPSecret" name="totp_secret" pattern="[A-Z2-7=]{16,128}" autocomplete="off" required></div><button class="quiet-action" type="submit">Save MFA secret</button><output id="accountMFAStatus" role="status" aria-live="polite"></output></form></details>
+      </section>
+
+      <section class="lower-grid panel-view" id="activity" aria-labelledby="activity-heading" data-view="activity" hidden><article class="activity-card"><div class="card-heading"><div><p class="eyebrow">Your account</p><h1 id="activity-heading">Recent activity</h1></div></div><div id="jobFeed">{{ range .Jobs }}<div class="activity-item"><a class="activity-link" href="/api/jobs/{{ .ID }}"><span class="activity-dot {{ if eq .State "completed" }}green{{ else if eq .State "failed" }}amber{{ else }}blue{{ end }}" aria-hidden="true"></span><div><strong>{{ .Kind }}</strong><p>{{ .User }} · {{ .State }}</p></div><time class="activity-time" datetime="{{ .StartedAt.Format "2006-01-02T15:04:05Z07:00" }}">{{ .StartedAt.Format "02 Jan 15:04" }}</time></a></div>{{ else }}<p class="empty-state">No recent operations for your websites.</p>{{ end }}</div></article>
+        <article class="activity-card"><div class="card-heading"><div><p class="eyebrow">Audit trail</p><h2>Account changes</h2></div></div><div id="accountActivityList" class="token-list"><span class="muted">Loading activity…</span></div></article></section>
+
+      <footer class="app-footer">
+        <div><strong>StePanel</strong> · changes are authenticated and recorded in your account activity.</div>
+        <nav class="app-footer-links" aria-label="Panel resources"><a href="#websites">My websites</a><a href="#files">Files</a><a href="#activity">Recent activity</a></nav>
+      </footer>
+    </main>
+  </div>
+{{ template "appearance-dialog" . }}
+<script src="/static/api.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/forms.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/ui.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/jobs.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/account.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/nav.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/health.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/theme.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/sites.js?v={{ .AssetVersion }}" defer></script>
+<script src="/static/panel.js?v={{ .AssetVersion }}" defer></script>
+</body>
+</html>
