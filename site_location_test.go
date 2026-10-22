@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,5 +128,32 @@ func TestSiteLocationRejectsUnsafeNames(t *testing.T) {
 		if location, err := siteLocationFor(cfg, site); err == nil {
 			t.Errorf("siteLocationFor(%q) = %+v, want an error", site, location)
 		}
+	}
+}
+
+// Restoring a backup into a site placed in a hosting account stages on the
+// home filesystem; the manager refuses a legacy-root stage for it.
+func TestBackupRestoreFilesIntoAPlacedSite(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	cfg := placedSiteConfig(t)
+	root := filepath.Dir(cfg.WebRoot)
+	cfg.BackupRoot, cfg.ImportRoot = filepath.Join(root, "backups"), filepath.Join(root, "imports")
+	cfg.RecoveryRoot, cfg.AuditLog, cfg.MaxEntries = filepath.Join(root, "recovery"), filepath.Join(root, "audit.jsonl"), 1000
+	docRoot := filepath.Join(cfg.HomeRoot, "alice", "public_html")
+	writeTestFile(t, filepath.Join(docRoot, "index.html"), "version one")
+	site := AuthorizedSite{site: "alice"}
+	backup, err := CreateSiteBackup(cfg, site, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(docRoot, "index.html"), "version two")
+	if _, err := backupRestoreFiles(context.Background(), cfg, filepath.Base(backup.Path), site); err != nil {
+		t.Fatalf("restore into placed site: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(docRoot, "index.html")); err != nil || string(data) != "version one" {
+		t.Fatalf("restored index.html = %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.WebRoot, "sites", "alice")); !os.IsNotExist(err) {
+		t.Fatalf("restore wrote the legacy site tree: %v", err)
 	}
 }

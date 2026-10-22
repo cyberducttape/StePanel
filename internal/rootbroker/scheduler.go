@@ -138,7 +138,14 @@ func requestLockKeys(req *Request) []string {
 			add("dbctl", "engine")
 		}
 	case "files":
-		add("site", req.Files.Site)
+		// Reads run as the account user and change nothing, so they do not
+		// queue behind the site's mutations (a seal can take hours); changes
+		// serialize with them.
+		if filesReadOnlyActions[req.Files.Action] {
+			add("files-read", req.Files.Site)
+		} else {
+			add("site", req.Files.Site)
+		}
 	case "account":
 		add("account", req.Account.Account)
 		if req.Account.Site != "" {

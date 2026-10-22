@@ -298,6 +298,8 @@ func TestRequestLockKeys(t *testing.T) {
 		{"worker", &Request{RequestType: "worker", Worker: &WorkerRequest{Action: "restart", Site: "alpha", Name: "queue"}}, []string{"site:alpha"}},
 		{"runner build is site scoped", &Request{RequestType: "runner", Runner: &RunnerRequest{Action: "build", Site: "alpha"}}, []string{"site:alpha"}},
 		{"resource account", &Request{RequestType: "resource", Resource: &ResourceRequest{Action: "apply-account", Account: "acme"}}, []string{"account:acme"}},
+		{"files read", &Request{RequestType: "files", Files: &FilesRequest{Action: "read", Site: "alpha", Path: "index.php"}}, []string{"files-read:alpha"}},
+		{"files write", &Request{RequestType: "files", Files: &FilesRequest{Action: "write", Site: "alpha", Path: "index.php"}}, []string{"site:alpha"}},
 		{"database restore", &Request{RequestType: "db", DB: &DBRequest{Action: "restore-dump", Site: "alpha", Database: "alpha_db"}}, []string{"site:alpha", "database:alpha_db"}},
 		{"database engine", &Request{RequestType: "db", DB: &DBRequest{Action: "terminate", SessionID: "42"}}, []string{"dbctl:engine"}},
 	}

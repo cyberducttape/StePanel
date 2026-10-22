@@ -10,8 +10,13 @@ import (
 // account's websites, files, domains, databases, backups, runtime and
 // account settings. The operator dashboard stays at "/".
 func (a *App) customerPanel(w http.ResponseWriter, r *http.Request) {
-	if a.Auth.IsAdministrator(r) || a.Accounts == nil || a.PanelView == nil {
+	if a.Auth.IsAdministrator(r) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	// Never redirect a customer back to "/", which sends customers here.
+	if a.Accounts == nil || a.PanelView == nil {
+		http.Error(w, "the customer panel is unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	username := a.Auth.UsernameForRequest(r)

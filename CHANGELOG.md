@@ -137,6 +137,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Fix backup, WordPress and staging-clone restores into a site in a hosting
+  account: they staged on the legacy staging root, which the site manager
+  refuses for a placed site ("accepts stages only from the account staging
+  root"). Startup recovery of an interrupted release activation also refused
+  a placed site's home stage as an invalid path.
+- Bound file manager uploads held in memory to eight at once, let file
+  manager reads skip the site's mutation queue in the root broker, and make
+  `/panel` fail closed instead of redirecting back to `/` when the account
+  store is unavailable.
 - Seal the document root of a site in a hosting account: the broker's seal
   step hardened `/var/www/sites/SITE/public`, so cpMove restores into a new
   hosting account failed with "permission seal failed". The cpMove smokes

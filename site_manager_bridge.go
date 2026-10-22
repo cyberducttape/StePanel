@@ -75,12 +75,16 @@ func activateStagedSiteWithConfig(ctx context.Context, cfg Config, name, stagedR
 	return nil
 }
 
-func createSiteManagerStaging(ctx context.Context, cfg Config, prefix string) (string, *os.File, error) {
+// createSiteManagerStaging leases a manager stage for content that will be
+// activated into site: on the legacy staging root, or on the home filesystem
+// for a site placed in a hosting account (ADR-0007), whose activation accepts
+// only stages from there.
+func createSiteManagerStaging(ctx context.Context, cfg Config, site, prefix string) (string, *os.File, error) {
 	manager, err := newSiteManagerForConfig(cfg)
 	if err != nil {
 		return "", nil, fmt.Errorf("initialize site manager: %w", err)
 	}
-	return manager.CreateStagingLease(ctx, prefix)
+	return manager.CreateSiteStagingLease(ctx, site, prefix)
 }
 
 func releaseSiteManagerStagingLease(cfg Config, stagedRoot string, owner *os.File) error {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 	"github.com/cyberducttape/StePanel/internal/state"
 )
@@ -137,7 +138,7 @@ func recoverReleaseActivationJournalsFor(cfg Config, site string) ([]string, err
 			if err != nil {
 				return recovered, fmt.Errorf("resolve prepared release activation %s: %w", journal.ID, err)
 			}
-			stageExists, err := releaseStageExists(cfg.WebRoot, journal.Site, journal.StagedRoot)
+			stageExists, err := releaseStageExists(cfg, journal.Site, journal.StagedRoot)
 			if err != nil {
 				return recovered, fmt.Errorf("inspect prepared release activation %s: %w", journal.ID, err)
 			}
@@ -188,15 +189,25 @@ func recoverReleaseActivationJournalsFor(cfg Config, site string) ([]string, err
 	return recovered, nil
 }
 
-func releaseStageExists(webRoot, site, stagedRoot string) (bool, error) {
-	siteRoot, err := safePath(webRoot, "sites", site)
+// releaseStageExists reports whether a journaled release stage still exists.
+// The stage must be the site's own: an old in-site release stage of a legacy
+// site, or a manager release stage on the document root's filesystem (the
+// home staging root for a site placed in a hosting account, ADR-0007).
+func releaseStageExists(cfg Config, site, stagedRoot string) (bool, error) {
+	location, err := siteLocationFor(cfg, site)
 	if err != nil {
 		return false, err
 	}
 	abs, err := filepath.Abs(stagedRoot)
-	managerRoot, managerErr := safePath(webRoot, "sites", ".stepanel-manager-staging")
+	var managerRoot string
+	var managerErr error
+	if location.Placed {
+		managerRoot = sitelayout.StagingRoot(cfg.HomeRoot)
+	} else {
+		managerRoot, managerErr = safePath(cfg.WebRoot, "sites", ".stepanel-manager-staging")
+	}
 	base := filepath.Base(abs)
-	legacySiteStage := filepath.Dir(abs) == siteRoot && strings.HasPrefix(base, ".stepanel-release-")
+	legacySiteStage := !location.Placed && filepath.Dir(abs) == location.Home && strings.HasPrefix(base, ".stepanel-release-")
 	managerStage := managerErr == nil && filepath.Dir(abs) == managerRoot && siteauthority.IsReleaseStagingName(site, base)
 	if err != nil || (!legacySiteStage && !managerStage) {
 		return false, errors.New("invalid release staging path")

@@ -228,7 +228,7 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not begin staging transaction", 503)
 		return
 	}
-	managerStage, managerStageOwner, err := createSiteManagerStaging(operationCtx, a.Config, ".stepanel-staging-")
+	managerStage, managerStageOwner, err := createSiteManagerStaging(operationCtx, a.Config, input.Site, ".stepanel-staging-")
 	if err != nil {
 		http.Error(w, "could not create lifecycle staging tree", 503)
 		return

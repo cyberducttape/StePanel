@@ -31,6 +31,11 @@ import (
 
 const siteFilesPrefix = "/api/sites/files/"
 
+// siteFileWrites bounds file manager uploads held in memory at once: each
+// body is read whole (at most sitefiles.MaxWriteBytes) before it is sent to
+// the broker.
+var siteFileWrites = make(chan struct{}, 8)
+
 // errSiteNotPlaced reports a legacy site, whose tree the file manager does
 // not manage.
 var errSiteNotPlaced = errors.New("the file manager is available for sites in a hosting account")
@@ -129,6 +134,14 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 		rel, err := sitefiles.CleanTarget(r.URL.Query().Get("path"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		select {
+		case siteFileWrites <- struct{}{}:
+			defer func() { <-siteFileWrites }()
+		default:
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "too many file uploads are in progress; try again shortly", http.StatusTooManyRequests)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, sitefiles.MaxWriteBytes)

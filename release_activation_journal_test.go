@@ -230,10 +230,33 @@ func TestReleaseStageExistsBindsManagerStagesToTheirSite(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if exists, err := releaseStageExists(webRoot, "blog", own); err != nil || !exists {
+	if exists, err := releaseStageExists(Config{WebRoot: webRoot}, "blog", own); err != nil || !exists {
 		t.Fatalf("own stage exists = %v, %v", exists, err)
 	}
-	if _, err := releaseStageExists(webRoot, "blog", other); err == nil {
+	if _, err := releaseStageExists(Config{WebRoot: webRoot}, "blog", other); err == nil {
 		t.Fatal("site blog accepted a release stage of site blog-2")
+	}
+}
+
+// A site placed in a hosting account stages releases on the home filesystem
+// (ADR-0007); startup recovery must recognise those stages and nothing else.
+func TestReleaseStageExistsAcceptsAPlacedSitesHomeStage(t *testing.T) {
+	cfg := placedSiteConfig(t)
+	homeStages := filepath.Join(cfg.HomeRoot, ".stepanel-manager-staging")
+	own := filepath.Join(homeStages, ".stepanel-release-shop-123")
+	legacyRoot := filepath.Join(cfg.WebRoot, "sites", ".stepanel-manager-staging", ".stepanel-release-shop-456")
+	for _, dir := range []string{own, legacyRoot} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if exists, err := releaseStageExists(cfg, "shop", own); err != nil || !exists {
+		t.Fatalf("placed home stage exists = %v, %v", exists, err)
+	}
+	if _, err := releaseStageExists(cfg, "shop", legacyRoot); err == nil {
+		t.Fatal("a placed site accepted a stage from the legacy staging root")
+	}
+	if _, err := releaseStageExists(cfg, "alice", own); err == nil {
+		t.Fatal("site alice accepted a release stage of site shop")
 	}
 }

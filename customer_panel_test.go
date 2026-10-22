@@ -48,6 +48,13 @@ func TestCustomersGetTheirOwnPanel(t *testing.T) {
 			t.Errorf("customer panel shows operator content %s", operatorOnly)
 		}
 	}
+	// Without the account store the panel fails closed instead of bouncing
+	// the customer between "/" and "/panel".
+	a.Accounts, w = nil, httptest.NewRecorder()
+	a.customerPanel(w, asCustomer(httptest.NewRequest(http.MethodGet, "/panel", nil), "alice"))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("panel without accounts = %d %q", w.Code, w.Header().Get("Location"))
+	}
 	// The administrator keeps the operator dashboard.
 	w = httptest.NewRecorder()
 	a.customerPanel(w, asCustomer(httptest.NewRequest(http.MethodGet, "/panel", nil), "admin"))

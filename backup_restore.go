@@ -752,7 +752,7 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "backup site files are not a directory", http.StatusUnprocessableEntity)
 		return
 	}
-	managerStage, managerStageOwner, stageErr := createSiteManagerStaging(operationCtx, a.Config, ".stepanel-backup-restore-")
+	managerStage, managerStageOwner, stageErr := createSiteManagerStaging(operationCtx, a.Config, input.Site, ".stepanel-backup-restore-")
 	if stageErr != nil {
 		http.Error(w, "could not create lifecycle staging tree", 503)
 		return
@@ -1113,7 +1113,7 @@ func backupRestoreFiles(ctx context.Context, cfg Config, backupName string, site
 	if err != nil {
 		return BackupRestoreResult{}, err
 	}
-	managerStage, managerStageOwner, err := createSiteManagerStaging(ctx, cfg, ".stepanel-backup-")
+	managerStage, managerStageOwner, err := createSiteManagerStaging(ctx, cfg, siteName, ".stepanel-backup-")
 	if err != nil {
 		return BackupRestoreResult{}, fmt.Errorf("create lifecycle staging tree: %w", err)
 	}

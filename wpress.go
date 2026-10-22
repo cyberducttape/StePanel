@@ -335,7 +335,7 @@ func RestoreWPressContext(parent context.Context, cfg Config, archive string, ac
 	if err != nil {
 		return WPressResult{}, err
 	}
-	managerStage, managerStageOwner, err := createSiteManagerStaging(ctx, cfg, ".stepanel-wpress-")
+	managerStage, managerStageOwner, err := createSiteManagerStaging(ctx, cfg, site, ".stepanel-wpress-")
 	if err != nil {
 		return WPressResult{}, fmt.Errorf("create lifecycle staging tree: %w", err)
 	}

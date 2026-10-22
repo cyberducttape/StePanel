@@ -123,6 +123,17 @@ func TestSiteFilesRefusesUnsafeRequests(t *testing.T) {
 			t.Errorf("%s = %d %s, want %d", name, w.Code, strings.TrimSpace(w.Body.String()), tc.want)
 		}
 	}
+	// Uploads held in memory are bounded.
+	for i := 0; i < cap(siteFileWrites); i++ {
+		siteFileWrites <- struct{}{}
+	}
+	w := siteFilesRequest(a, "alice", http.MethodPut, "/api/sites/files/alice/content?path=x", []byte("x"))
+	for i := 0; i < cap(siteFileWrites); i++ {
+		<-siteFileWrites
+	}
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("write with every upload slot busy = %d", w.Code)
+	}
 	big := bytes.Repeat([]byte("x"), 4<<20+1)
 	if w := siteFilesRequest(a, "alice", http.MethodPut, "/api/sites/files/alice/content?path=big", big); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized write = %d", w.Code)
