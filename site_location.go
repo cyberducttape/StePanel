@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/cyberducttape/StePanel/internal/sitelayout"
@@ -34,11 +35,17 @@ type siteLocation struct {
 	PreviousPrefix string
 }
 
+// siteNamePattern is the managed site name grammar (safeUser, without its
+// whitespace trimming).
+var siteNamePattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+
 // siteLocationFor resolves a site through the registered control-plane
 // placements. Without a registered database (unit tests, tooling) every site
 // is legacy. A placement that cannot be read fails closed.
 func siteLocationFor(cfg Config, site string) (siteLocation, error) {
-	if safeUser(site) == "" {
+	// Every site path is derived here, often from a request; the anchored
+	// pattern keeps separators, "..", spaces and control characters out.
+	if !siteNamePattern.MatchString(site) {
 		return siteLocation{}, fmt.Errorf("invalid site %q", site)
 	}
 	if db := sitePlacementDB.Load(); db != nil && strings.TrimSpace(cfg.HomeRoot) != "" {

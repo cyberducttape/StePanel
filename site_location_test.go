@@ -120,3 +120,12 @@ func TestGitReleaseMetricsCountPlacedAndLegacySites(t *testing.T) {
 		}
 	}
 }
+
+func TestSiteLocationRejectsUnsafeNames(t *testing.T) {
+	cfg := placedSiteConfig(t)
+	for _, site := range []string{"", " alice", "alice ", "../alice", "alice/x", "Alice", "a\nb", strings.Repeat("a", 33)} {
+		if location, err := siteLocationFor(cfg, site); err == nil {
+			t.Errorf("siteLocationFor(%q) = %+v, want an error", site, location)
+		}
+	}
+}
