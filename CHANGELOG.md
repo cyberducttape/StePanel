@@ -137,6 +137,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Start Node, Python, worker and scheduled-task units of a site in a hosting
+  account: their `ProtectHome=true` hid `/home`, so they failed with
+  `200/CHDIR`. They now see an empty `/home` holding only the site's document
+  root and private state.
 - Fix backup, WordPress and staging-clone restores into a site in a hosting
   account: they staged on the legacy staging root, which the site manager
   refuses for a placed site ("accepts stages only from the account staging

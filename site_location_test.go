@@ -157,3 +157,20 @@ func TestBackupRestoreFilesIntoAPlacedSite(t *testing.T) {
 		t.Fatalf("restore wrote the legacy site tree: %v", err)
 	}
 }
+
+// Every unit stepanel-appctl writes must use the placement-aware home
+// protection: ProtectHome=true hides a placed site's /home document root, and
+// its units then fail with 200/CHDIR.
+func TestAppUnitsExposeOnlyThePlacedSitesHomePaths(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("deploy", "integrations", "stepanel-appctl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(data)
+	if got := strings.Count(script, "\n$home_protection\n"); got != 4 {
+		t.Fatalf("app, worker, Python and task units use $home_protection %d times, want 4", got)
+	}
+	if strings.Count(script, "home_protection='ProtectHome=true'") != 1 || !strings.Contains(script, `home_protection=$'ProtectHome=tmpfs\nBindPaths='"$public_root $site_private"`) {
+		t.Fatal("stepanel-appctl must default to ProtectHome=true and bind only a placed site's document root and private state")
+	}
+}

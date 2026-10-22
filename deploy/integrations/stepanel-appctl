@@ -114,10 +114,17 @@ location_lib=/usr/local/lib/stepanel/site-location.sh
 # shellcheck source=stepanel-site-location.sh
 . "$location_lib"
 site_user=
+home_protection='ProtectHome=true'
 if [[ $action != account-resource-apply ]]; then
   # Sets site_placed, site_home, site_private and public_root. A site placed
   # in a hosting account (ADR-0007) runs as the account user.
   stepanel_site_location "$site" || exit 1
+  # Units of a placed site see an empty /home holding only this site's
+  # document root and private state, never the rest of the account's home or
+  # other accounts; ProtectHome=true would hide the document root itself.
+  if (( site_placed )); then
+    home_protection=$'ProtectHome=tmpfs\nBindPaths='"$public_root $site_private"
+  fi
   if (( site_placed )); then
     stepanel_require_site_user "${3:-}" || exit 1
     site_user=$3
@@ -215,7 +222,7 @@ NoNewPrivileges=true
 PrivateDevices=true
 PrivateTmp=true
 ProtectControlGroups=true
-ProtectHome=true
+$home_protection
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
@@ -299,7 +306,7 @@ TasksMax=$((processes * 64))
 NoNewPrivileges=true
 PrivateDevices=true
 ProtectSystem=strict
-ProtectHome=true
+$home_protection
 ReadWritePaths=$root
 EnvironmentFile=-/etc/stepanel/environment/$site.env
 UMask=0027
@@ -401,7 +408,7 @@ RestartSec=5s
 NoNewPrivileges=true
 PrivateDevices=true
 ProtectSystem=strict
-ProtectHome=true
+$home_protection
 ReadWritePaths=$root
 EnvironmentFile=-/etc/stepanel/environment/$site.env
 MemoryMax=1G
@@ -551,7 +558,7 @@ NoNewPrivileges=true
 PrivateDevices=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
+$home_protection
 ReadWritePaths=$root
 # Tenant task code must not reach cloud instance metadata (IPv4 link-local
 # and the AWS IPv6 endpoint), which can hand out host credentials. Loopback
