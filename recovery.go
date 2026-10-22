@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
 type SiteTransaction struct {
@@ -27,7 +28,12 @@ type SiteTransaction struct {
 	MailBackup   string `json:"mail_backup,omitempty"`
 	MailExisting bool   `json:"mail_existing,omitempty"`
 	HadExisting  bool   `json:"had_existing"`
-	State        string `json:"state"`
+	// SnapshotDir holds Backup and FailedSite for a site placed in a hosting
+	// account (ADR-0007): {homeRoot}/.stepanel-recovery/{ID}, on the same
+	// filesystem as the site so snapshots stay renames. Empty means the
+	// transaction directory itself.
+	SnapshotDir string `json:"snapshot_dir,omitempty"`
+	State       string `json:"state"`
 	// RecoveryRequired keeps a journal durable when compensation could not be
 	// verified, even if its filesystem transaction reached a terminal state.
 	RecoveryRequired string            `json:"recovery_required,omitempty"`
@@ -135,7 +141,7 @@ type ManagedDatabase struct {
 }
 
 func BeginSiteTransaction(root, home, kind string, access SiteCapability) (*SiteTransaction, error) {
-	return beginSiteTransaction(root, home, kind, access, os.Rename)
+	return beginSiteTransaction(root, "", home, kind, access, os.Rename)
 }
 
 // BeginSiteTransactionWithSnapshot is used when the live tree crosses a host
@@ -146,7 +152,20 @@ func BeginSiteTransactionWithSnapshot(root, home, kind string, access SiteCapabi
 	if snapshot == nil {
 		return nil, errors.New("site snapshot callback is required")
 	}
-	return beginSiteTransaction(root, home, kind, access, snapshot)
+	return beginSiteTransaction(root, "", home, kind, access, snapshot)
+}
+
+// homeRecoveryRoot is where placed sites keep transaction snapshots.
+func homeRecoveryRoot(homeRoot string) string {
+	return filepath.Join(homeRoot, ".stepanel-recovery")
+}
+
+// snapshotDir is the directory holding this transaction's site snapshots.
+func (t *SiteTransaction) snapshotDir() string {
+	if t.SnapshotDir != "" {
+		return t.SnapshotDir
+	}
+	return t.dir
 }
 
 // beginManagedSiteTransaction uses the root broker for renames that cross
@@ -176,10 +195,20 @@ func beginManagedSiteTransaction(ctx context.Context, cfg Config, home, kind str
 			})
 		}
 	}
-	return BeginSiteTransactionWithSnapshot(cfg.RecoveryRoot, home, kind, access, snapshot)
+	// A placed site snapshots on its home filesystem (ADR-0007).
+	snapshotRoot := ""
+	if location, err := siteLocationFor(cfg, access.Site()); err != nil {
+		return nil, err
+	} else if location.Placed {
+		snapshotRoot = homeRecoveryRoot(cfg.HomeRoot)
+	}
+	if snapshot == nil {
+		return nil, errors.New("site snapshot callback is required")
+	}
+	return beginSiteTransaction(cfg.RecoveryRoot, snapshotRoot, home, kind, access, snapshot)
 }
 
-func beginSiteTransaction(root, home, kind string, access SiteCapability, snapshot func(string, string) error) (*SiteTransaction, error) {
+func beginSiteTransaction(root, snapshotRoot, home, kind string, access SiteCapability, snapshot func(string, string) error) (*SiteTransaction, error) {
 	site := access.Site()
 	if safeUser(site) == "" {
 		return nil, errors.New("invalid recovery site")
@@ -206,19 +235,39 @@ func beginSiteTransaction(root, home, kind string, access SiteCapability, snapsh
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
+	snapshotDir := ""
+	if snapshotRoot != "" {
+		snapshotRoot, err = filepath.Abs(snapshotRoot)
+		if err == nil {
+			err = os.MkdirAll(snapshotRoot, 0o711)
+		}
+		if err == nil {
+			snapshotDir = filepath.Join(snapshotRoot, filepath.Base(dir))
+			err = os.Mkdir(snapshotDir, 0o700)
+		}
+		if err != nil {
+			_ = os.RemoveAll(dir)
+			return nil, fmt.Errorf("create home recovery snapshot directory: %w", err)
+		}
+	}
+	backupDir := dir
+	if snapshotDir != "" {
+		backupDir = snapshotDir
+	}
 	now := time.Now().UTC()
 	txn := &SiteTransaction{
-		Version:   1,
-		ID:        filepath.Base(dir),
-		Kind:      kind,
-		Site:      site,
-		Home:      home,
-		Backup:    filepath.Join(dir, "site-before"),
-		State:     "prepared",
-		CreatedAt: now,
-		UpdatedAt: now,
-		dir:       dir,
-		rename:    snapshot,
+		Version:     1,
+		ID:          filepath.Base(dir),
+		Kind:        kind,
+		Site:        site,
+		Home:        home,
+		SnapshotDir: snapshotDir,
+		Backup:      filepath.Join(backupDir, "site-before"),
+		State:       "prepared",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		dir:         dir,
+		rename:      snapshot,
 	}
 	if existing, statErr := os.Lstat(home); statErr == nil {
 		if existing.Mode()&os.ModeSymlink != 0 {
@@ -383,7 +432,7 @@ func (t *SiteTransaction) Rollback() error {
 	}
 	defer homeParent.Close()
 	homeName := filepath.Base(home)
-	backup := filepath.Join(t.dir, "site-before")
+	backup := filepath.Join(t.snapshotDir(), "site-before")
 	mailBackup := filepath.Join(t.dir, "mail-before")
 	mailRoot := t.MailRoot
 	if mailRoot != "" {
@@ -412,9 +461,9 @@ func (t *SiteTransaction) Rollback() error {
 		return fmt.Errorf("record rollback start: %w", err)
 	}
 	if _, err := homeParent.Lstat(homeName); err == nil {
-		failed := filepath.Join(t.dir, "failed-site")
+		failed := filepath.Join(t.snapshotDir(), "failed-site")
 		if _, existsErr := os.Lstat(failed); existsErr == nil {
-			failed = filepath.Join(t.dir, "failed-site-"+time.Now().UTC().Format("150405.000000000"))
+			failed = filepath.Join(t.snapshotDir(), "failed-site-"+time.Now().UTC().Format("150405.000000000"))
 		}
 		if err := rename(home, failed); err != nil {
 			return fmt.Errorf("preserve failed site: %w", err)
@@ -527,7 +576,7 @@ func recoverSiteTransactions(root, site string, configuredRoots ...string) ([]st
 // direct rename callback, while native production recovery supplies the root
 // broker callback from startup_recovery.go.
 func recoverSiteTransactionsWithRename(root, site string, renameForSite func(context.Context, string, string, string) error, lockSite siteLocker, configuredRoots ...string) ([]string, error) {
-	webRoot, mailRoot := recoveryConfiguredRoots(configuredRoots)
+	webRoot, mailRoot, homeRoot := recoveryConfiguredRoots(configuredRoots)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -554,7 +603,7 @@ func recoverSiteTransactionsWithRename(root, site string, renameForSite func(con
 			}
 			continue
 		}
-		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot); err != nil {
+		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot, homeRoot); err != nil {
 			if quarantineErr := quarantineRecoveryTransaction(root, dir, err); quarantineErr != nil {
 				failures = append(failures, fmt.Errorf("quarantine unsafe transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
 			} else {
@@ -644,7 +693,7 @@ func recoverTransactionDatabases(cfg Config, root string, lockSite siteLocker, s
 			}
 			continue
 		}
-		if err := validateRecoveredSitePaths(txn, cfg.WebRoot, cfg.MailRoot); err != nil {
+		if err := validateRecoveredSitePaths(txn, cfg.WebRoot, cfg.MailRoot, cfg.HomeRoot); err != nil {
 			if quarantineErr := quarantineRecoveryTransaction(root, filepath.Join(root, entry.Name()), err); quarantineErr != nil {
 				failures = append(failures, fmt.Errorf("quarantine unsafe transaction %s: %w (original: %v)", entry.Name(), quarantineErr, err))
 			} else {
@@ -753,8 +802,20 @@ func loadSiteTransaction(dir string) (*SiteTransaction, error) {
 			return nil, fmt.Errorf("recovery transaction %s contains an invalid route", txn.ID)
 		}
 	}
-	expectedBackup := filepath.Join(dir, "site-before")
-	if filepath.Clean(txn.Backup) != expectedBackup || txn.FailedSite != "" && !strings.HasPrefix(filepath.Clean(txn.FailedSite), dir+string(os.PathSeparator)) {
+	snapshotDir := dir
+	if txn.SnapshotDir != "" {
+		// A placed site's snapshots live in {homeRoot}/.stepanel-recovery/{ID}
+		// beside the home root that holds the site itself.
+		clean := filepath.Clean(txn.SnapshotDir)
+		if !filepath.IsAbs(clean) || filepath.Base(clean) != txn.ID || filepath.Base(filepath.Dir(clean)) != ".stepanel-recovery" ||
+			validatePlacedRecoveryHome(txn.Home, filepath.Dir(filepath.Dir(clean))) != nil {
+			return nil, fmt.Errorf("recovery transaction %s contains an unsafe snapshot directory", txn.ID)
+		}
+		snapshotDir = clean
+		txn.SnapshotDir = clean
+	}
+	expectedBackup := filepath.Join(snapshotDir, "site-before")
+	if filepath.Clean(txn.Backup) != expectedBackup || txn.FailedSite != "" && !strings.HasPrefix(filepath.Clean(txn.FailedSite), snapshotDir+string(os.PathSeparator)) {
 		return nil, fmt.Errorf("recovery transaction %s contains unsafe paths", txn.ID)
 	}
 	if txn.MailRoot != "" && (!filepath.IsAbs(txn.MailRoot) || filepath.Clean(txn.MailBackup) != filepath.Join(dir, "mail-before")) {
@@ -821,7 +882,7 @@ func validatedRecoveryPath(path string) (string, error) {
 }
 
 func CleanupSiteTransactions(root string, maxAge time.Duration, configuredRoots ...string) error {
-	webRoot, mailRoot := recoveryConfiguredRoots(configuredRoots)
+	webRoot, mailRoot, homeRoot := recoveryConfiguredRoots(configuredRoots)
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -839,10 +900,15 @@ func CleanupSiteTransactions(root string, maxAge time.Duration, configuredRoots 
 		if err != nil {
 			return err
 		}
-		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot); err != nil {
+		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot, homeRoot); err != nil {
 			return err
 		}
 		if txn.RecoveryRequired == "" && (txn.State == "committed" || txn.State == "rolled-back") && txn.UpdatedAt.Before(cutoff) {
+			if txn.SnapshotDir != "" {
+				if err := os.RemoveAll(txn.SnapshotDir); err != nil {
+					return err
+				}
+			}
 			if err := os.RemoveAll(dir); err != nil {
 				return err
 			}
@@ -851,22 +917,52 @@ func CleanupSiteTransactions(root string, maxAge time.Duration, configuredRoots 
 	return nil
 }
 
-func recoveryConfiguredRoots(roots []string) (webRoot, mailRoot string) {
+func recoveryConfiguredRoots(roots []string) (webRoot, mailRoot, homeRoot string) {
 	if len(roots) > 0 {
 		webRoot = roots[0]
 	}
 	if len(roots) > 1 {
 		mailRoot = roots[1]
 	}
-	return webRoot, mailRoot
+	if len(roots) > 2 {
+		homeRoot = roots[2]
+	}
+	return webRoot, mailRoot, homeRoot
 }
 
 // validateRecoveredSitePaths binds persisted journal paths back to the
 // configured ownership roots before recovery performs any rename or removal.
 // The optional roots preserve isolated unit-test callers that intentionally
 // use arbitrary temporary paths; production startup always supplies both.
-func validateRecoveredSitePaths(txn *SiteTransaction, webRoot, mailRoot string) error {
-	if webRoot != "" {
+// validatePlacedRecoveryHome checks that home is a document root inside a
+// hosting-account home under homeRoot: {homeRoot}/{user}/{public_html|domain}.
+// It checks shape rather than a live placement so journals of deleted sites
+// can still be recovered and cleaned up.
+func validatePlacedRecoveryHome(home, homeRoot string) error {
+	rel, err := filepath.Rel(filepath.Clean(homeRoot), filepath.Clean(home))
+	if err != nil {
+		return err
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) != 2 || sitelayout.ValidUnixUser(parts[0]) != nil || parts[1] != sitelayout.MainDirectory && !sitelayout.ValidDomain(parts[1]) {
+		return errors.New("recovery transaction site path is not a hosting-account document root")
+	}
+	return nil
+}
+
+func validateRecoveredSitePaths(txn *SiteTransaction, webRoot, mailRoot string, homeRoots ...string) error {
+	if txn.SnapshotDir != "" {
+		homeRoot := ""
+		if len(homeRoots) > 0 {
+			homeRoot = homeRoots[0]
+		}
+		if homeRoot == "" || filepath.Dir(filepath.Dir(filepath.Clean(txn.SnapshotDir))) != filepath.Clean(homeRoot) {
+			return errors.New("recovery transaction snapshot is outside the configured home root")
+		}
+		if err := validatePlacedRecoveryHome(txn.Home, homeRoot); err != nil {
+			return err
+		}
+	} else if webRoot != "" {
 		expectedHome, err := safePath(webRoot, "sites", txn.Site, "public")
 		if err != nil {
 			return fmt.Errorf("validate recovery site root: %w", err)

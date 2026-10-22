@@ -523,3 +523,51 @@ func assertTestFile(t *testing.T, path, want string) {
 		t.Fatalf("%s = %q, want %q", path, data, want)
 	}
 }
+
+func TestPlacedSiteTransactionsSnapshotOnTheHomeFilesystem(t *testing.T) {
+	root := t.TempDir()
+	homeRoot := filepath.Join(root, "home")
+	recoveryRoot := filepath.Join(root, "recovery")
+	docRoot := filepath.Join(homeRoot, "alice", "public_html")
+	if err := os.MkdirAll(docRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docRoot, "index.php"), []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	txn, err := beginSiteTransaction(recoveryRoot, homeRecoveryRoot(homeRoot), docRoot, "backup.restore", AuthorizedSite{site: "alice"}, os.Rename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if txn.SnapshotDir != filepath.Join(homeRoot, ".stepanel-recovery", txn.ID) || filepath.Dir(txn.Backup) != txn.SnapshotDir {
+		t.Fatalf("snapshot paths = %s %s; want them in the home recovery root", txn.SnapshotDir, txn.Backup)
+	}
+	if err := os.MkdirAll(docRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docRoot, "index.php"), []byte("after"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadSiteTransaction(filepath.Join(recoveryRoot, txn.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRecoveredSitePaths(loaded, filepath.Join(root, "www"), "", homeRoot); err != nil {
+		t.Fatalf("placed journal rejected: %v", err)
+	}
+	if err := loaded.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(docRoot, "index.php")); err != nil || string(data) != "before" {
+		t.Fatalf("rolled back document root = %q, %v", data, err)
+	}
+	// A journal pointing its snapshot outside the site's home root is refused.
+	loaded.SnapshotDir = filepath.Join(root, "elsewhere", ".stepanel-recovery", txn.ID)
+	loaded.Backup = filepath.Join(loaded.SnapshotDir, "site-before")
+	if err := loaded.persist(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadSiteTransaction(filepath.Join(recoveryRoot, txn.ID)); err == nil {
+		t.Fatal("a journal with a foreign snapshot directory was loaded")
+	}
+}

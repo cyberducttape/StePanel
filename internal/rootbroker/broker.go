@@ -653,11 +653,11 @@ func (b *Broker) siteSnapshotRestore(_ context.Context, req *SiteRequest) (*Resp
 }
 
 func (b *Broker) renameSiteSnapshot(req *SiteRequest, sourcePath, destinationPath string) (*Response, error) {
-	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
+	public, recovery, err := b.snapshotBoundary(req.Site)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
-	source, destination, err := b.validateSnapshotPaths(siteRoot, sourcePath, destinationPath)
+	source, destination, err := b.validateSnapshotPathsAt(public, recovery, sourcePath, destinationPath)
 	if err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
@@ -677,8 +677,30 @@ func (b *Broker) renameSiteSnapshot(req *SiteRequest, sourcePath, destinationPat
 	return &Response{OK: true}, nil
 }
 
+// snapshotBoundary returns the site's document root and the recovery root on
+// the same filesystem: the legacy public tree and the configured snapshot
+// root, or a placed site's document root and {homeRoot}/.stepanel-recovery
+// (ADR-0007).
+func (b *Broker) snapshotBoundary(site string) (string, string, error) {
+	placement, placed, err := b.validator.sitePlacement(site)
+	if err != nil {
+		return "", "", err
+	}
+	if placed {
+		return placement.DocRoot(b.validator.homeRoot), filepath.Join(b.validator.homeRoot, ".stepanel-recovery"), nil
+	}
+	siteRoot, err := b.validator.ValidateSiteRoot(site)
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Join(siteRoot, "public"), b.snapshotRecoveryRoot, nil
+}
+
 func (b *Broker) validateSnapshotPaths(siteRoot, sourcePath, destinationPath string) (string, string, error) {
-	public := filepath.Join(siteRoot, "public")
+	return b.validateSnapshotPathsAt(filepath.Join(siteRoot, "public"), b.snapshotRecoveryRoot, sourcePath, destinationPath)
+}
+
+func (b *Broker) validateSnapshotPathsAt(public, recoveryRoot, sourcePath, destinationPath string) (string, string, error) {
 	source, err := filepath.Abs(sourcePath)
 	if err != nil || strings.TrimSpace(sourcePath) == "" {
 		return "", "", errors.New("invalid site recovery source path")
@@ -688,7 +710,7 @@ func (b *Broker) validateSnapshotPaths(siteRoot, sourcePath, destinationPath str
 		return "", "", errors.New("invalid site recovery destination path")
 	}
 	public = filepath.Clean(public)
-	recovery := filepath.Clean(b.snapshotRecoveryRoot)
+	recovery := filepath.Clean(recoveryRoot)
 	sourceIsPublic := source == public
 	destinationIsPublic := destination == public
 	sourceInRecovery := pathWithin(recovery, source)

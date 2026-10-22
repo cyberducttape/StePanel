@@ -658,7 +658,7 @@ func Main() {
 		if err := CleanupBackupStages(cfg.BackupRoot, orphanedStagingMinAge); err != nil {
 			app.observeStateError(state.NewCleanupError("backup_stage_cleanup", err, "backup stage cleanup during startup"))
 		}
-		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour, cfg.WebRoot, cfg.MailRoot); err != nil {
+		if err := CleanupSiteTransactions(cfg.RecoveryRoot, time.Duration(cfg.StageRetentionHours)*time.Hour, cfg.WebRoot, cfg.MailRoot, cfg.HomeRoot); err != nil {
 			app.observeStateError(state.NewCleanupError("site_recovery_cleanup", err, "site recovery cleanup during startup"))
 		}
 		// Host state that was not applied keeps the panel unready: the
@@ -749,7 +749,7 @@ func Main() {
 				if _, err := siteManager.CleanupOrphanedStaging(runCtx, orphanedStagingMinAge); err != nil {
 					app.observeStateError(state.NewCleanupError("orphaned_staging_cleanup", err, "orphaned staging cleanup"))
 				}
-				if err := CleanupSiteTransactions(app.Config.RecoveryRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour, app.Config.WebRoot, app.Config.MailRoot); err != nil {
+				if err := CleanupSiteTransactions(app.Config.RecoveryRoot, time.Duration(app.Config.StageRetentionHours)*time.Hour, app.Config.WebRoot, app.Config.MailRoot, app.Config.HomeRoot); err != nil {
 					app.observeStateError(state.NewCleanupError("site_recovery_cleanup", err, "site recovery cleanup"))
 				}
 				app.gitActivationMu.Lock()

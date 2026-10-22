@@ -61,6 +61,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
     filesystem, and forgets the placement if creation fails. Terminating a
     site, or recovering an interrupted creation, releases its placement and
     keeps the account.
+  - **Restores:** site transactions for placed sites snapshot into
+    `/home/.stepanel-recovery/<transaction>`, on the same filesystem as the
+    site, so restore snapshots and rollbacks stay renames. Journals are bound
+    to that home root on reload, and the broker's snapshot boundary follows
+    the placement.
 
 ### Changed
 

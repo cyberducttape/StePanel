@@ -56,7 +56,7 @@ func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lock
 			})
 		}
 	}
-	recovered, err := recoverSiteTransactionsWithRename(cfg.RecoveryRoot, site, renameForSite, lockSite, cfg.WebRoot, cfg.MailRoot)
+	recovered, err := recoverSiteTransactionsWithRename(cfg.RecoveryRoot, site, renameForSite, lockSite, cfg.WebRoot, cfg.MailRoot, cfg.HomeRoot)
 	if err != nil {
 		failures = append(failures, err)
 		log.Printf("recover interrupted site transactions (continuing with isolated failures): %v", err)

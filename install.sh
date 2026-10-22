@@ -981,6 +981,7 @@ getent group stepanel-users >/dev/null || groupadd --system stepanel-users
 install -d -m 0755 -o root -g root /etc/stepanel /etc/stepanel/sites
 install -d -m 0755 -o root -g root /home
 install -d -m 0711 -o "$APP_USER" -g "$APP_USER" /home/.stepanel-manager-staging
+install -d -m 0711 -o "$APP_USER" -g "$APP_USER" /home/.stepanel-recovery
 write_env() {
   local key=$1 value=$2
   [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || { echo "Invalid newline in $key." >&2; exit 1; }
