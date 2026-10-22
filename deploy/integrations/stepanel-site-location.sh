@@ -46,6 +46,8 @@ stepanel_site_directory_valid() {
 #   site_private       per-site private state (PHP state, venv, builds)
 #   public_root        the document root
 #   php_state          PHP sessions, temp files and runtime profiles
+#   site_stage_root    the manager staging root on the document root's
+#                      filesystem, where release stages are created
 # It fails closed on a malformed, foreign or unsafe record.
 stepanel_site_location() {
   local site=$1 record user='' directory='' key value
@@ -59,6 +61,7 @@ stepanel_site_location() {
     site_private=$site_home
     public_root="$site_home/public"
     php_state="$site_home/.php"
+    site_stage_root=/var/www/sites/.stepanel-manager-staging
     return 0
   fi
   [[ -d $stepanel_site_registry && ! -L $stepanel_site_registry && $(stat -c '%u:%a' -- "$stepanel_site_registry") == 0:755 ]] || { echo 'site location registry is unsafe' >&2; return 1; }
@@ -79,6 +82,7 @@ stepanel_site_location() {
   site_private="$site_home/.stepanel/sites/$site"
   public_root="$site_home/$directory"
   php_state="$site_private/php"
+  site_stage_root="$stepanel_home_root/.stepanel-manager-staging"
 }
 
 # stepanel_require_site_user SITE_USER fails unless SITE_USER is the account

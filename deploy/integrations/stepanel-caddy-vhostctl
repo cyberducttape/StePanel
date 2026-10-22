@@ -14,6 +14,10 @@ view_root=/var/www/.stepanel-caddy-views
 install -d -m 0755 -o root -g root "$view_root"
 exec 9>/run/lock/stepanel-caddy.lock
 flock -x 9
+location_lib=/usr/local/lib/stepanel/site-location.sh
+[[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-site-location.sh
+. "$location_lib"
 
 view_path() { printf '%s/%s/public\n' "$view_root" "$1"; }
 fstab_line() { printf '%s %s none bind,nosymfollow,x-systemd.requires-mounts-for=%s 0 0\n' "$2" "$1" "$3"; }
@@ -70,7 +74,8 @@ if [[ $action == delete ]]; then
   view=$(awk '$1 == "root" && $2 == "*" { print $3; exit }' "$path")
   [[ $view =~ ^/var/www/\.stepanel-caddy-views/[a-z0-9_-]{1,32}/public$ ]] || { echo 'managed route does not use an isolated Caddy view' >&2; exit 1; }
   site=${view#"$view_root/"}; site=${site%/public}
-  public_root="/var/www/sites/$site/public"
+  # Sets public_root for a legacy or hosting-account site (ADR-0007).
+  stepanel_site_location "$site" || exit 1
   [[ -d $public_root && ! -L $public_root ]] || { echo 'site document root is unavailable or unsafe' >&2; exit 1; }
   backup=$(mktemp)
   trap 'rm -f "$backup"' EXIT
@@ -91,7 +96,7 @@ domain=${3,,}
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
 [[ $domain =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'invalid domain' >&2; exit 1; }
 (( ${#site} + ${#domain} <= 220 )) || { echo 'site and domain combination is too long' >&2; exit 1; }
-public_root="/var/www/sites/$site/public"
+stepanel_site_location "$site" || exit 1
 [[ -d $public_root && ! -L $public_root ]] || { echo 'site document root is unavailable or unsafe' >&2; exit 1; }
 # Caddy's file_server follows symlinks, so a site tree containing one is not a
 # filesystem boundary. Reject such trees before publishing a route; imports
@@ -102,7 +107,7 @@ symlink=$(find -P "$public_root" -xdev -path "$public_root/node_modules" -prune 
 [[ -z $symlink ]] || { echo "site document root contains a symlink: $symlink" >&2; exit 1; }
 socket=
 selected_version=
-profile="/var/www/sites/$site/.php/runtime.env"
+profile="$php_state/runtime.env"
 web_group_config=/etc/ste-panel.env
 [[ -f $web_group_config && ! -L $web_group_config ]] || { echo 'authoritative web identity configuration is unavailable' >&2; exit 1; }
 [[ $(stat -c %u "$web_group_config") == 0 && $(( 8#$(stat -c %a "$web_group_config") & 077 )) == 0 ]] || { echo 'authoritative web identity configuration is not root-owned and private' >&2; exit 1; }
@@ -156,7 +161,7 @@ case "$action" in
 	}
 	respond @stepanel_sensitive_dirs 404
 EOF
-      if [[ -f "/var/www/sites/$site/.stepanel-staging-noindex" && ! -L "/var/www/sites/$site/.stepanel-staging-noindex" ]]; then printf '\theader X-Robots-Tag "noindex, nofollow"\n'; fi
+      if [[ -f "$site_private/.stepanel-staging-noindex" && ! -L "$site_private/.stepanel-staging-noindex" ]]; then printf '\theader X-Robots-Tag "noindex, nofollow"\n'; fi
       if [[ $action == apply-auth ]]; then printf '\tbasic_auth {\n\t\t%s %s\n\t}\n' "$auth_user" "$auth_hash"; fi
       if [[ $action == import-htaccess ]]; then
         count=0

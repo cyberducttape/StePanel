@@ -42,6 +42,11 @@ domain_in_use() {
   return 1
 }
 
+location_lib=/usr/local/lib/stepanel/site-location.sh
+[[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-site-location.sh
+. "$location_lib"
+
 case "$action" in
   apply|apply-auth)
     [[ ( $action == "apply-auth" && $# -eq 5 ) || ( $action == "apply" && $# -eq 3 ) ]] || { echo 'invalid vhost arguments' >&2; exit 64; }
@@ -52,15 +57,18 @@ case "$action" in
     [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
     [[ $domain =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'invalid domain' >&2; exit 1; }
     (( ${#site} + ${#domain} <= 220 )) || { echo 'site and domain combination is too long' >&2; exit 1; }
-    public_root="/var/www/sites/$site/public"
+    # Sets public_root for a legacy or hosting-account site (ADR-0007).
+    stepanel_site_location "$site" || exit 1
     [[ -d $public_root && ! -L $public_root ]] || { echo 'site document root is unavailable or unsafe' >&2; exit 1; }
+    # The document root appears in a DirectoryMatch regex; escape its dots.
+    public_root_pattern=${public_root//./\\.}
     name="site-${site}-${domain//./_}.conf"
     path="$config_root/$name"
     domain_in_use "$domain" "$path" && { echo 'domain is already assigned to another managed route' >&2; exit 1; }
     if [[ -d /etc/apache2 ]]; then
       pool=
       selected_version=
-      profile="/var/www/sites/$site/.php/runtime.env"
+      profile="$php_state/runtime.env"
       [[ ! -f $profile || -L $profile ]] || selected_version=$(awk -F= '$1 == "php_version" { gsub(/['"'"'\047]/, "", $2); print $2; exit }' "$profile")
       for candidate in /etc/php/*/fpm/pool.d/stepanel-"$site".conf; do
         [[ -f $candidate ]] || continue
@@ -110,7 +118,7 @@ case "$action" in
     <FilesMatch "(?i)(^\\.|\\.(sql|sqlite3?|db|dump|log|bak|backup|old|orig|save|tar|tgz|zip|7z|rar|gz|bz2|xz|zst|enc|pem|key|p12|pfx)(\\..*)?$)">
         Require all denied
     </FilesMatch>
-    <DirectoryMatch "(?i)^/var/www/sites/$site/public/(.*/)?(node_modules|\\.git|\\.svn|\\.hg|\\.ssh|\\.aws|\\.gnupg|backup|backups|private)(/|$)">
+    <DirectoryMatch "(?i)^$public_root_pattern/(.*/)?(node_modules|\\.git|\\.svn|\\.hg|\\.ssh|\\.aws|\\.gnupg|backup|backups|private)(/|$)">
         Require all denied
     </DirectoryMatch>
     <FilesMatch "\\.php$">
@@ -119,7 +127,7 @@ case "$action" in
     ProxyFCGIBackendType FPM
     Header always set X-Content-Type-Options "nosniff"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
-$(if [[ -f "/var/www/sites/$site/.stepanel-staging-noindex" && ! -L "/var/www/sites/$site/.stepanel-staging-noindex" ]]; then printf '    Header always set X-Robots-Tag "noindex, nofollow"\n'; fi)
+$(if [[ -f "$site_private/.stepanel-staging-noindex" && ! -L "$site_private/.stepanel-staging-noindex" ]]; then printf '    Header always set X-Robots-Tag "noindex, nofollow"\n'; fi)
 $(if [[ $action == apply-auth ]]; then printf '    <Location />\n        AuthType Basic\n        AuthName "StePanel staging"\n        AuthBasicProvider file\n        AuthUserFile %s\n        Require valid-user\n    </Location>\n' "$auth_file"; fi)
     ErrorLog $log_root/stepanel-$site-error.log
     CustomLog $log_root/stepanel-$site-access.log combined

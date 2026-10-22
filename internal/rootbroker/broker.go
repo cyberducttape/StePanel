@@ -26,6 +26,7 @@ import (
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 	"github.com/cyberducttape/StePanel/internal/operations"
 	"github.com/cyberducttape/StePanel/internal/siteidentity"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -162,6 +163,11 @@ func newBrokerWithFencingDBAndSnapshotRoot(webRoot, recoveryRoot, snapshotRecove
 	if err != nil {
 		return nil, fmt.Errorf("resolve snapshot recovery root: %w", err)
 	}
+	validator := NewValidator(webRoot)
+	if fencingDB != nil {
+		// Validation and helpers resolve placed sites the same way (ADR-0007).
+		validator.placements = func(site string) (sitelayout.Placement, error) { return sitelayout.Get(fencingDB, site) }
+	}
 	return &Broker{
 		webRoot:              webRoot,
 		recoveryRoot:         recoveryRoot,
@@ -175,7 +181,7 @@ func newBrokerWithFencingDBAndSnapshotRoot(webRoot, recoveryRoot, snapshotRecove
 		runnerctlPath:        "/usr/local/sbin/stepanel-runnerctl",
 		gitctlPath:           "/usr/local/sbin/stepanel-gitctl",
 		gitKeyRoot:           "/etc/stepanel/git-keys",
-		validator:            NewValidator(webRoot),
+		validator:            validator,
 		logger:               logger,
 		host:                 host,
 		fencingDB:            fencingDB,

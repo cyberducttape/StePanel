@@ -39,6 +39,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
     home staging root, requires user quotas on the filesystem holding `/home`
     for production, and labels home document roots for SELinux. The panel,
     worker and broker units can now reach `/home`.
+  - **Helpers and validation:** the Apache, Caddy, OpenLiteSpeed, app,
+    Git and build-runner helpers resolve document roots, release stages and
+    per-site private state through the shared location library. The build
+    runner sees only a placed site's private directory, not the rest of
+    `/home`. The broker's validators take the same placement-aware document
+    and staging roots, and fail closed when a placement cannot be read.
 
 ### Changed
 

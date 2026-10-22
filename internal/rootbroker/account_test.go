@@ -150,3 +150,43 @@ func TestBrokerResolvesPlacedSitesToTheAccountUser(t *testing.T) {
 		t.Fatalf("legacy site user = %q, %v", legacy, err)
 	}
 }
+
+func TestValidatorUsesPlacedDocumentAndStageRoots(t *testing.T) {
+	v := NewValidator("/var/www")
+	v.placements = func(site string) (sitelayout.Placement, error) {
+		if site == "shop" {
+			return sitelayout.Placement{Site: "shop", Account: "alice", UnixUser: "alice", Kind: sitelayout.KindAddon, Directory: "shop.example.org"}, nil
+		}
+		return sitelayout.Placement{}, sitelayout.ErrNotPlaced
+	}
+	worker := func(site, root string) *Request {
+		return &Request{RequestType: "worker", Worker: &WorkerRequest{Action: "apply", Site: site, Name: "queue", Type: "laravel", Root: root, Processes: 1, MemoryMB: 128}}
+	}
+	if err := v.ValidateRequest(worker("shop", "/home/alice/shop.example.org")); err != nil {
+		t.Fatalf("placed document root rejected: %v", err)
+	}
+	if err := v.ValidateRequest(worker("shop", "/var/www/sites/shop/public")); err == nil {
+		t.Fatal("a placed site accepted the legacy document root")
+	}
+	if err := v.ValidateRequest(worker("legacy", "/var/www/sites/legacy/public")); err != nil {
+		t.Fatalf("legacy document root rejected: %v", err)
+	}
+	stage := func(site, destination string) *Request {
+		return &Request{RequestType: "git", Git: &GitRequest{Action: "stage-limit", Site: site, Destination: destination, MaxStageBytes: 1 << 20}}
+	}
+	if err := v.ValidateRequest(stage("shop", "/home/.stepanel-manager-staging/.stepanel-release-shop-42")); err != nil {
+		t.Fatalf("placed release stage rejected: %v", err)
+	}
+	for site, destination := range map[string]string{
+		"shop":   "/var/www/sites/.stepanel-manager-staging/.stepanel-release-shop-42",
+		"legacy": "/home/.stepanel-manager-staging/.stepanel-release-legacy-42",
+	} {
+		if err := v.ValidateRequest(stage(site, destination)); err == nil {
+			t.Errorf("site %s accepted a stage on the wrong filesystem: %s", site, destination)
+		}
+	}
+	v.placements = func(string) (sitelayout.Placement, error) { return sitelayout.Placement{}, os.ErrPermission }
+	if err := v.ValidateRequest(worker("shop", "/var/www/sites/shop/public")); err == nil {
+		t.Fatal("an unreadable placement fell back to the legacy layout")
+	}
+}

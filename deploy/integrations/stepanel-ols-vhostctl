@@ -16,6 +16,10 @@ group_other=${template_perm: -2}
 install -d -m 0755 -o root -g root "$root"
 exec 9>/run/lock/stepanel-ols.lock
 flock -x 9
+location_lib=/usr/local/lib/stepanel/site-location.sh
+[[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-site-location.sh
+. "$location_lib"
 
 valid_site() { [[ $1 =~ ^[a-z0-9_-]{1,32}$ ]]; }
 valid_domain() { [[ $1 =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; }
@@ -28,7 +32,8 @@ case "${1:-}" in
   apply)
     (( $# == 3 )) || { echo 'usage: stepanel-ols-vhostctl apply SITE DOMAIN' >&2; exit 64; }
     site=$2; domain=${3,,}; valid_site "$site" || { echo 'invalid site' >&2; exit 1; }; valid_domain "$domain" || { echo 'invalid domain' >&2; exit 1; }
-    public_root="/var/www/sites/$site/public"
+    # Sets public_root for a legacy or hosting-account site (ADR-0007).
+    stepanel_site_location "$site" || exit 1
     [[ -d "$public_root" && ! -L "$public_root" ]] || { echo 'site document root is unavailable or unsafe' >&2; exit 1; }
     path="$root/site-${site}-${domain//./_}.conf"; tmp=$(mktemp "$root/.stepanel.XXXXXX"); backup=$(mktemp)
     existed=0; [[ ! -f "$path" ]] || { cp -p "$path" "$backup"; existed=1; }

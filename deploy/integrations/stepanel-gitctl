@@ -3,6 +3,29 @@ set -Eeuo pipefail
 [[ $EUID -eq 0 ]] || { echo 'must run as root' >&2; exit 1; }
 action=${1:-}; site=${2:-}
 [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'invalid site' >&2; exit 1; }
+location_lib=/usr/local/lib/stepanel/site-location.sh
+[[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-site-location.sh
+. "$location_lib"
+# Sets site_placed, site_stage_root and site_private for a legacy or
+# hosting-account site (ADR-0007).
+stepanel_site_location "$site" || exit 1
+# git_site_user_valid SITE_USER: the account user of a placed site, or the
+# per-site account that owns a legacy site root.
+git_site_user_valid() {
+  local requested=$1
+  if (( site_placed )); then
+    stepanel_require_site_user "$requested"
+  else
+    [[ $requested =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ && $(getent passwd "$requested" | cut -d: -f6) == "/var/www/sites/$site" ]]
+  fi
+}
+# is_site_release_stage PATH: a release stage of this site in its staging
+# root; the decimal suffix (from os.MkdirTemp) keeps blog from matching blog-2.
+is_site_release_stage() {
+  local suffix=${1#"$site_stage_root/.stepanel-release-$site-"}
+  [[ $1 != "$suffix" && $suffix =~ ^[0-9]+$ ]]
+}
 allowed_hosts=${STEPANEL_GIT_ALLOWED_HOSTS:-github.com,gitlab.com,bitbucket.org}
 git_host_allowed() {
   local candidate=$1 host
@@ -13,14 +36,12 @@ git_host_allowed() {
   return 1
 }
 valid_stage_path() {
-  local site=$1 destination=$2 owner mode
-  # The decimal suffix (from os.MkdirTemp) keeps site blog from matching blog-2 stages.
-  [[ $destination =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[0-9]+$ &&
-     -d $destination && ! -L $destination &&
-     -d /var/www/sites/.stepanel-manager-staging && ! -L /var/www/sites/.stepanel-manager-staging ]] || return 1
+  local destination=$2 owner mode
+  is_site_release_stage "$destination" &&
+    [[ -d $destination && ! -L $destination && -d $site_stage_root && ! -L $site_stage_root ]] || return 1
   # The sites root is setgid, which new directories inherit; only the owner
   # and the permission bits matter for keeping tenants out of the parent.
-  read -r owner mode < <(stat -c '%U %a' /var/www/sites/.stepanel-manager-staging)
+  read -r owner mode < <(stat -c '%U %a' "$site_stage_root")
   [[ $owner == stepanel && $mode =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0777) == 0711 ))
 }
 project_quota_mount() {
@@ -104,12 +125,11 @@ case "$action" in
   stage-limit)
     (( $# == 5 )) || { echo 'usage: stepanel-gitctl stage-limit SITE SITE_USER DESTINATION MAX_STAGE_BYTES' >&2; exit 64; }
     site_user=$3; destination=$4; max_stage_bytes=$5
-    [[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ && $max_stage_bytes =~ ^[1-9][0-9]{0,12}$ ]] || { echo 'invalid Git staging quota request' >&2; exit 1; }
+    [[ $max_stage_bytes =~ ^[1-9][0-9]{0,12}$ ]] || { echo 'invalid Git staging quota request' >&2; exit 1; }
     (( max_stage_bytes <= 1099511627776 )) || { echo 'Git staging quota exceeds 1 TiB' >&2; exit 1; }
     valid_stage_path "$site" "$destination" || { echo 'invalid Git release staging directory' >&2; exit 1; }
     [[ -z $(find "$destination" -mindepth 1 -maxdepth 1 -print -quit) ]] || { echo 'Git release staging directory must be empty before quota assignment' >&2; exit 1; }
-    account_home=$(getent passwd "$site_user" | cut -d: -f6)
-    [[ $account_home == "/var/www/sites/$site" ]] || { echo 'Git staging account does not own the requested site' >&2; exit 1; }
+    git_site_user_valid "$site_user" || { echo 'Git staging account does not own the requested site' >&2; exit 1; }
     web_group=$(sed -n 's/^STEPANEL_WEB_GROUP="\([a-z_][a-z0-9_-]*\)"$/\1/p' /etc/ste-panel.env)
     [[ $web_group =~ ^[a-z_][a-z0-9_-]*$ ]] && getent group "$web_group" >/dev/null || { echo 'trusted web server group is invalid' >&2; exit 1; }
     IFS=$'\t' read -r mount fstype source < <(project_quota_mount "$destination")
@@ -143,7 +163,7 @@ case "$action" in
   stage-clear)
     (( $# == 5 )) || { echo 'usage: stepanel-gitctl stage-clear SITE SITE_USER DESTINATION PROJECT_ID' >&2; exit 64; }
     site_user=$3; destination=$4; project_id=$5
-    [[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ && $destination =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[0-9]+$ && $project_id =~ ^1[0-9]{9}$ ]] || { echo 'invalid Git staging quota cleanup request' >&2; exit 1; }
+    git_site_user_valid "$site_user" && is_site_release_stage "$destination" && [[ $project_id =~ ^1[0-9]{9}$ ]] || { echo 'invalid Git staging quota cleanup request' >&2; exit 1; }
     [[ $project_id -ge 1000000000 && $project_id -lt 2000000000 ]] || { echo 'Git project quota ID is outside its reserved range' >&2; exit 1; }
     valid_stage_path "$site" "$destination" || { [[ ! -e $destination && ! -L $destination ]] || { echo 'invalid Git release staging directory' >&2; exit 1; }; }
     project_root=/var/lib/stepanel/git-stage-projects
@@ -173,7 +193,7 @@ case "$action" in
     fi
     [[ $project_id =~ ^1[0-9]{9}$ ]] && (( project_id >= 1000000000 && project_id < 2000000000 )) || { echo 'active Git staging quota project ID is required' >&2; exit 1; }
     [[ $allowed_hosts =~ ^[A-Za-z0-9.,-]+$ ]] || { echo 'invalid Git host allowlist' >&2; exit 1; }
-    [[ -f $key && ! -L $key && $repository =~ ^git@([A-Za-z0-9.-]+):[A-Za-z0-9._/-]+\.git$ && $ref =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ && $destination == "/var/www/sites/.stepanel-manager-staging/.stepanel-release-$site-"* ]] || { echo 'invalid private clone request' >&2; exit 1; }
+    [[ -f $key && ! -L $key && $repository =~ ^git@([A-Za-z0-9.-]+):[A-Za-z0-9._/-]+\.git$ && $ref =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]{0,127}$ && $destination == "$site_stage_root/.stepanel-release-$site-"* ]] || { echo 'invalid private clone request' >&2; exit 1; }
     git_host=${BASH_REMATCH[1]}
     git_host_allowed "$git_host" || { echo 'repository host is not in STEPANEL_GIT_ALLOWED_HOSTS' >&2; exit 1; }
     valid_stage_path "$site" "$destination" || { echo 'invalid clone destination' >&2; exit 1; }
@@ -189,7 +209,9 @@ case "$action" in
     # project quota; RLIMIT_FSIZE additionally caps each individual file.
     prlimit --as=2147483648 --fsize="$max_file_bytes" -- git -c credential.helper= -c core.hooksPath=/dev/null -c core.sshCommand="ssh -i $key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts -F /dev/null" \
       clone --depth 1 --branch "$ref" --single-branch --no-tags "$repository" "$destination"
-    chown -R --no-dereference "$(stat -c '%u:%g' "/var/www/sites/$site")" "$destination"
+    # The clone takes the ownership of the site's own tree: the legacy site
+    # root, or a placed site's private state.
+    chown -R --no-dereference "$(stat -c '%u:%g' "$site_private")" "$destination"
     ;;
   *) echo 'usage: stepanel-gitctl generate|public|delete|stage-limit|stage-clear|clone SITE ...' >&2; exit 64 ;;
 esac

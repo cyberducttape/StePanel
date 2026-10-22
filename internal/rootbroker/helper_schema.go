@@ -86,6 +86,15 @@ var (
 func argSitePath(sitePos int, suffix string) helperArg {
 	return func(v *Validator, value string, args []string) error {
 		want := filepath.Join(v.webRoot, "sites", args[sitePos], suffix)
+		if suffix == "public" {
+			// The document root of a site placed in a hosting account
+			// (ADR-0007) is its public_html or domain directory.
+			docRoot, err := v.siteDocRoot(args[sitePos])
+			if err != nil {
+				return err
+			}
+			want = docRoot
+		}
 		if value != want {
 			return fmt.Errorf("path must be the site's %s directory", suffix)
 		}
@@ -98,8 +107,10 @@ func argSitePath(sitePos int, suffix string) helperArg {
 // unrelated staging tree.
 func argReleasePath(sitePos int) helperArg {
 	return func(v *Validator, value string, args []string) error {
-		sitesRoot := filepath.Join(v.webRoot, "sites")
-		stageRoot := filepath.Join(sitesRoot, ".stepanel-manager-staging")
+		stageRoot, err := v.siteStageRoot(args[sitePos])
+		if err != nil {
+			return err
+		}
 		// The manager names stages with os.MkdirTemp, whose suffix is decimal.
 		// A digits-only suffix keeps site "blog" from matching "blog-2" stages.
 		pattern := regexp.MustCompile(`^\.stepanel-release-` + regexp.QuoteMeta(args[sitePos]) + `-[0-9]+$`)

@@ -5,13 +5,32 @@ runner_owner_pid=$BASHPID
 # Commands below run as the site account, which may not be able to enter the
 # caller's working directory.
 cd /
+location_lib=/usr/local/lib/stepanel/site-location.sh
+[[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-site-location.sh
+. "$location_lib"
+# runner_site SITE SITE_USER sets site_root to the directory builds and
+# artifacts use: the legacy site root, or a placed site's private state
+# (ADR-0007). home_protection keeps every other home out of runner units.
+runner_site() {
+  stepanel_site_location "$1" || return 1
+  if (( site_placed )); then
+    stepanel_require_site_user "$2" || return 1
+    site_root=$site_private
+    home_protection=(--property=ProtectHome=tmpfs "--property=BindPaths=$site_private")
+  else
+    [[ $2 =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || { echo 'invalid persisted site Unix account' >&2; return 1; }
+    site_root="/var/www/sites/$1"
+    home_protection=(--property=ProtectHome=yes)
+  fi
+}
 # Cleanup deliberately accepts no path or command. The broker resolves the
 # persisted account; deletion runs with that account's authority, never root's.
 if [[ ${1:-} == artifact-cleanup ]]; then
   [[ $# -eq 3 ]] || exit 64
   site=$2 site_user=$3
-  [[ $site =~ ^[a-z0-9_-]{1,32}$ && $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || exit 64
-  site_root="/var/www/sites/$site"
+  [[ $site =~ ^[a-z0-9_-]{1,32}$ ]] || exit 64
+  runner_site "$site" "$site_user" || exit 64
   [[ -d $site_root && ! -L $site_root && $(stat -c %U -- "$site_root") == "$site_user" ]] || { echo 'invalid site ownership' >&2; exit 1; }
   artifact="$site_root/.stepanel-artifact"
   [[ ! -L $artifact ]] || { echo 'artifact must not be a symlink' >&2; exit 1; }
@@ -27,7 +46,7 @@ if [[ ${1:-} == artifact-cleanup ]]; then
     --property="StandardError=append:$cleanup_log_dir/output" \
     --uid="$site_user" --gid="$site_user" --working-directory=/ \
     --property=NoNewPrivileges=yes --property=PrivateTmp=yes \
-    --property=ProtectHome=yes --property=ProtectSystem=strict \
+    "${home_protection[@]}" --property=ProtectSystem=strict \
     --property=ProtectProc=invisible --property="ReadWritePaths=$site_root" \
     --property=PartOf=stepanel-root-broker.service \
     --property=RuntimeMaxSec=2min --property=TimeoutStopSec=5s \
@@ -37,17 +56,20 @@ if [[ ${1:-} == artifact-cleanup ]]; then
 fi
 [[ $# -eq 11 && $1 == "build" ]] || { echo 'usage: stepanel-runnerctl build SITE SITE_USER IMAGE ROOT SCRIPT CPU_PERCENT MEMORY_MB TASKS_MAX NETWORK_MODE MAX_IMAGE_BYTES' >&2; exit 64; }
 site=$2 site_user=$3 image=$4 root=$5 script=$6 cpu_percent=$7 memory_mb=$8 tasks_max=$9 network_mode=${10} max_image_bytes=${11}
-[[ $site =~ ^[a-z0-9_-]{1,32}$ && $image =~ ^[a-z0-9][a-z0-9._/-]{0,180}(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$ && $cpu_percent =~ ^[0-9]+$ && $memory_mb =~ ^[0-9]+$ && $tasks_max =~ ^[0-9]+$ && $max_image_bytes =~ ^[0-9]+$ && $cpu_percent -ge 25 && $cpu_percent -le 6400 && $memory_mb -ge 64 && $memory_mb -le 1048576 && $tasks_max -ge 16 && $tasks_max -le 100000 && $max_image_bytes -gt 0 && ( $network_mode == "none" || $network_mode == "egress" ) && ( $root == "/var/www/sites/$site/public" || $root =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release-$site-[0-9]+$ ) ]] || { echo 'invalid build request' >&2; exit 1; }
-site_root="/var/www/sites/$site"
+[[ $site =~ ^[a-z0-9_-]{1,32}$ && $image =~ ^[a-z0-9][a-z0-9._/-]{0,180}(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$ && $cpu_percent =~ ^[0-9]+$ && $memory_mb =~ ^[0-9]+$ && $tasks_max =~ ^[0-9]+$ && $max_image_bytes =~ ^[0-9]+$ && $cpu_percent -ge 25 && $cpu_percent -le 6400 && $memory_mb -ge 64 && $memory_mb -le 1048576 && $tasks_max -ge 16 && $tasks_max -le 100000 && $max_image_bytes -gt 0 && ( $network_mode == "none" || $network_mode == "egress" ) ]] || { echo 'invalid build request' >&2; exit 1; }
+runner_site "$site" "$site_user" || exit 1
+# The build root is the site's document root or one of its release stages on
+# the same filesystem (a digits-only suffix binds the stage to this site).
+release_suffix=${root#"$site_stage_root/.stepanel-release-$site-"}
+[[ $root == "$public_root" || ( $root != "$release_suffix" && $release_suffix =~ ^[0-9]+$ ) ]] || { echo 'invalid build request' >&2; exit 1; }
 [[ -d $root && ! -L $root && -f $script && ! -L $script && -d "$site_root" && ! -L "$site_root" ]] || { echo 'invalid build inputs' >&2; exit 1; }
 podman_bin=$(command -v podman) || { echo 'rootless Podman is required' >&2; exit 1; }
 command -v systemd-run >/dev/null || { echo 'systemd-run is required for isolated runner execution' >&2; exit 1; }
-[[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || { echo 'invalid persisted site Unix account' >&2; exit 1; }
 id "$site_user" >/dev/null 2>&1 || { echo 'site user is unavailable' >&2; exit 1; }
-if [[ $root =~ ^/var/www/sites/\.stepanel-manager-staging/\.stepanel-release- ]]; then
+if [[ $root == "$site_stage_root"/* ]]; then
   # The setgid bit inherited from /var/www/sites is ignored; owner and
   # permission bits keep tenants from replacing the staging parent.
-  read -r stage_parent_owner stage_parent_mode < <(stat -c '%U %a' /var/www/sites/.stepanel-manager-staging)
+  read -r stage_parent_owner stage_parent_mode < <(stat -c '%U %a' "$site_stage_root")
   [[ $stage_parent_owner == stepanel && $stage_parent_mode =~ ^[0-7]{3,4}$ ]] && (( (8#$stage_parent_mode & 0777) == 0711 )) && [[ $(stat -c %U "$root") == "$site_user" ]] || { echo 'release staging ownership is invalid' >&2; exit 1; }
 fi
 site_uid=$(id -u "$site_user")
@@ -222,7 +244,7 @@ run_site_command() {
     --property="StandardOutput=append:$log" --property="StandardError=append:$log" \
     --uid="$site_user" --gid="$site_user" --working-directory=/ \
     --property=NoNewPrivileges=yes \
-    --property=PrivateTmp=yes --property=ProtectHome=yes \
+    --property=PrivateTmp=yes "${home_protection[@]}" \
     --property=ProtectSystem=strict --property=ProtectProc=invisible \
     --property="ReadWritePaths=$site_root" --property="ReadWritePaths=$runner_home" \
     --property=PartOf=stepanel-root-broker.service \
@@ -323,7 +345,7 @@ run_podman_as_site() {
     --setenv="CONTAINERS_STORAGE_CONF=/run/$runner_runtime/config/containers/storage.conf" \
     --property=NoNewPrivileges=no --property=RestrictSUIDSGID=no \
     --property=Delegate=yes --property=PartOf=stepanel-root-broker.service \
-    --property=PrivateTmp=yes --property=DevicePolicy=closed "${device_args[@]}" --property=ProtectHome=yes \
+    --property=PrivateTmp=yes --property=DevicePolicy=closed "${device_args[@]}" "${home_protection[@]}" \
     --property=ProtectSystem=strict --property="ReadWritePaths=$site_root" \
     --property="ReadWritePaths=$runner_home" --property="ReadWritePaths=-$runner_storage_root/src-$site_user" \
     --property=ProtectProc=invisible \

@@ -109,9 +109,20 @@ fi
 # All other actions require the persisted site user as argv[3]. Normalize it
 # out of the legacy action argument positions after retaining it in the
 # variable used to render every service and runuser invocation.
+location_lib=/usr/local/lib/stepanel/site-location.sh
+[[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-site-location.sh
+. "$location_lib"
 site_user=
 if [[ $action != account-resource-apply ]]; then
-  if [[ ${3:-} =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]]; then
+  # Sets site_placed, site_home, site_private and public_root. A site placed
+  # in a hosting account (ADR-0007) runs as the account user.
+  stepanel_site_location "$site" || exit 1
+  if (( site_placed )); then
+    stepanel_require_site_user "${3:-}" || exit 1
+    site_user=$3
+    set -- "$1" "$2" "${@:4}"
+  elif [[ ${3:-} =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]]; then
     site_user=$3
     set -- "$1" "$2" "${@:4}"
   elif [[ ${STEPANEL_UNSAFE_LAB:-0} == 1 ]]; then
@@ -159,7 +170,7 @@ case "$action" in
     version=${3:?missing Node version}; root=${4:?missing root}; port=${5:?missing port}
     [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && $port =~ ^[0-9]+$ ]] || { echo 'invalid app parameters' >&2; exit 1; }
     (( port >= 1024 && port <= 65535 )) || { echo 'invalid app port' >&2; exit 1; }
-    [[ $root == "/var/www/sites/$site/public" ]] || { echo 'invalid app root' >&2; exit 1; }
+    [[ $root == "$public_root" ]] || { echo 'invalid app root' >&2; exit 1; }
     path="/etc/systemd/system/$unit"
     staged=$(mktemp "/etc/systemd/system/.stepanel-app.XXXXXX")
     backup=$(mktemp)
@@ -195,7 +206,7 @@ User=$site_user
 Group=$site_user
 Slice=stepanel-site-$site.slice
 WorkingDirectory=$root
-Environment=PORT=$port NODE_ENV=production HOME=/var/www/sites/$site
+Environment=PORT=$port NODE_ENV=production HOME=$site_home
 EnvironmentFile=-/etc/stepanel/environment/$site.env
 ExecStart=/bin/bash -lc 'export NVM_DIR=/opt/stepanel/.nvm; . "\$NVM_DIR/nvm.sh"; nvm use $version >/dev/null; exec npm start'
 Restart=on-failure
@@ -254,7 +265,7 @@ EOF
   worker-apply)
     (( $# == 8 )) || { echo 'usage: stepanel-appctl worker-apply SITE NAME TYPE ROOT PROCESSES MEMORY_MB RETRIES' >&2; exit 64; }
     name=$3; type=$4; root=$5; processes=$6; memory=$7; retries=${8:-0}
-    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $type =~ ^(laravel|horizon|node|celery|rq)$ && $root == "/var/www/sites/$site/public" ]] || { echo 'invalid worker parameters' >&2; exit 1; }
+    [[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && $type =~ ^(laravel|horizon|node|celery|rq)$ && $root == "$public_root" ]] || { echo 'invalid worker parameters' >&2; exit 1; }
     [[ $processes =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ && $retries =~ ^[0-9]+$ ]] || { echo 'invalid worker limits' >&2; exit 1; }
     unit="stepanel-worker-${site}-${name}.service"; path="/etc/systemd/system/$unit"
     # The executable is deliberately a fixed, runtime-specific command. A
@@ -323,11 +334,11 @@ EOF
   python-apply)
     (( $# == 7 )) || { echo 'usage: stepanel-appctl python-apply SITE VERSION ROOT ENTRYPOINT PORT WORKERS' >&2; exit 64; }
     version=$3; root=$4; entry=$5; port=$6; workers=$7
-    [[ $version =~ ^3\.(12|13)$ && $root == "/var/www/sites/$site/public" && $entry =~ ^[A-Za-z0-9_./:-]{1,160}$ && $port =~ ^[0-9]+$ && $workers =~ ^[0-9]+$ ]] || { echo 'invalid Python parameters' >&2; exit 1; }
+    [[ $version =~ ^3\.(12|13)$ && $root == "$public_root" && $entry =~ ^[A-Za-z0-9_./:-]{1,160}$ && $port =~ ^[0-9]+$ && $workers =~ ^[0-9]+$ ]] || { echo 'invalid Python parameters' >&2; exit 1; }
     (( port >= 1024 && port <= 65535 && workers >= 1 && workers <= 64 )) || { echo 'invalid Python limits' >&2; exit 1; }
     # The virtualenv lives beside, not inside, the document root: it is made of
     # symlinks, which the vhost helpers refuse to publish, and must not be served.
-    unit="stepanel-app-${site}-python.service"; venv="/var/www/sites/$site/.venv"; legacy_venv="$root/.venv"; lockfile=/usr/local/share/stepanel/python/gunicorn-23.0.0.requirements.txt
+    unit="stepanel-app-${site}-python.service"; venv="$site_private/.venv"; legacy_venv="$root/.venv"; lockfile=/usr/local/share/stepanel/python/gunicorn-23.0.0.requirements.txt
     command -v "python$version" >/dev/null || { echo "python$version is not installed" >&2; exit 1; }
     [[ -f $lockfile && ! -L $lockfile ]] || { echo 'Python dependency lockfile is unavailable' >&2; exit 1; }
     venv_stage=; venv_backup=; venv_published=0
@@ -341,17 +352,17 @@ EOF
     # Build and verify a disposable environment first. A failed pip run never
     # mutates the environment used by an existing service.
     if [[ ! -x "$venv/bin/gunicorn" ]]; then
-        venv_stage=$(mktemp -d "/var/www/sites/$site/.stepanel-venv.XXXXXX")
+        venv_stage=$(mktemp -d "$site_private/.stepanel-venv.XXXXXX")
         "python$version" -m venv "$venv_stage" || { cleanup_python_stage; echo "python$version cannot create a virtualenv; on Debian/Ubuntu install python$version-venv" >&2; exit 1; }
         chown -R "$site_user:$site_user" "$venv_stage" || { cleanup_python_stage; exit 1; }
-        if ! runuser -u "$site_user" -- env -i HOME="/var/www/sites/$site" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 "$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"; then
+        if ! runuser -u "$site_user" -- env -i HOME="$site_home" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 "$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"; then
             echo 'gunicorn could not be installed in the site virtualenv' >&2
             cleanup_python_stage
             exit 1
         fi
         [[ -x "$venv_stage/bin/gunicorn" ]] || { cleanup_python_stage; echo 'gunicorn could not be installed in the site virtualenv' >&2; exit 1; }
         if [[ -e $venv ]]; then
-            venv_backup=$(mktemp -d "/var/www/sites/$site/.stepanel-venv-old.XXXXXX")
+            venv_backup=$(mktemp -d "$site_private/.stepanel-venv-old.XXXXXX")
             rmdir "$venv_backup"
             mv -f "$venv" "$venv_backup"
         fi
@@ -423,7 +434,7 @@ EOF
   node-tool)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl node-tool SITE ACTION PACKAGE_MANAGER ROOT' >&2; exit 64; }
     action=$3; package_manager=$4; root=$5
-    [[ $action =~ ^(install|build)$ && $package_manager =~ ^(npm|yarn|pnpm)$ && $root == "/var/www/sites/$site/public" ]] || { echo 'invalid Node tooling parameters' >&2; exit 1; }
+    [[ $action =~ ^(install|build)$ && $package_manager =~ ^(npm|yarn|pnpm)$ && $root == "$public_root" ]] || { echo 'invalid Node tooling parameters' >&2; exit 1; }
     case "$action:$package_manager" in
       install:npm) command=(npm ci --no-audit --no-fund);;
       install:yarn) command=(yarn install --frozen-lockfile --non-interactive);;
@@ -440,7 +451,7 @@ EOF
     # site PHP never executes with root or panel privileges.
     (( $# >= 3 )) || { echo 'usage: stepanel-appctl wp SITE WP-CLI-ARGS...' >&2; exit 64; }
     shift 2
-    site_root="/var/www/sites/$site"; root="$site_root/public"
+    root=$public_root
     wp_cli=/usr/local/bin/wp
     [[ -x $wp_cli && ! -L $root && -d $root ]] || { echo 'wp-cli or the site public directory is unavailable' >&2; exit 1; }
     for arg in "$@"; do
@@ -449,11 +460,11 @@ EOF
       esac
       [[ $arg != *$'\n'* && $arg != *$'\r'* ]] || { echo 'invalid wp-cli argument' >&2; exit 1; }
     done
-    exec runuser -u "$site_user" -- env -i HOME="$site_root" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 WP_CLI_CACHE_DIR="$site_root/.wp-cli/cache" WP_CLI_DISABLE_AUTO_CHECK_UPDATE=1 "$wp_cli" --path="$root" --no-color "$@" ;;
+    exec runuser -u "$site_user" -- env -i HOME="$site_home" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 WP_CLI_CACHE_DIR="$site_private/.wp-cli/cache" WP_CLI_DISABLE_AUTO_CHECK_UPDATE=1 "$wp_cli" --path="$root" --no-color "$@" ;;
   composer-install)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl composer-install SITE ROOT DEVELOPMENT OPTIMIZE' >&2; exit 64; }
     root=$3; development=$4; optimize=$5
-    [[ $root == "/var/www/sites/$site/public" && $development =~ ^[01]$ && $optimize =~ ^[01]$ ]] || { echo 'invalid Composer parameters' >&2; exit 1; }
+    [[ $root == "$public_root" && $development =~ ^[01]$ && $optimize =~ ^[01]$ ]] || { echo 'invalid Composer parameters' >&2; exit 1; }
     command -v composer >/dev/null || { echo 'Composer is not installed' >&2; exit 1; }
     args=(install --no-interaction --no-progress --no-scripts --no-plugins)
     [[ $development == 1 ]] || args+=(--no-dev)
@@ -502,7 +513,7 @@ EOF
       echo 'task calendar is invalid or runs more frequently than its minimum interval' >&2
       exit 1
     fi
-    root="/var/www/sites/$site/public"; task_root="/var/lib/stepanel/tasks/$site"; install -d -m 0755 -o root -g root /var/lib/stepanel/tasks "$task_root"
+    root=$public_root; task_root="/var/lib/stepanel/tasks/$site"; install -d -m 0755 -o root -g root /var/lib/stepanel/tasks "$task_root"
     script="$task_root/$name.sh"; staged=$(mktemp "$task_root/.stepanel-task.XXXXXX")
     notify_env="$task_root/$name.env"; notify_staged=$(mktemp "$task_root/.stepanel-task-env.XXXXXX")
     if [[ -n $webhook ]]; then printf 'STEPANEL_TASK_WEBHOOK_URL=%s\n' "$webhook" > "$notify_staged"; fi
@@ -669,7 +680,7 @@ EOF
     systemctl stop "$timer" "$unit" 2>/dev/null || true
     systemd_lock
     systemctl --no-reload disable "$timer" 2>/dev/null || true
-    rm -f "/etc/systemd/system/$unit" "/etc/systemd/system/$timer" "/var/lib/stepanel/tasks/$site/$name.sh" "/var/lib/stepanel/tasks/$site/$name.env" "/var/lib/stepanel/tasks/$site/$name.history.tsv" "/var/lib/stepanel/tasks/$site/$name.started" "/var/lib/stepanel/tasks/$site/$name.auto-disabled" "/var/lib/stepanel/tasks/$site/.$name.history.lock" "/var/www/sites/$site/.stepanel-tasks/$name.sh"
+    rm -f "/etc/systemd/system/$unit" "/etc/systemd/system/$timer" "/var/lib/stepanel/tasks/$site/$name.sh" "/var/lib/stepanel/tasks/$site/$name.env" "/var/lib/stepanel/tasks/$site/$name.history.tsv" "/var/lib/stepanel/tasks/$site/$name.started" "/var/lib/stepanel/tasks/$site/$name.auto-disabled" "/var/lib/stepanel/tasks/$site/.$name.history.lock" "$site_private/.stepanel-tasks/$name.sh"
     systemctl daemon-reload
     systemd_unlock ;;
   env-apply)

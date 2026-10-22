@@ -34,11 +34,60 @@ var (
 // All user-supplied data is validated before any system operations.
 type Validator struct {
 	webRoot string
+	// homeRoot and placements locate sites placed in hosting-account homes
+	// (ADR-0007). Without placements every site uses the legacy layout.
+	homeRoot   string
+	placements func(site string) (sitelayout.Placement, error)
 }
 
 // NewValidator creates a new validator for the given web root.
 func NewValidator(webRoot string) *Validator {
-	return &Validator{webRoot: webRoot}
+	return &Validator{webRoot: webRoot, homeRoot: "/home"}
+}
+
+// sitePlacement returns the site's hosting-account placement, or placed=false
+// for a legacy site. A lookup failure fails validation closed.
+func (v *Validator) sitePlacement(site string) (sitelayout.Placement, bool, error) {
+	if v.placements == nil {
+		return sitelayout.Placement{}, false, nil
+	}
+	placement, err := v.placements(site)
+	switch {
+	case err == nil:
+		if placement.Site != site {
+			return sitelayout.Placement{}, false, fmt.Errorf("placement lookup for %q returned %q", site, placement.Site)
+		}
+		return placement, true, nil
+	case errors.Is(err, sitelayout.ErrNotPlaced), strings.Contains(err.Error(), "no such table"):
+		return sitelayout.Placement{}, false, nil
+	default:
+		return sitelayout.Placement{}, false, fmt.Errorf("look up placement of site %q: %w", site, err)
+	}
+}
+
+// siteDocRoot is the site's document root: {webRoot}/sites/{site}/public, or
+// /home/{user}/{public_html|domain} for a placed site.
+func (v *Validator) siteDocRoot(site string) (string, error) {
+	placement, placed, err := v.sitePlacement(site)
+	if err != nil {
+		return "", err
+	}
+	if placed {
+		return placement.DocRoot(v.homeRoot), nil
+	}
+	return filepath.Join(v.webRoot, "sites", site, "public"), nil
+}
+
+// siteStageRoot is the manager staging root on the document root's filesystem.
+func (v *Validator) siteStageRoot(site string) (string, error) {
+	_, placed, err := v.sitePlacement(site)
+	if err != nil {
+		return "", err
+	}
+	if placed {
+		return sitelayout.StagingRoot(v.homeRoot), nil
+	}
+	return filepath.Join(v.webRoot, "sites", ".stepanel-manager-staging"), nil
 }
 
 // ValidateSiteName validates a site name.
@@ -243,6 +292,11 @@ func (v *Validator) ValidateGitDestination(destination string) error {
 			return fmt.Errorf("cannot resolve web root: %w", err)
 		}
 		clean := filepath.Clean(destination)
+		// Release stages of sites placed in hosting accounts (ADR-0007) live
+		// in the home staging root; argReleasePath binds the exact stage.
+		if filepath.Dir(clean) == sitelayout.StagingRoot(v.homeRoot) {
+			return nil
+		}
 		rel, err := filepath.Rel(filepath.Clean(rootAbs), clean)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("git destination is outside the web root")
@@ -430,8 +484,10 @@ func (v *Validator) validateWorkerRequest(req *WorkerRequest) error {
 	if req.Type != "laravel" && req.Type != "horizon" && req.Type != "node" && req.Type != "celery" && req.Type != "rq" {
 		return errors.New("invalid worker type")
 	}
-	if req.Root != filepath.Join(v.webRoot, "sites", req.Site, "public") {
-		return errors.New("worker root must be the site's public directory")
+	if docRoot, err := v.siteDocRoot(req.Site); err != nil {
+		return err
+	} else if req.Root != docRoot {
+		return errors.New("worker root must be the site's document root")
 	}
 	if req.Processes < 1 || req.Processes > 64 || req.MemoryMB < 64 || req.MemoryMB > 65536 || req.Retries < 0 || req.Retries > 20 {
 		return errors.New("worker limits are out of range")
@@ -571,11 +627,16 @@ func (v *Validator) validateAppRequest(req *AppRequest) error {
 		if err := v.ValidatePort(req.Port); err != nil {
 			return err
 		}
-		if filepath.Clean(req.Root) != filepath.Join(v.webRoot, "sites", req.Site, "public") {
-			return errors.New("app root must be the site's public directory")
+		if docRoot, err := v.siteDocRoot(req.Site); err != nil {
+			return err
+		} else if filepath.Clean(req.Root) != docRoot {
+			return errors.New("app root must be the site's document root")
 		}
 	}
-	publicRoot := filepath.Join(v.webRoot, "sites", req.Site, "public")
+	publicRoot, err := v.siteDocRoot(req.Site)
+	if err != nil {
+		return err
+	}
 	switch req.Action {
 	case "composer-install":
 		if filepath.Clean(req.Root) != publicRoot {

@@ -32,7 +32,9 @@ func TestInstallerPersistsAuthoritativeWebIdentity(t *testing.T) {
 
 func TestPythonVirtualenvLivesOutsideDocumentRoot(t *testing.T) {
 	source := string(mustReadTestFile(t, "deploy/integrations/stepanel-appctl"))
-	if !strings.Contains(source, `; venv="/var/www/sites/$site/.venv"`) || regexp.MustCompile(`(^|[^_])venv="\$root/\.venv"`).MatchString(source) {
+	// $site_private is the legacy site root, or a placed site's private state
+	// directory (ADR-0007); both sit beside the document root.
+	if !strings.Contains(source, `; venv="$site_private/.venv"`) || regexp.MustCompile(`(^|[^_])venv="\$root/\.venv"`).MatchString(source) {
 		t.Fatal("Python virtualenv must live beside the document root, where vhost symlink checks do not apply")
 	}
 }
@@ -132,10 +134,19 @@ func TestApacheVHostDeniesSensitiveFilesAndDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apache sensitive-file policy is invalid: %v", err)
 	}
-	directoryPattern := strings.ReplaceAll(directories[1], "$site", "example")
+	directoryPattern := strings.ReplaceAll(directories[1], "$public_root_pattern", "/var/www/sites/example/public")
 	directoryPolicy, err := regexp.Compile(strings.ReplaceAll(directoryPattern, `\\`, `\`))
 	if err != nil {
 		t.Fatalf("Apache sensitive-directory policy is invalid: %v", err)
+	}
+	// A hosting-account document root (ADR-0007) is escaped by the helper.
+	placedPattern := strings.ReplaceAll(directories[1], "$public_root_pattern", `/home/alice/shop\.example\.org`)
+	placedPolicy, err := regexp.Compile(strings.ReplaceAll(placedPattern, `\\`, `\`))
+	if err != nil {
+		t.Fatalf("Apache sensitive-directory policy is invalid for a placed site: %v", err)
+	}
+	if !placedPolicy.MatchString("/home/alice/shop.example.org/.git/config") || placedPolicy.MatchString("/home/alice/shopXexample.org/.git/config") {
+		t.Error("Apache sensitive-directory policy does not anchor to the escaped placed document root")
 	}
 	for _, name := range []string{
 		".env", ".env.production", "export.sql", "export.dump", "debug.log", "debug.log.1", "export.sql.gz",
