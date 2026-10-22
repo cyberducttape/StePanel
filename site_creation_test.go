@@ -3,6 +3,7 @@ package stepanel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
 
@@ -495,5 +497,89 @@ func TestSiteCreateEndpointValidatesAndQueues(t *testing.T) {
 	var payload durableSiteCreationRequest
 	if err := json.Unmarshal(item.Payload, &payload); err != nil || payload.Template != "php" || payload.Actor != "admin" {
 		t.Fatalf("queued payload = %s, %v", item.Payload, err)
+	}
+}
+
+// placedSiteCreationFixture extends the creation fixture with a hosting-account
+// home root and a registered placement database (ADR-0007).
+func placedSiteCreationFixture(t *testing.T, failOn string) (*siteCreationFixture, string) {
+	t.Helper()
+	f := newSiteCreationFixture(t, failOn)
+	f.app.Config.HomeRoot = filepath.Join(f.root, "home")
+	registerSitePlacementDB(f.app.Jobs.db)
+	t.Cleanup(func() { registerSitePlacementDB(nil) })
+	return f, f.app.Config.HomeRoot
+}
+
+func (f *siteCreationFixture) runPlaced(t *testing.T, site string, placement sitelayout.Placement) ([]byte, error) {
+	t.Helper()
+	item := Job{ID: "create-" + site, Kind: "site.create", StartedAt: time.Now().UTC()}
+	item.Payload, _ = json.Marshal(durableSiteCreationRequest{Site: site, Template: "php", Actor: "admin",
+		Account: placement.Account, Kind: string(placement.Kind), Directory: placement.Directory})
+	return f.app.handleSiteCreation(context.Background(), item)
+}
+
+func TestPlacedSiteCreationPublishesIntoTheAccountHome(t *testing.T) {
+	f, homeRoot := placedSiteCreationFixture(t, "")
+	main := sitelayout.Placement{Site: "alice", Account: "alice", UnixUser: "alice", Kind: sitelayout.KindMain, Directory: sitelayout.MainDirectory}
+	output, err := f.runPlaced(t, "alice", main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result SiteCreationResult
+	if err := json.Unmarshal(output, &result); err != nil || result.PublicRoot != filepath.Join(homeRoot, "alice", "public_html") {
+		t.Fatalf("result = %s, %v", output, err)
+	}
+	if _, err := os.Stat(filepath.Join(homeRoot, "alice", "public_html", "index.php")); err != nil {
+		t.Fatalf("main site page was not published in public_html: %v", err)
+	}
+	addon := sitelayout.Placement{Site: "shop", Account: "alice", UnixUser: "alice", Kind: sitelayout.KindAddon, Directory: "shop.example.org"}
+	if _, err := f.runPlaced(t, "shop", addon); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(homeRoot, "alice", "shop.example.org", "index.php")); err != nil {
+		t.Fatalf("addon site page was not published beside public_html: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.webRoot, "sites", "alice", "public")); !os.IsNotExist(err) {
+		t.Fatalf("a placed site was also published in the legacy tree: %v", err)
+	}
+	if _, err := f.runPlaced(t, "alice2", sitelayout.Placement{Site: "alice2", Account: "alice", UnixUser: "alice", Kind: sitelayout.KindMain, Directory: sitelayout.MainDirectory}); err == nil {
+		t.Fatal("an account received a second main site")
+	}
+	if leftovers, _ := filepath.Glob(filepath.Join(homeRoot, ".stepanel-manager-staging", ".stepanel-create-*")); len(leftovers) != 0 {
+		t.Fatalf("staging left behind: %v", leftovers)
+	}
+}
+
+func TestFailedPlacedSiteCreationForgetsItsPlacement(t *testing.T) {
+	f, homeRoot := placedSiteCreationFixture(t, "seal")
+	placement := sitelayout.Placement{Site: "alice", Account: "alice", UnixUser: "alice", Kind: sitelayout.KindMain, Directory: sitelayout.MainDirectory}
+	if _, err := f.runPlaced(t, "alice", placement); err == nil {
+		t.Fatal("creation succeeded although sealing failed")
+	}
+	if _, err := sitelayout.Get(f.app.Jobs.db, "alice"); !errors.Is(err, sitelayout.ErrNotPlaced) {
+		t.Fatalf("failed creation kept its placement: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(homeRoot, "alice", "public_html")); !os.IsNotExist(err) {
+		t.Fatalf("failed creation left its document root: %v", err)
+	}
+	// The account and its home stay for the account's other or later sites.
+	if _, ok, err := sitelayout.AccountUser(f.app.Jobs.db, "alice"); err != nil || !ok {
+		t.Fatalf("account identity after failure = %v, %v", ok, err)
+	}
+}
+
+func TestSiteCreateEndpointPlacesSitesInAccounts(t *testing.T) {
+	f, homeRoot := placedSiteCreationFixture(t, "")
+	request := func(body string) *httptest.ResponseRecorder { return postSiteCreate(t, f.app, body, "admin") }
+	rec := request(`{"site":"alice"}`)
+	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), `"document_root":"`+filepath.Join(homeRoot, "alice", "public_html")+`"`) {
+		t.Fatalf("site without an account = %d %s; want account alice with public_html", rec.Code, rec.Body.String())
+	}
+	if rec := request(`{"site":"9lives"}`); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("site name that is not a valid account = %d", rec.Code)
+	}
+	if rec := request(`{"site":"shop","account":"alice","kind":"addon"}`); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("addon site without a domain = %d", rec.Code)
 	}
 }

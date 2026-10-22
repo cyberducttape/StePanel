@@ -100,6 +100,14 @@ func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lock
 				log.Printf("finalize interrupted site creation %s: %v", id, deleteErr)
 				continue
 			}
+			if db := sitePlacementDB.Load(); db != nil && txn.Kind == siteCreationTransactionKind {
+				if unplaceErr := unplaceSite(siteCtx, cfg, db, txn.Site); unplaceErr != nil {
+					unlock()
+					failures = append(failures, fmt.Errorf("forget placement of interrupted site creation %s: %w", id, unplaceErr))
+					log.Printf("forget placement of interrupted site creation %s: %v", id, unplaceErr)
+					continue
+				}
+			}
 			if txn.Kind == siteCreationTransactionKind && len(resources) > 0 && resources[0] != nil {
 				if resourceErr := resources[0].removeRecoveredSiteProfile(txn.Site); resourceErr != nil {
 					unlock()

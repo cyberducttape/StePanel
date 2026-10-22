@@ -51,6 +51,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
     release pipelines. Site listings include placed sites with their account,
     kind and directory. Release pruning and rollback only ever touch a placed
     site's own releases in the shared home.
+  - **Creating sites:** `POST /api/sites` places new sites in hosting
+    accounts. An administrator names the account, or the site name becomes a
+    new account whose main site is `/home/<site>/public_html`. A customer's
+    sites always go into their tenant owner's account. An account's first
+    site is its main site; later sites need a domain and are served from
+    `/home/<user>/<domain>`. The creation job allocates the account's Unix
+    user, places the site before staging so its stage shares the home
+    filesystem, and forgets the placement if creation fails. Terminating a
+    site, or recovering an interrupted creation, releases its placement and
+    keeps the account.
 
 ### Changed
 

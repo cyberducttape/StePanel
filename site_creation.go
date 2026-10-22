@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
 // Site creation publishes a new, isolated site from a template. It follows
@@ -78,6 +80,19 @@ type durableSiteCreationRequest struct {
 	Template             string `json:"template"`
 	Actor                string `json:"actor"`
 	CustomerProvisioning bool   `json:"customer_provisioning,omitempty"`
+	// Account, Kind and Directory place the site inside a hosting account's
+	// home (ADR-0007). Empty means the legacy per-site layout, which only
+	// runs without a control-plane placement database (unit tests, tooling).
+	Account   string `json:"account,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Directory string `json:"directory,omitempty"`
+}
+
+func (req durableSiteCreationRequest) placement() (sitelayout.Placement, bool) {
+	if req.Account == "" {
+		return sitelayout.Placement{}, false
+	}
+	return sitelayout.Placement{Site: req.Site, Account: req.Account, UnixUser: req.Account, Kind: sitelayout.Kind(req.Kind), Directory: req.Directory}, true
 }
 
 // SiteCreationResult is the output of a completed site.create job.
@@ -123,6 +138,10 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Site     string `json:"site"`
 		Template string `json:"template"`
+		// Account, Kind and Domain choose where the site lives (ADR-0007).
+		Account string `json:"account"`
+		Kind    string `json:"kind"`
+		Domain  string `json:"domain"`
 	}
 	if err := decodeJSON(w, r, 4096, &input); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -151,6 +170,26 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "site already exists", http.StatusConflict)
 		return
 	}
+	// New sites live in a hosting account's home: an administrator names the
+	// account (or the site name becomes a new account); a customer's sites go
+	// into their tenant owner's account.
+	var placement sitelayout.Placement
+	placed := false
+	if db := sitePlacementDB.Load(); db != nil {
+		account := strings.TrimSpace(input.Account)
+		if !admin {
+			owner, _ := a.Accounts.Get(actor)
+			account = accountTenantID(owner)
+		} else if account == "" {
+			account = input.Site
+		}
+		placement, err = resolveSitePlacement(db, input.Site, sitePlacementRequest{Account: account, Kind: sitelayout.Kind(strings.TrimSpace(input.Kind)), Domain: input.Domain})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		placed = true
+	}
 	assigned := false
 	if !admin {
 		if _, newlyAssigned, err := a.Accounts.EnsureSiteAssigned(actor, input.Site); err != nil {
@@ -160,7 +199,11 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 			assigned = newlyAssigned
 		}
 	}
-	payload, err := json.Marshal(durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin})
+	request := durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin}
+	if placed {
+		request.Account, request.Kind, request.Directory = placement.Account, string(placement.Kind), placement.Directory
+	}
+	payload, err := json.Marshal(request)
 	if err != nil {
 		if assigned {
 			a.releaseSiteReservation(actor, input.Site)
@@ -176,7 +219,11 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not persist site creation job", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": job.ID, "site": input.Site, "template": input.Template, "status_url": "/api/jobs/" + job.ID})
+	response := map[string]string{"job_id": job.ID, "site": input.Site, "template": input.Template, "status_url": "/api/jobs/" + job.ID}
+	if placed {
+		response["account"], response["kind"], response["document_root"] = placement.Account, string(placement.Kind), placement.DocRoot(a.Config.HomeRoot)
+	}
+	writeJSON(w, http.StatusAccepted, response)
 }
 
 // releaseSiteReservation undoes a tenant reservation made for a request that
@@ -192,13 +239,16 @@ func (a *App) releaseSiteReservation(actor, site string) {
 // tree is not enough: a site whose public tree is missing still owns its
 // account, PHP pool and state.
 func (a *App) siteExists(site string) (bool, error) {
-	// A placed site's private state directory exists from placement until
-	// teardown, like a legacy site's root (ADR-0007).
+	// A placed site exists once its document root is published; its
+	// placement alone is recorded before creation (ADR-0007).
 	location, err := siteLocationFor(a.Config, site)
 	if err != nil {
 		return false, err
 	}
-	root := location.Private
+	root := location.Home
+	if location.Placed {
+		root = location.DocRoot
+	}
 	if _, err := os.Lstat(root); err == nil {
 		return true, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -267,6 +317,28 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	} else if exists {
 		return nil, fmt.Errorf("site %q already exists", req.Site)
 	}
+	// Place the site in its hosting account before staging, so its stage is
+	// allocated on the home filesystem (ADR-0007).
+	placement, placed := req.placement()
+	placedByJob := false
+	if placed {
+		db := sitePlacementDB.Load()
+		if db == nil {
+			return nil, errors.New("hosting-account placement requires the control-plane database")
+		}
+		if placedByJob, err = placeSiteInAccount(operationCtx, a.Config, db, placement); err != nil {
+			return nil, fmt.Errorf("place site in hosting account: %w", err)
+		}
+		// Registered before the transaction's cleanup, so it runs after the
+		// partially created site tree is gone.
+		defer func() {
+			if placedByJob && !creationCompleted {
+				if err := unplaceSite(context.WithoutCancel(ctx), a.Config, db, req.Site); err != nil {
+					log.Printf("forget placement of partially created site %s: %v", req.Site, err)
+				}
+			}
+		}()
+	}
 	canonical, err := siteDocRoot(a.Config, req.Site)
 	if err != nil {
 		return nil, fmt.Errorf("resolve site root: %w", err)
@@ -286,7 +358,7 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 			return nil, fmt.Errorf("initialize site manager: %w", err)
 		}
 	}
-	staging, stagingOwner, err := manager.CreateStagingLease(operationCtx, ".stepanel-create-")
+	staging, stagingOwner, err := manager.CreateSiteStagingLease(operationCtx, req.Site, ".stepanel-create-")
 	if err != nil {
 		return nil, fmt.Errorf("create site staging: %w", err)
 	}

@@ -468,6 +468,13 @@ func (a *App) removeSiteServices(ctx context.Context, site SiteCapability) error
 			return fmt.Errorf("finalize managed site deletion for %s: %w", siteName, err)
 		}
 	}
+	// A site placed in a hosting account (ADR-0007) releases its directory;
+	// the account and its Unix user stay for the account's other sites.
+	if db := sitePlacementDB.Load(); db != nil {
+		if err := unplaceSite(ctx, a.Config, db, siteName); err != nil {
+			return fmt.Errorf("forget hosting-account placement of %s: %w", siteName, err)
+		}
+	}
 	// Invalidate site-related metadata caches after deletion
 	if a.MetadataCache != nil {
 		a.MetadataCache.InvalidateSite(siteName)
