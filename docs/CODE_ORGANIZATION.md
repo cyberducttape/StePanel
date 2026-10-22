@@ -78,7 +78,9 @@ orchestration:
 | `safehttp` | Outbound HTTP policy (public destinations only) |
 | `session` | Durable, revocable session registry |
 | `setup` | Guided first-time setup |
+| `sitefiles` | Customer file manager: document-root path rules, listing format, the `Store` interface and its development implementation |
 | `siteidentity` | The Go definition of a site's Unix identity |
+| `sitelayout` | Hosting-account identities and site placements in `/home/<user>` (ADR-0007) |
 | `sitelifecycle` | Site lifecycle orchestration as domain logic, independent of HTTP (currently termination) |
 | `sites` | Site lifecycle filesystem primitive (`SiteManager`) |
 | `startup` | Startup phase timeline |

@@ -97,6 +97,7 @@ and never affects the operation; failures are logged.
 | FTPS revocation | A, revocation | `site.ftps.disabled` |
 | Environment variable changes and removal | A, intent-first | `site.environment.updated`, `site.environment.deleted` |
 | Redis allocation removal | A, intent-first | `site.redis.deleted` |
+| File manager changes in a hosting-account site (write, new directory, rename, delete) | A, intent-first | `site.files.write`, `site.files.mkdir`, `site.files.rename`, `site.files.delete` |
 | Ending WordPress maintenance mode left by an interrupted backup (startup and periodic recovery) | A, recovery record | `wordpress.maintenance.recovered` |
 | Backups, verification, rehearsals, restore-to-staging, retention | B | `site.backup.*`, `backup.verify`, `backup.rehearsal.*`, ... |
 | Service start/stop/restart, Node version, PHP, resources, tasks, workers | B | `app.<action>`, `python.<action>`, `site.php.updated`, `task.*`, ... |

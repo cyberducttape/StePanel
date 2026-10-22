@@ -8,6 +8,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Add a customer file manager for sites in hosting accounts (ADR-0007):
+  - **API:** `/api/sites/files/{site}` lists, reads, downloads, writes,
+    creates directories, renames and deletes inside the site's document
+    root. Paths are relative to that root; traversal, control characters
+    and symbolic links are refused. Reads are capped at 2 MiB, writes at
+    4 MiB, listings at 5,000 entries.
+  - **Privilege:** the broker's new `files` request runs the new root helper
+    `stepanel-filectl`, which resolves the document root itself and runs
+    every operation as the account's Unix user, so the file manager can do
+    no more than the account's own SFTP login. Writes are atomic and keep an
+    existing file's permissions. Changes need the site's fencing lease.
+  - **Access:** new `files:read` and `files:write` token scopes; viewers can
+    read, developers can also write. Changes are Class A audited as
+    `site.files.*`.
+  - **Smoke:** `deploy/lab/filectl-smoke.sh` exercises the installed helper.
 - Lay the groundwork for cPanel-style hosting accounts (ADR-0007):
   - **Control plane:** migration 21 adds `account_identities` (one Unix user
     per hosting account, never reused) and `site_placements` (a site is

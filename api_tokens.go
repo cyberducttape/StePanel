@@ -142,6 +142,8 @@ var customerAPIScopes = map[string]bool{
 	"ssh:read":          true,
 	"ssh:write":         true,
 	"logs:read":         true,
+	"files:read":        true,
+	"files:write":       true,
 }
 
 func normalizeTokenScopes(scopes []string, allowed map[string]bool) (string, []string, error) {

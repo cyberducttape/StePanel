@@ -404,6 +404,8 @@ func (v *Validator) ValidateRequest(req *Request) error {
 		return v.validateGitRequest(req.Git)
 	case "account":
 		return v.validateAccountRequest(req.Account)
+	case "files":
+		return v.validateFilesRequest(req.Files)
 	case "certificate":
 		return v.validateCertificateRequest(req.Certificate)
 	case "task":

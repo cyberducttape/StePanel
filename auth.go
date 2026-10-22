@@ -770,13 +770,13 @@ func roleAllowsCustomerScope(role, scope string) bool {
 	}
 	if role == "developer" {
 		switch scope {
-		case "site:read", "site:deploy", "deploy:write", "environment:read", "environment:write", "logs:read", "backup:read", "backup:create", "database:read", "redis:read":
+		case "site:read", "site:deploy", "deploy:write", "environment:read", "environment:write", "logs:read", "backup:read", "backup:create", "database:read", "redis:read", "files:read", "files:write":
 			return true
 		}
 		return false
 	}
 	if role == "viewer" {
-		return scope == "site:read" || scope == "environment:read" || scope == "backup:read" || scope == "database:read" || scope == "redis:read" || scope == "logs:read"
+		return scope == "site:read" || scope == "environment:read" || scope == "backup:read" || scope == "database:read" || scope == "redis:read" || scope == "logs:read" || scope == "files:read"
 	}
 	return false
 }

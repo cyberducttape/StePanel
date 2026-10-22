@@ -592,6 +592,19 @@ paths:
     get:
       summary: Measure bounded regular-file usage for a site without following symlinks
       responses: {'200': {description: Bytes, file count, directory count and completeness}}
+  /api/sites/files/:
+    get:
+      summary: List a directory or read a file inside a hosting-account site's document root
+      description: "GET /api/sites/files/{site}?path=P lists a directory (files:read). GET /api/sites/files/{site}/content?path=P returns a file of at most 2 MiB as JSON, or as an attachment with download=1. Paths are relative to the document root; '..', empty and '.' components, control characters and symbolic links are refused. Legacy sites outside a hosting account answer 409."
+      responses: {'200': {description: Directory listing or file content}, '404': {description: Path does not exist}, '409': {description: Site is not in a hosting account}}
+    put:
+      summary: Atomically replace a file inside a hosting-account site's document root
+      description: "PUT /api/sites/files/{site}/content?path=P with the raw file bytes (at most 4 MiB; files:write). An existing file keeps its permissions. Runs as the account's Unix user under the site mutation lease with a security audit record."
+      responses: {'200': {description: File written}, '413': {description: Content too large}, '422': {description: Refused, with the reason}}
+    post:
+      summary: Create a directory, rename or delete inside a hosting-account site's document root
+      description: "POST /api/sites/files/{site}/mkdir {path}, /rename {path, destination} (never replaces an existing destination) and /delete {path} (recursive; a symbolic link is removed, never followed). Requires files:write."
+      responses: {'200': {description: Change applied}, '422': {description: Refused, with the reason}}
   /api/security/center:
     get:
       summary: Read administrator host security and operational posture

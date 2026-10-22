@@ -68,6 +68,10 @@ var typedTimeouts = map[string]map[string]time.Duration{
 		"ensure": timeoutLifecycle, "delete": timeoutLifecycle, "quota": timeoutConfig,
 		"quota-clear": timeoutConfig, "place": timeoutConfig, "unplace": timeoutLifecycle,
 	},
+	"files": {
+		"list": timeoutConfig, "read": timeoutConfig, "write": timeoutConfig,
+		"mkdir": timeoutConfig, "rename": timeoutConfig, "delete": timeoutLifecycle,
+	},
 	"git": {
 		"generate": timeoutConfig, "public": timeoutConfig, "delete": timeoutLifecycle,
 		"clone": timeoutContainer, "verify-key": timeoutConfig, "stage-limit": timeoutConfig, "stage-clear": timeoutConfig,
@@ -124,6 +128,10 @@ func RequestTimeout(req *Request) time.Duration {
 	case "git":
 		if req.Git != nil {
 			table, action = typedTimeouts["git"], req.Git.Action
+		}
+	case "files":
+		if req.Files != nil {
+			table, action = typedTimeouts["files"], req.Files.Action
 		}
 	case "account":
 		if req.Account != nil {

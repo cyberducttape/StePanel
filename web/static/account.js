@@ -31,8 +31,8 @@
       set('accountPlan', data.plan);
       set('accountRole', `Tenant ${data.role || 'owner'}`);
       const roleScopes = {
-        developer: new Set(['site:read', 'site:deploy', 'deploy:write', 'environment:read', 'environment:write', 'logs:read', 'backup:read', 'backup:create', 'database:read', 'redis:read']),
-        viewer: new Set(['site:read', 'environment:read', 'backup:read', 'database:read', 'redis:read', 'logs:read']),
+        developer: new Set(['site:read', 'site:deploy', 'deploy:write', 'environment:read', 'environment:write', 'logs:read', 'backup:read', 'backup:create', 'database:read', 'redis:read', 'files:read', 'files:write']),
+        viewer: new Set(['site:read', 'environment:read', 'backup:read', 'database:read', 'redis:read', 'logs:read', 'files:read']),
       }[data.role];
       if (roleScopes) document.querySelectorAll('#accountTokenForm input[name="scope"]').forEach((input) => {
         input.disabled = !roleScopes.has(input.value);

@@ -812,6 +812,7 @@ managed_targets=(
   /usr/local/sbin/stepanel-proxyctl
   /usr/local/sbin/stepanel-sitectl
   /usr/local/sbin/stepanel-userctl
+  /usr/local/sbin/stepanel-filectl
   /usr/local/lib/stepanel/site-location.sh
   /usr/local/sbin/stepanel-vhostctl
   /usr/local/sbin/stepanel-dbctl
@@ -900,6 +901,7 @@ else
 fi
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-sitectl" /usr/local/sbin/stepanel-sitectl
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-userctl" /usr/local/sbin/stepanel-userctl
+install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-filectl" /usr/local/sbin/stepanel-filectl
 # Root-owned and not writable: every privileged helper sources it.
 install -d -m 0755 -o root -g root /usr/local/lib/stepanel
 install -m 0644 -o root -g root "$ROOT_DIR/deploy/integrations/stepanel-site-location.sh" /usr/local/lib/stepanel/site-location.sh

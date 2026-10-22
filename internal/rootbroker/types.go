@@ -46,6 +46,10 @@ type Request struct {
 	// unplace (ADR-0007).
 	Account *AccountRequest `json:"account,omitempty"`
 
+	// File manager operations inside a placed site's document root: list,
+	// read, write, mkdir, rename, delete (ADR-0007).
+	Files *FilesRequest `json:"files,omitempty"`
+
 	// Certificate requests expose only the bounded issuance operation; they
 	// cannot select an executable, arbitrary arguments, or certificate paths.
 	Certificate *CertificateRequest `json:"certificate,omitempty"`

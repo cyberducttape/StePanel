@@ -822,6 +822,7 @@ func Main() {
 	mux.Handle("/api/sites/php/", allowMethods(app.Auth.Require(http.HandlerFunc(app.phpRuntime)), http.MethodGet, http.MethodHead, http.MethodPut))
 	mux.Handle("/api/sites/resources/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteResources)), http.MethodGet, http.MethodHead, http.MethodPut))
 	mux.Handle("/api/sites/usage/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteUsage)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/sites/files/", allowMethods(app.Auth.Require(http.HandlerFunc(app.siteFiles)), http.MethodGet, http.MethodHead, http.MethodPut, http.MethodPost))
 	mux.Handle("/api/reconcile/resources", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.reconcileResources)), http.MethodPost))
 	mux.Handle("/api/reconcile/tasks", allowMethods(app.Auth.RequireAdministrator(http.HandlerFunc(app.reconcileTasksHTTP)), http.MethodPost))
 	mux.Handle("/api/staging", allowMethods(app.Auth.Require(app.siteOperation("staging.create")), http.MethodPost))

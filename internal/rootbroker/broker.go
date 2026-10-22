@@ -61,7 +61,9 @@ type Broker struct {
 	runnerctlPath        string
 	gitctlPath           string
 	// userctl overrides the installed stepanel-userctl path in tests.
-	userctl    string
+	userctl string
+	// filectl overrides the installed stepanel-filectl path in tests.
+	filectl    string
 	gitKeyRoot string
 	validator  *Validator
 	logger     *log.Logger
@@ -365,6 +367,8 @@ func (b *Broker) dispatch(ctx context.Context, req *Request) (*Response, error) 
 		return b.handleGitRequest(ctx, req.Git)
 	case "account":
 		return b.handleAccountRequest(ctx, req.Account)
+	case "files":
+		return b.handleFilesRequest(ctx, req.Files)
 	case "certificate":
 		return b.handleCertificateRequest(ctx, req.Certificate)
 	case "task":
@@ -404,6 +408,8 @@ func requestRequiresFencing(req *Request) bool {
 		return req.Resource != nil && req.Resource.Action != "status"
 	case "wordpress":
 		return req.WordPress != nil && !wordPressReadOnlyActions[req.WordPress.Action]
+	case "files":
+		return req.Files != nil && !filesReadOnlyActions[req.Files.Action]
 	default:
 		return true
 	}

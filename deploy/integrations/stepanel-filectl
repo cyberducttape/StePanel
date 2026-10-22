@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# Customer file manager operations inside one placed site's document root
+# (ADR-0007).
+#
+#   stepanel-filectl list   SITE USER PATH
+#   stepanel-filectl read   SITE USER PATH          file bytes on stdout
+#   stepanel-filectl write  SITE USER PATH          file bytes on stdin
+#   stepanel-filectl mkdir  SITE USER PATH
+#   stepanel-filectl rename SITE USER PATH NEWPATH
+#   stepanel-filectl delete SITE USER PATH
+#
+# PATH is relative to the site's document root; "" or "." is the root. The
+# document root comes from the site location library, never from the caller,
+# and USER must be the account user recorded for the site. Every filesystem
+# operation runs as that user, so the file manager can never do more than the
+# account's own SFTP login: root only resolves the site and drops privileges.
+# Symbolic links are never followed, created or written through.
+set -Eeuo pipefail
+
+[[ $EUID -eq 0 ]] || { echo 'must run as root' >&2; exit 1; }
+cd /
+location_lib=/usr/local/lib/stepanel/site-location.sh
+[[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-site-location.sh
+. "$location_lib"
+
+# Limits shared with internal/rootbroker/files.go.
+max_read_bytes=$(( 2 * 1024 * 1024 ))
+max_write_bytes=$(( 4 * 1024 * 1024 ))
+max_entries=5000
+
+usage() { echo 'usage: stepanel-filectl list|read|write|mkdir|rename|delete SITE USER PATH [NEWPATH]' >&2; exit 64; }
+
+action=${1:-}
+case $action in
+  rename) (( $# == 5 )) || usage ;;
+  list|read|write|mkdir|delete) (( $# == 4 )) || usage ;;
+  *) usage ;;
+esac
+site=$2
+user=$3
+stepanel_site_location "$site"
+(( site_placed )) || { echo "site $site is not placed in a hosting account" >&2; exit 1; }
+stepanel_require_site_user "$user"
+[[ -d $public_root && ! -L $public_root ]] || { echo 'site document root is missing' >&2; exit 1; }
+
+# valid_relative PATH: a relative path with no empty, "." or ".." component
+# and no control characters. "" and "." name the document root.
+valid_relative() {
+  local path=$1 component
+  [[ -z $path || $path == . ]] && return 0
+  (( ${#path} <= 4096 )) || return 1
+  [[ $path != /* && $path != */ && $path != *//* ]] || return 1
+  [[ ! $path =~ [[:cntrl:]] ]] || return 1
+  local IFS=/
+  for component in $path; do
+    [[ -n $component && $component != . && $component != .. ]] || return 1
+    (( ${#component} <= 255 )) || return 1
+  done
+}
+
+relative=$4
+valid_relative "$relative" || { echo 'invalid path' >&2; exit 1; }
+[[ -z $relative ]] && relative=.
+
+as_user() {
+  runuser -u "$user" -- env -i HOME="$site_home" PATH=/usr/bin:/bin LANG=C.UTF-8 "$@"
+}
+
+# no_link_components REL: no existing component of REL below the document
+# root is a symbolic link, so nothing escapes the root or the account.
+no_link_components() {
+  local rel=$1 current=$public_root component
+  [[ $rel == . ]] && return 0
+  local IFS=/
+  for component in $rel; do
+    current="$current/$component"
+    if [[ -L $current ]]; then
+      echo "refusing to follow the symbolic link ${current#"$public_root"/}" >&2
+      return 1
+    fi
+    [[ -e $current ]] || return 0
+  done
+}
+
+target="$public_root/$relative"
+[[ $relative == . ]] && target=$public_root
+if [[ $action == delete ]]; then
+  # Deleting a stray link removes only the link, which sealing requires.
+  no_link_components "$(dirname -- "$relative")"
+else
+  no_link_components "$relative"
+fi
+
+case $action in
+  list)
+    [[ -d $target ]] || { echo 'not a directory' >&2; exit 1; }
+    # type size mode mtime name, one entry per line, at most max_entries+1
+    # so the caller can tell the listing was truncated.
+    # NUL-terminated so a name cannot forge an entry; names with control
+    # characters are skipped because they cannot be shown or addressed.
+    listing="$(mktemp)"
+    trap 'rm -f -- "$listing"' EXIT
+    as_user find -P "$target" -mindepth 1 -maxdepth 1 -printf '%y\t%s\t%m\t%T@\t%f\0' >"$listing"
+    count=0
+    while IFS= read -r -d '' entry; do
+      name=${entry#*$'\t'*$'\t'*$'\t'*$'\t'}
+      [[ ! $name =~ [[:cntrl:]] ]] || continue
+      (( ++count <= max_entries + 1 )) || break
+      printf '%s\n' "$entry"
+    done <"$listing"
+    ;;
+  read)
+    [[ -f $target ]] || { echo 'not a regular file' >&2; exit 1; }
+    size=$(stat -c %s -- "$target")
+    (( size <= max_read_bytes )) || { echo "file is larger than $max_read_bytes bytes" >&2; exit 1; }
+    as_user head -c "$max_read_bytes" -- "$target"
+    ;;
+  write)
+    [[ $relative != . ]] || { echo 'cannot write the document root' >&2; exit 1; }
+    parent=$(dirname -- "$target")
+    [[ -d $parent ]] || { echo 'parent directory does not exist' >&2; exit 1; }
+    [[ ! -e $target || -f $target ]] || { echo 'not a regular file' >&2; exit 1; }
+    # The temporary file is created by the account user beside the target,
+    # so the rename is atomic and the bytes count against the account quota.
+    temp=$(as_user mktemp -- "$parent/.stepanel-upload-XXXXXXXX")
+    trap 'as_user rm -f -- "$temp"' EXIT
+    # shellcheck disable=SC2016 # $1 expands in the account user's shell
+    head -c "$(( max_write_bytes + 1 ))" | as_user sh -c 'cat > "$1"' sh "$temp"
+    (( $(stat -c %s -- "$temp") <= max_write_bytes )) || { echo "file is larger than $max_write_bytes bytes" >&2; exit 1; }
+    if [[ -f $target ]]; then
+      # Keep the existing file's permissions.
+      as_user chmod --reference="$target" -- "$temp"
+    else
+      as_user chmod 0640 -- "$temp"
+    fi
+    as_user mv -fT -- "$temp" "$target"
+    trap - EXIT
+    ;;
+  mkdir)
+    [[ ! -e $target ]] || { echo 'path already exists' >&2; exit 1; }
+    as_user mkdir -m 0750 -- "$target"
+    ;;
+  rename)
+    [[ $relative != . ]] || { echo 'cannot rename the document root' >&2; exit 1; }
+    destination_relative=$5
+    valid_relative "$destination_relative" && [[ -n $destination_relative && $destination_relative != . ]] || { echo 'invalid destination path' >&2; exit 1; }
+    no_link_components "$destination_relative"
+    destination="$public_root/$destination_relative"
+    [[ -e $target ]] || { echo 'path does not exist' >&2; exit 1; }
+    [[ ! -e $destination && ! -L $destination ]] || { echo 'destination already exists' >&2; exit 1; }
+    [[ -d $(dirname -- "$destination") ]] || { echo 'destination directory does not exist' >&2; exit 1; }
+    [[ $destination != "$target"/* ]] || { echo 'cannot move a directory into itself' >&2; exit 1; }
+    as_user mv -nT -- "$target" "$destination"
+    ;;
+  delete)
+    [[ $relative != . ]] || { echo 'cannot delete the document root' >&2; exit 1; }
+    [[ -e $target || -L $target ]] || { echo 'path does not exist' >&2; exit 1; }
+    as_user rm -rf --one-file-system -- "$target"
+    ;;
+esac

@@ -10,8 +10,8 @@
   const accountRole = document.body.dataset.accountRole || 'owner';
   const webserver = document.body.dataset.webserver || 'caddy';
   const roleScopes = {
-    developer: new Set(['site:read', 'site:deploy', 'deploy:write', 'environment:read', 'environment:write', 'logs:read', 'backup:read', 'backup:create', 'database:read', 'redis:read']),
-    viewer: new Set(['site:read', 'environment:read', 'backup:read', 'database:read', 'redis:read', 'logs:read']),
+    developer: new Set(['site:read', 'site:deploy', 'deploy:write', 'environment:read', 'environment:write', 'logs:read', 'backup:read', 'backup:create', 'database:read', 'redis:read', 'files:read', 'files:write']),
+    viewer: new Set(['site:read', 'environment:read', 'backup:read', 'database:read', 'redis:read', 'logs:read', 'files:read']),
   };
   const can = (scope) => isAdministrator || accountRole === 'owner' || accountRole === 'manager' || (roleScopes[accountRole] || new Set()).has(scope);
 
