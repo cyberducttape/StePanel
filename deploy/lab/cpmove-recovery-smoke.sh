@@ -57,6 +57,17 @@ CPMOVE_SMOKE_SITE=${CPMOVE_RECOVERY_SMOKE_SITE:-ci-import-recovery} \
   bash /work/deploy/lab/cpmove-import-smoke.sh &
 import_pid=$!
 
+# site_doc_root SITE prints the site's document root: /home/USER/DIRECTORY
+# for a site placed in a hosting account (ADR-0007), else the legacy tree.
+site_doc_root() {
+  local record="/etc/stepanel/sites/$1/location"
+  if [[ -f $record ]]; then
+    printf '/home/%s/%s\n' "$(sed -n 's/^user=//p' "$record")" "$(sed -n 's/^directory=//p' "$record")"
+  else
+    printf '/var/www/sites/%s/public\n' "$1"
+  fi
+}
+
 killed=0
 for _ in $(seq 1 90); do
   current=$(systemctl show stepanel-worker.service -p MainPID --value)
@@ -85,7 +96,7 @@ if (( ! killed )); then
 fi
 
 wait "$import_pid"
-test -f "/var/www/sites/${CPMOVE_RECOVERY_SMOKE_SITE:-ci-import-recovery}/public/index.html"
-grep -Fx 'stepanel cpmove import smoke' \
-  "/var/www/sites/${CPMOVE_RECOVERY_SMOKE_SITE:-ci-import-recovery}/public/index.html" >/dev/null
+doc_root=$(site_doc_root "${CPMOVE_RECOVERY_SMOKE_SITE:-ci-import-recovery}")
+test -f "$doc_root/index.html"
+grep -Fx 'stepanel cpmove import smoke' "$doc_root/index.html" >/dev/null
 echo "cpmove recovery smoke passed (worker $before was killed at $CPMOVE_KILL_AT)"

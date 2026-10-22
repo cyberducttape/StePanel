@@ -137,6 +137,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Seal the document root of a site in a hosting account: the broker's seal
+  step hardened `/var/www/sites/SITE/public`, so cpMove restores into a new
+  hosting account failed with "permission seal failed". The cpMove smokes
+  now check the placed document root.
 - Count previous Git releases of sites in hosting accounts in
   `stepanel_git_release_bytes` and `stepanel_git_releases_total`; the metric
   only looked in `/var/www/sites`.

@@ -18,6 +18,17 @@ work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 cookies="$work/cookies.txt"
 
+# site_doc_root SITE prints the site's document root: /home/USER/DIRECTORY
+# for a site placed in a hosting account (ADR-0007), else the legacy tree.
+site_doc_root() {
+  local record="/etc/stepanel/sites/$1/location"
+  if [[ -f $record ]]; then
+    printf '/home/%s/%s\n' "$(sed -n 's/^user=//p' "$record")" "$(sed -n 's/^directory=//p' "$record")"
+  else
+    printf '/var/www/sites/%s/public\n' "$1"
+  fi
+}
+
 generate_totp() {
 python3 - "$STEPANEL_ADMIN_TOTP_SECRET" <<'PY'
 import base64, hashlib, hmac, struct, sys, time
@@ -103,7 +114,8 @@ for _ in $(seq 1 240); do
 done
 
 [[ ${state:-} == completed ]] || { echo "cpmove import job $job_id did not complete: ${status:-}" >&2; exit 1; }
-test -f "/var/www/sites/$CPMOVE_SMOKE_SITE/public/index.html"
-grep -Fx 'stepanel cpmove import smoke' "/var/www/sites/$CPMOVE_SMOKE_SITE/public/index.html" >/dev/null
+doc_root=$(site_doc_root "$CPMOVE_SMOKE_SITE")
+test -f "$doc_root/index.html"
+grep -Fx 'stepanel cpmove import smoke' "$doc_root/index.html" >/dev/null
 
 echo "cpmove import smoke passed (job $job_id, site $CPMOVE_SMOKE_SITE)"

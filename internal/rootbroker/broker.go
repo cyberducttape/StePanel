@@ -920,8 +920,7 @@ func (b *Broker) siteSeal(ctx context.Context, req *SiteRequest) (*Response, err
 	b.accountMutationMu.Lock()
 	defer b.accountMutationMu.Unlock()
 
-	siteRoot, err := b.validator.ValidateSiteRoot(req.Site)
-	if err != nil {
+	if _, err := b.validator.ValidateSiteRoot(req.Site); err != nil {
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 
@@ -946,8 +945,13 @@ func (b *Broker) siteSeal(ctx context.Context, req *SiteRequest) (*Response, err
 		return &Response{OK: false, Error: fmt.Sprintf("site helper sealed account %q but the broker derives %q; refusing to continue with divergent site identity", reported, want)}, nil
 	}
 
-	// Set restrictive permissions on config files.
-	sitePublic := filepath.Join(siteRoot, "public")
+	// Set restrictive permissions on config files in the document root: the
+	// legacy public tree, or a placed site's public_html or domain directory
+	// (ADR-0007).
+	sitePublic, err := b.validator.siteDocRoot(req.Site)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
 	if err := secureSealTree(ctx, sitePublic); err != nil {
 		b.logger.Printf("failed to seal permissions: %v", err)
 		return &Response{OK: false, Error: fmt.Sprintf("permission seal failed: %v", err)}, nil

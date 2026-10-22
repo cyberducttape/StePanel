@@ -2,6 +2,7 @@ package rootbroker
 
 import (
 	"context"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 	"io"
 	"log"
 	"os"
@@ -363,5 +364,36 @@ func TestSiteHelperConfigActionsShareAccountMutationLock(t *testing.T) {
 			<-firstDone
 			<-secondDone
 		})
+	}
+}
+
+// A site placed in a hosting account (ADR-0007) has no legacy public tree;
+// sealing hardens its public_html instead.
+func TestSiteSealHardensAPlacedSitesDocumentRoot(t *testing.T) {
+	webRoot, homeRoot := t.TempDir(), t.TempDir()
+	docRoot := filepath.Join(homeRoot, "alice", "public_html")
+	if err := os.MkdirAll(docRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docRoot, "index.php"), []byte("<?php"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := newBroker(webRoot, t.TempDir(), log.New(io.Discard, "", 0), &fakeHost{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.validator.homeRoot = homeRoot
+	broker.validator.placements = func(site string) (sitelayout.Placement, error) {
+		if site != "alice" {
+			return sitelayout.Placement{}, sitelayout.ErrNotPlaced
+		}
+		return sitelayout.Placement{Site: "alice", Account: "alice", UnixUser: "alice", Kind: sitelayout.KindMain, Directory: sitelayout.MainDirectory}, nil
+	}
+	resp, err := broker.Execute(context.Background(), &Request{RequestType: "site", Site: &SiteRequest{Action: "seal", Site: "alice"}})
+	if err != nil || !resp.OK {
+		t.Fatalf("seal response = %#v, err = %v", resp, err)
+	}
+	if _, err := os.Stat(filepath.Join(webRoot, "sites", "alice")); !os.IsNotExist(err) {
+		t.Fatalf("sealing a placed site touched the legacy tree: %v", err)
 	}
 }
