@@ -29,6 +29,7 @@ cookies="$work/cookies.txt"
 stub_runtime=0
 site_created=0
 site_user=
+placed_user=
 
 cleanup() {
   local status=$?
@@ -37,6 +38,10 @@ cleanup() {
   fi
   if (( site_created )); then
     /usr/local/sbin/stepanel-sitectl delete "$site" >/dev/null 2>&1 || true
+    if [[ -n $placed_user ]]; then
+      /usr/local/sbin/stepanel-userctl unplace "$site" "$placed_user" >/dev/null 2>&1 || true
+      /usr/local/sbin/stepanel-userctl account-delete "$placed_user" >/dev/null 2>&1 || true
+    fi
   fi
   rm -f -- "$manifest" "$manifest.bak" "$public/package.json" "$public/server.js"
   if (( stub_runtime )); then rm -rf -- "$nvm_dir"; fi
@@ -115,9 +120,20 @@ for _ in $(seq 1 180); do
 done
 [[ $create_state == completed ]] || { echo "site creation job did not complete: $job_response" >&2; exit 1; }
 site_created=1
+# New sites live in a hosting account (ADR-0007): /home/USER/DIRECTORY, run
+# as the account user named in the root-owned location record. A host whose
+# control plane predates placements still creates legacy sites.
+location="/etc/stepanel/sites/$site/location"
+if [[ -f $location ]]; then
+  placed_user=$(sed -n 's/^user=//p' "$location")
+  public="/home/$placed_user/$(sed -n 's/^directory=//p' "$location")"
+  site_user=$placed_user
+  id -nG "$site_user" | tr ' ' '\n' | grep -Fxq stepanel-users || { echo 'site creation did not provision a hosting-account user' >&2; exit 1; }
+else
+  site_user=$(getent passwd | awk -F: -v home="/var/www/sites/$site" '$6 == home { print $1; exit }')
+  [[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || { echo 'site creation did not provision its persisted Unix account' >&2; exit 1; }
+fi
 [[ -d $public ]] || { echo "created site document root does not exist: $public" >&2; exit 1; }
-site_user=$(getent passwd | awk -F: -v home="/var/www/sites/$site" '$6 == home { print $1; exit }')
-[[ $site_user =~ ^sp-[a-z0-9][a-z0-9-]{1,28}$ ]] || { echo 'site creation did not provision its persisted Unix account' >&2; exit 1; }
 
 # The application must answer on $PORT. Use the installed Node runtime when the
 # lab has one; otherwise provide a stand-in nvm whose npm serves the site root,
