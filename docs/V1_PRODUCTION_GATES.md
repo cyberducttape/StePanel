@@ -22,14 +22,16 @@ also passed on that exact source.
 
 The exact-source six-host installation matrix
 ([run 39882971785](https://github.com/cyberducttape/StePanel/actions/runs/39882971785))
-and quota-enabled VM smoke
+completed successfully at 2026-10-23 02:04 UTC: Ubuntu 24.04, AlmaLinux 9, and
+Rocky Linux 9, each with Apache and Caddy. This is install-smoke evidence, not
+full recovery certification. The quota-enabled VM smoke
 ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
-were still running at the 2026-10-23 01:52 UTC capture. Ubuntu 24.04/Caddy had
-passed its install/recovery job; the other five OS/web-server jobs remained
-active. The quota VM was in guest installation. Neither workflow is counted as
-a pass until it completes and its result is reviewed. These hosted runs do not
-prove 20–50 repeated full recovery matrices, physical host power-loss recovery,
-XFS quotas, or all ENOSPC boundaries. Production remains **NO-GO**.
+is still active in guest installation and has not provided quota or ENOSPC
+evidence. An initial two-repeat full recovery matrix
+([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
+is queued; even if successful, it will not meet the documented 20–50-repeat
+requirement. These runs do not prove physical host power-loss recovery, XFS
+quotas, or all ENOSPC boundaries. Production remains **NO-GO**.
 
 ### Latest complete `scripts/production-gate.sh` run — 2026-10-19 (`c0113dd`)
 

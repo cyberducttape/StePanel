@@ -23,13 +23,18 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   also passed on `7b549a782e325d576a4a79bf472ee8e6001d0eee`.
 - Exact-head installed-host smoke
   ([run 39882971785](https://github.com/cyberducttape/StePanel/actions/runs/39882971785))
-  is still running. At 2026-10-23 01:52 UTC, Ubuntu 24.04/Caddy passed; the
-  other five Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache/Caddy jobs were
-  active. Do not count this matrix as passed until the workflow completes.
+  completed successfully at 2026-10-23 02:04 UTC. All six combinations passed:
+  Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9, each with Apache and Caddy.
+  This establishes install-smoke coverage for those combinations, not full
+  recovery certification or production support by itself.
 - Exact-head quota-enabled VM validation
   ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
   is active in its guest-install phase; it has not yet provided quota or ENOSPC
   evidence.
+- A two-repeat full recovery matrix
+  ([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
+  is queued. It is an initial recovery cohort only and does not meet the
+  documented 20–50-repeat evidence requirement.
 - Repository CI and these pending/partial host runs do not certify production.
   Approval remains **NO-GO** for repeated full recovery, physical host power
   loss, broader ENOSPC, quota/XFS behavior, capacity limits, and the remaining
