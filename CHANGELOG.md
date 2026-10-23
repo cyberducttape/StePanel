@@ -15,6 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   cannot leave a partial identity map behind.
 - Keep XFS quota setup status text off the Git staging helper's numeric project-ID
   output, and assert the contract in the installed quota smoke.
+- Record the XFS installed-host failure accurately and link the exact-commit
+  quota and six-platform reruns without counting pending evidence as a pass.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
 - Use POSIX conditionals in the quota smoke's cloud-init guest script; its

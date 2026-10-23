@@ -12,7 +12,28 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Exact-source validation snapshot — 2026-10-23 (`05dc405`)
+### Exact-source validation snapshot — 2026-10-23 (`cf079a1`)
+
+- Current source: `cf079a12dc96c63991f72fa23edd9bc5939cf188`. The focused
+  quota-state contract test, shell syntax checks, and whitespace validation
+  passed locally. Exact-head CodeQL ([run 39897457152](https://github.com/cyberducttape/StePanel/actions/runs/39897457152))
+  and docs validation
+  ([run 39897457149](https://github.com/cyberducttape/StePanel/actions/runs/39897457149))
+  passed. Exact-head integration CI
+  ([run 39897457130](https://github.com/cyberducttape/StePanel/actions/runs/39897457130)),
+  XFS quota guest ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684)),
+  and the six-host install matrix
+  ([run 39897561432](https://github.com/cyberducttape/StePanel/actions/runs/39897561432))
+  are pending or in progress, not passes.
+- The previous XFS guest run
+  ([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
+  enabled and enforced quotas, then failed because `xfs_quota` status output
+  polluted the Git staging helper's numeric project-ID response. `cf079a1`
+  fixes that stdout contract and adds regression coverage; only the current
+  installed-host rerun can verify the fix.
+
+The following results are from the prior source commit and are historical
+context, not exact-head validation for `cf079a1`:
 
 - Exact-head integration CI passed on
   `05dc4054306d2fbb8cc54ac634c030f7510427cf`

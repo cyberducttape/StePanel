@@ -9,7 +9,32 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest exact-source validation snapshot — 2026-10-23 (`05dc405`)
+### Latest exact-source validation snapshot — 2026-10-23 (`cf079a1`)
+
+The current source is
+`cf079a12dc96c63991f72fa23edd9bc5939cf188` (commit `cf079a1`). Its focused
+quota-state contract test, shell syntax checks, and `git diff --check` passed
+locally. Exact-head CodeQL ([run 39897457152](https://github.com/cyberducttape/StePanel/actions/runs/39897457152))
+and documentation validation
+([run 39897457149](https://github.com/cyberducttape/StePanel/actions/runs/39897457149))
+passed. Exact-head integration CI
+([run 39897457130](https://github.com/cyberducttape/StePanel/actions/runs/39897457130)),
+the XFS quota guest
+([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684)),
+and six-combination installed-host smoke
+([run 39897561432](https://github.com/cyberducttape/StePanel/actions/runs/39897561432))
+are still pending or running and are not passes yet.
+
+The XFS quota guest on the preceding implementation
+([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
+did install successfully and confirmed quota accounting and enforcement, but
+the smoke failed when `xfs_quota` status text contaminated the Git staging
+helper's numeric project-ID output. Commit `cf079a1` redirects that status text
+and adds a regression test plus an installed-smoke project-ID assertion. The
+current XFS rerun is required to establish whether the defect is resolved.
+
+The exact-head integration and installed-host results below are historical
+context only; they do not validate `cf079a1`.
 
 Exact-head CI integration passed on
 `05dc4054306d2fbb8cc54ac634c030f7510427cf`
@@ -30,10 +55,11 @@ changelog entry. All six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache
 and Caddy combinations passed installation smoke. This does not certify full
 recovery or production support.
 
-The XFS quota guest run
+The prior XFS quota guest run
 ([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
-is running against `05dc405`; its guest install/smoke step has not completed,
-so no XFS result is available. The previous run
+failed during Git staging quota cleanup after quota enforcement had been
+confirmed; the XFS helper stdout defect is fixed in the current source and its
+exact-head rerun is pending above. The earlier run
 ([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
 failed in cloud-init before product installation because `/bin/sh` received a
 Bash-only conditional. The fixture now uses POSIX syntax and is checked with
