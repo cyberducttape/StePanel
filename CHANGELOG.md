@@ -30,6 +30,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   canceled by the subsequent documentation-only update.
 - Require repeated installed-host recovery shards to enable every recovery
   boundary, preventing bounded smoke runs from being mistaken for Gate 5 evidence.
+- Exercise recovery-matrix input validation through the same script CI invokes,
+  including negative cases for incomplete or malformed certification shards.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
 - Use POSIX conditionals in the quota smoke's cloud-init guest script; its

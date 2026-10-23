@@ -34,14 +34,19 @@ for workflow in "${workflows[@]}"; do
         echo "$workflow must bound repeated recovery shards to avoid runner starvation" >&2
         exit 1
       }
-      grep -Fq 'FULL_RECOVERY_MATRIX: ${{ inputs.full_recovery_matrix }}' "$workflow" || {
+      grep -Fq 'FULL_RECOVERY_MATRIX: ${{ inputs.full_recovery_matrix || false }}' "$workflow" || {
         echo "$workflow must pass the exhaustive recovery input to the job" >&2
         exit 1
       }
-      grep -Fq '[[ "$FULL_RECOVERY_MATRIX" == "true" ]]' "$workflow" || {
-        echo "$workflow must reject repeated recovery runs without the full matrix" >&2
+      grep -Fq '[[ $full == true ]]' scripts/validate-recovery-matrix-inputs.sh || {
+        echo 'recovery-matrix input validator must reject repeated runs without the full matrix' >&2
         exit 1
       }
+      grep -Fq 'run: bash scripts/validate-recovery-matrix-inputs.sh' "$workflow" || {
+        echo "$workflow must invoke the tested recovery input validator" >&2
+        exit 1
+      }
+      bash scripts/test-recovery-matrix-inputs.sh
       ;;
     .github/workflows/upgrade-smoke.yml)
       grep -Fq 'timeout-minutes: 45' "$workflow" || {

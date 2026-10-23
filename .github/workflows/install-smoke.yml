@@ -38,7 +38,7 @@ jobs:
     env:
       RECOVERY_MATRIX_REPEATS: ${{ inputs.recovery_matrix_repeats || 1 }}
       RECOVERY_MATRIX_SHARD: ${{ inputs.recovery_matrix_shard || '' }}
-      FULL_RECOVERY_MATRIX: ${{ inputs.full_recovery_matrix }}
+      FULL_RECOVERY_MATRIX: ${{ inputs.full_recovery_matrix || false }}
     strategy:
       fail-fast: false
       # A repeated recovery cohort may contain many independent shards. Limit
@@ -79,21 +79,7 @@ jobs:
           go-version: '1.26.10'
           cache: true
       - name: Validate recovery matrix repeat count
-        run: |
-          [[ "$RECOVERY_MATRIX_REPEATS" =~ ^[12]$ ]] || {
-            echo 'recovery_matrix_repeats must be 1 or 2 per shard; split 20-50 repeats across unique shards' >&2
-            exit 64
-          }
-          if (( RECOVERY_MATRIX_REPEATS > 1 )); then
-            [[ "$FULL_RECOVERY_MATRIX" == "true" ]] || {
-              echo 'repeated recovery certification shards require full_recovery_matrix=true' >&2
-              exit 64
-            }
-            [[ "$RECOVERY_MATRIX_SHARD" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$ ]] || {
-              echo 'two-iteration recovery shards require a unique 1-40 character recovery_matrix_shard' >&2
-              exit 64
-            }
-          fi
+        run: bash scripts/validate-recovery-matrix-inputs.sh
       - name: Build release-shaped installer tree
         run: |
           go build -trimpath -ldflags='-s -w' -o stepanel ./cmd/stepanel
