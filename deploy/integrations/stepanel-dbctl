@@ -707,8 +707,13 @@ case "$action" in
   drop-managed)
     (( $# == 3 )) || exit 64; db_user=$3; valid_user "$db_user" || exit 1
     lock_resources "database-$database" "user-$db_user"
-    [[ -f $record ]] || { echo 'database is not registered to this user' >&2; exit 1; }; value=$(<"$record")
-    [[ $value == panel:*:"$db_user" || $value == wordpress:*:"$db_user" || $value == "wordpress:$db_user" ]] || { echo 'database is not registered to this user' >&2; exit 1; }
+    # Lifecycle journals record intended databases before provisioning starts.
+    # A crash at that boundary leaves no registry entry, so cleanup is a safe
+    # no-op. A killed provision helper can leave its pending-panel record and
+    # partially created SQL objects; those are owned by this exact user too.
+    [[ -f $record ]] || exit 0
+    value=$(<"$record")
+    [[ $value == panel:*:"$db_user" || $value == pending-panel:*:"$db_user" || $value == wordpress:*:"$db_user" || $value == "wordpress:$db_user" ]] || { echo 'database is not registered to this user' >&2; exit 1; }
     drop_objects "$database" "$db_user"; remove_record "$record"
     ;;
   restore)

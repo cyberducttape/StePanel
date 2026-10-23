@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Make managed-database compensation idempotent when a lifecycle crash occurs
+  before provisioning starts, and clean partially created `pending-panel`
+  databases after a killed provision helper. Add the real database-helper
+  recovery smoke coverage for both states.
 - Add a durable-job regression test proving offsite backup retries retain and
   reuse the verified local archive after worker failure and process restart,
   even when the original site tree is no longer available.

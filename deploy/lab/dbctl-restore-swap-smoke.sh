@@ -92,6 +92,15 @@ with_crash_point() { with_injection "$1" '  [[ -z ${DBCTL_CRASH:-} ]] || kill -9
 
 login_refused() { ! app -e 'SELECT 1' > /dev/null 2>&1; }
 
+"$helper" drop-managed "$db" "$db_user"
+printf '%s\n' "$password" | "$helper" provision "$db" "$db_user" "$site" utf8mb4
+printf 'pending-panel:%s:%s\n' "$site" "$db_user" > "$registry/$db"
+chmod 0600 "$registry/$db"
+"$helper" drop-managed "$db" "$db_user"
+if database_exists "$db" || user_exists "$db_user"; then
+  fail 'drop-managed did not remove a partially provisioned pending-panel database'
+fi
+pass 'drop-managed safely handles absent and interrupted pending-panel resources'
 printf '%s\n' "$password" | "$helper" provision "$db" "$db_user" "$site" utf8mb4
 mariadb_server=0
 [[ $(M -e 'SELECT VERSION()') == *MariaDB* ]] && mariadb_server=1
