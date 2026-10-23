@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   before provisioning starts, and clean partially created `pending-panel`
   databases after a killed provision helper. Add the real database-helper
   recovery smoke coverage for both states.
+- Reconcile the production-gate evidence with the failed staged-database
+  recovery boundary, the `e94f870` compensation fix, passing `c93f66d` CI, and
+  the exact-source full-host rerun now queued; retain the NO-GO decision.
 - Add a durable-job regression test proving offsite backup retries retain and
   reuse the verified local archive after worker failure and process restart,
   even when the original site tree is no longer available.
