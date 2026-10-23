@@ -25,7 +25,7 @@ def required_capacity() -> int:
 
 def fixture_capacity(path: Path) -> int:
     text = path.read_text(encoding="utf-8")
-    match = re.search(r'qemu-img create(?: -q)? -f raw [^\n]*www\.ext4"\s+(\d+)([GM])\b', text)
+    match = re.search(r'qemu-img create(?: -q)? -f raw [^\n]*www\.(?:ext4|quota)"\s+(\d+)([GM])\b', text)
     if not match:
         raise ValueError(f"{path.relative_to(ROOT)} has no recognizable /var/www quota volume")
     amount = int(match.group(1))
@@ -57,6 +57,21 @@ def validate_ext4_quota_setup(path: Path) -> None:
         )
 
 
+def validate_xfs_quota_setup(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    required = (
+        "          - xfs",
+        "mkfs.xfs -f /dev/vdb",
+        "xfs_quota -x -c 'state -up' /var/www",
+        "xfs_quota -x -c 'state -u' /home",
+    )
+    missing = [fragment for fragment in required if fragment not in text]
+    if missing:
+        raise ValueError(
+            f"{path.relative_to(ROOT)} lacks XFS quota coverage: {', '.join(missing)}"
+        )
+
+
 def main() -> int:
     required = required_capacity()
     fixtures = (
@@ -65,6 +80,8 @@ def main() -> int:
     )
     for fixture in fixtures:
         validate_ext4_quota_setup(fixture)
+        if fixture.name == "quota-install-smoke.yml":
+            validate_xfs_quota_setup(fixture)
         actual = fixture_capacity(fixture)
         if actual < required:
             print(

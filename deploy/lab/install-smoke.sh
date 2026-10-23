@@ -18,17 +18,28 @@ else
     echo 'quota smoke must not bypass production quota validation' >&2
     exit 1
   fi
-  if ! awk '$2 == "/var/www" && $4 ~ /(^|,)usrquota(,|$)/ { found=1 } END { exit !found }' /proc/mounts; then
+  mount_options=$(findmnt -no OPTIONS -T /var/www)
+  if [[ ! $mount_options =~ (^|,)(usrquota|uquota)(,|$) ]]; then
     echo '/var/www is not mounted with user quotas enabled' >&2
     exit 1
   fi
-  if ! awk '$2 == "/var/www" && $4 ~ /(^|,)(prjquota|pquota)(,|$)/ { found=1 } END { exit !found }' /proc/mounts; then
+  if [[ ! $mount_options =~ (^|,)(prjquota|pquota)(,|$) ]]; then
     echo '/var/www is not mounted with project quotas enabled' >&2
     exit 1
   fi
-  # quotaon -p exits non-zero when the quota is on; check its state line.
-  project_quota_state=$(quotaon -p -P /var/www 2>&1 || true)
-  [[ $project_quota_state == *'project quota on /var/www ('*') is on'* ]] || { echo "project quotas are not on for /var/www: $project_quota_state" >&2; exit 1; }
+  filesystem_type=$(findmnt -no FSTYPE -T /var/www)
+  case "$filesystem_type" in
+    ext4)
+      # quotaon -p's status is in its output; its exit code is a count.
+      project_quota_state=$(quotaon -p -P /var/www 2>&1 || true)
+      [[ $project_quota_state == *'project quota on /var/www ('*') is on'* ]] || { echo "project quotas are not on for /var/www: $project_quota_state" >&2; exit 1; }
+      ;;
+    xfs)
+      project_quota_state=$(xfs_quota -x -c 'state -p' /var/www 2>&1) || { echo "could not inspect XFS project quota state: $project_quota_state" >&2; exit 1; }
+      [[ $project_quota_state == *'Accounting: ON'* && $project_quota_state == *'Enforcement: ON'* ]] || { echo "XFS project quotas are not enforced on /var/www: $project_quota_state" >&2; exit 1; }
+      ;;
+    *) echo "quota smoke does not support filesystem type $filesystem_type" >&2; exit 1 ;;
+  esac
 fi
 export STEPANEL_SKIP_STARTUP_DB_RECONCILE=1
 export STEPANEL_SKIP_STARTUP_HOST_RECONCILE=1

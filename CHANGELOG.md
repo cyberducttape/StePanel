@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
+  and exercise both ext4 and XFS through the installed-host quota workflow.
 - Make the backup-rehearsal capacity test robust to small free-space changes
   on shared and block-allocated CI filesystems.
 - Update the production status with exact-head CI evidence and clearly label

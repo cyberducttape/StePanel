@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: '41 4 * * 1'
   workflow_dispatch:
+    inputs:
+      filesystem:
+        description: 'Filesystem to validate with active user and project quotas'
+        required: true
+        default: ext4
+        type: choice
+        options:
+          - ext4
+          - xfs
 
 permissions:
   contents: read
@@ -37,6 +46,8 @@ jobs:
       - name: Boot quota-enabled disposable Ubuntu guest and install
         run: |
           set -Eeuo pipefail
+          quota_filesystem='${{ inputs.filesystem || 'ext4' }}'
+          [[ $quota_filesystem == ext4 || $quota_filesystem == xfs ]]
           vm_root="$RUNNER_TEMP/stepanel-quota-vm"
           mkdir -p "$vm_root"
           sudo apt-get update
@@ -51,10 +62,10 @@ jobs:
           # Leave room for the 15 GiB aggregate clone quota (3x the 5 GiB
           # final-tree limit) plus the installer's 5 GiB free-space floor. The fixture must
           # exercise activation recovery, not reject Git admission by design.
-          qemu-img create -f raw "$vm_root/www.ext4" 24G
+          qemu-img create -f raw "$vm_root/www.quota" 24G
           qemu-img create -f raw "$vm_root/enospc.ext4" 96M
           # Hosting-account homes (ADR-0007) need user quotas too.
-          qemu-img create -f raw "$vm_root/home.ext4" 4G
+          qemu-img create -f raw "$vm_root/home.quota" 4G
 
           ssh-keygen -q -t ed25519 -N '' -f "$vm_root/id_ed25519"
           vm_pubkey=$(<"$vm_root/id_ed25519.pub")
@@ -71,6 +82,7 @@ jobs:
           packages:
             - cloud-init
             - e2fsprogs
+            - xfsprogs
             - acl
             - fuse-overlayfs
             - openssh-server
@@ -81,32 +93,48 @@ jobs:
           runcmd:
             - |
               set -eux
-              # Mounting an ext4 filesystem with the quota feature needs the
-              # quota format module, which the cloud kernel ships separately.
-              apt-get install -y "linux-modules-extra-\$(uname -r)"
-              modprobe quota_v2
-              mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdb
+              if [[ '$quota_filesystem' == xfs ]]; then
+                mkfs.xfs -f /dev/vdb
+              else
+                # Mounting ext4 quotas needs the quota format module provided
+                # by linux-modules-extra on the cloud kernel.
+                apt-get install -y "linux-modules-extra-\$(uname -r)"
+                modprobe quota_v2
+                mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdb
+              fi
               install -d -m 0755 /var/www
-              printf '%s\\n' '/dev/vdb /var/www ext4 usrquota,prjquota 0 2' >> /etc/fstab
-              # The quota feature keeps quota files in hidden inodes and turns
-              # enforcement on at mount, so only verify the state here.
+              printf '%s\\n' "/dev/vdb /var/www $quota_filesystem usrquota,prjquota 0 2" >> /etc/fstab
               mount /var/www
-              quotaon -p -u /var/www | grep -E '^user quota on /var/www \(.*\) is on'
-              quotaon -p -P /var/www | grep -E '^project quota on /var/www \(.*\) is on'
+              if [[ '$quota_filesystem' == xfs ]]; then
+                xfs_quota -x -c 'state -up' /var/www | grep -F 'Accounting: ON'
+                xfs_quota -x -c 'state -up' /var/www | grep -F 'Enforcement: ON'
+              else
+                quotaon -p -u /var/www | grep -E '^user quota on /var/www \(.*\) is on'
+                quotaon -p -P /var/www | grep -E '^project quota on /var/www \(.*\) is on'
+              fi
               mkfs.ext4 -F /dev/vdc
               install -d -m 0700 /mnt/stepanel-enospc
               printf '%s\\n' '/dev/vdc /mnt/stepanel-enospc ext4 defaults 0 2' >> /etc/fstab
               mount /dev/vdc /mnt/stepanel-enospc
               # Move the existing homes, including vmtest's SSH keys, onto a
               # quota-enabled filesystem before mounting it over /home.
-              mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdd
+              if [[ '$quota_filesystem' == xfs ]]; then
+                mkfs.xfs -f /dev/vdd
+              else
+                mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdd
+              fi
               install -d -m 0700 /mnt/stepanel-home
               mount /dev/vdd /mnt/stepanel-home
               cp -a /home/. /mnt/stepanel-home/
               umount /mnt/stepanel-home
-              printf '%s\\n' '/dev/vdd /home ext4 usrquota,prjquota 0 2' >> /etc/fstab
+              printf '%s\\n' "/dev/vdd /home $quota_filesystem usrquota,prjquota 0 2" >> /etc/fstab
               mount /home
-              quotaon -p -u /home | grep -E '^user quota on /home \(.*\) is on'
+              if [[ '$quota_filesystem' == xfs ]]; then
+                xfs_quota -x -c 'state -u' /home | grep -F 'Accounting: ON'
+                xfs_quota -x -c 'state -u' /home | grep -F 'Enforcement: ON'
+              else
+                quotaon -p -u /home | grep -E '^user quota on /home \(.*\) is on'
+              fi
               touch /run/stepanel-quota-ready
           EOF
           cloud-localds "$vm_root/seed.iso" "$vm_root/user-data"
@@ -116,9 +144,9 @@ jobs:
               -machine accel=tcg \
               -cpu max -smp 2 -m 4096 \
               -drive "file=$guest_image,if=virtio,format=qcow2" \
-              -drive "file=$vm_root/www.ext4,if=virtio,format=raw" \
+              -drive "file=$vm_root/www.quota,if=virtio,format=raw" \
               -drive "file=$vm_root/enospc.ext4,if=virtio,format=raw" \
-              -drive "file=$vm_root/home.ext4,if=virtio,format=raw" \
+              -drive "file=$vm_root/home.quota,if=virtio,format=raw" \
               -drive "file=$vm_root/seed.iso,if=virtio,media=cdrom,readonly=on" \
               -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
               -device virtio-net-pci,netdev=net0 \
@@ -132,7 +160,7 @@ jobs:
             if (( status != 0 )); then
               cat "$vm_root/console.log" >&2 2>/dev/null || true
               timeout --foreground 20s ssh -i "$vm_root/id_ed25519" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 vmtest@127.0.0.1 \
-                'sudo journalctl -b --no-pager -n 200; sudo findmnt /var/www; sudo quotaon -p -u /var/www' >&2 || true
+                'sudo journalctl -b --no-pager -n 200; sudo findmnt /var/www; sudo quotaon -p -P /var/www; sudo xfs_quota -x -c state /var/www' >&2 || true
             fi
             if [[ -s "$vm_root/qemu.pid" ]]; then
               kill "$(<"$vm_root/qemu.pid")" 2>/dev/null || true
@@ -167,7 +195,20 @@ jobs:
             "$vm_root/stepanel-source.tar.gz" vmtest@127.0.0.1:/tmp/stepanel-source.tar.gz
           timeout --foreground 30s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo mkdir -p /work && sudo tar -xzf /tmp/stepanel-source.tar.gz -C /work'
           timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
-            'sudo findmnt -no OPTIONS /var/www | tr "," "\\n" | grep -Fx usrquota && sudo findmnt -no OPTIONS /var/www | tr "," "\\n" | grep -E "^(prjquota|pquota)$" && sudo quotaon -p -u /var/www | grep -E "^user quota on /var/www \(.*\) is on" && sudo quotaon -p -P /var/www | grep -E "^project quota on /var/www \(.*\) is on"'
+            "sudo bash -s -- '$quota_filesystem'" <<'REMOTE'
+          set -Eeuo pipefail
+          filesystem=$1
+          options=$(findmnt -no OPTIONS -T /var/www)
+          [[ $options =~ (^|,)(usrquota|uquota)(,|$) ]]
+          [[ $options =~ (^|,)(prjquota|pquota)(,|$) ]]
+          if [[ $filesystem == xfs ]]; then
+            xfs_quota -x -c 'state -up' /var/www | grep -F 'Accounting: ON'
+            xfs_quota -x -c 'state -up' /var/www | grep -F 'Enforcement: ON'
+          else
+            quotaon -p -u /var/www | grep -E '^user quota on /var/www \(.*\) is on'
+            quotaon -p -P /var/www | grep -E '^project quota on /var/www \(.*\) is on'
+          fi
+          REMOTE
           install_log="$vm_root/install-smoke-output.log"
           set +e
           timeout --foreground 60m ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
