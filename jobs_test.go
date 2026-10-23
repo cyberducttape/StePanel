@@ -370,6 +370,71 @@ func TestDurableJobReadDoesNotResurrectRowDeletedByAnotherProcess(t *testing.T) 
 	}
 }
 
+func TestDurableBackupRetryReusesPersistedLocalArchive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control.db")
+	jobs, err := OpenDurableJobs(path, "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialPayload, err := json.Marshal(durableBackupRequest{
+		Site: "site-a", IncludeDatabases: true, Actor: "operator",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := jobs.Enqueue("site.backup", "site-a", "", initialPayload, 3)
+	if err != nil {
+		_ = jobs.Close()
+		t.Fatal(err)
+	}
+	first, ok, err := jobs.ClaimNext("worker-a", "site.backup")
+	if err != nil || !ok {
+		_ = jobs.Close()
+		t.Fatalf("first backup claim = %#v, claimed=%v, err=%v", first, ok, err)
+	}
+	archivePayload, err := json.Marshal(durableBackupRequest{
+		Site: "site-a", IncludeDatabases: true, Actor: "operator",
+		BackupPath:   "/var/backups/stepanel/20261023-080000-site-a",
+		BackupSHA256: strings.Repeat("a", 64), BackupBytes: 4096,
+	})
+	if err != nil {
+		_ = jobs.Close()
+		t.Fatal(err)
+	}
+	if err := jobs.UpdateClaimPayload(queued.ID, "worker-a", archivePayload); err != nil {
+		_ = jobs.Close()
+		t.Fatalf("persist completed local archive before remote upload: %v", err)
+	}
+	if err := jobs.FailClaim(queued.ID, "worker-a", "offsite destination unavailable"); err != nil {
+		_ = jobs.Close()
+		t.Fatalf("record transient offsite failure: %v", err)
+	}
+	if _, err := jobs.db.Exec(`UPDATE jobs SET next_attempt_at=0 WHERE id=?`, queued.ID); err != nil {
+		_ = jobs.Close()
+		t.Fatalf("make retry immediately eligible: %v", err)
+	}
+	if err := jobs.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := OpenDurableJobs(path, "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	retry, ok, err := restarted.ClaimNext("worker-b", "site.backup")
+	if err != nil || !ok {
+		t.Fatalf("retry claim after worker restart = %#v, claimed=%v, err=%v", retry, ok, err)
+	}
+	var persisted durableBackupRequest
+	if err := json.Unmarshal(retry.Payload, &persisted); err != nil {
+		t.Fatalf("decode retry payload: %v", err)
+	}
+	if persisted.BackupPath != "/var/backups/stepanel/20261023-080000-site-a" || persisted.BackupSHA256 != strings.Repeat("a", 64) || persisted.BackupBytes != 4096 {
+		t.Fatalf("retry did not retain the verified local archive; payload=%+v", persisted)
+	}
+}
+
 func TestDurableCancellationFailsClosedWhenDatabaseCannotConfirmState(t *testing.T) {
 	jobs, err := OpenDurableJobs(filepath.Join(t.TempDir(), "control.db"), "", 1)
 	if err != nil {
