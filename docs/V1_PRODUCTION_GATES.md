@@ -9,6 +9,52 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
+### Current application-source evidence — 2026-10-23 05:27 UTC (`84e4286`)
+
+Exact-head CI passed on
+[`84e428626c30745f07341567e883b0ffbcd4ee48`](https://github.com/cyberducttape/StePanel/actions/runs/39903120720),
+including Go 1.26.10 tests/coverage, race, recovery and tmpfs ENOSPC drills,
+database restore checks, static/vulnerability analysis, container validation,
+and UI E2E. Exact-head CodeQL
+([run 39903120727](https://github.com/cyberducttape/StePanel/actions/runs/39903120727))
+and docs validation
+([run 39903120691](https://github.com/cyberducttape/StePanel/actions/runs/39903120691))
+passed; local `make release-check` passed as well.
+
+The XFS quota-enabled installed-host smoke
+([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
+passed on ancestor `cf079a1`. The application/installer source is unchanged
+between that commit and `84e4286`; subsequent changes are confined to workflow,
+documentation, contract tests, and validation scripts. This verifies the
+previously failing quota-helper stdout contract against the current
+application source, not the complete XFS capacity envelope.
+
+The exact-source repeated recovery cohort consists of ten independently
+identified shards, two iterations each, over all six supported smoke
+combinations (Ubuntu 24.04, AlmaLinux 9, Rocky Linux 9 × Apache/Caddy):
+[01](https://github.com/cyberducttape/StePanel/actions/runs/39903141857),
+[02](https://github.com/cyberducttape/StePanel/actions/runs/39903141679),
+[03](https://github.com/cyberducttape/StePanel/actions/runs/39903141803),
+[04](https://github.com/cyberducttape/StePanel/actions/runs/39903141630),
+[05](https://github.com/cyberducttape/StePanel/actions/runs/39903141759),
+[06](https://github.com/cyberducttape/StePanel/actions/runs/39903141819),
+[07](https://github.com/cyberducttape/StePanel/actions/runs/39903141828),
+[08](https://github.com/cyberducttape/StePanel/actions/runs/39903141959),
+[09](https://github.com/cyberducttape/StePanel/actions/runs/39903141732),
+[10](https://github.com/cyberducttape/StePanel/actions/runs/39903141666).
+At capture, each shard had passed input validation, build, and disposable-host
+startup; the Ubuntu 24.04/Caddy recovery smoke was still running and the other
+five combinations were queued. No shard is complete evidence until all six
+host jobs pass. Gate 5 remains open; the required 20-repeat cohort has not
+passed. Production remains **NO-GO**.
+
+This evidence snapshot changes documentation only; the recovery cohort tests
+application source `84e4286`. The remaining gates include physical host
+power-loss recovery, broader ENOSPC/database-outage evidence, repeated
+installed-host recovery, capacity certification, upgrade/rollback policy and
+drills, live alert-delivery outage/retry evidence, and independent security
+assessment.
+
 ### Exact-source validation snapshot — 2026-10-23 04:37 UTC (`03422e5`)
 
 At snapshot time, HEAD was

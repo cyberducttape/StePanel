@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Refresh the authoritative release evidence with passing exact-head CI,
+  CodeQL, documentation, and XFS quota results while keeping all active
+  recovery shards pending and production approval NO-GO.
 - Keep the durable worker dead-letter test bounded but tolerant of scheduler
   contention in the repository-wide race suite, and report an early worker exit
   directly rather than waiting for the test deadline.
