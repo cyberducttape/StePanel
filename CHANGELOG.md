@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Keep the durable worker dead-letter test bounded but tolerant of scheduler
+  contention in the repository-wide race suite, and report an early worker exit
+  directly rather than waiting for the test deadline.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
 - Share filesystem-native user/project quota-state checks between installation,

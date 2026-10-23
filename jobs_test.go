@@ -1599,8 +1599,17 @@ func TestRunWorkerPoolDeadLettersNonRetryableFailuresImmediately(t *testing.T) {
 			return nil, errors.New("transient failure")
 		})
 	}()
-	deadline := time.Now().Add(5 * time.Second)
+	// The full race suite runs under a single P and can leave this lightweight
+	// worker briefly unscheduled while unrelated filesystem/database tests run.
+	// Keep a bounded wait, but don't make five seconds of runner contention look
+	// like a worker-pool failure.
+	deadline := time.Now().Add(30 * time.Second)
 	for {
+		select {
+		case workerErr := <-done:
+			t.Fatalf("worker stopped before jobs settled: %v", workerErr)
+		default:
+		}
 		finalJob, _ := j.Get(final.ID)
 		retriedJob, _ := j.Get(retried.ID)
 		if finalJob.State == "dead-letter" && retriedJob.Attempts >= 1 {
