@@ -9,30 +9,30 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current application-source evidence — 2026-10-23 05:27 UTC (`84e4286`)
+### Current application-source evidence — 2026-10-23 06:17 UTC (`cac6c5a`)
 
 Exact-head CI passed on
-[`84e428626c30745f07341567e883b0ffbcd4ee48`](https://github.com/cyberducttape/StePanel/actions/runs/39903120720),
-including Go 1.26.10 tests/coverage, race, recovery and tmpfs ENOSPC drills,
-database restore checks, static/vulnerability analysis, container validation,
-and UI E2E. Exact-head CodeQL
-([run 39903120727](https://github.com/cyberducttape/StePanel/actions/runs/39903120727))
-and docs validation
-([run 39903120691](https://github.com/cyberducttape/StePanel/actions/runs/39903120691))
-passed; local `make release-check` passed as well.
+[`cac6c5adc13acb77a99dda080bfa9b9e7d6ccd35`](https://github.com/cyberducttape/StePanel/actions/runs/39908676803),
+including Go 1.26.10 tests and coverage floors, race suite, repository recovery
+and tmpfs ENOSPC drills, MySQL/PostgreSQL restore checks, static and
+vulnerability analysis, container build/scan, deployment validation, and UI
+E2E. Exact-head CodeQL ([run 39908676811](https://github.com/cyberducttape/StePanel/actions/runs/39908676811))
+and documentation validation ([run 39908676870](https://github.com/cyberducttape/StePanel/actions/runs/39908676870))
+passed; CodeQL reported zero open alerts. Local full Go tests, `go vet ./...`,
+`make release-check`, shell syntax, and diff checks passed.
 
-The XFS quota-enabled installed-host smoke
-([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
-passed on ancestor `cf079a1`. The application/installer source is unchanged
-between that commit and `84e4286`; subsequent changes are confined to workflow,
-documentation, contract tests, and validation scripts. This verifies the
-previously failing quota-helper stdout contract against the current
-application source, not the complete XFS capacity envelope.
+An N-1 upgrade/rollback smoke passed on application-code ancestor `add8dae`
+([run 39907581022](https://github.com/cyberducttape/StePanel/actions/runs/39907581022))
+on a disposable Ubuntu systemd host, including preservation of operator-managed
+runtime settings. This is useful upgrade evidence, not a supported upgrade-path
+matrix or release rollback certification.
 
-The exact-source repeated recovery cohort consists of ten independently
-identified shards, two iterations each, over all six supported smoke
-combinations (Ubuntu 24.04, AlmaLinux 9, Rocky Linux 9 × Apache/Caddy):
-[01](https://github.com/cyberducttape/StePanel/actions/runs/39903141857),
+A fresh full installed-host recovery run against exact source `cac6c5a` is
+pending: [run 39910599138](https://github.com/cyberducttape/StePanel/actions/runs/39910599138),
+one iteration across Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache
+and Caddy. It is not a pass until all six host jobs succeed. The previous ten
+two-iteration shards
+([01](https://github.com/cyberducttape/StePanel/actions/runs/39903141857),
 [02](https://github.com/cyberducttape/StePanel/actions/runs/39903141679),
 [03](https://github.com/cyberducttape/StePanel/actions/runs/39903141803),
 [04](https://github.com/cyberducttape/StePanel/actions/runs/39903141630),
@@ -41,19 +41,17 @@ combinations (Ubuntu 24.04, AlmaLinux 9, Rocky Linux 9 × Apache/Caddy):
 [07](https://github.com/cyberducttape/StePanel/actions/runs/39903141828),
 [08](https://github.com/cyberducttape/StePanel/actions/runs/39903141959),
 [09](https://github.com/cyberducttape/StePanel/actions/runs/39903141732),
-[10](https://github.com/cyberducttape/StePanel/actions/runs/39903141666).
-At capture, each shard had passed input validation, build, and disposable-host
-startup; the Ubuntu 24.04/Caddy recovery smoke was still running and the other
-five combinations were queued. No shard is complete evidence until all six
-host jobs pass. Gate 5 remains open; the required 20-repeat cohort has not
-passed. Production remains **NO-GO**.
+[10](https://github.com/cyberducttape/StePanel/actions/runs/39903141666))
+test older application source `84e4286` and remain queued. They do not certify
+the current source.
 
-This evidence snapshot changes documentation only; the recovery cohort tests
-application source `84e4286`. The remaining gates include physical host
-power-loss recovery, broader ENOSPC/database-outage evidence, repeated
-installed-host recovery, capacity certification, upgrade/rollback policy and
-drills, live alert-delivery outage/retry evidence, and independent security
-assessment.
+Production remains **NO-GO**. Physical host power-loss recovery, broader
+installed-host ENOSPC/database-outage evidence, the required 20-repeat recovery
+cohort, complete supported-webserver application proof, live alert-delivery
+outage/retry evidence, measured capacity limits, upgrade/rollback policy, and
+independent security assessment remain open. This evidence update changes
+documentation only; the pending recovery run exercises application source
+`cac6c5a`.
 
 ### Exact-source validation snapshot — 2026-10-23 04:37 UTC (`03422e5`)
 

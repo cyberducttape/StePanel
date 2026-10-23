@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Protect timestamped cPanel restore staging trees with cross-process ownership
   leases and strict name validation so age-based cleanup cannot remove an
   active restore or accept an unsafe staging path.
+- Refresh release evidence to exact source `cac6c5a`: full CI, race, recovery,
+  ENOSPC, database restore, CodeQL, and documentation checks passed; a current
+  six-host full-recovery run is pending, and production remains NO-GO.
 - Preserve operator-managed runtime settings, including alert destinations and
   credentials, during installer upgrades; add round-trip coverage for escaping
   and ensure failure-injection variables are not persisted. The N-1 upgrade
