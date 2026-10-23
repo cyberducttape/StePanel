@@ -34,6 +34,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   including negative cases for incomplete or malformed certification shards.
 - Add and track the shared recovery-matrix validator and its executable contract
   tests so scheduled runs also receive the documented safe defaults.
+- Update the Go workflow contract test to verify the shared validator instead of
+  requiring inline YAML checks.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
 - Use POSIX conditionals in the quota smoke's cloud-init guest script; its
