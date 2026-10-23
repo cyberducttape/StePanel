@@ -3733,6 +3733,8 @@ multi-tenant hosting platform.
 - Refresh the authoritative status and v1 gate snapshot with exact-head CI,
   CodeQL, documentation, and six-host install results, while keeping current
   XFS quota and repeated-recovery evidence explicitly open.
+- Record the completed older-source ext4 quota/ENOSPC guest evidence without
+  presenting it as validation of the newer shared quota helper.
 - Added the production-readiness wiki covering architecture, operations,
   security boundaries, backup/restore procedures, deployment, observability,
   and known limitations.

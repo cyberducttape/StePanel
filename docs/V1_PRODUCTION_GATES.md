@@ -32,9 +32,14 @@ recovery or production support.
 
 The current-head XFS quota guest run
 ([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
-is queued behind an older quota guest run. The older ext4 run
+is in its guest-install/smoke phase. An older ext4 quota-enabled Ubuntu guest
+run
 ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
-remains active but is not current-source evidence. A two-repeat full recovery
+completed successfully on `7b549a7`: it confirmed user and project quotas on
+`/var/www`, user quotas on `/home`, exercised a real project-quota overage, and
+passed real backup and file-restore ENOSPC tests. It predates the shared quota
+state helper in `899ef70`, so it does not certify that current implementation.
+A two-repeat full recovery
 matrix ([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
 also remains active on older source `dd89653`; it is neither current-source
 evidence nor the documented 20–50-repeat cohort. These runs do not prove

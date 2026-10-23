@@ -33,10 +33,14 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   not full recovery certification or production support by itself.
 - The current-head XFS quota-enabled guest run
   ([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
-  is queued behind an older quota guest run; no current-head XFS quota result is
-  available yet. The older ext4 quota run
+  is in its guest-install/smoke phase; no XFS result is available yet. An older
+  ext4 quota-enabled Ubuntu guest run
   ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
-  is still active but is not current-source evidence.
+  completed successfully on source `7b549a7`: it confirmed active user and
+  project quotas on `/var/www`, user quotas on `/home`, exercised a real project
+  quota overage, and passed real backup and file-restore ENOSPC tests. It does
+  not validate the new shared quota-state helper introduced on `899ef70`, and
+  is not current-source evidence.
 - A two-repeat full recovery matrix
   ([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
   remains active on older source `dd89653`. It is not current-source evidence
