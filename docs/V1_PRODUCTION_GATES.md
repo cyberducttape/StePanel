@@ -9,29 +9,37 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest exact-source validation snapshot — 2026-10-23 (`7b549a7`)
+### Latest exact-source validation snapshot — 2026-10-23 (`ffc286a`)
 
 Exact-head CI integration passed on
-`7b549a782e325d576a4a79bf472ee8e6001d0eee`, including the configured race
-suite, recovery drills, real tmpfs ENOSPC, database helper contracts, static
-analysis, and UI E2E ([run 39881723676](https://github.com/cyberducttape/StePanel/actions/runs/39881723676)).
-CodeQL ([run 39881723750](https://github.com/cyberducttape/StePanel/actions/runs/39881723750))
+`ffc286a75f20f097650c27ee632d3864ae9f863f`
+([run 39891655140](https://github.com/cyberducttape/StePanel/actions/runs/39891655140)),
+including the race suite, repository recovery drills, real tmpfs ENOSPC, mixed
+HTTP load, database restore checks, static analysis, container/deployment
+validation, and UI E2E. CodeQL
+([run 39891655002](https://github.com/cyberducttape/StePanel/actions/runs/39891655002))
 and documentation validation
-([run 39881723700](https://github.com/cyberducttape/StePanel/actions/runs/39881723700))
-also passed on that exact source.
+([run 39891655075](https://github.com/cyberducttape/StePanel/actions/runs/39891655075))
+also passed on that exact commit.
 
-The exact-source six-host installation matrix
-([run 39882971785](https://github.com/cyberducttape/StePanel/actions/runs/39882971785))
-completed successfully at 2026-10-23 02:04 UTC: Ubuntu 24.04, AlmaLinux 9, and
-Rocky Linux 9, each with Apache and Caddy. This is install-smoke evidence, not
-full recovery certification. The quota-enabled VM smoke
+The six-host installed-host matrix
+([run 39889562484](https://github.com/cyberducttape/StePanel/actions/runs/39889562484))
+passed on `899ef70951077302b2c451a782d42218533b95df`, the immediately preceding
+commit; the only difference in `ffc286a` is a test timeout/diagnostic and
+changelog entry. All six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache
+and Caddy combinations passed installation smoke. This does not certify full
+recovery or production support.
+
+The current-head XFS quota guest run
+([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
+is queued behind an older quota guest run. The older ext4 run
 ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
-is still active in guest installation and has not provided quota or ENOSPC
-evidence. An initial two-repeat full recovery matrix
-([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
-is queued; even if successful, it will not meet the documented 20–50-repeat
-requirement. These runs do not prove physical host power-loss recovery, XFS
-quotas, or all ENOSPC boundaries. Production remains **NO-GO**.
+remains active but is not current-source evidence. A two-repeat full recovery
+matrix ([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
+also remains active on older source `dd89653`; it is neither current-source
+evidence nor the documented 20–50-repeat cohort. These runs do not prove
+physical host power-loss recovery, current-head XFS quotas, or all ENOSPC
+boundaries. Production remains **NO-GO**.
 
 ### Latest complete `scripts/production-gate.sh` run — 2026-10-19 (`c0113dd`)
 

@@ -3730,6 +3730,9 @@ multi-tenant hosting platform.
 
 ### Documentation
 
+- Refresh the authoritative status and v1 gate snapshot with exact-head CI,
+  CodeQL, documentation, and six-host install results, while keeping current
+  XFS quota and repeated-recovery evidence explicitly open.
 - Added the production-readiness wiki covering architecture, operations,
   security boundaries, backup/restore procedures, deployment, observability,
   and known limitations.

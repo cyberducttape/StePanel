@@ -12,33 +12,39 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Exact-source validation snapshot — 2026-10-23 (`7b549a7`)
+### Exact-source validation snapshot — 2026-10-23 (`ffc286a`)
 
-- Exact-head CI integration passed, including formatting, vet, unit and race
-  tests, recovery drills, database-helper contracts, static analysis, and UI
-  E2E ([run 39881723676](https://github.com/cyberducttape/StePanel/actions/runs/39881723676)).
-  CodeQL ([run 39881723750](https://github.com/cyberducttape/StePanel/actions/runs/39881723750))
-  and documentation checks
-  ([run 39881723700](https://github.com/cyberducttape/StePanel/actions/runs/39881723700))
-  also passed on `7b549a782e325d576a4a79bf472ee8e6001d0eee`.
-- Exact-head installed-host smoke
-  ([run 39882971785](https://github.com/cyberducttape/StePanel/actions/runs/39882971785))
-  completed successfully at 2026-10-23 02:04 UTC. All six combinations passed:
-  Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9, each with Apache and Caddy.
-  This establishes install-smoke coverage for those combinations, not full
-  recovery certification or production support by itself.
-- Exact-head quota-enabled VM validation
+- Exact-head CI integration passed on
+  `ffc286a75f20f097650c27ee632d3864ae9f863f`
+  ([run 39891655140](https://github.com/cyberducttape/StePanel/actions/runs/39891655140)),
+  including formatting, vet, full Go tests and coverage floors, the race suite,
+  repository recovery drills, real tmpfs ENOSPC, mixed HTTP load, database
+  restore checks, static analysis, container/deployment validation, and UI E2E.
+  CodeQL ([run 39891655002](https://github.com/cyberducttape/StePanel/actions/runs/39891655002))
+  and documentation validation
+  ([run 39891655075](https://github.com/cyberducttape/StePanel/actions/runs/39891655075))
+  also passed on that exact commit.
+- The exact-head six-host installation matrix
+  ([run 39889562484](https://github.com/cyberducttape/StePanel/actions/runs/39889562484))
+  passed on `899ef70951077302b2c451a782d42218533b95df`; `ffc286a` changes only
+  the race-test wait/diagnostic and changelog, so installer/application source
+  is identical. All six combinations passed: Ubuntu 24.04, AlmaLinux 9, and
+  Rocky Linux 9, each with Apache and Caddy. This is install-smoke evidence,
+  not full recovery certification or production support by itself.
+- The current-head XFS quota-enabled guest run
+  ([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
+  is queued behind an older quota guest run; no current-head XFS quota result is
+  available yet. The older ext4 quota run
   ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
-  is active in its guest-install phase; it has not yet provided quota or ENOSPC
-  evidence.
+  is still active but is not current-source evidence.
 - A two-repeat full recovery matrix
   ([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
-  is queued. It is an initial recovery cohort only and does not meet the
-  documented 20–50-repeat evidence requirement.
-- Repository CI and these pending/partial host runs do not certify production.
-  Approval remains **NO-GO** for repeated full recovery, physical host power
-  loss, broader ENOSPC, quota/XFS behavior, capacity limits, and the remaining
-  release gates in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
+  remains active on older source `dd89653`. It is not current-source evidence
+  and does not meet the documented 20–50-repeat requirement.
+- Repository CI does not certify host power-loss recovery, the full ENOSPC
+  matrix, current-head XFS quotas, repeated installed-host recovery, a measured
+  capacity envelope, or the remaining gates. Approval remains **NO-GO**; see
+  [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
 
 ### Latest code-source repository gate — 2026-10-21 (`d931c6a`)
 
