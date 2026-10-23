@@ -68,11 +68,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
+echo 'FTPS smoke: preparing isolated site account'
 "$helper" prepare "$site"
 site_user=$(getent passwd | awk -F: -v home="/var/www/sites/$site" '$6 == home { print $1; exit }')
 [[ -n $site_user ]] || { echo 'could not resolve FTPS site user' >&2; exit 1; }
-printf '%s' "$password" | "$helper" ftp "$site" 1
-grep -Fxq "$site_user" /etc/vsftpd/stepanel.users
+echo 'FTPS smoke: enabling FTPS credentials and SSH password denial'
+if ! printf '%s' "$password" | "$helper" ftp "$site" 1; then
+  echo 'FTPS smoke: site helper failed to enable FTPS' >&2
+  exit 1
+fi
+echo 'FTPS smoke: checking the published allowlist'
+grep -Fxq "$site_user" /etc/vsftpd/stepanel.users || { echo 'FTPS smoke: enabled account is missing from the allowlist' >&2; exit 1; }
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=localhost' \
   -keyout "$tmp/server.key" -out "$tmp/server.crt" >/dev/null 2>&1
@@ -115,11 +121,13 @@ for _ in {1..20}; do
 done
 kill -0 "$vsftpd_pid" 2>/dev/null || { sed -n '1,120p' "$tmp/vsftpd.log" >&2; exit 1; }
 (( server_ready == 1 )) || { echo 'temporary FTPS server did not open its loopback port' >&2; exit 1; }
+echo 'FTPS smoke: checking PAM login'
 if ! curl --fail --silent --show-error --max-time 5 --ftp-ssl --ssl-reqd --insecure \
   --user "$site_user:$password" --list-only "ftp://127.0.0.1:$port/" >/dev/null; then
   ftps_diagnostics
   exit 1
 fi
+echo 'FTPS smoke: checking upload and download'
 printf '%s\n' 'FTPS upload/download proof' > "$tmp/upload.txt"
 curl --fail --silent --show-error --ftp-ssl --ssl-reqd --insecure --user "$site_user:$password" \
   --upload-file "$tmp/upload.txt" "ftp://127.0.0.1:$port/upload.txt"
@@ -131,6 +139,7 @@ download_sha=$(sha256sum "$tmp/download.txt" | awk '{print $1}')
 
 # FTPS uses the site account's Unix password, so prove that the managed sshd
 # policy blocks that credential even when the surrounding sshd allows it.
+echo 'FTPS smoke: checking SSH password isolation'
 ssh_bin=$(command -v ssh) || { echo 'OpenSSH client is required for FTPS/SSH isolation smoke' >&2; exit 77; }
 sshd_bin=$(command -v sshd) || { echo 'OpenSSH server is required for FTPS/SSH isolation smoke' >&2; exit 77; }
 ssh_port=$((24000 + ($$ % 1000)))
@@ -181,6 +190,7 @@ fi
 
 # FTPS and SSH/SFTP keys share the account password field: installing keys
 # must keep the FTPS password, and revoking FTPS must keep the keys usable.
+echo 'FTPS smoke: checking SFTP key coexistence and FTPS revocation'
 ssh-keygen -q -t ed25519 -N '' -f "$tmp/client"
 "$helper" access "$site" 1 0 < "$tmp/client.pub"
 curl --fail --silent --show-error --ftp-ssl --ssl-reqd --insecure --user "$site_user:$password" \

@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Make FTPS smoke readiness probes avoid repeated failed logins, emit bounded
   password-free PAM/account/hash-verification diagnostics on denial, and
   compare transfers with installed core utilities.
+- Report each installed-host FTPS smoke phase so distro-specific provisioning,
+  PAM, SSH-policy, and transfer failures are distinguishable from CI output.
 - Run the real FTPS upload/download and revocation smoke in every installed-host
   matrix, and verify with a disposable OpenSSH server that the FTPS password
   cannot authenticate over SSH even when global password login is enabled.
