@@ -36,8 +36,11 @@ deployment validation. Exact-head CodeQL and docs validation also passed on
 ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
 is still running. A two-repeat full-recovery shard on the current commit
 ([run 39898086088](https://github.com/cyberducttape/StePanel/actions/runs/39898086088))
-has started its first host; the other matrix jobs are queued. These are not
-passes until their complete workflows succeed.
+has started its first host; the other matrix jobs are queued. Two additional
+two-repeat shards are queued on `93b46c6`: [shard E](https://github.com/cyberducttape/StePanel/actions/runs/39900804398)
+and [shard F](https://github.com/cyberducttape/StePanel/actions/runs/39901109050).
+None count as passes until every matrix job succeeds; the 20–50-repeat gate
+remains open.
 
 The XFS quota guest on the preceding implementation
 ([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))

@@ -35,7 +35,11 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
   remains in progress. The two-repeat full recovery shard
   ([run 39898086088](https://github.com/cyberducttape/StePanel/actions/runs/39898086088))
-  has started its first host; other matrix jobs are queued.
+  has started its first host; other matrix jobs are queued. Two additional
+  two-repeat shards are queued on `93b46c6`: [E](https://github.com/cyberducttape/StePanel/actions/runs/39900804398)
+  and [F](https://github.com/cyberducttape/StePanel/actions/runs/39901109050).
+  They are not passes until all jobs succeed; the 20–50-repeat gate remains
+  open.
 - The previous XFS guest run
   ([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
   enabled and enforced quotas, then failed because `xfs_quota` status output
