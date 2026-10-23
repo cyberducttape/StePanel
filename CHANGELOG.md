@@ -11,6 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Keep the durable worker dead-letter test bounded but tolerant of scheduler
   contention in the repository-wide race suite, and report an early worker exit
   directly rather than waiting for the test deadline.
+- Make legacy site-identity migration atomic so a detected account collision
+  cannot leave a partial identity map behind.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
 - Use POSIX conditionals in the quota smoke's cloud-init guest script; its

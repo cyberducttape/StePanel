@@ -1,9 +1,11 @@
 package siteidentity
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -55,6 +57,64 @@ func TestMigrateExistingRejectsLegacyCollision(t *testing.T) {
 	}
 	if err := MigrateExisting(db, root); err == nil {
 		t.Fatal("legacy identity collision was accepted")
+	}
+	var mapped int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM site_identities`).Scan(&mapped); err != nil {
+		t.Fatal(err)
+	}
+	if mapped != 0 {
+		t.Fatalf("collision-aborted migration left %d partial identity mappings", mapped)
+	}
+}
+
+func TestConcurrentMigrateExistingIsSerializedAndIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "identity.db")
+	dsn := "file:" + path + "?_pragma=busy_timeout(5000)"
+	db1, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db1.Close()
+	if _, err := db1.Exec(`CREATE TABLE site_identities (site TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	db2, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db2.Close()
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "sites"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "sites", "example"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, db := range []*sql.DB{db1, db2} {
+		wg.Add(1)
+		go func(db *sql.DB) {
+			defer wg.Done()
+			<-start
+			errs <- MigrateExisting(db, root)
+		}(db)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent identity migration: %v", err)
+		}
+	}
+	var count int
+	if err := db1.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM site_identities WHERE site='example'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("migrated identity count = %d, want 1", count)
 	}
 }
 

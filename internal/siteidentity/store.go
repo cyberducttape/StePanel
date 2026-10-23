@@ -1,6 +1,7 @@
 package siteidentity
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -80,23 +81,44 @@ func MigrateExisting(db *sql.DB, webRoot string) error {
 		}
 		return fmt.Errorf("scan existing site roots: %w", err)
 	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		return fmt.Errorf("open site identity migration connection: %w", err)
+	}
+	defer conn.Close()
+	// The panel and worker can start concurrently and both run this migration.
+	// Acquire SQLite's writer reservation before reading so the second process
+	// cannot hold a stale WAL snapshot and fail while upgrading it to a writer.
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin site identity migration: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 	for _, entry := range entries {
 		if !entry.IsDir() || !validSite(entry.Name()) {
 			continue
 		}
 		legacy := UnixUser(entry.Name())
 		var owner string
-		err := db.QueryRow(`SELECT site FROM site_identities WHERE username = ?`, legacy).Scan(&owner)
+		err := conn.QueryRowContext(context.Background(), `SELECT site FROM site_identities WHERE username = ?`, legacy).Scan(&owner)
 		if err == nil && owner != entry.Name() {
 			return fmt.Errorf("site identity collision: %q and %q both map to Unix account %q", owner, entry.Name(), legacy)
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("inspect site identity %q: %w", entry.Name(), err)
 		}
-		if _, err := db.Exec(`INSERT INTO site_identities(site, username, created_at) VALUES (?, ?, ?) ON CONFLICT(site) DO NOTHING`, entry.Name(), legacy, time.Now().UTC().Unix()); err != nil {
+		if _, err := conn.ExecContext(context.Background(), `INSERT INTO site_identities(site, username, created_at) VALUES (?, ?, ?) ON CONFLICT(site) DO NOTHING`, entry.Name(), legacy, time.Now().UTC().Unix()); err != nil {
 			return fmt.Errorf("migrate site identity %q: %w", entry.Name(), err)
 		}
 	}
+	if _, err := conn.ExecContext(context.Background(), "COMMIT"); err != nil {
+		return fmt.Errorf("commit site identity migration: %w", err)
+	}
+	committed = true
 	return nil
 }
 
