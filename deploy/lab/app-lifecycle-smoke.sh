@@ -243,7 +243,7 @@ expect_app active enabled running
 # Once the unit is gone the helper must refuse lifecycle actions.
 "$appctl" delete "$site" "$site_user"
 [[ ! -e /etc/systemd/system/$unit ]] || { echo "application unit survived delete" >&2; exit 1; }
-if output=$("$appctl" start "$site" 2>&1); then
+if output=$("$appctl" start "$site" "$site_user" 2>&1); then
   echo 'start succeeded for an application without a unit' >&2
   exit 1
 fi

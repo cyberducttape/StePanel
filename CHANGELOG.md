@@ -137,6 +137,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Pass the persisted hosting-account identity to the app lifecycle smoke's
+  negative start check, so it verifies the missing-unit behavior after the
+  helper's required site-ownership validation.
 - Start Node, Python, worker and scheduled-task units of a site in a hosting
   account: their `ProtectHome=true` hid `/home`, so they failed with
   `200/CHDIR`. They now see an empty `/home` holding only the site's document
