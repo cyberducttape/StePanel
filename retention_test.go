@@ -179,7 +179,14 @@ func TestImportStageLeaseProcessHelper(t *testing.T) {
 		return
 	}
 	id := os.Getenv("STEPANEL_TEST_IMPORT_STAGE_ID")
-	stage, lock, err := createImportStage(root, "offsite-restore-")
+	var stage string
+	var lock *os.File
+	var err error
+	if name := os.Getenv("STEPANEL_TEST_IMPORT_STAGE_NAME"); name != "" {
+		stage, lock, err = createNamedImportStage(root, name)
+	} else {
+		stage, lock, err = createImportStage(root, "offsite-restore-")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +203,60 @@ func TestImportStageLeaseProcessHelper(t *testing.T) {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestCleanupImportStagesHonorsCrossProcessNamedRestoreLease(t *testing.T) {
+	root := t.TempDir()
+	name := "20200101-010101-customer-AbCdEf012_-x"
+	ready := filepath.Join(root, "ready-cpanel")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestImportStageLeaseProcessHelper$")
+	cmd.Env = append(os.Environ(), "STEPANEL_TEST_IMPORT_STAGE_ROOT="+root,
+		"STEPANEL_TEST_IMPORT_STAGE_ID=cpanel", "STEPANEL_TEST_IMPORT_STAGE_NAME="+name)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	stop := filepath.Join(root, "stop")
+	waited := false
+	defer func() {
+		if !waited {
+			_ = os.WriteFile(stop, []byte("stop"), 0600)
+			_ = cmd.Wait()
+		}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	var stage string
+	for {
+		if data, err := os.ReadFile(ready); err == nil {
+			stage = string(data)
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("named restore-stage owner did not start")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := CleanupImportStages(root, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stage); err != nil {
+		t.Fatalf("cleanup removed a live named restore stage: %v", err)
+	}
+	if err := os.WriteFile(stop, []byte("stop"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("named restore-stage owner: %v", err)
+	}
+	waited = true
+	if err := CleanupImportStages(root, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stage); !os.IsNotExist(err) {
+		t.Fatalf("released old named restore stage was not collected: %v", err)
+	}
+	if _, err := os.Stat(importStageLockPath(stage)); !os.IsNotExist(err) {
+		t.Fatalf("named restore-stage lease path remains after cleanup: %v", err)
 	}
 }
 

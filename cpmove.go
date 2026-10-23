@@ -347,11 +347,16 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	}
 	user := site.Site()
 	id := time.Now().UTC().Format("20060102-150405") + "-" + user + "-" + randomID[:12]
-	stage := filepath.Join(cfg.ImportRoot, id)
-	if err := os.MkdirAll(stage, 0700); err != nil {
+	stage, stageLock, err := createNamedImportStage(cfg.ImportRoot, id)
+	if err != nil {
 		input.Close()
 		return ImportResult{}, err
 	}
+	defer func() {
+		if err := releaseBackupStageLock(stageLock); err != nil {
+			log.Printf("release cPanel import stage lease for %s: %v", id, err)
+		}
+	}()
 	if err = extractArchiveReaderContext(ctx, input, stage, archive); err != nil {
 		_ = input.Close()
 		return ImportResult{}, err

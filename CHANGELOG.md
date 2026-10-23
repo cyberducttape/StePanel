@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Protect timestamped cPanel restore staging trees with cross-process ownership
+  leases so age-based cleanup cannot remove an active restore.
 - Preserve operator-managed runtime settings, including alert destinations and
   credentials, during installer upgrades; add round-trip coverage for escaping
   and ensure failure-injection variables are not persisted. The N-1 upgrade

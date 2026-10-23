@@ -57,6 +57,39 @@ func createImportStage(root, prefix string) (string, *os.File, error) {
 	return path, lock, nil
 }
 
+// createNamedImportStage creates a retained, timestamped cPanel restore tree
+// with the same cross-process ownership lease as temporary import stages.
+// The lease stays held while extraction and restore work use the tree; cleanup
+// may use age only to nominate it after the lease has been released.
+func createNamedImportStage(root, name string) (string, *os.File, error) {
+	if !restoreStagePattern.MatchString(name) {
+		return "", nil, errors.New("invalid named import stage")
+	}
+	coordination, err := acquireImportStageCoordination(root)
+	if err != nil {
+		return "", nil, err
+	}
+	defer releaseBackupStageLock(coordination)
+
+	path := filepath.Join(root, name)
+	if err := os.Mkdir(path, 0700); err != nil {
+		return "", nil, err
+	}
+	lock, err := os.OpenFile(importStageLockPath(path), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	if err == nil {
+		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	}
+	if err != nil {
+		if lock != nil {
+			_ = lock.Close()
+			_ = os.Remove(importStageLockPath(path))
+		}
+		_ = os.RemoveAll(path)
+		return "", nil, err
+	}
+	return path, lock, nil
+}
+
 func importStageLockPath(path string) string {
 	return filepath.Join(filepath.Dir(path), ".stepanel-stage-lock-"+filepath.Base(path))
 }
@@ -96,8 +129,9 @@ func removeImportStage(path string, lock *os.File) {
 }
 
 // outsideStageCoordination runs a tree removal with the root coordination
-// lock released. Coordination guards lock-file pathnames only; the caller owns
-// the tree through its stage lock or its retention age.
+// lock released. Coordination guards lock-file pathnames; active-stage cleanup
+// also holds the per-stage lease. Age-only removal is retained solely for
+// legacy trees that predate leases.
 func outsideStageCoordination(coordination *os.File, remove func() error) error {
 	if err := syscall.Flock(int(coordination.Fd()), syscall.LOCK_UN); err != nil {
 		return err
@@ -120,7 +154,8 @@ func isTemporaryImportStage(name string) bool {
 
 // CleanupImportStages removes retained restore stages and orphaned uploads
 // older than maxAge, and temporary scratch trees abandoned for longer than
-// orphanedStagingMinAge. A missing root has nothing to clean.
+// orphanedStagingMinAge. A live stage lease always prevents removal. A missing
+// root has nothing to clean.
 func CleanupImportStages(root string, maxAge time.Duration) error {
 	coordination, err := acquireImportStageCoordination(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -214,8 +249,33 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 			continue
 		}
 		if entry.IsDir() && restoreStagePattern.MatchString(entry.Name()) {
+			lockPath := importStageLockPath(path)
+			stageLock, lockErr := os.OpenFile(lockPath, os.O_RDWR, 0600)
+			if lockErr == nil {
+				lockErr = syscall.Flock(int(stageLock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			}
+			if errors.Is(lockErr, syscall.EWOULDBLOCK) || errors.Is(lockErr, syscall.EAGAIN) {
+				_ = stageLock.Close()
+				continue
+			}
+			if lockErr != nil && !errors.Is(lockErr, os.ErrNotExist) {
+				if stageLock != nil {
+					_ = stageLock.Close()
+				}
+				return lockErr
+			}
 			if err := outsideStageCoordination(coordination, func() error { return os.RemoveAll(path) }); err != nil {
+				_ = releaseBackupStageLock(stageLock)
 				return err
+			}
+			if stageLock != nil {
+				if err := os.Remove(lockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+					_ = releaseBackupStageLock(stageLock)
+					return err
+				}
+				if err := releaseBackupStageLock(stageLock); err != nil {
+					return err
+				}
 			}
 		} else if !entry.IsDir() && isOrphanUpload(entry.Name()) {
 			if err := os.Remove(path); err != nil {
