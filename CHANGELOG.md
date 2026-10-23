@@ -14,6 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Refresh release evidence to exact source `cac6c5a`: full CI, race, recovery,
   ENOSPC, database restore, CodeQL, and documentation checks passed; a current
   six-host full-recovery run is pending, and production remains NO-GO.
+- Reconcile production-gate table rows with the October 23 CI, CodeQL, docs,
+  N-1 upgrade, and in-progress current-source host matrix, removing stale
+  October 19–21 workflow status claims.
 - Preserve operator-managed runtime settings, including alert destinations and
   credentials, during installer upgrades; add round-trip coverage for escaping
   and ensure failure-injection variables are not persisted. The N-1 upgrade
