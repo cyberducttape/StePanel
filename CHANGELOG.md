@@ -14,7 +14,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   recovery smoke coverage for both states.
 - Reconcile the production-gate evidence with the failed staged-database
   recovery boundary, the `e94f870` compensation fix, passing `c93f66d` CI, and
-  the exact-source full-host rerun now queued; retain the NO-GO decision.
+  the exact-source recovery matrix still running; retain the NO-GO decision.
+- Record passing exact-source integration CI on `e94f870`, current-main CodeQL
+  and documentation passes with zero open alerts, while the six-host exhaustive
+  recovery matrix remains active; production remains NO-GO.
 - Add a durable-job regression test proving offsite backup retries retain and
   reuse the verified local archive after worker failure and process restart,
   even when the original site tree is no longer available.
