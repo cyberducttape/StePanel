@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       full_recovery_matrix:
-        description: 'Run the exhaustive recovery-boundary matrix'
+        description: 'Run every supported recovery boundary (required for repeated certification shards)'
         required: false
         default: false
         type: boolean
       recovery_matrix_repeats:
-        description: 'Run 1-2 recovery iterations in this shard; use multiple shards for 20-50 repeats'
+        description: 'Run 1-2 exhaustive recovery iterations in this shard; use multiple shards for 20-50 repeats'
         required: false
         default: 1
         type: number
@@ -38,6 +38,7 @@ jobs:
     env:
       RECOVERY_MATRIX_REPEATS: ${{ inputs.recovery_matrix_repeats || 1 }}
       RECOVERY_MATRIX_SHARD: ${{ inputs.recovery_matrix_shard || '' }}
+      FULL_RECOVERY_MATRIX: ${{ inputs.full_recovery_matrix }}
     strategy:
       fail-fast: false
       # A repeated recovery cohort may contain many independent shards. Limit
@@ -84,6 +85,10 @@ jobs:
             exit 64
           }
           if (( RECOVERY_MATRIX_REPEATS > 1 )); then
+            [[ "$FULL_RECOVERY_MATRIX" == "true" ]] || {
+              echo 'repeated recovery certification shards require full_recovery_matrix=true' >&2
+              exit 64
+            }
             [[ "$RECOVERY_MATRIX_SHARD" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$ ]] || {
               echo 'two-iteration recovery shards require a unique 1-40 character recovery_matrix_shard' >&2
               exit 64
