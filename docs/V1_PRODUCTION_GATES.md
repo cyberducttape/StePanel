@@ -9,27 +9,24 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current release evidence — 2026-10-23 07:25 UTC (`aa76479`)
+### Current release evidence — 2026-10-23 07:40 UTC (`64b4a39`)
 
 The application and smoke-harness revision under assessment is
 [`ea69e24a1b5b4cd5fd0594f016a819954a8a1517`](https://github.com/cyberducttape/StePanel/commit/ea69e24a1b5b4cd5fd0594f016a819954a8a1517);
-current `main` at `053ac62` adds only evidence documentation. Documentation
-([run 39916589273](https://github.com/cyberducttape/StePanel/actions/runs/39916589273))
-and CodeQL ([run 39916589294](https://github.com/cyberducttape/StePanel/actions/runs/39916589294))
-passed on `053ac62`; CodeQL reports zero open alerts.
+current `main` at `64b4a39` adds only evidence documentation. Documentation
+([run 39917734607](https://github.com/cyberducttape/StePanel/actions/runs/39917734607))
+and CodeQL ([run 39917734570](https://github.com/cyberducttape/StePanel/actions/runs/39917734570))
+passed on current `main`; CodeQL reports zero open alerts.
 
-The integration run on `ea69e24`
+The fresh integration run at `053ac62` passed in full
+([run 39917250272](https://github.com/cyberducttape/StePanel/actions/runs/39917250272)),
+including Go tests and coverage floors, race tests, recovery and ENOSPC drills,
+database restore checks, static analysis, container build and validation, and
+UI E2E. It ran on an isolated evidence branch; its application source is
+`ea69e24`, matching the current application code. The prior run on `ea69e24`
 ([run 39914766303](https://github.com/cyberducttape/StePanel/actions/runs/39914766303))
-has all 68 recorded steps successful, including Go tests, race checks, recovery
-drills, database restore checks, static analysis, container build and scan, and
-deployment validation. GitHub still reports the job in progress without a
-completion timestamp, despite its final “Complete job” step succeeding. It is
-not counted as a terminal CI pass. A fresh integration run on the same code and
-current evidence revision `053ac62` is now running on an isolated branch
-([run 39917250272](https://github.com/cyberducttape/StePanel/actions/runs/39917250272)).
-Its Go race-test step is active. Documentation and CodeQL on `053ac62` passed;
-documentation and CodeQL checks for this documentation-only revision `aa76479`
-are queued.
+has all recorded steps successful but remains workflow-stuck without a
+completion timestamp, so it is not counted as a terminal pass.
 
 The quota-enabled Ubuntu installation job completed successfully
 ([job 120277924484 in run 39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883/jobs/120277924484)),

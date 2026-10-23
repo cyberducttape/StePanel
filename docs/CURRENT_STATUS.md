@@ -12,20 +12,20 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Current release evidence — 2026-10-23 07:25 UTC (`aa76479`)
+### Current release evidence — 2026-10-23 07:40 UTC (`64b4a39`)
 
 - Application and smoke-harness source under test is `ea69e24`; current `main`
-  at `053ac62` adds evidence documentation only. Documentation validation
-  ([run 39916589273](https://github.com/cyberducttape/StePanel/actions/runs/39916589273))
-  and CodeQL ([run 39916589294](https://github.com/cyberducttape/StePanel/actions/runs/39916589294))
+  at `64b4a39` adds evidence documentation only. Documentation validation
+  ([run 39917734607](https://github.com/cyberducttape/StePanel/actions/runs/39917734607))
+  and CodeQL ([run 39917734570](https://github.com/cyberducttape/StePanel/actions/runs/39917734570))
   passed on current `main`, with zero open CodeQL alerts.
-- Integration CI on `ea69e24` ([run 39914766303](https://github.com/cyberducttape/StePanel/actions/runs/39914766303))
-  has all 68 recorded steps successful, but GitHub still reports its job
-  in-progress with no completion timestamp. It is not counted as a terminal
-  pass. A fresh integration run at `053ac62` is queued on an isolated branch
-  ([run 39917250272](https://github.com/cyberducttape/StePanel/actions/runs/39917250272));
-  its Go race-test step is active. Documentation and CodeQL passed on `053ac62`;
-  checks for this docs-only update are queued.
+- A fresh integration CI run at `053ac62` passed in full
+  ([run 39917250272](https://github.com/cyberducttape/StePanel/actions/runs/39917250272)),
+  including Go tests and coverage floors, race tests, recovery and ENOSPC
+  drills, database restore checks, static analysis, container validation, and
+  UI E2E. Its application source is `ea69e24`, matching current application
+  code; the run used an isolated evidence branch. The earlier `ea69e24` run
+  remains workflow-stuck and is not counted.
 - The quota-enabled Ubuntu installation job completed successfully
   ([job 120277924484](https://github.com/cyberducttape/StePanel/actions/runs/39912326883/jobs/120277924484))
   and its workflow finalized successfully
