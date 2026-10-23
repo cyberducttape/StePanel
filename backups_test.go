@@ -1055,17 +1055,20 @@ func TestBackupRehearsalReservesExpandedSpaceBeforeExtraction(t *testing.T) {
 		t.Fatal(err)
 	}
 	const minFreeBytes = uint64(1 << 20)
+	const admissionMargin = uint64(16 << 20)
 	free, err := availableBytes(importRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if free <= minFreeBytes+1 {
+	if free <= minFreeBytes+admissionMargin {
 		t.Fatalf("test filesystem has insufficient free space for reservation scenario: %d", free)
 	}
 	ledger := &capacityLedger{}
-	// Leave only one unreserved byte above the configured reserve. The archive
-	// expands to six bytes, so admission must fail before creating a stage.
-	_, err = ledger.reserve(Config{MinFreeBytes: minFreeBytes}, "competing-operation", importRoot, []capacityDemand{{Path: importRoot, Bytes: free - minFreeBytes - 1}})
+	// Leave a 16 MiB safety margin above the reserve. The rehearsal's larger
+	// configured minimum-free requirement must still be rejected, without
+	// depending on the host filesystem reporting identical free bytes between
+	// this sample and the subsequent admission check.
+	_, err = ledger.reserve(Config{MinFreeBytes: minFreeBytes}, "competing-operation", importRoot, []capacityDemand{{Path: importRoot, Bytes: free - minFreeBytes - admissionMargin}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1073,7 +1076,7 @@ func TestBackupRehearsalReservesExpandedSpaceBeforeExtraction(t *testing.T) {
 		Auth:     Auth{Username: "admin"},
 		Jobs:     NewJobs(),
 		capacity: ledger,
-		Config:   Config{BackupRoot: backupRoot, ImportRoot: importRoot, MinFreeBytes: minFreeBytes},
+		Config:   Config{BackupRoot: backupRoot, ImportRoot: importRoot, MinFreeBytes: minFreeBytes + admissionMargin},
 	}
 	payload, err := json.Marshal(durableBackupRehearsalRequest{Site: "account", Backup: filepath.Base(created.Path), Actor: "admin"})
 	if err != nil {

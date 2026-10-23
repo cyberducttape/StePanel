@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Make the backup-rehearsal capacity test robust to small free-space changes
+  on shared and block-allocated CI filesystems.
+
 ### Added
 
 - Give customers their own panel at `/panel` (`web/panel.html`); customers
