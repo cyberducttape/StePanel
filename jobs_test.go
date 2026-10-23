@@ -371,13 +371,21 @@ func TestDurableJobReadDoesNotResurrectRowDeletedByAnotherProcess(t *testing.T) 
 }
 
 func TestDurableBackupRetryReusesPersistedLocalArchive(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "control.db")
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	writeTestFile(t, filepath.Join(webRoot, "sites", "site-a", "public", "index.php"), "<?php echo 'ok';")
+	created, err := CreateSiteBackup(Config{WebRoot: webRoot, BackupRoot: backupRoot}, AuthorizedSite{site: "site-a"}, false)
+	if err != nil {
+		t.Fatalf("create local backup before simulated offsite failure: %v", err)
+	}
+	path := filepath.Join(root, "control.db")
 	jobs, err := OpenDurableJobs(path, "", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	initialPayload, err := json.Marshal(durableBackupRequest{
-		Site: "site-a", IncludeDatabases: true, Actor: "operator",
+		Site: "site-a", Actor: "operator",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -393,9 +401,8 @@ func TestDurableBackupRetryReusesPersistedLocalArchive(t *testing.T) {
 		t.Fatalf("first backup claim = %#v, claimed=%v, err=%v", first, ok, err)
 	}
 	archivePayload, err := json.Marshal(durableBackupRequest{
-		Site: "site-a", IncludeDatabases: true, Actor: "operator",
-		BackupPath:   "/var/backups/stepanel/20261023-080000-site-a",
-		BackupSHA256: strings.Repeat("a", 64), BackupBytes: 4096,
+		Site: "site-a", Actor: "operator",
+		BackupPath: created.Path, BackupSHA256: created.ArchiveSHA256, BackupBytes: created.Bytes,
 	})
 	if err != nil {
 		_ = jobs.Close()
@@ -430,8 +437,16 @@ func TestDurableBackupRetryReusesPersistedLocalArchive(t *testing.T) {
 	if err := json.Unmarshal(retry.Payload, &persisted); err != nil {
 		t.Fatalf("decode retry payload: %v", err)
 	}
-	if persisted.BackupPath != "/var/backups/stepanel/20261023-080000-site-a" || persisted.BackupSHA256 != strings.Repeat("a", 64) || persisted.BackupBytes != 4096 {
+	if persisted.BackupPath != created.Path || persisted.BackupSHA256 != created.ArchiveSHA256 || persisted.BackupBytes != created.Bytes {
 		t.Fatalf("retry did not retain the verified local archive; payload=%+v", persisted)
+	}
+	app := &App{
+		Config: Config{BackupRoot: backupRoot, WebRoot: filepath.Join(root, "site-tree-removed-after-failure")},
+		Auth:   Auth{Username: "operator"},
+		Jobs:   restarted,
+	}
+	if _, err := app.handleBackupJob(context.Background(), retry); err != nil {
+		t.Fatalf("retry should upload the verified prior archive without rebuilding the removed site tree: %v", err)
 	}
 }
 

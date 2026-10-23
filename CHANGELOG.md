@@ -8,9 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
-- Add a durable-job regression test proving offsite backup retries retain the
-  already-created archive path, digest, and size across worker failure and
-  process restart.
+- Add a durable-job regression test proving offsite backup retries retain and
+  reuse the verified local archive after worker failure and process restart,
+  even when the original site tree is no longer available.
 - Record the terminal passing integration run on application source `ea69e24`,
   current-main documentation and CodeQL passes with zero open alerts, and the
   still-active six-host installed recovery matrix; production remains NO-GO.
