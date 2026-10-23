@@ -11,11 +11,14 @@ command -v openssl >/dev/null || { echo 'openssl is required for FTPS access smo
 
 tmp=$(mktemp -d /tmp/stepanel-ftps-smoke.XXXXXX)
 vsftpd_pid=
+sshd_pid=
 password='ci-ftps-password-012345'
 cleanup() {
   set +e
   [[ -z ${vsftpd_pid:-} ]] || kill "$vsftpd_pid" 2>/dev/null
   [[ -z ${vsftpd_pid:-} ]] || wait "$vsftpd_pid" 2>/dev/null
+  [[ -z ${sshd_pid:-} ]] || kill "$sshd_pid" 2>/dev/null
+  [[ -z ${sshd_pid:-} ]] || wait "$sshd_pid" 2>/dev/null
   printf '\n' | "$helper" ftp "$site" 0 >/dev/null 2>&1
   "$helper" delete "$site" >/dev/null 2>&1
   rm -rf -- "$tmp"
@@ -74,6 +77,56 @@ curl --fail --silent --show-error --ftp-ssl --ssl-reqd --insecure --user "$site_
   "ftp://127.0.0.1:$port/upload.txt" -o "$tmp/download.txt"
 cmp -s "$tmp/upload.txt" "$tmp/download.txt"
 
+# FTPS uses the site account's Unix password, so prove that the managed sshd
+# policy blocks that credential even when the surrounding sshd allows it.
+ssh_bin=$(command -v ssh) || { echo 'OpenSSH client is required for FTPS/SSH isolation smoke' >&2; exit 77; }
+sshd_bin=$(command -v sshd) || { echo 'OpenSSH server is required for FTPS/SSH isolation smoke' >&2; exit 77; }
+ssh_port=$((24000 + ($$ % 1000)))
+ssh-keygen -q -t ed25519 -N '' -f "$tmp/ssh-host"
+install -d -m 0755 /run/sshd
+cat > "$tmp/sshd_config" <<EOF
+Port $ssh_port
+ListenAddress 127.0.0.1
+HostKey $tmp/ssh-host
+PidFile $tmp/sshd.pid
+UsePAM yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PubkeyAuthentication no
+StrictModes no
+AllowUsers $site_user
+Include /etc/ssh/sshd_config.d/stepanel-ftp-$site_user.conf
+EOF
+"$sshd_bin" -t -f "$tmp/sshd_config"
+effective_password_auth=$("$sshd_bin" -T -f "$tmp/sshd_config" -C "user=$site_user,host=localhost,addr=127.0.0.1" | awk '$1 == "passwordauthentication" { print $2; exit }')
+[[ $effective_password_auth == no ]] || { echo 'FTPS-enabled site account still permits SSH password authentication' >&2; exit 1; }
+"$sshd_bin" -D -e -f "$tmp/sshd_config" >"$tmp/sshd.log" 2>&1 &
+sshd_pid=$!
+for _ in {1..20}; do
+  if ssh-keyscan -T 1 -p "$ssh_port" 127.0.0.1 >/dev/null 2>&1; then break; fi
+  sleep 0.1
+done
+kill -0 "$sshd_pid" 2>/dev/null || { sed -n '1,120p' "$tmp/sshd.log" >&2; exit 1; }
+cat > "$tmp/askpass" <<EOF
+#!/bin/sh
+printf '%s\\n' '$password'
+EOF
+chmod 0700 "$tmp/askpass"
+set +e
+SSH_ASKPASS="$tmp/askpass" SSH_ASKPASS_REQUIRE=force DISPLAY=:stepanel-ftps-smoke \
+  "$ssh_bin" -vv -p "$ssh_port" -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  "$site_user@127.0.0.1" true >"$tmp/ssh-client.log" 2>&1 </dev/null
+ssh_status=$?
+set -e
+(( ssh_status != 0 )) || { echo 'FTPS password unexpectedly opened an SSH session' >&2; exit 1; }
+if grep -Fq 'Authenticated to ' "$tmp/ssh-client.log"; then
+  echo 'FTPS password authenticated over SSH despite the per-user policy' >&2
+  sed -n '1,120p' "$tmp/ssh-client.log" >&2
+  exit 1
+fi
+
 # FTPS and SSH/SFTP keys share the account password field: installing keys
 # must keep the FTPS password, and revoking FTPS must keep the keys usable.
 ssh-keygen -q -t ed25519 -N '' -f "$tmp/client"
@@ -92,4 +145,4 @@ set -e
 if grep -Fxq "$site_user" /etc/vsftpd/stepanel.users; then echo 'revoked FTPS account is still allowlisted' >&2; exit 1; fi
 "$helper" access "$site" 0 0 < /dev/null
 [[ $(getent shadow "$site_user" | cut -d: -f2) == '!'* ]] || { echo 'site account stayed unlocked with neither FTPS nor SSH access' >&2; exit 1; }
-echo 'FTPS upload/download/revocation smoke passed'
+echo 'FTPS upload/download, SSH password isolation, and revocation smoke passed'

@@ -47,7 +47,8 @@ export STEPANEL_DB_VERSION=default
 export STEPANEL_PANEL_HOSTNAME=panel.example.test
 export STEPANEL_INSTALL_DB_ADMIN=0
 export STEPANEL_INSTALL_MAIL=0
-export STEPANEL_INSTALL_FTP=0
+export STEPANEL_INSTALL_FTP=1
+export STEPANEL_ACTIVATE_FTP=0
 export STEPANEL_INSTALL_NODE=0
 export STEPANEL_INSTALL_SECURITY=0
 export STEPANEL_REQUIRE_OFFSITE_BACKUP=1
@@ -281,9 +282,7 @@ getfacl -p "/var/www/sites/$root_site" | grep -Fq 'user:stepanel:rwx'
 bash /work/deploy/lab/sftp-access-smoke.sh
 bash /work/deploy/lab/filectl-smoke.sh
 bash /work/deploy/lab/sitectl-acl-smoke.sh "$site"
-if [[ ${STEPANEL_RUN_FTPS_SMOKE:-0} == 1 ]]; then
-  bash /work/deploy/lab/ftps-access-smoke.sh
-fi
+bash /work/deploy/lab/ftps-access-smoke.sh
 
 /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost
 /usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256

@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Run the real FTPS upload/download and revocation smoke in every installed-host
+  matrix, and verify with a disposable OpenSSH server that the FTPS password
+  cannot authenticate over SSH even when global password login is enabled.
 - Make managed-database compensation idempotent when a lifecycle crash occurs
   before provisioning starts, and clean partially created `pending-panel`
   databases after a killed provision helper. Add the real database-helper

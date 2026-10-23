@@ -92,11 +92,13 @@ abrupt-loss-under-load enospc`), `KEEP_VM=1` leaves the guest running, and
 are in
 [`docs/lab-results/2026-10-09-rocky9-kvm-certification.md`](../../docs/lab-results/2026-10-09-rocky9-kvm-certification.md).
 
-On an installed host with FTPS activated, run
-`bash deploy/lab/ftps-access-smoke.sh` to prove encrypted upload/download and
-revocation under the actual site Unix account. It is intentionally separate
-from the default install smoke because it requires operator-supplied FTPS
-certificates and an activated vsftpd installation.
+The installed-host smoke installs vsftpd without activating its public system
+service, then runs `ftps-access-smoke.sh` against a temporary loopback-only
+FTPS server with an ephemeral test certificate. It proves encrypted upload
+and download, verifies the FTPS password cannot authenticate over SSH, and
+checks credential revocation. This exercises the actual site Unix account and
+the same helper-managed policy files without requiring public listeners or
+operator certificates.
 
 ## Lab and test settings
 
