@@ -12,6 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   on shared and block-allocated CI filesystems.
 - Update the production status with exact-head CI evidence and clearly label
   the still-running installed-host and quota VM checks as pending.
+- Refresh the authoritative v1 release-gate snapshot with the same exact-source
+  results and explicit no-go boundaries.
 
 ### Added
 

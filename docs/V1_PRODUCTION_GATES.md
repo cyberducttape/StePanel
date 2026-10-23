@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-19
+**Last Updated:** 2026-10-23
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -9,7 +9,29 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest repository production gate — 2026-10-19 (`c0113dd`)
+### Latest exact-source validation snapshot — 2026-10-23 (`7b549a7`)
+
+Exact-head CI integration passed on
+`7b549a782e325d576a4a79bf472ee8e6001d0eee`, including the configured race
+suite, recovery drills, real tmpfs ENOSPC, database helper contracts, static
+analysis, and UI E2E ([run 39881723676](https://github.com/cyberducttape/StePanel/actions/runs/39881723676)).
+CodeQL ([run 39881723750](https://github.com/cyberducttape/StePanel/actions/runs/39881723750))
+and documentation validation
+([run 39881723700](https://github.com/cyberducttape/StePanel/actions/runs/39881723700))
+also passed on that exact source.
+
+The exact-source six-host installation matrix
+([run 39882971785](https://github.com/cyberducttape/StePanel/actions/runs/39882971785))
+and quota-enabled VM smoke
+([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
+were still running at the 2026-10-23 01:52 UTC capture. Ubuntu 24.04/Caddy had
+passed its install/recovery job; the other five OS/web-server jobs remained
+active. The quota VM was in guest installation. Neither workflow is counted as
+a pass until it completes and its result is reviewed. These hosted runs do not
+prove 20–50 repeated full recovery matrices, physical host power-loss recovery,
+XFS quotas, or all ENOSPC boundaries. Production remains **NO-GO**.
+
+### Latest complete `scripts/production-gate.sh` run — 2026-10-19 (`c0113dd`)
 
 The exact code source `c0113dd4f7da75c3d3624811d813686a6a8589f5` passed
 [`bash scripts/production-gate.sh`](./lab-results/2026-10-19-repository-production-gate-c0113dd.md):
