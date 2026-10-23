@@ -75,12 +75,8 @@ wait_for_panel_ready() {
   return 1
 }
 
-# The cpmove recovery smoke immediately before this test already created the
-# disposable site. Wait for a fresh TOTP counter so the two drills cannot
-# share a boundary-window code.
-sleep $((31 - $(date +%s) % 30))
-
-totp=$(python3 - "$STEPANEL_ADMIN_TOTP_SECRET" <<'PY'
+generate_totp() {
+  python3 - "$STEPANEL_ADMIN_TOTP_SECRET" <<'PY'
 import base64, hashlib, hmac, struct, sys, time
 
 secret = sys.argv[1].strip().upper()
@@ -92,18 +88,38 @@ offset = digest[-1] & 0x0f
 code = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7fffffff) % 1000000
 print(f"{code:06d}")
 PY
-)
+}
 
 work=$(mktemp -d)
 cookies="$work/cookies.txt"
 wait_for_panel_ready 'before backup-recovery login'
-curl --fail --silent --show-error --max-time 10 -c "$cookies" "$PANEL/login" >/dev/null
-curl --fail --silent --show-error --max-time 10 -L \
-  -b "$cookies" -c "$cookies" \
-  --data-urlencode "username=$STEPANEL_ADMIN_USERNAME" \
-  --data-urlencode "password=$STEPANEL_ADMIN_PASSWORD" \
-  --data-urlencode "totp=$totp" \
-  "$PANEL/login" >/dev/null
+login_status=''
+for attempt in 1 2; do
+  if (( attempt == 2 )); then
+    # Another recovery smoke may have consumed this counter, or the request
+    # may cross its boundary after code generation. Retry only a 401, with a
+    # fresh code; transport and throttling failures remain fatal.
+    sleep $((31 - $(date +%s) % 30))
+    : > "$cookies"
+  fi
+  totp=$(generate_totp)
+  curl --fail --silent --show-error --max-time 10 -c "$cookies" "$PANEL/login" >/dev/null
+  login_status=$(curl --silent --show-error --max-time 10 -L \
+    -b "$cookies" -c "$cookies" \
+    --output "$work/login-response.html" --write-out '%{http_code}' \
+    --data-urlencode "username=$STEPANEL_ADMIN_USERNAME" \
+    --data-urlencode "password=$STEPANEL_ADMIN_PASSWORD" \
+    --data-urlencode "totp=$totp" \
+    "$PANEL/login") || { echo 'backup recovery login request failed' >&2; exit 1; }
+  if [[ $login_status == 401 && $attempt == 1 ]]; then
+    continue
+  fi
+  [[ $login_status == 200 ]] || {
+    echo "backup recovery login returned HTTP ${login_status:-unknown}" >&2
+    exit 1
+  }
+  break
+done
 
 session=$(awk '$6 == "stepanel_session" {print $7}' "$cookies")
 csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$cookies")
