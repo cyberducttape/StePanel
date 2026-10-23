@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Record the successfully finalized quota-enabled Ubuntu install run on older
+  source `67e67d6`, and the active current-source race and recovery checks.
 - Refresh release evidence with the quota-install job result, current-revision
   documentation and CodeQL passes, and pending current-source CI/recovery
   results; retain the NO-GO decision.

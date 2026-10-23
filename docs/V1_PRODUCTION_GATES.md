@@ -9,7 +9,7 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current release evidence — 2026-10-23 07:23 UTC (`053ac62`)
+### Current release evidence — 2026-10-23 07:25 UTC (`aa76479`)
 
 The application and smoke-harness revision under assessment is
 [`ea69e24a1b5b4cd5fd0594f016a819954a8a1517`](https://github.com/cyberducttape/StePanel/commit/ea69e24a1b5b4cd5fd0594f016a819954a8a1517);
@@ -25,13 +25,18 @@ drills, database restore checks, static analysis, container build and scan, and
 deployment validation. GitHub still reports the job in progress without a
 completion timestamp, despite its final “Complete job” step succeeding. It is
 not counted as a terminal CI pass. A fresh integration run on the same code and
-current evidence revision `053ac62` is queued on an isolated branch
+current evidence revision `053ac62` is now running on an isolated branch
 ([run 39917250272](https://github.com/cyberducttape/StePanel/actions/runs/39917250272)).
+Its Go race-test step is active. Documentation and CodeQL on `053ac62` passed;
+documentation and CodeQL checks for this documentation-only revision `aa76479`
+are queued.
 
 The quota-enabled Ubuntu installation job completed successfully
 ([job 120277924484 in run 39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883/jobs/120277924484)),
-but it tested older application source `67e67d6`; its parent workflow has not
-finalized. This is quota-install evidence, not current-source certification.
+and its parent workflow finalized successfully
+([run 39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883)).
+It tested older application source `67e67d6`, so this is quota-install
+evidence, not current-source certification.
 The corrected full six-host installed recovery matrix on `ea69e24` is active on
 all Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy hosts
 ([run 39915109037](https://github.com/cyberducttape/StePanel/actions/runs/39915109037));
@@ -44,7 +49,7 @@ cohort, complete supported-webserver application proof, live alert-delivery
 outage/retry evidence, measured capacity limits, upgrade/rollback policy, and
 independent security assessment remain open.
 
-### Prior release evidence — 2026-10-23 07:05 UTC (`ea69e24`)
+### Prior release evidence — 2026-10-23 07:23 UTC (`053ac62`)
 
 The application and smoke-harness revision under assessment is
 [`ea69e24a1b5b4cd5fd0594f016a819954a8a1517`](https://github.com/cyberducttape/StePanel/commit/ea69e24a1b5b4cd5fd0594f016a819954a8a1517).
