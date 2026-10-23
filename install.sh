@@ -611,10 +611,19 @@ install_mail_stack() {
 }
 
 install_ftp_stack() {
-  local config backup
+  local config backup pam_config pam_staged
   if [[ "$FTP_PREEXISTING" == "1" && "$ACTIVATE_FTP" == "0" ]]; then
     echo "Existing vsftpd installation detected; preserving its configuration and service state."
     return
+  fi
+  pam_config=/etc/pam.d/stepanel-vsftpd
+  if [[ -L $pam_config || ( -e $pam_config && ! -f $pam_config ) ]]; then
+    echo "Refusing unsafe StePanel vsftpd PAM service path: $pam_config" >&2
+    return 1
+  fi
+  if [[ -e $pam_config ]] && ! grep -Fq '# Managed by StePanel.' "$pam_config"; then
+    echo "Refusing to replace an unmanaged PAM service: $pam_config" >&2
+    return 1
   fi
   if [[ "$PKG" == "apt" ]]; then
     export DEBIAN_FRONTEND=noninteractive
@@ -641,6 +650,7 @@ check_shell=NO
 userlist_enable=YES
 userlist_deny=NO
 userlist_file=/etc/vsftpd/stepanel.users
+pam_service_name=stepanel-vsftpd
 secure_chroot_dir=/var/run/vsftpd/empty
 pasv_min_port=$FTP_PASSIVE_MIN
 pasv_max_port=$FTP_PASSIVE_MAX
@@ -668,6 +678,27 @@ EOF
   if [[ "$ACTIVATE_FTP" == "0" && "$FTP_PREEXISTING" == "0" ]]; then
     systemctl disable --now vsftpd 2>/dev/null || true
   fi
+  pam_staged=$(mktemp /etc/pam.d/.stepanel-vsftpd.XXXXXX)
+  if [[ "$PKG" == "apt" ]]; then
+    cat > "$pam_staged" <<'EOF'
+# Managed by StePanel. Local site accounts intentionally use nologin shells.
+auth required pam_listfile.so item=user sense=allow file=/etc/vsftpd/stepanel.users onerr=fail
+@include common-auth
+@include common-account
+@include common-session
+EOF
+  else
+    cat > "$pam_staged" <<'EOF'
+# Managed by StePanel. Local site accounts intentionally use nologin shells.
+auth required pam_listfile.so item=user sense=allow file=/etc/vsftpd/stepanel.users onerr=fail
+auth include password-auth
+account include password-auth
+session include password-auth
+EOF
+  fi
+  chown root:root "$pam_staged"
+  chmod 0644 "$pam_staged"
+  mv -f "$pam_staged" "$pam_config"
 }
 
 MAIL_EXIM_PREEXISTING=0
