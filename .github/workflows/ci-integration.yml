@@ -228,6 +228,8 @@ jobs:
         run: python3 scripts/check-docs-references.py
       - name: Check quota fixture capacity
         run: python3 scripts/check-quota-fixtures.py
+      - name: Test filesystem-native quota state checks
+        run: bash deploy/lab/quota-state-contract-test.sh
       - name: Validate Grafana dashboard metric references
         run: python3 scripts/check-grafana-dashboard.py
       - name: Test Prometheus alert rules

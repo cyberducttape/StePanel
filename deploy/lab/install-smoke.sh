@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'install smoke must run as root' >&2; exit 1; }
 cd /work
+. /work/deploy/integrations/stepanel-quota-state.sh
 bash /work/deploy/lab/python-dependencies-smoke.sh
 
 if [[ ! -f /sys/fs/cgroup/cgroup.controllers && ! -d /sys/fs/cgroup/systemd ]]; then
@@ -27,19 +28,7 @@ else
     echo '/var/www is not mounted with project quotas enabled' >&2
     exit 1
   fi
-  filesystem_type=$(findmnt -no FSTYPE -T /var/www)
-  case "$filesystem_type" in
-    ext4)
-      # quotaon -p's status is in its output; its exit code is a count.
-      project_quota_state=$(quotaon -p -P /var/www 2>&1 || true)
-      [[ $project_quota_state == *'project quota on /var/www ('*') is on'* ]] || { echo "project quotas are not on for /var/www: $project_quota_state" >&2; exit 1; }
-      ;;
-    xfs)
-      project_quota_state=$(xfs_quota -x -c 'state -p' /var/www 2>&1) || { echo "could not inspect XFS project quota state: $project_quota_state" >&2; exit 1; }
-      [[ $project_quota_state == *'Accounting: ON'* && $project_quota_state == *'Enforcement: ON'* ]] || { echo "XFS project quotas are not enforced on /var/www: $project_quota_state" >&2; exit 1; }
-      ;;
-    *) echo "quota smoke does not support filesystem type $filesystem_type" >&2; exit 1 ;;
-  esac
+  stepanel_project_quota_active /var/www
 fi
 export STEPANEL_SKIP_STARTUP_DB_RECONCILE=1
 export STEPANEL_SKIP_STARTUP_HOST_RECONCILE=1

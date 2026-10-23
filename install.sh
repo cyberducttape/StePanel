@@ -451,29 +451,26 @@ else
   dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl "${RHEL_CURL_PACKAGES[@]}" git util-linux sudo logrotate
 fi
 if (( UNSAFE_LAB == 0 )); then
-  # quotaon -p exits with the number of quota types that are on, so its exit
-  # status is not an error signal. Require its "is on" state line instead.
-  quota_status=$(quotaon -p -u /var/www 2>&1 || true)
-  if [[ $quota_status != *'user quota on /var/www ('*') is on'* ]]; then
-    echo 'production requires active user quotas on /var/www; quotaon did not report user quotas on.' >&2
-    echo "$quota_status" >&2
+  # Use filesystem-native status reporting: ext4 uses quotaon state output,
+  # while XFS reports accounting and enforcement through xfs_quota.
+  # shellcheck source=deploy/integrations/stepanel-quota-state.sh
+  . "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh"
+  if ! stepanel_user_quota_active /var/www; then
+    echo 'production requires active, enforced user quotas on /var/www.' >&2
     exit 1
   fi
   # Hosting-account homes hold placed sites (ADR-0007); account quotas are
   # applied to the filesystem holding /home.
   home_mount=$(findmnt -no TARGET -T /home 2>/dev/null || true)
-  home_quota_status=$(quotaon -p -u "${home_mount:-/home}" 2>&1 || true)
-  if [[ -z $home_mount || $home_quota_status != *"user quota on $home_mount ("*") is on"* ]]; then
-    echo "production requires active user quotas on the filesystem holding /home (${home_mount:-unknown}); quotaon did not report user quotas on." >&2
-    echo "$home_quota_status" >&2
+  if [[ -z $home_mount ]] || ! stepanel_user_quota_active "$home_mount"; then
+    echo "production requires active, enforced user quotas on the filesystem holding /home (${home_mount:-unknown})." >&2
     exit 1
   fi
   # Git deployments and release pipelines need project quotas on the staging
   # filesystem and refuse to run without them; say so before installing.
-  project_quota_status=$(quotaon -p -P /var/www 2>&1 || true)
-  if [[ $project_quota_status != *'project quota on /var/www ('*') is on'* ]]; then
-    echo 'warning: project quotas are not on for /var/www, so Git deployments and release pipelines will be refused.' >&2
-    echo '  Mount /var/www with prjquota (ext4 also needs the project and quota features) to enable them.' >&2
+  if ! stepanel_project_quota_active /var/www; then
+    echo 'warning: enforced project quotas are not active on /var/www, so Git deployments and release pipelines will be refused.' >&2
+    echo '  Mount /var/www with prjquota; ext4 also needs the project and quota features.' >&2
   fi
 fi
 if [[ "$WEB_SERVER" == "apache" ]]; then
@@ -905,6 +902,7 @@ install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-filectl" /usr/local/sbin
 # Root-owned and not writable: every privileged helper sources it.
 install -d -m 0755 -o root -g root /usr/local/lib/stepanel
 install -m 0644 -o root -g root "$ROOT_DIR/deploy/integrations/stepanel-site-location.sh" /usr/local/lib/stepanel/site-location.sh
+install -m 0644 -o root -g root "$ROOT_DIR/deploy/integrations/stepanel-quota-state.sh" /usr/local/lib/stepanel/quota-state.sh
 if [[ "$WEB_SERVER" == "caddy" ]]; then
   install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-caddy-vhostctl" /usr/local/sbin/stepanel-vhostctl
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then

@@ -7,6 +7,10 @@ location_lib=/usr/local/lib/stepanel/site-location.sh
 [[ -f $location_lib && ! -L $location_lib && $(stat -c '%u' -- "$location_lib") == 0 && $(( 8#$(stat -c '%a' -- "$location_lib") & 022 )) == 0 ]] || { echo 'site location library is missing or unsafe' >&2; exit 1; }
 # shellcheck source=stepanel-site-location.sh
 . "$location_lib"
+quota_lib=/usr/local/lib/stepanel/quota-state.sh
+[[ -f $quota_lib && ! -L $quota_lib && $(stat -c '%u' -- "$quota_lib") == 0 && $(( 8#$(stat -c '%a' -- "$quota_lib") & 022 )) == 0 ]] || { echo 'quota state library is missing or unsafe' >&2; exit 1; }
+# shellcheck source=stepanel-quota-state.sh
+. "$quota_lib"
 # Sets site_placed, site_stage_root and site_private for a legacy or
 # hosting-account site (ADR-0007).
 stepanel_site_location "$site" || exit 1
@@ -45,7 +49,7 @@ valid_stage_path() {
   [[ $owner == stepanel && $mode =~ ^[0-7]{3,4}$ ]] && (( (8#$mode & 0777) == 0711 ))
 }
 project_quota_mount() {
-  local destination=$1 mount fstype options status
+  local destination=$1 mount fstype options
   command -v findmnt >/dev/null 2>&1 || { echo 'findmnt is required for Git staging quotas' >&2; return 1; }
   command -v setquota >/dev/null 2>&1 || { echo 'setquota is required for Git staging quotas' >&2; return 1; }
   command -v setfacl >/dev/null 2>&1 || { echo 'setfacl is required for Git staging quotas' >&2; return 1; }
@@ -55,24 +59,11 @@ project_quota_mount() {
   options=$(findmnt -no OPTIONS -T "$destination") || { echo 'cannot inspect Git staging filesystem options' >&2; return 1; }
   [[ $options =~ (^|,)(prjquota|pquota)(,|$) ]] || { echo 'Git staging filesystem must be mounted with project quotas (prjquota)' >&2; return 1; }
   case "$fstype" in
-    ext4)
-      command -v chattr >/dev/null 2>&1 || { echo 'chattr is required for ext4 project quotas' >&2; return 1; }
-      command -v quotaon >/dev/null 2>&1 || { echo 'quotaon is required for ext4 project quotas' >&2; return 1; }
-      # quotaon -p exits with the number of quota types that are on, so read
-      # its state line rather than treating the exit status as a boolean.
-      status=$(quotaon -p -P "$mount" 2>&1 || true)
-      [[ $status == *"project quota on $mount ("*") is on"* ]] || { echo "project quotas are not active on $mount: $status" >&2; return 1; }
-      ;;
-    xfs)
-      command -v xfs_quota >/dev/null 2>&1 || { echo 'xfs_quota is required for XFS project quotas' >&2; return 1; }
-      # XFS quota accounting and enforcement are activated at mount time;
-      # quotaon is not the authority for XFS state. Inspect the filesystem's
-      # project-quota state directly and fail closed unless both are on.
-      status=$(xfs_quota -x -c 'state -p' "$mount" 2>&1) || { echo "cannot inspect XFS project quotas on $mount: $status" >&2; return 1; }
-      [[ $status == *"Project quota state on $mount ("* && $status == *'Accounting: ON'* && $status == *'Enforcement: ON'* ]] || { echo "XFS project quotas are not active and enforced on $mount: $status" >&2; return 1; }
-      ;;
+    ext4) command -v chattr >/dev/null 2>&1 || { echo 'chattr is required for ext4 project quotas' >&2; return 1; } ;;
+    xfs) command -v xfs_quota >/dev/null 2>&1 || { echo 'xfs_quota is required for XFS project quotas' >&2; return 1; } ;;
     *) echo "Git staging project quotas are unsupported on filesystem type $fstype" >&2; return 1 ;;
   esac
+  stepanel_project_quota_active "$mount" || return 1
   printf '%s\t%s\t%s\n' "$mount" "$fstype" "$(findmnt -no SOURCE -T "$destination")"
 }
 allocate_project_id() {

@@ -6,6 +6,7 @@
 set -Eeuo pipefail
 
 [[ $EUID -eq 0 ]] || { echo 'deploy recovery smoke must run as root' >&2; exit 1; }
+. /work/deploy/integrations/stepanel-quota-state.sh
 command -v curl >/dev/null || { echo 'deploy recovery smoke requires curl' >&2; exit 77; }
 command -v python3 >/dev/null || { echo 'deploy recovery smoke requires python3' >&2; exit 77; }
 command -v systemctl >/dev/null || { echo 'deploy recovery smoke requires systemd' >&2; exit 77; }
@@ -88,22 +89,10 @@ PY
 # Git deployments need project quotas on the staging filesystem and fail
 # closed without them. Hosts without project quotas (the Docker install
 # matrix) verify that refusal; the quota-enabled host runs the kill drill.
-filesystem_type=$(findmnt -no FSTYPE -T /var/www)
-project_quota_state=
-case "$filesystem_type" in
-  ext4)
-    # quotaon -p's exit code is a count; inspect its state line.
-    if command -v quotaon >/dev/null; then project_quota_state=$(quotaon -p -P /var/www 2>&1 || true); fi
-    ;;
-  xfs)
-    if command -v xfs_quota >/dev/null; then project_quota_state=$(xfs_quota -x -c 'state -p' /var/www 2>&1 || true); fi
-    ;;
-esac
-if [[ ( $filesystem_type == ext4 && $project_quota_state != *'project quota on /var/www ('*') is on'* ) ||
-      ( $filesystem_type == xfs && ( $project_quota_state != *'Accounting: ON'* || $project_quota_state != *'Enforcement: ON'* ) ) ||
-      ( $filesystem_type != ext4 && $filesystem_type != xfs ) ]]; then
+project_quota_error=
+if ! project_quota_error=$(stepanel_project_quota_active /var/www 2>&1); then
   if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
-    echo "the quota-enabled smoke host does not report enforced project quotas on /var/www: ${project_quota_state:-quota state unavailable}" >&2
+    echo "the quota-enabled smoke host does not report enforced project quotas on /var/www: $project_quota_error" >&2
     exit 1
   fi
   queued=$(curl --silent --show-error --max-time 120 -H "Cookie: $cookie_header" -H "X-CSRF-Token: $csrf" \
