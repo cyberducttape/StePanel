@@ -28,9 +28,11 @@ passed on code commit `cf079a1`: Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9,
 each with Apache and Caddy. This validates installation smoke only; it is not
 the repeated full-recovery certification. Exact-code CI
 ([run 39897457130](https://github.com/cyberducttape/StePanel/actions/runs/39897457130))
-is running and has reached mixed HTTP load after tests, race, recovery drills,
-tmpfs ENOSPC, and mixed HTTP load have passed; it is now verifying atomic
-database restore against MySQL 8.0. The exact-code XFS quota guest
+passed, including formatting, vet, all Go tests and coverage floors, race
+tests, repository recovery drills, real tmpfs ENOSPC, mixed HTTP load,
+database restore checks, static analysis, container smoke, UI E2E, and
+deployment validation. Exact-head CodeQL and docs validation also passed on
+`8550487` above. The exact-code XFS quota guest
 ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
 is still running. A two-repeat full-recovery shard on the current commit
 ([run 39898086088](https://github.com/cyberducttape/StePanel/actions/runs/39898086088))

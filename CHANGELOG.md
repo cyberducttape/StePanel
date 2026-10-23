@@ -19,6 +19,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   quota and six-platform reruns without counting pending evidence as a pass.
 - Record the passing six-platform installation smoke while keeping full
   recovery certification, XFS quota validation, and current CI open.
+- Record the passing exact-code CI integration suite while keeping XFS quota
+  and repeated installed-host recovery evidence open.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
 - Use POSIX conditionals in the quota smoke's cloud-init guest script; its

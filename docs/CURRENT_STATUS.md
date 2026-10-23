@@ -29,8 +29,9 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   Apache and Caddy. It is installation-smoke evidence, not repeated full
   recovery certification. Code CI
   ([run 39897457130](https://github.com/cyberducttape/StePanel/actions/runs/39897457130))
-  is running; it has passed tests, race, recovery drills, and tmpfs ENOSPC and
-  mixed HTTP load, and is now verifying atomic MySQL 8.0 restore. The XFS quota rerun
+  passed on `cf079a1`: Go tests/coverage, race, recovery drills, tmpfs ENOSPC,
+  mixed load, database restore checks, static analysis, container smoke, UI E2E,
+  and deployment validation all succeeded. The XFS quota rerun
   ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
   remains in progress. The two-repeat full recovery shard
   ([run 39898086088](https://github.com/cyberducttape/StePanel/actions/runs/39898086088))
