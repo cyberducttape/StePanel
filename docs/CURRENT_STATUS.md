@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-21
+**Last Updated:** 2026-10-23
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -11,6 +11,29 @@
 StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host deployments with experienced operators. The product is **functionally complete** for its stated feature set. The remaining work before v1.0 is **proving production durability and failure recovery** rather than building new features.
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
+
+### Exact-source validation snapshot — 2026-10-23 (`7b549a7`)
+
+- Exact-head CI integration passed, including formatting, vet, unit and race
+  tests, recovery drills, database-helper contracts, static analysis, and UI
+  E2E ([run 39881723676](https://github.com/cyberducttape/StePanel/actions/runs/39881723676)).
+  CodeQL ([run 39881723750](https://github.com/cyberducttape/StePanel/actions/runs/39881723750))
+  and documentation checks
+  ([run 39881723700](https://github.com/cyberducttape/StePanel/actions/runs/39881723700))
+  also passed on `7b549a782e325d576a4a79bf472ee8e6001d0eee`.
+- Exact-head installed-host smoke
+  ([run 39882971785](https://github.com/cyberducttape/StePanel/actions/runs/39882971785))
+  is still running. At 2026-10-23 01:52 UTC, Ubuntu 24.04/Caddy passed; the
+  other five Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache/Caddy jobs were
+  active. Do not count this matrix as passed until the workflow completes.
+- Exact-head quota-enabled VM validation
+  ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
+  is active in its guest-install phase; it has not yet provided quota or ENOSPC
+  evidence.
+- Repository CI and these pending/partial host runs do not certify production.
+  Approval remains **NO-GO** for repeated full recovery, physical host power
+  loss, broader ENOSPC, quota/XFS behavior, capacity limits, and the remaining
+  release gates in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
 
 ### Latest code-source repository gate — 2026-10-21 (`d931c6a`)
 

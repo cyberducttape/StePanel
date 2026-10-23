@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Make the backup-rehearsal capacity test robust to small free-space changes
   on shared and block-allocated CI filesystems.
+- Update the production status with exact-head CI evidence and clearly label
+  the still-running installed-host and quota VM checks as pending.
 
 ### Added
 
