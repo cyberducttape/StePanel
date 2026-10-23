@@ -11,10 +11,10 @@ historical and must not be treated as current approval.
 
 ### Current release evidence — 2026-10-23 07:05 UTC (`ea69e24`)
 
-Current HEAD is
+The application and smoke-harness revision under assessment is
 [`ea69e24a1b5b4cd5fd0594f016a819954a8a1517`](https://github.com/cyberducttape/StePanel/commit/ea69e24a1b5b4cd5fd0594f016a819954a8a1517).
-This changes only the installed-host backup-recovery smoke harness and this
-release evidence; application code remains at `cac6c5a`. Documentation CI
+The evidence snapshot itself is a documentation-only update on that revision;
+application code remains at `cac6c5a`. Documentation CI
 ([run 39914766323](https://github.com/cyberducttape/StePanel/actions/runs/39914766323))
 and CodeQL ([run 39914766222](https://github.com/cyberducttape/StePanel/actions/runs/39914766222))
 passed on HEAD, with zero open CodeQL alerts. Integration CI

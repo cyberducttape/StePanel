@@ -14,8 +14,9 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 ### Current release evidence — 2026-10-23 07:05 UTC (`ea69e24`)
 
-- HEAD is `ea69e24a1b5b4cd5fd0594f016a819954a8a1517`. The only code-bearing
-  change since application source `cac6c5a` is a bounded one-time HTTP 401
+- The application and smoke-harness revision under assessment is
+  `ea69e24a1b5b4cd5fd0594f016a819954a8a1517`. The only code-bearing change
+  since application source `cac6c5a` is a bounded one-time HTTP 401
   retry in the installed-host backup-recovery smoke, using a fresh TOTP
   counter. Documentation CI ([run 39914766323](https://github.com/cyberducttape/StePanel/actions/runs/39914766323))
   and CodeQL ([run 39914766222](https://github.com/cyberducttape/StePanel/actions/runs/39914766222))
