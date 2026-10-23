@@ -12,7 +12,31 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Exact-source validation snapshot — 2026-10-23 06:45 UTC (`cac6c5a`)
+### Current release evidence — 2026-10-23 07:05 UTC (`ea69e24`)
+
+- HEAD is `ea69e24a1b5b4cd5fd0594f016a819954a8a1517`. The only code-bearing
+  change since application source `cac6c5a` is a bounded one-time HTTP 401
+  retry in the installed-host backup-recovery smoke, using a fresh TOTP
+  counter. Documentation CI ([run 39914766323](https://github.com/cyberducttape/StePanel/actions/runs/39914766323))
+  and CodeQL ([run 39914766222](https://github.com/cyberducttape/StePanel/actions/runs/39914766222))
+  passed on HEAD; CodeQL reports zero open alerts. Integration CI
+  ([run 39914766303](https://github.com/cyberducttape/StePanel/actions/runs/39914766303))
+  is running race tests after its Go test step; it is not yet complete.
+- The six-host full-recovery run against `cac6c5a`
+  ([run 39910599138](https://github.com/cyberducttape/StePanel/actions/runs/39910599138))
+  remains active; the Rocky Linux 9 + Caddy shard failed with HTTP 401 at
+  backup-recovery login. Other shards remain in progress. The corrected six-host
+  run ([run 39915109037](https://github.com/cyberducttape/StePanel/actions/runs/39915109037))
+  is queued and provides no pass evidence yet. Quota-enabled install run
+  [39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883)
+  remains in progress on older source `67e67d6`.
+- Production remains **NO-GO**: physical host power-loss recovery, broader
+  installed-host ENOSPC/database-outage evidence, 20-repeat recovery cohort,
+  supported-webserver application proof, live alert-delivery outage/retry
+  evidence, measured capacity limits, upgrade/rollback policy, and independent
+  security review are still open.
+
+### Prior exact-source validation snapshot — 2026-10-23 06:45 UTC (`cac6c5a`)
 
 - Exact-head integration CI passed on
   [`cac6c5adc13acb77a99dda080bfa9b9e7d6ccd35`](https://github.com/cyberducttape/StePanel/actions/runs/39908676803): Go 1.26.10 tests and coverage floors, race suite, repository recovery and tmpfs ENOSPC drills, MySQL/PostgreSQL restore checks, static and vulnerability analysis, container build/scan, deployment validation, and UI E2E all passed. Exact-head CodeQL ([run 39908676811](https://github.com/cyberducttape/StePanel/actions/runs/39908676811)) and documentation validation ([run 39908676870](https://github.com/cyberducttape/StePanel/actions/runs/39908676870)) passed; CodeQL reported zero open alerts. Local `go test ./...`, `go vet ./...`, `make release-check`, shell syntax, and diff checks passed.

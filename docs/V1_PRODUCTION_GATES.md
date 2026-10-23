@@ -9,7 +9,38 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current application-source evidence — 2026-10-23 06:45 UTC (`cac6c5a`)
+### Current release evidence — 2026-10-23 07:05 UTC (`ea69e24`)
+
+Current HEAD is
+[`ea69e24a1b5b4cd5fd0594f016a819954a8a1517`](https://github.com/cyberducttape/StePanel/commit/ea69e24a1b5b4cd5fd0594f016a819954a8a1517).
+This changes only the installed-host backup-recovery smoke harness and this
+release evidence; application code remains at `cac6c5a`. Documentation CI
+([run 39914766323](https://github.com/cyberducttape/StePanel/actions/runs/39914766323))
+and CodeQL ([run 39914766222](https://github.com/cyberducttape/StePanel/actions/runs/39914766222))
+passed on HEAD, with zero open CodeQL alerts. Integration CI
+([run 39914766303](https://github.com/cyberducttape/StePanel/actions/runs/39914766303))
+has passed Go tests and is running race tests; it is not yet a complete pass.
+
+The full six-host recovery run on `cac6c5a`
+([run 39910599138](https://github.com/cyberducttape/StePanel/actions/runs/39910599138))
+is still running. Its Rocky Linux 9 + Caddy shard failed at the backup-recovery
+login with HTTP 401 after preceding recovery checks had passed. The disposable
+host diagnostics indicate a TOTP counter boundary/replay between adjacent
+smokes. The harness now retries one 401 using a newly generated TOTP counter;
+transport errors and other HTTP statuses remain fatal. A full six-host rerun
+against the fix is queued
+([run 39915109037](https://github.com/cyberducttape/StePanel/actions/runs/39915109037));
+it has not started and supplies no passing evidence yet. The quota-enabled
+install run ([run 39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883))
+also remains in progress on older source `67e67d6`.
+
+Production remains **NO-GO**. Physical host power-loss recovery, broader
+installed-host ENOSPC/database-outage evidence, the required 20-repeat recovery
+cohort, complete supported-webserver application proof, live alert-delivery
+outage/retry evidence, measured capacity limits, upgrade/rollback policy, and
+independent security assessment remain open.
+
+### Prior application-source evidence — 2026-10-23 06:45 UTC (`cac6c5a`)
 
 Exact-head CI passed on
 [`cac6c5adc13acb77a99dda080bfa9b9e7d6ccd35`](https://github.com/cyberducttape/StePanel/actions/runs/39908676803),
