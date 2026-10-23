@@ -26,6 +26,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Refresh the release evidence snapshot to the current commit and report
   CodeQL plus per-host recovery-shard states without counting active jobs as
   completed evidence.
+- Time-scope the validation snapshot and record that its CodeQL run was
+  canceled by the subsequent documentation-only update.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
 - Use POSIX conditionals in the quota smoke's cloud-init guest script; its

@@ -9,16 +9,18 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest exact-source validation snapshot — 2026-10-23 (`03422e5`)
+### Exact-source validation snapshot — 2026-10-23 04:37 UTC (`03422e5`)
 
-The current commit is
+At snapshot time, HEAD was
 `03422e5b8a254de6079d5281ddccad0f82ecd2b5` (`03422e5`); it changes only
 release-evidence documents and the changelog from application code commit
 `cf079a12dc96c63991f72fa23edd9bc5939cf188` (`cf079a1`). Documentation
-validation passed on the current commit
+validation passed on that snapshot
 ([run 39901196396](https://github.com/cyberducttape/StePanel/actions/runs/39901196396));
-current-head CodeQL is still running
+CodeQL was running at capture and was canceled by the subsequent
+documentation-only push
 ([run 39901196497](https://github.com/cyberducttape/StePanel/actions/runs/39901196497)).
+This evidence refresh does not change application code.
 The focused quota-state contract test, shell syntax checks,
 `make release-check`, and 20 race-enabled site-staging cleanup repetitions
 passed locally.
@@ -33,8 +35,7 @@ passed, including formatting, vet, all Go tests and coverage floors, race
 tests, repository recovery drills, real tmpfs ENOSPC, mixed HTTP load,
 database restore checks, static analysis, container smoke, UI E2E, and
 deployment validation. Exact-head CodeQL and docs validation passed on
-`8550487` (the previous evidence snapshot); current-head CodeQL is still
-pending as noted above. The exact-code XFS quota guest
+`8550487` (the previous evidence snapshot). The exact-code XFS quota guest
 ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
 is still running. The two-repeat full-recovery shard D
 ([run 39898086088](https://github.com/cyberducttape/StePanel/actions/runs/39898086088))

@@ -12,17 +12,19 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Exact-source validation snapshot — 2026-10-23 (`03422e5`)
+### Exact-source validation snapshot — 2026-10-23 04:37 UTC (`03422e5`)
 
-- Current commit: `03422e5b8a254de6079d5281ddccad0f82ecd2b5`; it contains only
-  release-evidence documentation/changelog changes over the application code
-  in `cf079a12dc96c63991f72fa23edd9bc5939cf188` (`cf079a1`). Documentation
-  validation passed on the current commit
+- At snapshot time, HEAD was `03422e5b8a254de6079d5281ddccad0f82ecd2b5`,
+  containing only release-evidence documentation/changelog changes over the
+  application code in `cf079a12dc96c63991f72fa23edd9bc5939cf188`
+  (`cf079a1`). Documentation validation passed on that snapshot
   ([run 39901196396](https://github.com/cyberducttape/StePanel/actions/runs/39901196396));
-  current-head CodeQL is still running
+  CodeQL was running at capture but was canceled by the subsequent
+  documentation-only push
   ([run 39901196497](https://github.com/cyberducttape/StePanel/actions/runs/39901196497)).
   Focused quota tests, shell syntax checks, `make release-check`, and 20
-  race-enabled staging-cleanup repetitions passed locally.
+  race-enabled staging-cleanup repetitions passed locally. The new documentation
+  snapshot does not change application code.
 - The six-host installed smoke
   ([run 39897561432](https://github.com/cyberducttape/StePanel/actions/runs/39897561432))
   passed on `cf079a1` for Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with
