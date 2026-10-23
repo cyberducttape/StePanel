@@ -12,17 +12,17 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Exact-source validation snapshot — 2026-10-23 (`ffc286a`)
+### Exact-source validation snapshot — 2026-10-23 (`05dc405`)
 
-- Exact-head CI integration passed on
-  `ffc286a75f20f097650c27ee632d3864ae9f863f`
-  ([run 39891655140](https://github.com/cyberducttape/StePanel/actions/runs/39891655140)),
-  including formatting, vet, full Go tests and coverage floors, the race suite,
+- Exact-head integration CI passed on
+  `05dc4054306d2fbb8cc54ac634c030f7510427cf`
+  ([run 39894297883](https://github.com/cyberducttape/StePanel/actions/runs/39894297883)),
+  including formatting, vet, full Go tests and coverage floors, race tests,
   repository recovery drills, real tmpfs ENOSPC, mixed HTTP load, database
-  restore checks, static analysis, container/deployment validation, and UI E2E.
-  CodeQL ([run 39891655002](https://github.com/cyberducttape/StePanel/actions/runs/39891655002))
+  restore checks, vulnerability/static analysis, container/deployment checks,
+  and UI E2E. CodeQL ([run 39894297901](https://github.com/cyberducttape/StePanel/actions/runs/39894297901))
   and documentation validation
-  ([run 39891655075](https://github.com/cyberducttape/StePanel/actions/runs/39891655075))
+  ([run 39894297857](https://github.com/cyberducttape/StePanel/actions/runs/39894297857))
   also passed on that exact commit.
 - The exact-head six-host installation matrix
   ([run 39889562484](https://github.com/cyberducttape/StePanel/actions/runs/39889562484))
@@ -32,11 +32,13 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   Rocky Linux 9, each with Apache and Caddy. This is install-smoke evidence,
   not full recovery certification or production support by itself.
 - The XFS quota-enabled guest run
+  ([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
+  is running against `05dc405`; its guest install/smoke step has not completed,
+  so there is no XFS product result yet. The previous attempt
   ([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
-  failed before StePanel installation: cloud-init ran the guest setup under
-  `/bin/sh`, but Bash-only `[[ ... ]]` conditionals selected the ext4 formatter
-  for the XFS volume. This is a fixture failure, not an XFS product result;
-  the guest script is being corrected and XFS remains unverified. An older
+  failed before installation because cloud-init used `/bin/sh` with a
+  Bash-only conditional; the fixture now uses POSIX syntax and is checked with
+  `sh -n`. An older
   ext4 quota-enabled Ubuntu guest run
   ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
   completed successfully on source `7b549a7`: it confirmed active user and
@@ -44,13 +46,18 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   quota overage, and passed real backup and file-restore ENOSPC tests. It does
   not validate the new shared quota-state helper introduced on `899ef70`, and
   is not current-source evidence.
-- A two-repeat full recovery matrix
-  ([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
-  remains active on older source `dd89653`. It is not current-source evidence
-  and does not meet the documented 20–50-repeat requirement.
+- Two current-source full-recovery shards, each configured for two iterations
+  across all six OS/web-server combinations, are in progress on `05dc405`
+  ([shard B](https://github.com/cyberducttape/StePanel/actions/runs/39896093726),
+  [shard C](https://github.com/cyberducttape/StePanel/actions/runs/39896095968)).
+  They are not passes until every matrix job completes successfully. The older
+  two-repeat shard ([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
+  remains active on `dd89653` and is not current-source evidence.
 - Repository CI does not certify host power-loss recovery, the full ENOSPC
   matrix, current-head XFS quotas, repeated installed-host recovery, a measured
-  capacity envelope, or the remaining gates. Approval remains **NO-GO**; see
+  capacity envelope, or the remaining gates. The new full-recovery shards do
+  not yet meet the documented 20–50-repeat requirement. Approval remains
+  **NO-GO**; see
   [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
 
 ### Latest code-source repository gate — 2026-10-21 (`d931c6a`)

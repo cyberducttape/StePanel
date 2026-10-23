@@ -9,17 +9,17 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest exact-source validation snapshot — 2026-10-23 (`ffc286a`)
+### Latest exact-source validation snapshot — 2026-10-23 (`05dc405`)
 
 Exact-head CI integration passed on
-`ffc286a75f20f097650c27ee632d3864ae9f863f`
-([run 39891655140](https://github.com/cyberducttape/StePanel/actions/runs/39891655140)),
-including the race suite, repository recovery drills, real tmpfs ENOSPC, mixed
-HTTP load, database restore checks, static analysis, container/deployment
-validation, and UI E2E. CodeQL
-([run 39891655002](https://github.com/cyberducttape/StePanel/actions/runs/39891655002))
+`05dc4054306d2fbb8cc54ac634c030f7510427cf`
+([run 39894297883](https://github.com/cyberducttape/StePanel/actions/runs/39894297883)),
+including full tests and coverage floors, race tests, repository recovery
+drills, real tmpfs ENOSPC, mixed HTTP load, database restore checks,
+vulnerability/static analysis, container/deployment validation, and UI E2E.
+CodeQL ([run 39894297901](https://github.com/cyberducttape/StePanel/actions/runs/39894297901))
 and documentation validation
-([run 39891655075](https://github.com/cyberducttape/StePanel/actions/runs/39891655075))
+([run 39894297857](https://github.com/cyberducttape/StePanel/actions/runs/39894297857))
 also passed on that exact commit.
 
 The six-host installed-host matrix
@@ -31,22 +31,27 @@ and Caddy combinations passed installation smoke. This does not certify full
 recovery or production support.
 
 The XFS quota guest run
+([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
+is running against `05dc405`; its guest install/smoke step has not completed,
+so no XFS result is available. The previous run
 ([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
-failed during cloud-init setup, before StePanel installation: the guest uses
-`/bin/sh`, but the fixture used Bash-only `[[ ... ]]` and consequently ran the
-ext4 formatter against the XFS volume. This is a fixture failure, not an XFS
-product result. The guest script is being corrected and XFS remains
-unverified. An older ext4 quota-enabled Ubuntu guest
+failed in cloud-init before product installation because `/bin/sh` received a
+Bash-only conditional. The fixture now uses POSIX syntax and is checked with
+`sh -n`. An older ext4 quota-enabled Ubuntu guest
 run
 ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
 completed successfully on `7b549a7`: it confirmed user and project quotas on
 `/var/www`, user quotas on `/home`, exercised a real project-quota overage, and
 passed real backup and file-restore ENOSPC tests. It predates the shared quota
 state helper in `899ef70`, so it does not certify that current implementation.
-A two-repeat full recovery
-matrix ([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
-also remains active on older source `dd89653`; it is neither current-source
-evidence nor the documented 20–50-repeat cohort. These runs do not prove
+Two current-source full-recovery shards, each configured for two iterations
+across all six OS/web-server combinations, are in progress on `05dc405`
+([shard B](https://github.com/cyberducttape/StePanel/actions/runs/39896093726),
+[shard C](https://github.com/cyberducttape/StePanel/actions/runs/39896095968));
+they are not passes until every matrix job completes successfully. A separate
+two-repeat matrix ([run 39886953555](https://github.com/cyberducttape/StePanel/actions/runs/39886953555))
+remains active on older source `dd89653`. Current-source repeated installed
+recovery is therefore still incomplete. These runs do not prove
 physical host power-loss recovery, current-head XFS quotas, or all ENOSPC
 boundaries. Production remains **NO-GO**.
 
