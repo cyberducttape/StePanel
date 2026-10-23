@@ -29,9 +29,17 @@ quotaon() {
 xfs_quota() {
   case " $* " in
     *' state -u '*) printf '%s\n' "$mock_xfs_user_status" ;;
+    *' project -s -p '*) printf 'Setting project on %s\n' "$*" ;;
     *) printf '%s\n' "$mock_xfs_status" ;;
   esac
 }
+
+# The Git quota helper's stdout is a machine-readable numeric project ID.
+# xfs_quota emits human-readable success output, so ensure set_project_id
+# routes that output away from the command-substitution result.
+eval "$(sed -n '/^set_project_id() {/,/^}/p' deploy/integrations/stepanel-gitctl)"
+project_output=$(set_project_id xfs /var/www /tmp/stage 1000000001)
+[[ -z $project_output ]] || { echo 'XFS Git quota setup polluted stdout' >&2; exit 1; }
 
 stepanel_project_quota_active /var/www
 stepanel_user_quota_active /var/www

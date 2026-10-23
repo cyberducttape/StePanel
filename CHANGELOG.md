@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   directly rather than waiting for the test deadline.
 - Make legacy site-identity migration atomic so a detected account collision
   cannot leave a partial identity map behind.
+- Keep XFS quota setup status text off the Git staging helper's numeric project-ID
+  output, and assert the contract in the installed quota smoke.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
 - Use POSIX conditionals in the quota smoke's cloud-init guest script; its

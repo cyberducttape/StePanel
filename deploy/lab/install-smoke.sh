@@ -258,6 +258,7 @@ if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
   web_group=$(sed -n 's/^STEPANEL_WEB_GROUP="\([a-z_][a-z0-9_-]*\)"$/\1/p' /etc/ste-panel.env)
   web_gid=$(getent group "$web_group" | cut -d: -f3)
   project_id=$(/usr/local/sbin/stepanel-gitctl stage-limit "$site" "$site_user" "$quota_stage" 1048576)
+  [[ $project_id =~ ^1[0-9]{9}$ ]] || { echo 'Git stage quota helper returned a nonnumeric project ID' >&2; exit 1; }
   runuser -u stepanel -- touch "$quota_stage/panel-acl-test"
   runuser -u "$site_user" -- dd if=/dev/zero of="$quota_stage/first.bin" bs=700K count=1 conv=fsync status=none
   setpriv --reuid=65534 --regid=65534 --groups="$web_gid" -- test -r "$quota_stage/first.bin"

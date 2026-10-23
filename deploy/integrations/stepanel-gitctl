@@ -99,7 +99,10 @@ set_project_id() {
   local fstype=$1 mount=$2 path=$3 id=$4
   case "$fstype" in
     ext4) chattr -p "$id" +P "$path" ;;
-    xfs) xfs_quota -x -c "project -s -p $path $id" "$mount" ;;
+    # Keep command output off stdout: stage-limit's stdout is a machine-readable
+    # project ID consumed by the broker and callers. xfs_quota prints status
+    # text on success, unlike chattr, which would corrupt that response.
+    xfs) xfs_quota -x -c "project -s -p $path $id" "$mount" >/dev/null ;;
     *) return 1 ;;
   esac
 }
