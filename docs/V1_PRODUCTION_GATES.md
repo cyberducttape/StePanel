@@ -9,16 +9,17 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest exact-source validation snapshot — 2026-10-23 (`8550487`)
+### Latest exact-source validation snapshot — 2026-10-23 (`03422e5`)
 
 The current commit is
-`85504876b799eef985c6e89132cbdf9172869d06` (`8550487`); it changes only
-release evidence documents and the changelog from code commit
-`cf079a12dc96c63991f72fa23edd9bc5939cf188` (`cf079a1`). Exact-head CodeQL
-([run 39897998365](https://github.com/cyberducttape/StePanel/actions/runs/39897998365))
-and documentation validation
-([run 39897998366](https://github.com/cyberducttape/StePanel/actions/runs/39897998366))
-passed. The focused quota-state contract test, shell syntax checks,
+`03422e5b8a254de6079d5281ddccad0f82ecd2b5` (`03422e5`); it changes only
+release-evidence documents and the changelog from application code commit
+`cf079a12dc96c63991f72fa23edd9bc5939cf188` (`cf079a1`). Documentation
+validation passed on the current commit
+([run 39901196396](https://github.com/cyberducttape/StePanel/actions/runs/39901196396));
+current-head CodeQL is still running
+([run 39901196497](https://github.com/cyberducttape/StePanel/actions/runs/39901196497)).
+The focused quota-state contract test, shell syntax checks,
 `make release-check`, and 20 race-enabled site-staging cleanup repetitions
 passed locally.
 
@@ -31,14 +32,18 @@ the repeated full-recovery certification. Exact-code CI
 passed, including formatting, vet, all Go tests and coverage floors, race
 tests, repository recovery drills, real tmpfs ENOSPC, mixed HTTP load,
 database restore checks, static analysis, container smoke, UI E2E, and
-deployment validation. Exact-head CodeQL and docs validation also passed on
-`8550487` above. The exact-code XFS quota guest
+deployment validation. Exact-head CodeQL and docs validation passed on
+`8550487` (the previous evidence snapshot); current-head CodeQL is still
+pending as noted above. The exact-code XFS quota guest
 ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
-is still running. A two-repeat full-recovery shard on the current commit
+is still running. The two-repeat full-recovery shard D
 ([run 39898086088](https://github.com/cyberducttape/StePanel/actions/runs/39898086088))
-has started its first host; the other matrix jobs are queued. Two additional
-two-repeat shards are queued on `93b46c6`: [shard E](https://github.com/cyberducttape/StePanel/actions/runs/39900804398)
-and [shard F](https://github.com/cyberducttape/StePanel/actions/runs/39901109050).
+and additional shards E
+([run 39900804398](https://github.com/cyberducttape/StePanel/actions/runs/39900804398))
+and F
+([run 39901109050](https://github.com/cyberducttape/StePanel/actions/runs/39901109050))
+each have one Ubuntu 24.04/Caddy host job in progress; the other host jobs
+remain queued. Their tested application code is equivalent to `cf079a1`.
 None count as passes until every matrix job succeeds; the 20–50-repeat gate
 remains open.
 

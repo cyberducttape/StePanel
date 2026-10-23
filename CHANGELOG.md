@@ -23,6 +23,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   and repeated installed-host recovery evidence open.
 - Track all three current full-recovery shards and distinguish queued runs
   from completed certification passes.
+- Refresh the release evidence snapshot to the current commit and report
+  CodeQL plus per-host recovery-shard states without counting active jobs as
+  completed evidence.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
 - Use POSIX conditionals in the quota smoke's cloud-init guest script; its

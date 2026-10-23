@@ -12,17 +12,17 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Exact-source validation snapshot — 2026-10-23 (`8550487`)
+### Exact-source validation snapshot — 2026-10-23 (`03422e5`)
 
-- Current commit: `85504876b799eef985c6e89132cbdf9172869d06`; it contains only
-  release evidence documentation/changelog changes over code commit
-  `cf079a12dc96c63991f72fa23edd9bc5939cf188` (`cf079a1`). CodeQL
-  ([run 39897998365](https://github.com/cyberducttape/StePanel/actions/runs/39897998365))
-  and docs validation
-  ([run 39897998366](https://github.com/cyberducttape/StePanel/actions/runs/39897998366))
-  passed on the current commit. Focused quota tests, shell syntax checks,
-  `make release-check`, and 20 race-enabled staging-cleanup repetitions also
-  passed locally.
+- Current commit: `03422e5b8a254de6079d5281ddccad0f82ecd2b5`; it contains only
+  release-evidence documentation/changelog changes over the application code
+  in `cf079a12dc96c63991f72fa23edd9bc5939cf188` (`cf079a1`). Documentation
+  validation passed on the current commit
+  ([run 39901196396](https://github.com/cyberducttape/StePanel/actions/runs/39901196396));
+  current-head CodeQL is still running
+  ([run 39901196497](https://github.com/cyberducttape/StePanel/actions/runs/39901196497)).
+  Focused quota tests, shell syntax checks, `make release-check`, and 20
+  race-enabled staging-cleanup repetitions passed locally.
 - The six-host installed smoke
   ([run 39897561432](https://github.com/cyberducttape/StePanel/actions/runs/39897561432))
   passed on `cf079a1` for Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with
@@ -35,11 +35,14 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
   remains in progress. The two-repeat full recovery shard
   ([run 39898086088](https://github.com/cyberducttape/StePanel/actions/runs/39898086088))
-  has started its first host; other matrix jobs are queued. Two additional
-  two-repeat shards are queued on `93b46c6`: [E](https://github.com/cyberducttape/StePanel/actions/runs/39900804398)
-  and [F](https://github.com/cyberducttape/StePanel/actions/runs/39901109050).
-  They are not passes until all jobs succeed; the 20–50-repeat gate remains
-  open.
+  and two additional two-repeat shards, E
+  ([run 39900804398](https://github.com/cyberducttape/StePanel/actions/runs/39900804398))
+  and F
+  ([run 39901109050](https://github.com/cyberducttape/StePanel/actions/runs/39901109050)),
+  each have one Ubuntu 24.04/Caddy matrix job in progress; their other host
+  jobs remain queued. These shards use code-equivalent snapshots of `cf079a1`.
+  No shard is a pass until every host job succeeds; the 20–50-repeat gate
+  remains open.
 - The previous XFS guest run
   ([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
   enabled and enforced quotas, then failed because `xfs_quota` status output
