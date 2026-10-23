@@ -12,7 +12,29 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Current release evidence — 2026-10-23 07:05 UTC (`ea69e24`)
+### Current release evidence — 2026-10-23 07:23 UTC (`053ac62`)
+
+- Application and smoke-harness source under test is `ea69e24`; current `main`
+  at `053ac62` adds evidence documentation only. Documentation validation
+  ([run 39916589273](https://github.com/cyberducttape/StePanel/actions/runs/39916589273))
+  and CodeQL ([run 39916589294](https://github.com/cyberducttape/StePanel/actions/runs/39916589294))
+  passed on current `main`, with zero open CodeQL alerts.
+- Integration CI on `ea69e24` ([run 39914766303](https://github.com/cyberducttape/StePanel/actions/runs/39914766303))
+  has all 68 recorded steps successful, but GitHub still reports its job
+  in-progress with no completion timestamp. It is not counted as a terminal
+  pass. A fresh integration run at `053ac62` is queued on an isolated branch
+  ([run 39917250272](https://github.com/cyberducttape/StePanel/actions/runs/39917250272)).
+- The quota-enabled Ubuntu installation job completed successfully
+  ([job 120277924484](https://github.com/cyberducttape/StePanel/actions/runs/39912326883/jobs/120277924484))
+  on older application source `67e67d6`; its workflow has not finalized, and
+  this does not certify current source. The corrected six-host full recovery
+  run on `ea69e24` remains active on all six hosts ([run 39915109037](https://github.com/cyberducttape/StePanel/actions/runs/39915109037)).
+- Production remains **NO-GO** pending physical host power-loss and broader
+  ENOSPC/database-outage evidence, repeated recovery, supported-webserver
+  application proof, alert-delivery evidence, capacity limits, upgrade policy,
+  and independent security assessment.
+
+### Prior release evidence — 2026-10-23 07:05 UTC (`ea69e24`)
 
 - The application and smoke-harness revision under assessment is
   `ea69e24a1b5b4cd5fd0594f016a819954a8a1517`. The only code-bearing change

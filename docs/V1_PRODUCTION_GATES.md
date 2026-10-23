@@ -9,7 +9,42 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current release evidence — 2026-10-23 07:05 UTC (`ea69e24`)
+### Current release evidence — 2026-10-23 07:23 UTC (`053ac62`)
+
+The application and smoke-harness revision under assessment is
+[`ea69e24a1b5b4cd5fd0594f016a819954a8a1517`](https://github.com/cyberducttape/StePanel/commit/ea69e24a1b5b4cd5fd0594f016a819954a8a1517);
+current `main` at `053ac62` adds only evidence documentation. Documentation
+([run 39916589273](https://github.com/cyberducttape/StePanel/actions/runs/39916589273))
+and CodeQL ([run 39916589294](https://github.com/cyberducttape/StePanel/actions/runs/39916589294))
+passed on `053ac62`; CodeQL reports zero open alerts.
+
+The integration run on `ea69e24`
+([run 39914766303](https://github.com/cyberducttape/StePanel/actions/runs/39914766303))
+has all 68 recorded steps successful, including Go tests, race checks, recovery
+drills, database restore checks, static analysis, container build and scan, and
+deployment validation. GitHub still reports the job in progress without a
+completion timestamp, despite its final “Complete job” step succeeding. It is
+not counted as a terminal CI pass. A fresh integration run on the same code and
+current evidence revision `053ac62` is queued on an isolated branch
+([run 39917250272](https://github.com/cyberducttape/StePanel/actions/runs/39917250272)).
+
+The quota-enabled Ubuntu installation job completed successfully
+([job 120277924484 in run 39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883/jobs/120277924484)),
+but it tested older application source `67e67d6`; its parent workflow has not
+finalized. This is quota-install evidence, not current-source certification.
+The corrected full six-host installed recovery matrix on `ea69e24` is active on
+all Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy hosts
+([run 39915109037](https://github.com/cyberducttape/StePanel/actions/runs/39915109037));
+no shard has completed yet. The earlier matrix on `cac6c5a` had a Rocky/Caddy
+HTTP 401; its logs and observed details are recorded below.
+
+Production remains **NO-GO**. Physical host power-loss recovery, broader
+installed-host ENOSPC/database-outage evidence, the required 20-repeat recovery
+cohort, complete supported-webserver application proof, live alert-delivery
+outage/retry evidence, measured capacity limits, upgrade/rollback policy, and
+independent security assessment remain open.
+
+### Prior release evidence — 2026-10-23 07:05 UTC (`ea69e24`)
 
 The application and smoke-harness revision under assessment is
 [`ea69e24a1b5b4cd5fd0594f016a819954a8a1517`](https://github.com/cyberducttape/StePanel/commit/ea69e24a1b5b4cd5fd0594f016a819954a8a1517).

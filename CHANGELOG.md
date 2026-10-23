@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Refresh release evidence with the quota-install job result, current-revision
+  documentation and CodeQL passes, and pending current-source CI/recovery
+  results; retain the NO-GO decision.
 - Refresh production-gate evidence for revision `ea69e24`: document the TOTP-only
   host-shard failure, corrected queued recovery run, and current CI status while
   retaining the NO-GO decision.
