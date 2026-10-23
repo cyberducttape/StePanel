@@ -13,6 +13,26 @@ tmp=$(mktemp -d /tmp/stepanel-ftps-smoke.XXXXXX)
 vsftpd_pid=
 sshd_pid=
 password='ci-ftps-password-012345'
+ftps_diagnostics() {
+  echo 'FTPS authentication diagnostics (password hash omitted):' >&2
+  getent passwd "$site_user" >&2 || true
+  shadow_password=$(getent shadow "$site_user" | cut -d: -f2)
+  case $shadow_password in
+    '!'*|'*'*) echo 'site account password is locked' >&2 ;;
+    '') echo 'site account password is empty' >&2 ;;
+    *) echo 'site account password is set and unlocked' >&2 ;;
+  esac
+  stat -c '%A %U:%G %n' /etc/vsftpd/stepanel.users /etc/pam.d/stepanel-vsftpd >&2 || true
+  grep -Fxq "$site_user" /etc/vsftpd/stepanel.users && echo 'site user is in the FTPS allowlist' >&2 || true
+  sed -n '1,80p' /etc/pam.d/stepanel-vsftpd >&2 || true
+  sed -n '1,100p' "$tmp/vsftpd.log" >&2 || true
+  for auth_log in /var/log/secure /var/log/auth.log; do
+    if [[ -r $auth_log ]]; then
+      grep -F "$site_user" "$auth_log" | tail -n 20 >&2 || true
+    fi
+  done
+  journalctl -b --no-pager 2>/dev/null | grep -E "(vsftpd|pam_unix|pam_listfile).*${site_user}" | tail -n 20 >&2 || true
+}
 cleanup() {
   set +e
   [[ -z ${vsftpd_pid:-} ]] || kill "$vsftpd_pid" 2>/dev/null
@@ -65,17 +85,26 @@ pasv_address=127.0.0.1
 EOF
 "$vsftpd_bin" "$tmp/vsftpd.conf" >"$tmp/vsftpd.log" 2>&1 &
 vsftpd_pid=$!
+server_ready=0
 for _ in {1..20}; do
-  if curl --silent --max-time 1 --ftp-ssl --ssl-reqd --insecure --user "$site_user:$password" "ftp://127.0.0.1:$port/" >/dev/null 2>&1; then break; fi
+  if timeout 1 bash -c 'exec 3<>/dev/tcp/127.0.0.1/$1' _ "$port" 2>/dev/null; then server_ready=1; break; fi
   sleep 0.1
 done
 kill -0 "$vsftpd_pid" 2>/dev/null || { sed -n '1,120p' "$tmp/vsftpd.log" >&2; exit 1; }
+(( server_ready == 1 )) || { echo 'temporary FTPS server did not open its loopback port' >&2; exit 1; }
+if ! curl --fail --silent --show-error --max-time 5 --ftp-ssl --ssl-reqd --insecure \
+  --user "$site_user:$password" --list-only "ftp://127.0.0.1:$port/" >/dev/null; then
+  ftps_diagnostics
+  exit 1
+fi
 printf '%s\n' 'FTPS upload/download proof' > "$tmp/upload.txt"
 curl --fail --silent --show-error --ftp-ssl --ssl-reqd --insecure --user "$site_user:$password" \
   --upload-file "$tmp/upload.txt" "ftp://127.0.0.1:$port/upload.txt"
 curl --fail --silent --show-error --ftp-ssl --ssl-reqd --insecure --user "$site_user:$password" \
   "ftp://127.0.0.1:$port/upload.txt" -o "$tmp/download.txt"
-cmp -s "$tmp/upload.txt" "$tmp/download.txt"
+upload_sha=$(sha256sum "$tmp/upload.txt" | awk '{print $1}')
+download_sha=$(sha256sum "$tmp/download.txt" | awk '{print $1}')
+[[ $upload_sha == "$download_sha" ]] || { echo 'FTPS download content differs from uploaded content' >&2; exit 1; }
 
 # FTPS uses the site account's Unix password, so prove that the managed sshd
 # policy blocks that credential even when the surrounding sshd allows it.

@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Route FTPS authentication through a dedicated PAM service that checks the
   StePanel allowlist and distro password policy without rejecting managed
   `nologin` site accounts via `pam_shells`; preserve unmanaged PAM files.
+- Make FTPS smoke readiness probes avoid repeated failed logins, emit bounded
+  password-free PAM/account diagnostics on denial, and compare transfers with
+  installed core utilities.
 - Run the real FTPS upload/download and revocation smoke in every installed-host
   matrix, and verify with a disposable OpenSSH server that the FTPS password
   cannot authenticate over SSH even when global password login is enabled.
