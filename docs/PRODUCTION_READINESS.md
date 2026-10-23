@@ -1,11 +1,18 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-10-10
+**Last Updated:** 2026-10-23
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 **👉 For overall project status, see [CURRENT_STATUS.md](./CURRENT_STATUS.md) — the single authoritative source for version, progress, and release gates.**
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
+
+The current evidence snapshot records passing exact-source CI, CodeQL, and
+documentation checks for `cac6c5a`; a six-host installed recovery run against
+that source is still pending. Production approval remains **NO-GO**. See
+[CURRENT_STATUS.md](./CURRENT_STATUS.md) for run links and
+[V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for remaining acceptance
+criteria.
 
 ## Certified operating envelope
 
