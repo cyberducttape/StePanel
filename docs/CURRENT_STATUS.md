@@ -12,19 +12,29 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Exact-source validation snapshot — 2026-10-23 (`cf079a1`)
+### Exact-source validation snapshot — 2026-10-23 (`8550487`)
 
-- Current source: `cf079a12dc96c63991f72fa23edd9bc5939cf188`. The focused
-  quota-state contract test, shell syntax checks, and whitespace validation
-  passed locally. Exact-head CodeQL ([run 39897457152](https://github.com/cyberducttape/StePanel/actions/runs/39897457152))
+- Current commit: `85504876b799eef985c6e89132cbdf9172869d06`; it contains only
+  release evidence documentation/changelog changes over code commit
+  `cf079a12dc96c63991f72fa23edd9bc5939cf188` (`cf079a1`). CodeQL
+  ([run 39897998365](https://github.com/cyberducttape/StePanel/actions/runs/39897998365))
   and docs validation
-  ([run 39897457149](https://github.com/cyberducttape/StePanel/actions/runs/39897457149))
-  passed. Exact-head integration CI
-  ([run 39897457130](https://github.com/cyberducttape/StePanel/actions/runs/39897457130)),
-  XFS quota guest ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684)),
-  and the six-host install matrix
+  ([run 39897998366](https://github.com/cyberducttape/StePanel/actions/runs/39897998366))
+  passed on the current commit. Focused quota tests, shell syntax checks,
+  `make release-check`, and 20 race-enabled staging-cleanup repetitions also
+  passed locally.
+- The six-host installed smoke
   ([run 39897561432](https://github.com/cyberducttape/StePanel/actions/runs/39897561432))
-  are pending or in progress, not passes.
+  passed on `cf079a1` for Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with
+  Apache and Caddy. It is installation-smoke evidence, not repeated full
+  recovery certification. Code CI
+  ([run 39897457130](https://github.com/cyberducttape/StePanel/actions/runs/39897457130))
+  is running; it has passed tests, race, recovery drills, and tmpfs ENOSPC and
+  mixed HTTP load, and is now verifying atomic MySQL 8.0 restore. The XFS quota rerun
+  ([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
+  remains in progress. The two-repeat full recovery shard
+  ([run 39898086088](https://github.com/cyberducttape/StePanel/actions/runs/39898086088))
+  has started its first host; other matrix jobs are queued.
 - The previous XFS guest run
   ([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
   enabled and enforced quotas, then failed because `xfs_quota` status output
@@ -32,8 +42,7 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   fixes that stdout contract and adds regression coverage; only the current
   installed-host rerun can verify the fix.
 
-The following results are from the prior source commit and are historical
-context, not exact-head validation for `cf079a1`:
+The following results are from older source commits and are historical context:
 
 - Exact-head integration CI passed on
   `05dc4054306d2fbb8cc54ac634c030f7510427cf`

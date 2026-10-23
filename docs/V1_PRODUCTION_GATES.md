@@ -9,21 +9,33 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest exact-source validation snapshot — 2026-10-23 (`cf079a1`)
+### Latest exact-source validation snapshot — 2026-10-23 (`8550487`)
 
-The current source is
-`cf079a12dc96c63991f72fa23edd9bc5939cf188` (commit `cf079a1`). Its focused
-quota-state contract test, shell syntax checks, and `git diff --check` passed
-locally. Exact-head CodeQL ([run 39897457152](https://github.com/cyberducttape/StePanel/actions/runs/39897457152))
+The current commit is
+`85504876b799eef985c6e89132cbdf9172869d06` (`8550487`); it changes only
+release evidence documents and the changelog from code commit
+`cf079a12dc96c63991f72fa23edd9bc5939cf188` (`cf079a1`). Exact-head CodeQL
+([run 39897998365](https://github.com/cyberducttape/StePanel/actions/runs/39897998365))
 and documentation validation
-([run 39897457149](https://github.com/cyberducttape/StePanel/actions/runs/39897457149))
-passed. Exact-head integration CI
-([run 39897457130](https://github.com/cyberducttape/StePanel/actions/runs/39897457130)),
-the XFS quota guest
-([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684)),
-and six-combination installed-host smoke
+([run 39897998366](https://github.com/cyberducttape/StePanel/actions/runs/39897998366))
+passed. The focused quota-state contract test, shell syntax checks,
+`make release-check`, and 20 race-enabled site-staging cleanup repetitions
+passed locally.
+
+The six-combination installed-host smoke
 ([run 39897561432](https://github.com/cyberducttape/StePanel/actions/runs/39897561432))
-are still pending or running and are not passes yet.
+passed on code commit `cf079a1`: Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9,
+each with Apache and Caddy. This validates installation smoke only; it is not
+the repeated full-recovery certification. Exact-code CI
+([run 39897457130](https://github.com/cyberducttape/StePanel/actions/runs/39897457130))
+is running and has reached mixed HTTP load after tests, race, recovery drills,
+tmpfs ENOSPC, and mixed HTTP load have passed; it is now verifying atomic
+database restore against MySQL 8.0. The exact-code XFS quota guest
+([run 39897466684](https://github.com/cyberducttape/StePanel/actions/runs/39897466684))
+is still running. A two-repeat full-recovery shard on the current commit
+([run 39898086088](https://github.com/cyberducttape/StePanel/actions/runs/39898086088))
+has started its first host; the other matrix jobs are queued. These are not
+passes until their complete workflows succeed.
 
 The XFS quota guest on the preceding implementation
 ([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
@@ -33,8 +45,7 @@ helper's numeric project-ID output. Commit `cf079a1` redirects that status text
 and adds a regression test plus an installed-smoke project-ID assertion. The
 current XFS rerun is required to establish whether the defect is resolved.
 
-The exact-head integration and installed-host results below are historical
-context only; they do not validate `cf079a1`.
+The following `05dc405` and older results are historical context only.
 
 Exact-head CI integration passed on
 `05dc4054306d2fbb8cc54ac634c030f7510427cf`
@@ -58,8 +69,8 @@ recovery or production support.
 The prior XFS quota guest run
 ([run 39894302014](https://github.com/cyberducttape/StePanel/actions/runs/39894302014))
 failed during Git staging quota cleanup after quota enforcement had been
-confirmed; the XFS helper stdout defect is fixed in the current source and its
-exact-head rerun is pending above. The earlier run
+confirmed; the helper stdout defect is fixed in code commit `cf079a1`, and its
+exact-head quota rerun remains pending above. The earlier run
 ([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
 failed in cloud-init before product installation because `/bin/sh` received a
 Bash-only conditional. The fixture now uses POSIX syntax and is checked with
