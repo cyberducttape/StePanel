@@ -31,9 +31,12 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   is identical. All six combinations passed: Ubuntu 24.04, AlmaLinux 9, and
   Rocky Linux 9, each with Apache and Caddy. This is install-smoke evidence,
   not full recovery certification or production support by itself.
-- The current-head XFS quota-enabled guest run
+- The XFS quota-enabled guest run
   ([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
-  is in its guest-install/smoke phase; no XFS result is available yet. An older
+  failed before StePanel installation: cloud-init ran the guest setup under
+  `/bin/sh`, but Bash-only `[[ ... ]]` conditionals selected the ext4 formatter
+  for the XFS volume. This is a fixture failure, not an XFS product result;
+  the guest script is being corrected and XFS remains unverified. An older
   ext4 quota-enabled Ubuntu guest run
   ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
   completed successfully on source `7b549a7`: it confirmed active user and

@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 
@@ -70,6 +71,30 @@ def validate_xfs_quota_setup(path: Path) -> None:
         raise ValueError(
             f"{path.relative_to(ROOT)} lacks XFS quota coverage: {', '.join(missing)}"
         )
+
+    # cloud-init runs runcmd scripts through /bin/sh, not the host workflow's
+    # Bash. Extract and syntax-check the guest script so Bash-only conditionals
+    # cannot silently select the wrong filesystem formatter.
+    lines = text.splitlines()
+    try:
+        start = lines.index("          runcmd:") + 2
+        end = lines.index("          EOF", start)
+    except ValueError as exc:
+        raise ValueError("cannot locate quota guest runcmd script") from exc
+    guest_lines = lines[start:end]
+    guest_script = "\n".join(
+        line[14:] if line.startswith("              ") else line
+        for line in guest_lines
+    )
+    if "[[" in guest_script:
+        raise ValueError("quota guest runcmd uses Bash-only [[ under cloud-init /bin/sh")
+    if guest_script.count("if [ '$quota_filesystem' = xfs ]; then") != 4:
+        raise ValueError("quota guest runcmd must select XFS in all four POSIX branches")
+    result = subprocess.run(
+        ["sh", "-n"], input=guest_script, text=True, capture_output=True, check=False
+    )
+    if result.returncode:
+        raise ValueError(f"quota guest runcmd is not POSIX-shell syntax: {result.stderr.strip()}")
 
 
 def main() -> int:

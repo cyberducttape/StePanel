@@ -93,7 +93,7 @@ jobs:
           runcmd:
             - |
               set -eux
-              if [[ '$quota_filesystem' == xfs ]]; then
+              if [ '$quota_filesystem' = xfs ]; then
                 mkfs.xfs -f /dev/vdb
               else
                 # Mounting ext4 quotas needs the quota format module provided
@@ -105,7 +105,7 @@ jobs:
               install -d -m 0755 /var/www
               printf '%s\\n' "/dev/vdb /var/www $quota_filesystem usrquota,prjquota 0 2" >> /etc/fstab
               mount /var/www
-              if [[ '$quota_filesystem' == xfs ]]; then
+              if [ '$quota_filesystem' = xfs ]; then
                 xfs_quota -x -c 'state -up' /var/www | grep -F 'Accounting: ON'
                 xfs_quota -x -c 'state -up' /var/www | grep -F 'Enforcement: ON'
               else
@@ -118,7 +118,7 @@ jobs:
               mount /dev/vdc /mnt/stepanel-enospc
               # Move the existing homes, including vmtest's SSH keys, onto a
               # quota-enabled filesystem before mounting it over /home.
-              if [[ '$quota_filesystem' == xfs ]]; then
+              if [ '$quota_filesystem' = xfs ]; then
                 mkfs.xfs -f /dev/vdd
               else
                 mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdd
@@ -129,7 +129,7 @@ jobs:
               umount /mnt/stepanel-home
               printf '%s\\n' "/dev/vdd /home $quota_filesystem usrquota,prjquota 0 2" >> /etc/fstab
               mount /home
-              if [[ '$quota_filesystem' == xfs ]]; then
+              if [ '$quota_filesystem' = xfs ]; then
                 xfs_quota -x -c 'state -u' /home | grep -F 'Accounting: ON'
                 xfs_quota -x -c 'state -u' /home | grep -F 'Enforcement: ON'
               else

@@ -30,9 +30,13 @@ changelog entry. All six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 Apache
 and Caddy combinations passed installation smoke. This does not certify full
 recovery or production support.
 
-The current-head XFS quota guest run
+The XFS quota guest run
 ([run 39889565080](https://github.com/cyberducttape/StePanel/actions/runs/39889565080))
-is in its guest-install/smoke phase. An older ext4 quota-enabled Ubuntu guest
+failed during cloud-init setup, before StePanel installation: the guest uses
+`/bin/sh`, but the fixture used Bash-only `[[ ... ]]` and consequently ran the
+ext4 formatter against the XFS volume. This is a fixture failure, not an XFS
+product result. The guest script is being corrected and XFS remains
+unverified. An older ext4 quota-enabled Ubuntu guest
 run
 ([run 39886014031](https://github.com/cyberducttape/StePanel/actions/runs/39886014031))
 completed successfully on `7b549a7`: it confirmed user and project quotas on

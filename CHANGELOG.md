@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   directly rather than waiting for the test deadline.
 - Check XFS project-quota enforcement with `xfs_quota` instead of `quotaon`,
   and exercise both ext4 and XFS through the installed-host quota workflow.
+- Use POSIX conditionals in the quota smoke's cloud-init guest script; its
+  initial XFS attempt failed in fixture setup before StePanel installation.
 - Share filesystem-native user/project quota-state checks between installation,
   Git staging, and host smoke tests; add ext4/XFS fail-closed contract tests.
 - Make the backup-rehearsal capacity test robust to small free-space changes
