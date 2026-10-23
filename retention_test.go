@@ -260,6 +260,29 @@ func TestCleanupImportStagesHonorsCrossProcessNamedRestoreLease(t *testing.T) {
 	}
 }
 
+func TestCreateNamedImportStageRejectsUnsafeNames(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{
+		"../20200101-010101-customer-AbCdEf012_-x",
+		"20200101-010101-customer/../../outside-AbCdEf012_-x",
+		"20200101-010101-Customer-AbCdEf012_-x",
+		"20200101-010101--AbCdEf012_-x",
+	} {
+		if path, lock, err := createNamedImportStage(root, name); err == nil {
+			_ = releaseBackupStageLock(lock)
+			_ = os.RemoveAll(path)
+			t.Errorf("unsafe named stage %q was accepted", name)
+		}
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("invalid names mutated the import root: %v", entries)
+	}
+}
+
 func TestImportStageCleanupCoordinatesAcrossThreeProcesses(t *testing.T) {
 	root := t.TempDir()
 	commands := make([]*exec.Cmd, 0, 2)
