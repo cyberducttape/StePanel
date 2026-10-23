@@ -7,9 +7,10 @@
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
-The current evidence snapshot records passing exact-source CI, CodeQL, and
-documentation checks for `cac6c5a`; a six-host installed recovery run against
-that source is still pending. Production approval remains **NO-GO**. See
+The current evidence snapshot records passing integration CI for application
+source `ea69e24`, and passing CodeQL and documentation checks on main at
+`489a625`. The corrected six-host installed recovery matrix for `ea69e24` is
+still running. Production approval remains **NO-GO**. See
 [CURRENT_STATUS.md](./CURRENT_STATUS.md) for run links and
 [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for remaining acceptance
 criteria.

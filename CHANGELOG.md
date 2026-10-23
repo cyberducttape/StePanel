@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Record the terminal passing integration run on application source `ea69e24`,
   current-main documentation and CodeQL passes with zero open alerts, and the
   still-active six-host installed recovery matrix; production remains NO-GO.
+- Reconcile the authoritative production-gate table and readiness summary with
+  the current `ea69e24` recovery matrix and successful integration CI, without
+  counting the active host run as completed evidence.
 - Record the successfully finalized quota-enabled Ubuntu install run on older
   source `67e67d6`, and the active current-source race and recovery checks.
 - Refresh release evidence with the quota-install job result, current-revision
