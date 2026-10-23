@@ -22,9 +22,32 @@ ftps_diagnostics() {
     '') echo 'site account password is empty' >&2 ;;
     *) echo 'site account password is set and unlocked' >&2 ;;
   esac
+  case $shadow_password in
+    \$1\$*) hash_scheme=md5 ;;
+    \$2*\$*) hash_scheme=bcrypt ;;
+    \$5\$*) hash_scheme=sha256 ;;
+    \$6\$*) hash_scheme=sha512 ;;
+    \$y\$*) hash_scheme=yescrypt ;;
+    *) hash_scheme=other ;;
+  esac
+  echo "site account password hash scheme: $hash_scheme" >&2
+  printf '%s\n%s\n' "$password" "$shadow_password" | PYTHONWARNINGS=ignore python3 -c \
+    'import sys
+try:
+ import crypt
+ password, stored = (line.rstrip() for line in sys.stdin)
+ print("shadow hash matches test password" if crypt.crypt(password, stored) == stored else "shadow hash does not match test password", file=sys.stderr)
+except (ImportError, OSError, ValueError):
+ print("could not locally verify shadow hash", file=sys.stderr)' || true
   stat -c '%A %U:%G %n' /etc/vsftpd/stepanel.users /etc/pam.d/stepanel-vsftpd >&2 || true
   grep -Fxq "$site_user" /etc/vsftpd/stepanel.users && echo 'site user is in the FTPS allowlist' >&2 || true
   sed -n '1,80p' /etc/pam.d/stepanel-vsftpd >&2 || true
+  if [[ -r /etc/pam.d/password-auth ]]; then
+    echo 'password-auth policy:' >&2
+    sed -n '1,100p' /etc/pam.d/password-auth >&2
+  fi
+  authselect current 2>&1 | sed -n '1,20p' >&2 || true
+  faillock --user "$site_user" 2>&1 | sed -n '1,20p' >&2 || true
   sed -n '1,100p' "$tmp/vsftpd.log" >&2 || true
   for auth_log in /var/log/secure /var/log/auth.log; do
     if [[ -r $auth_log ]]; then
