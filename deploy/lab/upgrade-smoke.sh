@@ -87,6 +87,13 @@ printf '%s\n' '[]' > /var/lib/ste-panel/jobs.json
 chown stepanel:stepanel /var/lib/ste-panel/jobs.json
 chmod 0600 /var/lib/ste-panel/jobs.json
 
+# Operators configure these runtime values in /etc/ste-panel.env. The
+# candidate installer must preserve them while regenerating installer-owned
+# settings. Use non-secret values with no external side effects in this lab.
+printf '%s\n' 'STEPANEL_GIT_ALLOWED_HOSTS=git.example.test,code.example.test' >> /etc/ste-panel.env
+printf '%s\n' 'STEPANEL_HSTS_PRELOAD=0' >> /etc/ste-panel.env
+chmod 0600 /etc/ste-panel.env
+
 cd "$candidate_root"
 if ! ./install.sh --unsafe-lab; then
   # Key names only: the environment holds the session, audit and account
@@ -105,6 +112,14 @@ fi
 systemctl is-active --quiet stepanel.service stepanel-worker.service
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
 test -s /var/lib/ste-panel/stepanel-control.db
+grep -Fxq 'STEPANEL_GIT_ALLOWED_HOSTS=git.example.test,code.example.test' /etc/ste-panel.env || {
+  echo 'candidate upgrade dropped operator-managed Git host configuration' >&2
+  exit 1
+}
+grep -Fxq 'STEPANEL_HSTS_PRELOAD=0' /etc/ste-panel.env || {
+  echo 'candidate upgrade dropped operator-managed HSTS configuration' >&2
+  exit 1
+}
 
 # The installed service environment is root-owned. Load it for the CLI so the
 # commands examine the production paths rather than development defaults.

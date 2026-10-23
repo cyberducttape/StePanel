@@ -989,6 +989,58 @@ write_env() {
   value=${value//\"/\\\"}
   printf '%s="%s"\n' "$key" "$value"
 }
+# Preserve supported operator-managed runtime configuration when an upgrade
+# regenerates the root-owned environment file. Installer-owned settings below
+# are always rewritten from the validated installation plan. Only explicitly
+# supported runtime settings are retained; test/failure-injection variables
+# and installer-generated credentials are excluded here.
+PRESERVED_RUNTIME_SETTINGS=(
+  STEPANEL_ACCOUNT_STATE
+  STEPANEL_ALERT_EMAIL_FROM
+  STEPANEL_ALERT_EMAIL_TO
+  STEPANEL_ALERT_SMTP_HOST
+  STEPANEL_ALERT_SMTP_PASSWORD
+  STEPANEL_ALERT_SMTP_PORT
+  STEPANEL_ALERT_SMTP_USER
+  STEPANEL_ALERT_WEBHOOK_SECRET
+  STEPANEL_ALERT_WEBHOOK_URL
+  STEPANEL_CLOUD_PROVIDER
+  STEPANEL_DB_DATA_DIR
+  STEPANEL_ENVIRONMENT_STATE
+  STEPANEL_GIT_ALLOWED_HOSTS
+  STEPANEL_GIT_RELEASE_MAX_AGE_HOURS
+  STEPANEL_GIT_RELEASE_MAX_BYTES
+  STEPANEL_GIT_RELEASE_MAX_TREE_BYTES
+  STEPANEL_GIT_RELEASE_RETENTION
+  STEPANEL_GIT_WEBHOOK_SECRET
+  STEPANEL_HSTS_INCLUDE_SUBDOMAINS
+  STEPANEL_HSTS_PRELOAD
+  STEPANEL_LINODE_TOKEN
+  STEPANEL_METRICS_PUBLIC
+  STEPANEL_OFFSITE_TRANSFER_TIMEOUT
+  STEPANEL_RECOVERY_PROOF_COMMAND
+  STEPANEL_REDIS_STATE
+  STEPANEL_REHEARSAL_INTERVAL_HOURS
+  STEPANEL_RUNNER_ALLOWED_IMAGES
+  STEPANEL_RUNNER_ALLOWED_REGISTRIES
+  STEPANEL_RUNNER_MAX_IMAGE_BYTES
+  STEPANEL_RUNNER_NETWORK_MODE
+  STEPANEL_RUNNERCTL
+  STEPANEL_SNAPSHOT_RECOVERY_ROOT
+  STEPANEL_SSH_SERVERS
+  STEPANEL_TASKCTL
+  STEPANEL_TLS_CERT_FILE
+  STEPANEL_TLS_KEY_FILE
+  STEPANEL_TLS_TERMINATED
+  STEPANEL_TRUSTED_PROXY_CIDRS
+  STEPANEL_WORDPRESS_RECOVERY_PROOF
+)
+write_preserved_runtime_settings() {
+  local key
+  for key in "${PRESERVED_RUNTIME_SETTINGS[@]}"; do
+    if [[ -v $key && -n ${!key} ]]; then write_env "$key" "${!key}"; fi
+  done
+}
 env_tmp=$(mktemp /etc/ste-panel.env.XXXXXX)
 TXN_TEMPS+=("$env_tmp")
 {
@@ -1040,8 +1092,6 @@ TXN_TEMPS+=("$env_tmp")
   if [[ -n "${STEPANEL_OFFSITE_TARGET:-}" ]]; then write_env STEPANEL_OFFSITE_TARGET "$STEPANEL_OFFSITE_TARGET"; fi
   write_env STEPANEL_REQUIRE_OFFSITE_BACKUP "$REQUIRE_OFFSITE_BACKUP"
   if [[ -n "$RCLONE_CONFIG" ]]; then write_env RCLONE_CONFIG "$RCLONE_CONFIG"; fi
-  if [[ -n "${STEPANEL_CLOUD_PROVIDER:-}" ]]; then write_env STEPANEL_CLOUD_PROVIDER "$STEPANEL_CLOUD_PROVIDER"; fi
-  if [[ -n "${STEPANEL_SSH_SERVERS:-}" ]]; then write_env STEPANEL_SSH_SERVERS "$STEPANEL_SSH_SERVERS"; fi
   write_env STEPANEL_JOB_STATE "$DATA_DIR/jobs.json"
   write_env STEPANEL_CONTROL_PLANE_DB "$DATA_DIR/stepanel-control.db"
   write_env STEPANEL_SESSION_STATE "$DATA_DIR/sessions.json"
@@ -1059,6 +1109,7 @@ TXN_TEMPS+=("$env_tmp")
   write_env STEPANEL_FTP_PASSIVE_MIN "$FTP_PASSIVE_MIN"
   write_env STEPANEL_FTP_PASSIVE_MAX "$FTP_PASSIVE_MAX"
   if [[ "$WEB_SERVER" == "apache" && ( "$INSTALL_TLS" == "1" || -x /usr/local/sbin/stepanel-certbot ) ]]; then write_env STEPANEL_CERTBOT /usr/local/sbin/stepanel-certbot; fi
+  write_preserved_runtime_settings
 } > "$env_tmp"
 chmod 0600 "$env_tmp"
 mv -f "$env_tmp" "$ENV_FILE"

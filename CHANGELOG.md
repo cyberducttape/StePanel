@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Preserve operator-managed runtime settings, including alert destinations and
+  credentials, during installer upgrades; add round-trip coverage for escaping
+  and ensure failure-injection variables are not persisted.
 - Refresh the authoritative release evidence with passing exact-head CI,
   CodeQL, documentation, and XFS quota results while keeping all active
   recovery shards pending and production approval NO-GO.
