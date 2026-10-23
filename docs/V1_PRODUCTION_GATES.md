@@ -9,7 +9,7 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current application-source evidence — 2026-10-23 06:17 UTC (`cac6c5a`)
+### Current application-source evidence — 2026-10-23 06:45 UTC (`cac6c5a`)
 
 Exact-head CI passed on
 [`cac6c5adc13acb77a99dda080bfa9b9e7d6ccd35`](https://github.com/cyberducttape/StePanel/actions/runs/39908676803),
@@ -20,6 +20,8 @@ E2E. Exact-head CodeQL ([run 39908676811](https://github.com/cyberducttape/StePa
 and documentation validation ([run 39908676870](https://github.com/cyberducttape/StePanel/actions/runs/39908676870))
 passed; CodeQL reported zero open alerts. Local full Go tests, `go vet ./...`,
 `make release-check`, shell syntax, and diff checks passed.
+The required three-process import-stage cleanup regression also passed ten
+additional repetitions under `go test -race` (12.191s).
 
 An N-1 upgrade/rollback smoke passed on application-code ancestor `add8dae`
 ([run 39907581022](https://github.com/cyberducttape/StePanel/actions/runs/39907581022))

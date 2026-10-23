@@ -19,6 +19,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   October 19–21 workflow status claims.
 - Refresh the deployment-readiness summary date and point operators to the
   current evidence snapshot while retaining the NO-GO release decision.
+- Record ten additional race-enabled repetitions of the three-process import
+  stage cleanup regression against current application source.
 - Preserve operator-managed runtime settings, including alert destinations and
   credentials, during installer upgrades; add round-trip coverage for escaping
   and ensure failure-injection variables are not persisted. The N-1 upgrade
