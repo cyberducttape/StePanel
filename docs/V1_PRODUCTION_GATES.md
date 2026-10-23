@@ -24,9 +24,12 @@ has passed Go tests and is running race tests; it is not yet a complete pass.
 The full six-host recovery run on `cac6c5a`
 ([run 39910599138](https://github.com/cyberducttape/StePanel/actions/runs/39910599138))
 is still running. Its Rocky Linux 9 + Caddy shard failed at the backup-recovery
-login with HTTP 401 after preceding recovery checks had passed. The disposable
-host diagnostics indicate a TOTP counter boundary/replay between adjacent
-smokes. The harness now retries one 401 using a newly generated TOTP counter;
+login with HTTP 401 after the preceding cPanel recovery smoke and recovery
+checks passed. The logs show a successful login response at 06:56:07 UTC and
+the rejected login at 06:56:32 UTC. They do not record the authentication
+failure reason. Because the disposable smokes share an administrator and TOTP
+secret, a counter-boundary or replay interaction is plausible but unconfirmed.
+The harness now retries one 401 using a newly generated TOTP counter;
 transport errors and other HTTP statuses remain fatal. A full six-host rerun
 against the fix is queued
 ([run 39915109037](https://github.com/cyberducttape/StePanel/actions/runs/39915109037));

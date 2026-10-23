@@ -11,6 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Refresh production-gate evidence for revision `ea69e24`: document the TOTP-only
   host-shard failure, corrected queued recovery run, and current CI status while
   retaining the NO-GO decision.
+- Clarify that the failed host's HTTP 401 is observed, while a TOTP replay or
+  counter-boundary cause remains an unconfirmed explanation.
 - Retry a single HTTP 401 in the backup recovery smoke with a fresh TOTP
   counter, matching the cPanel recovery harness and avoiding false host-gate
   failures when adjacent drills share the lab administrator.

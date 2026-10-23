@@ -26,7 +26,10 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 - The six-host full-recovery run against `cac6c5a`
   ([run 39910599138](https://github.com/cyberducttape/StePanel/actions/runs/39910599138))
   remains active; the Rocky Linux 9 + Caddy shard failed with HTTP 401 at
-  backup-recovery login. Other shards remain in progress. The corrected six-host
+  backup-recovery login after the preceding cPanel smoke passed. Logs show a
+  successful login at 06:56:07 and the later 401 at 06:56:32 UTC, but do not
+  identify the authentication failure reason. A TOTP counter/replay interaction
+  is plausible, not confirmed. Other shards remain in progress. The corrected six-host
   run ([run 39915109037](https://github.com/cyberducttape/StePanel/actions/runs/39915109037))
   is queued and provides no pass evidence yet. Quota-enabled install run
   [39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883)
