@@ -18,12 +18,17 @@ and adds timestamped installer phase progress. Local focused timeout tests,
 the complete root-package test suite, installer and smoke-script syntax checks,
 the workflow-bound check, and `git diff --check` passed.
 
-Exact-source integration CI ([run 40086080662](https://github.com/cyberducttape/StePanel/actions/runs/40086080662))
-has passed Go tests/coverage, recovery and real tmpfs ENOSPC steps and UI E2E;
-its full race suite is still running and the workflow is not a complete pass.
-Documentation ([run 40086080677](https://github.com/cyberducttape/StePanel/actions/runs/40086080677))
+Exact-source integration CI passed in full
+([run 40086080662](https://github.com/cyberducttape/StePanel/actions/runs/40086080662)):
+Go 1.26.10 tests/coverage, full race suite, recovery and real tmpfs ENOSPC
+drills, MySQL and PostgreSQL restore checks, clean Python deployment, static
+and vulnerability analysis, container/deployment validation, mixed load, and
+UI E2E/accessibility. Documentation ([run 40086080677](https://github.com/cyberducttape/StePanel/actions/runs/40086080677))
 and CodeQL ([run 40086080657](https://github.com/cyberducttape/StePanel/actions/runs/40086080657))
-passed, with no open CodeQL alerts. The focused Ubuntu 24.04 + Caddy install
+passed; the latest evidence commit also passed documentation and CodeQL
+([runs 40086920766](https://github.com/cyberducttape/StePanel/actions/runs/40086920766)
+and [40086920829](https://github.com/cyberducttape/StePanel/actions/runs/40086920829)).
+There are no open CodeQL alerts. The focused Ubuntu 24.04 + Caddy install
 smoke ([run 40086450399](https://github.com/cyberducttape/StePanel/actions/runs/40086450399))
 has reached its installed-host smoke step and remains in progress.
 

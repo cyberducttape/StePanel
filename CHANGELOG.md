@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Record the completed exact-source CI pass for `215c50c`, including race,
+  ENOSPC, database restore, security, deployment, and UI checks; retain the
+  NO-GO decision pending installed-host and remaining release gates.
 - Reconcile current release-gate and project-status evidence with pushed source
   `215c50c`, passing documentation/CodeQL checks, and still-running CI and
   installed-host validation; retain the production NO-GO decision.

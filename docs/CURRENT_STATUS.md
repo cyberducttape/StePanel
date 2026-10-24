@@ -12,12 +12,14 @@
   Ubuntu package-provisioning runs reached the prior 80-minute limit, and adds
   timestamped installer phase logs. Focused tests, the root-package suite,
   shell syntax, workflow bounds, and whitespace checks passed locally.
-- Exact-source integration CI ([run 40086080662](https://github.com/cyberducttape/StePanel/actions/runs/40086080662))
-  has passed Go tests/coverage and recovery/ENOSPC steps; full race tests remain
-  active, so the workflow is not yet green. Documentation and CodeQL runs
-  passed ([40086080677](https://github.com/cyberducttape/StePanel/actions/runs/40086080677),
-  [40086080657](https://github.com/cyberducttape/StePanel/actions/runs/40086080657));
-  there are no open CodeQL alerts.
+- Exact-source integration CI passed in full ([run 40086080662](https://github.com/cyberducttape/StePanel/actions/runs/40086080662)),
+  including Go tests/coverage, full race suite, recovery and tmpfs ENOSPC,
+  MySQL/PostgreSQL restore, clean Python deployment, static/vulnerability
+  analysis, container/deployment validation, mixed load, and UI E2E. The
+  evidence commit's documentation and CodeQL checks also passed
+  ([40086920766](https://github.com/cyberducttape/StePanel/actions/runs/40086920766),
+  [40086920829](https://github.com/cyberducttape/StePanel/actions/runs/40086920829));
+  no CodeQL alerts are open.
 - Focused Ubuntu 24.04 + Caddy installation smoke ([run 40086450399](https://github.com/cyberducttape/StePanel/actions/runs/40086450399))
   is running its installed-host smoke. The six-host recovery cohort on
   application source `06ae561` ([run 40085787315](https://github.com/cyberducttape/StePanel/actions/runs/40085787315))
