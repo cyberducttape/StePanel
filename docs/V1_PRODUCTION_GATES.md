@@ -9,6 +9,15 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
+### Latest exact-head validation — 2026-10-24 (`b448cc9`)
+
+Integration CI passed on
+[`b448cc97c2cf74085d77fde48854822a44c30625`](https://github.com/cyberducttape/StePanel/actions/runs/40082479635), including Go 1.26.10 formatting, release checks, vet, tests and coverage gates, race tests, repository recovery and real tmpfs ENOSPC drills, database restore checks, static analysis, container build/scan, and UI end-to-end/accessibility checks. Exact-head CodeQL ([run 40082479642](https://github.com/cyberducttape/StePanel/actions/runs/40082479642)) and documentation validation ([run 40082479599](https://github.com/cyberducttape/StePanel/actions/runs/40082479599)) passed; the current alert query reports zero open CodeQL alerts.
+
+The change under test prevents delayed durable job reads from overwriting a newer local worker lease. A targeted regression test, 30 repeated race-enabled reproductions, full local tests, and the full local race suite passed. The installed-host Rocky Linux 9 KVM full recovery matrix currently running is built from `2dead8a`, before this fix, and is not exact-head evidence for `b448cc9`.
+
+Production remains **NO-GO**. This CI pass does not close the repeated installed-host recovery cohort, physical power-loss and broader host-level ENOSPC gates, capacity certification, full supported-platform application recovery proof, live notification failure/retry evidence, upgrade/rollback contract, or independent security assessment.
+
 ### Current release evidence — 2026-10-24 (evidence source `4e15d70`, application source `a48aafc`)
 
 Evidence was updated in

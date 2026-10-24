@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Refresh current status and production-gate evidence with exact-head CI,
+  CodeQL, and documentation results for `b448cc9`, preserving the production
+  NO-GO decision and identifying the older-source KVM run as in progress.
 - Prevent a delayed durable job read from replacing newer in-process worker
   state, avoiding lease loss during concurrent status polling.
 - Check installed-host backup recovery and termination against the source site's

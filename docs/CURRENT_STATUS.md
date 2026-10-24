@@ -12,6 +12,15 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
+### Current validation — 2026-10-24 (`b448cc9`)
+
+- Exact-head integration CI passed on
+  [`b448cc97c2cf74085d77fde48854822a44c30625`](https://github.com/cyberducttape/StePanel/actions/runs/40082479635): Go 1.26.10 formatting, release checks, vet, full tests and coverage floors, race tests, recovery drills, real tmpfs ENOSPC recovery, build/startup/authenticated API, mixed HTTP load, database restore checks, static analysis, and container build/scan. UI end-to-end and accessibility checks passed in the same workflow.
+- Exact-head CodeQL passed ([run 40082479642](https://github.com/cyberducttape/StePanel/actions/runs/40082479642)); the current repository alert query reports zero open code-scanning alerts. Documentation link and source-reference checks passed ([run 40082479599](https://github.com/cyberducttape/StePanel/actions/runs/40082479599)).
+- The commit fixes a reproduced race in durable job reads: a delayed SQLite snapshot could replace a newer in-process worker lease. A targeted regression test and 30 repeated race-enabled reproductions passed locally; the full Go and race suites passed locally and in exact-head CI.
+- An installed Rocky Linux 9 KVM run is active against the preceding application source `2dead8a`, not `b448cc9`. It has passed the default interruption smokes and is running the opt-in full recovery-boundary matrix; no result from this in-progress run is counted as certification for `b448cc9`.
+- Production remains **NO-GO**. The current CI results do not close the release gates for repeated installed-host certification, physical power loss and broader host-level ENOSPC, measured capacity, supported-platform application proof, live notification outage/retry evidence, upgrade/rollback policy, or independent security assessment. See [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
+
 ### Current release evidence — 2026-10-24 (evidence source `4e15d70`, application source `a48aafc`)
 
 - Evidence update is `4e15d70b2b84b5027a0e14b4185af5226df00fa9`; the latest
