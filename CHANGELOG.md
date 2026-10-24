@@ -24,6 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Compare the distro FTPS PAM service with a temporary pam_unix-only service
   after authentication failure, identifying whether rejection comes from the
   included host policy or local password verification without exposing secrets.
+- Allow the installed-host workflow to target one OS/web-server combination
+  while preserving the all-host default and scheduled certification matrix.
 - Run the real FTPS upload/download and revocation smoke in every installed-host
   matrix, and verify with a disposable OpenSSH server that the FTPS password
   cannot authenticate over SSH even when global password login is enabled.

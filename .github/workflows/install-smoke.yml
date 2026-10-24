@@ -20,6 +20,19 @@ on:
         required: false
         default: ''
         type: string
+    host:
+      description: 'Limit this diagnostic run to one installed-host combination'
+      required: false
+      default: all
+      type: choice
+      options:
+        - all
+        - ubuntu-24.04-caddy-mariadb
+        - ubuntu-24.04-apache-mariadb
+        - almalinux-9-apache-mariadb
+        - almalinux-9-caddy-mariadb
+        - rocky-9-apache-mariadb
+        - rocky-9-caddy-mariadb
 
 concurrency:
   # Preserve long-running scheduled and release-candidate evidence. Repeated
@@ -72,6 +85,7 @@ jobs:
             db: mariadb
             web: caddy
     name: ${{ matrix.name }} / shard ${{ inputs.recovery_matrix_shard || 'default' }}
+    if: ${{ github.event_name == 'schedule' || inputs.host == 'all' || inputs.host == matrix.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
