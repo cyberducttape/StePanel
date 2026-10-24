@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Prevent durable job listing queries from replacing newer in-process worker
   lease snapshots with older database reads.
+- Reconcile current production-readiness summaries with `06ae561` and its
+  in-progress exact-source CI and older-source installed recovery runs.
 - Reconcile the deployment-readiness summary with the current exact-head CI,
   CodeQL, documentation, and pending installed-host matrix evidence.
 - Refresh current status and production-gate evidence with exact-head CI,

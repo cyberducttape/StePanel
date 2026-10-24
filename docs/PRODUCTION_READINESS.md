@@ -7,20 +7,21 @@
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
-Current evidence is recorded on main at `bb1885d660fbb0b5ca486ec1b1cb7a1e09338239`;
-application source is `b448cc97c2cf74085d77fde48854822a44c30625`. Exact-head
-integration CI passed ([run 40082479635](https://github.com/cyberducttape/StePanel/actions/runs/40082479635)),
-including Go tests, coverage gates, race tests, recovery and tmpfs ENOSPC
-drills, database restore checks, static analysis, container build/scan, and UI
-end-to-end/accessibility tests. CodeQL passed on the evidence revision
-([run 40083875818](https://github.com/cyberducttape/StePanel/actions/runs/40083875818));
-documentation checks passed ([run 40083875793](https://github.com/cyberducttape/StePanel/actions/runs/40083875793)).
-The exact-source six-host exhaustive installed recovery matrix
+Latest application source: `06ae561a59a4a677a98e95efa6edf1cddbc6bfb5`.
+The full root-package Go suite and targeted race-enabled regression tests pass
+locally. Exact-source documentation checks ([run 40084549107](https://github.com/cyberducttape/StePanel/actions/runs/40084549107))
+and CodeQL ([run 40084549111](https://github.com/cyberducttape/StePanel/actions/runs/40084549111))
+passed; CodeQL reports zero open alerts. Integration CI
+([run 40084549149](https://github.com/cyberducttape/StePanel/actions/runs/40084549149))
+is still in progress and is not counted as a complete pass.
+
+The six-host exhaustive installed recovery matrix
 ([run 40083936175](https://github.com/cyberducttape/StePanel/actions/runs/40083936175))
-is still in progress. A separate local Rocky Linux 9 exhaustive KVM run is
-also in progress against older source `2dead8a`; it is not exact-head evidence.
-Neither in-progress run counts as a pass. Production approval remains
-**NO-GO**. See [CURRENT_STATUS.md](./CURRENT_STATUS.md) for run status and
+is testing application source `b448cc9`, before the latest job-cache fix. A
+separate local Rocky Linux 9 KVM matrix is active on older source `2dead8a`.
+Neither run is exact-source recovery evidence for `06ae561`, and neither
+counts as a pass while in progress. Production approval remains **NO-GO**.
+See [CURRENT_STATUS.md](./CURRENT_STATUS.md) for current run status and
 [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for remaining acceptance
 criteria.
 

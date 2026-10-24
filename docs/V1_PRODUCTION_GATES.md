@@ -9,7 +9,31 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest exact-head validation — 2026-10-24 (`b448cc9`)
+### Latest application-source validation — 2026-10-24 (`06ae561`)
+
+The latest application source is
+[`06ae561a59a4a677a98e95efa6edf1cddbc6bfb5`](https://github.com/cyberducttape/StePanel/commit/06ae561a59a4a677a98e95efa6edf1cddbc6bfb5).
+It prevents global, tenant-scoped, and site-active durable job listings from
+replacing newer in-process worker lease snapshots. The full root-package Go
+suite and targeted race-enabled regression tests passed locally. Exact-source
+documentation checks ([run 40084549107](https://github.com/cyberducttape/StePanel/actions/runs/40084549107))
+and CodeQL ([run 40084549111](https://github.com/cyberducttape/StePanel/actions/runs/40084549111))
+passed; CodeQL reports zero open alerts. Exact-source integration CI
+([run 40084549149](https://github.com/cyberducttape/StePanel/actions/runs/40084549149))
+is still running and is not yet a complete pass.
+
+The six-host exhaustive installed recovery run
+([run 40083936175](https://github.com/cyberducttape/StePanel/actions/runs/40083936175))
+uses source `b448cc9`, before this fix. The local Rocky Linux 9 KVM run uses
+older source `2dead8a`. Both are still in progress and neither is exact-source
+recovery evidence for `06ae561`.
+
+Production remains **NO-GO**. Repeated installed-host recovery, physical
+power-loss and broader host ENOSPC, capacity certification, supported-platform
+application recovery proof, live notification outage/retry evidence,
+upgrade/rollback policy, and independent security assessment remain open.
+
+### Previous completed exact-head validation — 2026-10-24 (`b448cc9`)
 
 Integration CI passed on
 [`b448cc97c2cf74085d77fde48854822a44c30625`](https://github.com/cyberducttape/StePanel/actions/runs/40082479635), including Go 1.26.10 formatting, release checks, vet, tests and coverage gates, race tests, repository recovery and real tmpfs ENOSPC drills, database restore checks, static analysis, container build/scan, and UI end-to-end/accessibility checks. Exact-head CodeQL ([run 40082479642](https://github.com/cyberducttape/StePanel/actions/runs/40082479642)) and documentation validation ([run 40082479599](https://github.com/cyberducttape/StePanel/actions/runs/40082479599)) passed; the current alert query reports zero open CodeQL alerts.

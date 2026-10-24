@@ -12,7 +12,32 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Current validation — 2026-10-24 (`b448cc9`)
+### Current validation — 2026-10-24 (`06ae561`)
+
+- The latest application source is
+  [`06ae561a59a4a677a98e95efa6edf1cddbc6bfb5`](https://github.com/cyberducttape/StePanel/commit/06ae561a59a4a677a98e95efa6edf1cddbc6bfb5).
+  It prevents durable job-list queries from replacing newer in-process worker
+  lease snapshots. The regression test, full root-package Go suite, and
+  targeted race-enabled tests passed locally.
+- Exact-source documentation checks passed (run
+  [40084549107](https://github.com/cyberducttape/StePanel/actions/runs/40084549107));
+  CodeQL passed (run
+  [40084549111](https://github.com/cyberducttape/StePanel/actions/runs/40084549111))
+  with zero open code-scanning alerts. Exact-source integration CI
+  ([40084549149](https://github.com/cyberducttape/StePanel/actions/runs/40084549149))
+  is still running its race and subsequent release checks; it is not yet a
+  complete pass.
+- The six-host recovery run
+  ([40083936175](https://github.com/cyberducttape/StePanel/actions/runs/40083936175))
+  is testing source `b448cc9`, before this cache-listing fix. The local Rocky
+  Linux 9 KVM matrix uses older source `2dead8a`. Both remain in progress and
+  neither counts as exact-source recovery evidence for `06ae561`.
+- Production remains **NO-GO**. The release gates for repeated installed-host
+  certification, power-loss and broader host ENOSPC, capacity, supported
+  platform application recovery, live alert outage/retry evidence,
+  upgrade/rollback policy, and independent security assessment remain open.
+
+### Previous completed validation — 2026-10-24 (`b448cc9`)
 
 - Exact-head integration CI passed on
   [`b448cc97c2cf74085d77fde48854822a44c30625`](https://github.com/cyberducttape/StePanel/actions/runs/40082479635): Go 1.26.10 formatting, release checks, vet, full tests and coverage floors, race tests, recovery drills, real tmpfs ENOSPC recovery, build/startup/authenticated API, mixed HTTP load, database restore checks, static analysis, and container build/scan. UI end-to-end and accessibility checks passed in the same workflow.
