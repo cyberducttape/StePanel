@@ -3,6 +3,19 @@ name: Installation smoke
 on:
   schedule:
     - cron: '17 3 * * *'
+  # Changes to the privileged side or the installed-host drills run one host
+  # right away instead of waiting for the nightly six-host run: unit tests
+  # cannot see real ownership, quotas, mounts or systemd sandboxing.
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/integrations/**'
+      - 'deploy/lib/**'
+      - 'deploy/lab/**'
+      - 'install.sh'
+      - 'internal/rootbroker/**'
+      - 'cmd/stepanel-root/**'
+      - '.github/workflows/install-smoke.yml'
   workflow_dispatch:
     inputs:
       full_recovery_matrix:
@@ -52,7 +65,7 @@ jobs:
     steps:
       - id: select
         env:
-          REQUESTED_HOST: ${{ inputs.host || 'all' }}
+          REQUESTED_HOST: ${{ inputs.host || (github.event_name == 'push' && 'almalinux-9-caddy-mariadb') || 'all' }}
         run: |
           case "$REQUESTED_HOST" in
             all)
