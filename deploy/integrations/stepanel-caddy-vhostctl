@@ -55,7 +55,9 @@ remove_view() {
 ensure_view() {
   local site=$1 site_home=$2 view line options mounted_identity source_identity
   view=$(view_path "$site")
-  install -d -m 0755 -o root -g root "$view"
+  if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
+    install -d -m 0755 -o root -g root "$view"
+  fi
   # Migrate the former public-directory mount. Mounting its stable parent
   # makes later atomic swaps of public/public_html/domain visible to Caddy.
   remove_legacy_view "$site"

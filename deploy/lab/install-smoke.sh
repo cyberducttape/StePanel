@@ -326,6 +326,12 @@ else
   done
   view_root="/var/www/.stepanel-caddy-views/$site"
   findmnt -no OPTIONS -T "$view_root" | tr ',' '\n' | grep -Fxq nosymfollow || { echo 'Caddy document root is not mounted with nosymfollow' >&2; exit 1; }
+  site_home="/var/www/sites/$site"
+  site_home_identity=$(stat -c '%u:%g:%a' "$site_home")
+  rm -f "$symlink_path"
+  /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost
+  [[ $(stat -c '%u:%g:%a' "$site_home") == "$site_home_identity" ]] || { echo 'reapplying the Caddy route changed site-parent ownership or mode' >&2; exit 1; }
+  ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
   mkdir -p "$activation_dir"
   printf '%s\n' before-activation > "$activation_dir/marker.txt"
   activation_body=$(curl --insecure --silent --show-error --fail --max-time 10 \
