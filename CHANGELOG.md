@@ -30,6 +30,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Prevent the installer from hanging or briefly exposing FTP while validating
+  the generated vsftpd configuration. Run a bounded foreground probe on
+  loopback with config overrides applied after the file, and roll back the
+  configuration if validation fails.
 - Retry transient QEMU disk-lock contention after hard guest shutdowns in the
   local KVM certification harness, instead of aborting the remaining recovery
   phases during the host's lock-release window.

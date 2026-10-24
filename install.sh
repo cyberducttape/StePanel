@@ -396,6 +396,8 @@ fi
 command -v flock >/dev/null 2>&1 || { echo 'flock is required for installation locking.' >&2; exit 1; }
 . "$ROOT_DIR/deploy/lib/install-lock.sh"
 install_acquire_host_lock /run/stepanel-installer 0 0 || exit $?
+# shellcheck source=deploy/lib/vsftpd-config-validation.sh
+. "$ROOT_DIR/deploy/lib/vsftpd-config-validation.sh"
 
 # Keep an append-only record outside the rollback directory. Package-manager
 # and host-service changes are not safely reversible, so a failed run must
@@ -685,8 +687,12 @@ EOF
   else
     printf 'ssl_enable=NO\n' >> "$config"
   fi
-  if ! vsftpd -olisten=NO -olisten_ipv6=NO "$config" >/dev/null 2>&1; then
-    [[ -e "$backup" ]] && mv -f "$backup" "$config"
+  if ! stepanel_validate_vsftpd_config "$(command -v vsftpd)" "$config"; then
+    if [[ -e "$backup" ]]; then
+      mv -f "$backup" "$config"
+    else
+      rm -f "$config"
+    fi
     echo "vsftpd rejected its configuration; changes were rolled back." >&2
     return 1
   fi

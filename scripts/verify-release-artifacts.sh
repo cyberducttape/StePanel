@@ -94,6 +94,13 @@ for archive in "${archives[@]}"; do
         exit 1
     fi
 
+    if tar -tzf "$archive" | grep -Eq '(^|/)deploy/lib/vsftpd-config-validation\.sh$'; then
+        echo "  ✓ bounded vsftpd configuration validator present"
+    else
+        echo "  ✗ FAIL: deploy/lib/vsftpd-config-validation.sh missing" >&2
+        exit 1
+    fi
+
     # Verify binary is present
     if tar -tzf "$archive" | grep -Eq '(^|/)stepanel$'; then
         echo "  ✓ stepanel binary present"
