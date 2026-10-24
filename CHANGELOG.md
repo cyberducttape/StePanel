@@ -14,8 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   avoid changing mounted site-parent metadata during reapplication, and verify
   these behaviors in the installed Caddy smoke test and source contract, with
   a full document-root rename/swap over the unchanged route and distinct HTTP
-  diagnostics for its pre- and post-activation probes; legacy-view cleanup no
-  longer risks removing the real document root through the mounted parent.
+  diagnostics for its pre- and post-activation probes, including Caddy's
+  process mount view and access checks; legacy-view cleanup no longer risks
+  removing the real document root through the mounted parent.
 - Enforce one disk quota per hosting account, as ADR-0007 specifies. Each
   site in an account applied its own user quota to the shared account user,
   so sites overwrote each other's limit and clearing one site's quota lifted

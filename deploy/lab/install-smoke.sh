@@ -293,6 +293,7 @@ else
   caddy validate --config /etc/caddy/Caddyfile
   public_root="/var/www/sites/$site/public"
   site_home="/var/www/sites/$site"
+  site_directory=public
   activation_old_root="$site_home/.stepanel-public-activation-old"
   activation_marker="$public_root/stepanel-activation-marker.txt"
   sensitive_file="$public_root/.env"
@@ -327,6 +328,29 @@ else
   done
   view_root="/var/www/.stepanel-caddy-views/$site"
   findmnt -no OPTIONS -T "$view_root" | tr ',' '\n' | grep -Fxq nosymfollow || { echo 'Caddy document root is not mounted with nosymfollow' >&2; exit 1; }
+  caddy_activation_diagnostics() {
+    local caddy_pid route_file
+    route_file="/etc/caddy/stepanel.d/site-${site}-ci-smoke_localhost.caddy"
+    echo 'Caddy activation probe diagnostics:' >&2
+    [[ ! -f $route_file ]] || sed -n '1,100p' "$route_file" >&2
+    stat -Lc '%A %u:%g %d:%i %n' "$site_home" "$public_root" "$activation_marker" >&2 || true
+    namei -l "$view_root/$site_directory/stepanel-activation-marker.txt" >&2 || true
+    findmnt -T "$view_root" -o TARGET,SOURCE,FSTYPE,OPTIONS >&2 || true
+    id caddy >&2 || true
+    runuser -u caddy -- test -r "$view_root/$site_directory/stepanel-activation-marker.txt" \
+      && echo 'Caddy account can read the host-namespace view path' >&2 \
+      || echo 'Caddy account cannot read the host-namespace view path' >&2
+    systemctl show caddy.service -p MainPID -p PrivateMounts -p ProtectSystem -p ReadOnlyPaths -p InaccessiblePaths >&2 || true
+    caddy_pid=$(systemctl show caddy.service -p MainPID --value 2>/dev/null || true)
+    if [[ $caddy_pid =~ ^[1-9][0-9]*$ ]] && command -v nsenter >/dev/null 2>&1; then
+      nsenter --target "$caddy_pid" --mount -- stat -Lc '%A %u:%g %d:%i %n' \
+        "$view_root" "$view_root/$site_directory" \
+        "$view_root/$site_directory/stepanel-activation-marker.txt" >&2 || true
+      nsenter --target "$caddy_pid" --mount -- findmnt -T "$view_root" \
+        -o TARGET,SOURCE,FSTYPE,OPTIONS >&2 || true
+    fi
+    journalctl -u caddy.service --no-pager -n 50 >&2 || true
+  }
   site_home_identity=$(stat -c '%u:%g:%a' "$site_home")
   rm -f "$symlink_path"
   /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost
@@ -339,6 +363,7 @@ else
   activation_body=${activation_response%$'\n'*}
   [[ $activation_status == 200 && $activation_body == before-activation ]] || {
     echo "Caddy initial activation fixture returned HTTP $activation_status with body: $activation_body" >&2
+    caddy_activation_diagnostics
     exit 1
   }
   [[ ! -e $activation_old_root && ! -L $activation_old_root ]] || { echo 'stale Caddy activation fixture exists' >&2; exit 1; }
@@ -354,6 +379,7 @@ else
   activation_body=${activation_response%$'\n'*}
   [[ $activation_status == 200 && $activation_body == after-activation ]] || {
     echo "Caddy post-activation fixture returned HTTP $activation_status with body: $activation_body" >&2
+    caddy_activation_diagnostics
     exit 1
   }
   rm -rf "$public_root"
