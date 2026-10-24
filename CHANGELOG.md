@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Refresh the current-status and authoritative production-gate snapshots for
+  source `93c5714`, including its passing Documentation and CodeQL workflows,
+  in-progress Integration CI, canceled obsolete smoke cohort, and queued
+  exact-source 20-iteration recovery cohort.
 - Record the installed Rocky 9 WordPress application-recovery and process-kill
   evidence from the active KVM run, then record the successful exact-source
   Integration, Documentation, and CodeQL runs while preserving the remaining

@@ -6,71 +6,57 @@
 
 ---
 
-### Latest validation — 2026-10-24 (`47ba2ff`)
+### Latest validation — 2026-10-24 (`93c5714`)
 
-- Current source is
-  [`47ba2ffe88abb1436da38b28fd5a856494614133`](https://github.com/cyberducttape/StePanel/commit/47ba2ffe88abb1436da38b28fd5a856494614133).
-  It fixes a Staticcheck `ST1008` finding in the vsftpd validation test
-  helper. The focused test and Staticcheck pass locally. Exact-source CI
-  ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255))
-  passed all checks: Go tests and coverage floors, race tests, recovery and
-  ENOSPC drills, database restore, static analysis, packaging and container
-  smoke, and UI end-to-end. Documentation and CodeQL passed on evidence commit
-  `0cca6fa` ([Documentation run
-  40121537470](https://github.com/cyberducttape/StePanel/actions/runs/40121537470),
-  [CodeQL run 40121537411](https://github.com/cyberducttape/StePanel/actions/runs/40121537411));
-  CodeQL reports no open alerts. The prior integration run on `5e9077b` failed only at Staticcheck
-  on this finding ([run 40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239));
-  its tests, coverage, race, recovery, ENOSPC, and database restore steps
-  preceding static analysis passed. Documentation and CodeQL both passed on
-  evidence commit `984f0fe` (runs
-  [40123081614](https://github.com/cyberducttape/StePanel/actions/runs/40123081614)
-  and [40123081579](https://github.com/cyberducttape/StePanel/actions/runs/40123081579));
-  the current CodeQL alert count is zero.
-- A clean-tree Rocky 9 KVM run on `1b2e99d` passed guest boot and verified
-  `/var/www` user/project quotas. Native installation and installed-host
-  checks passed for cPanel import/re-import, SFTP and FTPS access, database
-  locking, interrupted import/backup/file restore/database restore/termination,
-  account suspension, Git activation recovery, and app lifecycle. The installed
-  WordPress recovery proof passed with archive, database, and application
-  checks and a measured 15,524 ms RTO; live database and root-broker outage
-  checks also recovered. The extended recovery-boundary matrix passed through
-  the `backup:init` worker-kill recovery, then the local host's global OOM
-  killer terminated QEMU while the following `restore:activate` recovery was
-  waiting for its worker lease. The guest console also recorded a Rocky kernel
-  soft-lockup warning. This run is interrupted, not a full-matrix pass; host
-  logs identify the QEMU kill as resource pressure while unrelated Rust builds
-  were active and swap was exhausted. Artifacts remain at
-  `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d` ([report](lab-results/2026-10-24-rocky9-installed-host-recovery.md)).
-  Integration CI for fixture commit `1b2e99d` was superseded and cancelled
-  while race tests were running ([run
-  40119585611](https://github.com/cyberducttape/StePanel/actions/runs/40119585611));
-  its Go tests and coverage had passed. The current-source integration run
-  above includes the static-analysis correction.
-- The six-host installed recovery matrix on source `5e9077b` remains active
-  ([run 40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094));
-  no host result is counted as a pass before the matrix completes.
-- A current-head full recovery cohort is queued as ten unique two-iteration
-  shards across all six installed-host combinations: runs
-  [40123376566](https://github.com/cyberducttape/StePanel/actions/runs/40123376566),
-  [40123378955](https://github.com/cyberducttape/StePanel/actions/runs/40123378955),
-  [40123381245](https://github.com/cyberducttape/StePanel/actions/runs/40123381245),
-  [40123383409](https://github.com/cyberducttape/StePanel/actions/runs/40123383409),
-  [40123385417](https://github.com/cyberducttape/StePanel/actions/runs/40123385417),
-  [40123387198](https://github.com/cyberducttape/StePanel/actions/runs/40123387198),
-  [40123389104](https://github.com/cyberducttape/StePanel/actions/runs/40123389104),
-  [40123390835](https://github.com/cyberducttape/StePanel/actions/runs/40123390835),
-  [40123392732](https://github.com/cyberducttape/StePanel/actions/runs/40123392732), and
-  [40123394500](https://github.com/cyberducttape/StePanel/actions/runs/40123394500).
-  The first host job has started; no iteration counts until all six jobs in its
-  shard pass. A separate two-iteration Rocky 9/Caddy diagnostic shard
-  ([40123255865](https://github.com/cyberducttape/StePanel/actions/runs/40123255865))
-  was canceled before producing evidence to prioritize runner capacity for the
-  full six-host cohort.
-- Production remains **NO-GO**. The 20–50 repeat cohort, physical power-loss
-  recovery, broader ENOSPC/database-outage cases, full supported-runtime
-  coverage, capacity certification, live alert outage/retry evidence, upgrade
-  policy, and independent security assessment remain open.
+Current `main` is
+[`93c5714e4b662fa04e72e1cb7636d5f3f6ed3dce`](https://github.com/cyberducttape/StePanel/commit/93c5714e4b662fa04e72e1cb7636d5f3f6ed3dce).
+The dashboard now distinguishes unavailable durable job history from an empty
+history. The full local Go suite (`go test -p 1 -timeout 10m ./...`) passed.
+Exact-source Documentation ([run 40124252733](https://github.com/cyberducttape/StePanel/actions/runs/40124252733))
+and CodeQL ([run 40124252712](https://github.com/cyberducttape/StePanel/actions/runs/40124252712))
+passed; CodeQL reports zero open alerts. Exact-source Integration CI
+([run 40124252769](https://github.com/cyberducttape/StePanel/actions/runs/40124252769))
+has passed formatting, release checks, vet, Go tests and coverage floors,
+tmpfs ENOSPC drills, and load benchmarks; race tests were still running at
+capture. Its UI end-to-end job passed.
+
+A clean-tree local Rocky 9 KVM run on `1b2e99d` passed guest boot and verified
+quota-enabled `/var/www`. Native installation and installed-host checks passed
+for cPanel import/re-import, SFTP and FTPS access, database locking,
+interrupted import/backup/file restore/database restore/termination, account
+suspension, Git activation recovery, and app lifecycle. The installed
+WordPress recovery proof passed archive, database, and HTTP checks with a
+measured 15,524 ms RTO; live database and root-broker outage checks recovered.
+The extended matrix passed through `backup:init` worker-kill recovery, then the
+host OOM killer terminated QEMU during the following restore-recovery wait.
+The guest console also recorded a Rocky kernel soft-lockup warning. This run
+is interrupted, not a full-matrix pass; details and artifacts are recorded in
+[the checkpoint report](lab-results/2026-10-24-rocky9-installed-host-recovery.md)
+and `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`.
+
+The six-host smoke on older source `5e9077b` was canceled while still running
+([run 40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094));
+none of its host results count as a pass. The ten two-iteration shards on
+`984f0fe` were also canceled before completing; they are superseded by a
+current-source cohort on `93c5714`. The replacement runs are
+[40124348479](https://github.com/cyberducttape/StePanel/actions/runs/40124348479),
+[40124348533](https://github.com/cyberducttape/StePanel/actions/runs/40124348533),
+[40124348539](https://github.com/cyberducttape/StePanel/actions/runs/40124348539),
+[40124348540](https://github.com/cyberducttape/StePanel/actions/runs/40124348540),
+[40124348683](https://github.com/cyberducttape/StePanel/actions/runs/40124348683),
+[40124348722](https://github.com/cyberducttape/StePanel/actions/runs/40124348722),
+[40124348723](https://github.com/cyberducttape/StePanel/actions/runs/40124348723),
+[40124348787](https://github.com/cyberducttape/StePanel/actions/runs/40124348787),
+[40124348793](https://github.com/cyberducttape/StePanel/actions/runs/40124348793), and
+[40124348799](https://github.com/cyberducttape/StePanel/actions/runs/40124348799).
+All ten were queued at capture and use two iterations across the six installed
+OS/web-server combinations. No iteration is counted until all six host jobs
+in its shard pass.
+
+Production remains **NO-GO**. The 20–50 repeat cohort, physical power-loss
+recovery, broader ENOSPC/database-outage cases, full supported-runtime
+coverage, capacity certification, live alert outage/retry evidence, upgrade
+policy, and independent security assessment remain open.
 
 ### Previous validation — 2026-10-24 (`5e9077b`)
 
