@@ -18,6 +18,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   correction's application source.
 - Update readiness summaries for the canonical-location smoke revision and
   distinguish its queued checks from completed evidence.
+- Record a current-source Rocky Linux 9 KVM boot and real ext4 ENOSPC pass for
+  backup creation and file restore, with scope limits stated explicitly.
+- Refresh release evidence with completed exact-head CodeQL/documentation
+  checks and the live integration and installed-host run states.
 - Keep the disposable overlay-backed systemd test host's shadow database
   root-readable so its real PAM/FTPS authentication smoke can run; native-host
   certification continues to use the distribution's default permissions.
