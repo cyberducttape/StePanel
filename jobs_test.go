@@ -401,6 +401,57 @@ func TestDurableJobReadCannotOverwriteNewLocalLeaseSnapshot(t *testing.T) {
 	}
 }
 
+func TestDurableJobListingsDoNotOverwriteLocalLeaseSnapshot(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	queued, err := jobs.Enqueue("site.operation", "site-a", "site-a", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Model a worker's newer local lease alongside a database snapshot that is
+	// still queued. Listing APIs return their query result but must not install
+	// that potentially stale snapshot into the worker's mutation cache.
+	leaseExpiry := time.Now().UTC().Add(time.Minute)
+	jobs.mu.Lock()
+	local := *jobs.items[queued.ID]
+	local.State = "running"
+	local.LeaseOwner = "worker-a"
+	local.LeaseExpires = &leaseExpiry
+	jobs.items[queued.ID] = &local
+	jobs.mu.Unlock()
+
+	checks := []struct {
+		name string
+		list func() ([]Job, error)
+	}{
+		{"global", func() ([]Job, error) { return jobs.ListSummariesWithError(10) }},
+		{"tenant", func() ([]Job, error) { return jobs.ListForOwnersSummaries(10, []string{"site-a"}) }},
+		{"active-site", func() ([]Job, error) { return jobs.ListActiveForSite("site-a") }},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			listed, err := check.list()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(listed) != 1 || listed[0].State != "queued" {
+				t.Fatalf("durable listing = %#v, want its queued database snapshot", listed)
+			}
+			jobs.mu.RLock()
+			cached := *jobs.items[queued.ID]
+			jobs.mu.RUnlock()
+			if cached.State != "running" || cached.LeaseOwner != "worker-a" || cached.LeaseExpires == nil {
+				t.Fatalf("listing replaced local lease snapshot: %#v", cached)
+			}
+		})
+	}
+}
+
 func TestDurableBackupRetryReusesPersistedLocalArchive(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

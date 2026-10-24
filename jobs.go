@@ -2515,12 +2515,6 @@ func (j *Jobs) listDurable(limit int, includeOutput bool) ([]Job, error) {
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list durable jobs: %w", err)
 	}
-	j.mu.Lock()
-	for i := range items {
-		stored := items[i]
-		j.items[stored.ID] = &stored
-	}
-	j.mu.Unlock()
 	return items, nil
 }
 
@@ -2678,12 +2672,6 @@ func (j *Jobs) listForOwners(limit int, owners []string, includeOutput bool) ([]
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate jobs for owners: %w", err)
 	}
-	j.mu.Lock()
-	for i := range items {
-		stored := items[i]
-		j.items[stored.ID] = &stored
-	}
-	j.mu.Unlock()
 	return items, nil
 }
 
@@ -2726,12 +2714,6 @@ func (j *Jobs) ListActiveForSite(site string) ([]Job, error) {
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list active jobs for site %s: %w", site, err)
 	}
-	j.mu.Lock()
-	for i := range items {
-		stored := items[i]
-		j.items[stored.ID] = &stored
-	}
-	j.mu.Unlock()
 	return items, nil
 }
 
