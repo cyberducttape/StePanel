@@ -3,6 +3,29 @@
 Release tags must match the version recorded in `version.go`. This document
 describes the release procedure, applicable to any version.
 
+## Release Candidates
+
+Hosted and installed-host evidence is only valid for the exact commit it ran
+on, and `main` moves too quickly for a long matrix to finish against its head.
+Freeze a candidate before collecting release evidence:
+
+1. Choose the version and update `version.go` and the files listed in the
+   checklist below on `main`. Do not reuse a version that already has a tag
+   or GitHub release (the `0.8` pre-release exists; see
+   [Version compatibility](COMPATIBILITY.md)).
+2. Create `release/vX.Y` from that commit. Only fixes for problems found in
+   the candidate land there, each cherry-picked from `main`, and every fix
+   restarts the evidence for the components it touches.
+3. Run against the branch head: CI integration, the six-host installation
+   smoke (`gh workflow run install-smoke.yml --ref release/vX.Y`), the
+   quota-enabled smoke on ext4 and XFS, the N-1 upgrade smoke, and the
+   recovery cohort shards the [production gates](V1_PRODUCTION_GATES.md)
+   require.
+4. Record each result with the branch-head commit it ran on. Evidence for a
+   different commit does not count.
+5. Tag the release from the branch head once the gates pass (step 4 of the
+   checklist).
+
 ## Release Checklist
 
 1. Update `version.go` with the new version number. Keep the following
