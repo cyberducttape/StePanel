@@ -6,9 +6,9 @@
 
 ---
 
-### Current pushed source — 2026-10-24 (`b20c609`)
+### Latest application-source validation — 2026-10-24 (`b20c609`)
 
-- Current `main` is
+- The application source under validation is
   [`b20c60989cdeabf04b796038eafd0e70ef263392`](https://github.com/cyberducttape/StePanel/commit/b20c60989cdeabf04b796038eafd0e70ef263392).
   It preserves environment-backed WordPress credentials during configuration
   import and keeps the installed recovery fixture's generated database user
@@ -20,6 +20,9 @@
   tmpfs ENOSPC drills, database restore, clean Python deployment, static and
   container analysis, mixed load, and UI E2E/accessibility. CodeQL reports no
   open alerts.
+- The current evidence snapshot also passed Documentation and CodeQL
+  ([runs 40100469312](https://github.com/cyberducttape/StePanel/actions/runs/40100469312)
+  and [40100469296](https://github.com/cyberducttape/StePanel/actions/runs/40100469296)).
 - A clean exact-source Rocky Linux 9 KVM install is running the full recovery
   matrix at `/var/tmp/stepanel-kvm-cert-20261024-b20c609`. The VM uses SELinux
   enforcing and quota-enabled ext4 for `/var/www`; installed Caddy, PHP-FPM,

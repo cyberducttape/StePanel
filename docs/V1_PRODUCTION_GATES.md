@@ -9,9 +9,10 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest pushed-source validation — 2026-10-24 (`b20c609`)
+### Latest application-source validation — 2026-10-24 (`b20c609`)
 
-Current `main` is [`b20c60989cdeabf04b796038eafd0e70ef263392`](https://github.com/cyberducttape/StePanel/commit/b20c60989cdeabf04b796038eafd0e70ef263392).
+The application source under validation is
+[`b20c60989cdeabf04b796038eafd0e70ef263392`](https://github.com/cyberducttape/StePanel/commit/b20c60989cdeabf04b796038eafd0e70ef263392).
 It fixes PHP import rewriting for environment-backed WordPress credentials and
 keeps the installed recovery fixture's generated database username within the
 supported 32-character limit. Exact-source Integration CI
@@ -19,6 +20,9 @@ supported 32-character limit. Exact-source Integration CI
 Documentation ([run 40089780692](https://github.com/cyberducttape/StePanel/actions/runs/40089780692)),
 and CodeQL ([run 40089780673](https://github.com/cyberducttape/StePanel/actions/runs/40089780673))
 all succeeded; CodeQL reports zero open alerts.
+The current evidence snapshot also passed Documentation and CodeQL
+([runs 40100469312](https://github.com/cyberducttape/StePanel/actions/runs/40100469312)
+and [40100469296](https://github.com/cyberducttape/StePanel/actions/runs/40100469296)).
 
 A clean exact-source Rocky Linux 9 KVM installation is running at
 `/var/tmp/stepanel-kvm-cert-20261024-b20c609` with SELinux enforcing,
