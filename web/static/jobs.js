@@ -187,7 +187,9 @@
         const warning = document.createElement('p');
         warning.className = 'empty-state';
         warning.setAttribute('role', 'status');
-        warning.textContent = 'Job history could not be refreshed. Showing the last available snapshot; some updates may be missing.';
+        warning.textContent = visible.length
+          ? 'Job history could not be refreshed. Showing the last available snapshot; some updates may be missing.'
+          : 'Job history could not be loaded. Check the control plane and reload this page.';
         feed.append(warning);
       }
       visible.slice(0, 5).forEach((job) => {

@@ -867,6 +867,7 @@ managed_targets=(
   /usr/local/sbin/stepanel-userctl
   /usr/local/sbin/stepanel-filectl
   /usr/local/lib/stepanel/site-location.sh
+  /usr/local/lib/stepanel/quota-state.sh
   /usr/local/sbin/stepanel-vhostctl
   /usr/local/sbin/stepanel-dbctl
   /usr/local/sbin/stepanel-runnerctl

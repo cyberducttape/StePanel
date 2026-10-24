@@ -1029,13 +1029,11 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 				jobs, err = a.Jobs.ListForOwnersSummaries(8, sites)
 				jobsUnavailable = err != nil
 				if err != nil {
-					jobsUnavailable = true
 					log.Printf("dashboard job history unavailable: %v", err)
 					jobs = nil
 				}
 				accountSiteCount = len(sites)
 			} else {
-				jobsUnavailable = true
 				log.Printf("dashboard site assignments unavailable: %v", err)
 				jobs = nil
 			}

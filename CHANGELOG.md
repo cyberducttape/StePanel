@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Refuse a database deletion the inventory cannot confirm, or one naming a
+  user other than the registered owner. `drop-managed` now treats an
+  unregistered database as already gone, so the request was otherwise
+  audited and answered as deleted when nothing was dropped.
+- Track `/usr/local/lib/stepanel/quota-state.sh` in installer rollback, and
+  run the documentation contract tests in the Documentation workflow, which
+  is the only workflow a Markdown-only push runs.
 - Show job-history database failures as an unavailable dashboard state instead
   of presenting them as an empty history in both operator and customer panels;
   label retained browser snapshots when a later refresh fails.

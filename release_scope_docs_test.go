@@ -65,7 +65,9 @@ func TestGitCloneDiskQuotaRemainsAnExplicitHostValidationGate(t *testing.T) {
 		"implemented; host evidence open",
 		"project hard quota",
 		"unsupported quota filesystems fail closed",
-		"have not yet passed exact-head hosted/installed-host validation",
+		// The ext4 smoke has passed in CI; certification still needs XFS and
+		// real production mounts.
+		"xfs and real production mount behavior still require verification",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Errorf("production gate must retain Git staging disk-admission limitation %q", required)

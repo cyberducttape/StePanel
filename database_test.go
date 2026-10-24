@@ -136,3 +136,28 @@ func TestDatabaseHostDescribesLocalConnections(t *testing.T) {
 		t.Fatalf("remote database host = %q", got)
 	}
 }
+
+// drop-managed treats an unregistered database as already gone, so a
+// deletion the inventory cannot confirm must be refused rather than recorded
+// as completed.
+func TestDatabaseDeleteRefusesWhenTheInventoryIsUnavailable(t *testing.T) {
+	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
+	root := t.TempDir()
+	helper := filepath.Join(root, "dbctl")
+	logPath := filepath.Join(root, "calls")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$TEST_DB_LOG\"\n[ \"$1\" = inventory ] && exit 1\nexit 0\n"
+	if err := os.WriteFile(helper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_DB_LOG", logPath)
+	app := &App{Config: Config{DBEngine: "mysql", DBCtl: helper, WebRoot: root, AuditLog: filepath.Join(root, "audit.jsonl"), BackupRoot: filepath.Join(root, "backups")}, Auth: Auth{Username: "admin"}}
+	response := httptest.NewRecorder()
+	body := `{"user":"site_user","confirm":"DROP site_db"}`
+	app.databaseResource(response, httptest.NewRequest(http.MethodDelete, "/api/databases/site_db", strings.NewReader(body)))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503: %s", response.Code, response.Body.String())
+	}
+	if calls, _ := os.ReadFile(logPath); strings.Contains(string(calls), "drop-managed") {
+		t.Fatalf("helper was asked to drop an unconfirmed database: %q", calls)
+	}
+}

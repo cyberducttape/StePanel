@@ -579,6 +579,19 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "confirmation must exactly match DROP "+name, http.StatusUnprocessableEntity)
 			return
 		}
+		// drop-managed treats a database without a registry record as already
+		// gone, which keeps lifecycle cleanup idempotent. A deletion request
+		// must therefore name a database the inventory currently reports, with
+		// its registered user, or it would be recorded as deleted when nothing
+		// was dropped.
+		if !found {
+			http.Error(w, "database inventory is unavailable; deletion refused", http.StatusServiceUnavailable)
+			return
+		}
+		if owned.User != "" && owned.User != in.User {
+			http.Error(w, "database user does not match the registered owner", http.StatusUnprocessableEntity)
+			return
+		}
 		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(r.Context(), "database:"+name)
 		if lockErr != nil {
 			http.Error(w, "database mutation is busy", http.StatusConflict)
