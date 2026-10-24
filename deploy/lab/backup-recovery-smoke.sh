@@ -35,15 +35,32 @@ staging_database=''
 staging_user=''
 staging_unix_user=''
 staging_route=''
+site_public_root() {
+  local site=$1 record="/etc/stepanel/sites/$1/location" user directory
+  if [[ -f $record ]]; then
+    user=$(sed -n 's/^user=//p' "$record")
+    directory=$(sed -n 's/^directory=//p' "$record")
+    [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ &&
+       ( $directory == public_html || $directory =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ ) ]] || {
+      echo "invalid installed location record for $site" >&2
+      return 1
+    }
+    printf '/home/%s/%s\n' "$user" "$directory"
+  else
+    printf '/var/www/sites/%s/public\n' "$site"
+  fi
+}
 dump_restore_permissions() {
-  local site_root="/var/www/sites/$BACKUP_RECOVERY_SMOKE_SITE"
+  local site_root site_doc_root
+  site_doc_root=$(site_public_root "$BACKUP_RECOVERY_SMOKE_SITE")
+  site_root=${site_doc_root%/*}
   local recovery_root='/var/www/sites/.stepanel-recovery'
   echo 'restore permission diagnostics:' >&2
   id stepanel >&2 || true
-  stat -c '%A %a %U:%G %n' /var/www /var/www/sites "$site_root" "$site_root/public" "$recovery_root" >&2 || true
-  namei -l "$site_root/public" >&2 || true
+  stat -c '%A %a %U:%G %n' /var/www /var/www/sites "$site_root" "$site_doc_root" "$recovery_root" >&2 || true
+  namei -l "$site_doc_root" >&2 || true
   namei -l "$recovery_root" >&2 || true
-  getfacl -p "$site_root" "$site_root/public" "$recovery_root" >&2 || true
+  getfacl -p "$site_root" "$site_doc_root" "$recovery_root" >&2 || true
 }
 mkdir -p "$dropin_dir"
 cleanup() {
@@ -455,7 +472,8 @@ PY
       echo "interrupted staging restore left managed database $staging_database" >&2
       exit 1
     fi
-    [[ -f "/var/www/sites/$BACKUP_RECOVERY_SMOKE_SITE/public/index.html" ]] || {
+    source_public_root=$(site_public_root "$BACKUP_RECOVERY_SMOKE_SITE")
+    [[ -f "$source_public_root/index.html" ]] || {
       echo "interrupted staging restore disturbed source site $BACKUP_RECOVERY_SMOKE_SITE" >&2
       exit 1
     }
@@ -632,6 +650,9 @@ fi
 # Finally exercise the irreversible lifecycle journal. The worker dies after
 # the site-state step starts; the restarted worker must roll the journal
 # forward and leave the site absent, with the verified backup retained.
+# Save the authoritative document root before termination removes its
+# placement record, so the postcondition checks the original path.
+source_public_root=$(site_public_root "$BACKUP_RECOVERY_SMOKE_SITE")
 # The isolated lab mode routes the read-only database inventory through the
 # root broker because the disposable container may restrict privilege
 # transitions for sudo and setuid subprocesses.
@@ -705,5 +726,5 @@ for _ in $(seq 1 240); do
   sleep 1
 done
 [[ "$state" == completed ]] || { echo "termination recovery job $terminate_job_id did not complete: ${status:-}" >&2; exit 1; }
-[[ ! -d "/var/www/sites/$BACKUP_RECOVERY_SMOKE_SITE" ]] || { echo 'terminated site directory still exists' >&2; exit 1; }
+[[ ! -e $source_public_root ]] || { echo "terminated site document root still exists: $source_public_root" >&2; exit 1; }
 echo "termination recovery smoke passed (worker $before was killed at $TERMINATE_KILL_AT)"

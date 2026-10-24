@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Check installed-host backup recovery and termination against the source site's
+  recorded document root, including sites placed under hosting accounts.
 - Keep the disposable overlay-backed systemd test host's shadow database
   root-readable so its real PAM/FTPS authentication smoke can run; native-host
   certification continues to use the distribution's default permissions.
