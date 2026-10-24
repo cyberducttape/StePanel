@@ -366,6 +366,12 @@ set -e
 if (( app_smoke_status != 0 )); then
   exit "$app_smoke_status"
 fi
+# A customer's site lives in the customer's hosting account under the plan's
+# account quota, which needs user quotas on /home (only the quota smoke VM
+# has them; elsewhere plan enforcement suspends the account, by design).
+if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
+  bash /work/deploy/lab/customer-site-smoke.sh
+fi
 if [[ ${STEPANEL_RUN_RECOVERY_MATRIX:-0} == 1 ]]; then
   if [[ ${STEPANEL_RUN_RECOVERY_MATRIX_FULL:-0} == 1 ]]; then
     RECOVERY_MATRIX_FULL=1 bash /work/deploy/lab/recovery-matrix-smoke.sh

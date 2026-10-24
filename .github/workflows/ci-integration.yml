@@ -194,13 +194,13 @@ jobs:
           RECOVERY_MATRIX_REPEATS: '50'
           RECOVERY_MATRIX_VALIDATE_ONLY: '1'
         run: bash deploy/lab/recovery-matrix-smoke.sh
-      - run: bash -n deploy/lab/sftp-access-smoke.sh deploy/lab/filectl-smoke.sh deploy/lab/ftps-access-smoke.sh deploy/lab/sitectl-acl-smoke.sh deploy/lab/python-dependencies-smoke.sh
+      - run: bash -n deploy/lab/sftp-access-smoke.sh deploy/lab/filectl-smoke.sh deploy/lab/customer-site-smoke.sh deploy/lab/ftps-access-smoke.sh deploy/lab/sitectl-acl-smoke.sh deploy/lab/python-dependencies-smoke.sh
       - name: Check FTPS PAM probe syntax
         run: python3 -m py_compile deploy/lab/ftps-pam-probe.py
       - run: bash -n deploy/integrations/*
       - name: Lint shell scripts
         # -x follows the site location library the helpers source.
-        run: shellcheck -S warning -x -P SCRIPTDIR install.sh deploy/lib/*.sh deploy/lab/run.sh deploy/lab/local-kvm-certification.sh deploy/lab/abrupt-loss-backup-drill.sh deploy/lab/abrupt-loss-operation-drill.sh deploy/lab/dbctl-lock-smoke.sh deploy/lab/dbctl-restore-swap-smoke.sh deploy/lab/dbctl-restore-pg-smoke.sh deploy/lab/task-safeguards-smoke.sh deploy/lab/app-lifecycle-smoke.sh deploy/lab/recovery-matrix-smoke.sh deploy/lab/backup-recovery-smoke.sh deploy/lab/wordpress-recovery-proof-smoke.sh deploy/lab/control-plane-db-outage-smoke.sh deploy/lab/sftp-access-smoke.sh deploy/lab/filectl-smoke.sh deploy/lab/ftps-access-smoke.sh deploy/lab/sitectl-acl-smoke.sh deploy/lab/python-dependencies-smoke.sh deploy/integrations/*
+        run: shellcheck -S warning -x -P SCRIPTDIR install.sh deploy/lib/*.sh deploy/lab/run.sh deploy/lab/local-kvm-certification.sh deploy/lab/abrupt-loss-backup-drill.sh deploy/lab/abrupt-loss-operation-drill.sh deploy/lab/dbctl-lock-smoke.sh deploy/lab/dbctl-restore-swap-smoke.sh deploy/lab/dbctl-restore-pg-smoke.sh deploy/lab/task-safeguards-smoke.sh deploy/lab/app-lifecycle-smoke.sh deploy/lab/recovery-matrix-smoke.sh deploy/lab/backup-recovery-smoke.sh deploy/lab/wordpress-recovery-proof-smoke.sh deploy/lab/control-plane-db-outage-smoke.sh deploy/lab/sftp-access-smoke.sh deploy/lab/filectl-smoke.sh deploy/lab/customer-site-smoke.sh deploy/lab/ftps-access-smoke.sh deploy/lab/sitectl-acl-smoke.sh deploy/lab/python-dependencies-smoke.sh deploy/integrations/*
       - name: Verify atomic database restore against MySQL 8.0
         # The runner image ships MySQL with a password for root; the helper
         # authenticates as root over the socket like an installed host.
