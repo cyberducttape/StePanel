@@ -87,10 +87,21 @@ curl -X POST https://panel.example.com/api/admin/archive/import \
     "url": "https://s3.amazonaws.com/backups/site-backup.tar.gz",
     "config_path": "wp-config.php",
     "site_name": "imported-site",
-    "skip_analysis": false,
-    "extract_directory": "wordpress"
+    "account": "alice",
+    "kind": "addon",
+    "domain": "shop.example.org"
   }'
 ```
+
+The site is created in a hosting account (see
+[ADR-0007](adr/0007-home-account-layout.md)): `account` names the account
+(a new account named after the site when omitted), and `kind` (`main`,
+`addon` or `subdomain`) with `domain` choose its document root,
+`/home/ACCOUNT/public_html` or `/home/ACCOUNT/DOMAIN`. Without a kind, the
+account's first site is its main site. A site that already exists in either
+layout is refused. The import prepares the site's isolated PHP pool, publishes
+the files and seals their ownership to the account user. Unknown fields are
+rejected.
 
 **Response (Phase 1 Complete):**
 ```json

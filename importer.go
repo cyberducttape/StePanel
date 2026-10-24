@@ -10,10 +10,12 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/archivesafe"
 	"github.com/cyberducttape/StePanel/internal/importer"
+	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
 // durableArchiveImportRequest is the job payload for archive imports
@@ -23,6 +25,11 @@ type durableArchiveImportRequest struct {
 	SiteName         string `json:"site_name"`
 	DatabasePassword string `json:"database_password,omitempty"`
 	AutoRestoreDB    bool   `json:"auto_restore_db,omitempty"`
+	// Account, Kind and Domain place the imported site in a hosting account
+	// (ADR-0007), as for site creation.
+	Account string `json:"account,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	Domain  string `json:"domain,omitempty"`
 }
 
 // durableArchiveInspectionRequest is the job payload for archive inspections
@@ -44,6 +51,11 @@ type archiveImportRequest struct {
 	SiteName         string `json:"site_name"`         // name for new site
 	DatabasePassword string `json:"database_password"` // required when auto_restore_db is true
 	AutoRestoreDB    bool   `json:"auto_restore_db"`   // provision and restore an embedded SQL dump
+	// Account names the hosting account the site is placed in (the site name
+	// when empty); Kind and Domain choose main, addon or subdomain.
+	Account string `json:"account"`
+	Kind    string `json:"kind"`
+	Domain  string `json:"domain"`
 }
 
 // archiveInspectionStatus is the response showing inspection results
@@ -219,6 +231,14 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "archive imports require the durable job store", http.StatusServiceUnavailable)
 		return
 	}
+	// Check the placement now so a bad account, kind or domain is refused
+	// before a job is queued; the job resolves it again under the site lock.
+	if db := sitePlacementDB.Load(); db != nil {
+		if _, err := resolveSitePlacement(db, req.SiteName, importPlacementRequest(req.SiteName, req.Account, req.Kind, req.Domain)); err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+	}
 	if req.AutoRestoreDB && !a.Jobs.PayloadEncryptionEnabled() {
 		http.Error(w, "archive database restore requires STEPANEL_ACCOUNT_KEY for encrypted durable job payloads", http.StatusServiceUnavailable)
 		return
@@ -236,6 +256,9 @@ func (a *App) archiveImportStart(w http.ResponseWriter, r *http.Request) {
 		SiteName:         req.SiteName,
 		DatabasePassword: req.DatabasePassword,
 		AutoRestoreDB:    req.AutoRestoreDB,
+		Account:          req.Account,
+		Kind:             req.Kind,
+		Domain:           req.Domain,
 	})
 	if err != nil {
 		http.Error(w, "failed to marshal job payload: "+err.Error(), http.StatusInternalServerError)
@@ -345,6 +368,36 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 	}
 	defer releaseSite()
 
+	// A new site goes into a hosting account (ADR-0007). A site that already
+	// exists in either layout is refused below, never overwritten.
+	committed := false
+	if db := sitePlacementDB.Load(); db != nil {
+		if _, legacyErr := existingManagedSiteRoot(a.Config.WebRoot, req.SiteName); legacyErr == nil {
+			return nil, fmt.Errorf("site %q already exists", req.SiteName)
+		}
+		placement, err := resolveSitePlacement(db, req.SiteName, importPlacementRequest(req.SiteName, req.Account, req.Kind, req.Domain))
+		if err != nil {
+			return nil, fmt.Errorf("resolve hosting-account placement: %w", err)
+		}
+		if existing, err := sitelayout.Get(db, req.SiteName); err == nil && existing != placement {
+			return nil, fmt.Errorf("site %q already exists in hosting account %s", req.SiteName, existing.Account)
+		}
+		placedByJob, err := placeSiteInAccount(operationCtx, a.Config, db, placement)
+		if err != nil {
+			return nil, fmt.Errorf("place imported site in hosting account %s: %w", placement.Account, err)
+		}
+		if placedByJob {
+			defer func() {
+				if committed {
+					return
+				}
+				if err := unplaceSite(context.WithoutCancel(operationCtx), a.Config, db, req.SiteName); err != nil {
+					TelemetryAudit(a.Config.AuditLog, actor, "archive.import.unplace-failed", req.SiteName, err.Error())
+				}
+			}()
+		}
+	}
+
 	// WebRoot is deployment authority, never job-payload data. Older queued
 	// jobs may contain a legacy web_root field, but unknown JSON is ignored;
 	// accepting it here would let a tampered payload redirect lifecycle
@@ -366,7 +419,7 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 			return nil, fmt.Errorf("initialize site manager for staging: %w", err)
 		}
 	}
-	stagingDir, stagingOwner, err := manager.CreateStagingLease(operationCtx, ".stepanel-import-")
+	stagingDir, stagingOwner, err := manager.CreateSiteStagingLease(operationCtx, req.SiteName, ".stepanel-import-")
 	if err != nil {
 		return nil, fmt.Errorf("create import staging directory: %w", err)
 	}
@@ -423,7 +476,6 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("begin archive import transaction: %w", err)
 	}
-	committed := false
 	defer func() {
 		if !committed {
 			if rbErr := txn.Rollback(); rbErr != nil {
@@ -433,10 +485,20 @@ func (a *App) handleArchiveImportJob(ctx context.Context, job *Job) ([]byte, err
 		}
 	}()
 
+	// Give the site its isolated account and PHP pool before publishing it,
+	// and seal ownership and ACLs onto the published tree, as cpMove restores
+	// do; otherwise the imported files belong to the panel and nothing serves
+	// them as the site.
+	if err := siteHelperContext(operationCtx, a.Config, "prepare", req.SiteName); err != nil {
+		return nil, fmt.Errorf("prepare imported site: %w", err)
+	}
 	if _, err := manager.ActivateStaged(operationCtx, req.SiteName, stagingDir); err != nil {
 		return nil, fmt.Errorf("activate imported site: %w", err)
 	}
 	activated = true
+	if err := siteHelperContext(operationCtx, a.Config, "seal", req.SiteName); err != nil {
+		return nil, fmt.Errorf("seal imported site: %w", err)
+	}
 
 	// Invalidate metadata caches after site activation to ensure fresh data
 	if a.MetadataCache != nil {
@@ -575,4 +637,15 @@ func validSiteName(name string) bool {
 	// Proof sites are created only by the recovery proof, which recovery may
 	// remove by name; no other workflow may claim the prefix.
 	return matched && !isRecoveryProofSiteName(name)
+}
+
+// importPlacementRequest places an imported site the way an administrator's
+// site creation does: in the named account, or a new account named after the
+// site.
+func importPlacementRequest(site, account, kind, domain string) sitePlacementRequest {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		account = site
+	}
+	return sitePlacementRequest{Account: account, Kind: sitelayout.Kind(strings.TrimSpace(kind)), Domain: domain}
 }

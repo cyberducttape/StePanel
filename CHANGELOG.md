@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Import archives into a hosting account (ADR-0007) instead of
+  `/var/www/sites`: `/api/admin/archive/import` takes optional `account`,
+  `kind` and `domain`, refuses an invalid placement before queueing, prepares
+  the site's PHP pool and seals the published tree to the account user (the
+  importer previously left imported files owned by the panel with no pool),
+  and removes the placement if the import fails. The documented example
+  request also sent fields the endpoint rejects.
 - Refuse a database deletion the inventory cannot confirm, or one naming a
   user other than the registered owner. `drop-managed` now treats an
   unregistered database as already gone, so the request was otherwise

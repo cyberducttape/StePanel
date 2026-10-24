@@ -162,3 +162,49 @@ func TestArchiveInspectionFailureIsAJobFailureWithResultContext(t *testing.T) {
 		t.Fatalf("inspection failure result = %s", output)
 	}
 }
+
+// Archive imports create sites in hosting accounts (ADR-0007). A placement
+// that cannot be made is refused before a job is queued.
+func TestArchiveImportPlacesSitesInHostingAccounts(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	registerSitePlacementDB(db)
+	t.Cleanup(func() { registerSitePlacementDB(nil) })
+	jobs, err := openDurableJobsDBWithKey(db, "", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Auth: Auth{}, Jobs: jobs}
+	for name, body := range map[string]string{
+		"addon without a domain": `{"url":"https://example.test/site.tar.gz","config_path":"wp-config.php","site_name":"shop","account":"alice","kind":"addon"}`,
+		"reserved account":       `{"url":"https://example.test/site.tar.gz","config_path":"wp-config.php","site_name":"shop","account":"root"}`,
+	} {
+		response := httptest.NewRecorder()
+		app.archiveImportStart(response, httptest.NewRequest(http.MethodPost, "/api/import/archive", strings.NewReader(body)))
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s: status = %d, body = %s", name, response.Code, response.Body.String())
+		}
+	}
+	if len(jobs.List(10)) != 0 {
+		t.Fatal("an archive import with an invalid placement was queued")
+	}
+	response := httptest.NewRecorder()
+	app.archiveImportStart(response, httptest.NewRequest(http.MethodPost, "/api/import/archive", strings.NewReader(`{"url":"https://example.test/site.tar.gz","config_path":"wp-config.php","site_name":"shop","account":"alice","kind":"addon","domain":"shop.example.org"}`)))
+	if response.Code != http.StatusAccepted && response.Code != http.StatusOK {
+		t.Fatalf("valid placement status = %d, body = %s", response.Code, response.Body.String())
+	}
+	queued := jobs.List(10)
+	if len(queued) != 1 {
+		t.Fatalf("queued jobs = %d", len(queued))
+	}
+	var payload durableArchiveImportRequest
+	if err := json.Unmarshal(queued[0].Payload, &payload); err != nil || payload.Account != "alice" || payload.Kind != "addon" || payload.Domain != "shop.example.org" {
+		t.Fatalf("queued payload = %+v, %v", payload, err)
+	}
+	if got := importPlacementRequest("blog", "", "", ""); got.Account != "blog" || got.Kind != "" {
+		t.Fatalf("default import placement = %+v, want a new account named after the site", got)
+	}
+}

@@ -1031,10 +1031,11 @@ paths:
   /api/admin/archive/import:
     post:
       summary: Queue an archive import
-      description: Begins importing a website from an archive. Files are extracted and database is located.
+      description: "Begins importing a website from an archive into a new site in a hosting account. Body: url, config_path, site_name, and optional account (defaults to the site name), kind (main, addon or subdomain) and domain, database_password and auto_restore_db. Files are extracted and the database is located."
       responses:
         '202': {description: Import job queued}
         '400': {description: Invalid archive or requirements}
+        '422': {description: The hosting-account placement is invalid}
         '403': {description: Administrator authentication required}
   /api/admin/archive/import/status:
     get:
