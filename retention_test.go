@@ -195,7 +195,11 @@ func TestImportStageLeaseProcessHelper(t *testing.T) {
 	if err := os.Chtimes(stage, old, old); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "ready-"+id), []byte(stage), 0600); err != nil {
+	ready := filepath.Join(root, "ready-"+id)
+	if err := os.WriteFile(ready+".tmp", []byte(stage), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(ready+".tmp", ready); err != nil {
 		t.Fatal(err)
 	}
 	for {

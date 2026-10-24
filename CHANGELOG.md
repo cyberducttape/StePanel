@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Publish cross-process import-stage test readiness files atomically so cleanup
+  concurrency tests cannot observe a partially written stage path.
 - Route FTPS authentication through a dedicated PAM service that checks the
   StePanel allowlist and distro password policy without rejecting managed
   `nologin` site accounts via `pam_shells`; preserve unmanaged PAM files.
