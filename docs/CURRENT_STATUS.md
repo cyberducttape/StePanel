@@ -6,28 +6,34 @@
 
 ---
 
-### Current pushed source — 2026-10-24 (`215c50c`)
+### Current pushed source — 2026-10-24 (`b20c609`)
 
-- The latest commit increases the installed-host smoke deadline after two
-  Ubuntu package-provisioning runs reached the prior 80-minute limit, and adds
-  timestamped installer phase logs. Focused tests, the root-package suite,
-  shell syntax, workflow bounds, and whitespace checks passed locally.
-- Exact-source integration CI passed in full ([run 40086080662](https://github.com/cyberducttape/StePanel/actions/runs/40086080662)),
-  including Go tests/coverage, full race suite, recovery and tmpfs ENOSPC,
-  MySQL/PostgreSQL restore, clean Python deployment, static/vulnerability
-  analysis, container/deployment validation, mixed load, and UI E2E. The
-  evidence commit's documentation and CodeQL checks also passed
-  ([40086920766](https://github.com/cyberducttape/StePanel/actions/runs/40086920766),
-  [40086920829](https://github.com/cyberducttape/StePanel/actions/runs/40086920829));
-  no CodeQL alerts are open.
-- Focused Ubuntu 24.04 + Caddy installation smoke ([run 40086450399](https://github.com/cyberducttape/StePanel/actions/runs/40086450399))
-  is running its installed-host smoke. The six-host recovery cohort on
-  application source `06ae561` ([run 40085787315](https://github.com/cyberducttape/StePanel/actions/runs/40085787315))
-  and the local Rocky KVM recovery drill on older source `2dead8a` are also
-  still running. Their observed progress is not a completed pass.
-- Production remains **NO-GO**; see the authoritative
-  [production gates](V1_PRODUCTION_GATES.md) for the outstanding host recovery,
-  application restore, capacity, alerting, upgrade, and security evidence.
+- Current `main` is
+  [`b20c60989cdeabf04b796038eafd0e70ef263392`](https://github.com/cyberducttape/StePanel/commit/b20c60989cdeabf04b796038eafd0e70ef263392).
+  It preserves environment-backed WordPress credentials during configuration
+  import and keeps the installed recovery fixture's generated database user
+  within the database's 32-character limit.
+- Exact-source Integration CI ([run 40089780650](https://github.com/cyberducttape/StePanel/actions/runs/40089780650)),
+  Documentation ([run 40089780692](https://github.com/cyberducttape/StePanel/actions/runs/40089780692)),
+  and CodeQL ([run 40089780673](https://github.com/cyberducttape/StePanel/actions/runs/40089780673))
+  succeeded. CI covers Go 1.26.10 tests and coverage, race tests, recovery and
+  tmpfs ENOSPC drills, database restore, clean Python deployment, static and
+  container analysis, mixed load, and UI E2E/accessibility. CodeQL reports no
+  open alerts.
+- A clean exact-source Rocky Linux 9 KVM install is running the full recovery
+  matrix at `/var/tmp/stepanel-kvm-cert-20261024-b20c609`. The VM uses SELinux
+  enforcing and quota-enabled ext4 for `/var/www`; installed Caddy, PHP-FPM,
+  MariaDB, panel, worker, and root broker are active. The default smoke has
+  passed installed WordPress HTTP recovery proof, database-outage recovery,
+  broker-outage readiness behavior, and deploy rollback. The opt-in matrix is
+  still running at the `restore:extract` checkpoint; only the boot phase is
+  currently recorded in `results.tsv`. This is one in-progress Rocky run, not
+  a completed matrix pass or the required 20–50 repeats.
+- Production remains **NO-GO**. Physical host power-loss recovery, broader
+  host ENOSPC, repeated multi-platform installed recovery, application proof
+  on every supported web server, capacity certification, live alert outage
+  and retry evidence, upgrade/rollback policy, and independent security
+  assessment remain open. See [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
 
 ## Executive Summary
 

@@ -9,7 +9,37 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest pushed-source validation — 2026-10-24 (`215c50c`)
+### Latest pushed-source validation — 2026-10-24 (`b20c609`)
+
+Current `main` is [`b20c60989cdeabf04b796038eafd0e70ef263392`](https://github.com/cyberducttape/StePanel/commit/b20c60989cdeabf04b796038eafd0e70ef263392).
+It fixes PHP import rewriting for environment-backed WordPress credentials and
+keeps the installed recovery fixture's generated database username within the
+supported 32-character limit. Exact-source Integration CI
+([run 40089780650](https://github.com/cyberducttape/StePanel/actions/runs/40089780650)),
+Documentation ([run 40089780692](https://github.com/cyberducttape/StePanel/actions/runs/40089780692)),
+and CodeQL ([run 40089780673](https://github.com/cyberducttape/StePanel/actions/runs/40089780673))
+all succeeded; CodeQL reports zero open alerts.
+
+A clean exact-source Rocky Linux 9 KVM installation is running at
+`/var/tmp/stepanel-kvm-cert-20261024-b20c609` with SELinux enforcing,
+quota-enabled ext4 `/var/www`, and `VM_DISK_CACHE=none`. The default smoke has
+passed installed WordPress HTTP recovery proof, MariaDB outage recovery,
+broker-outage readiness behavior, and deploy rollback. The full opt-in
+recovery matrix is still running. Its observed `restore:database` and
+`restore:extract` backup/file/database/termination replays have passed; the
+current `restore:extract` database job is in worker-lease recovery. The host
+`results.tsv` currently records boot only, so this matrix is not yet a pass.
+This run is one iteration on Rocky Linux 9 and does not establish the required
+20–50 repeats, physical host power-loss behavior, or cross-platform
+certification. Do not count an in-progress run as passing evidence.
+
+Production remains **NO-GO**. Required repeated installed-host recovery,
+physical power-loss and broader host ENOSPC/database-outage evidence,
+application-level WordPress restore proof across supported web servers,
+capacity certification, live alert outage/retry evidence, upgrade/rollback
+policy, and independent security assessment remain open.
+
+### Previous pushed-source validation — 2026-10-24 (`215c50c`)
 
 Current `main` is [`215c50ca53ecaca0e26f893c13b4ea4c762ff58e`](https://github.com/cyberducttape/StePanel/commit/215c50ca53ecaca0e26f893c13b4ea4c762ff58e).
 The commit increases the installed-host smoke budget after two Ubuntu

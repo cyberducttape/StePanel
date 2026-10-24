@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Documentation
+
+- Reconcile the current status and authoritative production-gate snapshot with
+  `b20c609`, its passing exact-source CI/Documentation/CodeQL runs, and the
+  in-progress Rocky 9 KVM recovery matrix; preserve the production NO-GO.
+
 ### Fixed
 
 - Generate a bounded, site-specific database username in the installed-host
