@@ -9,21 +9,24 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest source validation — 2026-10-24 (`12079f4`, application source `343e445`)
+### Latest source validation — 2026-10-24 (`f147727`, application source `343e445`)
 
-Validation was run against `main` at
-[`12079f4cce77b6c57c1905a0da6d0e9377e1ec2e`](https://github.com/cyberducttape/StePanel/commit/12079f4cce77b6c57c1905a0da6d0e9377e1ec2e),
-which is a documentation-only evidence update over application source
+Validation was run against evidence commit
+[`f147727679e7b335f4c59f57a45049f7109015f0`](https://github.com/cyberducttape/StePanel/commit/f147727679e7b335f4c59f57a45049f7109015f0),
+a documentation-only update over application source
 [`343e4450f9b6323a09b9c76392058fa77a37a8c5`](https://github.com/cyberducttape/StePanel/commit/343e4450f9b6323a09b9c76392058fa77a37a8c5).
 The full Go suite and race suite, `go vet ./...`, `make release-check`,
 documentation-link and reference checks, all 15 frontend unit tests, JavaScript
 syntax validation, and diff checks passed on the current tree.
 
-Exact-head CodeQL ([run 40125155405](https://github.com/cyberducttape/StePanel/actions/runs/40125155405))
-and Documentation ([run 40125155455](https://github.com/cyberducttape/StePanel/actions/runs/40125155455))
-passed on `12079f4`; the live CodeQL alert count was zero. Integration on
-application source `343e445` is running ([run
-40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983)).
+Exact-head CodeQL ([run 40126540603](https://github.com/cyberducttape/StePanel/actions/runs/40126540603))
+and Documentation ([run 40126540605](https://github.com/cyberducttape/StePanel/actions/runs/40126540605))
+passed on `f147727`; the live CodeQL alert count was zero. Exact
+application-source Integration on `343e445` passed ([run
+40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983)),
+including Go and race tests, coverage floors, recovery drills, real tmpfs
+ENOSPC, database restores, Python deployment, static analysis, container
+validation, and frontend E2E/accessibility tests.
 The full Integration workflow passed on backend source `e3a8976` ([run
 40124829064](https://github.com/cyberducttape/StePanel/actions/runs/40124829064)),
 including race tests, repository recovery drills, tmpfs ENOSPC recovery,
@@ -41,7 +44,7 @@ when host memory pressure caused the OOM killer to terminate QEMU during
 restore recovery. This is not a full-matrix pass; see the
 [checkpoint report](lab-results/2026-10-24-rocky9-installed-host-recovery.md).
 
-Ten two-iteration installed-host shards remain queued on `e3a8976`:
+Ten two-iteration installed-host shards are running on `e3a8976`:
 [40124847144](https://github.com/cyberducttape/StePanel/actions/runs/40124847144),
 [40124847251](https://github.com/cyberducttape/StePanel/actions/runs/40124847251),
 [40124847306](https://github.com/cyberducttape/StePanel/actions/runs/40124847306),
@@ -52,6 +55,9 @@ Ten two-iteration installed-host shards remain queued on `e3a8976`:
 [40124847590](https://github.com/cyberducttape/StePanel/actions/runs/40124847590),
 [40124847626](https://github.com/cyberducttape/StePanel/actions/runs/40124847626), and
 [40124847637](https://github.com/cyberducttape/StePanel/actions/runs/40124847637).
+Each shard has begun its Ubuntu 24.04/Caddy host job; remaining distro/web-server
+jobs are queued behind it. They cover the same Go/native hosting backend as
+`343e445`; no iterations count until all six host jobs in a shard pass.
 They cover the same Go/native hosting backend as `343e445`; they do not
 exercise its browser-only stale-snapshot warning. No iteration counts until
 all six host jobs in a shard pass. The earlier six-host smoke and superseded

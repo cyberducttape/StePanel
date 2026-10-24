@@ -14,14 +14,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
-- Record current-application-tree Go, frontend, documentation, and release-check
-  results plus the passing exact-head CodeQL and Documentation workflows; keep
-  pending Integration and queued installed-host recovery runs uncounted.
+- Record current-application-tree Go, frontend, documentation, release-check,
+  CodeQL, Documentation, and exact-source Integration results; keep the active
+  installed-host recovery cohort uncounted until its shards complete.
 - Record the completed local race suite and full backend Integration pass on
   `e3a8976`, while tracking the running `343e445` exact-source Integration
   and queued installed-host recovery cohort as open evidence.
 - Refresh production status for `343e445`, separating frontend snapshot-warning
-  tests from the queued installed-host cohort on the unchanged `e3a8976`
+  tests from the active installed-host cohort on the unchanged `e3a8976`
   hosting backend.
 - Refresh the current-status and production-gate snapshots for `e3a8976`,
   recording its local full-suite result, passed Documentation workflow,
