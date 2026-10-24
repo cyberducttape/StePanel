@@ -14,6 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record current-application-tree Go, frontend, documentation, and release-check
+  results plus the passing exact-head CodeQL and Documentation workflows; keep
+  pending Integration and queued installed-host recovery runs uncounted.
 - Refresh production status for `343e445`, separating frontend snapshot-warning
   tests from the queued installed-host cohort on the unchanged `e3a8976`
   hosting backend.

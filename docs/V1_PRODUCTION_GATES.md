@@ -9,22 +9,24 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest source validation — 2026-10-24 (`343e445`)
+### Latest source validation — 2026-10-24 (`12079f4`, application source `343e445`)
 
-Current `main` is
+Validation was run against `main` at
+[`12079f4cce77b6c57c1905a0da6d0e9377e1ec2e`](https://github.com/cyberducttape/StePanel/commit/12079f4cce77b6c57c1905a0da6d0e9377e1ec2e),
+which is a documentation-only evidence update over application source
 [`343e4450f9b6323a09b9c76392058fa77a37a8c5`](https://github.com/cyberducttape/StePanel/commit/343e4450f9b6323a09b9c76392058fa77a37a8c5).
-The operator and customer panels distinguish unavailable job history from an
-empty history; the browser labels retained snapshots when refresh fails. All
-15 frontend unit tests, JavaScript syntax validation, and diff checks passed.
-The full Go suite, `go vet ./...`, and `make release-check` passed on parent
-`e3a8976`; `343e445` changes only browser code, frontend tests, and changelog.
-Exact-source Integration was pending, CodeQL and Documentation were queued at
-capture ([40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983),
-[40125094896](https://github.com/cyberducttape/StePanel/actions/runs/40125094896),
-[40125094904](https://github.com/cyberducttape/StePanel/actions/runs/40125094904)).
-The live CodeQL alert count was zero. Parent-source Integration on `93c5714`
-was canceled after Go tests, coverage, ENOSPC and UI E2E passed; race and
-recovery checks did not complete ([40124252769](https://github.com/cyberducttape/StePanel/actions/runs/40124252769)).
+The full Go suite, `go vet ./...`, `make release-check`, documentation-link and
+reference checks, all 15 frontend unit tests, JavaScript syntax validation,
+and diff checks passed on the current tree.
+
+Exact-head CodeQL ([run 40125155405](https://github.com/cyberducttape/StePanel/actions/runs/40125155405))
+and Documentation ([run 40125155455](https://github.com/cyberducttape/StePanel/actions/runs/40125155455))
+passed on `12079f4`; the live CodeQL alert count was zero. Integration on
+application source `343e445` remains pending ([run
+40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983)).
+Parent-source Integration on `93c5714` was canceled after Go tests, coverage,
+ENOSPC and UI E2E passed; race and recovery checks did not complete ([run
+40124252769](https://github.com/cyberducttape/StePanel/actions/runs/40124252769)).
 
 The local Rocky 9 installed-host run on `1b2e99d` passed native install,
 quota checks, installed WordPress archive/database/HTTP recovery proof, and
@@ -33,7 +35,7 @@ when host memory pressure caused the OOM killer to terminate QEMU during
 restore recovery. This is not a full-matrix pass; see the
 [checkpoint report](lab-results/2026-10-24-rocky9-installed-host-recovery.md).
 
-Ten two-iteration installed-host shards are queued on `e3a8976`:
+Ten two-iteration installed-host shards remain queued on `e3a8976`:
 [40124847144](https://github.com/cyberducttape/StePanel/actions/runs/40124847144),
 [40124847251](https://github.com/cyberducttape/StePanel/actions/runs/40124847251),
 [40124847306](https://github.com/cyberducttape/StePanel/actions/runs/40124847306),
