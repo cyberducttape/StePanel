@@ -29,11 +29,11 @@
   MariaDB, panel, worker, and root broker are active. The default smoke has
   passed installed WordPress HTTP recovery proof, database-outage recovery,
   broker-outage readiness behavior, and deploy rollback. The opt-in matrix is
-  still running. Recovery replays through `restore:extract` have passed; the
-  `restore:activate` case has reached its post-kill restore replay and has not
-  completed yet. Only the boot phase is currently recorded in `results.tsv`.
-  This is one in-progress Rocky run, not a completed matrix pass or the
-  required 20–50 repeats.
+  still running. At 2026-10-24 14:21 UTC, backup, file-restore, and
+  database-restore worker-death replays through `restore:commit` had passed;
+  its termination replay was still running. Only the boot phase is recorded in
+  `results.tsv`. This is one in-progress Rocky run, not a completed matrix
+  pass or the required 20–50 repeats.
 - Production remains **NO-GO**. Physical host power-loss recovery, broader
   host ENOSPC, repeated multi-platform installed recovery, application proof
   on every supported web server, capacity certification, live alert outage

@@ -15,6 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   record the passing Documentation and CodeQL checks on the current snapshot.
 - Refresh the live Rocky 9 KVM matrix checkpoint without counting an
   in-progress recovery replay as a pass.
+- Time-bound the Rocky 9 KVM checkpoint and record completed restore-boundary
+  replays through `restore:commit`.
 
 ### Fixed
 
