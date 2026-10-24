@@ -33,6 +33,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Include PAM helper setuid, filesystem mount flags, and no-new-privileges
   state in FTPS denial diagnostics to distinguish host policy from container
   limitations.
+- Record UID namespace mappings and effective/bounding capabilities in the
+  same diagnostics to determine whether the PAM helper can use its setuid bit.
 - Allow the installed-host workflow to target one OS/web-server combination
   while preserving the all-host default and scheduled certification matrix;
   generate a matrix containing only the selected host for focused diagnostics.

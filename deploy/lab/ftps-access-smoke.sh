@@ -34,6 +34,9 @@ ftps_diagnostics() {
     echo 'PAM unix_chkpwd helper is missing' >&2
   fi
   grep '^NoNewPrivs:' /proc/self/status >&2 || true
+  echo 'UID namespace mapping:' >&2
+  cat /proc/self/uid_map >&2 || true
+  grep -E '^Cap(Eff|Bnd):' /proc/self/status >&2 || true
   getent passwd "$site_user" >&2 || true
   shadow_password=$(getent shadow "$site_user" | cut -d: -f2)
   case $shadow_password in
