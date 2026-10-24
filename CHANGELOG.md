@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Reconcile the deployment-readiness summary with the current exact-head CI,
+  CodeQL, documentation, and pending installed-host matrix evidence.
 - Refresh current status and production-gate evidence with exact-head CI,
   CodeQL, and documentation results for `b448cc9`, preserving the production
   NO-GO decision and identifying the older-source KVM run as in progress.

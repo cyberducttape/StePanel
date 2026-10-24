@@ -1,17 +1,26 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-10-23
+**Last Updated:** 2026-10-24
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 **👉 For overall project status, see [CURRENT_STATUS.md](./CURRENT_STATUS.md) — the single authoritative source for version, progress, and release gates.**
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
-The current evidence snapshot records passing integration CI for application
-source `ea69e24`, and passing CodeQL and documentation checks on main at
-`489a625`. The corrected six-host installed recovery matrix for `ea69e24` is
-still running. Production approval remains **NO-GO**. See
-[CURRENT_STATUS.md](./CURRENT_STATUS.md) for run links and
+Current evidence is recorded on main at `bb1885d660fbb0b5ca486ec1b1cb7a1e09338239`;
+application source is `b448cc97c2cf74085d77fde48854822a44c30625`. Exact-head
+integration CI passed ([run 40082479635](https://github.com/cyberducttape/StePanel/actions/runs/40082479635)),
+including Go tests, coverage gates, race tests, recovery and tmpfs ENOSPC
+drills, database restore checks, static analysis, container build/scan, and UI
+end-to-end/accessibility tests. CodeQL passed on the evidence revision
+([run 40083875818](https://github.com/cyberducttape/StePanel/actions/runs/40083875818));
+documentation checks passed ([run 40083875793](https://github.com/cyberducttape/StePanel/actions/runs/40083875793)).
+The exact-source six-host exhaustive installed recovery matrix
+([run 40083936175](https://github.com/cyberducttape/StePanel/actions/runs/40083936175))
+is still in progress. A separate local Rocky Linux 9 exhaustive KVM run is
+also in progress against older source `2dead8a`; it is not exact-head evidence.
+Neither in-progress run counts as a pass. Production approval remains
+**NO-GO**. See [CURRENT_STATUS.md](./CURRENT_STATUS.md) for run status and
 [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for remaining acceptance
 criteria.
 
