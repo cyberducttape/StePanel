@@ -20,6 +20,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   current-source WordPress proof, replacing stale run references.
 - Record exact-head CodeQL and Documentation passes on `69bcac1`, zero open
   CodeQL alerts, and the still-incomplete ten-shard installed-host cohort.
+- Advance the evidence snapshot to `fba3b93` after its exact-head Documentation
+  and CodeQL passes; record the passing ext4 aggregate Git quota smoke and keep
+  all ten installed-host recovery runs uncounted while their five queued host
+  combinations per run remain incomplete.
 - Record current-application-tree Go, frontend, documentation, release-check,
   CodeQL, Documentation, and exact-source Integration results; keep the active
   installed-host recovery cohort uncounted until its shards complete.
