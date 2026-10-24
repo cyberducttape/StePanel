@@ -7,23 +7,23 @@
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
-Latest application source: `06ae561a59a4a677a98e95efa6edf1cddbc6bfb5`.
-Exact-source integration CI passed in full on `06ae561`
-([run 40084549149](https://github.com/cyberducttape/StePanel/actions/runs/40084549149)),
-including Go 1.26.10 tests and coverage gates, race tests, recovery and real
-tmpfs ENOSPC drills, database restore checks, clean Python deployment, static
-analysis, container/deployment validation, mixed load, and UI E2E/accessibility
-checks. Documentation ([run 40084769418](https://github.com/cyberducttape/StePanel/actions/runs/40084769418))
-and CodeQL ([run 40084769384](https://github.com/cyberducttape/StePanel/actions/runs/40084769384))
-passed on evidence commit `d2131f2`; the current alert query reports zero open
-alerts.
+Latest application source: `5e9077b28abcbed2d0338e734dfbd387d8ef2b08`.
+Local full Go tests, `go vet`, shell syntax, ShellCheck, and release checks
+passed for this source. Exact-source Integration CI
+([run 40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239))
+is still running race tests; its Go tests, coverage gates, and ENOSPC steps
+passed. Documentation ([run 40118239251](https://github.com/cyberducttape/StePanel/actions/runs/40118239251))
+and CodeQL ([run 40118239207](https://github.com/cyberducttape/StePanel/actions/runs/40118239207))
+passed, with no open CodeQL alerts.
 
-The six-host exhaustive installed recovery matrix
-([run 40083936175](https://github.com/cyberducttape/StePanel/actions/runs/40083936175))
-is testing application source `b448cc9`, before the latest job-cache fix. A
-separate local Rocky Linux 9 KVM matrix is active on older source `2dead8a`.
-Neither run is exact-source recovery evidence for `06ae561`, and neither
-counts as a pass while in progress. Production approval remains **NO-GO**.
+The six-host installed recovery matrix
+([run 40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094))
+is still running on Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Caddy and
+Apache; no result is counted before completion. Production approval remains
+**NO-GO** pending repeated recovery, physical power-loss and broader ENOSPC
+evidence, supported-platform application restore proof, capacity certification,
+live alert failure/retry evidence, upgrade policy, and independent security
+assessment.
 See [CURRENT_STATUS.md](./CURRENT_STATUS.md) for current run status and
 [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for remaining acceptance
 criteria.

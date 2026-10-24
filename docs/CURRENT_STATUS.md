@@ -6,7 +6,33 @@
 
 ---
 
-### Latest validation — 2026-10-24 (`1af5fc0`)
+### Latest validation — 2026-10-24 (`5e9077b`)
+
+- Application source is
+  [`5e9077b28abcbed2d0338e734dfbd387d8ef2b08`](https://github.com/cyberducttape/StePanel/commit/5e9077b28abcbed2d0338e734dfbd387d8ef2b08).
+  The installer validates vsftpd configuration with a bounded foreground
+  loopback probe and restores the prior configuration if validation fails.
+  Local full Go tests, `go vet`, shell syntax, ShellCheck, and release checks
+  passed. Exact-source Integration CI ([run
+  40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239))
+  is still running race tests; its preceding test, coverage, and ENOSPC steps
+  passed. Documentation ([run
+  40118239251](https://github.com/cyberducttape/StePanel/actions/runs/40118239251))
+  and CodeQL ([run
+  40118239207](https://github.com/cyberducttape/StePanel/actions/runs/40118239207))
+  passed, with no open CodeQL alerts.
+- The six-host installed recovery matrix ([run
+  40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094))
+  is exercising Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Caddy and
+  Apache. All six jobs remain in the install/recovery smoke, so none is counted
+  as passing. The completed Rocky 9 KVM evidence below uses older source
+  `b20c609`.
+- Production remains **NO-GO**. The 20–50 repeat cohort, physical power-loss
+  recovery, broader ENOSPC/database-outage cases, full supported-runtime
+  coverage, capacity certification, live alert outage/retry evidence, upgrade
+  policy, and independent security assessment remain open.
+
+### Previous validation — 2026-10-24 (`1af5fc0`)
 
 - Application source is
   [`1af5fc05e0f3ab39b0da974651ca4b081966a193`](https://github.com/cyberducttape/StePanel/commit/1af5fc05e0f3ab39b0da974651ca4b081966a193).

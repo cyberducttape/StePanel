@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Reconcile current status, readiness summary, and authoritative release gates
+  with pushed source `5e9077b`, passing Documentation/CodeQL, in-progress
+  exact-source Integration CI and six-host recovery runs; retain production
+  NO-GO and make explicit that active runs are not passes.
 - Record the one-run 500-site synthetic HTTP benchmark with its host, latency,
   and explicit non-certification limits; update current-source CI and active
   installed-host/upgrade run links while retaining the production NO-GO.
