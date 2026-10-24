@@ -83,7 +83,7 @@ jobs:
   install:
     needs: select-hosts
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 90 }}
+    timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 150 }}
     env:
       RECOVERY_MATRIX_REPEATS: ${{ inputs.recovery_matrix_repeats || 1 }}
       RECOVERY_MATRIX_SHARD: ${{ inputs.recovery_matrix_shard || '' }}
@@ -206,14 +206,13 @@ jobs:
           set +e
           # Bound host-install validation so a stuck package manager or
           # service transition yields diagnostics rather than consuming the
-          # entire matrix job timeout. The default package install and
-          # recovery checks can exceed 42 minutes on slow RHEL-family runners;
-          # use an 80-minute bound and leave time for diagnostics within the
-          # 90-minute job.
+          # entire matrix job timeout. Two Ubuntu runs reached the prior
+          # 80-minute deadline while apt was still provisioning vsftpd; allow
+          # 140 minutes by default and preserve ten minutes for diagnostics.
           # Full-matrix runs exercise every restore checkpoint and are opt-in
           # because they need substantially more wall-clock time on TCG/shared
           # CI hosts.
-          timeout --foreground --kill-after=5s ${{ inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '80m' }} docker exec \
+          timeout --foreground --kill-after=5s ${{ inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '140m' }} docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
             -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \

@@ -63,11 +63,10 @@ func TestInstallSmokeTimeoutLeavesHostAndDiagnosticHeadroom(t *testing.T) {
 	}
 	text := string(workflow)
 	for _, budget := range []string{
-		"timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 90 }}",
-		"inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '80m'",
-		"use an 80-minute bound",
-		"within the",
-		"90-minute job.",
+		"timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 150 }}",
+		"inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '140m'",
+		"80-minute deadline while apt was still provisioning vsftpd",
+		"140 minutes by default and preserve ten minutes for diagnostics.",
 	} {
 		if !strings.Contains(text, budget) {
 			t.Errorf("install smoke timeout contract is missing %q", budget)

@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Increase the installed-host smoke budget after two Ubuntu runs hit the old
+  80-minute cutoff during package provisioning, and emit timestamped installer
+  package-phase progress to make long stalls diagnosable.
 - Prevent durable job listing queries from replacing newer in-process worker
   lease snapshots with older database reads.
 - Reconcile current production-readiness summaries with `06ae561` and its

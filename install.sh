@@ -3,6 +3,12 @@ set -Eeuo pipefail
 
 if [[ $EUID -ne 0 ]]; then echo "Run as root: sudo ./install.sh" >&2; exit 1; fi
 
+INSTALL_STARTED_SECONDS=$SECONDS
+install_phase() {
+  printf 'installer phase [%s +%ss] %s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$((SECONDS - INSTALL_STARTED_SECONDS))" "$*"
+}
+
 # Safety-invariant bypasses are for disposable lab hosts only. They are
 # persisted only with an explicit --unsafe-lab argument, never because they
 # happen to be in the ambient environment or a previous configuration.
@@ -441,6 +447,7 @@ install_journal_on_exit() {
 }
 trap install_journal_on_exit EXIT
 
+install_phase "installing base PHP and host utility packages"
 if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl curl git util-linux sudo logrotate
 else
   # Rocky/Alma cloud images may ship the full curl package while minimal
@@ -450,6 +457,7 @@ else
   if rpm -q curl >/dev/null 2>&1 || rpm -q curl-minimal >/dev/null 2>&1; then RHEL_CURL_PACKAGES=(); fi
   dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl "${RHEL_CURL_PACKAGES[@]}" git util-linux sudo logrotate
 fi
+install_phase "base PHP and host utility packages installed"
 if (( UNSAFE_LAB == 0 )); then
   # Use filesystem-native status reporting: ext4 uses quotaon state output,
   # while XFS reports accounting and enforcement through xfs_quota.
@@ -473,6 +481,7 @@ if (( UNSAFE_LAB == 0 )); then
     echo '  Mount /var/www with prjquota; ext4 also needs the project and quota features.' >&2
   fi
 fi
+install_phase "installing selected web server: $WEB_SERVER"
 if [[ "$WEB_SERVER" == "apache" ]]; then
   if [[ "$PKG" == "apt" ]]; then apt-get install -y apache2; APACHE_SERVICE=apache2; else dnf install -y httpd; APACHE_SERVICE=httpd; fi
 elif [[ "$WEB_SERVER" == "openlitespeed" ]]; then
@@ -491,6 +500,7 @@ else
   command -v caddy >/dev/null 2>&1 || { echo 'Caddy was selected but the caddy executable is unavailable; configure the Caddy repository first.' >&2; exit 1; }
   APACHE_SERVICE=caddy
 fi
+install_phase "selected web server package installed: $WEB_SERVER"
 
 # Package installation can start another web server (for example a PHP
 # package pulling in Apache) that would hold the public ports and make the
@@ -711,11 +721,15 @@ if command -v spamd >/dev/null 2>&1 || command -v spamassassin >/dev/null 2>&1; 
 command -v vsftpd >/dev/null 2>&1 && FTP_PREEXISTING=1
 if [[ "$INSTALL_MAIL" == "1" ]]; then
   install_journal_record configuration started manual "installing/configuring optional mail stack; package and service changes may remain on failure"
+  install_phase 'installing optional mail packages'
   install_mail_stack
+  install_phase 'optional mail packages configured'
 fi
 if [[ "$INSTALL_FTP" == "1" ]]; then
   install_journal_record configuration started manual "installing/configuring optional FTP stack; package and service changes may remain on failure"
+  install_phase 'installing optional FTP packages and configuration'
   install_ftp_stack
+  install_phase 'optional FTP packages and configuration complete'
 fi
 
 configure_modsecurity() {
