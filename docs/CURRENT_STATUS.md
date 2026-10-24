@@ -16,9 +16,9 @@
   passed all checks: Go tests and coverage floors, race tests, recovery and
   ENOSPC drills, database restore, static analysis, packaging and container
   smoke, and UI end-to-end. Documentation and CodeQL passed on evidence commit
-  `e15a284` ([Documentation run
-  40121256032](https://github.com/cyberducttape/StePanel/actions/runs/40121256032),
-  [CodeQL run 40121256049](https://github.com/cyberducttape/StePanel/actions/runs/40121256049));
+  `0cca6fa` ([Documentation run
+  40121537470](https://github.com/cyberducttape/StePanel/actions/runs/40121537470),
+  [CodeQL run 40121537411](https://github.com/cyberducttape/StePanel/actions/runs/40121537411));
   CodeQL reports no open alerts. The prior integration run on `5e9077b` failed only at Staticcheck
   on this finding ([run 40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239));
   its tests, coverage, race, recovery, ENOSPC, and database restore steps

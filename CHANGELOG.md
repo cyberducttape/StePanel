@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   evidence from the active KVM run, then record the successful exact-source
   Integration, Documentation, and CodeQL runs while preserving the remaining
   certification gates.
+- Advance the status snapshot to the successful Documentation and CodeQL runs
+  on evidence commit `0cca6fa`; retain the active installed-host matrix as
+  in-progress evidence.
 - Reconcile current release status with the `5e9077b` Staticcheck failure and
   its `47ba2ff` correction, plus the active exact-source CI, six-host matrix,
   and clean-tree Rocky KVM install/recovery run; retain production NO-GO.

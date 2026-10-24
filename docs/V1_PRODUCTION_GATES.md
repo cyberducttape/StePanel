@@ -18,8 +18,8 @@ Integration CI ([40119821255](https://github.com/cyberducttape/StePanel/actions/
 passed all checks, including Go tests and coverage floors, race tests, recovery
 and ENOSPC drills, database restores, static analysis, packaging/container
 smoke, and UI end-to-end. Documentation and CodeQL passed on evidence commit
-`e15a284` ([40121256032](https://github.com/cyberducttape/StePanel/actions/runs/40121256032),
-[40121256049](https://github.com/cyberducttape/StePanel/actions/runs/40121256049));
+`0cca6fa` ([40121537470](https://github.com/cyberducttape/StePanel/actions/runs/40121537470),
+[40121537411](https://github.com/cyberducttape/StePanel/actions/runs/40121537411));
 CodeQL reports no open alerts. The preceding `5e9077b` integration run failed at Staticcheck
 `ST1008` in the validator test helper; that ordering is fixed in `47ba2ff`.
 Earlier test, coverage, race, recovery, ENOSPC, and database-restore steps in
