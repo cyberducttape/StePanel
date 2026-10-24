@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Reconcile the P0 gate table with the live ten-shard recovery cohort and
+  current-source WordPress proof, replacing stale run references.
 - Record exact-head CodeQL and Documentation passes on `69bcac1`, zero open
   CodeQL alerts, and the still-incomplete ten-shard installed-host cohort.
 - Record current-application-tree Go, frontend, documentation, release-check,
