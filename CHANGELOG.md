@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   in-progress Rocky 9 KVM recovery matrix; preserve the production NO-GO.
 - Distinguish the application-source SHA from later evidence-only commits, and
   record the passing Documentation and CodeQL checks on the current snapshot.
+- Refresh the live Rocky 9 KVM matrix checkpoint without counting an
+  in-progress recovery replay as a pass.
 
 ### Fixed
 

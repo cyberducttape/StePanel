@@ -29,10 +29,10 @@ A clean exact-source Rocky Linux 9 KVM installation is running at
 quota-enabled ext4 `/var/www`, and `VM_DISK_CACHE=none`. The default smoke has
 passed installed WordPress HTTP recovery proof, MariaDB outage recovery,
 broker-outage readiness behavior, and deploy rollback. The full opt-in
-recovery matrix is still running. Its observed `restore:database` and
-`restore:extract` backup/file/database/termination replays have passed; the
-current `restore:extract` database job is in worker-lease recovery. The host
-`results.tsv` currently records boot only, so this matrix is not yet a pass.
+recovery matrix is still running. Recovery replays through `restore:extract`
+have passed. The current `restore:activate` case has reached its post-kill
+restore replay and has not completed yet. The host `results.tsv` currently
+records boot only, so this matrix is not yet a pass.
 This run is one iteration on Rocky Linux 9 and does not establish the required
 20–50 repeats, physical host power-loss behavior, or cross-platform
 certification. Do not count an in-progress run as passing evidence.
