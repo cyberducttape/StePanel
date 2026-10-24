@@ -4,6 +4,9 @@
 > **Release Date:** September 2026  
 > **Compatibility:** v0.6.0 → v0.7.0 upgrade tested
 
+For upgrades to the current source, supported paths and how to roll back,
+see [Version compatibility and rollback](COMPATIBILITY.md).
+
 ## What's New
 
 ### Features
