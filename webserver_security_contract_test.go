@@ -187,14 +187,16 @@ func TestCaddyFastCGIUsesCanonicalSiteRoot(t *testing.T) {
 		!strings.Contains(source, `@stepanel_php_root path /\n\trewrite @stepanel_php_root /index.php\n`) {
 		t.Fatal("Caddy must route / to an existing, non-symlink PHP front controller while preserving query strings")
 	}
-	if !strings.Contains(source, `"$domain" "$view_root_path"`) {
-		t.Fatal("Caddy must continue serving through the isolated nosymfollow view")
+	if !strings.Contains(source, `view_path() { printf '%s/%s\n' "$view_root" "$1"; }`) ||
+		!strings.Contains(source, `document_root="$view_root_path/$site_directory"`) ||
+		!strings.Contains(source, `"$domain" "$document_root"`) {
+		t.Fatal("Caddy must serve the document-root child through the stable isolated nosymfollow parent view")
 	}
 	if !strings.Contains(source, `php_fastcgi unix/%s {\n\t\troot %s\n\t}`) {
 		t.Fatal("Caddy FastCGI must send the canonical site root to the per-site PHP-FPM pool")
 	}
-	if !strings.Contains(source, `"$socket" "$public_root" "$view_root_path/.env"`) {
-		t.Fatal("Caddy FastCGI root must match PHP-FPM's canonical site path, while static file hides stay on the view")
+	if !strings.Contains(source, `"$socket" "$public_root" "$document_root/.env"`) {
+		t.Fatal("Caddy FastCGI root must match PHP-FPM's canonical site path, while static file hides stay on the served view child")
 	}
 }
 
