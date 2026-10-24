@@ -39,6 +39,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   input, to identify why FTPS authentication fails on installed-host CI.
 - Filter PAM syscall diagnostics to the relevant helper and shadow operations,
   avoiding truncation by interpreter startup calls.
+- Report the active LSM and shadow-file metadata on FTPS denial, and run the
+  disposable privileged systemd host without an inherited AppArmor profile.
 - Allow the installed-host workflow to target one OS/web-server combination
   while preserving the all-host default and scheduled certification matrix;
   generate a matrix containing only the selected host for focused diagnostics.

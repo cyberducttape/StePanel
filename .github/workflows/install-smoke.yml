@@ -141,6 +141,7 @@ jobs:
           fi
           if ! docker_bounded 30s run -d --privileged --name stepanel-install \
               --security-opt=no-new-privileges:false \
+              --security-opt=apparmor=unconfined \
               --userns=host \
               --cgroupns=host \
               --tmpfs /run --tmpfs /run/lock \
