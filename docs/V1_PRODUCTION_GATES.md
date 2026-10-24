@@ -15,7 +15,9 @@ Current source is
 [`47ba2ffe88abb1436da38b28fd5a856494614133`](https://github.com/cyberducttape/StePanel/commit/47ba2ffe88abb1436da38b28fd5a856494614133).
 The focused vsftpd validator test and Staticcheck pass locally. Exact-source
 Integration CI ([40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255))
-is running the full Go suite; its UI end-to-end job passed. Documentation and
+has passed the full Go suite, coverage gates, race tests, shell lint, and UI
+end-to-end. Its remaining database-restore, dependency, static-analysis, and
+packaging checks are still running. Documentation and
 CodeQL passed on evidence commit `766ef35` ([40119941004](https://github.com/cyberducttape/StePanel/actions/runs/40119941004),
 [40119941026](https://github.com/cyberducttape/StePanel/actions/runs/40119941026));
 CodeQL reports no open alerts. The preceding `5e9077b` integration run failed at Staticcheck
@@ -23,10 +25,17 @@ CodeQL reports no open alerts. The preceding `5e9077b` integration run failed at
 Earlier test, coverage, race, recovery, ENOSPC, and database-restore steps in
 the failed run passed.
 
-A clean-tree local Rocky 9 KVM run on `1b2e99d` has passed boot and verified
-quota-enabled `/var/www`; installation completed with vsftpd installed, and
-the installed smoke and recovery phases remain in progress. See the live local
-artifacts under `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`. Integration CI
+A clean-tree local Rocky 9 KVM run on `1b2e99d` passed boot and verified
+quota-enabled `/var/www`. Native installation, cPanel import/re-import, SFTP
+and FTPS, database locking, interrupted import/backup/file restore/database
+restore/termination, account suspension, Git activation, and app lifecycle
+smokes passed. The installed WordPress application recovery proof passed its
+archive, database, and HTTP checks with a measured 15,524 ms RTO; live database
+and root-broker outage recovery checks passed. The extended recovery-boundary
+matrix is still running. See the
+[checkpoint report](lab-results/2026-10-24-rocky9-installed-host-recovery.md)
+and live local artifacts under `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`.
+Integration CI
 for `1b2e99d` was cancelled while race tests were running after its Go tests and
 coverage passed ([40119585611](https://github.com/cyberducttape/StePanel/actions/runs/40119585611));
 the active source run includes the subsequent static-analysis correction. The six-host

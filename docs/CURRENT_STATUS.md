@@ -13,7 +13,9 @@
   It fixes a Staticcheck `ST1008` finding in the vsftpd validation test
   helper. The focused test and Staticcheck pass locally. Exact-source CI
   ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255))
-  is running the full Go suite; its UI end-to-end job has passed. Documentation
+  has passed the full Go suite, coverage gates, race tests, shell lint, and UI
+  end-to-end. Its database-restore, dependency, static-analysis, and packaging
+  checks are still running. Documentation
   and CodeQL passed on evidence commit `766ef35` ([Documentation run
   40119941004](https://github.com/cyberducttape/StePanel/actions/runs/40119941004),
   [CodeQL run 40119941026](https://github.com/cyberducttape/StePanel/actions/runs/40119941026));
@@ -22,9 +24,15 @@
   its tests, coverage, race, recovery, ENOSPC, and database restore steps
   preceding static analysis passed.
 - A clean-tree Rocky 9 KVM run on `1b2e99d` passed guest boot and verified
-  `/var/www` user/project quotas. The native install completed with vsftpd
-  installed; its installed-host smoke and remaining recovery phases are still
-  running (local artifacts: `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`).
+  `/var/www` user/project quotas. Native installation and installed-host
+  checks passed for cPanel import/re-import, SFTP and FTPS access, database
+  locking, interrupted import/backup/file restore/database restore/termination,
+  account suspension, Git activation recovery, and app lifecycle. The installed
+  WordPress recovery proof passed with archive, database, and application
+  checks and a measured 15,524 ms RTO; live database and root-broker outage
+  checks also recovered. Its extended recovery-boundary matrix is now running
+  (local artifacts: `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`; checkpoint
+  [report](lab-results/2026-10-24-rocky9-installed-host-recovery.md)).
   Integration CI for fixture commit `1b2e99d` was superseded and cancelled
   while race tests were running ([run
   40119585611](https://github.com/cyberducttape/StePanel/actions/runs/40119585611));
