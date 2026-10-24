@@ -6,25 +6,32 @@
 
 ---
 
-### Latest validation — 2026-10-24 (`ada4d82`, harness-only)
+### Latest validation — 2026-10-24 (application `b20c609`, Rocky 9 KVM)
 
-- `ada4d82f04963d157697a9a979e3de2d0369787b` increases the local full-matrix
-  install timeout to six hours for one iteration, with five more hours per
-  additional repeat. The application source under test remains `b20c609`.
-- Exact-commit Integration CI passed ([run 40102867970](https://github.com/cyberducttape/StePanel/actions/runs/40102867970)),
-  including Go 1.26.10 tests and coverage floors, race tests, repository and
-  real tmpfs ENOSPC recovery, MySQL 8 and PostgreSQL restore checks, clean
-  Python deployment, security/static/container/deployment validation, mixed
-  load, and UI end-to-end/accessibility. Documentation ([run 40102867973](https://github.com/cyberducttape/StePanel/actions/runs/40102867973))
+- The one-iteration installed-host recovery matrix passed on Rocky Linux 9.8
+  with enforcing SELinux, quota-enabled ext4, Caddy, PHP-FPM, and MariaDB.
+  Follow-up abrupt whole-guest termination scenarios passed for backup, file
+  restore, database restore, Git activation, and control-plane writes; real
+  96 MiB-volume ENOSPC backup/file-restore checks also passed. Details,
+  artifacts, and explicit limits are in
+  [the KVM evidence report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md).
+- The Git activation replay exposed a quota lookup failure inside the root
+  broker's systemd mount namespace. Quota inspection and Git staging limits now
+  use the backing filesystem device to handle alternate bind-mount aliases.
+  The quota contract test and targeted live Git interruption/redeployment
+  passed; exact-head CI for these helper changes is pending.
+- Exact-source Integration CI passed on application source `b20c609`
+  ([run 40102867970](https://github.com/cyberducttape/StePanel/actions/runs/40102867970));
+  documentation ([run 40102867973](https://github.com/cyberducttape/StePanel/actions/runs/40102867973))
   and CodeQL ([run 40102867980](https://github.com/cyberducttape/StePanel/actions/runs/40102867980))
-  also passed; CodeQL reports no open alerts.
-- The exact-source Rocky 9 KVM full matrix remains in progress. At
-  2026-10-24 14:53 UTC, recovery through `terminate:init` had passed; in the
-  `terminate:backup` case, backup recovery had passed and restore replay was
-  still running. The host results file records boot only. A live watchdog
-  protects the VM from the older four-hour wrapper timeout. This is not a
-  completed matrix or repeat-cohort pass.
-- Production remains **NO-GO**; see [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
+  passed as well. This does not validate the current uncommitted helper and
+  documentation changes.
+- Production remains **NO-GO**. One Rocky repetition is below the required
+  20–50 cohort; physical host power loss, broader ENOSPC/database-outage
+  cases, cross-platform recovery, application proof for every supported web
+  server, capacity certification, live alert outage/retry evidence,
+  upgrade/rollback policy, and independent security assessment remain open.
+  See [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
 
 ### Latest application-source validation — 2026-10-24 (`b20c609`)
 
@@ -43,17 +50,10 @@
 - The current evidence snapshot also passed Documentation and CodeQL
   ([runs 40100469312](https://github.com/cyberducttape/StePanel/actions/runs/40100469312)
   and [40100469296](https://github.com/cyberducttape/StePanel/actions/runs/40100469296)).
-- A clean exact-source Rocky Linux 9 KVM install is running the full recovery
-  matrix at `/var/tmp/stepanel-kvm-cert-20261024-b20c609`. The VM uses SELinux
-  enforcing and quota-enabled ext4 for `/var/www`; installed Caddy, PHP-FPM,
-  MariaDB, panel, worker, and root broker are active. The default smoke has
-  passed installed WordPress HTTP recovery proof, database-outage recovery,
-  broker-outage readiness behavior, and deploy rollback. The opt-in matrix is
-  still running. At 2026-10-24 14:21 UTC, backup, file-restore, and
-  database-restore worker-death replays through `restore:commit` had passed;
-  its termination replay was still running. Only the boot phase is recorded in
-  `results.tsv`. This is one in-progress Rocky run, not a completed matrix
-  pass or the required 20–50 repeats.
+- The exact-source Rocky Linux 9 KVM installation and one full recovery-matrix
+  iteration completed; subsequent abrupt-loss and ENOSPC results are recorded
+  above and in the linked evidence report. This is one Rocky/Caddy/MariaDB
+  cohort and does not meet the required 20–50 repetitions.
 - Production remains **NO-GO**. Physical host power-loss recovery, broader
   host ENOSPC, repeated multi-platform installed recovery, application proof
   on every supported web server, capacity certification, live alert outage

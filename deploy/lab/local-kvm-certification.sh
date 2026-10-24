@@ -37,6 +37,8 @@ phases=${PHASES:-boot install runner abrupt-loss abrupt-loss-under-load abrupt-l
 disk_cache=${VM_DISK_CACHE:-writeback}
 case $disk_cache in writeback|none|directsync|writethrough) ;; *) echo 'VM_DISK_CACHE must be writeback, none, directsync, or writethrough' >&2; exit 1 ;; esac
 matrix_repeats=${RECOVERY_MATRIX_REPEATS:-1}
+drill_suffix=${DRILL_RUN_SUFFIX:-$(date -u +%y%m%d%H%M)}
+[[ $drill_suffix =~ ^[a-zA-Z0-9_-]{1,16}$ ]] || { echo 'DRILL_RUN_SUFFIX must contain 1–16 letters, digits, underscores, or hyphens' >&2; exit 1; }
 
 if [[ ! $matrix_repeats =~ ^[1-9][0-9]*$ ]] || (( matrix_repeats > 50 )); then
   echo 'RECOVERY_MATRIX_REPEATS must be an integer from 1 through 50' >&2
@@ -85,17 +87,29 @@ ssh_args=(-i "$run_dir/id_ed25519" -p "$port" -o StrictHostKeyChecking=no -o Use
 guest() { ssh "${ssh_args[@]}" vmtest@127.0.0.1 "$@"; }
 
 start_guest() {
-  qemu-system-x86_64 \
-    -machine accel=kvm -cpu host -smp "$cpus" -m "$memory" \
-    -drive "file=$run_dir/root.qcow2,if=virtio,format=qcow2,cache=$disk_cache" \
-    -drive "file=$run_dir/www.ext4,if=virtio,format=raw,cache=$disk_cache" \
-    -drive "file=$run_dir/enospc.ext4,if=virtio,format=raw,cache=$disk_cache" \
-    -drive "file=$run_dir/home.ext4,if=virtio,format=raw,cache=$disk_cache" \
-    -drive "file=$run_dir/seed.iso,if=virtio,media=cdrom,readonly=on" \
-    -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$port-:22" \
-    -device virtio-net-pci,netdev=net0 \
-    -display none -serial "file:$run_dir/console.log" -monitor none \
-    -daemonize -pidfile "$run_dir/qemu.pid"
+  local attempt output
+  for ((attempt = 1; attempt <= 30; attempt++)); do
+    if output=$(qemu-system-x86_64 \
+      -machine accel=kvm -cpu host -smp "$cpus" -m "$memory" \
+      -drive "file=$run_dir/root.qcow2,if=virtio,format=qcow2,cache=$disk_cache" \
+      -drive "file=$run_dir/www.ext4,if=virtio,format=raw,cache=$disk_cache" \
+      -drive "file=$run_dir/enospc.ext4,if=virtio,format=raw,cache=$disk_cache" \
+      -drive "file=$run_dir/home.ext4,if=virtio,format=raw,cache=$disk_cache" \
+      -drive "file=$run_dir/seed.iso,if=virtio,media=cdrom,readonly=on" \
+      -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$port-:22" \
+      -device virtio-net-pci,netdev=net0 \
+      -display none -serial "file:$run_dir/console.log" -monitor none \
+      -daemonize -pidfile "$run_dir/qemu.pid" 2>&1); then
+      return 0
+    fi
+    if [[ $output != *'Failed to get "write" lock'* ]]; then
+      printf '%s\n' "$output" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  printf 'QEMU disk write lock did not clear after 30 retries:\n%s\n' "$output" >&2
+  return 1
 }
 
 qemu_guest_running() {
@@ -130,6 +144,17 @@ wait_ready() {
   while (( SECONDS < deadline )); do
     if timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
       'sudo systemctl is-active --quiet stepanel.service stepanel-worker.service stepanel-root-broker.service && curl --fail --silent http://127.0.0.1:8090/readyz >/dev/null' 2>/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+wait_ssh() {
+  local deadline=$((SECONDS + $1))
+  while (( SECONDS < deadline )); do
+    if timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'true' 2>/dev/null; then
       return 0
     fi
     sleep 2
@@ -188,7 +213,9 @@ qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$image")" "$run_dir/root.qc
 qemu-img create -q -f raw "$run_dir/www.ext4" 24G
 qemu-img create -q -f raw "$run_dir/enospc.ext4" 96M
 # Hosting-account homes (ADR-0007) need user quotas too.
-qemu-img create -q -f raw "$run_dir/home.ext4" 4G
+# SiteManager's bounded Git release clone needs 15 GiB of aggregate staging
+# headroom on the document-root filesystem before admitting the operation.
+qemu-img create -q -f raw "$run_dir/home.ext4" 24G
 ssh-keygen -q -t ed25519 -N '' -f "$run_dir/id_ed25519"
 cat > "$run_dir/user-data" <<EOF
 #cloud-config
@@ -230,7 +257,13 @@ runcmd:
     umount /mnt/stepanel-home
     printf '%s\n' '/dev/vdd /home ext4 usrquota,prjquota 0 2' >> /etc/fstab
     mount /home
+    # ext4 can mount with the project-quota feature present while project
+    # accounting is still disabled. Explicitly enable both quota types before
+    # Git staging asks the broker to install a per-release project limit.
+    quotaon -u /home
+    quotaon -P /home
     quotaon -p -u /home | grep -E '^user quota on /home \(.*\) is on'
+    quotaon -p -P /home | grep -E '^project quota on /home \(.*\) is on'
     touch /var/lib/stepanel-cert-ready
 EOF
 printf 'instance-id: stepanel-cert\nlocal-hostname: stepanel-cert\n' > "$run_dir/meta-data"
@@ -292,12 +325,13 @@ fi
 # index (no partial backup published), and a successful follow-up backup.
 if has_phase abrupt-loss-under-load; then
   start=$SECONDS
-  if guest 'sudo bash /work/deploy/lab/abrupt-loss-backup-drill.sh prepare' > "$run_dir/abrupt-load-prepare.log" 2>&1; then
-    guest 'sudo bash /work/deploy/lab/abrupt-loss-backup-drill.sh start' > "$run_dir/abrupt-load-start.log" 2>&1 || true
+  backup_drill_site="abrupt-loss-$drill_suffix"
+  if guest "sudo env DRILL_SITE=$backup_drill_site bash /work/deploy/lab/abrupt-loss-backup-drill.sh prepare" > "$run_dir/abrupt-load-prepare.log" 2>&1; then
+    guest "sudo env DRILL_SITE=$backup_drill_site bash /work/deploy/lab/abrupt-loss-backup-drill.sh start" > "$run_dir/abrupt-load-start.log" 2>&1 || true
     sleep "${ABRUPT_LOSS_DELAY:-3}"
     kill_guest
     start_guest
-    if wait_ready 600 && guest 'sudo bash /work/deploy/lab/abrupt-loss-backup-drill.sh verify' > "$run_dir/abrupt-load-verify.log" 2>&1; then
+    if wait_ready 600 && guest "sudo env DRILL_SITE=$backup_drill_site bash /work/deploy/lab/abrupt-loss-backup-drill.sh verify" > "$run_dir/abrupt-load-verify.log" 2>&1; then
       record abrupt-loss-under-load PASS $((SECONDS - start)) "$(tail -1 "$run_dir/abrupt-load-verify.log")"
     else
       record abrupt-loss-under-load FAIL $((SECONDS - start)) "$(tail -1 "$run_dir/abrupt-load-verify.log" 2>/dev/null)"
@@ -315,8 +349,16 @@ fi
 if has_phase abrupt-loss-operations; then
   for scenario in ${ABRUPT_LOSS_SCENARIOS:-file-restore database-restore git-deploy control-plane}; do
     start=$SECONDS
-    drill="sudo bash /work/deploy/lab/abrupt-loss-operation-drill.sh $scenario"
+    drill="sudo env DRILL_RUN_SUFFIX=$drill_suffix bash /work/deploy/lab/abrupt-loss-operation-drill.sh $scenario"
     log_prefix="$run_dir/abrupt-loss-$scenario"
+    if ! wait_ssh 600; then
+      record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) 'SSH did not return before operation preparation'
+      continue
+    fi
+    if ! wait_ready 600; then
+      record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) 'panel readiness did not recover before operation preparation'
+      continue
+    fi
     if ! guest "$drill prepare" > "$log_prefix-prepare.log" 2>&1; then
       record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) "prepare: $(tail -1 "$log_prefix-prepare.log")"
       continue
@@ -330,6 +372,15 @@ if has_phase abrupt-loss-operations; then
     [[ $scenario != control-plane ]] || sleep "${ABRUPT_LOSS_WRITE_SECONDS:-5}"
     kill_guest
     start_guest
+    # These scenarios deliberately leave a persistent pause marker at the
+    # crash boundary. Clear it after SSH is available but before waiting for
+    # /readyz; startup recovery cannot finish while the pause marker remains.
+    if [[ $scenario == file-restore || $scenario == git-deploy ]]; then
+      if ! wait_ssh 600 || ! guest 'sudo rm -rf -- /var/lib/ste-panel/pause-markers'; then
+        record "abrupt-loss-$scenario" FAIL $((SECONDS - start)) 'could not clear post-crash pause marker'
+        continue
+      fi
+    fi
     if wait_ready 600 && guest "$drill verify" > "$log_prefix-verify.log" 2>&1; then
       record "abrupt-loss-$scenario" PASS $((SECONDS - start)) "$(tail -1 "$log_prefix-verify.log")"
     else

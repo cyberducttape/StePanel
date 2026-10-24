@@ -6,6 +6,7 @@ cd "$(dirname "$0")/../.."
 
 mock_fstype=ext4
 mock_options=usrquota,prjquota
+mock_source=/dev/vdb
 mock_ext4_status='project quota on /var/www (/dev/vdb) is on'
 mock_xfs_status='Project quota state on /var/www (/dev/vdb): Accounting: ON Enforcement: ON'
 mock_ext4_user_status='user quota on /var/www (/dev/vdb) is on'
@@ -16,6 +17,7 @@ findmnt() {
     *' TARGET '*) printf '%s\n' /var/www ;;
     *' OPTIONS '*) printf '%s\n' "$mock_options" ;;
     *' FSTYPE '*) printf '%s\n' "$mock_fstype" ;;
+    *' SOURCE '*) printf '%s\n' "$mock_source" ;;
     *) return 2 ;;
   esac
 }
@@ -41,6 +43,12 @@ eval "$(sed -n '/^set_project_id() {/,/^}/p' deploy/integrations/stepanel-gitctl
 project_output=$(set_project_id xfs /var/www /tmp/stage 1000000001)
 [[ -z $project_output ]] || { echo 'XFS Git quota setup polluted stdout' >&2; exit 1; }
 
+stepanel_project_quota_active /var/www
+stepanel_user_quota_active /var/www
+# A systemd-private mount namespace can expose the same device under a
+# different mount alias. Quota state must be matched to the filesystem source.
+mock_ext4_status='project quota on /var/www/.stepanel-caddy-views/example/public (/dev/vdb) is on'
+mock_ext4_user_status='user quota on /var/www/.stepanel-caddy-views/example/public (/dev/vdb) is on'
 stepanel_project_quota_active /var/www
 stepanel_user_quota_active /var/www
 mock_fstype=xfs

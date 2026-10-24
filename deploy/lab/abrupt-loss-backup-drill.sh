@@ -18,6 +18,14 @@ action=${1:?usage: abrupt-loss-backup-drill.sh prepare|start|verify}
 : "${STEPANEL_ADMIN_TOTP_SECRET:=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP}"
 : "${DRILL_SITE:=abrupt-loss}"
 : "${DRILL_CONTENT_MB:=300}"
+# shellcheck source=../integrations/stepanel-site-location.sh
+. /usr/local/lib/stepanel/site-location.sh
+
+site_public_root() {
+  stepanel_site_location "$1" || return 1
+  printf '%s\n' "$public_root"
+}
+
 state_dir=/var/lib/stepanel-cert
 backup_root=/var/backups/stepanel
 install -d -m 0700 "$state_dir"
@@ -85,7 +93,12 @@ case "$action" in
     job=$(printf '%s' "$response" | sed -n 's/.*"job_id":"\([^"]*\)".*/\1/p')
     [[ -n $job ]] || { echo "site creation was not queued: $response" >&2; exit 1; }
     [[ $(wait_terminal "$job") == completed ]] || { echo 'site creation did not complete' >&2; exit 1; }
-    public=/var/www/sites/$DRILL_SITE/public
+    public=$(site_public_root "$DRILL_SITE") || { echo "could not resolve document root for $DRILL_SITE" >&2; exit 1; }
+    [[ -d $public && ! -L $public ]] || { echo "document root for $DRILL_SITE is missing or unsafe: $public" >&2; exit 1; }
+    if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+      label=$(stat -c %C -- "$public")
+      [[ $label == *:httpd_user_content_t:* ]] || { echo "document root has non-web SELinux label $label" >&2; exit 1; }
+    fi
     owner=$(stat -c %U:%G "$public")
     # Incompressible content so archiving takes long enough to interrupt.
     for i in $(seq 1 $((DRILL_CONTENT_MB / 10))); do

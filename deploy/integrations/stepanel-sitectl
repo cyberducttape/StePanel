@@ -522,6 +522,16 @@ if [[ $action == prepare || $action == seal ]]; then
   setfacl -m u:stepanel:rwx "$site_root"
 fi
 
+# PHP-FPM runs in the httpd SELinux domain on RHEL-family hosts. A hosting
+# account's public_html/domain tree is created under /home, where new files
+# otherwise retain user_home_t and PHP-FPM cannot open the primary script.
+# Relabel only when sealing a staged/published document tree; this is a
+# lifecycle boundary, not part of routine runtime/resource updates.
+if [[ $action == seal ]] && command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+  command -v restorecon >/dev/null 2>&1 || { echo 'restorecon is required to label the site document root on SELinux hosts' >&2; exit 1; }
+  restorecon -RF "$public_root"
+fi
+
 pool_targets=()
 pool_backups=()
 pool_existed=()

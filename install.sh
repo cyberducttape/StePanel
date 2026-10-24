@@ -338,6 +338,9 @@ done
 echo "  unix login accounts (uid >= 1000): $(awk -F: '$3 >= 1000 && $3 < 65534' /etc/passwd | wc -l)"
 echo "PROPOSED CHANGES:"
 echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate $WEB_PACKAGE $DB_PACKAGE"
+if [[ "$PKG" == "dnf" ]] && command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+  echo '  INSTALL SELinux policy tools: policycoreutils-python-utils'
+fi
 if web_package_available "$WEB_PACKAGE"; then
   echo "  web server package $WEB_PACKAGE: available"
 elif [[ "$PKG" == "apt" ]]; then
@@ -455,7 +458,9 @@ else
   # ask DNF to install curl-minimal when either provider is already present.
   RHEL_CURL_PACKAGES=(curl-minimal)
   if rpm -q curl >/dev/null 2>&1 || rpm -q curl-minimal >/dev/null 2>&1; then RHEL_CURL_PACKAGES=(); fi
-  dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl "${RHEL_CURL_PACKAGES[@]}" git util-linux sudo logrotate
+  RHEL_SELINUX_PACKAGES=()
+  if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then RHEL_SELINUX_PACKAGES+=(policycoreutils-python-utils); fi
+  dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl "${RHEL_CURL_PACKAGES[@]}" "${RHEL_SELINUX_PACKAGES[@]}" git util-linux sudo logrotate
 fi
 install_phase "base PHP and host utility packages installed"
 if (( UNSAFE_LAB == 0 )); then
@@ -1184,6 +1189,7 @@ rm -f /etc/sudoers.d/stepanel
 if [[ "$INSTALL_SECURITY" == "1" ]]; then install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-malware-guard" /usr/local/sbin/stepanel-malware-guard; install -m 0644 "$ROOT_DIR/deploy/stepanel-malware-guard.service" /etc/systemd/system/stepanel-malware-guard.service; fi
 if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   install_journal_record selinux_configuration started manual "restorecon and persistent SELinux boolean changes may remain after rollback"
+  command -v semanage >/dev/null 2>&1 || { echo 'semanage is required to configure SELinux labels for placed-site document roots' >&2; exit 1; }
   if command -v restorecon >/dev/null 2>&1; then
     restorecon_paths=(/opt/stepanel /var/lib/ste-panel /var/lib/stepanel /var/lib/stepanel/recovery /var/lib/stepanel-privileged /var/backups/stepanel /var/www/sites "$PROXY_ROOT" "$VHOST_ROOT")
     [[ "$WEB_SERVER" == "apache" ]] && restorecon_paths+=(/etc/httpd/conf.d/stepanel.conf)
@@ -1197,6 +1203,20 @@ if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   if command -v semanage >/dev/null 2>&1; then
     semanage fcontext -a -t httpd_user_content_t '/home/[^/]+/([a-z0-9-]+\.)+[a-z][a-z0-9-]*(/.*)?' 2>/dev/null || semanage fcontext -m -t httpd_user_content_t '/home/[^/]+/([a-z0-9-]+\.)+[a-z][a-z0-9-]*(/.*)?'
     semanage fcontext -a -t httpd_user_rw_content_t '/home/[^/]+/\.stepanel/sites/[^/]+/php(/.*)?' 2>/dev/null || semanage fcontext -m -t httpd_user_rw_content_t '/home/[^/]+/\.stepanel/sites/[^/]+/php(/.*)?'
+  fi
+  if command -v restorecon >/dev/null 2>&1 && [[ -d /etc/stepanel/sites ]]; then
+    # Existing account-placed sites need the corrected labels after install or
+    # upgrade too. Resolve roots through the root-owned placement registry so
+    # only StePanel-managed document trees are traversed.
+    # shellcheck source=deploy/integrations/stepanel-site-location.sh
+    . /usr/local/lib/stepanel/site-location.sh
+    for location_record in /etc/stepanel/sites/*/location; do
+      [[ -f $location_record && ! -L $location_record ]] || continue
+      site_name=$(basename "$(dirname "$location_record")")
+      stepanel_site_location "$site_name" || { echo "cannot resolve SELinux document root for managed site $site_name" >&2; exit 1; }
+      [[ -d $public_root && ! -L $public_root ]] || continue
+      restorecon -RF "$public_root"
+    done
   fi
   install_journal_record selinux_configuration complete manual "SELinux labels and persistent booleans are outside installer rollback"
 fi

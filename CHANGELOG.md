@@ -22,6 +22,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Retry transient QEMU disk-lock contention after hard guest shutdowns in the
+  local KVM certification harness, instead of aborting the remaining recovery
+  phases during the host's lock-release window.
+- Clear deliberate post-crash operation pause markers before the KVM harness
+  waits for readiness, and wait for guest SSH after reboot before fixture
+  cleanup, require readiness before a new operation, and allow startup recovery
+  to replay the interrupted work.
+- Give the KVM guest home volume enough free space for the documented 15 GiB
+  Git release staging admission limit and explicitly enable/assert ext4
+  project-quota enforcement there, so account-placed deployment recovery tests
+  reach activation rather than failing preflight.
+- Verify ext4 quota state against the filesystem device, so the root broker's
+  systemd mount namespace can validate quota-enabled filesystems exposed under
+  alternate bind-mount paths, and apply/clear Git staging limits through that
+  device when mountpoint aliases are unavailable.
+- Make abrupt-loss recovery drills resolve document roots through the installed
+  site-location registry, pass persisted account identities to the helper, keep
+  site/database fixtures within supported identifier limits, isolate fixture
+  state per run and process, shorten the database-restore site slug, and send
+  CSRF tokens on bodyless mutations; fail promptly if a drill operation
+  terminates before reaching its requested crash boundary.
+- Relabel published hosting-account document trees with their managed SELinux
+  contexts so PHP-FPM can read scripts under `/home`, and repair existing
+  placed-site labels during installer upgrades.
+- Lint the local KVM and abrupt-loss harnesses in integration CI so these
+  recovery fixtures receive the same shell checks as production helpers.
 - Give the local KVM install/recovery harness six hours for its first full
   recovery-matrix iteration, with five additional hours per repeat, so lease
   expiry and replay verification do not exhaust the four-hour wrapper timeout.

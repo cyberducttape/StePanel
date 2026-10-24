@@ -145,8 +145,11 @@ case "$action" in
     chown root:root "$marker" "$marker/target"; chmod 0700 "$marker"; chmod 0600 "$marker/target"
     sync -f "$marker/target"; sync -f "$project_root"
     blocks=$(( (max_stage_bytes + 1023) / 1024 ))
-    if ! setquota -P "$project_id" 0 "$blocks" 0 0 "$mount" || ! set_project_id "$fstype" "$mount" "$destination" "$project_id"; then
-      setquota -P "$project_id" 0 0 0 0 "$mount" >/dev/null 2>&1 || true
+    # setquota's mountpoint lookup can fail for an ext4 filesystem exposed
+    # through systemd's ProtectSystem bind mounts. The device source resolves
+    # the same quota domain in both the host and broker mount namespaces.
+    if ! setquota -P "$project_id" 0 "$blocks" 0 0 "$source" || ! set_project_id "$fstype" "$mount" "$destination" "$project_id"; then
+      setquota -P "$project_id" 0 0 0 0 "$source" >/dev/null 2>&1 || true
       rm -rf -- "$marker"
       echo 'failed to apply aggregate Git staging project quota' >&2
       exit 1
@@ -156,7 +159,7 @@ case "$action" in
     # clone processes; the tenant still cannot replace the parent entry.
     if ! chown "$site_user:$web_group" "$destination" || ! chmod 2770 "$destination" ||
        ! setfacl -m u:stepanel:rwx,g::---,g:"$web_group":rx,m::rwx,o::---,d:u::rwx,d:u:stepanel:rwx,d:u:"$site_user":rwx,d:g::---,d:g:"$web_group":rx,d:m::rwx,d:o::--- "$destination"; then
-      setquota -P "$project_id" 0 0 0 0 "$mount" >/dev/null 2>&1 || true
+      setquota -P "$project_id" 0 0 0 0 "$source" >/dev/null 2>&1 || true
       rm -rf -- "$marker"
       echo 'failed to grant isolated Git stage access' >&2
       exit 1
@@ -183,7 +186,7 @@ case "$action" in
     # Project IDs are monotonically allocated and never reused. Clearing the
     # active hard limit is sufficient after the clone process has exited; the
     # IDs left on the now-inert tree cannot accidentally constrain later work.
-    setquota -P "$project_id" 0 0 0 0 "$mount" || { echo 'failed to clear Git staging project quota' >&2; exit 1; }
+    setquota -P "$project_id" 0 0 0 0 "$source" || { echo 'failed to clear Git staging project quota' >&2; exit 1; }
     rm -rf -- "$marker"
     sync -f "$project_root"
     ;;

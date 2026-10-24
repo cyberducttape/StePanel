@@ -9,25 +9,26 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest validation — 2026-10-24 (`ada4d82`, harness-only)
+### Latest validation — 2026-10-24 (application `b20c609`, Rocky 9 KVM)
 
-The local KVM certification harness now allows six hours for its first full
-installed-host matrix iteration and five additional hours for every repeat;
-the application source under test remains `b20c609`. Exact-commit Integration
-CI passed ([run 40102867970](https://github.com/cyberducttape/StePanel/actions/runs/40102867970)),
-including Go 1.26.10 tests/coverage, race, recovery and real tmpfs ENOSPC
-drills, MySQL 8/PostgreSQL restore checks, clean Python deployment, security,
-static, container and deployment validation, mixed load, and UI E2E. Docs
-([run 40102867973](https://github.com/cyberducttape/StePanel/actions/runs/40102867973))
-and CodeQL ([run 40102867980](https://github.com/cyberducttape/StePanel/actions/runs/40102867980))
-passed too; there are no open CodeQL alerts.
+One installed-host recovery-matrix iteration passed on Rocky Linux 9.8 with
+enforcing SELinux, quota-enabled ext4, Caddy, PHP-FPM, and MariaDB. Follow-up
+QEMU `SIGKILL` scenarios passed for backup, file restore, database restore,
+Git activation, and control-plane writes. Backup and file restore also passed
+real ENOSPC checks on a dedicated 96 MiB ext4 volume. The complete scope,
+environment, timings, run artifacts, and limitations are recorded in
+[the 2026-10-24 Rocky KVM evidence report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md).
 
-The exact-source Rocky Linux 9 KVM matrix remains active. At 2026-10-24 14:53
-UTC, scenarios through `terminate:init` had passed. In `terminate:backup`, the
-backup recovery replay had passed and the restore replay was still underway.
-The host result table records boot only. This run does not satisfy the
-20–50-repeat cohort, cross-platform validation, or physical host power-loss
-gate. Production remains **NO-GO**.
+The Git activation replay exposed that the root broker's systemd mount
+namespace can present an ext4 filesystem through a different bind-mount alias.
+Quota verification and Git staging limit operations now use the backing
+filesystem device. The quota contract test and a targeted broker-namespace
+Git interruption/redeployment passed. Exact-head CI for these helper changes
+is pending.
+
+This remains one Rocky Linux 9/Caddy/MariaDB repetition. It does not satisfy
+the required 20–50-repeat cohort, test physical host power loss, or establish
+cross-platform recovery. Production remains **NO-GO**.
 
 ### Latest application-source validation — 2026-10-24 (`b20c609`)
 
@@ -44,19 +45,13 @@ The current evidence snapshot also passed Documentation and CodeQL
 ([runs 40100469312](https://github.com/cyberducttape/StePanel/actions/runs/40100469312)
 and [40100469296](https://github.com/cyberducttape/StePanel/actions/runs/40100469296)).
 
-A clean exact-source Rocky Linux 9 KVM installation is running at
-`/var/tmp/stepanel-kvm-cert-20261024-b20c609` with SELinux enforcing,
-quota-enabled ext4 `/var/www`, and `VM_DISK_CACHE=none`. The default smoke has
-passed installed WordPress HTTP recovery proof, MariaDB outage recovery,
-broker-outage readiness behavior, and deploy rollback. The full opt-in
-recovery matrix is still running. At 2026-10-24 14:21 UTC, backup,
-file-restore, and database-restore worker-death replays through
-`restore:commit` had passed; the termination replay for that case was still
-running. The host `results.tsv` records boot only, so this matrix is not yet a
-pass.
-This run is one iteration on Rocky Linux 9 and does not establish the required
-20–50 repeats, physical host power-loss behavior, or cross-platform
-certification. Do not count an in-progress run as passing evidence.
+The clean exact-source Rocky Linux 9 KVM installation and one full opt-in
+recovery-matrix iteration completed. The run also passed installed WordPress
+HTTP recovery proof, MariaDB outage recovery, broker-outage readiness behavior,
+deploy rollback, abrupt-loss scenarios, and the bounded ENOSPC cases listed in
+the evidence report. It is one Rocky Linux 9 iteration and does not establish
+the required 20–50 repeats, physical host power-loss behavior, or
+cross-platform certification.
 
 Production remains **NO-GO**. Required repeated installed-host recovery,
 physical power-loss and broader host ENOSPC/database-outage evidence,
@@ -1456,7 +1451,7 @@ closed device policy still refuses to open it.
 - [x] Multi-point process-kill/restart drills cover all 5 operations at repository level — `crash_drill_test.go` kills a child process with SIGKILL at every instrumented boundary of backup (4), file restore (4), termination (9), and account suspension (2), then runs the production startup recovery (`recoverUncleanShutdown`) or resumes the durable job and verifies the final state; deploy activation is covered by `TestReleaseActivationRecoversAfterProcessKill`. Hosted installed-host runs remain the evidence for real services
 - [x] No mysterious half-states discovered — the drills found two real leaks, both fixed: restore scratch trees under the import root and manager staging trees were never cleaned after a crash
 - [x] Recovery is deterministic at repository level — 114 consecutive SIGKILL drills (6 repetitions of all 19 kill points) recovered to the same verified state
-- [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM (partial: backup and file-restore ENOSPC passed on 2026-10-12 Rocky and 2026-10-14 quota-enabled Ubuntu runs; a 2026-10-21 Rocky 9 ext4 quota-backed rerun of those two tests passed using test source `687613a`, not the current `d931c6a` head; publication, import, database restore, and physical power loss remain. See [Rocky run](lab-results/2026-10-12-rocky9-kvm-certification.md), [Ubuntu run](lab-results/2026-10-14-quota-install-smoke.md), and [2026-10-21 focused run](lab-results/2026-10-21-rocky9-enospc.md))
+- [ ] Real disk exhaustion (ENOSPC) and host power loss on a disposable VM (partial: backup and file-restore ENOSPC passed on the 2026-10-24 Rocky 9 KVM run; physical host power loss, publication/import/database-restore ENOSPC, and broader host exhaustion remain. See the [2026-10-24 full recovery report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md), [2026-10-12 Rocky run](lab-results/2026-10-12-rocky9-kvm-certification.md), and [2026-10-14 Ubuntu run](lab-results/2026-10-14-quota-install-smoke.md))
 - [ ] Repeat the real-host recovery matrix 20–50 times per operation/fault
   combination, with post-boot invariant evidence retained (see
   `docs/REAL_HOST_FAILURE_MATRIX.md`)
@@ -1470,7 +1465,7 @@ closed device policy still refuses to open it.
 - [x] Gate 2: Cross-Process Locks - Lock layer enforced; interrupted-workflow acceptance covered by `workflow_interruption_test.go`
 - [x] Gate 3: Accurate Capabilities - No "available: true" for unimplemented
 - [x] Gate 4: Automated DB Restoration - Transactional end-to-end
-- [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; full matrix passed once on a KVM guest; repeated runs, ENOSPC beyond backup, and power-loss evidence remain)
+- [ ] Gate 5: Failure Injection - Survives failure at every step (repository-level kill and failure matrix complete; one Rocky 9 installed-host matrix and targeted abrupt-loss scenarios passed; 20–50 repeats, additional platform cohorts, broader ENOSPC, and physical host power-loss evidence remain)
 
 ### Testing
 - [x] Adversarial concurrency tests (5 scenarios) — the five conflicting lock pairs across two SQLite connections (`TestAdversarialMutationLockScenariosSerializeAcrossConnections`) and across OS processes (`TestDBLocksAcrossOSProcesses`); the real restore, termination, resource-update, and suspension entry points are proven to wait for a lock held by another process without mutating (`cross_process_workflow_test.go`); deploy and route updates are covered at the lock-key level

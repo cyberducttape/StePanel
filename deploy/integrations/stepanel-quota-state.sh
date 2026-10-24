@@ -3,20 +3,26 @@
 # supported filesystem. XFS quota state is enabled at mount time and must be
 # queried with xfs_quota; quotaon is used only for ext4.
 stepanel_project_quota_active() {
-  local path=${1:-} mount options fstype status
+  local path=${1:-} mount options fstype source status
   [[ $path == /* ]] || { echo 'project quota path must be absolute' >&2; return 1; }
   command -v findmnt >/dev/null 2>&1 || { echo 'findmnt is required to inspect project quotas' >&2; return 1; }
   mount=$(findmnt -no TARGET -T "$path") || { echo "cannot determine mount for $path" >&2; return 1; }
   options=$(findmnt -no OPTIONS -T "$path") || { echo "cannot inspect mount options for $path" >&2; return 1; }
   fstype=$(findmnt -no FSTYPE -T "$path") || { echo "cannot determine filesystem type for $path" >&2; return 1; }
+  source=$(findmnt -no SOURCE -T "$path") || { echo "cannot determine filesystem source for $path" >&2; return 1; }
   [[ $options =~ (^|,)(prjquota|pquota)(,|$) ]] || { echo "project quotas are not enabled in mount options for $mount" >&2; return 1; }
   case "$fstype" in
     ext4)
       command -v quotaon >/dev/null 2>&1 || { echo 'quotaon is required to inspect ext4 project quotas' >&2; return 1; }
       # quotaon -p reports state in its output but exits with the number of
       # active quota types; do not interpret that count as a boolean result.
-      status=$(quotaon -p -P "$mount" 2>&1 || true)
-      [[ $status == *"project quota on $mount ("*") is on"* ]] || { echo "ext4 project quotas are not active on $mount: $status" >&2; return 1; }
+      # systemd ProtectSystem/ReadWritePaths can expose the same ext4 device
+      # through a bind mount inside the root broker's private mount namespace.
+      # quotaon may report another alias, or fail to resolve the alias, even
+      # though project quotas are active on the device. Query by source and
+      # bind the result to the source of the inspected path.
+      status=$(quotaon -p -P "$source" 2>&1 || true)
+      [[ $status == *"project quota on "*" ($source) is on"* ]] || { echo "ext4 project quotas are not active on $mount ($source): $status" >&2; return 1; }
       ;;
     xfs)
       command -v xfs_quota >/dev/null 2>&1 || { echo 'xfs_quota is required to inspect XFS project quotas' >&2; return 1; }
@@ -31,18 +37,19 @@ stepanel_project_quota_active() {
 }
 
 stepanel_user_quota_active() {
-  local path=${1:-} mount options fstype status
+  local path=${1:-} mount options fstype source status
   [[ $path == /* ]] || { echo 'user quota path must be absolute' >&2; return 1; }
   command -v findmnt >/dev/null 2>&1 || { echo 'findmnt is required to inspect user quotas' >&2; return 1; }
   mount=$(findmnt -no TARGET -T "$path") || { echo "cannot determine mount for $path" >&2; return 1; }
   options=$(findmnt -no OPTIONS -T "$path") || { echo "cannot inspect mount options for $path" >&2; return 1; }
   fstype=$(findmnt -no FSTYPE -T "$path") || { echo "cannot determine filesystem type for $path" >&2; return 1; }
+  source=$(findmnt -no SOURCE -T "$path") || { echo "cannot determine filesystem source for $path" >&2; return 1; }
   [[ $options =~ (^|,)(usrquota|uquota)(,|$) ]] || { echo "user quotas are not enabled in mount options for $mount" >&2; return 1; }
   case "$fstype" in
     ext4)
       command -v quotaon >/dev/null 2>&1 || { echo 'quotaon is required to inspect ext4 user quotas' >&2; return 1; }
-      status=$(quotaon -p -u "$mount" 2>&1 || true)
-      [[ $status == *"user quota on $mount ("*") is on"* ]] || { echo "ext4 user quotas are not active on $mount: $status" >&2; return 1; }
+      status=$(quotaon -p -u "$source" 2>&1 || true)
+      [[ $status == *"user quota on "*" ($source) is on"* ]] || { echo "ext4 user quotas are not active on $mount ($source): $status" >&2; return 1; }
       ;;
     xfs)
       command -v xfs_quota >/dev/null 2>&1 || { echo 'xfs_quota is required to inspect XFS user quotas' >&2; return 1; }

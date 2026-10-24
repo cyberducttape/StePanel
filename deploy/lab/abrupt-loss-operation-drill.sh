@@ -57,13 +57,20 @@ grep -q '^STEPANEL_UNSAFE_LAB="\?1"\?$' /etc/ste-panel.env || {
   exit 1
 }
 
-state_dir=/var/lib/stepanel-cert/$scenario
+: "${DRILL_RUN_SUFFIX:=$(date -u +%y%m%d%H%M)}"
+[[ $DRILL_RUN_SUFFIX =~ ^[a-zA-Z0-9_-]{1,16}$ ]] || { echo 'invalid DRILL_RUN_SUFFIX' >&2; exit 1; }
+state_dir=/var/lib/stepanel-cert/$scenario-$DRILL_RUN_SUFFIX
 recovery_root=/var/www/sites/.stepanel-recovery
 pause_dir=/var/lib/ste-panel/pause-markers
 install -d -m 0700 "$state_dir"
-site=drill-${scenario}
-domain=$site.example.test
-public=/var/www/sites/$site/public
+site_scenario=$scenario
+[[ $site_scenario != database-restore ]] || site_scenario=dbrestore
+site=drill-${site_scenario}-${DRILL_RUN_SUFFIX}
+domain=$site.localhost
+# shellcheck source=../integrations/stepanel-site-location.sh
+. /usr/local/lib/stepanel/site-location.sh
+stepanel_site_location "$site" || { echo "could not resolve location for $site" >&2; exit 1; }
+public=$public_root
 
 service=stepanel.service
 if systemctl is-enabled --quiet stepanel-worker.service 2>/dev/null; then
@@ -116,7 +123,7 @@ api() {
   if [[ -n $body ]]; then
     curl --fail --silent --show-error --max-time 60 -X "$method" -H "Cookie: $cookie_header" -H "X-CSRF-Token: $csrf" -H 'Content-Type: application/json' --data "$body" "$PANEL$path"
   else
-    curl --fail --silent --show-error --max-time 60 -X "$method" -H "Cookie: $cookie_header" "$PANEL$path"
+    curl --fail --silent --show-error --max-time 60 -X "$method" -H "Cookie: $cookie_header" -H "X-CSRF-Token: $csrf" "$PANEL$path"
   fi
 }
 
@@ -148,6 +155,9 @@ create_site() {
   local response
   response=$(api POST /api/sites "$(json site "$site" template php)")
   require_completed "$(job_id_of "$response")" "site creation for $site"
+  stepanel_site_location "$site" || fail "could not resolve document root for $site"
+  public=$public_root
+  [[ -d $public && ! -L $public ]] || fail "document root for $site is missing or unsafe: $public"
 }
 
 latest_backup() {
@@ -167,9 +177,18 @@ snapshot() { (cd "$public" && find . -type f -print0 | sort -z | xargs -0 -r sha
 
 publish_route() {
   # This lab calls the helper directly rather than through the root broker.
-  # The unsafe-lab installation guard above makes the legacy two-argument
-  # helper form available so it can derive the disposable site's account.
-  STEPANEL_UNSAFE_LAB=1 /usr/local/sbin/stepanel-sitectl seal "$site"
+  # Pass the persisted account identity for account-placed sites; retain the
+  # legacy helper shape only for legacy sites created by the smoke fixture.
+  stepanel_site_location "$site" || fail "could not resolve location for $site"
+  if (( site_placed )); then
+    STEPANEL_UNSAFE_LAB=1 /usr/local/sbin/stepanel-sitectl seal "$site" "$site_location_user"
+  else
+    STEPANEL_UNSAFE_LAB=1 /usr/local/sbin/stepanel-sitectl seal "$site"
+  fi
+  if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+    label=$(stat -c %C -- "$public")
+    [[ $label == *:httpd_user_content_t:* ]] || fail "document root has non-web SELinux label $label"
+  fi
   /usr/local/sbin/stepanel-vhostctl apply "$site" "$domain"
 }
 
@@ -198,9 +217,18 @@ set_pause() {
 }
 
 wait_pause() {
-  local marker=$pause_dir/${1/:/-}
+  local marker=$pause_dir/${1/:/-} job state iteration=0
   for _ in $(seq 1 600); do
     [[ -f $marker ]] && { sync; return 0; }
+    iteration=$((iteration + 1))
+    if (( iteration % 4 == 0 )) && [[ -s $state_dir/job ]]; then
+      job=$(<"$state_dir/job")
+      state=$(job_state "$job" 2>/dev/null || true)
+      case $state in
+        queued|running|'') ;;
+        *) fail "operation $job ended $state before pause boundary $1" ;;
+      esac
+    fi
     sleep 0.5
   done
   fail "operation never reached pause boundary $1"
@@ -277,8 +305,8 @@ file_restore() {
 }
 
 # --- database-restore --------------------------------------------------------
-db_name=$(printf '%s_db' "$site" | tr '-' '_')
-db_user=$(printf '%s_u' "$site" | tr '-' '_')
+db_name=$(printf 'dr_%s_%s' "$DRILL_RUN_SUFFIX" "${scenario//-/_}")
+db_user=$(printf 'du_%s_%s' "$DRILL_RUN_SUFFIX" "${scenario//-/_}")
 db_password=drill-database-restore-password-1234
 
 sql() {
