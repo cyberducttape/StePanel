@@ -34,6 +34,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Make the Rocky KVM recovery fixture verify `/home` quota state after its
+  quota-enabled mount instead of calling `quotaon` twice, which aborted
+  cloud-init with `EEXIST`; add a fixture regression check.
 - Prevent the installer from hanging or briefly exposing FTP while validating
   the generated vsftpd configuration. Run a bounded foreground probe on
   loopback with config overrides applied after the file, and roll back the

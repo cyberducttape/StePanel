@@ -58,6 +58,27 @@ def validate_ext4_quota_setup(path: Path) -> None:
         )
 
 
+def validate_kvm_home_quota_setup(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    required = (
+        "mkfs.ext4 -F -O project,quota -E quotatype=usrquota:prjquota /dev/vdd",
+        "'/dev/vdd /home ext4 usrquota,prjquota 0 2'",
+        "    mount /home",
+        "quotaon -p -u /home | grep",
+        "quotaon -p -P /home | grep",
+    )
+    missing = [fragment for fragment in required if fragment not in text]
+    if missing:
+        raise ValueError(
+            f"{path.relative_to(ROOT)} lacks verified /home user/project quotas: "
+            f"{', '.join(missing)}"
+        )
+    if "quotaon -u /home" in text or "quotaon -P /home" in text:
+        raise ValueError(
+            f"{path.relative_to(ROOT)} redundantly activates quotas already enabled by the /home mount options"
+        )
+
+
 def validate_xfs_quota_setup(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     required = (
@@ -107,6 +128,8 @@ def main() -> int:
         validate_ext4_quota_setup(fixture)
         if fixture.name == "quota-install-smoke.yml":
             validate_xfs_quota_setup(fixture)
+        else:
+            validate_kvm_home_quota_setup(fixture)
         actual = fixture_capacity(fixture)
         if actual < required:
             print(

@@ -257,11 +257,8 @@ runcmd:
     umount /mnt/stepanel-home
     printf '%s\n' '/dev/vdd /home ext4 usrquota,prjquota 0 2' >> /etc/fstab
     mount /home
-    # ext4 can mount with the project-quota feature present while project
-    # accounting is still disabled. Explicitly enable both quota types before
-    # Git staging asks the broker to install a per-release project limit.
-    quotaon -u /home
-    quotaon -P /home
+    # The usrquota,prjquota mount options activate the ext4 quota types. Verify
+    # the mounted state; calling quotaon again can fail with EEXIST on Rocky 9.
     quotaon -p -u /home | grep -E '^user quota on /home \(.*\) is on'
     quotaon -p -P /home | grep -E '^project quota on /home \(.*\) is on'
     touch /var/lib/stepanel-cert-ready
