@@ -6,33 +6,35 @@
 
 ---
 
-### Latest validation — 2026-10-24 (`5e9077b`)
+### Latest validation — 2026-10-24 (`47ba2ff`)
 
-- Application source is
-  [`5e9077b28abcbed2d0338e734dfbd387d8ef2b08`](https://github.com/cyberducttape/StePanel/commit/5e9077b28abcbed2d0338e734dfbd387d8ef2b08).
-  The installer validates vsftpd configuration with a bounded foreground
-  loopback probe and restores the prior configuration if validation fails.
-  Local full Go tests, `go vet`, shell syntax, ShellCheck, and release checks
-  passed. Exact-source Integration CI ([run
-  40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239))
-  is still running race tests; its preceding test, coverage, and ENOSPC steps
-  passed. Documentation ([run
-  40118239251](https://github.com/cyberducttape/StePanel/actions/runs/40118239251))
-  and CodeQL ([run
-  40118239207](https://github.com/cyberducttape/StePanel/actions/runs/40118239207))
-  passed, with no open CodeQL alerts.
-- The six-host installed recovery matrix ([run
-  40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094))
-  is exercising Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Caddy and
-  Apache. All six jobs remain in the install/recovery smoke, so none is counted
-  as passing. The completed Rocky 9 KVM evidence below uses older source
-  `b20c609`.
+- Current source is
+  [`47ba2ffe88abb1436da38b28fd5a856494614133`](https://github.com/cyberducttape/StePanel/commit/47ba2ffe88abb1436da38b28fd5a856494614133).
+  It fixes a Staticcheck `ST1008` finding in the vsftpd validation test
+  helper. The focused test and Staticcheck pass locally. Exact-source CI
+  ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255)),
+  Documentation ([run 40119821253](https://github.com/cyberducttape/StePanel/actions/runs/40119821253)),
+  and CodeQL ([run 40119821235](https://github.com/cyberducttape/StePanel/actions/runs/40119821235))
+  are pending. The prior integration run on `5e9077b` failed only at Staticcheck
+  on this finding ([run 40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239));
+  its tests, coverage, race, recovery, ENOSPC, and database restore steps
+  preceding static analysis passed.
+- A clean-tree Rocky 9 KVM run on `1b2e99d` passed guest boot and verified
+  `/var/www` user/project quotas. The native install completed with vsftpd
+  installed; its installed-host smoke and remaining recovery phases are still
+  running (local artifacts: `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`).
+  Exact-source CI for the fixture commit ([run
+  40119585611](https://github.com/cyberducttape/StePanel/actions/runs/40119585611))
+  remains in progress.
+- The six-host installed recovery matrix on source `5e9077b` remains active
+  ([run 40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094));
+  no host result is counted as a pass before the matrix completes.
 - Production remains **NO-GO**. The 20–50 repeat cohort, physical power-loss
   recovery, broader ENOSPC/database-outage cases, full supported-runtime
   coverage, capacity certification, live alert outage/retry evidence, upgrade
   policy, and independent security assessment remain open.
 
-### Previous validation — 2026-10-24 (`1af5fc0`)
+### Previous validation — 2026-10-24 (`5e9077b`)
 
 - Application source is
   [`1af5fc05e0f3ab39b0da974651ca4b081966a193`](https://github.com/cyberducttape/StePanel/commit/1af5fc05e0f3ab39b0da974651ca4b081966a193).

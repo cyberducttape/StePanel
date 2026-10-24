@@ -7,19 +7,16 @@
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
-Latest application source: `5e9077b28abcbed2d0338e734dfbd387d8ef2b08`.
-Local full Go tests, `go vet`, shell syntax, ShellCheck, and release checks
-passed for this source. Exact-source Integration CI
-([run 40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239))
-is still running race tests; its Go tests, coverage gates, and ENOSPC steps
-passed. Documentation ([run 40118239251](https://github.com/cyberducttape/StePanel/actions/runs/40118239251))
-and CodeQL ([run 40118239207](https://github.com/cyberducttape/StePanel/actions/runs/40118239207))
-passed, with no open CodeQL alerts.
-
-The six-host installed recovery matrix
-([run 40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094))
-is still running on Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Caddy and
-Apache; no result is counted before completion. Production approval remains
+Latest application source: `47ba2ffe88abb1436da38b28fd5a856494614133`.
+The focused vsftpd validator test and Staticcheck pass locally. Exact-source
+Integration CI ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255)),
+Documentation ([run 40119821253](https://github.com/cyberducttape/StePanel/actions/runs/40119821253)),
+and CodeQL ([run 40119821235](https://github.com/cyberducttape/StePanel/actions/runs/40119821235))
+are pending. The previous integration run failed at Staticcheck `ST1008` in a
+test helper; the correction is in this source. A clean-tree Rocky 9 KVM run on
+`1b2e99d` passed boot and quota setup, completed installation with vsftpd
+installed, and is still running installed smoke and recovery phases. The
+six-host recovery run on `5e9077b` remains active. Production approval remains
 **NO-GO** pending repeated recovery, physical power-loss and broader ENOSPC
 evidence, supported-platform application restore proof, capacity certification,
 live alert failure/retry evidence, upgrade policy, and independent security

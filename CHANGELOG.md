@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Reconcile current release status with the `5e9077b` Staticcheck failure and
+  its `47ba2ff` correction, plus the active exact-source CI, six-host matrix,
+  and clean-tree Rocky KVM install/recovery run; retain production NO-GO.
 - Reconcile current status, readiness summary, and authoritative release gates
   with pushed source `5e9077b`, passing Documentation/CodeQL, in-progress
   exact-source Integration CI and six-host recovery runs; retain production

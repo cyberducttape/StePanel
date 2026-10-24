@@ -9,24 +9,27 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest source validation — 2026-10-24 (`5e9077b`)
+### Latest source validation — 2026-10-24 (`47ba2ff`)
 
-The pushed application source is
-[`5e9077b28abcbed2d0338e734dfbd387d8ef2b08`](https://github.com/cyberducttape/StePanel/commit/5e9077b28abcbed2d0338e734dfbd387d8ef2b08).
-Its vsftpd installer check uses a bounded foreground loopback probe and rolls
-back configuration on failure. Local full Go tests, `go vet`, shell syntax,
-ShellCheck, release checks, and `git diff --check` passed. Exact-source
-Integration CI ([run 40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239))
-has passed tests, coverage, and ENOSPC steps and is still running race tests;
-Documentation ([run 40118239251](https://github.com/cyberducttape/StePanel/actions/runs/40118239251))
-and CodeQL ([run 40118239207](https://github.com/cyberducttape/StePanel/actions/runs/40118239207))
-passed, with no open CodeQL alerts.
+Current source is
+[`47ba2ffe88abb1436da38b28fd5a856494614133`](https://github.com/cyberducttape/StePanel/commit/47ba2ffe88abb1436da38b28fd5a856494614133).
+The focused vsftpd validator test and Staticcheck pass locally. Exact-source
+Integration CI ([40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255)),
+Documentation ([40119821253](https://github.com/cyberducttape/StePanel/actions/runs/40119821253)),
+and CodeQL ([40119821235](https://github.com/cyberducttape/StePanel/actions/runs/40119821235))
+are pending. The preceding `5e9077b` integration run failed at Staticcheck
+`ST1008` in the validator test helper; that ordering is fixed in `47ba2ff`.
+Earlier test, coverage, race, recovery, ENOSPC, and database-restore steps in
+the failed run passed.
 
-The six-host installed recovery matrix ([run
-40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094))
-is still running the install/recovery smoke on Ubuntu 24.04, AlmaLinux 9, and
-Rocky Linux 9 with Caddy and Apache. No in-progress host result is counted as a
-pass. Production remains **NO-GO** pending repeated installed-host recovery,
+A clean-tree local Rocky 9 KVM run on `1b2e99d` has passed boot and verified
+quota-enabled `/var/www`; installation completed with vsftpd installed, and
+the installed smoke and recovery phases remain in progress. See the live local
+artifacts under `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`. The six-host
+installed recovery matrix on `5e9077b` also remains in progress ([40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094));
+no active run is counted as a pass.
+
+Production remains **NO-GO** pending repeated installed-host recovery,
 physical power-loss and broader ENOSPC/database-outage evidence,
 application-level recovery across supported web servers, live alert
 outage/retry evidence, capacity certification, upgrade policy, and independent
@@ -727,7 +730,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Prior installed-host smoke runs passed all six Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 × Apache/Caddy + MariaDB combinations, including database-backed WordPress recovery ([run 39147354348](https://github.com/cyberducttape/StePanel/actions/runs/39147354348)). The latest exhaustive matrix on `ea69e24` failed at staged-database recovery ([run 39915109037](https://github.com/cyberducttape/StePanel/actions/runs/39915109037)); the `e94f870` rerun failed at a source-path assertion ([run 39960010260](https://github.com/cyberducttape/StePanel/actions/runs/39960010260)). The current-source six-host recovery run ([run 40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094)) remains in progress and is not counted as passing before completion. `INSTALLATION.md` lists the six combinations as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Exact-source Documentation ([40118239251](https://github.com/cyberducttape/StePanel/actions/runs/40118239251)) and CodeQL ([40118239207](https://github.com/cyberducttape/StePanel/actions/runs/40118239207)) passed on `5e9077b`; Integration CI ([40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239)) is running race tests after test, coverage, and ENOSPC steps passed. The current-source six-host recovery run ([40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094)) remains in progress. The quota-enabled installed-host runner smoke passed ([39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883)) on older source `67e67d6`; that narrow runner result does not establish full installation certification. Current-source upgrade smoke ([40115776818](https://github.com/cyberducttape/StePanel/actions/runs/40115776818)) passed with the fixture caveat recorded in its report. The repeated recovery cohort, physical power-loss evidence, capacity envelope, and independent security assessment remain open. |
+| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Current source `47ba2ff` has local focused-test and Staticcheck passes; exact-source Integration CI ([40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255)), Documentation ([40119821253](https://github.com/cyberducttape/StePanel/actions/runs/40119821253)), and CodeQL ([40119821235](https://github.com/cyberducttape/StePanel/actions/runs/40119821235)) are pending. Integration run `40118239239` failed at Staticcheck `ST1008`, now corrected in `47ba2ff`. The current six-host installed recovery run ([40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094)) remains active on older source `5e9077b`. The local Rocky 9 KVM run uses clean source `1b2e99d`; boot and quota setup passed, installation completed, and smoke/recovery remain pending. Prior N-1 upgrade smoke ([40115776818](https://github.com/cyberducttape/StePanel/actions/runs/40115776818)) passed with the fixture caveat recorded in its report. The repeated recovery cohort, physical power-loss evidence, capacity envelope, and independent security assessment remain open. |
 
 The repository production gate was rerun on the exact pushed commit `ee563eb`
 and passed, including coverage thresholds, the complete race suite,
