@@ -15,15 +15,19 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 ### Current release evidence — 2026-10-24 (`dc25ddc`)
 
 - Current `main` is `dc25ddc9386cbb578deadf977389cc713e114075`. Local `go test
-  ./...` passed on Go 1.26.10; `bash -n`, ShellCheck, and `git diff --check`
-  passed for the installed-host smoke correction.
+  ./...` and `go test -race ./...` passed on Go 1.26.10 (70s and 475s); `bash
+  -n`, ShellCheck, `git diff --check`, and documentation reference/link checks
+  passed for the recovery-smoke correction and evidence update.
 - The six-host run at source `e94f870` ([run 39960010260](https://github.com/cyberducttape/StePanel/actions/runs/39960010260))
   failed at a false-negative source-path assertion: imported sites can live
   under `/home`, while the smoke checked only `/var/www/sites`. Artifacts show
   the import completed and the interrupted staging-site transaction was
   recovered. The corrected root resolution has not yet passed an installed-host
-  run. The old-source scheduled run 40076789043 remains in progress; exact-head
-  CI, CodeQL, docs, and the corrected six-host smoke are queued. These are not
+  run. The old-source scheduled run 40076789043 has four host passes and two
+  Ubuntu host jobs still in progress. Exact-source CI (40077749788) and the
+  corrected six-host smoke (40077753301) are queued. CodeQL on the code commit
+  was cancelled by the following docs-only commit; fresh CodeQL and docs runs
+  on the evidence commit (40078247887, 40078247919) are queued. These are not
   passing evidence.
 - Production remains **NO-GO** pending the host recovery matrix and the other
   gates in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).

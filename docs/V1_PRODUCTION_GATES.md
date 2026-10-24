@@ -15,8 +15,10 @@ historical and must not be treated as current approval.
 
 Current `main` is
 [`dc25ddc9386cbb578deadf977389cc713e114075`](https://github.com/cyberducttape/StePanel/commit/dc25ddc9386cbb578deadf977389cc713e114075).
-The full local Go suite passed with Go 1.26.10, and the installed-host smoke
-script passed `bash -n` and ShellCheck. This change corrects a recovery-smoke
+The full local Go suite and race-enabled suite passed with Go 1.26.10
+(`go test ./...`, 70 seconds; `go test -race ./...`, 475 seconds). The
+installed-host smoke script passed `bash -n` and ShellCheck, and its reference
+documentation checks passed locally. This change corrects a recovery-smoke
 assertion that assumed every source site lived under `/var/www/sites`; cPanel
 imports can be placed under `/home/<account>/<directory>`. The assertion now
 uses the site's root-managed location record and saves the resolved document
@@ -32,10 +34,12 @@ path, so those failures do not establish source-site data loss. They also do
 not prove the new assertion or recovery workflow passes. A scheduled six-host
 run on `6ac0643` is still in progress
 ([run 40076789043](https://github.com/cyberducttape/StePanel/actions/runs/40076789043));
-the exact-commit CI, CodeQL, documentation, and corrected installed-host runs
-for `dc25ddc` are queued (runs 40077749788, 40077749784, 40077749775, and
-40077753301 respectively). No queued or in-progress run counts as passing
-evidence.
+four host jobs have passed and two Ubuntu host jobs remain in progress. The
+exact-commit CI and corrected installed-host runs for `dc25ddc` are queued
+(runs 40077749788 and 40077753301). CodeQL for `dc25ddc` was cancelled when the
+documentation evidence commit landed; fresh CodeQL and documentation runs for
+that evidence commit are queued (runs 40078247887 and 40078247919). No queued
+or in-progress run counts as passing evidence.
 
 Production remains **NO-GO**. The outstanding gates below remain open; this
 smoke assertion correction does not change the recovery-certification status.

@@ -12,6 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   recorded document root, including sites placed under hosting accounts.
 - Reconcile the production-gate and project-status summaries with the latest
   failed and pending installed-host recovery evidence.
+- Record successful full and race-enabled Go suites for the recovery-smoke
+  correction's application source.
 - Keep the disposable overlay-backed systemd test host's shadow database
   root-readable so its real PAM/FTPS authentication smoke can run; native-host
   certification continues to use the distribution's default permissions.
