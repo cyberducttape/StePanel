@@ -46,7 +46,11 @@ if [[ " $phases " == *" install "* ]] && (( memory < 4096 )); then
   echo 'the install phase requires at least 4096 MiB guest memory for the enforced Git-clone admission headroom' >&2
   exit 1
 fi
-install_timeout_minutes=$((60 + matrix_repeats * 180))
+# The full installed-host matrix performs many independent worker kills. Each
+# one waits for its durable lease to expire before recovery can be verified, so
+# budget five hours per matrix iteration plus one hour for installation and
+# setup rather than timing out a healthy long-running certification job.
+install_timeout_minutes=$((60 + matrix_repeats * 300))
 
 [[ -f $image ]] || { echo "guest image $image not found" >&2; exit 1; }
 [[ -r /dev/kvm && -w /dev/kvm ]] || { echo '/dev/kvm is not usable by this user' >&2; exit 1; }
@@ -251,7 +255,7 @@ fi
 # --- Install, smoke workflows, and the full recovery matrix ------------------
 if has_phase install; then
   start=$SECONDS
-  # The full recovery matrix runs about 100 drills; allow four hours.
+  # The timeout above includes installation/setup and the lease-recovery matrix.
   if guest_job install "$install_timeout_minutes" "env RECOVERY_MATRIX_REPEATS=$matrix_repeats STEPANEL_UNSAFE_LAB=1 STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy STEPANEL_RUN_RECOVERY_MATRIX=1 STEPANEL_RUN_RECOVERY_MATRIX_FULL=1 bash /work/deploy/lab/install-smoke.sh"; then
     record install PASS $((SECONDS - start)) "$(grep -c 'smoke passed\|matrix passed' "$run_dir/install.log") smoke/matrix passes"
   else

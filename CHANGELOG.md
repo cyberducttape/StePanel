@@ -20,6 +20,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Give the local KVM install/recovery harness six hours for its first full
+  recovery-matrix iteration, with five additional hours per repeat, so lease
+  expiry and replay verification do not exhaust the four-hour wrapper timeout.
 - Generate a bounded, site-specific database username in the installed-host
   recovery smoke so long matrix site names satisfy the 32-character API limit.
 - Preserve environment-backed WordPress database credentials when `getenv()`
