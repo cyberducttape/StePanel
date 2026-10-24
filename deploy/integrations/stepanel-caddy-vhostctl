@@ -33,12 +33,18 @@ remove_fstab_target() {
 }
 
 remove_legacy_view() {
-  local site=$1 old="$view_root/$1/public"
+  local site=$1 old="$view_root/$1/public" view
+  view=$(view_path "$site")
   if [[ $(findmnt -no TARGET -T "$old" 2>/dev/null || true) == "$old" ]]; then
     umount "$old"
   fi
   remove_fstab_target "$old"
-  rmdir "$old" 2>/dev/null || true
+  # Once the stable parent is mounted, this pathname reaches the customer's
+  # real document root. Only remove a legacy mountpoint beneath the detached
+  # view directory, never the source tree.
+  if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
+    rmdir "$old" 2>/dev/null || true
+  fi
 }
 
 remove_view() {
