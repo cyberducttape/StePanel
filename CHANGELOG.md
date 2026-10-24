@@ -41,6 +41,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   avoiding truncation by interpreter startup calls.
 - Report the active LSM and shadow-file metadata on FTPS denial, and run the
   disposable privileged systemd host without an inherited AppArmor profile.
+- Capture the PAM helper's real/effective identity and capability query around
+  shadow-file access to locate the remaining FTPS authentication denial.
 - Allow the installed-host workflow to target one OS/web-server combination
   while preserving the all-host default and scheduled certification matrix;
   generate a matrix containing only the selected host for focused diagnostics.

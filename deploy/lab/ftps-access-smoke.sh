@@ -99,9 +99,9 @@ EOF
       STEPANEL_PAM_PROBE_SERVICE="$pam_probe_service" \
         STEPANEL_PAM_PROBE_USER="$site_user" \
         STEPANEL_PAM_PROBE_PASSWORD="$password" \
-        strace -f -qq -e trace=execve,setuid,setreuid,setresuid,openat,newfstatat,access,wait4 \
+        strace -f -qq -e trace=execve,getuid,geteuid,getresuid,setuid,setreuid,setresuid,capget,openat,newfstatat,access,wait4 \
           -o "$tmp/pam-helper.trace" python3 "$script_dir/ftps-pam-probe.py" >/dev/null 2>&1 || true
-      grep -E 'unix_chkpwd|/etc/shadow|set(uid|reuid|resuid)\(|execve\(|wait4\(' \
+      grep -E 'unix_chkpwd|/etc/shadow|set(uid|reuid|resuid)\(|get(uid|euid|resuid)\(|capget\(|execve\(|wait4\(' \
         "$tmp/pam-helper.trace" >&2 || true
     fi
     pam_probe_user="stepanel-pam-probe-$$"
