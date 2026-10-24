@@ -15,15 +15,21 @@ Validation was run against `main` at
 [`12079f4cce77b6c57c1905a0da6d0e9377e1ec2e`](https://github.com/cyberducttape/StePanel/commit/12079f4cce77b6c57c1905a0da6d0e9377e1ec2e),
 which is a documentation-only evidence update over application source
 [`343e4450f9b6323a09b9c76392058fa77a37a8c5`](https://github.com/cyberducttape/StePanel/commit/343e4450f9b6323a09b9c76392058fa77a37a8c5).
-The full Go suite, `go vet ./...`, `make release-check`, documentation-link and
-reference checks, all 15 frontend unit tests, JavaScript syntax validation,
-and diff checks passed on the current tree.
+The full Go suite and race suite, `go vet ./...`, `make release-check`,
+documentation-link and reference checks, all 15 frontend unit tests, JavaScript
+syntax validation, and diff checks passed on the current tree.
 
 Exact-head CodeQL ([run 40125155405](https://github.com/cyberducttape/StePanel/actions/runs/40125155405))
 and Documentation ([run 40125155455](https://github.com/cyberducttape/StePanel/actions/runs/40125155455))
 passed on `12079f4`; the live CodeQL alert count was zero. Integration on
-application source `343e445` remains pending ([run
+application source `343e445` is running ([run
 40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983)).
+The full Integration workflow passed on backend source `e3a8976` ([run
+40124829064](https://github.com/cyberducttape/StePanel/actions/runs/40124829064)),
+including race tests, repository recovery drills, tmpfs ENOSPC recovery,
+database restore checks, clean Python deployment, static analysis, and
+container validation. Browser/UI changes in `343e445` are covered by the local
+frontend suite and earlier UI E2E run; this is not exact-source Integration.
 Parent-source Integration on `93c5714` was canceled after Go tests, coverage,
 ENOSPC and UI E2E passed; race and recovery checks did not complete ([run
 40124252769](https://github.com/cyberducttape/StePanel/actions/runs/40124252769)).

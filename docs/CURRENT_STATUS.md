@@ -15,15 +15,21 @@ which is a documentation-only evidence update over application source
 The operator and customer panels distinguish unavailable job history from an
 empty history, and the browser labels retained job snapshots when its latest
 durable refresh fails. On the current tree, `go test -p 1 -timeout 10m ./...`,
-`go vet ./...`, `make release-check`, documentation-link and reference checks,
-all 15 frontend unit tests, JavaScript syntax validation, and `git diff --check`
-passed.
+`go test -p 1 -race -timeout 10m ./...`, `go vet ./...`, `make release-check`,
+documentation-link and reference checks, all 15 frontend unit tests, JavaScript
+syntax validation, and `git diff --check` passed.
 
 Exact-head CodeQL ([run 40125155405](https://github.com/cyberducttape/StePanel/actions/runs/40125155405))
 and Documentation ([run 40125155455](https://github.com/cyberducttape/StePanel/actions/runs/40125155455))
 passed on `12079f4`; the live code-scanning alert query returned zero open
-alerts. Integration on application source `343e445` remains pending
+alerts. Integration on application source `343e445` is running
 ([run 40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983)).
+The full Integration workflow passed on backend source `e3a8976` ([run
+40124829064](https://github.com/cyberducttape/StePanel/actions/runs/40124829064)),
+including race tests, repository recovery drills, tmpfs ENOSPC recovery,
+database restore checks, clean Python deployment, static analysis, and
+container validation. Its browser source predates `343e445`; frontend unit and
+UI E2E coverage on the newer browser source is recorded separately above.
 The parent Integration run on `93c5714` was canceled after passing Go tests,
 coverage, ENOSPC, and UI E2E; race and recovery checks did not complete ([run
 40124252769](https://github.com/cyberducttape/StePanel/actions/runs/40124252769)).
