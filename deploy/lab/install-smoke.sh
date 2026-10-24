@@ -333,7 +333,7 @@ else
   [[ $(stat -c '%u:%g:%a' "$site_home") == "$site_home_identity" ]] || { echo 'reapplying the Caddy route changed site-parent ownership or mode' >&2; exit 1; }
   ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
   mkdir -p "$activation_dir"
-  printf '%s\n' before-activation > "$activation_dir/marker.txt"
+  printf '%s' before-activation > "$activation_dir/marker.txt"
   activation_response=$(curl --insecure --silent --show-error --max-time 10 --write-out $'\n%{http_code}' \
     --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-check/marker.txt)
   activation_status=${activation_response##*$'\n'}
@@ -344,7 +344,7 @@ else
   }
   mv "$activation_dir" "$activation_old"
   mkdir "$activation_dir"
-  printf '%s\n' after-activation > "$activation_dir/marker.txt"
+  printf '%s' after-activation > "$activation_dir/marker.txt"
   activation_response=$(curl --insecure --silent --show-error --max-time 10 --write-out $'\n%{http_code}' \
     --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-check/marker.txt)
   activation_status=${activation_response##*$'\n'}
