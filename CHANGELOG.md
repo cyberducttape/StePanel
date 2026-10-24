@@ -22,6 +22,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   backup creation and file restore, with scope limits stated explicitly.
 - Refresh release evidence with completed exact-head CodeQL/documentation
   checks and the live integration and installed-host run states.
+- Record the complete integration CI pass for the recovery-smoke application
+  source, including UI E2E, database restore, static analysis, and deployment
+  artifact validation; keep the installed-host matrix explicitly in progress.
+- Record exact-evidence-commit documentation and CodeQL passes, with zero open
+  code-scanning alerts and the installed-host matrix still running.
 - Keep the disposable overlay-backed systemd test host's shadow database
   root-readable so its real PAM/FTPS authentication smoke can run; native-host
   certification continues to use the distribution's default permissions.

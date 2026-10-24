@@ -12,19 +12,19 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Current release evidence — 2026-10-24 (evidence source `9e70d4e`, application source `a48aafc`)
+### Current release evidence — 2026-10-24 (evidence source `4e15d70`, application source `a48aafc`)
 
-- Evidence source is `9e70d4ec6ce83fcc8811a22e81069b70f5d09139`; the latest
+- Evidence update is `4e15d70b2b84b5027a0e14b4185af5226df00fa9`; the latest
   application and installed-host smoke source is `a48aafc2bfed8072e4be47878aaa98e5a835a22b`.
-  Local full and race-enabled Go suites passed on Go 1.26.10 at `dc25ddc`; Go
-  source is unchanged through `a48aafc`. Integration CI on `dc25ddc` has passed
-  formatting, release checks, vet, the full Go suite and coverage floors, the
-  control-plane benchmark, tmpfs ENOSPC drills, race tests, recovery drills,
-  and real tmpfs ENOSPC recovery. It has passed PostgreSQL restore
-  privilege checks and is running static analysis; later checks remain pending
+  Integration CI for application source `dc25ddc` passed in full, including Go
+  tests and coverage floors, race/recovery/ENOSPC drills, MySQL and PostgreSQL
+  restore checks, clean Python deployment, static analysis, container/Helm/
+  Terraform validation, vulnerability scanning, and UI E2E
   ([run 40077749788](https://github.com/cyberducttape/StePanel/actions/runs/40077749788)).
-  Exact-current-head CodeQL and documentation checks passed ([CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/40079346661),
-  [docs](https://github.com/cyberducttape/StePanel/actions/runs/40079346627)).
+  Go application code is unchanged through the installed-host smoke source
+  `a48aafc`. Documentation validation passed on evidence commit `4e15d70`
+  ([run 40080603311](https://github.com/cyberducttape/StePanel/actions/runs/40080603311));
+  CodeQL also passed on that commit ([run 40080603276](https://github.com/cyberducttape/StePanel/actions/runs/40080603276)); the current GitHub code-scanning alert query reports zero open alerts.
   A focused exact-source Rocky Linux 9 KVM run verified the quota-enabled
   `/var/www` mount and passed real ext4 ENOSPC backup and file-restore tests;
   see [the result record](lab-results/2026-10-24-rocky9-kvm-enospc.md).
@@ -37,7 +37,7 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   recovered. The corrected root resolution has not yet passed an installed-host
   run. The old-source scheduled run 40076789043 has four host passes and two
   Ubuntu host jobs still in progress. The corrected six-host smoke for
-  `a48aafc` (40079073573) has all six host jobs active (five running the smoke and one setting up Go);
+  `a48aafc` (40079073573) has all six host jobs still running the installed-host smoke;
   its CI integration (40079061542) is pending. Neither counts as passing
   evidence.
 - Production remains **NO-GO** pending the host recovery matrix and the other
