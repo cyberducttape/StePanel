@@ -20,19 +20,19 @@ on:
         required: false
         default: ''
         type: string
-    host:
-      description: 'Limit this diagnostic run to one installed-host combination'
-      required: false
-      default: all
-      type: choice
-      options:
-        - all
-        - ubuntu-24.04-caddy-mariadb
-        - ubuntu-24.04-apache-mariadb
-        - almalinux-9-apache-mariadb
-        - almalinux-9-caddy-mariadb
-        - rocky-9-apache-mariadb
-        - rocky-9-caddy-mariadb
+      host:
+        description: 'Limit this diagnostic run to one installed-host combination'
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - ubuntu-24.04-caddy-mariadb
+          - ubuntu-24.04-apache-mariadb
+          - almalinux-9-apache-mariadb
+          - almalinux-9-caddy-mariadb
+          - rocky-9-apache-mariadb
+          - rocky-9-caddy-mariadb
 
 concurrency:
   # Preserve long-running scheduled and release-candidate evidence. Repeated
