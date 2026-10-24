@@ -9,20 +9,22 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest source validation — 2026-10-24 (`e3a8976`)
+### Latest source validation — 2026-10-24 (`343e445`)
 
 Current `main` is
-[`e3a89764e9e85fb65dda867ea473ed353cf9f943`](https://github.com/cyberducttape/StePanel/commit/e3a89764e9e85fb65dda867ea473ed353cf9f943).
-The operator and customer panels report durable job-history failures as
-unavailable instead of implying that no jobs exist. The focused customer
-panel regression test and full local Go suite passed. Documentation passed on
-this exact source ([40124829087](https://github.com/cyberducttape/StePanel/actions/runs/40124829087));
-Integration was pending and CodeQL queued at capture ([40124829064](https://github.com/cyberducttape/StePanel/actions/runs/40124829064),
-[40124829037](https://github.com/cyberducttape/StePanel/actions/runs/40124829037)).
-The live code-scanning alert query returned zero open alerts. On parent source
-`93c5714`, Integration passed Go tests, coverage, ENOSPC drills, and UI E2E,
-while race tests remained active ([40124252769](https://github.com/cyberducttape/StePanel/actions/runs/40124252769));
-its CodeQL run passed ([40124252712](https://github.com/cyberducttape/StePanel/actions/runs/40124252712)).
+[`343e4450f9b6323a09b9c76392058fa77a37a8c5`](https://github.com/cyberducttape/StePanel/commit/343e4450f9b6323a09b9c76392058fa77a37a8c5).
+The operator and customer panels distinguish unavailable job history from an
+empty history; the browser labels retained snapshots when refresh fails. All
+15 frontend unit tests, JavaScript syntax validation, and diff checks passed.
+The full Go suite, `go vet ./...`, and `make release-check` passed on parent
+`e3a8976`; `343e445` changes only browser code, frontend tests, and changelog.
+Exact-source Integration was pending, CodeQL and Documentation were queued at
+capture ([40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983),
+[40125094896](https://github.com/cyberducttape/StePanel/actions/runs/40125094896),
+[40125094904](https://github.com/cyberducttape/StePanel/actions/runs/40125094904)).
+The live CodeQL alert count was zero. Parent-source Integration on `93c5714`
+was canceled after Go tests, coverage, ENOSPC and UI E2E passed; race and
+recovery checks did not complete ([40124252769](https://github.com/cyberducttape/StePanel/actions/runs/40124252769)).
 
 The local Rocky 9 installed-host run on `1b2e99d` passed native install,
 quota checks, installed WordPress archive/database/HTTP recovery proof, and
@@ -31,12 +33,7 @@ when host memory pressure caused the OOM killer to terminate QEMU during
 restore recovery. This is not a full-matrix pass; see the
 [checkpoint report](lab-results/2026-10-24-rocky9-installed-host-recovery.md).
 
-The older six-host smoke on `5e9077b` was canceled while running ([40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094)).
-All ten `984f0fe` shards were canceled before completion. The ten `93c5714`
-shards are being canceled because they were superseded before starting; seven
-had completed cancellation and three were still winding down at capture. No
-iteration from those cohorts counts. The replacement 20-iteration cohort on
-current source `e3a8976` consists of runs:
+Ten two-iteration installed-host shards are queued on `e3a8976`:
 [40124847144](https://github.com/cyberducttape/StePanel/actions/runs/40124847144),
 [40124847251](https://github.com/cyberducttape/StePanel/actions/runs/40124847251),
 [40124847306](https://github.com/cyberducttape/StePanel/actions/runs/40124847306),
@@ -47,9 +44,10 @@ current source `e3a8976` consists of runs:
 [40124847590](https://github.com/cyberducttape/StePanel/actions/runs/40124847590),
 [40124847626](https://github.com/cyberducttape/StePanel/actions/runs/40124847626), and
 [40124847637](https://github.com/cyberducttape/StePanel/actions/runs/40124847637).
-All ten were queued at capture; each covers two iterations across six
-installed OS/web-server combinations. A shard counts only after all six host
-jobs succeed.
+They cover the same Go/native hosting backend as `343e445`; they do not
+exercise its browser-only stale-snapshot warning. No iteration counts until
+all six host jobs in a shard pass. The earlier six-host smoke and superseded
+cohorts were canceled before completion.
 
 Production remains **NO-GO** pending repeated installed-host recovery,
 physical power-loss and broader ENOSPC/database-outage evidence,

@@ -14,6 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Refresh production status for `343e445`, separating frontend snapshot-warning
+  tests from the queued installed-host cohort on the unchanged `e3a8976`
+  hosting backend.
 - Refresh the current-status and production-gate snapshots for `e3a8976`,
   recording its local full-suite result, passed Documentation workflow,
   pending Integration/CodeQL checks, canceled superseded shards, and queued
