@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Check installed-host backup recovery and termination against the source site's
   recorded document root, including sites placed under hosting accounts.
+- Resolve smoke-test site paths through the same installed location library as
+  the host helpers, so placement validation cannot drift between test and host.
 - Reconcile the production-gate and project-status summaries with the latest
   failed and pending installed-host recovery evidence.
 - Record successful full and race-enabled Go suites for the recovery-smoke

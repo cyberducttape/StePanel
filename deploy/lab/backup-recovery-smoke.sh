@@ -35,20 +35,12 @@ staging_database=''
 staging_user=''
 staging_unix_user=''
 staging_route=''
+# shellcheck source=../integrations/stepanel-site-location.sh
+. /usr/local/lib/stepanel/site-location.sh
 site_public_root() {
-  local site=$1 record="/etc/stepanel/sites/$1/location" user directory
-  if [[ -f $record ]]; then
-    user=$(sed -n 's/^user=//p' "$record")
-    directory=$(sed -n 's/^directory=//p' "$record")
-    [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ &&
-       ( $directory == public_html || $directory =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ ) ]] || {
-      echo "invalid installed location record for $site" >&2
-      return 1
-    }
-    printf '/home/%s/%s\n' "$user" "$directory"
-  else
-    printf '/var/www/sites/%s/public\n' "$site"
-  fi
+  local site=$1
+  stepanel_site_location "$site" || return 1
+  printf '%s\n' "$public_root"
 }
 dump_restore_permissions() {
   local site_root site_doc_root
