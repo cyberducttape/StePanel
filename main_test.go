@@ -41,7 +41,8 @@ func TestEmbeddedDashboardTemplate(t *testing.T) {
 		t.Fatalf("parse embedded views: %v", err)
 	}
 	var rendered bytes.Buffer
-	if err := view.Execute(&rendered, map[string]any{"Title": "StePanel", "AssetVersion": "test-assets", "Now": time.Now(), "Servers": []ServiceSummary{{Name: "apache2", Status: "active"}}, "Healthy": 1, "Alerts": 0, "Security": []SecurityCheck{}, "Jobs": []Job{}, "Capabilities": map[string]bool{}, "IsAdministrator": true, "Database": DatabaseAdmin{Engine: "mysql", Version: "default", Host: "local socket", Service: "mysql", Status: "missing", Client: "mariadb", AdminProduct: "phpMyAdmin", AdminURL: "/phpmyadmin"}}); err != nil {
+	data := map[string]any{"Title": "StePanel", "AssetVersion": "test-assets", "Now": time.Now(), "Servers": []ServiceSummary{{Name: "apache2", Status: "active"}}, "Healthy": 1, "Alerts": 0, "Security": []SecurityCheck{}, "Jobs": []Job{}, "Capabilities": map[string]bool{}, "IsAdministrator": true, "Database": DatabaseAdmin{Engine: "mysql", Version: "default", Host: "local socket", Service: "mysql", Status: "missing", Client: "mariadb", AdminProduct: "phpMyAdmin", AdminURL: "/phpmyadmin"}}
+	if err := view.Execute(&rendered, data); err != nil {
 		t.Fatalf("render embedded dashboard: %v", err)
 	}
 	if strings.Contains(rendered.String(), "Stephan") || !strings.Contains(rendered.String(), "Manage your sites with confidence") {
@@ -55,6 +56,14 @@ func TestEmbeddedDashboardTemplate(t *testing.T) {
 	}
 	if !strings.Contains(rendered.String(), "appearanceDialog") || !strings.Contains(rendered.String(), "/static/theme.js?v=test-assets") {
 		t.Fatal("dashboard is missing the persisted appearance settings surface")
+	}
+	data["JobsUnavailable"] = true
+	rendered.Reset()
+	if err := view.Execute(&rendered, data); err != nil {
+		t.Fatalf("render dashboard with unavailable job history: %v", err)
+	}
+	if !strings.Contains(rendered.String(), "Job history is temporarily unavailable") || strings.Contains(rendered.String(), "No jobs have been recorded yet.") {
+		t.Fatal("dashboard presents unavailable job history as an empty history")
 	}
 	themeScript, err := webAssets.ReadFile("web/static/theme.js")
 	if err != nil {

@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Show job-history database failures as an unavailable dashboard state instead
+  of presenting them as an empty history.
+
 ### Documentation
 
 - Record the installed Rocky 9 WordPress application-recovery and process-kill

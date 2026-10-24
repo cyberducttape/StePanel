@@ -1010,6 +1010,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	canCreateSite := isAdministrator
 	servers := ServiceSummaries(a.Config)
 	jobs, jobsErr := a.Jobs.ListSummariesWithError(8)
+	jobsUnavailable := jobsErr != nil
 	if jobsErr != nil {
 		log.Printf("dashboard job history unavailable: %v", jobsErr)
 		jobs = nil
@@ -1017,6 +1018,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	var account HostingAccount
 	accountSiteCount := 0
 	if !isAdministrator {
+		jobsUnavailable = true
 		servers = nil
 		jobs = nil
 		if a.Accounts != nil {
@@ -1025,12 +1027,15 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 			canCreateSite = accountRole(account) == "owner" && !account.Suspended
 			if sites, err := a.Accounts.GetSitesWithError(username); err == nil {
 				jobs, err = a.Jobs.ListForOwnersSummaries(8, sites)
+				jobsUnavailable = err != nil
 				if err != nil {
+					jobsUnavailable = true
 					log.Printf("dashboard job history unavailable: %v", err)
 					jobs = nil
 				}
 				accountSiteCount = len(sites)
 			} else {
+				jobsUnavailable = true
 				log.Printf("dashboard site assignments unavailable: %v", err)
 				jobs = nil
 			}
@@ -1049,7 +1054,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	if isAdministrator {
 		security = a.SecurityChecks()
 	}
-	if err := a.View.Execute(w, map[string]any{"Title": "StePanel", "Config": a.Config, "AssetVersion": a.AssetVersion, "CSRF": csrf, "AuthEnabled": a.Auth.Enabled, "Username": a.Auth.UsernameForRequest(r), "Now": time.Now(), "Servers": servers, "Healthy": healthy, "Alerts": alerts, "Security": security, "Jobs": jobs, "Capabilities": a.Capabilities(), "Database": a.DatabaseAdmin(), "IsAdministrator": isAdministrator, "CanCreateSite": canCreateSite, "Account": account, "AccountSiteCount": accountSiteCount}); err != nil {
+	if err := a.View.Execute(w, map[string]any{"Title": "StePanel", "Config": a.Config, "AssetVersion": a.AssetVersion, "CSRF": csrf, "AuthEnabled": a.Auth.Enabled, "Username": a.Auth.UsernameForRequest(r), "Now": time.Now(), "Servers": servers, "Healthy": healthy, "Alerts": alerts, "Security": security, "Jobs": jobs, "JobsUnavailable": jobsUnavailable, "Capabilities": a.Capabilities(), "Database": a.DatabaseAdmin(), "IsAdministrator": isAdministrator, "CanCreateSite": canCreateSite, "Account": account, "AccountSiteCount": accountSiteCount}); err != nil {
 		log.Printf("dashboard render failed: %v", err)
 	}
 }
