@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record the bounded root-broker request and path-validator fuzz checkpoint at
+  `ee40d2e`, including execution counts and limits.
 - Correct the supported-runtime and CodeQL entries in the authoritative gate
   table using the current hosted-run and exact-head analysis states.
 - Reconcile the P0 gate table with the live ten-shard recovery cohort and
