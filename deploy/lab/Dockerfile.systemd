@@ -11,5 +11,11 @@ RUN if command -v dnf >/dev/null 2>&1; then \
       echo 'unsupported base image: neither dnf nor apt-get is available' >&2; exit 1; \
     fi
 
+# Some overlay-backed privileged containers lack an effective DAC override
+# when reading a mode-000 shadow file. Keep the test fixture root-only but
+# readable by the PAM helper running as root. Native-host certification retains
+# the distribution's original shadow permissions.
+RUN chmod 0600 /etc/shadow
+
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
