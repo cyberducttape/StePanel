@@ -9,20 +9,16 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current release evidence — 2026-10-24 (`dc25ddc`)
-
-### Prior release evidence — 2026-10-23 13:39 UTC (`e94f87` application source)
+### Current release evidence — 2026-10-24 (`a48aafc`)
 
 Current `main` is
-[`dc25ddc9386cbb578deadf977389cc713e114075`](https://github.com/cyberducttape/StePanel/commit/dc25ddc9386cbb578deadf977389cc713e114075).
-The full local Go suite and race-enabled suite passed with Go 1.26.10
-(`go test ./...`, 70 seconds; `go test -race ./...`, 475 seconds). The
-installed-host smoke script passed `bash -n` and ShellCheck, and its reference
-documentation checks passed locally. This change corrects a recovery-smoke
-assertion that assumed every source site lived under `/var/www/sites`; cPanel
-imports can be placed under `/home/<account>/<directory>`. The assertion now
-uses the site's root-managed location record and saves the resolved document
-root before termination removes that record.
+[`a48aafc2bfed8072e4be47878aaa98e5a835a22b`](https://github.com/cyberducttape/StePanel/commit/a48aafc2bfed8072e4be47878aaa98e5a835a22b).
+The full local Go suite and race-enabled suite passed with Go 1.26.10 on
+`dc25ddc`; the Go application code is unchanged in `a48aafc`. `go vet ./...`
+also passed locally on `a48aafc`. The installed-host smoke script passed
+`bash -n`, ShellCheck, and `git diff --check`. Its path assertion uses the
+installed root-owned site-location library, so smoke validation follows the
+same placement rules as host helpers.
 
 The prior exact-source six-host run
 ([run 39960010260](https://github.com/cyberducttape/StePanel/actions/runs/39960010260),
@@ -31,15 +27,14 @@ source `e94f870`) failed on all six hosts at the assertion
 that the cPanel import smoke had completed and the recovery journal recovered
 the separate staging-site transaction. The assertion checked only the legacy
 path, so those failures do not establish source-site data loss. They also do
-not prove the new assertion or recovery workflow passes. A scheduled six-host
-run on `6ac0643` is still in progress
+not prove the corrected assertion or recovery workflow passes. A scheduled
+six-host run on `6ac0643` is still in progress
 ([run 40076789043](https://github.com/cyberducttape/StePanel/actions/runs/40076789043));
-four host jobs have passed and two Ubuntu host jobs remain in progress. The
-exact-commit CI and corrected installed-host runs for `dc25ddc` are queued
-(runs 40077749788 and 40077753301). CodeQL for `dc25ddc` was cancelled when the
-documentation evidence commit landed; fresh CodeQL and documentation runs for
-that evidence commit are queued (runs 40078247887 and 40078247919). No queued
-or in-progress run counts as passing evidence.
+four host jobs have passed and two Ubuntu jobs remain in progress. The
+corrected six-host smoke for `a48aafc` is queued (run 40079073573), its CI
+integration is pending (run 40079061542), and CodeQL and documentation runs
+are queued (runs 40079061508 and 40079061527). No queued or in-progress run
+counts as passing evidence.
 
 Production remains **NO-GO**. The outstanding gates below remain open; this
 smoke assertion correction does not change the recovery-certification status.
