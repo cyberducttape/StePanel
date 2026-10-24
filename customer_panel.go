@@ -30,17 +30,21 @@ func (a *App) customerPanel(w http.ResponseWriter, r *http.Request) {
 		csrf = cookie.Value
 	}
 	var jobs []Job
+	jobsUnavailable := false
 	sites, err := a.Accounts.GetSitesWithError(username)
 	if err != nil {
+		jobsUnavailable = true
 		log.Printf("customer panel site assignments unavailable: %v", err)
 	} else if jobs, err = a.Jobs.ListForOwnersSummaries(8, sites); err != nil {
+		jobsUnavailable = true
 		log.Printf("customer panel job history unavailable: %v", err)
 		jobs = nil
 	}
 	data := map[string]any{
 		"Title": "StePanel", "Config": a.Config, "AssetVersion": a.AssetVersion, "CSRF": csrf,
 		"AuthEnabled": a.Auth.Enabled, "Username": username, "Now": time.Now(), "Jobs": jobs,
-		"Account": account, "AccountSiteCount": len(sites),
+		"JobsUnavailable": jobsUnavailable,
+		"Account":         account, "AccountSiteCount": len(sites),
 		"CanCreateSite": accountRole(account) == "owner" && !account.Suspended,
 	}
 	if err := a.PanelView.Execute(w, data); err != nil {

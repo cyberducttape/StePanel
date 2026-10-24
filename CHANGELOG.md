@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - Show job-history database failures as an unavailable dashboard state instead
-  of presenting them as an empty history.
+  of presenting them as an empty history in both operator and customer panels.
 
 ### Documentation
 

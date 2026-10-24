@@ -38,6 +38,9 @@ func TestCustomersGetTheirOwnPanel(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("customer panel = %d %s", w.Code, body)
 	}
+	if !strings.Contains(body, "Recent activity is temporarily unavailable") || strings.Contains(body, "No recent operations for your websites.") {
+		t.Fatal("customer panel presents unavailable durable job history as an empty history")
+	}
 	for _, want := range []string{`id="fileManager"`, `id="siteCreateForm"`, `name="kind"`, `id="accountTokenForm"`, "/static/panel.js", "appearanceDialog", `id="jobCenter"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("customer panel is missing %s", want)
