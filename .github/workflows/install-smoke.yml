@@ -45,7 +45,43 @@ permissions:
   contents: read
 
 jobs:
+  select-hosts:
+    runs-on: ubuntu-24.04
+    outputs:
+      hosts: ${{ steps.select.outputs.hosts }}
+    steps:
+      - id: select
+        env:
+          REQUESTED_HOST: ${{ inputs.host || 'all' }}
+        run: |
+          case "$REQUESTED_HOST" in
+            all)
+              hosts='[{"name":"ubuntu-24.04-caddy-mariadb","image":"ubuntu:24.04","db":"mariadb","web":"caddy"},{"name":"ubuntu-24.04-apache-mariadb","image":"ubuntu:24.04","db":"mariadb","web":"apache"},{"name":"almalinux-9-apache-mariadb","image":"almalinux:9","db":"mariadb","web":"apache"},{"name":"almalinux-9-caddy-mariadb","image":"almalinux:9","db":"mariadb","web":"caddy"},{"name":"rocky-9-apache-mariadb","image":"rockylinux:9","db":"mariadb","web":"apache"},{"name":"rocky-9-caddy-mariadb","image":"rockylinux:9","db":"mariadb","web":"caddy"}]'
+              ;;
+            ubuntu-24.04-caddy-mariadb)
+              hosts='[{"name":"ubuntu-24.04-caddy-mariadb","image":"ubuntu:24.04","db":"mariadb","web":"caddy"}]'
+              ;;
+            ubuntu-24.04-apache-mariadb)
+              hosts='[{"name":"ubuntu-24.04-apache-mariadb","image":"ubuntu:24.04","db":"mariadb","web":"apache"}]'
+              ;;
+            almalinux-9-apache-mariadb)
+              hosts='[{"name":"almalinux-9-apache-mariadb","image":"almalinux:9","db":"mariadb","web":"apache"}]'
+              ;;
+            almalinux-9-caddy-mariadb)
+              hosts='[{"name":"almalinux-9-caddy-mariadb","image":"almalinux:9","db":"mariadb","web":"caddy"}]'
+              ;;
+            rocky-9-apache-mariadb)
+              hosts='[{"name":"rocky-9-apache-mariadb","image":"rockylinux:9","db":"mariadb","web":"apache"}]'
+              ;;
+            rocky-9-caddy-mariadb)
+              hosts='[{"name":"rocky-9-caddy-mariadb","image":"rockylinux:9","db":"mariadb","web":"caddy"}]'
+              ;;
+            *) echo "unsupported host selection: $REQUESTED_HOST" >&2; exit 64 ;;
+          esac
+          printf 'hosts=%s\n' "$hosts" >> "$GITHUB_OUTPUT"
+
   install:
+    needs: select-hosts
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 90 }}
     env:
@@ -59,33 +95,8 @@ jobs:
       # occupy sixty hosted runners and starve ordinary CI/install checks.
       max-parallel: ${{ inputs.recovery_matrix_repeats > 1 && 1 || 6 }}
       matrix:
-        include:
-          - name: ubuntu-24.04-caddy-mariadb
-            image: ubuntu:24.04
-            db: mariadb
-            web: caddy
-          - name: ubuntu-24.04-apache-mariadb
-            image: ubuntu:24.04
-            db: mariadb
-            web: apache
-          - name: almalinux-9-apache-mariadb
-            image: almalinux:9
-            db: mariadb
-            web: apache
-          - name: almalinux-9-caddy-mariadb
-            image: almalinux:9
-            db: mariadb
-            web: caddy
-          - name: rocky-9-apache-mariadb
-            image: rockylinux:9
-            db: mariadb
-            web: apache
-          - name: rocky-9-caddy-mariadb
-            image: rockylinux:9
-            db: mariadb
-            web: caddy
+        include: ${{ fromJSON(needs.select-hosts.outputs.hosts) }}
     name: ${{ matrix.name }} / shard ${{ inputs.recovery_matrix_shard || 'default' }}
-    if: ${{ github.event_name == 'schedule' || inputs.host == 'all' || inputs.host == matrix.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
