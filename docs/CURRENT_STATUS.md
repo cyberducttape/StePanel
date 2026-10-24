@@ -25,8 +25,14 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
   [40084549111](https://github.com/cyberducttape/StePanel/actions/runs/40084549111))
   with zero open code-scanning alerts. Exact-source integration CI
   ([40084549149](https://github.com/cyberducttape/StePanel/actions/runs/40084549149))
-  is still running its race and subsequent release checks; it is not yet a
-  complete pass.
+  passed in full: Go 1.26.10 tests and coverage thresholds, race tests,
+  recovery and real tmpfs ENOSPC drills, DB restore checks, clean Python
+  deployment, static analysis, container and deployment validation, mixed
+  load, and UI end-to-end/accessibility tests. Documentation checks
+  ([40084769418](https://github.com/cyberducttape/StePanel/actions/runs/40084769418))
+  and CodeQL ([40084769384](https://github.com/cyberducttape/StePanel/actions/runs/40084769384))
+  also passed on evidence commit `d2131f2`; the alert query reports zero open
+  alerts.
 - The six-host recovery run
   ([40083936175](https://github.com/cyberducttape/StePanel/actions/runs/40083936175))
   is testing source `b448cc9`, before this cache-listing fix. The local Rocky

@@ -8,12 +8,15 @@
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
 Latest application source: `06ae561a59a4a677a98e95efa6edf1cddbc6bfb5`.
-The full root-package Go suite and targeted race-enabled regression tests pass
-locally. Exact-source documentation checks ([run 40084549107](https://github.com/cyberducttape/StePanel/actions/runs/40084549107))
-and CodeQL ([run 40084549111](https://github.com/cyberducttape/StePanel/actions/runs/40084549111))
-passed; CodeQL reports zero open alerts. Integration CI
-([run 40084549149](https://github.com/cyberducttape/StePanel/actions/runs/40084549149))
-is still in progress and is not counted as a complete pass.
+Exact-source integration CI passed in full on `06ae561`
+([run 40084549149](https://github.com/cyberducttape/StePanel/actions/runs/40084549149)),
+including Go 1.26.10 tests and coverage gates, race tests, recovery and real
+tmpfs ENOSPC drills, database restore checks, clean Python deployment, static
+analysis, container/deployment validation, mixed load, and UI E2E/accessibility
+checks. Documentation ([run 40084769418](https://github.com/cyberducttape/StePanel/actions/runs/40084769418))
+and CodeQL ([run 40084769384](https://github.com/cyberducttape/StePanel/actions/runs/40084769384))
+passed on evidence commit `d2131f2`; the current alert query reports zero open
+alerts.
 
 The six-host exhaustive installed recovery matrix
 ([run 40083936175](https://github.com/cyberducttape/StePanel/actions/runs/40083936175))

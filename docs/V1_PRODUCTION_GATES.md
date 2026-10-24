@@ -16,11 +16,14 @@ The latest application source is
 It prevents global, tenant-scoped, and site-active durable job listings from
 replacing newer in-process worker lease snapshots. The full root-package Go
 suite and targeted race-enabled regression tests passed locally. Exact-source
-documentation checks ([run 40084549107](https://github.com/cyberducttape/StePanel/actions/runs/40084549107))
-and CodeQL ([run 40084549111](https://github.com/cyberducttape/StePanel/actions/runs/40084549111))
-passed; CodeQL reports zero open alerts. Exact-source integration CI
-([run 40084549149](https://github.com/cyberducttape/StePanel/actions/runs/40084549149))
-is still running and is not yet a complete pass.
+Exact-source integration CI passed in full
+([run 40084549149](https://github.com/cyberducttape/StePanel/actions/runs/40084549149)):
+Go 1.26.10 tests and coverage gates, full race suite, recovery and real tmpfs
+ENOSPC drills, database restore checks, clean Python deployment, static
+analysis, container and deployment validation, mixed load, and UI
+end-to-end/accessibility tests. Documentation ([run 40084769418](https://github.com/cyberducttape/StePanel/actions/runs/40084769418))
+and CodeQL ([run 40084769384](https://github.com/cyberducttape/StePanel/actions/runs/40084769384))
+passed on evidence commit `d2131f2`; CodeQL reports zero open alerts.
 
 The six-host exhaustive installed recovery run
 ([run 40083936175](https://github.com/cyberducttape/StePanel/actions/runs/40083936175))
