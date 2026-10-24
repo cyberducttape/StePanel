@@ -21,6 +21,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   failure to isolate PAM policy from vsftpd behavior.
 - Read the effective SSH password policy without closing `sshd -T` early under
   `pipefail`, allowing the Rocky installed-host smoke to finish its SSH checks.
+- Compare the distro FTPS PAM service with a temporary pam_unix-only service
+  after authentication failure, identifying whether rejection comes from the
+  included host policy or local password verification without exposing secrets.
 - Run the real FTPS upload/download and revocation smoke in every installed-host
   matrix, and verify with a disposable OpenSSH server that the FTPS password
   cannot authenticate over SSH even when global password login is enabled.
