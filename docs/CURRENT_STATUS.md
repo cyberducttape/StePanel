@@ -6,6 +6,26 @@
 
 ---
 
+### Latest validation — 2026-10-24 (`ada4d82`, harness-only)
+
+- `ada4d82f04963d157697a9a979e3de2d0369787b` increases the local full-matrix
+  install timeout to six hours for one iteration, with five more hours per
+  additional repeat. The application source under test remains `b20c609`.
+- Exact-commit Integration CI passed ([run 40102867970](https://github.com/cyberducttape/StePanel/actions/runs/40102867970)),
+  including Go 1.26.10 tests and coverage floors, race tests, repository and
+  real tmpfs ENOSPC recovery, MySQL 8 and PostgreSQL restore checks, clean
+  Python deployment, security/static/container/deployment validation, mixed
+  load, and UI end-to-end/accessibility. Documentation ([run 40102867973](https://github.com/cyberducttape/StePanel/actions/runs/40102867973))
+  and CodeQL ([run 40102867980](https://github.com/cyberducttape/StePanel/actions/runs/40102867980))
+  also passed; CodeQL reports no open alerts.
+- The exact-source Rocky 9 KVM full matrix remains in progress. At
+  2026-10-24 14:53 UTC, recovery through `terminate:init` had passed; in the
+  `terminate:backup` case, backup recovery had passed and restore replay was
+  still running. The host results file records boot only. A live watchdog
+  protects the VM from the older four-hour wrapper timeout. This is not a
+  completed matrix or repeat-cohort pass.
+- Production remains **NO-GO**; see [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
+
 ### Latest application-source validation — 2026-10-24 (`b20c609`)
 
 - The application source under validation is

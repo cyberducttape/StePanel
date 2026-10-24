@@ -17,6 +17,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   in-progress recovery replay as a pass.
 - Time-bound the Rocky 9 KVM checkpoint and record completed restore-boundary
   replays through `restore:commit`.
+- Record the exact `ada4d82` Integration CI, Documentation, and CodeQL passes,
+  and the current time-bounded KVM termination-matrix checkpoint.
 
 ### Fixed
 

@@ -9,6 +9,26 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
+### Latest validation — 2026-10-24 (`ada4d82`, harness-only)
+
+The local KVM certification harness now allows six hours for its first full
+installed-host matrix iteration and five additional hours for every repeat;
+the application source under test remains `b20c609`. Exact-commit Integration
+CI passed ([run 40102867970](https://github.com/cyberducttape/StePanel/actions/runs/40102867970)),
+including Go 1.26.10 tests/coverage, race, recovery and real tmpfs ENOSPC
+drills, MySQL 8/PostgreSQL restore checks, clean Python deployment, security,
+static, container and deployment validation, mixed load, and UI E2E. Docs
+([run 40102867973](https://github.com/cyberducttape/StePanel/actions/runs/40102867973))
+and CodeQL ([run 40102867980](https://github.com/cyberducttape/StePanel/actions/runs/40102867980))
+passed too; there are no open CodeQL alerts.
+
+The exact-source Rocky Linux 9 KVM matrix remains active. At 2026-10-24 14:53
+UTC, scenarios through `terminate:init` had passed. In `terminate:backup`, the
+backup recovery replay had passed and the restore replay was still underway.
+The host result table records boot only. This run does not satisfy the
+20–50-repeat cohort, cross-platform validation, or physical host power-loss
+gate. Production remains **NO-GO**.
+
 ### Latest application-source validation — 2026-10-24 (`b20c609`)
 
 The application source under validation is
