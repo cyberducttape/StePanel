@@ -11,6 +11,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Reconcile current release status with the `5e9077b` Staticcheck failure and
   its `47ba2ff` correction, plus the active exact-source CI, six-host matrix,
   and clean-tree Rocky KVM install/recovery run; retain production NO-GO.
+- Refresh run outcomes with `47ba2ff` Go tests in progress, `766ef35`
+  Documentation and CodeQL passes, and the superseded `1b2e99d` integration
+  run cancellation; keep the local KVM recovery smoke marked pending.
 - Reconcile current status, readiness summary, and authoritative release gates
   with pushed source `5e9077b`, passing Documentation/CodeQL, in-progress
   exact-source Integration CI and six-host recovery runs; retain production

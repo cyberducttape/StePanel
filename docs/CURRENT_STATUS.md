@@ -12,10 +12,12 @@
   [`47ba2ffe88abb1436da38b28fd5a856494614133`](https://github.com/cyberducttape/StePanel/commit/47ba2ffe88abb1436da38b28fd5a856494614133).
   It fixes a Staticcheck `ST1008` finding in the vsftpd validation test
   helper. The focused test and Staticcheck pass locally. Exact-source CI
-  ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255)),
-  Documentation ([run 40119821253](https://github.com/cyberducttape/StePanel/actions/runs/40119821253)),
-  and CodeQL ([run 40119821235](https://github.com/cyberducttape/StePanel/actions/runs/40119821235))
-  are pending. The prior integration run on `5e9077b` failed only at Staticcheck
+  ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255))
+  is running the full Go suite; its UI end-to-end job has passed. Documentation
+  and CodeQL passed on evidence commit `766ef35` ([Documentation run
+  40119941004](https://github.com/cyberducttape/StePanel/actions/runs/40119941004),
+  [CodeQL run 40119941026](https://github.com/cyberducttape/StePanel/actions/runs/40119941026));
+  CodeQL reports no open alerts. The prior integration run on `5e9077b` failed only at Staticcheck
   on this finding ([run 40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239));
   its tests, coverage, race, recovery, ENOSPC, and database restore steps
   preceding static analysis passed.
@@ -23,9 +25,11 @@
   `/var/www` user/project quotas. The native install completed with vsftpd
   installed; its installed-host smoke and remaining recovery phases are still
   running (local artifacts: `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`).
-  Exact-source CI for the fixture commit ([run
-  40119585611](https://github.com/cyberducttape/StePanel/actions/runs/40119585611))
-  remains in progress.
+  Integration CI for fixture commit `1b2e99d` was superseded and cancelled
+  while race tests were running ([run
+  40119585611](https://github.com/cyberducttape/StePanel/actions/runs/40119585611));
+  its Go tests and coverage had passed. The current-source integration run
+  above includes the static-analysis correction.
 - The six-host installed recovery matrix on source `5e9077b` remains active
   ([run 40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094));
   no host result is counted as a pass before the matrix completes.

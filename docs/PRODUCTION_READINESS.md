@@ -9,11 +9,12 @@ This document describes deployment capabilities and limitations. It is not a rel
 
 Latest application source: `47ba2ffe88abb1436da38b28fd5a856494614133`.
 The focused vsftpd validator test and Staticcheck pass locally. Exact-source
-Integration CI ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255)),
-Documentation ([run 40119821253](https://github.com/cyberducttape/StePanel/actions/runs/40119821253)),
-and CodeQL ([run 40119821235](https://github.com/cyberducttape/StePanel/actions/runs/40119821235))
-are pending. The previous integration run failed at Staticcheck `ST1008` in a
-test helper; the correction is in this source. A clean-tree Rocky 9 KVM run on
+Integration CI ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255))
+is running the full Go suite, and the UI end-to-end job passed. Documentation
+and CodeQL passed on evidence commit `766ef35` ([40119941004](https://github.com/cyberducttape/StePanel/actions/runs/40119941004),
+[40119941026](https://github.com/cyberducttape/StePanel/actions/runs/40119941026));
+CodeQL reports no open alerts. The previous integration run failed at
+Staticcheck `ST1008` in a test helper; the correction is in this source. A clean-tree Rocky 9 KVM run on
 `1b2e99d` passed boot and quota setup, completed installation with vsftpd
 installed, and is still running installed smoke and recovery phases. The
 six-host recovery run on `5e9077b` remains active. Production approval remains
