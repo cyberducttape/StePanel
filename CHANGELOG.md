@@ -12,7 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   document-root replacements from restores and deployments are served without
   a stale mount; migrate the legacy view without removing the new mountpoint,
   avoid changing mounted site-parent metadata during reapplication, and verify
-  these behaviors in the installed Caddy smoke test and source contract.
+  these behaviors in the installed Caddy smoke test and source contract, with
+  distinct HTTP diagnostics for the pre- and post-activation probes.
 - Enforce one disk quota per hosting account, as ADR-0007 specifies. Each
   site in an account applied its own user quota to the shared account user,
   so sites overwrote each other's limit and clearing one site's quota lifted

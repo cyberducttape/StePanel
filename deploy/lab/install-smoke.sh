@@ -334,15 +334,25 @@ else
   ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
   mkdir -p "$activation_dir"
   printf '%s\n' before-activation > "$activation_dir/marker.txt"
-  activation_body=$(curl --insecure --silent --show-error --fail --max-time 10 \
+  activation_response=$(curl --insecure --silent --show-error --max-time 10 --write-out $'\n%{http_code}' \
     --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-check/marker.txt)
-  [[ $activation_body == before-activation ]] || { echo 'Caddy did not serve the initial activation fixture' >&2; exit 1; }
+  activation_status=${activation_response##*$'\n'}
+  activation_body=${activation_response%$'\n'*}
+  [[ $activation_status == 200 && $activation_body == before-activation ]] || {
+    echo "Caddy initial activation fixture returned HTTP $activation_status with body: $activation_body" >&2
+    exit 1
+  }
   mv "$activation_dir" "$activation_old"
   mkdir "$activation_dir"
   printf '%s\n' after-activation > "$activation_dir/marker.txt"
-  activation_body=$(curl --insecure --silent --show-error --fail --max-time 10 \
+  activation_response=$(curl --insecure --silent --show-error --max-time 10 --write-out $'\n%{http_code}' \
     --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-check/marker.txt)
-  [[ $activation_body == after-activation ]] || { echo 'Caddy continued serving the replaced document-root inode' >&2; exit 1; }
+  activation_status=${activation_response##*$'\n'}
+  activation_body=${activation_response%$'\n'*}
+  [[ $activation_status == 200 && $activation_body == after-activation ]] || {
+    echo "Caddy post-activation fixture returned HTTP $activation_status with body: $activation_body" >&2
+    exit 1
+  }
   rm -rf "$activation_dir" "$activation_old"
   symlink_status=$(caddy_https_status /stepanel-outside-secret)
   [[ $symlink_status == 404 ]] || { echo "Caddy followed or exposed a document-root symlink over HTTPS (HTTP $symlink_status)" >&2; exit 1; }
