@@ -21,8 +21,11 @@
   [benchmark record](lab-results/2026-10-24-500-site-mixed-load.md).
 - The six-platform installed-host recovery matrix is active on this source
   ([run 40114439549](https://github.com/cyberducttape/StePanel/actions/runs/40114439549));
-  its current status is in progress and no result is counted yet. N-1 upgrade
-  and rollback validation is also active ([run 40115776818](https://github.com/cyberducttape/StePanel/actions/runs/40115776818)).
+  no result is counted until the complete matrix succeeds. The current-source
+  N-1 upgrade/rollback smoke passed ([run 40115776818](https://github.com/cyberducttape/StePanel/actions/runs/40115776818));
+  it uses a compatibility-adjusted v0.6.0 fixture and is not a full supported
+  upgrade-path certification. See the
+  [upgrade evidence report](lab-results/2026-10-24-n-minus-one-upgrade-40115776818.md).
 - The separate Rocky 9 KVM full recovery and ENOSPC evidence uses application
   source `b20c609`, not this source; see
   [its report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md).
