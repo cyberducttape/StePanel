@@ -47,8 +47,8 @@ stepanel_project_quota_active /var/www
 stepanel_user_quota_active /var/www
 # A systemd-private mount namespace can expose the same device under a
 # different mount alias. Quota state must be matched to the filesystem source.
-mock_ext4_status='project quota on /var/www/.stepanel-caddy-views/example/public (/dev/vdb) is on'
-mock_ext4_user_status='user quota on /var/www/.stepanel-caddy-views/example/public (/dev/vdb) is on'
+mock_ext4_status='project quota on /var/www/.stepanel-caddy-views/example (/dev/vdb) is on'
+mock_ext4_user_status='user quota on /var/www/.stepanel-caddy-views/example (/dev/vdb) is on'
 stepanel_project_quota_active /var/www
 stepanel_user_quota_active /var/www
 mock_fstype=xfs

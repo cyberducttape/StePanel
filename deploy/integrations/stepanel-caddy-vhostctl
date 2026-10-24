@@ -19,41 +19,69 @@ location_lib=/usr/local/lib/stepanel/site-location.sh
 # shellcheck source=stepanel-site-location.sh
 . "$location_lib"
 
-view_path() { printf '%s/%s/public\n' "$view_root" "$1"; }
+view_path() { printf '%s/%s\n' "$view_root" "$1"; }
 fstab_line() { printf '%s %s none bind,nosymfollow,x-systemd.requires-mounts-for=%s 0 0\n' "$2" "$1" "$3"; }
 
+remove_fstab_target() {
+  local target=$1 temp
+  [[ -f /etc/fstab ]] || return 0
+  temp=$(mktemp /etc/.stepanel-fstab.XXXXXX)
+  awk -v target="$target" '$2 != target' /etc/fstab > "$temp"
+  chmod 0644 "$temp"
+  chown root:root "$temp"
+  mv -f "$temp" /etc/fstab
+}
+
+remove_legacy_view() {
+  local site=$1 old="$view_root/$1/public"
+  if [[ $(findmnt -no TARGET -T "$old" 2>/dev/null || true) == "$old" ]]; then
+    umount "$old"
+  fi
+  remove_fstab_target "$old"
+  rmdir "$old" "${old%/public}" 2>/dev/null || true
+}
+
 remove_view() {
-  local site=$1 public=$2 view line
+  local site=$1 view
   view=$(view_path "$site")
-  line=$(fstab_line "$view" "$public" "$public")
   if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) == "$view" ]]; then
     umount "$view"
   fi
-  if [[ -f /etc/fstab ]]; then
-    awk -v line="$line" '$0 != line' /etc/fstab > /etc/.stepanel-fstab.tmp
-    chmod 0644 /etc/.stepanel-fstab.tmp
-    chown root:root /etc/.stepanel-fstab.tmp
-    mv -f /etc/.stepanel-fstab.tmp /etc/fstab
-  fi
-  rmdir "$view" "${view%/public}" 2>/dev/null || true
+  remove_fstab_target "$view"
+  remove_legacy_view "$site"
+  rmdir "$view" 2>/dev/null || true
 }
 
 ensure_view() {
-  local site=$1 public=$2 view line options
+  local site=$1 site_home=$2 view line options mounted_identity source_identity
   view=$(view_path "$site")
-  install -d -m 0755 -o root -g root "${view%/public}"
   install -d -m 0755 -o root -g root "$view"
+  # Migrate the former public-directory mount. Mounting its stable parent
+  # makes later atomic swaps of public/public_html/domain visible to Caddy.
+  remove_legacy_view "$site"
   if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
-    mount --bind "$public" "$view"
+    mount --bind "$site_home" "$view"
     if ! mount -o remount,bind,nosymfollow "$view"; then
       umount "$view" || true
       return 1
     fi
+  else
+    mounted_identity=$(stat -Lc '%d:%i' -- "$view")
+    source_identity=$(stat -Lc '%d:%i' -- "$site_home")
+    if [[ $mounted_identity != "$source_identity" ]]; then
+      umount "$view"
+      mount --bind "$site_home" "$view"
+      if ! mount -o remount,bind,nosymfollow "$view"; then
+        umount "$view" || true
+        return 1
+      fi
+    fi
   fi
   options=$(findmnt -no OPTIONS -T "$view" 2>/dev/null || true)
-  [[ ,$options, == *,nosymfollow,* ]] || { remove_view "$site" "$public"; return 1; }
-  line=$(fstab_line "$view" "$public" "$public")
-  grep -Fqx -- "$line" /etc/fstab 2>/dev/null || printf '%s\n' "$line" >> /etc/fstab
+  [[ ,$options, == *,nosymfollow,* ]] || { remove_view "$site"; return 1; }
+  line=$(fstab_line "$view" "$site_home" "$site_home")
+  remove_fstab_target "$view"
+  printf '%s\n' "$line" >> /etc/fstab
 }
 
 if [[ $action == delete ]]; then
@@ -71,20 +99,21 @@ if [[ $action == delete ]]; then
     exit 0
   fi
   [[ -f $path ]] || { echo 'site route is not a regular file' >&2; exit 1; }
-  view=$(awk '$1 == "root" && $2 == "*" { print $3; exit }' "$path")
-  [[ $view =~ ^/var/www/\.stepanel-caddy-views/[a-z0-9_-]{1,32}/public$ ]] || { echo 'managed route does not use an isolated Caddy view' >&2; exit 1; }
-  site=${view#"$view_root/"}; site=${site%/public}
-  # Sets public_root for a legacy or hosting-account site (ADR-0007).
+  configured_root=$(awk '$1 == "root" && $2 == "*" { print $3; exit }' "$path")
+  [[ $configured_root =~ ^/var/www/\.stepanel-caddy-views/[a-z0-9_-]{1,32}/[a-z0-9._-]+$ ]] || { echo 'managed route does not use an isolated Caddy view' >&2; exit 1; }
+  site=${configured_root#"$view_root/"}; site=${site%%/*}
   stepanel_site_location "$site" || exit 1
+  view=$(view_path "$site")
+  [[ $configured_root == "$view/$site_directory" ]] || { echo 'managed route document root does not match the site location' >&2; exit 1; }
   [[ -d $public_root && ! -L $public_root ]] || { echo 'site document root is unavailable or unsafe' >&2; exit 1; }
   backup=$(mktemp)
   trap 'rm -f "$backup"' EXIT
   cp -p "$path" "$backup"
-  remove_view "$site" "$public_root"
+  remove_view "$site"
   rm -f "$path"
   if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null || ! systemctl reload "$service"; then
     mv -f "$backup" "$path"
-    ensure_view "$site" "$public_root" || true
+    ensure_view "$site" "$site_home" || true
     if caddy validate --config /etc/caddy/Caddyfile >/dev/null; then systemctl reload "$service" || true; fi
     exit 1
   fi
@@ -123,9 +152,10 @@ done
 [[ -n $socket ]] || { echo 'an active isolated PHP-FPM socket was not found for this site' >&2; exit 1; }
 
 view_root_path=$(view_path "$site")
+document_root="$view_root_path/$site_directory"
 view_was_mounted=0
 [[ $(findmnt -no TARGET -T "$view_root_path" 2>/dev/null || true) == "$view_root_path" ]] && view_was_mounted=1
-ensure_view "$site" "$public_root" || { echo 'could not establish a nosymfollow Caddy view' >&2; exit 1; }
+ensure_view "$site" "$site_home" || { echo 'could not establish a nosymfollow Caddy view' >&2; exit 1; }
 
 name="site-${site}-${domain//./_}.caddy"
 path="$root/$name"
@@ -136,7 +166,7 @@ existed=0
 cleanup() { rm -f "$backup" "$staged"; }
 restore() {
   if (( existed )); then mv -f "$backup" "$path"; else rm -f "$path"; fi
-  if (( ! view_was_mounted )); then remove_view "$site" "$public_root" || true; fi
+  if (( ! view_was_mounted )); then remove_view "$site" || true; fi
   if caddy validate --config /etc/caddy/Caddyfile >/dev/null; then systemctl reload "$service" || true; fi
 }
 trap cleanup EXIT
@@ -148,7 +178,7 @@ case "$action" in
     bcrypt_pattern='^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$'
     if [[ $action == apply-auth ]]; then [[ $auth_user =~ ^[A-Za-z0-9._-]{1,64}$ && $auth_hash =~ $bcrypt_pattern ]] || { echo 'invalid Basic Auth credentials' >&2; exit 1; }; fi
     {
-      printf '# Managed by StePanel. Manual changes will be replaced.\n%s {\n\troot * %s\n\tencode zstd gzip\n' "$domain" "$view_root_path"
+      printf '# Managed by StePanel. Manual changes will be replaced.\n%s {\n\troot * %s\n\tencode zstd gzip\n' "$domain" "$document_root"
       cat <<'EOF'
 	@stepanel_sensitive path_regexp stepanel_sensitive (?i)^/(.*/)?(node_modules(/.*)?|\.env(\.[^/]*)?|\.git(/.*)?|\.svn(/.*)?|\.hg(/.*)?|\.ssh(/.*)?|\.aws(/.*)?|\.gnupg(/.*)?|\.htpasswd|\.htaccess|[^/]+\.(sql|sqlite3?|db|dump|log|bak|backup|old|orig|save|tar|tgz|zip|7z|rar|gz|bz2|xz|zst|enc|pem|key|p12|pfx)(\.[^/]*)?)$
 	respond @stepanel_sensitive 404
@@ -188,7 +218,7 @@ EOF
       # Caddy reads through the root-owned nosymfollow bind view, but the
       # per-site PHP-FPM account and open_basedir use the canonical site path.
       # Pass that canonical path to FastCGI instead of the Caddy-only view.
-      printf '\tphp_fastcgi unix/%s {\n\t\troot %s\n\t}\n\tfile_server {\n\t\thide %s/.env %s/.env.* %s/.git %s/.git/* %s/.svn %s/.svn/* %s/.hg %s/.hg/* %s/.htpasswd %s/.htaccess\n\t}\n}\n' "$socket" "$public_root" "$view_root_path/.env" "$view_root_path/.env.*" "$view_root_path/.git" "$view_root_path/.git/*" "$view_root_path/.svn" "$view_root_path/.svn/*" "$view_root_path/.hg" "$view_root_path/.hg/*" "$view_root_path/.htpasswd" "$view_root_path/.htaccess"
+      printf '\tphp_fastcgi unix/%s {\n\t\troot %s\n\t}\n\tfile_server {\n\t\thide %s/.env %s/.env.* %s/.git %s/.git/* %s/.svn %s/.svn/* %s/.hg %s/.hg/* %s/.htpasswd %s/.htaccess\n\t}\n}\n' "$socket" "$public_root" "$document_root/.env" "$document_root/.env.*" "$document_root/.git" "$document_root/.git/*" "$document_root/.svn" "$document_root/.svn/*" "$document_root/.hg" "$document_root/.hg/*" "$document_root/.htpasswd" "$document_root/.htaccess"
     } > "$staged"
     chmod 0644 "$staged"
     chown root:root "$staged"

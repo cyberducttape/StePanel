@@ -307,7 +307,9 @@ else
   printf '%s\n' 'backup-secret' > "$archived_backup"
   printf '%s\n' 'must-not-be-followed' > "$symlink_target"
   ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
-  trap 'rm -f "$sensitive_file" "$nested_env" "$nested_git_config" "$database_export" "$archived_backup" "$symlink_target" "$symlink_path"' EXIT
+  activation_dir="$public_root/stepanel-activation-check"
+  activation_old="$public_root/.stepanel-activation-check.old"
+  trap 'rm -f "$sensitive_file" "$nested_env" "$nested_git_config" "$database_export" "$archived_backup" "$symlink_target" "$symlink_path"; rm -rf "$activation_dir" "$activation_old"' EXIT
   caddy_https_status() {
     local request_path=$1 status=000
     for _ in {1..15}; do
@@ -322,8 +324,20 @@ else
     caddy_status=$(caddy_https_status "$sensitive_path")
     [[ $caddy_status == 404 ]] || { echo "Caddy did not deny HTTPS access to $sensitive_path (HTTP $caddy_status)" >&2; exit 1; }
   done
-  view_root="/var/www/.stepanel-caddy-views/$site/public"
+  view_root="/var/www/.stepanel-caddy-views/$site"
   findmnt -no OPTIONS -T "$view_root" | tr ',' '\n' | grep -Fxq nosymfollow || { echo 'Caddy document root is not mounted with nosymfollow' >&2; exit 1; }
+  mkdir -p "$activation_dir"
+  printf '%s\n' before-activation > "$activation_dir/marker.txt"
+  activation_body=$(curl --insecure --silent --show-error --fail --max-time 10 \
+    --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-check/marker.txt)
+  [[ $activation_body == before-activation ]] || { echo 'Caddy did not serve the initial activation fixture' >&2; exit 1; }
+  mv "$activation_dir" "$activation_old"
+  mkdir "$activation_dir"
+  printf '%s\n' after-activation > "$activation_dir/marker.txt"
+  activation_body=$(curl --insecure --silent --show-error --fail --max-time 10 \
+    --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-check/marker.txt)
+  [[ $activation_body == after-activation ]] || { echo 'Caddy continued serving the replaced document-root inode' >&2; exit 1; }
+  rm -rf "$activation_dir" "$activation_old"
   symlink_status=$(caddy_https_status /stepanel-outside-secret)
   [[ $symlink_status == 404 ]] || { echo "Caddy followed or exposed a document-root symlink over HTTPS (HTTP $symlink_status)" >&2; exit 1; }
   if /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost 2>/dev/null; then

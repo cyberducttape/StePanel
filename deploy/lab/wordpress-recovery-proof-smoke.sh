@@ -67,7 +67,7 @@ cleanup() {
     echo 'Caddy runtime identity and document-root access:' >&2
     id caddy >&2 || true
     systemctl show caddy.service -p User -p Group -p SupplementaryGroups >&2 || true
-    for path in "/var/www/.stepanel-caddy-views/$site" "/var/www/.stepanel-caddy-views/$site/public" "$public_root/index.php"; do
+    for path in "/var/www/.stepanel-caddy-views/$site" "$public_root" "$public_root/index.php"; do
       if [[ -e $path && ! -L $path ]]; then
         stat -c '%A %U:%G %n' "$path" >&2 || true
         getfacl -cp "$path" >&2 || true
