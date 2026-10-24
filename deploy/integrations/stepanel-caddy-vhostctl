@@ -38,7 +38,7 @@ remove_legacy_view() {
     umount "$old"
   fi
   remove_fstab_target "$old"
-  rmdir "$old" "${old%/public}" 2>/dev/null || true
+  rmdir "$old" 2>/dev/null || true
 }
 
 remove_view() {
