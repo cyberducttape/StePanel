@@ -95,8 +95,9 @@ EOF
         STEPANEL_PAM_PROBE_USER="$site_user" \
         STEPANEL_PAM_PROBE_PASSWORD="$password" \
         strace -f -qq -e trace=execve,setuid,setreuid,setresuid,openat,newfstatat,access,wait4 \
-          -o "$tmp/pam-helper.trace" python3 "$script_dir/ftps-pam-probe.py" >&2 || true
-      sed -n '1,100p' "$tmp/pam-helper.trace" >&2 || true
+          -o "$tmp/pam-helper.trace" python3 "$script_dir/ftps-pam-probe.py" >/dev/null 2>&1 || true
+      grep -E 'unix_chkpwd|/etc/shadow|set(uid|reuid|resuid)\(|execve\(|wait4\(' \
+        "$tmp/pam-helper.trace" >&2 || true
     fi
     pam_probe_user="stepanel-pam-probe-$$"
     if useradd --no-create-home --shell /usr/sbin/nologin "$pam_probe_user"; then

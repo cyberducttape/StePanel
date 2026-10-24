@@ -37,6 +37,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   same diagnostics to determine whether the PAM helper can use its setuid bit.
 - Trace PAM helper execution and shadow-file access without tracing credential
   input, to identify why FTPS authentication fails on installed-host CI.
+- Filter PAM syscall diagnostics to the relevant helper and shadow operations,
+  avoiding truncation by interpreter startup calls.
 - Allow the installed-host workflow to target one OS/web-server combination
   while preserving the all-host default and scheduled certification matrix;
   generate a matrix containing only the selected host for focused diagnostics.
