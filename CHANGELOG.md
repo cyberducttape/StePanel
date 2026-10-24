@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Generate a bounded, site-specific database username in the installed-host
+  recovery smoke so long matrix site names satisfy the 32-character API limit.
 - Preserve environment-backed WordPress database credentials when `getenv()`
   or `env()` uses case variation, whitespace, or comments before its opening
   parenthesis.

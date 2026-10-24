@@ -296,7 +296,12 @@ if [[ ${DATABASE_RESTORE_RECOVERY:-0} == 1 ]]; then
   # restore above. The database is disposable and is removed by cleanup even
   # when a later assertion fails.
   database_name=$(printf '%s_db' "$BACKUP_RECOVERY_SMOKE_SITE" | tr '-' '_')
-  database_user=$(printf '%s_u' "$BACKUP_RECOVERY_SMOKE_SITE" | tr '-' '_')
+  database_site_hash=$(printf '%s' "$BACKUP_RECOVERY_SMOKE_SITE" | sha256sum | cut -c1-24)
+  database_user="ci_${database_site_hash}_u"
+  [[ ${#database_user} -le 32 ]] || {
+    echo 'generated database restore smoke username exceeds the supported 32-character limit' >&2
+    exit 1
+  }
   database_password='ci-database-restore-password-1234'
   response=$(curl --fail --silent --show-error --max-time 30 \
     -H "Cookie: $cookie_header" \
