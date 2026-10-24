@@ -232,7 +232,7 @@ AllowUsers $site_user
 Include /etc/ssh/sshd_config.d/stepanel-ftp-$site_user.conf
 EOF
 "$sshd_bin" -t -f "$tmp/sshd_config"
-effective_password_auth=$("$sshd_bin" -T -f "$tmp/sshd_config" -C "user=$site_user,host=localhost,addr=127.0.0.1" | awk '$1 == "passwordauthentication" { print $2; exit }')
+effective_password_auth=$("$sshd_bin" -T -f "$tmp/sshd_config" -C "user=$site_user,host=localhost,addr=127.0.0.1" | awk '$1 == "passwordauthentication" { value = $2 } END { print value }')
 [[ $effective_password_auth == no ]] || { echo 'FTPS-enabled site account still permits SSH password authentication' >&2; exit 1; }
 "$sshd_bin" -D -e -f "$tmp/sshd_config" >"$tmp/sshd.log" 2>&1 &
 sshd_pid=$!
