@@ -13,12 +13,13 @@ tmp=$(mktemp -d /tmp/stepanel-ftps-smoke.XXXXXX)
 vsftpd_pid=
 sshd_pid=
 pam_probe_config=
+pam_probe_user=
 password='ci-ftps-password-012345'
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 pam_probe() {
-  local service=$1
+  local service=$1 probe_user=${2:-$site_user}
   STEPANEL_PAM_PROBE_SERVICE="$service" \
-    STEPANEL_PAM_PROBE_USER="$site_user" \
+    STEPANEL_PAM_PROBE_USER="$probe_user" \
     STEPANEL_PAM_PROBE_PASSWORD="$password" \
     python3 "$script_dir/ftps-pam-probe.py" >&2 || true
 }
@@ -76,6 +77,17 @@ EOF
     chmod 0644 "$pam_probe_config"
     echo 'Direct pam_unix-only probe:' >&2
     pam_probe "$pam_probe_service"
+    pam_probe_user="stepanel-pam-probe-$$"
+    if useradd --no-create-home --shell /usr/sbin/nologin "$pam_probe_user"; then
+      printf '%s:%s\n' "$pam_probe_user" "$password" | chpasswd
+      echo "Direct pam_unix-only probe for UID $(id -u "$pam_probe_user"):" >&2
+      pam_probe "$pam_probe_service" "$pam_probe_user"
+      userdel "$pam_probe_user"
+      pam_probe_user=
+    else
+      echo 'Could not create a temporary regular-UID PAM comparison account' >&2
+      pam_probe_user=
+    fi
     rm -f -- "$pam_probe_config"
     pam_probe_config=
   else
@@ -92,6 +104,7 @@ cleanup() {
   printf '\n' | "$helper" ftp "$site" 0 >/dev/null 2>&1
   "$helper" delete "$site" >/dev/null 2>&1
   [[ -z $pam_probe_config ]] || rm -f -- "$pam_probe_config"
+  [[ -z $pam_probe_user ]] || userdel "$pam_probe_user" 2>/dev/null
   rm -rf -- "$tmp"
 }
 trap cleanup EXIT
