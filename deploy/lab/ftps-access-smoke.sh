@@ -89,6 +89,15 @@ EOF
     chmod 0644 "$pam_probe_config"
     echo 'Direct pam_unix-only probe:' >&2
     pam_probe "$pam_probe_service"
+    if command -v strace >/dev/null; then
+      echo 'PAM helper syscall trace (credential I/O excluded):' >&2
+      STEPANEL_PAM_PROBE_SERVICE="$pam_probe_service" \
+        STEPANEL_PAM_PROBE_USER="$site_user" \
+        STEPANEL_PAM_PROBE_PASSWORD="$password" \
+        strace -f -qq -e trace=execve,setuid,setreuid,setresuid,openat,newfstatat,access,wait4 \
+          -o "$tmp/pam-helper.trace" python3 "$script_dir/ftps-pam-probe.py" >&2 || true
+      sed -n '1,100p' "$tmp/pam-helper.trace" >&2 || true
+    fi
     pam_probe_user="stepanel-pam-probe-$$"
     if useradd --no-create-home --shell /usr/sbin/nologin "$pam_probe_user"; then
       printf '%s:%s\n' "$pam_probe_user" "$password" | chpasswd
