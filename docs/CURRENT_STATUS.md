@@ -26,6 +26,15 @@
   it uses a compatibility-adjusted v0.6.0 fixture and is not a full supported
   upgrade-path certification. See the
   [upgrade evidence report](lab-results/2026-10-24-n-minus-one-upgrade-40115776818.md).
+- The quota-enabled Ubuntu installed-host job ([run 39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883))
+  passed its rootless Podman runner permission smoke, including pinned-image
+  pull, image inspection, repeat build, failure retention, and artifact cleanup.
+  That run used source `67e67d6`; the runner helper, runner smoke, and quota
+  workflow are unchanged through current application source `1af5fc0`. This
+  closes the previously observed Podman `image inspect` failure for that
+  tested runner path, but does not establish a full current-source install or
+  cross-distro pass. See the
+  [scoped result](lab-results/2026-10-24-rootless-runner-smoke-39912326883.md).
 - The separate Rocky 9 KVM full recovery and ENOSPC evidence uses application
   source `b20c609`, not this source; see
   [its report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md).

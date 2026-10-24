@@ -13,6 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   installed-host/upgrade run links while retaining the production NO-GO.
 - Record the passing current-source N-1 upgrade/rollback smoke, including its
   adjusted legacy fixture and remaining certification limits.
+- Record the passing quota-enabled rootless Podman runner smoke that covers the
+  previously reported image-inspection failure, while preserving its older
+  source and narrow-scope limitations.
 - Reconcile the current status and authoritative production-gate snapshot with
   `b20c609`, its passing exact-source CI/Documentation/CodeQL runs, and the
   in-progress Rocky 9 KVM recovery matrix; preserve the production NO-GO.
