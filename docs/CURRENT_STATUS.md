@@ -65,7 +65,8 @@
   The first host job has started; no iteration counts until all six jobs in its
   shard pass. A separate two-iteration Rocky 9/Caddy diagnostic shard
   ([40123255865](https://github.com/cyberducttape/StePanel/actions/runs/40123255865))
-  is also active and is not a substitute for the six-host cohort.
+  was canceled before producing evidence to prioritize runner capacity for the
+  full six-host cohort.
 - Production remains **NO-GO**. The 20–50 repeat cohort, physical power-loss
   recovery, broader ENOSPC/database-outage cases, full supported-runtime
   coverage, capacity certification, live alert outage/retry evidence, upgrade

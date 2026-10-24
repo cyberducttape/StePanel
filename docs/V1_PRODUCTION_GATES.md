@@ -64,9 +64,10 @@ covering all six installed-host combinations. The ten runs are
 [40123392732](https://github.com/cyberducttape/StePanel/actions/runs/40123392732), and
 [40123394500](https://github.com/cyberducttape/StePanel/actions/runs/40123394500).
 The first host job has started and the remaining shards are queued; no cohort
-iteration is counted until every host job in its shard succeeds. A separate
+iteration is counted until every host job in its shard succeeds. The separate
 two-iteration Rocky/Caddy diagnostic shard ([40123255865](https://github.com/cyberducttape/StePanel/actions/runs/40123255865))
-is not counted toward the six-host cohort.
+was canceled before producing evidence to prioritize runner capacity for the
+six-host cohort.
 
 Production remains **NO-GO** pending repeated installed-host recovery,
 physical power-loss and broader ENOSPC/database-outage evidence,

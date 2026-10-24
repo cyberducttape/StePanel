@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Dispatch and track the current-head 20-iteration full installed-host recovery
   cohort as ten independent two-iteration shards across all six supported
   distro/web-server combinations; keep every queued or active shard uncounted.
+- Cancel the redundant single-host diagnostic shard before it produced evidence
+  so hosted runner capacity stays available for the full six-host cohort.
 - Reconcile current release status with the `5e9077b` Staticcheck failure and
   its `47ba2ff` correction, plus the active exact-source CI, six-host matrix,
   and clean-tree Rocky KVM install/recovery run; retain production NO-GO.
