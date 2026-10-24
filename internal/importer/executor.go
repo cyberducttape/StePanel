@@ -1203,8 +1203,14 @@ func parsePHPDefine(content string, index int, key string) (phpDefine, int, bool
 	if err != nil || i >= len(content) {
 		return phpDefine{}, i, false, fmt.Errorf("%s define has no value", key)
 	}
-	if strings.HasPrefix(content[i:], "getenv(") || strings.HasPrefix(content[i:], "env(") {
-		return phpDefine{skipped: true}, i + 1, true, nil
+	for _, function := range []string{"getenv", "env"} {
+		called, err := isPHPFunctionCallAt(content, i, function)
+		if err != nil {
+			return phpDefine{}, i, false, err
+		}
+		if called {
+			return phpDefine{skipped: true}, i + len(function), true, nil
+		}
 	}
 	if content[i] != '\'' && content[i] != '"' {
 		return phpDefine{}, i, false, fmt.Errorf("%s has an unsupported value expression", key)
@@ -1272,13 +1278,28 @@ func findPHPStringEnd(content string, start int) (int, error) {
 }
 
 func isPHPIdentifierAt(content string, index int, identifier string) bool {
-	if index+len(identifier) > len(content) || content[index:index+len(identifier)] != identifier {
+	if index+len(identifier) > len(content) || !strings.EqualFold(content[index:index+len(identifier)], identifier) {
 		return false
 	}
 	if index > 0 && (isPHPIdentifierChar(content[index-1])) {
 		return false
 	}
 	return index+len(identifier) == len(content) || !isPHPIdentifierChar(content[index+len(identifier)])
+}
+
+// isPHPFunctionCallAt recognizes PHP function calls with normal whitespace or
+// comments between the function name and opening parenthesis. PHP function
+// names are case-insensitive, and environment-backed values must remain
+// untouched regardless of their formatting.
+func isPHPFunctionCallAt(content string, index int, function string) (bool, error) {
+	if !isPHPIdentifierAt(content, index, function) {
+		return false, nil
+	}
+	open, err := skipPHPTrivia(content, index+len(function))
+	if err != nil {
+		return false, err
+	}
+	return open < len(content) && content[open] == '(', nil
 }
 
 func isPHPIdentifierChar(value byte) bool {

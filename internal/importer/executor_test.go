@@ -372,30 +372,39 @@ func TestConfigurationUpdateEscapesPHPDatabaseCredentials(t *testing.T) {
 }
 
 func TestConfigurationUpdateReportsFunctionBackedValueAsSkipped(t *testing.T) {
-	executor := &Executor{}
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "wp-config.php")
-	content := "<?php\ndefine('DB_PASSWORD', getenv('DB_PASSWORD'));\n"
-	if err := os.WriteFile(configFile, []byte(content), 0640); err != nil {
-		t.Fatal(err)
-	}
+	for _, expression := range []string{
+		"getenv('DB_PASSWORD')",
+		"getenv ('DB_PASSWORD')",
+		"GETENV /* documented environment-backed value */ ( 'DB_PASSWORD' )",
+		"env\n( 'DB_PASSWORD' )",
+	} {
+		t.Run(expression, func(t *testing.T) {
+			executor := &Executor{}
+			tmpDir := t.TempDir()
+			configFile := filepath.Join(tmpDir, "wp-config.php")
+			content := "<?php\ndefine('DB_PASSWORD', " + expression + ");\n"
+			if err := os.WriteFile(configFile, []byte(content), 0640); err != nil {
+				t.Fatal(err)
+			}
 
-	report, err := executor.updateConfigurationWithReport(&ImportJob{
-		WebRoot:          tmpDir,
-		DatabasePassword: "secret",
-	}, "wp-config.php")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(report.Updated) != 0 || len(report.Skipped) != 1 || report.Skipped[0] != "DB_PASSWORD" {
-		t.Fatalf("unexpected configuration update report: %+v", report)
-	}
-	updated, err := os.ReadFile(configFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(updated) != content {
-		t.Fatalf("function-backed configuration was rewritten: got %q", updated)
+			report, err := executor.updateConfigurationWithReport(&ImportJob{
+				WebRoot:          tmpDir,
+				DatabasePassword: "secret",
+			}, "wp-config.php")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(report.Updated) != 0 || len(report.Skipped) != 1 || report.Skipped[0] != "DB_PASSWORD" {
+				t.Fatalf("unexpected configuration update report: %+v", report)
+			}
+			updated, err := os.ReadFile(configFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(updated) != content {
+				t.Fatalf("function-backed configuration was rewritten: got %q", updated)
+			}
+		})
 	}
 }
 

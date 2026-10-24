@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Preserve environment-backed WordPress database credentials when `getenv()`
+  or `env()` uses case variation, whitespace, or comments before its opening
+  parenthesis.
 - Record the completed exact-source CI pass for `215c50c`, including race,
   ENOSPC, database restore, security, deployment, and UI checks; retain the
   NO-GO decision pending installed-host and remaining release gates.
