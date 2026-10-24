@@ -537,9 +537,21 @@ func (a *App) applyResourceProfile(ctx context.Context, p ResourceProfile, clear
 	if resourceErr != nil {
 		return resourceErr
 	}
+	// A site placed in a hosting account (ADR-0007) shares the account's Unix
+	// user with the account's other sites, so its disk limit is the account's
+	// user quota, never a per-site one: a per-site setquota would overwrite
+	// the other sites' limit, and clearing it would lift the whole account's.
+	location, err := siteLocationFor(a.Config, p.Site)
+	if err != nil {
+		return err
+	}
+	placed := location.Placed
 	if a.Config.Production {
 		if err := runTypedSiteMutation(ctx, a.Config, rootbroker.SiteRequest{Action: "resources", Site: p.Site, PHPWorkers: p.PHPWorkers}); err != nil {
 			return err
+		}
+		if placed {
+			return a.applyAccountFilesystemQuota(ctx, location.Placement.Account, p)
 		}
 		if p.hasFilesystemQuota() {
 			return runTypedSiteMutation(ctx, a.Config, rootbroker.SiteRequest{Action: "quota", Site: p.Site, DiskMB: p.DiskMB, Inodes: p.Inodes})
@@ -552,6 +564,9 @@ func (a *App) applyResourceProfile(ctx context.Context, p ResourceProfile, clear
 	if err := runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.SiteCtl, "resources", p.Site, strconv.Itoa(p.PHPWorkers)); err != nil {
 		return err
 	}
+	if placed {
+		return a.applyAccountFilesystemQuota(ctx, location.Placement.Account, p)
+	}
 	if p.hasFilesystemQuota() {
 		if err := runHelperCommandWithTimeout(ctx, a.Config, helperConfigMutationTimeout, a.Config.SiteCtl, "quota", p.Site, strconv.Itoa(p.DiskMB), strconv.Itoa(p.Inodes)); err != nil {
 			return err
@@ -563,6 +578,36 @@ func (a *App) applyResourceProfile(ctx context.Context, p ResourceProfile, clear
 	}
 	return nil
 }
+
+// accountFilesystemQuota is the disk and inode limit of a hosting account:
+// its customer tenant's plan, or, for an administrator-created account with
+// no tenant, the limits of the site profile being applied. ok is false when
+// the account has no filesystem limit.
+func (a *App) accountFilesystemQuota(account string, p ResourceProfile) (diskMB, inodes int, ok bool) {
+	if a.Accounts != nil {
+		if tenant, found := a.Accounts.Get(account); found {
+			if plan, known := hostingPlans[tenant.Plan]; known && (plan.DiskMB > 0 || plan.Inodes > 0) {
+				return plan.DiskMB, plan.Inodes, true
+			}
+		}
+	}
+	return p.DiskMB, p.Inodes, p.hasFilesystemQuota()
+}
+
+// applyAccountFilesystemQuota enforces a hosting account's limit on its Unix
+// user. It never clears the limit: other sites of the account rely on it, and
+// the account user and its quota go away together with the account.
+func (a *App) applyAccountFilesystemQuota(ctx context.Context, account string, p ResourceProfile) error {
+	diskMB, inodes, ok := a.accountFilesystemQuota(account, p)
+	if !ok {
+		return nil
+	}
+	if _, err := accountHelperContext(ctx, a.Config, rootbroker.AccountRequest{Action: "quota", Account: account, DiskMB: diskMB, Inodes: inodes}); err != nil {
+		return fmt.Errorf("apply hosting account %s filesystem quota: %w", account, err)
+	}
+	return nil
+}
+
 func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 	site := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/sites/resources/"), "/")
 	if safeUser(site) == "" || strings.Contains(site, "/") {

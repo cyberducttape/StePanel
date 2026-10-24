@@ -438,6 +438,15 @@ parse_config_file() {
   return 0
 }
 
+# A site in a hosting account shares the account's Unix user with the
+# account's other sites; its disk limit is the account quota that
+# stepanel-userctl account-quota sets. A per-site setquota would overwrite the
+# other sites' limit, and quota-clear would lift the whole account's.
+if [[ $action == quota || $action == quota-clear ]] && (( site_placed )); then
+  echo "site $site is in hosting account $site_location_user; set its disk limit with the account quota" >&2
+  exit 1
+fi
+
 if [[ $action == runtime ]]; then
   php_version=$4; memory_limit=$5; max_execution_time=$6; upload_max_filesize=$7; post_max_size=$8; max_input_vars=$9; opcache_enabled=${10}; display_errors=${11}; error_reporting=${12}
   error_pattern='^[A-Z0-9_~& |]{1,80}$'

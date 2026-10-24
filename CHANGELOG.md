@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Enforce one disk quota per hosting account, as ADR-0007 specifies. Each
+  site in an account applied its own user quota to the shared account user,
+  so sites overwrote each other's limit and clearing one site's quota lifted
+  the whole account's. A placed site's profile now applies the account quota
+  (the customer plan's limit, or the profile's for an account without a
+  tenant) through `stepanel-userctl account-quota`, which was never called
+  before, and `stepanel-sitectl` refuses per-site quotas for placed sites.
 - Import archives into a hosting account (ADR-0007) instead of
   `/var/www/sites`: `/api/admin/archive/import` takes optional `account`,
   `kind` and `domain`, refuses an invalid placement before queueing, prepares

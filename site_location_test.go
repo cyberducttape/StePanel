@@ -174,3 +174,37 @@ func TestAppUnitsExposeOnlyThePlacedSitesHomePaths(t *testing.T) {
 		t.Fatal("stepanel-appctl must default to ProtectHome=true and bind only a placed site's document root and private state")
 	}
 }
+
+func TestPlacedSitesUseTheAccountQuotaNotAPerSiteOne(t *testing.T) {
+	cfg := placedSiteConfig(t)
+	root := t.TempDir()
+	calls := filepath.Join(root, "calls")
+	stub := filepath.Join(root, "helper")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+calls+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg.SiteCtl, cfg.AppCtl, cfg.Sudo = stub, stub, filepath.Join(root, "sudo")
+	if err := os.WriteFile(cfg.Sudo, []byte("#!/bin/sh\nwhile [ \"${1#-}\" != \"$1\" ]; do shift; done\nexec \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{Config: cfg, Accounts: &AccountStore{accounts: map[string]HostingAccount{"alice": {Username: "alice", Plan: "starter"}}}}
+	profile := ResourceProfile{Site: "shop", CPUPercent: 100, CPUWeight: 100, MemoryHighMB: 256, MemoryMB: 512, IOWeight: 100, TasksMax: 128, PHPWorkers: 4, DiskMB: 2048, Inodes: 50000}
+	if err := a.applyResourceProfile(context.Background(), profile, true); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "resources shop 4") || strings.Contains(string(data), "quota") {
+		t.Fatalf("helper calls = %q; a placed site must not get a per-site quota or quota-clear", data)
+	}
+	// The account limit is the tenant's plan, not the site profile.
+	if disk, inodes, ok := a.accountFilesystemQuota("alice", profile); !ok || disk != hostingPlans["starter"].DiskMB || inodes != hostingPlans["starter"].Inodes {
+		t.Fatalf("tenant account quota = %d/%d/%v", disk, inodes, ok)
+	}
+	// An administrator-created account without a tenant uses the profile.
+	if disk, inodes, ok := a.accountFilesystemQuota("solo", profile); !ok || disk != 2048 || inodes != 50000 {
+		t.Fatalf("tenantless account quota = %d/%d/%v", disk, inodes, ok)
+	}
+}
