@@ -16,6 +16,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   compare transfers with installed core utilities.
 - Report each installed-host FTPS smoke phase so distro-specific provisioning,
   PAM, SSH-policy, and transfer failures are distinguishable from CI output.
+- Avoid a RHEL pipefail/SIGPIPE abort when resolving the newly prepared FTPS
+  account, and include a secret-safe direct PAM auth/account probe on login
+  failure to isolate PAM policy from vsftpd behavior.
 - Run the real FTPS upload/download and revocation smoke in every installed-host
   matrix, and verify with a disposable OpenSSH server that the FTPS password
   cannot authenticate over SSH even when global password login is enabled.
