@@ -8,6 +8,14 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../../web/static/jobs.js'), 'utf8');
 
+class FakeElement {
+  constructor() { this.children = []; this.attributes = {}; }
+  append(...children) { this.children.push(...children); }
+  replaceChildren(...children) { this.children = [...children]; }
+  setAttribute(name, value) { this.attributes[name] = value; }
+  addEventListener() {}
+}
+
 function deferred() {
   let resolve;
   const promise = new Promise((done) => { resolve = done; });
@@ -27,9 +35,11 @@ function loadJobs(respond) {
     addEventListener(name, listener) { this.listeners.set(name, listener); }
     close() {}
   }
+  const feed = new FakeElement();
   const document = {
     visibilityState: 'visible',
-    querySelector: () => null,
+    querySelector: (selector) => selector === '#jobFeed' ? feed : null,
+    createElement: () => new FakeElement(),
     addEventListener() {},
   };
   const window = { EventSource: FakeEventSource };
@@ -50,7 +60,7 @@ function loadJobs(respond) {
   };
   window.StepanelAPI = context.StepanelAPI;
   vm.runInNewContext(source, context);
-  return { jobs: window.StepanelJobs, intervals, requests, get eventSource() { return eventSource; } };
+  return { jobs: window.StepanelJobs, intervals, requests, feed, get eventSource() { return eventSource; } };
 }
 
 const job = (state) => ({ id: 'job-1', kind: 'site.backup', user: 'site-a', state, started_at: '2026-10-12T00:00:00Z' });
@@ -81,4 +91,25 @@ test('an older snapshot cannot roll back a newer SSE event', async () => {
   stale.resolve({ jobs: [job('running')] });
   await flush();
   assert.equal(jobs.get('job-1').state, 'completed');
+});
+
+test('a failed refresh labels the retained snapshot as potentially stale', async () => {
+  const harness = loadJobs((_url, requestNumber) => {
+    if (requestNumber === 2) return Promise.reject(new Error('database unavailable'));
+    return Promise.resolve({ jobs: [job(requestNumber === 1 ? 'running' : 'completed')] });
+  });
+  await flush();
+  harness.intervals[0].callback();
+  await flush();
+
+  assert.equal(harness.jobs.get('job-1').state, 'running');
+  let warning = harness.feed.children.find((child) => child.attributes.role === 'status');
+  assert.ok(warning);
+  assert.match(warning.textContent, /last available snapshot/);
+
+  harness.intervals[0].callback();
+  await flush();
+  assert.equal(harness.jobs.get('job-1').state, 'completed');
+  warning = harness.feed.children.find((child) => child.attributes.role === 'status');
+  assert.equal(warning, undefined);
 });

@@ -7,6 +7,7 @@
   const waiters = new Map();
   const waitStarted = new Map();
   const waitFailures = new Map();
+  let snapshotUnavailable = false;
   let waiterPoller;
   const maxWaitDuration = 6 * 60 * 60 * 1000;
   const maxWaitRequestFailures = 5;
@@ -63,6 +64,7 @@
   // jobs pruned on the server disappear here too. Only jobs someone is still
   // waiting on are kept until their own status request settles.
   const replaceAll = (list, preserveUpdatesAfter = null) => {
+    snapshotUnavailable = false;
     const previous = new Map(jobs);
     jobs.clear();
     const preservedRevisions = new Map();
@@ -111,7 +113,10 @@
     const requestedAtRevision = updateRevision;
     api().request('/api/jobs')
       .then((data) => replaceAll(data.jobs || [], requestedAtRevision))
-      .catch(() => {});
+      .catch(() => {
+        snapshotUnavailable = true;
+        render();
+      });
   };
   const cancel = async (id) => {
     await api().request(`/api/jobs/${encodeURIComponent(id)}`, { method: 'POST' });
@@ -178,6 +183,13 @@
     const feed = document.querySelector('#jobFeed');
     if (feed) {
       feed.replaceChildren();
+      if (snapshotUnavailable) {
+        const warning = document.createElement('p');
+        warning.className = 'empty-state';
+        warning.setAttribute('role', 'status');
+        warning.textContent = 'Job history could not be refreshed. Showing the last available snapshot; some updates may be missing.';
+        feed.append(warning);
+      }
       visible.slice(0, 5).forEach((job) => {
         const row = document.createElement('div'); row.className = 'activity-item';
         const link = document.createElement('a'); link.className = 'activity-link'; link.href = `/api/jobs/${encodeURIComponent(job.id)}`;
@@ -194,7 +206,7 @@
         }
         feed.append(row);
       });
-      if (!visible.length) { const empty = document.createElement('p'); empty.className = 'empty-state'; empty.textContent = 'No jobs have been recorded yet.'; feed.append(empty); }
+      if (!visible.length && !snapshotUnavailable) { const empty = document.createElement('p'); empty.className = 'empty-state'; empty.textContent = 'No jobs have been recorded yet.'; feed.append(empty); }
     }
     if (!list) return;
     list.replaceChildren();
@@ -247,7 +259,10 @@
   };
 
   const init = async () => {
-    try { await load(); } catch (_) { /* the page can still render its server snapshot */ }
+    try { await load(); } catch (_) {
+      snapshotUnavailable = true;
+      render();
+    }
     connect();
     setInterval(refreshSnapshot, snapshotPollInterval);
     document.addEventListener('visibilitychange', refreshSnapshot);
