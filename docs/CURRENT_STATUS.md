@@ -13,12 +13,12 @@
   It fixes a Staticcheck `ST1008` finding in the vsftpd validation test
   helper. The focused test and Staticcheck pass locally. Exact-source CI
   ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255))
-  has passed the full Go suite, coverage gates, race tests, shell lint, and UI
-  end-to-end. Its database-restore, dependency, static-analysis, and packaging
-  checks are still running. Documentation
-  and CodeQL passed on evidence commit `766ef35` ([Documentation run
-  40119941004](https://github.com/cyberducttape/StePanel/actions/runs/40119941004),
-  [CodeQL run 40119941026](https://github.com/cyberducttape/StePanel/actions/runs/40119941026));
+  passed all checks: Go tests and coverage floors, race tests, recovery and
+  ENOSPC drills, database restore, static analysis, packaging and container
+  smoke, and UI end-to-end. Documentation and CodeQL passed on evidence commit
+  `e15a284` ([Documentation run
+  40121256032](https://github.com/cyberducttape/StePanel/actions/runs/40121256032),
+  [CodeQL run 40121256049](https://github.com/cyberducttape/StePanel/actions/runs/40121256049));
   CodeQL reports no open alerts. The prior integration run on `5e9077b` failed only at Staticcheck
   on this finding ([run 40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239));
   its tests, coverage, race, recovery, ENOSPC, and database restore steps

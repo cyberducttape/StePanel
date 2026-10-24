@@ -15,11 +15,11 @@ Current source is
 [`47ba2ffe88abb1436da38b28fd5a856494614133`](https://github.com/cyberducttape/StePanel/commit/47ba2ffe88abb1436da38b28fd5a856494614133).
 The focused vsftpd validator test and Staticcheck pass locally. Exact-source
 Integration CI ([40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255))
-has passed the full Go suite, coverage gates, race tests, shell lint, and UI
-end-to-end. Its remaining database-restore, dependency, static-analysis, and
-packaging checks are still running. Documentation and
-CodeQL passed on evidence commit `766ef35` ([40119941004](https://github.com/cyberducttape/StePanel/actions/runs/40119941004),
-[40119941026](https://github.com/cyberducttape/StePanel/actions/runs/40119941026));
+passed all checks, including Go tests and coverage floors, race tests, recovery
+and ENOSPC drills, database restores, static analysis, packaging/container
+smoke, and UI end-to-end. Documentation and CodeQL passed on evidence commit
+`e15a284` ([40121256032](https://github.com/cyberducttape/StePanel/actions/runs/40121256032),
+[40121256049](https://github.com/cyberducttape/StePanel/actions/runs/40121256049));
 CodeQL reports no open alerts. The preceding `5e9077b` integration run failed at Staticcheck
 `ST1008` in the validator test helper; that ordering is fixed in `47ba2ff`.
 Earlier test, coverage, race, recovery, ENOSPC, and database-restore steps in
