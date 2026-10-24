@@ -6,6 +6,27 @@
 
 ---
 
+### Current pushed source — 2026-10-24 (`215c50c`)
+
+- The latest commit increases the installed-host smoke deadline after two
+  Ubuntu package-provisioning runs reached the prior 80-minute limit, and adds
+  timestamped installer phase logs. Focused tests, the root-package suite,
+  shell syntax, workflow bounds, and whitespace checks passed locally.
+- Exact-source integration CI ([run 40086080662](https://github.com/cyberducttape/StePanel/actions/runs/40086080662))
+  has passed Go tests/coverage and recovery/ENOSPC steps; full race tests remain
+  active, so the workflow is not yet green. Documentation and CodeQL runs
+  passed ([40086080677](https://github.com/cyberducttape/StePanel/actions/runs/40086080677),
+  [40086080657](https://github.com/cyberducttape/StePanel/actions/runs/40086080657));
+  there are no open CodeQL alerts.
+- Focused Ubuntu 24.04 + Caddy installation smoke ([run 40086450399](https://github.com/cyberducttape/StePanel/actions/runs/40086450399))
+  is running its installed-host smoke. The six-host recovery cohort on
+  application source `06ae561` ([run 40085787315](https://github.com/cyberducttape/StePanel/actions/runs/40085787315))
+  and the local Rocky KVM recovery drill on older source `2dead8a` are also
+  still running. Their observed progress is not a completed pass.
+- Production remains **NO-GO**; see the authoritative
+  [production gates](V1_PRODUCTION_GATES.md) for the outstanding host recovery,
+  application restore, capacity, alerting, upgrade, and security evidence.
+
 ## Executive Summary
 
 StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host deployments with experienced operators. The product is **functionally complete** for its stated feature set. The remaining work before v1.0 is **proving production durability and failure recovery** rather than building new features.

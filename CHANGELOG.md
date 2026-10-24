@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Reconcile current release-gate and project-status evidence with pushed source
+  `215c50c`, passing documentation/CodeQL checks, and still-running CI and
+  installed-host validation; retain the production NO-GO decision.
 - Increase the installed-host smoke budget after two Ubuntu runs hit the old
   80-minute cutoff during package provisioning, and emit timestamped installer
   package-phase progress to make long stalls diagnosable.

@@ -9,6 +9,37 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
+### Latest pushed-source validation — 2026-10-24 (`215c50c`)
+
+Current `main` is [`215c50ca53ecaca0e26f893c13b4ea4c762ff58e`](https://github.com/cyberducttape/StePanel/commit/215c50ca53ecaca0e26f893c13b4ea4c762ff58e).
+The commit increases the installed-host smoke budget after two Ubuntu
+installations reached the former 80-minute timeout while provisioning packages,
+and adds timestamped installer phase progress. Local focused timeout tests,
+the complete root-package test suite, installer and smoke-script syntax checks,
+the workflow-bound check, and `git diff --check` passed.
+
+Exact-source integration CI ([run 40086080662](https://github.com/cyberducttape/StePanel/actions/runs/40086080662))
+has passed Go tests/coverage, recovery and real tmpfs ENOSPC steps and UI E2E;
+its full race suite is still running and the workflow is not a complete pass.
+Documentation ([run 40086080677](https://github.com/cyberducttape/StePanel/actions/runs/40086080677))
+and CodeQL ([run 40086080657](https://github.com/cyberducttape/StePanel/actions/runs/40086080657))
+passed, with no open CodeQL alerts. The focused Ubuntu 24.04 + Caddy install
+smoke ([run 40086450399](https://github.com/cyberducttape/StePanel/actions/runs/40086450399))
+has reached its installed-host smoke step and remains in progress.
+
+The six-host full recovery matrix ([run 40085787315](https://github.com/cyberducttape/StePanel/actions/runs/40085787315))
+uses application source `06ae561` and is still running the installed-host smoke
+on all six OS/webserver combinations. The local Rocky Linux 9 KVM repeated
+recovery run uses older source `2dead8a`; it continues to pass observed
+interruption points but remains in progress and does not establish exact-source
+or power-loss evidence. No in-progress run counts as a pass.
+
+Production remains **NO-GO**. Required repeated installed-host recovery,
+physical power-loss and broader host ENOSPC/database-outage evidence,
+application-level WordPress restore proof across supported web servers,
+capacity certification, live alert outage/retry evidence, upgrade/rollback
+policy, and independent security assessment remain open.
+
 ### Latest application-source validation — 2026-10-24 (`06ae561`)
 
 The latest application source is
