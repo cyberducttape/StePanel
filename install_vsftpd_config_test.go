@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func runVSFTPDConfigValidator(t *testing.T, fakeBody string) (string, error, string) {
+func runVSFTPDConfigValidator(t *testing.T, fakeBody string) (string, string, error) {
 	t.Helper()
 	dir := t.TempDir()
 	helper := filepath.Join("deploy", "lib", "vsftpd-config-validation.sh")
@@ -28,11 +28,11 @@ stepanel_validate_vsftpd_config "$2" "$3"
 `, "bash", helper, binary, config)
 	cmd.Env = append(os.Environ(), "VSFTPD_TEST_ARGS="+argsFile)
 	output, err := cmd.CombinedOutput()
-	return string(output), err, argsFile
+	return string(output), argsFile, err
 }
 
 func TestVSFTPDConfigValidationUsesBoundedLoopbackListener(t *testing.T) {
-	output, err, argsFile := runVSFTPDConfigValidator(t, `printf '%s\n' "$@" > "$VSFTPD_TEST_ARGS"
+	output, argsFile, err := runVSFTPDConfigValidator(t, `printf '%s\n' "$@" > "$VSFTPD_TEST_ARGS"
 exec sleep 30
 `)
 	if err != nil {
@@ -60,7 +60,7 @@ exit 2
 `,
 	} {
 		t.Run(name, func(t *testing.T) {
-			output, err, _ := runVSFTPDConfigValidator(t, body)
+			output, _, err := runVSFTPDConfigValidator(t, body)
 			if err == nil {
 				t.Fatalf("validator accepted an early process exit; output=%q", output)
 			}
