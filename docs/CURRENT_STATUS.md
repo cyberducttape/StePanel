@@ -1,7 +1,7 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-23
+**Last Updated:** 2026-10-24
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
@@ -12,7 +12,23 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Current release evidence — 2026-10-23 07:40 UTC (`64b4a39`)
+### Current release evidence — 2026-10-24 (`dc25ddc`)
+
+- Current `main` is `dc25ddc9386cbb578deadf977389cc713e114075`. Local `go test
+  ./...` passed on Go 1.26.10; `bash -n`, ShellCheck, and `git diff --check`
+  passed for the installed-host smoke correction.
+- The six-host run at source `e94f870` ([run 39960010260](https://github.com/cyberducttape/StePanel/actions/runs/39960010260))
+  failed at a false-negative source-path assertion: imported sites can live
+  under `/home`, while the smoke checked only `/var/www/sites`. Artifacts show
+  the import completed and the interrupted staging-site transaction was
+  recovered. The corrected root resolution has not yet passed an installed-host
+  run. The old-source scheduled run 40076789043 remains in progress; exact-head
+  CI, CodeQL, docs, and the corrected six-host smoke are queued. These are not
+  passing evidence.
+- Production remains **NO-GO** pending the host recovery matrix and the other
+  gates in [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md).
+
+### Prior release evidence — 2026-10-23 07:40 UTC (`64b4a39`)
 
 - Application and smoke-harness source under test is `ea69e24`; current `main`
   at `64b4a39` adds evidence documentation only. Documentation validation

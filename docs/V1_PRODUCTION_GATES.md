@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-23
+**Last Updated:** 2026-10-24
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -9,7 +9,38 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current release evidence — 2026-10-23 13:39 UTC (`e94f87` application source)
+### Current release evidence — 2026-10-24 (`dc25ddc`)
+
+### Prior release evidence — 2026-10-23 13:39 UTC (`e94f87` application source)
+
+Current `main` is
+[`dc25ddc9386cbb578deadf977389cc713e114075`](https://github.com/cyberducttape/StePanel/commit/dc25ddc9386cbb578deadf977389cc713e114075).
+The full local Go suite passed with Go 1.26.10, and the installed-host smoke
+script passed `bash -n` and ShellCheck. This change corrects a recovery-smoke
+assertion that assumed every source site lived under `/var/www/sites`; cPanel
+imports can be placed under `/home/<account>/<directory>`. The assertion now
+uses the site's root-managed location record and saves the resolved document
+root before termination removes that record.
+
+The prior exact-source six-host run
+([run 39960010260](https://github.com/cyberducttape/StePanel/actions/runs/39960010260),
+source `e94f870`) failed on all six hosts at the assertion
+`interrupted staging restore disturbed source site`. Its uploaded logs show
+that the cPanel import smoke had completed and the recovery journal recovered
+the separate staging-site transaction. The assertion checked only the legacy
+path, so those failures do not establish source-site data loss. They also do
+not prove the new assertion or recovery workflow passes. A scheduled six-host
+run on `6ac0643` is still in progress
+([run 40076789043](https://github.com/cyberducttape/StePanel/actions/runs/40076789043));
+the exact-commit CI, CodeQL, documentation, and corrected installed-host runs
+for `dc25ddc` are queued (runs 40077749788, 40077749784, 40077749775, and
+40077753301 respectively). No queued or in-progress run counts as passing
+evidence.
+
+Production remains **NO-GO**. The outstanding gates below remain open; this
+smoke assertion correction does not change the recovery-certification status.
+
+### Prior release evidence — 2026-10-23 13:39 UTC (`e94f87` application source)
 
 Current application and integration source is
 [`e94f870e09f51b167d2e637c9a5b481231d66acd`](https://github.com/cyberducttape/StePanel/commit/e94f870e09f51b167d2e637c9a5b481231d66acd).
