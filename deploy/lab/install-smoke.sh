@@ -292,6 +292,9 @@ if [[ $STEPANEL_WEBSERVER == apache ]]; then
 else
   caddy validate --config /etc/caddy/Caddyfile
   public_root="/var/www/sites/$site/public"
+  site_home="/var/www/sites/$site"
+  activation_old_root="$site_home/.stepanel-public-activation-old"
+  activation_marker="$public_root/stepanel-activation-marker.txt"
   sensitive_file="$public_root/.env"
   nested_env="$public_root/nested/.env.production"
   nested_git_config="$public_root/nested/.git/config"
@@ -307,9 +310,7 @@ else
   printf '%s\n' 'backup-secret' > "$archived_backup"
   printf '%s\n' 'must-not-be-followed' > "$symlink_target"
   ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
-  activation_dir="$public_root/stepanel-activation-check"
-  activation_old="$public_root/.stepanel-activation-check.old"
-  trap 'rm -f "$sensitive_file" "$nested_env" "$nested_git_config" "$database_export" "$archived_backup" "$symlink_target" "$symlink_path"; rm -rf "$activation_dir" "$activation_old"' EXIT
+  trap 'rm -f "$sensitive_file" "$nested_env" "$nested_git_config" "$database_export" "$archived_backup" "$symlink_target" "$symlink_path"; if [[ -d "$activation_old_root" ]]; then rm -rf "$public_root"; mv "$activation_old_root" "$public_root"; fi; rm -f "$activation_marker"' EXIT
   caddy_https_status() {
     local request_path=$1 status=000
     for _ in {1..15}; do
@@ -326,34 +327,38 @@ else
   done
   view_root="/var/www/.stepanel-caddy-views/$site"
   findmnt -no OPTIONS -T "$view_root" | tr ',' '\n' | grep -Fxq nosymfollow || { echo 'Caddy document root is not mounted with nosymfollow' >&2; exit 1; }
-  site_home="/var/www/sites/$site"
   site_home_identity=$(stat -c '%u:%g:%a' "$site_home")
   rm -f "$symlink_path"
   /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost
   [[ $(stat -c '%u:%g:%a' "$site_home") == "$site_home_identity" ]] || { echo 'reapplying the Caddy route changed site-parent ownership or mode' >&2; exit 1; }
   ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
-  mkdir -p "$activation_dir"
-  printf '%s' before-activation > "$activation_dir/marker.txt"
+  printf '%s' before-activation > "$activation_marker"
   activation_response=$(curl --insecure --silent --show-error --max-time 10 --write-out $'\n%{http_code}' \
-    --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-check/marker.txt)
+    --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-marker.txt)
   activation_status=${activation_response##*$'\n'}
   activation_body=${activation_response%$'\n'*}
   [[ $activation_status == 200 && $activation_body == before-activation ]] || {
     echo "Caddy initial activation fixture returned HTTP $activation_status with body: $activation_body" >&2
     exit 1
   }
-  mv "$activation_dir" "$activation_old"
-  mkdir "$activation_dir"
-  printf '%s' after-activation > "$activation_dir/marker.txt"
+  [[ ! -e $activation_old_root && ! -L $activation_old_root ]] || { echo 'stale Caddy activation fixture exists' >&2; exit 1; }
+  activation_uid=$(stat -c %u "$public_root")
+  activation_gid=$(stat -c %g "$public_root")
+  activation_mode=$(stat -c %a "$public_root")
+  mv "$public_root" "$activation_old_root"
+  install -d -m "$activation_mode" -o "$activation_uid" -g "$activation_gid" "$public_root"
+  printf '%s' after-activation > "$activation_marker"
   activation_response=$(curl --insecure --silent --show-error --max-time 10 --write-out $'\n%{http_code}' \
-    --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-check/marker.txt)
+    --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-marker.txt)
   activation_status=${activation_response##*$'\n'}
   activation_body=${activation_response%$'\n'*}
   [[ $activation_status == 200 && $activation_body == after-activation ]] || {
     echo "Caddy post-activation fixture returned HTTP $activation_status with body: $activation_body" >&2
     exit 1
   }
-  rm -rf "$activation_dir" "$activation_old"
+  rm -rf "$public_root"
+  mv "$activation_old_root" "$public_root"
+  rm -f "$activation_marker"
   symlink_status=$(caddy_https_status /stepanel-outside-secret)
   [[ $symlink_status == 404 ]] || { echo "Caddy followed or exposed a document-root symlink over HTTPS (HTTP $symlink_status)" >&2; exit 1; }
   if /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost 2>/dev/null; then
