@@ -9,19 +9,19 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest source validation — 2026-10-24 (`f147727`, application source `343e445`)
+### Latest source validation — 2026-10-24 (`69bcac1`, application source `343e445`)
 
 Validation was run against evidence commit
-[`f147727679e7b335f4c59f57a45049f7109015f0`](https://github.com/cyberducttape/StePanel/commit/f147727679e7b335f4c59f57a45049f7109015f0),
+[`69bcac1bd41bc60eb82b98ea4908508e306486b3`](https://github.com/cyberducttape/StePanel/commit/69bcac1bd41bc60eb82b98ea4908508e306486b3),
 a documentation-only update over application source
 [`343e4450f9b6323a09b9c76392058fa77a37a8c5`](https://github.com/cyberducttape/StePanel/commit/343e4450f9b6323a09b9c76392058fa77a37a8c5).
 The full Go suite and race suite, `go vet ./...`, `make release-check`,
 documentation-link and reference checks, all 15 frontend unit tests, JavaScript
 syntax validation, and diff checks passed on the current tree.
 
-Exact-head CodeQL ([run 40126540603](https://github.com/cyberducttape/StePanel/actions/runs/40126540603))
-and Documentation ([run 40126540605](https://github.com/cyberducttape/StePanel/actions/runs/40126540605))
-passed on `f147727`; the live CodeQL alert count was zero. Exact
+Exact-head CodeQL ([run 40127552672](https://github.com/cyberducttape/StePanel/actions/runs/40127552672))
+and Documentation ([run 40127552674](https://github.com/cyberducttape/StePanel/actions/runs/40127552674))
+passed on `69bcac1`; the live CodeQL alert count was zero. Exact
 application-source Integration on `343e445` passed ([run
 40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983)),
 including Go and race tests, coverage floors, recovery drills, real tmpfs
@@ -55,13 +55,12 @@ Ten two-iteration installed-host shards are running on `e3a8976`:
 [40124847590](https://github.com/cyberducttape/StePanel/actions/runs/40124847590),
 [40124847626](https://github.com/cyberducttape/StePanel/actions/runs/40124847626), and
 [40124847637](https://github.com/cyberducttape/StePanel/actions/runs/40124847637).
-Each shard has begun its Ubuntu 24.04/Caddy host job; remaining distro/web-server
-jobs are queued behind it. They cover the same Go/native hosting backend as
+Each shard has an Ubuntu 24.04/Caddy host job in progress; remaining distro/web-server
+jobs are queued. They cover the same Go/native hosting backend as
 `343e445`; no iterations count until all six host jobs in a shard pass.
-They cover the same Go/native hosting backend as `343e445`; they do not
-exercise its browser-only stale-snapshot warning. No iteration counts until
-all six host jobs in a shard pass. The earlier six-host smoke and superseded
-cohorts were canceled before completion.
+The host matrix does not exercise the newer browser-only stale-snapshot
+warning. The earlier six-host smoke and superseded cohorts were canceled before
+completion.
 
 Production remains **NO-GO** pending repeated installed-host recovery,
 physical power-loss and broader ENOSPC/database-outage evidence,

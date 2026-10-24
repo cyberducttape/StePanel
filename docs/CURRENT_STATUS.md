@@ -6,10 +6,10 @@
 
 ---
 
-### Latest validation — 2026-10-24 (`f147727`, application source `343e445`)
+### Latest validation — 2026-10-24 (`69bcac1`, application source `343e445`)
 
-Validation was run against evidence commit
-[`f147727679e7b335f4c59f57a45049f7109015f0`](https://github.com/cyberducttape/StePanel/commit/f147727679e7b335f4c59f57a45049f7109015f0),
+The current evidence commit is
+[`69bcac1bd41bc60eb82b98ea4908508e306486b3`](https://github.com/cyberducttape/StePanel/commit/69bcac1bd41bc60eb82b98ea4908508e306486b3),
 a documentation-only update over application source
 [`343e4450f9b6323a09b9c76392058fa77a37a8c5`](https://github.com/cyberducttape/StePanel/commit/343e4450f9b6323a09b9c76392058fa77a37a8c5).
 The operator and customer panels distinguish unavailable job history from an
@@ -19,9 +19,9 @@ durable refresh fails. On the current tree, `go test -p 1 -timeout 10m ./...`,
 documentation-link and reference checks, all 15 frontend unit tests, JavaScript
 syntax validation, and `git diff --check` passed.
 
-Exact-head CodeQL ([run 40126540603](https://github.com/cyberducttape/StePanel/actions/runs/40126540603))
-and Documentation ([run 40126540605](https://github.com/cyberducttape/StePanel/actions/runs/40126540605))
-passed on `f147727`; the live code-scanning alert query returned zero open
+Exact-head CodeQL ([run 40127552672](https://github.com/cyberducttape/StePanel/actions/runs/40127552672))
+and Documentation ([run 40127552674](https://github.com/cyberducttape/StePanel/actions/runs/40127552674))
+passed on `69bcac1`; the live code-scanning alert query returned zero open
 alerts. Exact application-source Integration on `343e445` passed ([run
 40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983)),
 including full Go and race suites, coverage floors, recovery drills, real tmpfs
@@ -57,12 +57,10 @@ completion. Ten two-iteration installed-host shards are now running on
 [40124847590](https://github.com/cyberducttape/StePanel/actions/runs/40124847590),
 [40124847626](https://github.com/cyberducttape/StePanel/actions/runs/40124847626), and
 [40124847637](https://github.com/cyberducttape/StePanel/actions/runs/40124847637).
-Each shard has begun its Ubuntu 24.04/Caddy host job; remaining distro/web-server
-jobs are queued behind it. They exercise the same Go/native hosting backend as
+Each shard has an Ubuntu 24.04/Caddy host job in progress; remaining distro/web-server
+jobs are queued. They exercise the same Go/native hosting backend as
 `343e445`; no iterations count until all six host jobs in a shard pass.
-They exercise the same Go/native hosting backend as `343e445`; they do not
-exercise the newer browser-only stale-snapshot warning. No iteration counts
-until all six host jobs in a shard pass. All ten were queued at capture.
+The host matrix does not exercise the newer browser-only stale-snapshot warning.
 
 Production remains **NO-GO**. Repeated installed-host recovery, physical
 power-loss recovery, broader ENOSPC/database-outage cases, supported-runtime
