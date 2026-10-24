@@ -22,7 +22,11 @@
   CodeQL reports no open alerts. The prior integration run on `5e9077b` failed only at Staticcheck
   on this finding ([run 40118239239](https://github.com/cyberducttape/StePanel/actions/runs/40118239239));
   its tests, coverage, race, recovery, ENOSPC, and database restore steps
-  preceding static analysis passed.
+  preceding static analysis passed. Documentation and CodeQL both passed on
+  evidence commit `984f0fe` (runs
+  [40123081614](https://github.com/cyberducttape/StePanel/actions/runs/40123081614)
+  and [40123081579](https://github.com/cyberducttape/StePanel/actions/runs/40123081579));
+  the current CodeQL alert count is zero.
 - A clean-tree Rocky 9 KVM run on `1b2e99d` passed guest boot and verified
   `/var/www` user/project quotas. Native installation and installed-host
   checks passed for cPanel import/re-import, SFTP and FTPS access, database
@@ -46,6 +50,22 @@
 - The six-host installed recovery matrix on source `5e9077b` remains active
   ([run 40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094));
   no host result is counted as a pass before the matrix completes.
+- A current-head full recovery cohort is queued as ten unique two-iteration
+  shards across all six installed-host combinations: runs
+  [40123376566](https://github.com/cyberducttape/StePanel/actions/runs/40123376566),
+  [40123378955](https://github.com/cyberducttape/StePanel/actions/runs/40123378955),
+  [40123381245](https://github.com/cyberducttape/StePanel/actions/runs/40123381245),
+  [40123383409](https://github.com/cyberducttape/StePanel/actions/runs/40123383409),
+  [40123385417](https://github.com/cyberducttape/StePanel/actions/runs/40123385417),
+  [40123387198](https://github.com/cyberducttape/StePanel/actions/runs/40123387198),
+  [40123389104](https://github.com/cyberducttape/StePanel/actions/runs/40123389104),
+  [40123390835](https://github.com/cyberducttape/StePanel/actions/runs/40123390835),
+  [40123392732](https://github.com/cyberducttape/StePanel/actions/runs/40123392732), and
+  [40123394500](https://github.com/cyberducttape/StePanel/actions/runs/40123394500).
+  The first host job has started; no iteration counts until all six jobs in its
+  shard pass. A separate two-iteration Rocky 9/Caddy diagnostic shard
+  ([40123255865](https://github.com/cyberducttape/StePanel/actions/runs/40123255865))
+  is also active and is not a substitute for the six-host cohort.
 - Production remains **NO-GO**. The 20–50 repeat cohort, physical power-loss
   recovery, broader ENOSPC/database-outage cases, full supported-runtime
   coverage, capacity certification, live alert outage/retry evidence, upgrade

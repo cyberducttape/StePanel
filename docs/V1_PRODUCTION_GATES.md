@@ -47,6 +47,27 @@ the active source run includes the subsequent static-analysis correction. The si
 installed recovery matrix on `5e9077b` also remains in progress ([40118708094](https://github.com/cyberducttape/StePanel/actions/runs/40118708094));
 no active run is counted as a pass.
 
+Documentation and CodeQL also passed on evidence commit `984f0fe`
+([40123081614](https://github.com/cyberducttape/StePanel/actions/runs/40123081614),
+[40123081579](https://github.com/cyberducttape/StePanel/actions/runs/40123081579));
+open CodeQL alerts remain at zero. A 20-iteration full recovery cohort has
+been dispatched on `984f0fe` as ten uniquely named two-iteration shards, each
+covering all six installed-host combinations. The ten runs are
+[40123376566](https://github.com/cyberducttape/StePanel/actions/runs/40123376566),
+[40123378955](https://github.com/cyberducttape/StePanel/actions/runs/40123378955),
+[40123381245](https://github.com/cyberducttape/StePanel/actions/runs/40123381245),
+[40123383409](https://github.com/cyberducttape/StePanel/actions/runs/40123383409),
+[40123385417](https://github.com/cyberducttape/StePanel/actions/runs/40123385417),
+[40123387198](https://github.com/cyberducttape/StePanel/actions/runs/40123387198),
+[40123389104](https://github.com/cyberducttape/StePanel/actions/runs/40123389104),
+[40123390835](https://github.com/cyberducttape/StePanel/actions/runs/40123390835),
+[40123392732](https://github.com/cyberducttape/StePanel/actions/runs/40123392732), and
+[40123394500](https://github.com/cyberducttape/StePanel/actions/runs/40123394500).
+The first host job has started and the remaining shards are queued; no cohort
+iteration is counted until every host job in its shard succeeds. A separate
+two-iteration Rocky/Caddy diagnostic shard ([40123255865](https://github.com/cyberducttape/StePanel/actions/runs/40123255865))
+is not counted toward the six-host cohort.
+
 Production remains **NO-GO** pending repeated installed-host recovery,
 physical power-loss and broader ENOSPC/database-outage evidence,
 application-level recovery across supported web servers, live alert
