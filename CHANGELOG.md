@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Refresh the current-status and production-gate snapshots for `e3a8976`,
+  recording its local full-suite result, passed Documentation workflow,
+  pending Integration/CodeQL checks, canceled superseded shards, and queued
+  exact-source recovery cohort.
 - Refresh the current-status and authoritative production-gate snapshots for
   source `93c5714`, including its passing Documentation and CodeQL workflows,
   in-progress Integration CI, canceled obsolete smoke cohort, and queued
