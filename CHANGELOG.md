@@ -30,6 +30,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   direct probes to identify local account-lookup helper failures.
 - Compare a rejected system UID with a disposable regular UID through the same
   local PAM verifier, then remove the comparison account.
+- Include PAM helper setuid, filesystem mount flags, and no-new-privileges
+  state in FTPS denial diagnostics to distinguish host policy from container
+  limitations.
 - Allow the installed-host workflow to target one OS/web-server combination
   while preserving the all-host default and scheduled certification matrix;
   generate a matrix containing only the selected host for focused diagnostics.

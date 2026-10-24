@@ -25,6 +25,15 @@ pam_probe() {
 }
 ftps_diagnostics() {
   echo 'FTPS authentication diagnostics (password hash omitted):' >&2
+  if [[ -e /usr/sbin/unix_chkpwd ]]; then
+    stat -c 'PAM helper permissions: %A (%a) %U:%G %n' /usr/sbin/unix_chkpwd >&2 || true
+    if command -v findmnt >/dev/null; then
+      findmnt -no OPTIONS -T /usr/sbin/unix_chkpwd >&2 || true
+    fi
+  else
+    echo 'PAM unix_chkpwd helper is missing' >&2
+  fi
+  grep '^NoNewPrivs:' /proc/self/status >&2 || true
   getent passwd "$site_user" >&2 || true
   shadow_password=$(getent shadow "$site_user" | cut -d: -f2)
   case $shadow_password in
