@@ -30,9 +30,14 @@
   account suspension, Git activation recovery, and app lifecycle. The installed
   WordPress recovery proof passed with archive, database, and application
   checks and a measured 15,524 ms RTO; live database and root-broker outage
-  checks also recovered. Its extended recovery-boundary matrix is now running
-  (local artifacts: `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`; checkpoint
-  [report](lab-results/2026-10-24-rocky9-installed-host-recovery.md)).
+  checks also recovered. The extended recovery-boundary matrix passed through
+  the `backup:init` worker-kill recovery, then the local host's global OOM
+  killer terminated QEMU while the following `restore:activate` recovery was
+  waiting for its worker lease. The guest console also recorded a Rocky kernel
+  soft-lockup warning. This run is interrupted, not a full-matrix pass; host
+  logs identify the QEMU kill as resource pressure while unrelated Rust builds
+  were active and swap was exhausted. Artifacts remain at
+  `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d` ([report](lab-results/2026-10-24-rocky9-installed-host-recovery.md)).
   Integration CI for fixture commit `1b2e99d` was superseded and cancelled
   while race tests were running ([run
   40119585611](https://github.com/cyberducttape/StePanel/actions/runs/40119585611));

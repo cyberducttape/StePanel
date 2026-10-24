@@ -32,9 +32,14 @@ restore/termination, account suspension, Git activation, and app lifecycle
 smokes passed. The installed WordPress application recovery proof passed its
 archive, database, and HTTP checks with a measured 15,524 ms RTO; live database
 and root-broker outage recovery checks passed. The extended recovery-boundary
-matrix is still running. See the
+matrix passed through the `backup:init` worker-kill recovery. The following
+restore-activation recovery was still waiting for lease expiry when the host's
+global OOM killer terminated QEMU; the guest console had also recorded a Rocky
+kernel soft-lockup warning. Host kernel logs attribute QEMU termination to
+memory pressure while unrelated Rust builds were active and swap was exhausted.
+This run is interrupted and does not count as a full-matrix pass. See the
 [checkpoint report](lab-results/2026-10-24-rocky9-installed-host-recovery.md)
-and live local artifacts under `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`.
+and retained local artifacts under `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`.
 Integration CI
 for `1b2e99d` was cancelled while race tests were running after its Go tests and
 coverage passed ([40119585611](https://github.com/cyberducttape/StePanel/actions/runs/40119585611));

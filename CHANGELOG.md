@@ -15,6 +15,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Advance the status snapshot to the successful Documentation and CodeQL runs
   on evidence commit `0cca6fa`; retain the active installed-host matrix as
   in-progress evidence.
+- Record that the Rocky 9 KVM extended matrix passed through `backup:init` but
+  was interrupted when host-wide memory pressure caused the OOM killer to
+  terminate QEMU during the following restore-recovery wait; do not count the
+  incomplete matrix as a pass.
 - Reconcile current release status with the `5e9077b` Staticcheck failure and
   its `47ba2ff` correction, plus the active exact-source CI, six-host matrix,
   and clean-tree Rocky KVM install/recovery run; retain production NO-GO.

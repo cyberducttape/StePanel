@@ -2,7 +2,11 @@
 
 **Application source:** `1b2e99d0ee7eb15d7cbaca40e0d114db6ddf4e27` (clean tree)
 **Checkpoint result:** installed-host smokes and one WordPress application
-recovery proof passed; the extended recovery-boundary matrix is still running.
+recovery proof passed. The extended recovery-boundary matrix passed through
+the `backup:init` worker-kill recovery, then was interrupted while the next
+`restore:activate` recovery awaited lease expiry. The host OOM killer
+terminated QEMU with swap exhausted; the guest console also recorded a kernel
+soft-lockup warning. This is not a full-matrix pass.
 **Release decision:** NO-GO. This is one Rocky Linux 9 + Caddy + MariaDB run,
 not the required repeated multi-platform release certification.
 
@@ -44,9 +48,12 @@ not the required repeated multi-platform release certification.
 - Repeated vhost deletion succeeded when the route file was already absent.
 
 The extended interruption matrix (`RECOVERY_MATRIX_FULL=1`, one iteration)
-was running when this checkpoint was captured. Its final result, subsequent
-runner and abrupt-loss phases, and ENOSPC results are not represented here as
-passes. Artifacts are retained locally under
+was interrupted after the `backup:init` recovery passed and while the
+`restore:activate` case was in lease-recovery wait. The host kernel log records
+a global OOM kill of QEMU, with unrelated Rust compilation active and swap
+exhausted. The guest console also records a soft-lockup warning before the host
+kill. The matrix's remaining boundaries, runner and abrupt-loss phases, and
+ENOSPC results are not passes. Artifacts are retained locally under
 `/var/tmp/stepanel-kvm-cert-20261024-1b2e99d`.
 
 This checkpoint does not establish physical host power-loss recovery, a
