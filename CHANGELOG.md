@@ -24,6 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Compare the distro FTPS PAM service with a temporary pam_unix-only service
   after authentication failure, identifying whether rejection comes from the
   included host policy or local password verification without exposing secrets.
+- Enable password-free PAM debug diagnostics and collect messages after the
+  direct probes to identify local account-lookup helper failures.
 - Allow the installed-host workflow to target one OS/web-server combination
   while preserving the all-host default and scheduled certification matrix;
   generate a matrix containing only the selected host for focused diagnostics.

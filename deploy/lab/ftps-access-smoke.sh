@@ -70,7 +70,7 @@ except (ImportError, OSError, ValueError):
   pam_probe_config="/etc/pam.d/$pam_probe_service"
   if [[ ! -e $pam_probe_config && ! -L $pam_probe_config ]]; then
     cat > "$pam_probe_config" <<'EOF'
-auth required pam_unix.so try_first_pass nullok
+auth required pam_unix.so debug try_first_pass nullok
 EOF
     chown root:root "$pam_probe_config"
     chmod 0644 "$pam_probe_config"
@@ -81,6 +81,7 @@ EOF
   else
     echo 'Skipped pam_unix-only probe because its temporary PAM service name exists' >&2
   fi
+  journalctl -b --no-pager 2>/dev/null | grep -E "(pam_unix|unix_chkpwd|${pam_probe_service}).*${site_user}" | tail -n 30 >&2 || true
 }
 cleanup() {
   set +e
