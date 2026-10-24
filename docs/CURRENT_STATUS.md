@@ -6,59 +6,31 @@
 
 ---
 
-### Latest validation — 2026-10-24 (application `b20c609`, Rocky 9 KVM)
+### Latest validation — 2026-10-24 (`1af5fc0`)
 
-- The one-iteration installed-host recovery matrix passed on Rocky Linux 9.8
-  with enforcing SELinux, quota-enabled ext4, Caddy, PHP-FPM, and MariaDB.
-  Follow-up abrupt whole-guest termination scenarios passed for backup, file
-  restore, database restore, Git activation, and control-plane writes; real
-  96 MiB-volume ENOSPC backup/file-restore checks also passed. Details,
-  artifacts, and explicit limits are in
-  [the KVM evidence report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md).
-- The Git activation replay exposed a quota lookup failure inside the root
-  broker's systemd mount namespace. Quota inspection and Git staging limits now
-  use the backing filesystem device to handle alternate bind-mount aliases.
-  The quota contract test and targeted live Git interruption/redeployment
-  passed; exact-head CI for these helper changes is pending.
-- Exact-source Integration CI passed on application source `b20c609`
-  ([run 40102867970](https://github.com/cyberducttape/StePanel/actions/runs/40102867970));
-  documentation ([run 40102867973](https://github.com/cyberducttape/StePanel/actions/runs/40102867973))
-  and CodeQL ([run 40102867980](https://github.com/cyberducttape/StePanel/actions/runs/40102867980))
-  passed as well. This does not validate the current uncommitted helper and
-  documentation changes.
-- Production remains **NO-GO**. One Rocky repetition is below the required
-  20–50 cohort; physical host power loss, broader ENOSPC/database-outage
-  cases, cross-platform recovery, application proof for every supported web
-  server, capacity certification, live alert outage/retry evidence,
-  upgrade/rollback policy, and independent security assessment remain open.
+- Application source is
+  [`1af5fc05e0f3ab39b0da974651ca4b081966a193`](https://github.com/cyberducttape/StePanel/commit/1af5fc05e0f3ab39b0da974651ca4b081966a193).
+  Integration CI ([run 40113614938](https://github.com/cyberducttape/StePanel/actions/runs/40113614938)),
+  Documentation ([run 40113614962](https://github.com/cyberducttape/StePanel/actions/runs/40113614962)),
+  and CodeQL ([run 40113614960](https://github.com/cyberducttape/StePanel/actions/runs/40113614960))
+  passed on this source. CodeQL and Dependabot currently report no open alerts.
+- One synthetic 500-site mixed HTTP run passed on Ubuntu 26.04.1 with p95
+  296.7 ms across 500 requests and 20 completed backup jobs. The host is
+  outside the supported OS matrix and resource use was not monitored; this
+  does not certify capacity. See the
+  [benchmark record](lab-results/2026-10-24-500-site-mixed-load.md).
+- The six-platform installed-host recovery matrix is active on this source
+  ([run 40114439549](https://github.com/cyberducttape/StePanel/actions/runs/40114439549));
+  its current status is in progress and no result is counted yet. N-1 upgrade
+  and rollback validation is also active ([run 40115776818](https://github.com/cyberducttape/StePanel/actions/runs/40115776818)).
+- The separate Rocky 9 KVM full recovery and ENOSPC evidence uses application
+  source `b20c609`, not this source; see
+  [its report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md).
+- Production remains **NO-GO**. The required 20–50 installed-host repetitions,
+  physical power-loss recovery, broader ENOSPC/database-outage cases, full
+  supported-runtime coverage, certified capacity, live alert outage/retry
+  evidence, upgrade policy, and independent security assessment remain open.
   See [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
-
-### Latest application-source validation — 2026-10-24 (`b20c609`)
-
-- The application source under validation is
-  [`b20c60989cdeabf04b796038eafd0e70ef263392`](https://github.com/cyberducttape/StePanel/commit/b20c60989cdeabf04b796038eafd0e70ef263392).
-  It preserves environment-backed WordPress credentials during configuration
-  import and keeps the installed recovery fixture's generated database user
-  within the database's 32-character limit.
-- Exact-source Integration CI ([run 40089780650](https://github.com/cyberducttape/StePanel/actions/runs/40089780650)),
-  Documentation ([run 40089780692](https://github.com/cyberducttape/StePanel/actions/runs/40089780692)),
-  and CodeQL ([run 40089780673](https://github.com/cyberducttape/StePanel/actions/runs/40089780673))
-  succeeded. CI covers Go 1.26.10 tests and coverage, race tests, recovery and
-  tmpfs ENOSPC drills, database restore, clean Python deployment, static and
-  container analysis, mixed load, and UI E2E/accessibility. CodeQL reports no
-  open alerts.
-- The current evidence snapshot also passed Documentation and CodeQL
-  ([runs 40100469312](https://github.com/cyberducttape/StePanel/actions/runs/40100469312)
-  and [40100469296](https://github.com/cyberducttape/StePanel/actions/runs/40100469296)).
-- The exact-source Rocky Linux 9 KVM installation and one full recovery-matrix
-  iteration completed; subsequent abrupt-loss and ENOSPC results are recorded
-  above and in the linked evidence report. This is one Rocky/Caddy/MariaDB
-  cohort and does not meet the required 20–50 repetitions.
-- Production remains **NO-GO**. Physical host power-loss recovery, broader
-  host ENOSPC, repeated multi-platform installed recovery, application proof
-  on every supported web server, capacity certification, live alert outage
-  and retry evidence, upgrade/rollback policy, and independent security
-  assessment remain open. See [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
 
 ## Executive Summary
 

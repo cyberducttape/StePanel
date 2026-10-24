@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record the one-run 500-site synthetic HTTP benchmark with its host, latency,
+  and explicit non-certification limits; update current-source CI and active
+  installed-host/upgrade run links while retaining the production NO-GO.
 - Reconcile the current status and authoritative production-gate snapshot with
   `b20c609`, its passing exact-source CI/Documentation/CodeQL runs, and the
   in-progress Rocky 9 KVM recovery matrix; preserve the production NO-GO.

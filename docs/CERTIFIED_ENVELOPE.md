@@ -30,6 +30,12 @@ OS, filesystem, CPU, memory, and storage configuration:
 - a documented recovery time and recovery point result, including the
   workload and failure point used for the measurement.
 
+A single 500-site synthetic HTTP run on Ubuntu 26.04.1 is recorded in the
+[2026-10-24 lab report](./lab-results/2026-10-24-500-site-mixed-load.md). It
+passed its p95 threshold but did not monitor resource use, exercise real
+applications or databases, or include recovery. Ubuntu 26.04.1 is outside the
+declared supported OS matrix; the run is exploratory evidence only.
+
 The certification record must name the StePanel version, schema/data format,
 kernel and distribution, SQLite/storage settings, worker count, resource
 limits, workload generator, test duration, and every excluded feature. Any
