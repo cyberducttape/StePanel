@@ -2365,10 +2365,7 @@ func (j *Jobs) GetWithError(id string) (Job, bool, error) {
 		}
 		if ok {
 			materializeJobOutput(&item)
-			stored := item
-			j.mu.Lock()
-			j.items[id] = &stored
-			j.mu.Unlock()
+			j.cacheDurableRead(item)
 			return item, true, nil
 		}
 		// A successful durable miss is authoritative too. Another process may
@@ -2388,6 +2385,20 @@ func (j *Jobs) GetWithError(id string) (Job, bool, error) {
 	copy := *item
 	materializeJobOutput(&copy)
 	return copy, true, nil
+}
+
+// cacheDurableRead admits a job discovered by this process, but never replaces
+// an existing cache entry with a database snapshot taken before a concurrent
+// local claim or transition. Durable reads remain authoritative to their
+// caller; worker mutation state is owned by the local claim path.
+func (j *Jobs) cacheDurableRead(item Job) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if _, exists := j.items[item.ID]; exists {
+		return
+	}
+	stored := item
+	j.items[item.ID] = &stored
 }
 
 func (j *Jobs) Get(id string) (Job, bool) {

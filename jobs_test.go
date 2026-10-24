@@ -370,6 +370,37 @@ func TestDurableJobReadDoesNotResurrectRowDeletedByAnotherProcess(t *testing.T) 
 	}
 }
 
+func TestDurableJobReadCannotOverwriteNewLocalLeaseSnapshot(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	queued, err := jobs.Enqueue("worker.operation", "site-a", "", nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleRead, found, err := jobs.loadDurableJob(queued.ID)
+	if err != nil || !found || staleRead.State != "queued" {
+		t.Fatalf("pre-claim read = %#v, found=%v, err=%v", staleRead, found, err)
+	}
+	claimed, ok, err := jobs.ClaimNext("worker-a", "worker.operation")
+	if err != nil || !ok || claimed.State != "running" {
+		t.Fatalf("claim = %#v, claimed=%v, err=%v", claimed, ok, err)
+	}
+
+	// A read that began before ClaimNext committed can finish afterward. It is
+	// valid for the reader, but must not roll the worker's cache back to queued.
+	jobs.cacheDurableRead(staleRead)
+	jobs.mu.RLock()
+	cached := *jobs.items[queued.ID]
+	jobs.mu.RUnlock()
+	if cached.State != "running" || cached.LeaseOwner != claimed.LeaseOwner {
+		t.Fatalf("stale durable read replaced local claim: cached=%#v claimed=%#v", cached, claimed)
+	}
+}
+
 func TestDurableBackupRetryReusesPersistedLocalArchive(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

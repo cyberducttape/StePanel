@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Prevent a delayed durable job read from replacing newer in-process worker
+  state, avoiding lease loss during concurrent status polling.
 - Check installed-host backup recovery and termination against the source site's
   recorded document root, including sites placed under hosting accounts.
 - Resolve smoke-test site paths through the same installed location library as
