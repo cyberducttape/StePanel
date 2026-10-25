@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Reject backup manifests larger than the verifier's bounded-read limit before
+  publishing them, so successful backups remain eligible for strict restore
+  verification.
+
 - Reconcile the latest release evidence: record current-head Documentation and
   CodeQL passes and keep the recovery shard plus ext4/XFS quota runs incomplete
   until their hosted jobs finish.
