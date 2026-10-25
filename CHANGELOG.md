@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   publishing them, so successful backups remain eligible for strict restore
   verification.
 
+- Keep lab-mode root-broker setup from creating a legacy `/var/www/sites`
+  tree for sites placed in customer account homes.
+
 - Reconcile the latest release evidence: record current-head Documentation and
   CodeQL passes and keep the recovery shard plus ext4/XFS quota runs incomplete
   until their hosted jobs finish.

@@ -989,7 +989,11 @@ func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, 
 		return &Response{OK: false, Error: fmt.Sprintf("site helper prepared account %q but the broker derives %q; refusing to continue with divergent site identity", reported, want)}, nil
 	}
 	if os.Getenv("STEPANEL_LAB_ROOT_BROKER_HELPERS") == "1" {
-		if err := ensureLabManagerSiteRoot(siteRoot); err != nil {
+		_, placed, placementErr := b.validator.sitePlacement(req.Site)
+		if placementErr != nil {
+			return &Response{OK: false, Error: placementErr.Error()}, nil
+		}
+		if err := ensureLabManagerSiteRoot(siteRoot, placed); err != nil {
 			return &Response{OK: false, Error: fmt.Sprintf("site root preparation failed: %v", err)}, nil
 		}
 	}
@@ -997,7 +1001,13 @@ func (b *Broker) sitePrepare(ctx context.Context, req *SiteRequest) (*Response, 
 	return &Response{OK: true}, nil
 }
 
-func ensureLabManagerSiteRoot(siteRoot string) error {
+func ensureLabManagerSiteRoot(siteRoot string, placed bool) error {
+	// The lab-only compatibility setup exists for legacy sites. Placed sites
+	// use their account home and the shared /home staging root; materializing
+	// this legacy path would create a second, unowned site tree.
+	if placed {
+		return nil
+	}
 	if err := os.MkdirAll(siteRoot, 0o750); err != nil {
 		return err
 	}
