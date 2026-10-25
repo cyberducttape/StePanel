@@ -107,6 +107,10 @@ def validate_xfs_quota_setup(path: Path) -> None:
         line[14:] if line.startswith("              ") else line
         for line in guest_lines
     )
+    # The workflow writes this with an unquoted host-side heredoc. Escaped
+    # dollar signs and command substitutions are intentionally preserved for
+    # the guest shell; unescape them here before checking the rendered script.
+    guest_script = guest_script.replace(r"\$", "$")
     if "[[" in guest_script:
         raise ValueError("quota guest runcmd uses Bash-only [[ under cloud-init /bin/sh")
     if guest_script.count("if [ '$quota_filesystem' = xfs ]; then") != 4:

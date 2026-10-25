@@ -39,6 +39,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   rendered-script validation caught the host shell evaluating them before the
   guest could query quota state.
 
+- Make the quota fixture validator account for the unquoted host heredoc when
+  syntax-checking guest `runcmd`, so escaped guest substitutions are checked
+  as they will appear after rendering rather than as raw host-template text.
+
 - Preserve quota-VM console and smoke logs as a bounded CI artifact, and capture
   the guest's rootless Podman systemd journal if the runner or release-pipeline
   check fails. This makes image-inspection and transient-unit failures
