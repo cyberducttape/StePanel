@@ -34,11 +34,16 @@ older two-iteration runs on `e3a8976` were cancelled after partial execution;
 each had one host job succeed and three fail, with the other jobs cancelled.
 Those stale-source results are not counted as current-source certification.
 
-The current two-repeat AlmaLinux 9 + Caddy + MariaDB installed-host run
+The two-repeat AlmaLinux 9 + Caddy + MariaDB installed-host run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
-and current-source quota-enabled Ubuntu 24.04 VM run
+is still in progress. The quota-enabled Ubuntu 24.04 VM run
 ([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003))
-remain in progress; neither is counted as a pass.
+failed with exit code 1. Its guest journal confirms ext4 user and project
+quotas were active on `/var/www`, but the run did not preserve enough output to
+identify the failing preflight assertion; it is not counted as a product or
+quota pass. A diagnostic rerun against `c648995`
+([40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
+is queued and traces each quota assertion and effective mount options.
 
 This is current-source evidence across the six listed OS/web-server
 combinations. It does not satisfy the 20–50-repeat recovery cohort, physical
