@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Include the observed host mount options and systemd unit state when Caddy's
+  isolated view fails its `nosymfollow` verification, so installed-host
+  diagnostics identify why the kernel boundary was not established.
 - Update the Caddy legacy-view cleanup contract test for the native mount-unit
   lifecycle and host-namespace inspection, which the previous pathname-based
   mount assertion no longer represented.

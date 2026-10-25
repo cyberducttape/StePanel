@@ -172,7 +172,12 @@ ensure_view() {
     fi
   fi
   options=$(host_findmnt -no OPTIONS -T "$view" 2>/dev/null || true)
-  [[ ,$options, == *,nosymfollow,* ]] || { remove_view "$site"; return 1; }
+  if [[ ,$options, != *,nosymfollow,* ]]; then
+    echo "Caddy view $view is missing nosymfollow (observed mount options: ${options:-unavailable})" >&2
+    systemctl show "$(mount_unit "$view")" -p ActiveState -p SubState -p Result -p What -p Where -p Options >&2 || true
+    remove_view "$site"
+    return 1
+  fi
 }
 
 if [[ $action == delete ]]; then

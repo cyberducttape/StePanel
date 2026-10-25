@@ -55,6 +55,8 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		`What=%s`,
 		`Where=%s`,
 		`Options=bind,nosymfollow`,
+		`observed mount options: ${options:-unavailable}`,
+		`systemctl show "$(mount_unit "$view")" -p ActiveState`,
 		`WantedBy=local-fs.target`,
 		`systemctl enable "$unit"`,
 		`systemctl start "$unit"`,
