@@ -23,6 +23,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   CodeQL/documentation results, and link the active quota and recovery runs as
   pending rather than passing evidence.
 
+- Fix a false-negative quota-VM preflight: `quotaon -p` can print that quotas
+  are enabled while returning a nonzero status, so the `pipefail` pipeline
+  stopped before checking project quota. Capture its output and assert the
+  reported enforcement state directly; rerun the disposable guest gate.
+
 - Preserve quota-VM console and smoke logs as a bounded CI artifact, and capture
   the guest's rootless Podman systemd journal if the runner or release-pipeline
   check fails. This makes image-inspection and transient-unit failures

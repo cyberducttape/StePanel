@@ -35,12 +35,15 @@ A two-repeat AlmaLinux 9 + Caddy + MariaDB recovery run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
 remains in progress. The quota-enabled Ubuntu 24.04 VM run
 ([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003))
-failed with exit code 1. Its guest journal confirms ext4 user and project
-quotas were active on `/var/www`, but the run did not retain enough output to
-identify the failing preflight assertion, so it does not count as a product or
-quota pass. A diagnostic rerun against `c648995`
+failed with exit code 1. Its diagnostic rerun
 ([40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
-is in progress; it traces each quota assertion and effective mount options.
+also failed in preflight, before installation. The captured guest state shows
+ext4 mounted with `usrquota,prjquota`, and both user and project quotas
+reported active. The preflight used `pipefail` around `quotaon -p`; it printed
+the enabled user quota state but the command pipeline returned nonzero, stopping
+before the project assertion. The workflow now checks the reported state
+without relying on that utility's exit status. A fresh quota-VM rerun is
+required; neither failed run counts as a quota smoke pass.
 
 This improves current-source platform coverage but does not establish the
 20–50-repeat recovery cohort, dedicated-VM or physical power-loss behavior,
