@@ -42,6 +42,13 @@ mount_unit_path() {
   printf '/etc/systemd/system/%s\n' "$(mount_unit "$1")"
 }
 
+# ProtectSystem=strict gives the root broker a private mount namespace. The
+# systemd manager mounts these units in PID 1's host namespace, so validate
+# their presence and options against that namespace rather than the broker's.
+host_findmnt() {
+  findmnt --task 1 "$@"
+}
+
 remove_legacy_fstab_target() {
   local target=$1 temp
   [[ -f /etc/fstab && ! -L /etc/fstab ]] || return 0
@@ -63,11 +70,11 @@ stop_managed_mount() {
   unit=$(mount_unit "$target")
   if systemctl is-active --quiet "$unit"; then
     systemctl stop "$unit"
-  elif [[ $(findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]]; then
+  elif [[ $(host_findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]]; then
     echo "mount $target exists outside its systemd mount unit; refusing namespace-local unmount" >&2
     return 1
   fi
-  [[ $(findmnt -no TARGET -T "$target" 2>/dev/null || true) != "$target" ]] || {
+  [[ $(host_findmnt -no TARGET -T "$target" 2>/dev/null || true) != "$target" ]] || {
     echo "systemd mount unit left $target mounted" >&2
     return 1
   }
@@ -109,7 +116,7 @@ start_managed_mount() {
   unit=$(mount_unit "$target")
   systemctl enable "$unit"
   systemctl start "$unit"
-  [[ $(findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]] || {
+  [[ $(host_findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]] || {
     echo "systemd did not expose the Caddy view mount $target to the helper" >&2
     return 1
   }
@@ -122,7 +129,7 @@ remove_legacy_view() {
   # Once the stable parent is mounted, this pathname reaches the customer's
   # real document root. Only remove a legacy mountpoint beneath the detached
   # view directory, never the source tree.
-  if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
+  if [[ $(host_findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
     rmdir "$old" 2>/dev/null || true
   fi
 }
@@ -146,13 +153,13 @@ ensure_view() {
     remove_legacy_fstab_target "$view"
     view_mount_changed=1
   fi
-  if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
+  if [[ $(host_findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
     install -d -m 0755 -o root -g root "$view"
   fi
   # Migrate the former public-directory mount. Mounting its stable parent
   # makes later atomic swaps of public/public_html/domain visible to Caddy.
   remove_legacy_view "$site"
-  if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
+  if [[ $(host_findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
     start_managed_mount "$view" "$site_home"
     view_mount_changed=1
   else
@@ -164,7 +171,7 @@ ensure_view() {
       view_mount_changed=1
     fi
   fi
-  options=$(findmnt -no OPTIONS -T "$view" 2>/dev/null || true)
+  options=$(host_findmnt -no OPTIONS -T "$view" 2>/dev/null || true)
   [[ ,$options, == *,nosymfollow,* ]] || { remove_view "$site"; return 1; }
 }
 

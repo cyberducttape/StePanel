@@ -48,6 +48,7 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	for _, required := range []string{
 		`/var/www/.stepanel-caddy-views`,
 		`systemd-escape --path --suffix=mount`,
+		`findmnt --task 1`,
 		`/etc/systemd/system/%s`,
 		`remove_legacy_fstab_target`,
 		`RequiresMountsFor=%s %s`,
