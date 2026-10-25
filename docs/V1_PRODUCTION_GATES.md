@@ -25,9 +25,17 @@ the code-scanning API reports zero open alerts.
 Current-host runs are incomplete: a two-iteration Rocky Linux 9 + Caddy +
 MariaDB recovery shard on `67d9e6f`
 ([40212718792](https://github.com/cyberducttape/StePanel/actions/runs/40212718792));
-an ext4 quota-enabled Ubuntu install on source `2680808`
-([40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828));
-and an XFS quota-enabled Ubuntu run queued on `67d9e6f`
+an ext4 quota-enabled Ubuntu install on source `2680808` failed
+([40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828)).
+The VM showed `/var/www` mounted with `usrquota,prjquota` and reported project
+quota on, but the complete install smoke stopped at customer-site placement:
+lab-only broker setup also created `/var/www/sites/ci-cust-main` after the site
+had been placed at `/home/cismokecust/public_html`. The failure artifact is
+[quota-install-ext4-40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828).
+This does not count as a quota certification pass. The lab path was corrected
+on `db195af`; an ext4 rerun is queued on that source
+([40216152671](https://github.com/cyberducttape/StePanel/actions/runs/40216152671)).
+An XFS quota-enabled Ubuntu run is also queued on `67d9e6f`
 ([40212633884](https://github.com/cyberducttape/StePanel/actions/runs/40212633884)).
 None is counted as passed. A separate two-repeat AlmaLinux run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
