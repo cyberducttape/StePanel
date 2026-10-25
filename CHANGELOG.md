@@ -19,6 +19,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   race, recovery, ENOSPC, database-restore, mixed-load, and deployment checks;
   record current documentation/CodeQL passes and zero open alerts.
 
+- Bring the finite production-gate table up to date with the exact-head CI and
+  CodeQL/documentation results, and link the active quota and recovery runs as
+  pending rather than passing evidence.
+
 - Preserve quota-VM console and smoke logs as a bounded CI artifact, and capture
   the guest's rootless Podman systemd journal if the runner or release-pipeline
   check fails. This makes image-inspection and transient-unit failures
