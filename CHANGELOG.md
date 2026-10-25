@@ -14,6 +14,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Keep lab-mode root-broker setup from creating a legacy `/var/www/sites`
   tree for sites placed in customer account homes.
+- Record the failed ext4 quota VM's customer-placement assertion and link the
+  corrected-source rerun as queued evidence, not a pass.
 
 - Reconcile the latest release evidence: record current-head Documentation and
   CodeQL passes and keep the recovery shard plus ext4/XFS quota runs incomplete
