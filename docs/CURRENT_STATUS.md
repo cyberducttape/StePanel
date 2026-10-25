@@ -6,17 +6,24 @@
 
 ---
 
-### Latest validation — 2026-10-25 (`00ea35f`)
+### Latest evidence snapshot — 2026-10-25 (`7229c18`; application source `00ea35f`)
 
 Current `main` is
-[`00ea35f3afa2ec6b872a81c0db74f72c21c104bb`](https://github.com/cyberducttape/StePanel/commit/00ea35f3afa2ec6b872a81c0db74f72c21c104bb).
-It adds diagnostics to the installed Caddy stable-parent view smoke; Go
-application code is unchanged. Exact-head Integration passed
+[`7229c186c0365c1cec5a17f70925ba49865dc1ed`](https://github.com/cyberducttape/StePanel/commit/7229c186c0365c1cec5a17f70925ba49865dc1ed);
+it updates release evidence only. The application and installed-host smoke
+source is
+[`00ea35f3afa2ec6b872a81c0db74f72c21c104bb`](https://github.com/cyberducttape/StePanel/commit/00ea35f3afa2ec6b872a81c0db74f72c21c104bb),
+which adds diagnostics to the installed Caddy stable-parent view smoke.
+Exact-source Integration passed
 ([run 40144536676](https://github.com/cyberducttape/StePanel/actions/runs/40144536676)),
 as did Documentation
 ([run 40144536669](https://github.com/cyberducttape/StePanel/actions/runs/40144536669))
 and CodeQL
-([run 40144536662](https://github.com/cyberducttape/StePanel/actions/runs/40144536662)).
+([run 40144536662](https://github.com/cyberducttape/StePanel/actions/runs/40144536662));
+the current evidence commit also passed Documentation ([run
+40146342235](https://github.com/cyberducttape/StePanel/actions/runs/40146342235))
+and CodeQL ([run
+40146342220](https://github.com/cyberducttape/StePanel/actions/runs/40146342220)).
 Integration included Go 1.26.10 formatting, release checks, vet, tests and
 coverage floors, race tests, repository recovery drills, real tmpfs ENOSPC,
 database restore checks, static analysis, container/deployment checks, and UI
@@ -27,8 +34,11 @@ positive HTTPS fixture returned 404, before the document-root swap could run
 ([run 40144171482](https://github.com/cyberducttape/StePanel/actions/runs/40144171482)).
 The exact-head diagnostic smoke
 ([run 40144536672](https://github.com/cyberducttape/StePanel/actions/runs/40144536672))
-is queued and has not started. The failure cause and stable-parent activation
-behavior therefore remain unverified on an installed host. Production remains
+selected AlmaLinux 9 + Caddy + MariaDB, built the disposable systemd host, and
+started the installed-host install/recovery step at 00:32:57 UTC. It remains
+in progress; GitHub has not made its logs or artifact available yet. The
+failure cause and stable-parent activation behavior therefore remain
+unverified on an installed host. Production remains
 **NO-GO** pending that correction plus repeated recovery, physical power-loss
 and broader ENOSPC/database-outage evidence, supported-runtime application
 recovery, capacity certification, live alert outage/retry evidence,

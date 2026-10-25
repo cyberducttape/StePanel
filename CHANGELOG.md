@@ -44,6 +44,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Update release status from queued to active for the exact-source AlmaLinux 9
+  + Caddy + MariaDB diagnostic smoke; record that the host image built and the
+  installed-host install/recovery step is running, without counting it as a
+  pass or claiming the Caddy 404 is resolved.
 - Refresh the current status, production-readiness summary, and authoritative
   release-gate evidence to exact source `00ea35f`: record passing integration,
   Documentation, and CodeQL runs; disclose the installed Caddy smoke's initial

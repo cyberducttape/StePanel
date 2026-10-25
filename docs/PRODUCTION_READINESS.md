@@ -7,15 +7,18 @@
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
-Latest source: `00ea35f3afa2ec6b872a81c0db74f72c21c104bb`.
+Latest application source: `00ea35f3afa2ec6b872a81c0db74f72c21c104bb`;
+latest evidence commit: `7229c186c0365c1cec5a17f70925ba49865dc1ed`.
 Exact-head Integration ([run 40144536676](https://github.com/cyberducttape/StePanel/actions/runs/40144536676)),
 Documentation ([run 40144536669](https://github.com/cyberducttape/StePanel/actions/runs/40144536669)),
 and CodeQL ([run 40144536662](https://github.com/cyberducttape/StePanel/actions/runs/40144536662))
-passed. The installed-host Caddy smoke is still queued
+passed. The installed-host Caddy smoke
 ([run 40144536672](https://github.com/cyberducttape/StePanel/actions/runs/40144536672));
-its parent-source run failed at the initial HTTPS fixture with HTTP 404 before
-the document-root activation test. The diagnostics required to identify the
-cause are pending from the exact-head run. Production approval remains
+has built and started its AlmaLinux 9 + Caddy + MariaDB host, and the
+installed-host install/recovery step is in progress. Its parent-source run
+failed at the initial HTTPS fixture with HTTP 404 before the document-root
+activation test. Diagnostics from the exact-source run are pending.
+Production approval remains
 **NO-GO** pending recovery certification, physical power-loss and broader
 ENOSPC evidence, supported-platform application restore proof, capacity
 certification, live alert failure/retry evidence, upgrade policy, and
