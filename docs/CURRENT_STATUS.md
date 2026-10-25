@@ -1,72 +1,38 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-24
+**Last Updated:** 2026-10-25
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
 
-### Latest validation — 2026-10-24 (`fba3b93`, application source `343e445`)
+### Latest validation — 2026-10-25 (`00ea35f`)
 
-The current evidence commit is
-[`fba3b93c649ea7092aed875c4676ba417f0362e1`](https://github.com/cyberducttape/StePanel/commit/fba3b93c649ea7092aed875c4676ba417f0362e1),
-a documentation-only update over application source
-[`343e4450f9b6323a09b9c76392058fa77a37a8c5`](https://github.com/cyberducttape/StePanel/commit/343e4450f9b6323a09b9c76392058fa77a37a8c5).
-The operator and customer panels distinguish unavailable job history from an
-empty history, and the browser labels retained job snapshots when its latest
-durable refresh fails. On the current tree, `go test -p 1 -timeout 10m ./...`,
-`go test -p 1 -race -timeout 10m ./...`, `go vet ./...`, `make release-check`,
-documentation-link and reference checks, all 15 frontend unit tests, JavaScript
-syntax validation, and `git diff --check` passed.
+Current `main` is
+[`00ea35f3afa2ec6b872a81c0db74f72c21c104bb`](https://github.com/cyberducttape/StePanel/commit/00ea35f3afa2ec6b872a81c0db74f72c21c104bb).
+It adds diagnostics to the installed Caddy stable-parent view smoke; Go
+application code is unchanged. Exact-head Integration passed
+([run 40144536676](https://github.com/cyberducttape/StePanel/actions/runs/40144536676)),
+as did Documentation
+([run 40144536669](https://github.com/cyberducttape/StePanel/actions/runs/40144536669))
+and CodeQL
+([run 40144536662](https://github.com/cyberducttape/StePanel/actions/runs/40144536662)).
+Integration included Go 1.26.10 formatting, release checks, vet, tests and
+coverage floors, race tests, repository recovery drills, real tmpfs ENOSPC,
+database restore checks, static analysis, container/deployment checks, and UI
+E2E/accessibility.
 
-Exact-head CodeQL ([run 40128122649](https://github.com/cyberducttape/StePanel/actions/runs/40128122649))
-and Documentation ([run 40128122611](https://github.com/cyberducttape/StePanel/actions/runs/40128122611))
-passed on `fba3b93`; the live code-scanning alert query returned zero open
-alerts. Exact application-source Integration on `343e445` passed ([run
-40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983)),
-including full Go and race suites, coverage floors, recovery drills, real tmpfs
-ENOSPC, database restore checks, Python deployment, static analysis, container
-validation, and frontend E2E/accessibility tests.
-The full Integration workflow passed on backend source `e3a8976` ([run
-40124829064](https://github.com/cyberducttape/StePanel/actions/runs/40124829064)),
-including race tests, repository recovery drills, tmpfs ENOSPC recovery,
-database restore checks, clean Python deployment, static analysis, and
-container validation. Its browser source predates `343e445`; frontend unit and
-UI E2E coverage on the newer browser source is recorded separately above.
-The parent Integration run on `93c5714` was canceled after passing Go tests,
-coverage, ENOSPC, and UI E2E; race and recovery checks did not complete ([run
-40124252769](https://github.com/cyberducttape/StePanel/actions/runs/40124252769)).
-
-A clean-tree local Rocky 9 KVM run on `1b2e99d` passed native installation,
-quota checks, installed WordPress archive/database/HTTP recovery proof, and
-multiple interruption and outage checks. Its extended recovery matrix was
-interrupted when host memory pressure caused the OOM killer to terminate QEMU
-during restore recovery. It is not a full-matrix pass; details are in the
-[checkpoint report](lab-results/2026-10-24-rocky9-installed-host-recovery.md).
-
-The prior six-host smoke and older repeat cohorts were canceled before
-completion. Ten installed-host recovery runs are active on
-`e3a8976`:
-[40124847144](https://github.com/cyberducttape/StePanel/actions/runs/40124847144),
-[40124847251](https://github.com/cyberducttape/StePanel/actions/runs/40124847251),
-[40124847306](https://github.com/cyberducttape/StePanel/actions/runs/40124847306),
-[40124847420](https://github.com/cyberducttape/StePanel/actions/runs/40124847420),
-[40124847429](https://github.com/cyberducttape/StePanel/actions/runs/40124847429),
-[40124847430](https://github.com/cyberducttape/StePanel/actions/runs/40124847430),
-[40124847441](https://github.com/cyberducttape/StePanel/actions/runs/40124847441),
-[40124847590](https://github.com/cyberducttape/StePanel/actions/runs/40124847590),
-[40124847626](https://github.com/cyberducttape/StePanel/actions/runs/40124847626), and
-[40124847637](https://github.com/cyberducttape/StePanel/actions/runs/40124847637).
-Each run has one Ubuntu 24.04/Caddy host job in progress; its other five
-distro/web-server jobs are queued. Together they target 20 complete repetitions
-per platform if all ten six-host runs pass. They exercise the same Go/native hosting backend as
-`343e445`; no iterations count until all six host jobs in a shard pass.
-The host matrix does not exercise the newer browser-only stale-snapshot warning.
-
-Production remains **NO-GO**. Repeated installed-host recovery, physical
-power-loss recovery, broader ENOSPC/database-outage cases, supported-runtime
-coverage, capacity certification, live alert outage/retry evidence, upgrade
-policy, and independent security assessment remain open.
+The installed-host smoke on parent source `91f81c2` failed when its initial
+positive HTTPS fixture returned 404, before the document-root swap could run
+([run 40144171482](https://github.com/cyberducttape/StePanel/actions/runs/40144171482)).
+The exact-head diagnostic smoke
+([run 40144536672](https://github.com/cyberducttape/StePanel/actions/runs/40144536672))
+is queued and has not started. The failure cause and stable-parent activation
+behavior therefore remain unverified on an installed host. Production remains
+**NO-GO** pending that correction plus repeated recovery, physical power-loss
+and broader ENOSPC/database-outage evidence, supported-runtime application
+recovery, capacity certification, live alert outage/retry evidence,
+upgrade/rollback policy, and independent security assessment.
 
 ### Previous validation — 2026-10-24 (`5e9077b`)
 

@@ -1,30 +1,26 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-10-24
+**Last Updated:** 2026-10-25
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 **👉 For overall project status, see [CURRENT_STATUS.md](./CURRENT_STATUS.md) — the single authoritative source for version, progress, and release gates.**
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
-Latest application source: `47ba2ffe88abb1436da38b28fd5a856494614133`.
-The focused vsftpd validator test and Staticcheck pass locally. Exact-source
-Integration CI ([run 40119821255](https://github.com/cyberducttape/StePanel/actions/runs/40119821255))
-is running the full Go suite, and the UI end-to-end job passed. Documentation
-and CodeQL passed on evidence commit `766ef35` ([40119941004](https://github.com/cyberducttape/StePanel/actions/runs/40119941004),
-[40119941026](https://github.com/cyberducttape/StePanel/actions/runs/40119941026));
-CodeQL reports no open alerts. The previous integration run failed at
-Staticcheck `ST1008` in a test helper; the correction is in this source. A clean-tree Rocky 9 KVM run on
-`1b2e99d` passed boot and quota setup, completed installation with vsftpd
-installed, and is still running installed smoke and recovery phases. The
-six-host recovery run on `5e9077b` remains active. Production approval remains
-**NO-GO** pending repeated recovery, physical power-loss and broader ENOSPC
-evidence, supported-platform application restore proof, capacity certification,
-live alert failure/retry evidence, upgrade policy, and independent security
-assessment.
-See [CURRENT_STATUS.md](./CURRENT_STATUS.md) for current run status and
-[V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for remaining acceptance
-criteria.
+Latest source: `00ea35f3afa2ec6b872a81c0db74f72c21c104bb`.
+Exact-head Integration ([run 40144536676](https://github.com/cyberducttape/StePanel/actions/runs/40144536676)),
+Documentation ([run 40144536669](https://github.com/cyberducttape/StePanel/actions/runs/40144536669)),
+and CodeQL ([run 40144536662](https://github.com/cyberducttape/StePanel/actions/runs/40144536662))
+passed. The installed-host Caddy smoke is still queued
+([run 40144536672](https://github.com/cyberducttape/StePanel/actions/runs/40144536672));
+its parent-source run failed at the initial HTTPS fixture with HTTP 404 before
+the document-root activation test. The diagnostics required to identify the
+cause are pending from the exact-head run. Production approval remains
+**NO-GO** pending recovery certification, physical power-loss and broader
+ENOSPC evidence, supported-platform application restore proof, capacity
+certification, live alert failure/retry evidence, upgrade policy, and
+independent security assessment. See [CURRENT_STATUS.md](./CURRENT_STATUS.md)
+for the latest detailed run evidence.
 
 ## Certified operating envelope
 

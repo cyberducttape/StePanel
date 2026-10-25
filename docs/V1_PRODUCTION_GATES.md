@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-24
+**Last Updated:** 2026-10-25
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -9,64 +9,39 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest source validation — 2026-10-24 (`fba3b93`, application source `343e445`)
+### Latest source validation — 2026-10-25 (`00ea35f`, application source `00ea35f`)
 
-The current evidence commit is
-[`fba3b93c649ea7092aed875c4676ba417f0362e1`](https://github.com/cyberducttape/StePanel/commit/fba3b93c649ea7092aed875c4676ba417f0362e1),
-a documentation-only update over application source
-[`343e4450f9b6323a09b9c76392058fa77a37a8c5`](https://github.com/cyberducttape/StePanel/commit/343e4450f9b6323a09b9c76392058fa77a37a8c5).
-The full Go suite and race suite, `go vet ./...`, `make release-check`,
-documentation-link and reference checks, all 15 frontend unit tests, JavaScript
-syntax validation, and diff checks passed on the current tree.
+The current source is
+[`00ea35f3afa2ec6b872a81c0db74f72c21c104bb`](https://github.com/cyberducttape/StePanel/commit/00ea35f3afa2ec6b872a81c0db74f72c21c104bb).
+It changes the installed Caddy smoke diagnostics for the stable-parent bind-view
+fix; it does not change Go application code. Exact-head CI integration passed
+([run 40144536676](https://github.com/cyberducttape/StePanel/actions/runs/40144536676)),
+including Go 1.26.10 formatting, release checks, vet, tests and coverage gates,
+race tests, repository recovery drills, real tmpfs ENOSPC, database restore
+checks, static analysis, container/deployment checks, and UI E2E/accessibility.
+Exact-head Documentation ([run
+40144536669](https://github.com/cyberducttape/StePanel/actions/runs/40144536669))
+and CodeQL ([run
+40144536662](https://github.com/cyberducttape/StePanel/actions/runs/40144536662))
+also passed.
 
-Exact-head CodeQL ([run 40128122649](https://github.com/cyberducttape/StePanel/actions/runs/40128122649))
-and Documentation ([run 40128122611](https://github.com/cyberducttape/StePanel/actions/runs/40128122611))
-passed on `fba3b93`; the live CodeQL alert count was zero. Exact
-application-source Integration on `343e445` passed ([run
-40125094983](https://github.com/cyberducttape/StePanel/actions/runs/40125094983)),
-including Go and race tests, coverage floors, recovery drills, real tmpfs
-ENOSPC, database restores, Python deployment, static analysis, container
-validation, and frontend E2E/accessibility tests.
-The full Integration workflow passed on backend source `e3a8976` ([run
-40124829064](https://github.com/cyberducttape/StePanel/actions/runs/40124829064)),
-including race tests, repository recovery drills, tmpfs ENOSPC recovery,
-database restore checks, clean Python deployment, static analysis, and
-container validation. Browser/UI changes in `343e445` are covered by the local
-frontend suite and earlier UI E2E run; this is not exact-source Integration.
-Parent-source Integration on `93c5714` was canceled after Go tests, coverage,
-ENOSPC and UI E2E passed; race and recovery checks did not complete ([run
-40124252769](https://github.com/cyberducttape/StePanel/actions/runs/40124252769)).
+Installed-host Caddy smoke on parent source `91f81c2` failed at the positive
+HTTPS fixture with HTTP 404 before exercising the document-root rename/swap
+([run 40144171482](https://github.com/cyberducttape/StePanel/actions/runs/40144171482)).
+That run predates the failure diagnostics added in `00ea35f`; it does not
+identify whether the cause is route configuration, service-namespace mount
+visibility, or file access. The exact-head diagnostic smoke
+([run 40144536672](https://github.com/cyberducttape/StePanel/actions/runs/40144536672))
+is queued and has not started. Neither the Caddy serving baseline nor the
+stable-parent activation behavior is currently verified on an installed host.
 
-The local Rocky 9 installed-host run on `1b2e99d` passed native install,
-quota checks, installed WordPress archive/database/HTTP recovery proof, and
-multiple interruption and outage checks. The extended matrix was interrupted
-when host memory pressure caused the OOM killer to terminate QEMU during
-restore recovery. This is not a full-matrix pass; see the
-[checkpoint report](lab-results/2026-10-24-rocky9-installed-host-recovery.md).
-
-Ten two-iteration installed-host shards are running on `e3a8976`:
-[40124847144](https://github.com/cyberducttape/StePanel/actions/runs/40124847144),
-[40124847251](https://github.com/cyberducttape/StePanel/actions/runs/40124847251),
-[40124847306](https://github.com/cyberducttape/StePanel/actions/runs/40124847306),
-[40124847420](https://github.com/cyberducttape/StePanel/actions/runs/40124847420),
-[40124847429](https://github.com/cyberducttape/StePanel/actions/runs/40124847429),
-[40124847430](https://github.com/cyberducttape/StePanel/actions/runs/40124847430),
-[40124847441](https://github.com/cyberducttape/StePanel/actions/runs/40124847441),
-[40124847590](https://github.com/cyberducttape/StePanel/actions/runs/40124847590),
-[40124847626](https://github.com/cyberducttape/StePanel/actions/runs/40124847626), and
-[40124847637](https://github.com/cyberducttape/StePanel/actions/runs/40124847637).
-Each shard has an Ubuntu 24.04/Caddy host job in progress; remaining distro/web-server
-jobs are queued. They cover the same Go/native hosting backend as
-`343e445`; no iterations count until all six host jobs in a shard pass.
-The host matrix does not exercise the newer browser-only stale-snapshot
-warning. The earlier six-host smoke and superseded cohorts were canceled before
-completion.
-
-Production remains **NO-GO** pending repeated installed-host recovery,
-physical power-loss and broader ENOSPC/database-outage evidence,
-application-level recovery across supported web servers, live alert
-outage/retry evidence, capacity certification, upgrade policy, and independent
-security assessment.
+Production remains **NO-GO**. The current passing CI does not close the
+installed-host recovery repetition requirement, physical power-loss and broad
+host ENOSPC/database-outage evidence, application recovery across supported
+web servers, live alert outage/retry evidence, capacity certification,
+upgrade/rollback policy, or independent security assessment. The Caddy
+installed-host failure above is an additional open issue; see the exact run
+artifact before changing the implementation.
 
 ### Previous completed validation — 2026-10-24 (application `b20c609`, Rocky 9 KVM)
 
