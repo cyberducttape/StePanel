@@ -6,29 +6,26 @@
 
 ---
 
-### Latest evidence snapshot — 2026-10-25 (source `070dce9`)
+### Latest evidence snapshot — 2026-10-25 (application source `070dce9`)
 
-The exact source is
+The exact application source is
 [`070dce9eeee18dd075596c2fe0561112d45db2e5`](https://github.com/cyberducttape/StePanel/commit/070dce9eeee18dd075596c2fe0561112d45db2e5).
 Integration CI ([run 40158267549](https://github.com/cyberducttape/StePanel/actions/runs/40158267549)),
 Documentation ([run 40158267587](https://github.com/cyberducttape/StePanel/actions/runs/40158267587)),
 and CodeQL ([run 40158267505](https://github.com/cyberducttape/StePanel/actions/runs/40158267505))
-passed. Installed-host smoke ([run
-40158267578](https://github.com/cyberducttape/StePanel/actions/runs/40158267578))
-passed on the AlmaLinux 9 + Caddy + MariaDB disposable systemd host. It
-verified the Caddy route/view lifecycle, completed installed WordPress
-application recovery with a measured RTO of 6.590 seconds, recovered from
-MariaDB and root-broker outages, and completed one recovery-matrix iteration.
-The evidence and limits are recorded in
-[the run report](lab-results/2026-10-25-almalinux9-caddy-installed-smoke-40158267578.md).
+passed. The six-host installed-system smoke ([run
+40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637))
+passed on Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy
+plus MariaDB. All six hosts passed installed WordPress application recovery
+proof; measured RTOs were 4.109–6.479 seconds. Each completed one recovery-
+matrix iteration in a disposable systemd container. The detailed scope and
+limits are in [the run report](lab-results/2026-10-25-six-host-installed-smoke-40176491637.md).
 
-This is one tested OS/web-server/database combination and one recovery-matrix
-iteration, not the 20–50-repeat production cohort or a dedicated-VM/physical
-power-loss certification. Production remains **NO-GO** pending repeated
-recovery, broader ENOSPC and physical power-loss evidence, current-source
-application proof across supported platforms, live alert outage/retry tests,
-capacity certification, upgrade/rollback policy, and independent security
-assessment. See [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
+This improves current-source platform coverage but does not establish the
+20–50-repeat recovery cohort, dedicated-VM or physical power-loss behavior,
+broad host ENOSPC, certified capacity, live alert outage/retry delivery,
+upgrade/rollback policy, or independent security assessment. Production
+remains **NO-GO**. See [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
 
 ## Executive Summary
 
