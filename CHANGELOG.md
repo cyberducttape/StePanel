@@ -47,8 +47,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Refresh the current status, production-readiness summary, and authoritative
   release-gate evidence to exact source `00ea35f`: record passing integration,
   Documentation, and CodeQL runs; disclose the installed Caddy smoke's initial
-  HTTPS 404 and queued diagnostic rerun; keep production approval NO-GO until
-  runtime behavior and the remaining certification gates are proven.
+  HTTPS 404 and queued diagnostic rerun; correct the ten older recovery runs
+  from stale "in progress" claims to their actual queued/unstarted state; keep
+  production approval NO-GO until runtime behavior and remaining certification
+  gates are proven.
 - Record the bounded root-broker request and path-validator fuzz checkpoint at
   `ee40d2e`, including execution counts and limits.
 - Correct the supported-runtime and CodeQL entries in the authoritative gate
