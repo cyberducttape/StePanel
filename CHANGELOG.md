@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Record the full exact-head Integration, Documentation, and CodeQL passes on
+  `73975a3`, retaining the active quota-VM and repeated installed-host runs as
+  incomplete release evidence.
+
+
 - Reconcile exact-head evidence with the passing full Integration run on
   `c648995`, the quota-fixture validator failure and fix, the active ext4 quota
   VM run, and current CodeQL results.

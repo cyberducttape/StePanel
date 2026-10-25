@@ -38,8 +38,7 @@ drills, real ENOSPC checks, database restores, and UI E2E. Integration on
 `1e44993` passed those stages but stopped at the quota-fixture syntax guard,
 which parsed raw heredoc text rather than rendered guest shell. The validator
 now models heredoc escaping and passes locally. Exact-head Integration on
-`73975a3` is active ([40210745823](https://github.com/cyberducttape/StePanel/actions/runs/40210745823)); CodeQL passed
-([40210745764](https://github.com/cyberducttape/StePanel/actions/runs/40210745764)) with zero open alerts.
+`73975a3` passed ([40210745823](https://github.com/cyberducttape/StePanel/actions/runs/40210745823)), including Go tests and coverage, race and recovery drills, real ENOSPC, MySQL/PostgreSQL restores, security/static scans, container/deployment validation, and UI E2E. Documentation passed ([40210745830](https://github.com/cyberducttape/StePanel/actions/runs/40210745830)); CodeQL passed ([40210745764](https://github.com/cyberducttape/StePanel/actions/runs/40210745764)) with zero open alerts.
 
 
 The two-repeat AlmaLinux 9 + Caddy + MariaDB recovery run
