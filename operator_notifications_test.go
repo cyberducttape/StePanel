@@ -237,6 +237,56 @@ func TestOperatorNotificationRetentionUsesRequiredChannelsAndPrunesWithoutConfig
 	}
 }
 
+func TestOperatorNotificationRetentionHonorsEachRequiredChannel(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "alert-channel-retention.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := newOperatorNotificationStore(db, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-operatorNotificationRetention - time.Hour).Unix()
+	type event struct {
+		id                               string
+		webhookRequired, emailRequired   int
+		webhookDelivered, emailDelivered any
+		wantRetained                     bool
+	}
+	cases := []event{
+		{id: "webhook-complete", webhookRequired: 1, webhookDelivered: old},
+		{id: "smtp-complete", emailRequired: 1, emailDelivered: old},
+		{id: "both-complete", webhookRequired: 1, emailRequired: 1, webhookDelivered: old, emailDelivered: old},
+		{id: "webhook-pending", webhookRequired: 1, wantRetained: true},
+		{id: "smtp-pending", emailRequired: 1, wantRetained: true},
+		{id: "smtp-pending-after-webhook", webhookRequired: 1, emailRequired: 1, webhookDelivered: old, wantRetained: true},
+		{id: "webhook-pending-after-smtp", webhookRequired: 1, emailRequired: 1, emailDelivered: old, wantRetained: true},
+		{id: "no-required-channels"},
+	}
+	for _, item := range cases {
+		if _, err := db.Exec(`INSERT INTO operator_notification_events(
+			id,job_id,job_kind,owner,state,created_at,webhook_delivered_at,email_delivered_at,
+			webhook_required,email_required,webhook_next_attempt_at,email_next_attempt_at)
+			VALUES (?,?,'site.restore','shop','failed',?,?,?,?,?,0,0)`,
+			item.id, item.id, old, item.webhookDelivered, item.emailDelivered, item.webhookRequired, item.emailRequired); err != nil {
+			t.Fatalf("insert %s: %v", item.id, err)
+		}
+	}
+	if err := store.pruneDelivered(context.Background()); err != nil {
+		t.Fatalf("prune delivered operator alerts: %v", err)
+	}
+	for _, item := range cases {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM operator_notification_events WHERE id=?`, item.id).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", item.id, err)
+		}
+		if gotRetained := count == 1; gotRetained != item.wantRetained {
+			t.Errorf("event %s retained=%v, want %v", item.id, gotRetained, item.wantRetained)
+		}
+	}
+}
+
 func TestValidateOperatorAlertConfig(t *testing.T) {
 	valid := Config{WebServer: "caddy", AlertWebhookURL: "https://alerts.example.test/stepanel", AlertWebhookSecret: strings.Repeat("s", 32)}
 	if err := validateOperatorAlertConfig(valid); err != nil {

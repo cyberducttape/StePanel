@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Refresh Caddy's systemd mount namespace when a site view bind mount is
+  created or replaced; ordinary virtual-host edits still use a graceful
+  reload, while mount removal refreshes the namespace after route removal.
+- Cover operator-alert retention for webhook-only, SMTP-only, both-required,
+  partially delivered, and no-required-channel events so pruning retains an
+  alert until every required destination has received it.
 - Keep Caddy's isolated bind view attached to the stable site parent so atomic
   document-root replacements from restores and deployments are served without
   a stale mount; migrate the legacy view without removing the new mountpoint,
