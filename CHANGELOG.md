@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Reconcile exact-head evidence with the passing full Integration run on
+  `c648995`, the quota-fixture validator failure and fix, the active ext4 quota
+  VM run, and current CodeQL results.
+
+
 - Trace the quota VM's post-boot quota preflight and print the effective mount
   options, so a failed user/project quota assertion is visible in CI output.
 

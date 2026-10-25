@@ -31,6 +31,17 @@ Ten two-iteration runs on older source `e3a8976` were cancelled after partial
 execution; each had one host job succeed and three fail, with the other jobs
 cancelled. None are counted as current-source certification.
 
+The subsequent full Integration run on `c648995`
+([40206761607](https://github.com/cyberducttape/StePanel/actions/runs/40206761607))
+passed, including the full Go suite, coverage thresholds, race and recovery
+drills, real ENOSPC checks, database restores, and UI E2E. Integration on
+`1e44993` passed those stages but stopped at the quota-fixture syntax guard,
+which parsed raw heredoc text rather than rendered guest shell. The validator
+now models heredoc escaping and passes locally. Exact-head Integration on
+`73975a3` is active ([40210745823](https://github.com/cyberducttape/StePanel/actions/runs/40210745823)); CodeQL passed
+([40210745764](https://github.com/cyberducttape/StePanel/actions/runs/40210745764)) with zero open alerts.
+
+
 The two-repeat AlmaLinux 9 + Caddy + MariaDB recovery run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
 remains in progress. The first quota-enabled Ubuntu 24.04 VM run
@@ -51,6 +62,9 @@ that the host shell would evaluate. The queued run
 was canceled before execution; the substitutions are now escaped and will be
 validated by rendering the cloud-init script and running `/bin/sh -n` before
 the next guest. No quota-VM attempt in this sequence counts as a pass.
+
+The corrected quota-enabled Ubuntu guest run on `2680808` is active
+([40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828)); it has passed cloud-init startup and has not completed installation.
 
 This improves current-source platform coverage but does not establish the
 20–50-repeat recovery cohort, dedicated-VM or physical power-loss behavior,

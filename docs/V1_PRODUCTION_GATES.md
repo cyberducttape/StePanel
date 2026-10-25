@@ -34,6 +34,17 @@ older two-iteration runs on `e3a8976` were cancelled after partial execution;
 each had one host job succeed and three fail, with the other jobs cancelled.
 Those stale-source results are not counted as current-source certification.
 
+The subsequent full Integration run on `c648995`
+([40206761607](https://github.com/cyberducttape/StePanel/actions/runs/40206761607))
+passed, including the full Go suite, coverage thresholds, race and recovery
+drills, real ENOSPC checks, database restores, and UI E2E. Integration on
+`1e44993` passed those stages but stopped at the quota-fixture syntax guard,
+which parsed raw heredoc text rather than rendered guest shell. The validator
+now models heredoc escaping and passes locally. Exact-head Integration on
+`73975a3` is active ([40210745823](https://github.com/cyberducttape/StePanel/actions/runs/40210745823)); CodeQL passed
+([40210745764](https://github.com/cyberducttape/StePanel/actions/runs/40210745764)) with zero open alerts.
+
+
 The two-repeat AlmaLinux 9 + Caddy + MariaDB recovery run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
 remains in progress. The first quota-enabled Ubuntu 24.04 VM run
@@ -54,6 +65,9 @@ that the host shell would evaluate. The queued run
 was canceled before execution; the substitutions are now escaped and will be
 validated by rendering the cloud-init script and running `/bin/sh -n` before
 the next guest. No quota-VM attempt in this sequence counts as a pass.
+
+The corrected quota-enabled Ubuntu guest run on `2680808` is active
+([40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828)); it has passed cloud-init startup and has not completed installation.
 
 This is current-source evidence across the six listed OS/web-server
 combinations. It does not satisfy the 20–50-repeat recovery cohort, physical
@@ -757,7 +771,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Exact-source smoke [40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637) passed all six listed combinations: Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache/Caddy + MariaDB, including WordPress application recovery. The jobs used disposable systemd containers and one recovery iteration each; this does not certify dedicated-VM behavior or repeated recovery. `INSTALLATION.md` describes these as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Application source `070dce9` passed exact-head Integration on workflow commit `e56134e` ([run 40206286397](https://github.com/cyberducttape/StePanel/actions/runs/40206286397)), including tests/coverage, race, recovery, ENOSPC, DB restore and deployment checks. Documentation and CodeQL passed on evidence commit `bc39d8f` ([runs 40207841458](https://github.com/cyberducttape/StePanel/actions/runs/40207841458) and [40207841411](https://github.com/cyberducttape/StePanel/actions/runs/40207841411)); the repository alert query returns zero open alerts. The six-host installed-system smoke ([run 40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637)) passed WordPress recovery proof on six OS/web-server combinations with 4.109–6.479 second measured RTOs; see [the report](./lab-results/2026-10-25-six-host-installed-smoke-40176491637.md). The two-repeat installed-host recovery run ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576)) remains in progress. Quota-VM runs 40205929003, 40206770167, 40208701493, and 40208981197 failed before installation. A queued run (40210073978) was canceled before execution after rendered-script validation found unescaped guest command substitutions. POSIX-compatible quota checks and escaped guest substitutions are now in place; a complete quota-VM rerun is still required. Physical power-loss evidence, 20–50-repeat recovery, certified capacity, live notification outage/retry evidence, supported upgrade/rollback policy, and independent security assessment remain open. |
+| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Application source `070dce9` passed full Integration on `c648995` ([run 40206761607](https://github.com/cyberducttape/StePanel/actions/runs/40206761607)); the complete Go, coverage, race, recovery, ENOSPC, restore, and UI checks passed. Integration on `1e44993` passed those stages but failed its quota-fixture validator, which parsed raw heredoc text; the rendered-script validator fix is on `73975a3`, with exact-head Integration active ([40210745823](https://github.com/cyberducttape/StePanel/actions/runs/40210745823)). Documentation passed on `2680808` ([40210320575](https://github.com/cyberducttape/StePanel/actions/runs/40210320575)); CodeQL passed on `73975a3` ([40210745764](https://github.com/cyberducttape/StePanel/actions/runs/40210745764)) with zero open alerts. Six-host installed-system WordPress recovery passed once per combination ([report](./lab-results/2026-10-25-six-host-installed-smoke-40176491637.md)). Two-repeat AlmaLinux recovery remains in progress ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576)); ext4 quota VM run is active but incomplete ([40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828)). Repeated host recovery, power-loss/host ENOSPC, capacity certification, live notification outage/retry, upgrade/rollback policy, and independent security review remain open. |
 
 The repository production gate was rerun on the exact pushed commit `ee563eb`
 and passed, including coverage thresholds, the complete race suite,
