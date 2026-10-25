@@ -131,6 +131,8 @@ func TestCaddyInstallSmokeAppliesRoutesThroughRootBroker(t *testing.T) {
 		`runuser -u stepanel -- python3`,
 		`"type": "vhost"`,
 		`"webserver": "caddy"`,
+		`"fencing": [{"resource_key": resource_key`,
+		`INSERT INTO resource_locks`,
 		`connection.connect("/run/stepanel-root-broker.sock")`,
 		`apply_smoke_vhost "$site" ci-smoke.localhost`,
 	} {

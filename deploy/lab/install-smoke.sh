@@ -292,17 +292,33 @@ apply_smoke_vhost() {
     # publication through systemd mount units.
     runuser -u stepanel -- python3 - "$target_site" "$target_domain" <<'PY'
 import json, socket, sys
+import os, sqlite3, time
+resource_key = "site:ci-smoke-caddy-" + str(time.time_ns())
+owner_id = "install-smoke:" + str(os.getpid())
+now = time.time_ns()
+database = sqlite3.connect("/var/lib/ste-panel/stepanel-control.db")
+database.execute(
+    "INSERT INTO resource_locks(resource_key, owner_id, lease_until, generation, acquired_at) VALUES(?,?,?,?,?)",
+    (resource_key, owner_id, now + 300_000_000_000, 1, now),
+)
+database.commit()
 request = {
     "type": "vhost",
     "vhost": {"action": "apply", "site": sys.argv[1], "domain": sys.argv[2], "webserver": "caddy"},
+    "fencing": [{"resource_key": resource_key, "owner_id": owner_id, "generation": 1}],
 }
-connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-connection.settimeout(120)
-connection.connect("/run/stepanel-root-broker.sock")
-connection.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
-response = json.loads(connection.makefile("rb").readline())
-if not response.get("ok"):
-    raise SystemExit("root broker vhost apply failed: " + str(response.get("error", "unknown error")))
+try:
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    connection.settimeout(120)
+    connection.connect("/run/stepanel-root-broker.sock")
+    connection.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
+    response = json.loads(connection.makefile("rb").readline())
+    if not response.get("ok"):
+        raise SystemExit("root broker vhost apply failed: " + str(response.get("error", "unknown error")))
+finally:
+    database.execute("DELETE FROM resource_locks WHERE resource_key=? AND owner_id=?", (resource_key, owner_id))
+    database.commit()
+    database.close()
 PY
   else
     /usr/local/sbin/stepanel-vhostctl apply "$target_site" "$target_domain"
