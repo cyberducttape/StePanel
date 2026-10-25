@@ -468,6 +468,25 @@ func TestReadBackupManifestRejectsOversizedMetadata(t *testing.T) {
 	}
 }
 
+func TestWriteBackupManifestRejectsOversizedMetadataBeforePublishing(t *testing.T) {
+	root := t.TempDir()
+	manifest := BackupManifest{
+		Version: 1,
+		Site:    "account",
+		Entries: []BackupEntry{{Path: strings.Repeat("a", maxBackupManifestBytes)}},
+	}
+	if err := writeBackupManifest(root, manifest); err == nil || !strings.Contains(err.Error(), "exceeds size limit") {
+		t.Fatalf("write oversized manifest error = %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("oversized manifest left publication artifacts: %#v", entries)
+	}
+}
+
 func TestBackupManifestSignatureDoesNotFollowSymlink(t *testing.T) {
 	root := t.TempDir()
 	manifest := BackupManifest{

@@ -1091,6 +1091,9 @@ func writeBackupManifest(root string, manifest BackupManifest, signingKey ...str
 	if err != nil {
 		return err
 	}
+	if len(data) > maxBackupManifestBytes {
+		return fmt.Errorf("backup manifest exceeds size limit of %d bytes", maxBackupManifestBytes)
+	}
 	temp, err := os.CreateTemp(root, ".manifest-*.tmp")
 	if err != nil {
 		return err
