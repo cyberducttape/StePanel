@@ -42,6 +42,16 @@ mount_unit_path() {
   printf '/etc/systemd/system/%s\n' "$(mount_unit "$1")"
 }
 
+mount_flags_unit() {
+  local unit
+  unit=$(mount_unit "$1")
+  printf '%s-nosymfollow.service\n' "${unit%.mount}"
+}
+
+mount_flags_unit_path() {
+  printf '/etc/systemd/system/%s\n' "$(mount_flags_unit "$1")"
+}
+
 # ProtectSystem=strict gives the root broker a private mount namespace. The
 # systemd manager mounts these units in PID 1's host namespace, so validate
 # their presence and options against that namespace rather than the broker's.
@@ -66,8 +76,12 @@ reload_mount_units() {
 }
 
 stop_managed_mount() {
-  local target=$1 unit
+  local target=$1 unit flags_unit
   unit=$(mount_unit "$target")
+  flags_unit=$(mount_flags_unit "$target")
+  if systemctl is-active --quiet "$flags_unit"; then
+    systemctl stop "$flags_unit"
+  fi
   if systemctl is-active --quiet "$unit"; then
     systemctl stop "$unit"
   elif [[ $(host_findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]]; then
@@ -86,21 +100,43 @@ write_mount_unit() {
   temp=$(mktemp /etc/systemd/system/.stepanel-caddy-view.XXXXXX)
   {
     printf '[Unit]\nDescription=StePanel isolated Caddy view %s\nRequiresMountsFor=%s %s\nBefore=caddy.service\n\n' "$target" "$source" "$target"
-    printf '[Mount]\nWhat=%s\nWhere=%s\nType=none\nOptions=bind,nosymfollow\n\n[Install]\nWantedBy=local-fs.target\n' "$source" "$target"
+    printf '[Mount]\nWhat=%s\nWhere=%s\nType=none\nOptions=bind\n\n[Install]\nWantedBy=local-fs.target\n' "$source" "$target"
   } > "$temp"
   chmod 0644 "$temp"
   chown root:root "$temp"
   mv -f "$temp" "$unit_path"
 }
 
+write_mount_flags_unit() {
+  local target=$1 unit flags_unit_path temp
+  unit=$(mount_unit "$target")
+  flags_unit_path=$(mount_flags_unit_path "$target")
+  temp=$(mktemp /etc/systemd/system/.stepanel-caddy-view-flags.XXXXXX)
+  {
+    printf '[Unit]\nDescription=Apply no-follow policy to StePanel Caddy view %s\n' "$target"
+    printf 'Requires=%s\nAfter=%s\nBefore=caddy.service\n\n' "$unit" "$unit"
+    printf '[Service]\nType=oneshot\nRemainAfterExit=yes\nNoNewPrivileges=yes\nCapabilityBoundingSet=CAP_SYS_ADMIN\nRestrictNamespaces=yes\n'
+    printf 'ExecStart=/usr/bin/mount -o remount,bind,nosymfollow %s\n\n' "$target"
+    printf '[Install]\nWantedBy=multi-user.target\nRequiredBy=caddy.service\n'
+  } > "$temp"
+  chmod 0644 "$temp"
+  chown root:root "$temp"
+  mv -f "$temp" "$flags_unit_path"
+}
+
 remove_mount_unit() {
-  local target=$1 unit unit_path
+  local target=$1 unit unit_path flags_unit flags_unit_path
   unit=$(mount_unit "$target")
   unit_path=$(mount_unit_path "$target")
+  flags_unit=$(mount_flags_unit "$target")
+  flags_unit_path=$(mount_flags_unit_path "$target")
   [[ ! -L $unit_path ]] || { echo "refusing symlinked Caddy mount unit $unit_path" >&2; return 1; }
+  [[ ! -L $flags_unit_path ]] || { echo "refusing symlinked Caddy mount flags unit $flags_unit_path" >&2; return 1; }
   if [[ -f $unit_path && ! -L $unit_path ]]; then
     stop_managed_mount "$target"
+    systemctl disable "$flags_unit" >/dev/null
     systemctl disable "$unit" >/dev/null
+    rm -f -- "$flags_unit_path"
     rm -f -- "$unit_path"
     reload_mount_units
   else
@@ -110,12 +146,16 @@ remove_mount_unit() {
 }
 
 start_managed_mount() {
-  local target=$1 source=$2 unit
+  local target=$1 source=$2 unit flags_unit
   write_mount_unit "$target" "$source"
+  write_mount_flags_unit "$target"
   reload_mount_units
   unit=$(mount_unit "$target")
+  flags_unit=$(mount_flags_unit "$target")
   systemctl enable "$unit"
+  systemctl enable "$flags_unit"
   systemctl start "$unit"
+  systemctl restart "$flags_unit"
   [[ $(host_findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]] || {
     echo "systemd did not expose the Caddy view mount $target to the helper" >&2
     return 1
@@ -180,6 +220,8 @@ ensure_view() {
     systemctl show "$(mount_unit "$view")" -p ActiveState -p SubState -p Result -p What -p Where -p Options >&2 || true
     systemctl status "$(mount_unit "$view")" --no-pager >&2 || true
     journalctl -b -u "$(mount_unit "$view")" --no-pager -n 20 >&2 || true
+    systemctl status "$(mount_flags_unit "$view")" --no-pager >&2 || true
+    journalctl -b -u "$(mount_flags_unit "$view")" --no-pager -n 20 >&2 || true
     remove_view "$site"
     return 1
   fi

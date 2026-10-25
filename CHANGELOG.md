@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Apply `nosymfollow` to each Caddy bind view with a root-owned systemd
+  oneshot remount unit restricted to `CAP_SYS_ADMIN`. The installed-host test
+  showed the native `.mount` unit reported success but left the bind view
+  without the required VFS flag; the remount now runs before Caddy and at boot,
+  and Caddy requires the remount units so it cannot start if the policy fails.
 - Include the observed host mount options and systemd unit state when Caddy's
   isolated view fails its `nosymfollow` verification, so installed-host
   diagnostics identify why the kernel boundary was not established. Capture
