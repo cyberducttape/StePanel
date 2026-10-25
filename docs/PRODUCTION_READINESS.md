@@ -8,7 +8,7 @@
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
 Latest application source: `00ea35f3afa2ec6b872a81c0db74f72c21c104bb`;
-latest evidence commit: `7229c186c0365c1cec5a17f70925ba49865dc1ed`.
+prior evidence commit: `7229c186c0365c1cec5a17f70925ba49865dc1ed`.
 Exact-head Integration ([run 40144536676](https://github.com/cyberducttape/StePanel/actions/runs/40144536676)),
 Documentation ([run 40144536669](https://github.com/cyberducttape/StePanel/actions/runs/40144536669)),
 and CodeQL ([run 40144536662](https://github.com/cyberducttape/StePanel/actions/runs/40144536662))

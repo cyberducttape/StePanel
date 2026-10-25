@@ -9,9 +9,9 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest evidence snapshot — 2026-10-25 (`7229c18`; application source `00ea35f`)
+### Latest evidence snapshot — 2026-10-25 (application source `00ea35f`; prior evidence commit `7229c18`)
 
-The current evidence commit is
+The prior documentation-only evidence commit is
 [`7229c186c0365c1cec5a17f70925ba49865dc1ed`](https://github.com/cyberducttape/StePanel/commit/7229c186c0365c1cec5a17f70925ba49865dc1ed).
 The application and installed-host smoke source is
 [`00ea35f3afa2ec6b872a81c0db74f72c21c104bb`](https://github.com/cyberducttape/StePanel/commit/00ea35f3afa2ec6b872a81c0db74f72c21c104bb).

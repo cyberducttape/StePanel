@@ -6,14 +6,14 @@
 
 ---
 
-### Latest evidence snapshot — 2026-10-25 (`7229c18`; application source `00ea35f`)
+### Latest evidence snapshot — 2026-10-25 (application source `00ea35f`; prior evidence commit `7229c18`)
 
-Current `main` is
-[`7229c186c0365c1cec5a17f70925ba49865dc1ed`](https://github.com/cyberducttape/StePanel/commit/7229c186c0365c1cec5a17f70925ba49865dc1ed);
-it updates release evidence only. The application and installed-host smoke
-source is
+The application and installed-host smoke source is
 [`00ea35f3afa2ec6b872a81c0db74f72c21c104bb`](https://github.com/cyberducttape/StePanel/commit/00ea35f3afa2ec6b872a81c0db74f72c21c104bb),
 which adds diagnostics to the installed Caddy stable-parent view smoke.
+Evidence was last recorded in the documentation-only commit
+[`7229c186c0365c1cec5a17f70925ba49865dc1ed`](https://github.com/cyberducttape/StePanel/commit/7229c186c0365c1cec5a17f70925ba49865dc1ed);
+the current update only refreshes run status and adds no application code.
 Exact-source Integration passed
 ([run 40144536676](https://github.com/cyberducttape/StePanel/actions/runs/40144536676)),
 as did Documentation
