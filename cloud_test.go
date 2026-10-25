@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -519,6 +520,56 @@ func TestCloudOperationKeysAreStableAcrossUTCDateBoundary(t *testing.T) {
 	}
 	if got := cloudOperationKey(request, "request-123", first.Add(12*time.Hour)); got != key {
 		t.Fatalf("stable request key changed at UTC midnight: %q != %q", got, key)
+	}
+}
+
+func TestCloudActionLifecycleQueuesNewAttemptsAndDeduplicatesExactRetry(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	app := &App{Jobs: newJobsWithDB(db, 1)}
+
+	var priorID string
+	for _, action := range []string{"start", "stop", "start"} {
+		job, err := app.enqueueCloudJob(durableCloudRequest{
+			Operation: "instance",
+			Provider:  "linode",
+			Action:    action,
+			ID:        "123",
+			Actor:     "operator",
+		}, "")
+		if err != nil {
+			t.Fatalf("enqueue %s: %v", action, err)
+		}
+		if job.ID == priorID {
+			t.Fatalf("new %s attempt reused prior job %s", action, job.ID)
+		}
+		priorID = job.ID
+	}
+	if got := len(app.Jobs.List(10)); got != 3 {
+		t.Fatalf("cloud lifecycle queued %d jobs, want 3", got)
+	}
+
+	request := durableCloudRequest{
+		Operation: "instance",
+		Provider:  "linode",
+		Action:    "reboot",
+		ID:        "123",
+		Actor:     "operator",
+	}
+	first, err := app.enqueueCloudJob(request, "request-456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry, err := app.enqueueCloudJob(request, "request-456")
+	if err != nil || retry.ID != first.ID {
+		t.Fatalf("exact retry = %s, first=%s, err=%v", retry.ID, first.ID, err)
+	}
+	newAttempt, err := app.enqueueCloudJob(request, "request-789")
+	if err != nil || newAttempt.ID == first.ID {
+		t.Fatalf("new request key reused prior job: job=%s first=%s err=%v", newAttempt.ID, first.ID, err)
 	}
 }
 

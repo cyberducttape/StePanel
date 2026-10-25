@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Cover cloud action lifecycle retries: new start/stop attempts receive
+  distinct durable jobs, exact request retries deduplicate, and a new request
+  key admits a new attempt.
 - Refresh Caddy's systemd mount namespace when a site view bind mount is
   created or replaced; ordinary virtual-host edits still use a graceful
   reload, while mount removal refreshes the namespace after route removal.
