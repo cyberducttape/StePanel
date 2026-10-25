@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Update the Caddy legacy-view cleanup contract test for the native mount-unit
+  lifecycle and host-namespace inspection, which the previous pathname-based
+  mount assertion no longer represented.
 - Publish Caddy's per-site no-follow views with explicit, root-owned systemd
   mount units rather than rewriting `/etc/fstab`; enable them for boot, and
   require their source and target parent mounts, then stop and remove them

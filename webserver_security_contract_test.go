@@ -251,7 +251,8 @@ func TestCaddyLegacyViewCleanupNeverRemovesMountedSiteDocumentRoot(t *testing.T)
 		t.Fatal("Caddy legacy-view cleanup function is unterminated")
 	}
 	cleanup := source[cleanupStart : cleanupStart+cleanupEnd]
-	if !strings.Contains(cleanup, `if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]`) ||
+	if !strings.Contains(cleanup, `remove_mount_unit "$old"`) ||
+		!strings.Contains(cleanup, `if [[ $(host_findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]`) ||
 		!strings.Contains(cleanup, `rmdir "$old"`) {
 		t.Fatal("Caddy legacy cleanup must only remove the detached mountpoint, never a source document root under the stable parent view")
 	}
