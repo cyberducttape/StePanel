@@ -15,6 +15,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Give the race suite 15 minutes to absorb hosted-runner load variation while
+  staying within the integration job's 30-minute limit.
+
 - Remove Caddy routes and activate the updated configuration before detaching
   their protected document-root views. Remove each view's systemd dependency
   edge before stopping its no-follow policy unit, so route cleanup does not

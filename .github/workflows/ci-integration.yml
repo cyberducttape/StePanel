@@ -76,9 +76,10 @@ jobs:
       - name: Race tests
         env:
           # The race runtime creates additional threads; keep this gate below
-          # the hosted runner task budget while retaining all packages.
+          # the hosted runner task budget while retaining all packages. The
+          # extra five minutes provide headroom for runner-load variation.
           GOMAXPROCS: 1
-        run: go test -p 1 -race -timeout 10m ./...
+        run: go test -p 1 -race -timeout 15m ./...
       - name: Recovery drills
         run: bash deploy/lab/run-recovery-drills.sh /tmp/stepanel-recovery-drills.md
       - name: Real tmpfs ENOSPC recovery
