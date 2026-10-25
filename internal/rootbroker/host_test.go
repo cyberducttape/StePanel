@@ -239,6 +239,16 @@ func TestSitePrepareRefusesDivergentHelperIdentity(t *testing.T) {
 	}
 }
 
+func TestLabSitePreparationDoesNotCreateLegacyRootForPlacedSite(t *testing.T) {
+	legacyRoot := filepath.Join(t.TempDir(), "sites", "customer-site")
+	if err := ensureLabManagerSiteRoot(legacyRoot, true); err != nil {
+		t.Fatalf("prepare lab state for placed site: %v", err)
+	}
+	if _, err := os.Lstat(legacyRoot); !os.IsNotExist(err) {
+		t.Fatalf("placed-site lab preparation created legacy path %s: %v", legacyRoot, err)
+	}
+}
+
 func TestSiteSealUsesPersistedIdentityHelper(t *testing.T) {
 	webRoot := t.TempDir()
 	public := filepath.Join(webRoot, "sites", "demo", "public")
