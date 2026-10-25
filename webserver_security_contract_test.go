@@ -286,10 +286,20 @@ func TestCaddyRouteIsRemovedBeforeItsViewMount(t *testing.T) {
 	}
 	deletion := source[deleteStart : deleteStart+deleteEnd]
 	removeRoute := strings.Index(deletion, `rm -f "$path"`)
-	activate := strings.Index(deletion, `systemctl restart "$service"`)
+	activate := strings.Index(deletion, `! activate_caddy_after_route_delete "$view_was_mounted"`)
 	removeView := strings.Index(deletion, `if ! remove_view "$site"; then`)
 	if removeRoute < 0 || activate < 0 || removeView < 0 || removeRoute > activate || activate > removeView {
 		t.Fatal("Caddy must remove and activate the route while its document-root view is mounted")
+	}
+	if !strings.Contains(source, `activate_caddy_after_route_delete() {
+  local view_was_mounted=$1
+  if (( view_was_mounted )); then
+    systemctl restart "$service"
+  else
+    systemctl reload "$service"
+  fi
+}`) {
+		t.Fatal("route deletion must propagate only a failed restart or reload")
 	}
 	if !strings.Contains(deletion[removeView:], `mv -f "$backup" "$path"`) ||
 		!strings.Contains(deletion[removeView:], `ensure_view "$site" "$site_home"`) {

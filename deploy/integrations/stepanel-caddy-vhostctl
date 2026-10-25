@@ -34,6 +34,15 @@ activate_caddy() {
   fi
 }
 
+activate_caddy_after_route_delete() {
+  local view_was_mounted=$1
+  if (( view_was_mounted )); then
+    systemctl restart "$service"
+  else
+    systemctl reload "$service"
+  fi
+}
+
 mount_unit() {
   systemd-escape --path --suffix=mount "$1"
 }
@@ -260,8 +269,7 @@ if [[ $action == delete ]]; then
   cp -p "$path" "$backup"
   rm -f "$path"
   if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null || \
-    { (( view_was_mounted )) && systemctl restart "$service"; } || \
-    { (( ! view_was_mounted )) && systemctl reload "$service"; }; then
+    ! activate_caddy_after_route_delete "$view_was_mounted"; then
     mv -f "$backup" "$path"
     ensure_view "$site" "$site_home" || true
     if caddy validate --config /etc/caddy/Caddyfile >/dev/null; then activate_caddy || true; fi
