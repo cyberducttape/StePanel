@@ -51,6 +51,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   from stale "in progress" claims to their actual queued/unstarted state; keep
   production approval NO-GO until runtime behavior and remaining certification
   gates are proven.
+- Correct the Git staging quota gate's run-state text to match the same
+  currently queued, unstarted installed-host recovery cohort.
 - Record the bounded root-broker request and path-validator fuzz checkpoint at
   `ee40d2e`, including execution counts and limits.
 - Correct the supported-runtime and CodeQL entries in the authoritative gate
