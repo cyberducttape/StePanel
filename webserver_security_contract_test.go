@@ -46,12 +46,19 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	}
 	source := string(sourceBytes)
 	for _, required := range []string{
-		`x-systemd.requires-mounts-for=`,
 		`/var/www/.stepanel-caddy-views`,
 		`systemd-escape --path --suffix=mount`,
+		`/etc/systemd/system/%s`,
+		`remove_legacy_fstab_target`,
+		`What=%s`,
+		`Where=%s`,
+		`Options=bind,nosymfollow`,
+		`WantedBy=local-fs.target`,
+		`systemctl enable "$unit"`,
 		`systemctl start "$unit"`,
 		`systemctl stop "$unit"`,
-		`bind,nosymfollow,x-systemd.requires-mounts-for=`,
+		`systemctl disable "$unit"`,
+		`systemctl daemon-reload`,
 		`view_mount_changed=1`,
 		`systemctl restart "$service"`,
 		`if (( view_mount_changed )); then`,
@@ -74,6 +81,9 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		if !strings.Contains(source, required) {
 			t.Fatalf("Caddy helper is missing protection %q", required)
 		}
+	}
+	if strings.Contains(source, "write_fstab_target") || strings.Contains(source, "/etc/fstab is unavailable") {
+		t.Fatal("Caddy view creation must not depend on writing /etc/fstab")
 	}
 	if strings.Contains(source, "(?:") {
 		t.Fatal("Caddy path regexp uses unsupported non-capturing groups")

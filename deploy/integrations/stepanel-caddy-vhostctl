@@ -20,7 +20,6 @@ location_lib=/usr/local/lib/stepanel/site-location.sh
 . "$location_lib"
 
 view_path() { printf '%s/%s\n' "$view_root" "$1"; }
-fstab_line() { printf '%s %s none bind,nosymfollow,x-systemd.requires-mounts-for=%s 0 0\n' "$2" "$1" "$3"; }
 view_mount_changed=0
 
 # Caddy's systemd unit may have a private mount namespace. A bind mount added
@@ -35,29 +34,24 @@ activate_caddy() {
   fi
 }
 
-remove_fstab_target() {
-  local target=$1 temp
-  [[ -f /etc/fstab ]] || return 0
-  temp=$(mktemp /etc/.stepanel-fstab.XXXXXX)
-  awk -v target="$target" '$2 != target' /etc/fstab > "$temp"
-  chmod 0644 "$temp"
-  chown root:root "$temp"
-  mv -f "$temp" /etc/fstab
-}
-
-write_fstab_target() {
-  local target=$1 line=$2 temp
-  [[ -f /etc/fstab ]] || { echo '/etc/fstab is unavailable' >&2; return 1; }
-  temp=$(mktemp /etc/.stepanel-fstab.XXXXXX)
-  awk -v target="$target" '$2 != target' /etc/fstab > "$temp"
-  printf '%s\n' "$line" >> "$temp"
-  chmod 0644 "$temp"
-  chown root:root "$temp"
-  mv -f "$temp" /etc/fstab
-}
-
 mount_unit() {
   systemd-escape --path --suffix=mount "$1"
+}
+
+mount_unit_path() {
+  printf '/etc/systemd/system/%s\n' "$(mount_unit "$1")"
+}
+
+remove_legacy_fstab_target() {
+  local target=$1 temp
+  [[ -f /etc/fstab && ! -L /etc/fstab ]] || return 0
+  awk -v target="$target" '$2 == target { found=1 } END { exit !found }' /etc/fstab || return 0
+  temp=$(mktemp /etc/.stepanel-fstab.XXXXXX)
+  awk -v target="$target" '$2 != target' /etc/fstab > "$temp"
+  chmod 0644 "$temp"
+  chown root:root "$temp"
+  mv -f "$temp" /etc/fstab
+  reload_mount_units
 }
 
 reload_mount_units() {
@@ -73,20 +67,48 @@ stop_managed_mount() {
     echo "mount $target exists outside its systemd mount unit; refusing namespace-local unmount" >&2
     return 1
   fi
+  [[ $(findmnt -no TARGET -T "$target" 2>/dev/null || true) != "$target" ]] || {
+    echo "systemd mount unit left $target mounted" >&2
+    return 1
+  }
+}
+
+write_mount_unit() {
+  local target=$1 source=$2 unit_path temp
+  unit_path=$(mount_unit_path "$target")
+  temp=$(mktemp /etc/systemd/system/.stepanel-caddy-view.XXXXXX)
+  {
+    printf '[Unit]\nDescription=StePanel isolated Caddy view %s\nBefore=caddy.service\n\n' "$target"
+    printf '[Mount]\nWhat=%s\nWhere=%s\nType=none\nOptions=bind,nosymfollow\n\n[Install]\nWantedBy=local-fs.target\n' "$source" "$target"
+  } > "$temp"
+  chmod 0644 "$temp"
+  chown root:root "$temp"
+  mv -f "$temp" "$unit_path"
+}
+
+remove_mount_unit() {
+  local target=$1 unit unit_path
+  unit=$(mount_unit "$target")
+  unit_path=$(mount_unit_path "$target")
+  [[ ! -L $unit_path ]] || { echo "refusing symlinked Caddy mount unit $unit_path" >&2; return 1; }
+  if [[ -f $unit_path && ! -L $unit_path ]]; then
+    stop_managed_mount "$target"
+    systemctl disable "$unit" >/dev/null
+    rm -f -- "$unit_path"
+    reload_mount_units
+  else
+    stop_managed_mount "$target"
+    remove_legacy_fstab_target "$target"
+  fi
 }
 
 start_managed_mount() {
-  local target=$1 source=$2 line unit
-  line=$(fstab_line "$target" "$source" "$source")
-  write_fstab_target "$target" "$line"
+  local target=$1 source=$2 unit
+  write_mount_unit "$target" "$source"
   reload_mount_units
   unit=$(mount_unit "$target")
-  if systemctl is-active --quiet "$unit"; then
-    systemctl stop "$unit"
-    systemctl start "$unit"
-  else
-    systemctl start "$unit"
-  fi
+  systemctl enable "$unit"
+  systemctl start "$unit"
   [[ $(findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]] || {
     echo "systemd did not expose the Caddy view mount $target to the helper" >&2
     return 1
@@ -96,9 +118,7 @@ start_managed_mount() {
 remove_legacy_view() {
   local site=$1 old="$view_root/$1/public" view
   view=$(view_path "$site")
-  stop_managed_mount "$old"
-  remove_fstab_target "$old"
-  reload_mount_units
+  remove_mount_unit "$old"
   # Once the stable parent is mounted, this pathname reaches the customer's
   # real document root. Only remove a legacy mountpoint beneath the detached
   # view directory, never the source tree.
@@ -110,16 +130,22 @@ remove_legacy_view() {
 remove_view() {
   local site=$1 view
   view=$(view_path "$site")
-  stop_managed_mount "$view"
-  remove_fstab_target "$view"
-  reload_mount_units
+  remove_mount_unit "$view"
   remove_legacy_view "$site"
   rmdir "$view" 2>/dev/null || true
 }
 
 ensure_view() {
-  local site=$1 site_home=$2 view line options mounted_identity source_identity
+  local site=$1 site_home=$2 view options mounted_identity source_identity
   view=$(view_path "$site")
+  # Remove mounts created by older releases from /etc/fstab before publishing
+  # the equivalent persistent native unit. With no legacy entry this is a
+  # no-op, so hosts without /etc/fstab remain fully supported.
+  if [[ -f /etc/fstab ]] && awk -v target="$view" '$2 == target { found=1 } END { exit !found }' /etc/fstab; then
+    stop_managed_mount "$view"
+    remove_legacy_fstab_target "$view"
+    view_mount_changed=1
+  fi
   if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
     install -d -m 0755 -o root -g root "$view"
   fi
@@ -140,9 +166,6 @@ ensure_view() {
   fi
   options=$(findmnt -no OPTIONS -T "$view" 2>/dev/null || true)
   [[ ,$options, == *,nosymfollow,* ]] || { remove_view "$site"; return 1; }
-  line=$(fstab_line "$view" "$site_home" "$site_home")
-  write_fstab_target "$view" "$line"
-  reload_mount_units
 }
 
 if [[ $action == delete ]]; then
