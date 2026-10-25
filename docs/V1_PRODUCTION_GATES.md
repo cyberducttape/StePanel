@@ -9,7 +9,44 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest evidence snapshot — 2026-10-25 (application source `070dce9`; CI run `40206286397`; six-host report `lab-results/2026-10-25-six-host-installed-smoke-40176491637.md`)
+### Current evidence snapshot — 2026-10-25 (application source `73975a3`; evidence head `67d9e6f`)
+
+Exact-head Integration passed on application source
+[`73975a3740e52835e097363dd58cd3f3b7aba977`](https://github.com/cyberducttape/StePanel/commit/73975a3740e52835e097363dd58cd3f3b7aba977)
+([run 40210745823](https://github.com/cyberducttape/StePanel/actions/runs/40210745823)),
+including Go tests/coverage, race and recovery drills, real ENOSPC,
+MySQL/PostgreSQL restores, security/static scans, deployment validation, and
+UI E2E. Documentation and CodeQL passed on evidence head
+[`67d9e6ff2826930c4200d6a1eb0fb4fe42f486a9`](https://github.com/cyberducttape/StePanel/commit/67d9e6ff2826930c4200d6a1eb0fb4fe42f486a9)
+([40212502036](https://github.com/cyberducttape/StePanel/actions/runs/40212502036)
+and [40212502088](https://github.com/cyberducttape/StePanel/actions/runs/40212502088));
+the code-scanning API reports zero open alerts.
+
+Current-host runs are incomplete: a two-iteration Rocky Linux 9 + Caddy +
+MariaDB recovery shard on `67d9e6f`
+([40212718792](https://github.com/cyberducttape/StePanel/actions/runs/40212718792));
+an ext4 quota-enabled Ubuntu install on source `2680808`
+([40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828));
+and an XFS quota-enabled Ubuntu run queued on `67d9e6f`
+([40212633884](https://github.com/cyberducttape/StePanel/actions/runs/40212633884)).
+None is counted as passed. A separate two-repeat AlmaLinux run
+([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
+is still running on stale source `42c69cb6` and is not current-source evidence.
+
+The six-host installed-system smoke on older source `070dce9`
+([40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637))
+passed Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy plus
+MariaDB. All six passed installed WordPress recovery proof; measured RTO ranged
+from 4.109 to 6.479 seconds. Each completed one iteration in a disposable
+systemd container, not a dedicated VM. See
+[the run report](lab-results/2026-10-25-six-host-installed-smoke-40176491637.md).
+
+The 20–50-repeat real-host recovery cohort, physical host power-loss and broad
+ENOSPC/database-outage tests, certified capacity, live alert outage/retry
+evidence, upgrade/rollback policy, and independent security assessment remain
+open. Production remains **NO-GO**.
+
+### Previous evidence snapshot — 2026-10-25 (application source `070dce9`; CI run `40206286397`; six-host report `lab-results/2026-10-25-six-host-installed-smoke-40176491637.md`)
 
 The application source under test is
 [`070dce9eeee18dd075596c2fe0561112d45db2e5`](https://github.com/cyberducttape/StePanel/commit/070dce9eeee18dd075596c2fe0561112d45db2e5).

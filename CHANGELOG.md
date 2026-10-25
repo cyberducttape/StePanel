@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Reconcile the latest release evidence: record current-head Documentation and
+  CodeQL passes and keep the recovery shard plus ext4/XFS quota runs incomplete
+  until their hosted jobs finish.
+
 - Record the full exact-head Integration, Documentation, and CodeQL passes on
   `73975a3`, retaining the active quota-VM and repeated installed-host runs as
   incomplete release evidence.
