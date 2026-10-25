@@ -33,17 +33,17 @@ cancelled. None are counted as current-source certification.
 
 A two-repeat AlmaLinux 9 + Caddy + MariaDB recovery run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
-remains in progress. The quota-enabled Ubuntu 24.04 VM run
-([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003))
-failed with exit code 1. Its diagnostic rerun
-([40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
-also failed in preflight, before installation. The captured guest state shows
-ext4 mounted with `usrquota,prjquota`, and both user and project quotas
-reported active. The preflight used `pipefail` around `quotaon -p`; it printed
-the enabled user quota state but the command pipeline returned nonzero, stopping
-before the project assertion. The workflow now checks the reported state
-without relying on that utility's exit status. A fresh quota-VM rerun is
-required; neither failed run counts as a quota smoke pass.
+remains in progress. Two quota-enabled Ubuntu 24.04 VM runs
+([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003)
+and [40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
+failed in preflight. The latter guest diagnostics confirm ext4 was mounted with
+`usrquota,prjquota`, and both quota types were active; `quotaon -p` output was
+being checked through a `pipefail` pipeline that exited nonzero despite the
+reported enabled state. The first rerun fix then had an unescaped guest variable
+in the cloud-init heredoc and failed before QEMU started
+([40208701493](https://github.com/cyberducttape/StePanel/actions/runs/40208701493)).
+That quoting error is corrected in the workflow. A new run is required; no
+quota-VM attempt in this sequence counts as a pass.
 
 This improves current-source platform coverage but does not establish the
 20–50-repeat recovery cohort, dedicated-VM or physical power-loss behavior,

@@ -27,6 +27,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   are enabled while returning a nonzero status, so the `pipefail` pipeline
   stopped before checking project quota. Capture its output and assert the
   reported enforcement state directly; rerun the disposable guest gate.
+- Escape quota variables inside the cloud-init heredoc after the first rerun
+  exposed host-shell expansion under `set -u`; record that failed attempt and
+  keep quota certification pending until a complete guest run passes.
 
 - Preserve quota-VM console and smoke logs as a bounded CI artifact, and capture
   the guest's rootless Podman systemd journal if the runner or release-pipeline

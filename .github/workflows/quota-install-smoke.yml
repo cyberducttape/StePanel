@@ -107,15 +107,15 @@ jobs:
               mount /var/www
               if [ '$quota_filesystem' = xfs ]; then
                 quota_state=$(xfs_quota -x -c 'state -up' /var/www 2>&1 || true)
-                printf '%s\n' "$quota_state"
-                grep -F 'Accounting: ON' <<<"$quota_state"
-                grep -F 'Enforcement: ON' <<<"$quota_state"
+                printf '%s\n' "\$quota_state"
+                grep -F 'Accounting: ON' <<<"\$quota_state"
+                grep -F 'Enforcement: ON' <<<"\$quota_state"
               else
                 user_quota_state=$(quotaon -p -u /var/www 2>&1 || true)
                 project_quota_state=$(quotaon -p -P /var/www 2>&1 || true)
-                printf '%s\n%s\n' "$user_quota_state" "$project_quota_state"
-                grep -Eq '^user quota on /var/www \(.*\) is on' <<<"$user_quota_state"
-                grep -Eq '^project quota on /var/www \(.*\) is on' <<<"$project_quota_state"
+                printf '%s\n%s\n' "\$user_quota_state" "\$project_quota_state"
+                grep -Eq '^user quota on /var/www \(.*\) is on' <<<"\$user_quota_state"
+                grep -Eq '^project quota on /var/www \(.*\) is on' <<<"\$project_quota_state"
               fi
               mkfs.ext4 -F /dev/vdc
               install -d -m 0700 /mnt/stepanel-enospc
@@ -136,13 +136,13 @@ jobs:
               mount /home
               if [ '$quota_filesystem' = xfs ]; then
                 quota_state=$(xfs_quota -x -c 'state -u' /home 2>&1 || true)
-                printf '%s\n' "$quota_state"
-                grep -F 'Accounting: ON' <<<"$quota_state"
-                grep -F 'Enforcement: ON' <<<"$quota_state"
+                printf '%s\n' "\$quota_state"
+                grep -F 'Accounting: ON' <<<"\$quota_state"
+                grep -F 'Enforcement: ON' <<<"\$quota_state"
               else
                 home_user_quota_state=$(quotaon -p -u /home 2>&1 || true)
-                printf '%s\n' "$home_user_quota_state"
-                grep -Eq '^user quota on /home \(.*\) is on' <<<"$home_user_quota_state"
+                printf '%s\n' "\$home_user_quota_state"
+                grep -Eq '^user quota on /home \(.*\) is on' <<<"\$home_user_quota_state"
               fi
               touch /run/stepanel-quota-ready
           EOF

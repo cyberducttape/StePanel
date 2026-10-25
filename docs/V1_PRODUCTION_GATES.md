@@ -36,17 +36,17 @@ Those stale-source results are not counted as current-source certification.
 
 The two-repeat AlmaLinux 9 + Caddy + MariaDB installed-host run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
-remains in progress. The quota-enabled Ubuntu 24.04 VM run
-([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003))
-failed with exit code 1. Its diagnostic rerun
-([40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
-also failed in preflight, before installation. The captured guest state shows
-ext4 mounted with `usrquota,prjquota`, and both user and project quotas
-reported active. The preflight used `pipefail` around `quotaon -p`; it printed
-the enabled user quota state but the command pipeline returned nonzero, stopping
-before the project assertion. The workflow now checks the reported state
-without relying on that utility's exit status. A fresh quota-VM rerun is
-required; neither failed run counts as a quota smoke pass.
+remains in progress. Two quota-enabled Ubuntu 24.04 VM runs
+([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003)
+and [40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
+failed in preflight. The latter guest diagnostics confirm ext4 was mounted with
+`usrquota,prjquota`, and both quota types were active; `quotaon -p` output was
+being checked through a `pipefail` pipeline that exited nonzero despite the
+reported enabled state. The first rerun fix then had an unescaped guest variable
+in the cloud-init heredoc and failed before QEMU started
+([40208701493](https://github.com/cyberducttape/StePanel/actions/runs/40208701493)).
+That quoting error is corrected in the workflow. A new run is required; no
+quota-VM attempt in this sequence counts as a pass.
 
 This is current-source evidence across the six listed OS/web-server
 combinations. It does not satisfy the 20–50-repeat recovery cohort, physical
@@ -750,7 +750,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Exact-source smoke [40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637) passed all six listed combinations: Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache/Caddy + MariaDB, including WordPress application recovery. The jobs used disposable systemd containers and one recovery iteration each; this does not certify dedicated-VM behavior or repeated recovery. `INSTALLATION.md` describes these as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Application source `070dce9` passed exact-head Integration on workflow commit `e56134e` ([run 40206286397](https://github.com/cyberducttape/StePanel/actions/runs/40206286397)), including tests/coverage, race, recovery, ENOSPC, DB restore and deployment checks. Documentation and CodeQL passed on evidence commit `bc39d8f` ([runs 40207841458](https://github.com/cyberducttape/StePanel/actions/runs/40207841458) and [40207841411](https://github.com/cyberducttape/StePanel/actions/runs/40207841411)); the repository alert query returns zero open alerts. The six-host installed-system smoke ([run 40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637)) passed WordPress recovery proof on six OS/web-server combinations with 4.109–6.479 second measured RTOs; see [the report](./lab-results/2026-10-25-six-host-installed-smoke-40176491637.md). The two-repeat installed-host recovery run ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576)) remains in progress. Quota-VM runs ([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003) and [40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167)) failed in preflight; the latest trace confirms active quotas but exposed a `pipefail` false negative, now corrected in the workflow. A passing rerun is required. Physical power-loss evidence, 20–50-repeat recovery, certified capacity, live notification outage/retry evidence, supported upgrade/rollback policy, and independent security assessment remain open. |
+| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Application source `070dce9` passed exact-head Integration on workflow commit `e56134e` ([run 40206286397](https://github.com/cyberducttape/StePanel/actions/runs/40206286397)), including tests/coverage, race, recovery, ENOSPC, DB restore and deployment checks. Documentation and CodeQL passed on evidence commit `bc39d8f` ([runs 40207841458](https://github.com/cyberducttape/StePanel/actions/runs/40207841458) and [40207841411](https://github.com/cyberducttape/StePanel/actions/runs/40207841411)); the repository alert query returns zero open alerts. The six-host installed-system smoke ([run 40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637)) passed WordPress recovery proof on six OS/web-server combinations with 4.109–6.479 second measured RTOs; see [the report](./lab-results/2026-10-25-six-host-installed-smoke-40176491637.md). The two-repeat installed-host recovery run ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576)) remains in progress. Quota-VM runs ([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003), [40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167), and [40208701493](https://github.com/cyberducttape/StePanel/actions/runs/40208701493)) failed before installation. The latest run exposed host-shell expansion of an unescaped cloud-init variable after the prior preflight fix. That quoting issue is corrected; a complete quota-VM rerun is still required. Physical power-loss evidence, 20–50-repeat recovery, certified capacity, live notification outage/retry evidence, supported upgrade/rollback policy, and independent security assessment remain open. |
 
 The repository production gate was rerun on the exact pushed commit `ee563eb`
 and passed, including coverage thresholds, the complete race suite,
