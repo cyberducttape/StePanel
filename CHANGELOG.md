@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- Reconcile production-gate and project-status evidence with the passing
+  AlmaLinux 9 + Caddy + MariaDB installed-host run. Record its measured
+  WordPress recovery time and explicitly retain the cross-platform,
+  repeatability, and physical-host recovery limitations.
+
 ### Fixed
 
 - Remove Caddy routes and activate the updated configuration before detaching

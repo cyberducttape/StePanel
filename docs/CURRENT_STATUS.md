@@ -6,81 +6,29 @@
 
 ---
 
-### Latest evidence snapshot — 2026-10-25 (application source `00ea35f`; prior evidence commit `7229c18`)
+### Latest evidence snapshot — 2026-10-25 (source `070dce9`)
 
-The application and installed-host smoke source is
-[`00ea35f3afa2ec6b872a81c0db74f72c21c104bb`](https://github.com/cyberducttape/StePanel/commit/00ea35f3afa2ec6b872a81c0db74f72c21c104bb),
-which adds diagnostics to the installed Caddy stable-parent view smoke.
-Evidence was last recorded in the documentation-only commit
-[`7229c186c0365c1cec5a17f70925ba49865dc1ed`](https://github.com/cyberducttape/StePanel/commit/7229c186c0365c1cec5a17f70925ba49865dc1ed);
-the current update only refreshes run status and adds no application code.
-Exact-source Integration passed
-([run 40144536676](https://github.com/cyberducttape/StePanel/actions/runs/40144536676)),
-as did Documentation
-([run 40144536669](https://github.com/cyberducttape/StePanel/actions/runs/40144536669))
-and CodeQL
-([run 40144536662](https://github.com/cyberducttape/StePanel/actions/runs/40144536662));
-the current evidence commit also passed Documentation ([run
-40146342235](https://github.com/cyberducttape/StePanel/actions/runs/40146342235))
-and CodeQL ([run
-40146342220](https://github.com/cyberducttape/StePanel/actions/runs/40146342220)).
-Integration included Go 1.26.10 formatting, release checks, vet, tests and
-coverage floors, race tests, repository recovery drills, real tmpfs ENOSPC,
-database restore checks, static analysis, container/deployment checks, and UI
-E2E/accessibility.
+The exact source is
+[`070dce9eeee18dd075596c2fe0561112d45db2e5`](https://github.com/cyberducttape/StePanel/commit/070dce9eeee18dd075596c2fe0561112d45db2e5).
+Integration CI ([run 40158267549](https://github.com/cyberducttape/StePanel/actions/runs/40158267549)),
+Documentation ([run 40158267587](https://github.com/cyberducttape/StePanel/actions/runs/40158267587)),
+and CodeQL ([run 40158267505](https://github.com/cyberducttape/StePanel/actions/runs/40158267505))
+passed. Installed-host smoke ([run
+40158267578](https://github.com/cyberducttape/StePanel/actions/runs/40158267578))
+passed on the AlmaLinux 9 + Caddy + MariaDB disposable systemd host. It
+verified the Caddy route/view lifecycle, completed installed WordPress
+application recovery with a measured RTO of 6.590 seconds, recovered from
+MariaDB and root-broker outages, and completed one recovery-matrix iteration.
+The evidence and limits are recorded in
+[the run report](lab-results/2026-10-25-almalinux9-caddy-installed-smoke-40158267578.md).
 
-The installed-host smoke on parent source `91f81c2` failed when its initial
-positive HTTPS fixture returned 404, before the document-root swap could run
-([run 40144171482](https://github.com/cyberducttape/StePanel/actions/runs/40144171482)).
-The exact-head diagnostic smoke
-([run 40144536672](https://github.com/cyberducttape/StePanel/actions/runs/40144536672))
-selected AlmaLinux 9 + Caddy + MariaDB, built the disposable systemd host, and
-started the installed-host install/recovery step at 00:32:57 UTC. It remains
-in progress; GitHub has not made its logs or artifact available yet. The
-failure cause and stable-parent activation behavior therefore remain
-unverified on an installed host. Production remains
-**NO-GO** pending that correction plus repeated recovery, physical power-loss
-and broader ENOSPC/database-outage evidence, supported-runtime application
-recovery, capacity certification, live alert outage/retry evidence,
-upgrade/rollback policy, and independent security assessment.
-
-### Previous validation — 2026-10-24 (`5e9077b`)
-
-- Application source is
-  [`1af5fc05e0f3ab39b0da974651ca4b081966a193`](https://github.com/cyberducttape/StePanel/commit/1af5fc05e0f3ab39b0da974651ca4b081966a193).
-  Integration CI ([run 40113614938](https://github.com/cyberducttape/StePanel/actions/runs/40113614938)),
-  Documentation ([run 40113614962](https://github.com/cyberducttape/StePanel/actions/runs/40113614962)),
-  and CodeQL ([run 40113614960](https://github.com/cyberducttape/StePanel/actions/runs/40113614960))
-  passed on this source. CodeQL and Dependabot currently report no open alerts.
-- One synthetic 500-site mixed HTTP run passed on Ubuntu 26.04.1 with p95
-  296.7 ms across 500 requests and 20 completed backup jobs. The host is
-  outside the supported OS matrix and resource use was not monitored; this
-  does not certify capacity. See the
-  [benchmark record](lab-results/2026-10-24-500-site-mixed-load.md).
-- The six-platform installed-host recovery matrix is active on this source
-  ([run 40114439549](https://github.com/cyberducttape/StePanel/actions/runs/40114439549));
-  no result is counted until the complete matrix succeeds. The current-source
-  N-1 upgrade/rollback smoke passed ([run 40115776818](https://github.com/cyberducttape/StePanel/actions/runs/40115776818));
-  it uses a compatibility-adjusted v0.6.0 fixture and is not a full supported
-  upgrade-path certification. See the
-  [upgrade evidence report](lab-results/2026-10-24-n-minus-one-upgrade-40115776818.md).
-- The quota-enabled Ubuntu installed-host job ([run 39912326883](https://github.com/cyberducttape/StePanel/actions/runs/39912326883))
-  passed its rootless Podman runner permission smoke, including pinned-image
-  pull, image inspection, repeat build, failure retention, and artifact cleanup.
-  That run used source `67e67d6`; the runner helper, runner smoke, and quota
-  workflow are unchanged through current application source `1af5fc0`. This
-  closes the previously observed Podman `image inspect` failure for that
-  tested runner path, but does not establish a full current-source install or
-  cross-distro pass. See the
-  [scoped result](lab-results/2026-10-24-rootless-runner-smoke-39912326883.md).
-- The separate Rocky 9 KVM full recovery and ENOSPC evidence uses application
-  source `b20c609`, not this source; see
-  [its report](lab-results/2026-10-24-rocky9-kvm-full-recovery.md).
-- Production remains **NO-GO**. The required 20–50 installed-host repetitions,
-  physical power-loss recovery, broader ENOSPC/database-outage cases, full
-  supported-runtime coverage, certified capacity, live alert outage/retry
-  evidence, upgrade policy, and independent security assessment remain open.
-  See [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
+This is one tested OS/web-server/database combination and one recovery-matrix
+iteration, not the 20–50-repeat production cohort or a dedicated-VM/physical
+power-loss certification. Production remains **NO-GO** pending repeated
+recovery, broader ENOSPC and physical power-loss evidence, current-source
+application proof across supported platforms, live alert outage/retry tests,
+capacity certification, upgrade/rollback policy, and independent security
+assessment. See [V1_PRODUCTION_GATES.md](V1_PRODUCTION_GATES.md).
 
 ## Executive Summary
 
@@ -88,7 +36,7 @@ StePanel v0.7.0 is in Operator Beta — suitable for controlled single-host depl
 
 **Release Approval:** Governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) — the sole authoritative release-gate document.
 
-### Current validation — 2026-10-24 (`06ae561`)
+### Previous validation — 2026-10-24 (`06ae561`)
 
 - The latest application source is
   [`06ae561a59a4a677a98e95efa6edf1cddbc6bfb5`](https://github.com/cyberducttape/StePanel/commit/06ae561a59a4a677a98e95efa6edf1cddbc6bfb5).
