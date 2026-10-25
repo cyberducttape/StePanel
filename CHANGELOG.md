@@ -31,6 +31,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   exposed host-shell expansion under `set -u`; record that failed attempt and
   keep quota certification pending until a complete guest run passes.
 
+- Use POSIX-compatible `printf | grep` quota assertions in the Ubuntu
+  cloud-init script after the guest run showed that cloud-init executes
+  `runcmd` with `/bin/sh`, which rejects Bash here-strings.
+
 - Preserve quota-VM console and smoke logs as a bounded CI artifact, and capture
   the guest's rootless Podman systemd journal if the runner or release-pipeline
   check fails. This makes image-inspection and transient-unit failures

@@ -31,19 +31,22 @@ Ten two-iteration runs on older source `e3a8976` were cancelled after partial
 execution; each had one host job succeed and three fail, with the other jobs
 cancelled. None are counted as current-source certification.
 
-A two-repeat AlmaLinux 9 + Caddy + MariaDB recovery run
+The two-repeat AlmaLinux 9 + Caddy + MariaDB recovery run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
-remains in progress. Two quota-enabled Ubuntu 24.04 VM runs
-([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003)
-and [40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
-failed in preflight. The latter guest diagnostics confirm ext4 was mounted with
-`usrquota,prjquota`, and both quota types were active; `quotaon -p` output was
-being checked through a `pipefail` pipeline that exited nonzero despite the
-reported enabled state. The first rerun fix then had an unescaped guest variable
-in the cloud-init heredoc and failed before QEMU started
-([40208701493](https://github.com/cyberducttape/StePanel/actions/runs/40208701493)).
-That quoting error is corrected in the workflow. A new run is required; no
-quota-VM attempt in this sequence counts as a pass.
+remains in progress. The first quota-enabled Ubuntu 24.04 VM run
+([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003))
+failed without enough retained output to identify the failing phase. The
+instrumented rerun ([40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
+failed in quota preflight; its guest diagnostics confirm ext4 was mounted with
+`usrquota,prjquota`, and both quota types were active. The `quotaon -p`
+pipeline treated its nonzero status as failure despite enabled-state output.
+Two workflow reruns then exposed script errors: an
+unescaped guest variable failed before QEMU started
+([40208701493](https://github.com/cyberducttape/StePanel/actions/runs/40208701493)),
+and Bash here-string syntax failed under cloud-init's `/bin/sh`
+([40208981197](https://github.com/cyberducttape/StePanel/actions/runs/40208981197)).
+Both are corrected in the workflow. Another full quota-VM run is required;
+none of these attempts count as a pass.
 
 This improves current-source platform coverage but does not establish the
 20–50-repeat recovery cohort, dedicated-VM or physical power-loss behavior,
