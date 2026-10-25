@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Preserve quota-VM console and smoke logs as a bounded CI artifact, and capture
+  the guest's rootless Podman systemd journal if the runner or release-pipeline
+  check fails. This makes image-inspection and transient-unit failures
+  diagnosable without exposing generated SSH private keys or VM disks.
+
 - Record the successful exact-head integration run, including its race suite,
   recovery and ENOSPC drills, application/API smoke, mixed load, database
   restore checks, and container/deployment validation. Keep the active
