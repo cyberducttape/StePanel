@@ -50,6 +50,7 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		`systemd-escape --path --suffix=mount`,
 		`/etc/systemd/system/%s`,
 		`remove_legacy_fstab_target`,
+		`RequiresMountsFor=%s %s`,
 		`What=%s`,
 		`Where=%s`,
 		`Options=bind,nosymfollow`,

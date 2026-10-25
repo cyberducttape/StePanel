@@ -78,7 +78,7 @@ write_mount_unit() {
   unit_path=$(mount_unit_path "$target")
   temp=$(mktemp /etc/systemd/system/.stepanel-caddy-view.XXXXXX)
   {
-    printf '[Unit]\nDescription=StePanel isolated Caddy view %s\nBefore=caddy.service\n\n' "$target"
+    printf '[Unit]\nDescription=StePanel isolated Caddy view %s\nRequiresMountsFor=%s %s\nBefore=caddy.service\n\n' "$target" "$source" "$target"
     printf '[Mount]\nWhat=%s\nWhere=%s\nType=none\nOptions=bind,nosymfollow\n\n[Install]\nWantedBy=local-fs.target\n' "$source" "$target"
   } > "$temp"
   chmod 0644 "$temp"
