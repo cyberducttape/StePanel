@@ -239,11 +239,25 @@ func TestSitePrepareRefusesDivergentHelperIdentity(t *testing.T) {
 	}
 }
 
-func TestLabSitePreparationDoesNotCreateLegacyRootForPlacedSite(t *testing.T) {
-	legacyRoot := filepath.Join(t.TempDir(), "sites", "customer-site")
-	if err := ensureLabManagerSiteRoot(legacyRoot, true); err != nil {
-		t.Fatalf("prepare lab state for placed site: %v", err)
+func TestSitePrepareDoesNotCreateLegacyRootForPlacedSiteInLabMode(t *testing.T) {
+	t.Setenv("STEPANEL_LAB_ROOT_BROKER_HELPERS", "1")
+	webRoot, homeRoot := t.TempDir(), t.TempDir()
+	broker, err := newBroker(webRoot, t.TempDir(), log.New(io.Discard, "", 0), &fakeHost{})
+	if err != nil {
+		t.Fatal(err)
 	}
+	broker.validator.homeRoot = homeRoot
+	broker.validator.placements = func(site string) (sitelayout.Placement, error) {
+		if site != "customer-site" {
+			return sitelayout.Placement{}, sitelayout.ErrNotPlaced
+		}
+		return sitelayout.Placement{Site: site, Account: "alice", UnixUser: "alice", Kind: sitelayout.KindMain, Directory: sitelayout.MainDirectory}, nil
+	}
+	resp, err := broker.Execute(context.Background(), &Request{RequestType: "site", Site: &SiteRequest{Action: "prepare", Site: "customer-site", SiteUser: "alice"}})
+	if err != nil || !resp.OK {
+		t.Fatalf("placed-site prepare = %#v, err = %v", resp, err)
+	}
+	legacyRoot := filepath.Join(webRoot, "sites", "customer-site")
 	if _, err := os.Lstat(legacyRoot); !os.IsNotExist(err) {
 		t.Fatalf("placed-site lab preparation created legacy path %s: %v", legacyRoot, err)
 	}
