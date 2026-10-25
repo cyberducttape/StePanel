@@ -15,6 +15,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   quotas were active, but the failure point was not captured. Track the
   diagnostic rerun as pending evidence rather than treating it as a pass.
 
+- Record the successful exact-head integration run on `e56134e`, including
+  race, recovery, ENOSPC, database-restore, mixed-load, and deployment checks;
+  record current documentation/CodeQL passes and zero open alerts.
+
 - Preserve quota-VM console and smoke logs as a bounded CI artifact, and capture
   the guest's rootless Podman systemd journal if the runner or release-pipeline
   check fails. This makes image-inspection and transient-unit failures

@@ -9,19 +9,19 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest evidence snapshot — 2026-10-25 (application source `070dce9`; CI run `40204339200`; six-host report `lab-results/2026-10-25-six-host-installed-smoke-40176491637.md`)
+### Latest evidence snapshot — 2026-10-25 (application source `070dce9`; CI run `40206286397`; six-host report `lab-results/2026-10-25-six-host-installed-smoke-40176491637.md`)
 
 The application source under test is
 [`070dce9eeee18dd075596c2fe0561112d45db2e5`](https://github.com/cyberducttape/StePanel/commit/070dce9eeee18dd075596c2fe0561112d45db2e5).
-The exact-head Integration workflow passed on `dbb50a7`
-([run 40204339200](https://github.com/cyberducttape/StePanel/actions/runs/40204339200)),
+The exact-head Integration workflow passed on `e56134e`
+([run 40206286397](https://github.com/cyberducttape/StePanel/actions/runs/40206286397)),
 including Go 1.26.10 tests/coverage, race tests, recovery and real tmpfs ENOSPC
 drills, build/startup/authenticated API checks, mixed HTTP load, MySQL 8 and
 PostgreSQL restore checks, clean Python deployment, vulnerability/static
 analysis, UI E2E/accessibility, and container/deployment validation.
-Documentation and CodeQL passed on evidence commit `3a546d2` ([runs
-40205336391](https://github.com/cyberducttape/StePanel/actions/runs/40205336391)
-and [40205336379](https://github.com/cyberducttape/StePanel/actions/runs/40205336379));
+Documentation and CodeQL passed on evidence commit `94244bd` ([runs
+40206913087](https://github.com/cyberducttape/StePanel/actions/runs/40206913087)
+and [40206913097](https://github.com/cyberducttape/StePanel/actions/runs/40206913097));
 the code-scanning API reports zero open alerts. The six-host installed-system
 smoke ([run
 40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637))
@@ -43,7 +43,7 @@ quotas were active on `/var/www`, but the run did not preserve enough output to
 identify the failing preflight assertion; it is not counted as a product or
 quota pass. A diagnostic rerun against `c648995`
 ([40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
-is queued and traces each quota assertion and effective mount options.
+is in progress and traces each quota assertion and effective mount options.
 
 This is current-source evidence across the six listed OS/web-server
 combinations. It does not satisfy the 20–50-repeat recovery cohort, physical

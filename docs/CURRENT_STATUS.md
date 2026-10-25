@@ -10,15 +10,15 @@
 
 The exact application source is
 [`070dce9eeee18dd075596c2fe0561112d45db2e5`](https://github.com/cyberducttape/StePanel/commit/070dce9eeee18dd075596c2fe0561112d45db2e5).
-The exact-head integration workflow passed on `dbb50a7`
-([run 40204339200](https://github.com/cyberducttape/StePanel/actions/runs/40204339200)),
+The exact-head integration workflow passed on `e56134e`
+([run 40206286397](https://github.com/cyberducttape/StePanel/actions/runs/40206286397)),
 including Go 1.26.10 tests and coverage, race tests, repository recovery and
 real tmpfs ENOSPC drills, startup/authenticated API smoke tests, mixed HTTP
 load, MySQL 8 and PostgreSQL restore checks, clean Python deployment, security
 scanning, and container/deployment validation. Documentation and CodeQL
-passed on evidence commit `3a546d2` ([runs
-40205336391](https://github.com/cyberducttape/StePanel/actions/runs/40205336391)
-and [40205336379](https://github.com/cyberducttape/StePanel/actions/runs/40205336379));
+passed on evidence commit `94244bd` ([runs
+40206913087](https://github.com/cyberducttape/StePanel/actions/runs/40206913087)
+and [40206913097](https://github.com/cyberducttape/StePanel/actions/runs/40206913097));
 the current code-scanning alert query returns zero open alerts. The six-host
 installed-system smoke ([run
 40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637))
@@ -40,7 +40,7 @@ quotas were active on `/var/www`, but the run did not retain enough output to
 identify the failing preflight assertion, so it does not count as a product or
 quota pass. A diagnostic rerun against `c648995`
 ([40206770167](https://github.com/cyberducttape/StePanel/actions/runs/40206770167))
-is queued; it traces each quota assertion and effective mount options.
+is in progress; it traces each quota assertion and effective mount options.
 
 This improves current-source platform coverage but does not establish the
 20–50-repeat recovery cohort, dedicated-VM or physical power-loss behavior,
