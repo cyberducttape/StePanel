@@ -133,9 +133,13 @@ remove_mount_unit() {
   [[ ! -L $unit_path ]] || { echo "refusing symlinked Caddy mount unit $unit_path" >&2; return 1; }
   [[ ! -L $flags_unit_path ]] || { echo "refusing symlinked Caddy mount flags unit $flags_unit_path" >&2; return 1; }
   if [[ -f $unit_path && ! -L $unit_path ]]; then
-    stop_managed_mount "$target"
+    # Remove Caddy's RequiredBy edge before stopping the oneshot. Otherwise
+    # systemd stops Caddy as a consequence of stopping one of its required
+    # per-view policy units.
     systemctl disable "$flags_unit" >/dev/null
     systemctl disable "$unit" >/dev/null
+    reload_mount_units
+    stop_managed_mount "$target"
     rm -f -- "$flags_unit_path"
     rm -f -- "$unit_path"
     reload_mount_units
@@ -254,11 +258,19 @@ if [[ $action == delete ]]; then
   view_was_mounted=0
   systemctl is-active --quiet "$(mount_unit "$view")" && view_was_mounted=1
   cp -p "$path" "$backup"
-  remove_view "$site"
   rm -f "$path"
   if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null || \
     { (( view_was_mounted )) && systemctl restart "$service"; } || \
     { (( ! view_was_mounted )) && systemctl reload "$service"; }; then
+    mv -f "$backup" "$path"
+    ensure_view "$site" "$site_home" || true
+    if caddy validate --config /etc/caddy/Caddyfile >/dev/null; then activate_caddy || true; fi
+    exit 1
+  fi
+  # Keep the view mounted while Caddy validates and activates the config
+  # without this route. Removing it first can make a reload fail while the
+  # active configuration still references its document root.
+  if ! remove_view "$site"; then
     mv -f "$backup" "$path"
     ensure_view "$site" "$site_home" || true
     if caddy validate --config /etc/caddy/Caddyfile >/dev/null; then activate_caddy || true; fi

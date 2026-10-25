@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Remove Caddy routes and activate the updated configuration before detaching
+  their protected document-root views. Remove each view's systemd dependency
+  edge before stopping its no-follow policy unit, so route cleanup does not
+  interrupt Caddy or reject a reload against a missing document root. Restore
+  the route and view if mount cleanup fails.
 - Apply `nosymfollow` to each Caddy bind view with a root-owned systemd
   oneshot remount unit restricted to `CAP_SYS_ADMIN`. The installed-host test
   showed the native `.mount` unit reported success but left the bind view

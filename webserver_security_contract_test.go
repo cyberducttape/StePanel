@@ -274,6 +274,45 @@ func TestCaddyLegacyViewCleanupNeverRemovesMountedSiteDocumentRoot(t *testing.T)
 	}
 }
 
+func TestCaddyRouteIsRemovedBeforeItsViewMount(t *testing.T) {
+	source := string(mustReadTestFile(t, "deploy/integrations/stepanel-caddy-vhostctl"))
+	deleteStart := strings.Index(source, `if [[ $action == delete ]]; then`)
+	if deleteStart < 0 {
+		t.Fatal("Caddy route deletion branch is missing")
+	}
+	deleteEnd := strings.Index(source[deleteStart:], "\nsite=${2:-}")
+	if deleteEnd < 0 {
+		t.Fatal("Caddy route deletion branch is unterminated")
+	}
+	deletion := source[deleteStart : deleteStart+deleteEnd]
+	removeRoute := strings.Index(deletion, `rm -f "$path"`)
+	activate := strings.Index(deletion, `systemctl restart "$service"`)
+	removeView := strings.Index(deletion, `if ! remove_view "$site"; then`)
+	if removeRoute < 0 || activate < 0 || removeView < 0 || removeRoute > activate || activate > removeView {
+		t.Fatal("Caddy must remove and activate the route while its document-root view is mounted")
+	}
+	if !strings.Contains(deletion[removeView:], `mv -f "$backup" "$path"`) ||
+		!strings.Contains(deletion[removeView:], `ensure_view "$site" "$site_home"`) {
+		t.Fatal("failed Caddy view cleanup must restore the route and its protected view")
+	}
+
+	cleanupStart := strings.Index(source, "remove_mount_unit() {")
+	if cleanupStart < 0 {
+		t.Fatal("Caddy mount-unit cleanup function is missing")
+	}
+	cleanupEnd := strings.Index(source[cleanupStart:], "\n}\n")
+	if cleanupEnd < 0 {
+		t.Fatal("Caddy mount-unit cleanup function is missing or unterminated")
+	}
+	cleanup := source[cleanupStart : cleanupStart+cleanupEnd]
+	disable := strings.Index(cleanup, `systemctl disable "$flags_unit"`)
+	reload := strings.Index(cleanup, "reload_mount_units")
+	stop := strings.Index(cleanup, `stop_managed_mount "$target"`)
+	if disable < 0 || reload < 0 || stop < 0 || disable > reload || reload > stop {
+		t.Fatal("Caddy must remove and reload the RequiredBy edge before stopping its policy unit")
+	}
+}
+
 func TestSiteHelperUsesAuthoritativeWebIdentityAndRejectsSymlinks(t *testing.T) {
 	sourceBytes, err := os.ReadFile("deploy/integrations/stepanel-sitectl")
 	if err != nil {
