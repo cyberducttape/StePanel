@@ -45,8 +45,12 @@ unescaped guest variable failed before QEMU started
 ([40208701493](https://github.com/cyberducttape/StePanel/actions/runs/40208701493)),
 and Bash here-string syntax failed under cloud-init's `/bin/sh`
 ([40208981197](https://github.com/cyberducttape/StePanel/actions/runs/40208981197)).
-Both are corrected in the workflow. Another full quota-VM run is required;
-none of these attempts count as a pass.
+A rendered-script check then found unescaped quota command substitutions
+that the host shell would evaluate. The queued run
+([40210073978](https://github.com/cyberducttape/StePanel/actions/runs/40210073978))
+was canceled before execution; the substitutions are now escaped and will be
+validated by rendering the cloud-init script and running `/bin/sh -n` before
+the next guest. No quota-VM attempt in this sequence counts as a pass.
 
 This improves current-source platform coverage but does not establish the
 20–50-repeat recovery cohort, dedicated-VM or physical power-loss behavior,

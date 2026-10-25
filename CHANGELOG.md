@@ -35,6 +35,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   cloud-init script after the guest run showed that cloud-init executes
   `runcmd` with `/bin/sh`, which rejects Bash here-strings.
 
+- Escape quota-state command substitutions in the generated cloud-init script;
+  rendered-script validation caught the host shell evaluating them before the
+  guest could query quota state.
+
 - Preserve quota-VM console and smoke logs as a bounded CI artifact, and capture
   the guest's rootless Podman systemd journal if the runner or release-pipeline
   check fails. This makes image-inspection and transient-unit failures
