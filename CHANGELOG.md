@@ -13,7 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   verification.
 
 - Keep lab-mode root-broker setup from creating a legacy `/var/www/sites`
-  tree for sites placed in customer account homes.
+  tree for sites placed in customer account homes; exercise the broker path
+  with a placement-aware regression test.
 - Record the failed ext4 quota VM's customer-placement assertion and link the
   corrected-source rerun as queued evidence, not a pass.
 
