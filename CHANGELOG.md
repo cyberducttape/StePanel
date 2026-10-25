@@ -10,8 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Reconcile production-gate and project-status evidence with the passing
   six-host Ubuntu/AlmaLinux/Rocky + Apache/Caddy matrix. Record each measured
-  WordPress recovery time and retain the repeatability and physical-host
-  recovery limitations.
+  WordPress recovery time and identify partial, stale-source recovery shards
+  separately from current-source evidence.
 
 ### Fixed
 

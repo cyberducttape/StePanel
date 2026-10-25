@@ -20,6 +20,9 @@ plus MariaDB. All six hosts passed installed WordPress application recovery
 proof; measured RTOs were 4.109–6.479 seconds. Each completed one recovery-
 matrix iteration in a disposable systemd container. The detailed scope and
 limits are in [the run report](lab-results/2026-10-25-six-host-installed-smoke-40176491637.md).
+Ten two-iteration runs on older source `e3a8976` were cancelled after partial
+execution; each had one host job succeed and three fail, with the other jobs
+cancelled. None are counted as current-source certification.
 
 This improves current-source platform coverage but does not establish the
 20–50-repeat recovery cohort, dedicated-VM or physical power-loss behavior,
