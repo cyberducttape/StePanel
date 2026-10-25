@@ -410,8 +410,14 @@ else
   rm -rf "$public_root"
   mv "$activation_old_root" "$public_root"
   rm -f "$activation_marker"
-  symlink_status=$(caddy_https_status /stepanel-outside-secret)
-  [[ $symlink_status == 404 ]] || { echo "Caddy followed or exposed a document-root symlink over HTTPS (HTTP $symlink_status)" >&2; exit 1; }
+  symlink_response=$(curl --insecure --silent --show-error --max-time 10 --write-out $'\n%{http_code}' \
+    --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-outside-secret)
+  symlink_status=${symlink_response##*$'\n'}
+  symlink_body=${symlink_response%$'\n'*}
+  [[ $symlink_status =~ ^[45][0-9][0-9]$ && $symlink_body != *must-not-be-followed* ]] || {
+    echo "Caddy served or did not safely reject a document-root symlink over HTTPS (HTTP $symlink_status)" >&2
+    exit 1
+  }
   if apply_smoke_vhost "$site" ci-smoke.localhost 2>/dev/null; then
     echo 'Caddy vhost helper published a document root containing a symlink' >&2
     exit 1

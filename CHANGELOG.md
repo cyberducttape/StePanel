@@ -11,6 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Create and remove Caddy site bind views through systemd mount units so
   broker-sandboxed helpers publish mounts in the host namespace; exercise
   route activation through the installed root-broker socket in Caddy smoke.
+  The smoke now verifies that kernel no-follow rejection never reveals the
+  symlink target, including when Caddy reports a filesystem error response.
 - Cover cloud action lifecycle retries: new start/stop attempts receive
   distinct durable jobs, exact request retries deduplicate, and a new request
   key admits a new attempt.
