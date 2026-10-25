@@ -10,10 +10,17 @@
 
 The exact application source is
 [`070dce9eeee18dd075596c2fe0561112d45db2e5`](https://github.com/cyberducttape/StePanel/commit/070dce9eeee18dd075596c2fe0561112d45db2e5).
-Integration CI ([run 40158267549](https://github.com/cyberducttape/StePanel/actions/runs/40158267549)),
-Documentation ([run 40158267587](https://github.com/cyberducttape/StePanel/actions/runs/40158267587)),
-and CodeQL ([run 40158267505](https://github.com/cyberducttape/StePanel/actions/runs/40158267505))
-passed. The six-host installed-system smoke ([run
+The exact-head integration workflow passed on `dbb50a7`
+([run 40204339200](https://github.com/cyberducttape/StePanel/actions/runs/40204339200)),
+including Go 1.26.10 tests and coverage, race tests, repository recovery and
+real tmpfs ENOSPC drills, startup/authenticated API smoke tests, mixed HTTP
+load, MySQL 8 and PostgreSQL restore checks, clean Python deployment, security
+scanning, and container/deployment validation. Documentation and CodeQL
+passed on evidence commit `3a546d2` ([runs
+40205336391](https://github.com/cyberducttape/StePanel/actions/runs/40205336391)
+and [40205336379](https://github.com/cyberducttape/StePanel/actions/runs/40205336379));
+the current code-scanning alert query returns zero open alerts. The six-host
+installed-system smoke ([run
 40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637))
 passed on Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy
 plus MariaDB. All six hosts passed installed WordPress application recovery
@@ -23,6 +30,12 @@ limits are in [the run report](lab-results/2026-10-25-six-host-installed-smoke-4
 Ten two-iteration runs on older source `e3a8976` were cancelled after partial
 execution; each had one host job succeed and three fail, with the other jobs
 cancelled. None are counted as current-source certification.
+
+A two-repeat AlmaLinux 9 + Caddy + MariaDB recovery run
+([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
+and a current-source quota-enabled Ubuntu 24.04 VM run
+([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003))
+are still running. Neither is counted as passing evidence until completion.
 
 This improves current-source platform coverage but does not establish the
 20–50-repeat recovery cohort, dedicated-VM or physical power-loss behavior,

@@ -9,14 +9,21 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Latest evidence snapshot — 2026-10-25 (application source `070dce9`; six-host report `lab-results/2026-10-25-six-host-installed-smoke-40176491637.md`)
+### Latest evidence snapshot — 2026-10-25 (application source `070dce9`; CI run `40204339200`; six-host report `lab-results/2026-10-25-six-host-installed-smoke-40176491637.md`)
 
 The application source under test is
 [`070dce9eeee18dd075596c2fe0561112d45db2e5`](https://github.com/cyberducttape/StePanel/commit/070dce9eeee18dd075596c2fe0561112d45db2e5).
-Exact-source Integration CI ([run 40158267549](https://github.com/cyberducttape/StePanel/actions/runs/40158267549)),
-Documentation ([run 40158267587](https://github.com/cyberducttape/StePanel/actions/runs/40158267587)),
-and CodeQL ([run 40158267505](https://github.com/cyberducttape/StePanel/actions/runs/40158267505))
-passed. The six-host installed-system smoke ([run
+The exact-head Integration workflow passed on `dbb50a7`
+([run 40204339200](https://github.com/cyberducttape/StePanel/actions/runs/40204339200)),
+including Go 1.26.10 tests/coverage, race tests, recovery and real tmpfs ENOSPC
+drills, build/startup/authenticated API checks, mixed HTTP load, MySQL 8 and
+PostgreSQL restore checks, clean Python deployment, vulnerability/static
+analysis, UI E2E/accessibility, and container/deployment validation.
+Documentation and CodeQL passed on evidence commit `3a546d2` ([runs
+40205336391](https://github.com/cyberducttape/StePanel/actions/runs/40205336391)
+and [40205336379](https://github.com/cyberducttape/StePanel/actions/runs/40205336379));
+the code-scanning API reports zero open alerts. The six-host installed-system
+smoke ([run
 40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637))
 passed on Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9, each with Apache and
 Caddy plus MariaDB. All six hosts passed the WordPress application restore and
@@ -26,6 +33,12 @@ containers on hosted runners, not dedicated VMs or physical hosts. The ten
 older two-iteration runs on `e3a8976` were cancelled after partial execution;
 each had one host job succeed and three fail, with the other jobs cancelled.
 Those stale-source results are not counted as current-source certification.
+
+The current two-repeat AlmaLinux 9 + Caddy + MariaDB installed-host run
+([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
+and current-source quota-enabled Ubuntu 24.04 VM run
+([40205929003](https://github.com/cyberducttape/StePanel/actions/runs/40205929003))
+remain in progress; neither is counted as a pass.
 
 This is current-source evidence across the six listed OS/web-server
 combinations. It does not satisfy the 20–50-repeat recovery cohort, physical
@@ -729,7 +742,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Exact-source smoke [40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637) passed all six listed combinations: Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache/Caddy + MariaDB, including WordPress application recovery. The jobs used disposable systemd containers and one recovery iteration each; this does not certify dedicated-VM behavior or repeated recovery. `INSTALLATION.md` describes these as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Application source `070dce9` passed Integration ([run 40158267549](https://github.com/cyberducttape/StePanel/actions/runs/40158267549)), Documentation ([run 40158267587](https://github.com/cyberducttape/StePanel/actions/runs/40158267587)), CodeQL ([run 40158267505](https://github.com/cyberducttape/StePanel/actions/runs/40158267505)), and the six-host installed-system smoke ([run 40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637)). All six OS/web-server combinations passed WordPress application recovery proof with 4.109–6.479 second measured RTOs; the smoke scope and limits are in [the run report](./lab-results/2026-10-25-six-host-installed-smoke-40176491637.md). Physical power-loss evidence, repeated recovery, certified capacity, live notification outage/retry evidence, supported upgrade/rollback policy, and independent security assessment remain open. |
+| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Application source `070dce9` passed exact-head Integration on workflow commit `dbb50a7` ([run 40204339200](https://github.com/cyberducttape/StePanel/actions/runs/40204339200)); Documentation and CodeQL passed on evidence commit `3a546d2` ([runs 40205336391](https://github.com/cyberducttape/StePanel/actions/runs/40205336391) and [40205336379](https://github.com/cyberducttape/StePanel/actions/runs/40205336379)), with zero open alerts. The six-host installed-system smoke ([run 40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637)) passed WordPress recovery proof on six OS/web-server combinations with 4.109–6.479 second measured RTOs; see [the report](./lab-results/2026-10-25-six-host-installed-smoke-40176491637.md). The two-repeat installed-host recovery run and current-source quota-enabled Ubuntu VM run remain in progress. Physical power-loss evidence, 20–50-repeat recovery, certified capacity, live notification outage/retry evidence, supported upgrade/rollback policy, and independent security assessment remain open. |
 
 The repository production gate was rerun on the exact pushed commit `ee563eb`
 and passed, including coverage thresholds, the complete race suite,

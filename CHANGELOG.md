@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Record the successful exact-head integration run, including its race suite,
+  recovery and ENOSPC drills, application/API smoke, mixed load, database
+  restore checks, and container/deployment validation. Keep the active
+  installed-host and quota-VM runs explicitly pending in release evidence.
+
 - Record the remaining legacy site-identity collision recovery gate: startup
   correctly fails closed when existing roots share a legacy account, but a
   supported, interruption-safe account reassignment procedure is still needed
