@@ -30,6 +30,21 @@ None is counted as passed. A separate two-repeat AlmaLinux run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
 is still running on stale source `42c69cb6` and is not current-source evidence.
 
+Nine additional two-iteration recovery shards were dispatched on evidence head
+`5664ea1`, covering all six supported OS/web-server combinations. They are
+queued, not running or passed: [40213883873](https://github.com/cyberducttape/StePanel/actions/runs/40213883873),
+[40213886188](https://github.com/cyberducttape/StePanel/actions/runs/40213886188),
+[40213888634](https://github.com/cyberducttape/StePanel/actions/runs/40213888634),
+[40213890949](https://github.com/cyberducttape/StePanel/actions/runs/40213890949),
+[40213893719](https://github.com/cyberducttape/StePanel/actions/runs/40213893719),
+[40213896190](https://github.com/cyberducttape/StePanel/actions/runs/40213896190),
+[40213898545](https://github.com/cyberducttape/StePanel/actions/runs/40213898545),
+[40213901094](https://github.com/cyberducttape/StePanel/actions/runs/40213901094),
+and [40213903617](https://github.com/cyberducttape/StePanel/actions/runs/40213903617).
+Together with the first current-source shard, this schedules 20 repetitions;
+the release gate remains open until the required operation/fault cohorts
+complete and their post-boot invariants are reviewed.
+
 The six-host installed-system smoke on older source `070dce9`
 ([40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637))
 passed Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy plus

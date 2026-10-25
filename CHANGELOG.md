@@ -12,6 +12,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   CodeQL passes and keep the recovery shard plus ext4/XFS quota runs incomplete
   until their hosted jobs finish.
 
+- Queue nine unique two-iteration installed-host recovery shards across the
+  supported OS/web-server matrix; record all 20 planned repetitions as pending
+  until each workflow completes and its recovery evidence is reviewed.
+
 - Record the full exact-head Integration, Documentation, and CodeQL passes on
   `73975a3`, retaining the active quota-VM and repeated installed-host runs as
   incomplete release evidence.
