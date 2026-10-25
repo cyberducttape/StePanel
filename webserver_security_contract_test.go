@@ -46,9 +46,12 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 	}
 	source := string(sourceBytes)
 	for _, required := range []string{
-		`mount -o remount,bind,nosymfollow`,
 		`x-systemd.requires-mounts-for=`,
 		`/var/www/.stepanel-caddy-views`,
+		`systemd-escape --path --suffix=mount`,
+		`systemctl start "$unit"`,
+		`systemctl stop "$unit"`,
+		`bind,nosymfollow,x-systemd.requires-mounts-for=`,
 		`view_mount_changed=1`,
 		`systemctl restart "$service"`,
 		`if (( view_mount_changed )); then`,
@@ -118,6 +121,25 @@ func TestCaddyVHostDeniesSensitiveFilesAndRejectsSymlinks(t *testing.T) {
 		if dirPolicy.MatchString(path) {
 			t.Errorf("Caddy sensitive-directory matcher unexpectedly covers %q", path)
 		}
+	}
+}
+
+func TestCaddyInstallSmokeAppliesRoutesThroughRootBroker(t *testing.T) {
+	source := string(mustReadTestFile(t, "deploy/lab/install-smoke.sh"))
+	for _, required := range []string{
+		`apply_smoke_vhost()`,
+		`runuser -u stepanel -- python3`,
+		`"type": "vhost"`,
+		`"webserver": "caddy"`,
+		`connection.connect("/run/stepanel-root-broker.sock")`,
+		`apply_smoke_vhost "$site" ci-smoke.localhost`,
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("Caddy installed-host smoke is missing broker-path assertion %q", required)
+		}
+	}
+	if strings.Contains(source, `/usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost`) {
+		t.Fatal("Caddy installed-host smoke bypasses the root broker mount namespace")
 	}
 }
 

@@ -284,7 +284,32 @@ bash /work/deploy/lab/filectl-smoke.sh
 bash /work/deploy/lab/sitectl-acl-smoke.sh "$site"
 bash /work/deploy/lab/ftps-access-smoke.sh
 
-/usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost
+apply_smoke_vhost() {
+  local target_site=$1 target_domain=$2
+  if [[ $STEPANEL_WEBSERVER == caddy ]]; then
+    # Use the production Unix-socket RPC. Directly running the helper as root
+    # skips the broker's mount namespace and cannot validate host mount
+    # publication through systemd mount units.
+    runuser -u stepanel -- python3 - "$target_site" "$target_domain" <<'PY'
+import json, socket, sys
+request = {
+    "type": "vhost",
+    "vhost": {"action": "apply", "site": sys.argv[1], "domain": sys.argv[2], "webserver": "caddy"},
+}
+connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+connection.settimeout(120)
+connection.connect("/run/stepanel-root-broker.sock")
+connection.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
+response = json.loads(connection.makefile("rb").readline())
+if not response.get("ok"):
+    raise SystemExit("root broker vhost apply failed: " + str(response.get("error", "unknown error")))
+PY
+  else
+    /usr/local/sbin/stepanel-vhostctl apply "$target_site" "$target_domain"
+  fi
+}
+
+apply_smoke_vhost "$site" ci-smoke.localhost
 /usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256
 bash /work/deploy/lab/task-safeguards-smoke.sh "$site"
 if [[ $STEPANEL_WEBSERVER == apache ]]; then
@@ -353,7 +378,7 @@ else
   }
   site_home_identity=$(stat -c '%u:%g:%a' "$site_home")
   rm -f "$symlink_path"
-  /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost
+  apply_smoke_vhost "$site" ci-smoke.localhost
   [[ $(stat -c '%u:%g:%a' "$site_home") == "$site_home_identity" ]] || { echo 'reapplying the Caddy route changed site-parent ownership or mode' >&2; exit 1; }
   ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
   printf '%s' before-activation > "$activation_marker"
@@ -387,7 +412,7 @@ else
   rm -f "$activation_marker"
   symlink_status=$(caddy_https_status /stepanel-outside-secret)
   [[ $symlink_status == 404 ]] || { echo "Caddy followed or exposed a document-root symlink over HTTPS (HTTP $symlink_status)" >&2; exit 1; }
-  if /usr/local/sbin/stepanel-vhostctl apply "$site" ci-smoke.localhost 2>/dev/null; then
+  if apply_smoke_vhost "$site" ci-smoke.localhost 2>/dev/null; then
     echo 'Caddy vhost helper published a document root containing a symlink' >&2
     exit 1
   fi

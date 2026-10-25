@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Create and remove Caddy site bind views through systemd mount units so
+  broker-sandboxed helpers publish mounts in the host namespace; exercise
+  route activation through the installed root-broker socket in Caddy smoke.
 - Cover cloud action lifecycle retries: new start/stop attempts receive
   distinct durable jobs, exact request retries deduplicate, and a new request
   key admits a new attempt.

@@ -8,7 +8,7 @@ action=${1:-}
 command -v caddy >/dev/null 2>&1 || { echo 'caddy is unavailable' >&2; exit 1; }
 command -v flock >/dev/null 2>&1 || { echo 'flock is required for Caddy configuration locking' >&2; exit 1; }
 command -v findmnt >/dev/null 2>&1 || { echo 'findmnt is required for Caddy filesystem isolation' >&2; exit 1; }
-command -v mount >/dev/null 2>&1 || { echo 'mount is required for Caddy filesystem isolation' >&2; exit 1; }
+command -v systemd-escape >/dev/null 2>&1 || { echo 'systemd-escape is required for Caddy filesystem isolation' >&2; exit 1; }
 install -d -m 0755 -o root -g root "$root"
 view_root=/var/www/.stepanel-caddy-views
 install -d -m 0755 -o root -g root "$view_root"
@@ -45,13 +45,60 @@ remove_fstab_target() {
   mv -f "$temp" /etc/fstab
 }
 
+write_fstab_target() {
+  local target=$1 line=$2 temp
+  [[ -f /etc/fstab ]] || { echo '/etc/fstab is unavailable' >&2; return 1; }
+  temp=$(mktemp /etc/.stepanel-fstab.XXXXXX)
+  awk -v target="$target" '$2 != target' /etc/fstab > "$temp"
+  printf '%s\n' "$line" >> "$temp"
+  chmod 0644 "$temp"
+  chown root:root "$temp"
+  mv -f "$temp" /etc/fstab
+}
+
+mount_unit() {
+  systemd-escape --path --suffix=mount "$1"
+}
+
+reload_mount_units() {
+  systemctl daemon-reload
+}
+
+stop_managed_mount() {
+  local target=$1 unit
+  unit=$(mount_unit "$target")
+  if systemctl is-active --quiet "$unit"; then
+    systemctl stop "$unit"
+  elif [[ $(findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]]; then
+    echo "mount $target exists outside its systemd mount unit; refusing namespace-local unmount" >&2
+    return 1
+  fi
+}
+
+start_managed_mount() {
+  local target=$1 source=$2 line unit
+  line=$(fstab_line "$target" "$source" "$source")
+  write_fstab_target "$target" "$line"
+  reload_mount_units
+  unit=$(mount_unit "$target")
+  if systemctl is-active --quiet "$unit"; then
+    systemctl stop "$unit"
+    systemctl start "$unit"
+  else
+    systemctl start "$unit"
+  fi
+  [[ $(findmnt -no TARGET -T "$target" 2>/dev/null || true) == "$target" ]] || {
+    echo "systemd did not expose the Caddy view mount $target to the helper" >&2
+    return 1
+  }
+}
+
 remove_legacy_view() {
   local site=$1 old="$view_root/$1/public" view
   view=$(view_path "$site")
-  if [[ $(findmnt -no TARGET -T "$old" 2>/dev/null || true) == "$old" ]]; then
-    umount "$old"
-  fi
+  stop_managed_mount "$old"
   remove_fstab_target "$old"
+  reload_mount_units
   # Once the stable parent is mounted, this pathname reaches the customer's
   # real document root. Only remove a legacy mountpoint beneath the detached
   # view directory, never the source tree.
@@ -63,10 +110,9 @@ remove_legacy_view() {
 remove_view() {
   local site=$1 view
   view=$(view_path "$site")
-  if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) == "$view" ]]; then
-    umount "$view"
-  fi
+  stop_managed_mount "$view"
   remove_fstab_target "$view"
+  reload_mount_units
   remove_legacy_view "$site"
   rmdir "$view" 2>/dev/null || true
 }
@@ -81,30 +127,22 @@ ensure_view() {
   # makes later atomic swaps of public/public_html/domain visible to Caddy.
   remove_legacy_view "$site"
   if [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]]; then
-    mount --bind "$site_home" "$view"
+    start_managed_mount "$view" "$site_home"
     view_mount_changed=1
-    if ! mount -o remount,bind,nosymfollow "$view"; then
-      umount "$view" || true
-      return 1
-    fi
   else
     mounted_identity=$(stat -Lc '%d:%i' -- "$view")
     source_identity=$(stat -Lc '%d:%i' -- "$site_home")
     if [[ $mounted_identity != "$source_identity" ]]; then
-      umount "$view"
-      mount --bind "$site_home" "$view"
+      stop_managed_mount "$view"
+      start_managed_mount "$view" "$site_home"
       view_mount_changed=1
-      if ! mount -o remount,bind,nosymfollow "$view"; then
-        umount "$view" || true
-        return 1
-      fi
     fi
   fi
   options=$(findmnt -no OPTIONS -T "$view" 2>/dev/null || true)
   [[ ,$options, == *,nosymfollow,* ]] || { remove_view "$site"; return 1; }
   line=$(fstab_line "$view" "$site_home" "$site_home")
-  remove_fstab_target "$view"
-  printf '%s\n' "$line" >> /etc/fstab
+  write_fstab_target "$view" "$line"
+  reload_mount_units
 }
 
 if [[ $action == delete ]]; then
@@ -132,7 +170,7 @@ if [[ $action == delete ]]; then
   backup=$(mktemp)
   trap 'rm -f "$backup"' EXIT
   view_was_mounted=0
-  [[ $(findmnt -no TARGET -T "$view" 2>/dev/null || true) != "$view" ]] || view_was_mounted=1
+  systemctl is-active --quiet "$(mount_unit "$view")" && view_was_mounted=1
   cp -p "$path" "$backup"
   remove_view "$site"
   rm -f "$path"
@@ -181,7 +219,7 @@ done
 view_root_path=$(view_path "$site")
 document_root="$view_root_path/$site_directory"
 view_was_mounted=0
-[[ $(findmnt -no TARGET -T "$view_root_path" 2>/dev/null || true) == "$view_root_path" ]] && view_was_mounted=1
+systemctl is-active --quiet "$(mount_unit "$view_root_path")" && view_was_mounted=1
 ensure_view "$site" "$site_home" || { echo 'could not establish a nosymfollow Caddy view' >&2; exit 1; }
 
 name="site-${site}-${domain//./_}.caddy"
