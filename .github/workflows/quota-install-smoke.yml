@@ -196,9 +196,10 @@ jobs:
           timeout --foreground 30s ssh "${ssh_args[@]}" vmtest@127.0.0.1 'sudo mkdir -p /work && sudo tar -xzf /tmp/stepanel-source.tar.gz -C /work'
           timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             "sudo bash -s -- '$quota_filesystem'" <<'REMOTE'
-          set -Eeuo pipefail
+          set -Eeuxo pipefail
           filesystem=$1
           options=$(findmnt -no OPTIONS -T /var/www)
+          printf 'quota filesystem=%s mount options=%s\n' "$filesystem" "$options"
           [[ $options =~ (^|,)(usrquota|uquota)(,|$) ]]
           [[ $options =~ (^|,)(prjquota|pquota)(,|$) ]]
           if [[ $filesystem == xfs ]]; then

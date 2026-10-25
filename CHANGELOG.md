@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Trace the quota VM's post-boot quota preflight and print the effective mount
+  options, so a failed user/project quota assertion is visible in CI output.
+
 - Preserve quota-VM console and smoke logs as a bounded CI artifact, and capture
   the guest's rootless Podman systemd journal if the runner or release-pipeline
   check fails. This makes image-inspection and transient-unit failures
