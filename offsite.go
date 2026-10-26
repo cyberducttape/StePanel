@@ -33,10 +33,6 @@ func validateOffsiteTarget(target string) error {
 	return nil
 }
 
-func uploadOffsite(cfg Config, result BackupResult) error {
-	return uploadOffsiteContext(context.Background(), cfg, result)
-}
-
 func uploadOffsiteContext(parent context.Context, cfg Config, result BackupResult) error {
 	if cfg.OffsiteTarget == "" {
 		return nil
@@ -420,14 +416,6 @@ func (a *App) uploadOffsiteBackup(ctx context.Context, result BackupResult) erro
 	return nil
 }
 
-// downloadOffsiteBackup retrieves only the fixed backup objects for one site
-// and backup ID. It never accepts a caller-supplied remote path or performs a
-// recursive copy, which keeps the restore boundary tied to the configured
-// provider layout.
-func downloadOffsiteBackup(cfg Config, site, backupName string) (string, func(), error) {
-	return downloadOffsiteBackupWithLedgerContext(context.Background(), cfg, site, backupName, &capacityLedger{})
-}
-
 func downloadOffsiteBackupContext(parent context.Context, cfg Config, site, backupName string) (string, func(), error) {
 	return downloadOffsiteBackupWithLedgerContext(parent, cfg, site, backupName, &capacityLedger{})
 }
@@ -554,10 +542,6 @@ func downloadOffsiteBackupWithLedgerContext(parent context.Context, cfg Config, 
 		_ = os.Remove(signaturePath)
 	}
 	return root, cleanup, nil
-}
-
-func downloadOffsiteObject(parent context.Context, remoteRoot, localRoot, object string) error {
-	return downloadOffsiteObjectLimit(parent, remoteRoot, localRoot, object, maxOffsiteObjectBytes)
 }
 
 func downloadOffsiteObjectLimit(parent context.Context, remoteRoot, localRoot, object string, maxBytes int64) error {

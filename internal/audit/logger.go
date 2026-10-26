@@ -29,8 +29,6 @@ var mu sync.Mutex
 // succeed again; FailureCount and LastFailure are kept for the life of the
 // process so an earlier failure stays visible after recovery.
 var health Health
-var distributedLocks = make(map[string]string)
-var distributedLocksMu sync.Mutex
 
 // auditKeyPath is used by tests to mock the key file location
 var auditKeyPath = AuditKeyPath

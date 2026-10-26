@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cyberducttape/StePanel/internal/sitelifecycle"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/sitelifecycle"
 	"github.com/cyberducttape/StePanel/internal/state"
 )
+
+// maxLifecycleJournalBytes bounds a lifecycle journal read from disk.
+const maxLifecycleJournalBytes = 1 << 20
 
 // Site-termination step journal.
 //

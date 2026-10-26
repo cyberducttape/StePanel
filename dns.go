@@ -2,7 +2,6 @@ package stepanel
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 )
@@ -65,5 +64,3 @@ func (a *App) dnsCapabilities(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"capability": a.dnsCapability(), "desired_state": a.DNSDesired != nil, "dnssec": false})
 }
-
-var errDNSProviderNotConfigured = errors.New("DNS provider adapter is not configured")

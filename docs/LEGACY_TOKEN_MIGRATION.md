@@ -159,6 +159,11 @@ func (a Auth) HasRequiredCustomerScope(r *http.Request, scope string) bool {
 
 ## Customer Communication
 
+StePanel does not send these messages: `/api/account/security` reports
+legacy tokens and the panel shows a warning, but email delivery to customers
+is not implemented. Send the notices below through your own customer
+channel.
+
 ### Email: Initial Warning (Day 0)
 ```
 Subject: Action Required: Regenerate Your Legacy API Token

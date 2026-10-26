@@ -783,10 +783,6 @@ func findWordPressRoot(root string) (string, error) {
 	return found, err
 }
 
-func copyWPressTree(src, dst string) error {
-	return copyWPressTreeContext(context.Background(), src, dst)
-}
-
 func copyWPressTreeContext(ctx context.Context, src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -842,10 +838,6 @@ func copyFile(src, dst string, mode os.FileMode) error {
 
 func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
 
-func configureWordPress(cfg Config, site, dbName, dbUser, dbPassword, prefix string) error {
-	return configureWordPressContext(context.Background(), cfg, site, dbName, dbUser, dbPassword, prefix)
-}
-
 func configureWordPressContext(ctx context.Context, cfg Config, site, dbName, dbUser, dbPassword, prefix string) error {
 	exists, err := managedSiteFileExists(cfg, site, "", "wp-config.php")
 	if err != nil {
@@ -867,10 +859,6 @@ func configureWordPressContext(ctx context.Context, cfg Config, site, dbName, db
 	return nil
 }
 
-func detectWPressPrefix(cfg Config, dbName string) (string, error) {
-	return detectWPressPrefixContext(context.Background(), cfg, dbName)
-}
-
 func detectWPressPrefixContext(ctx context.Context, cfg Config, dbName string) (string, error) {
 	query := "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=" + sqlString(dbName) + " ORDER BY TABLE_NAME"
 	output, err := runMySQLContext(ctx, cfg, query)
@@ -889,10 +877,6 @@ func detectWPressPrefixContext(ctx context.Context, cfg Config, dbName string) (
 		}
 	}
 	return "", errors.New("could not detect the WordPress table prefix")
-}
-
-func renameWPressTables(cfg Config, dbName, sourcePrefix, targetPrefix string) error {
-	return renameWPressTablesContext(context.Background(), cfg, dbName, sourcePrefix, targetPrefix)
 }
 
 func renameWPressTablesContext(ctx context.Context, cfg Config, dbName, sourcePrefix, targetPrefix string) error {
@@ -920,10 +904,6 @@ func renameWPressTablesContext(ctx context.Context, cfg Config, dbName, sourcePr
 	}
 	_, err = runMySQLContext(ctx, cfg, strings.Join(statements, "; ")+";")
 	return err
-}
-
-func createWPressDatabase(cfg Config, dbName, dbUser, password string) error {
-	return createWPressDatabaseContext(context.Background(), cfg, dbName, dbUser, password)
 }
 
 func createWPressDatabaseContext(ctx context.Context, cfg Config, dbName, dbUser, password string) error {
@@ -990,10 +970,6 @@ func restoreWPressDatabaseWithHelperContext(parent context.Context, cfg Config, 
 	return nil
 }
 
-func importWPressDatabase(cfg Config, dbName, dump string) error {
-	return importWPressDatabaseContext(context.Background(), cfg, dbName, dump)
-}
-
 func importWPressDatabaseContext(parent context.Context, cfg Config, dbName, dump string) error {
 	input, err := os.Open(dump)
 	if err != nil {
@@ -1012,10 +988,6 @@ func importWPressDatabaseContext(parent context.Context, cfg Config, dbName, dum
 		return fmt.Errorf("import database: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
-}
-
-func runMySQL(cfg Config, query string) (string, error) {
-	return runMySQLContext(context.Background(), cfg, query)
 }
 
 func runMySQLContext(parent context.Context, cfg Config, query string) (string, error) {

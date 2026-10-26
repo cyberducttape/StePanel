@@ -357,11 +357,6 @@ func siteOverviewAt(cfg Config, site, siteRoot string, err error) (*siteOverview
 	return &siteOverview{Site: site, DocumentRoot: root, Routes: []siteRoute{}, Applications: []AppManifest{}, Proxies: []proxyInfo{}, Exists: exists}, nil
 }
 
-func siteRoutesFor(root, site string) []siteRoute {
-	routes, _ := siteRoutesForWithError(root, site)
-	return routes
-}
-
 func siteRoutesForWithError(root, site string) ([]siteRoute, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -385,11 +380,6 @@ func siteRoutesForWithError(root, site string) ([]siteRoute, error) {
 	return routes, nil
 }
 
-func siteProxiesFor(root, site string) []proxyInfo {
-	proxies, _ := siteProxiesForWithError(root, site)
-	return proxies
-}
-
 func siteProxiesForWithError(root, site string) ([]proxyInfo, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -409,11 +399,6 @@ func siteProxiesForWithError(root, site string) ([]proxyInfo, error) {
 	}
 	sort.Slice(proxies, func(i, j int) bool { return proxies[i].Name < proxies[j].Name })
 	return proxies, nil
-}
-
-func managedApps(root string) []AppManifest {
-	apps, _ := managedAppsWithError(root)
-	return apps
 }
 
 func managedAppsWithError(root string) ([]AppManifest, error) {

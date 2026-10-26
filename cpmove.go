@@ -872,10 +872,6 @@ func databaseName(user, db string) string {
 	return user + "_" + db
 }
 
-func copyTree(src, dst string) error {
-	return copyTreeContext(context.Background(), src, dst)
-}
-
 func copyTreeContext(ctx context.Context, src, dst string) error {
 	return copyTreeExcludingContext(ctx, src, dst, nil)
 }

@@ -320,7 +320,7 @@ All 5 critical operations need journals:
 - [GATE5_FAILURE_INJECTION_TESTING.md](GATE5_FAILURE_INJECTION_TESTING.md) - Framework details
 - [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md) - Gate 5 requirements
 - [site_lifecycle.go](../../site_lifecycle.go) - Reference implementation (termination)
-- [site_creation_journal.go](../../site_creation_journal.go) - Creation journal
+- [creation_journal.go](../../internal/rootbroker/creation_journal.go) - Creation journal
 
 ---
 

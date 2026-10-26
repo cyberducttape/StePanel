@@ -20,12 +20,10 @@ type MetadataCache struct {
 	// Site list cache
 	sites        []string
 	sitesExpires time.Time
-	sitesError   error
 
 	// Apps cache
 	apps        []AppManifest
 	appsExpires time.Time
-	appsError   error
 
 	// Routes cache: per-site routes
 	routesCache map[string][]siteRoute

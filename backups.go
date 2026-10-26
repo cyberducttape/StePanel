@@ -10,8 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cyberducttape/StePanel/internal/backup"
-	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"io"
 	"log"
 	"net/http"
@@ -22,6 +20,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/backup"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
 // Type aliases for backward compatibility
@@ -539,10 +540,6 @@ func quiesceWordPressForBackup(parent context.Context, cfg Config, site, publicR
 	return true, resume, nil
 }
 
-func addBackupTree(tw *tar.Writer, root, prefix string, maxEntries int, totalBytes *int64, manifest *BackupManifest) error {
-	return addBackupTreeContext(context.Background(), tw, root, prefix, maxEntries, totalBytes, manifest)
-}
-
 func addBackupTreeContext(ctx context.Context, tw *tar.Writer, root, prefix string, maxEntries int, totalBytes *int64, manifest *BackupManifest) error {
 	entries := 0
 	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -585,13 +582,6 @@ func addBackupTreeContext(ctx context.Context, tw *tar.Writer, root, prefix stri
 		// validation performed above.
 		return addBackupFileExpectedContext(ctx, tw, path, name, totalBytes, manifest, info)
 	})
-}
-
-// addBackupFileExpected writes a regular file that still matches the file
-// observed during validation. Callers without a preceding walk, such as the
-// database dump staging path, pass a nil expected FileInfo.
-func addBackupFileExpected(tw *tar.Writer, source, name string, totalBytes *int64, manifest *BackupManifest, expected os.FileInfo) error {
-	return addBackupFileExpectedContext(context.Background(), tw, source, name, totalBytes, manifest, expected)
 }
 
 func addBackupFileExpectedContext(ctx context.Context, tw *tar.Writer, source, name string, totalBytes *int64, manifest *BackupManifest, expected os.FileInfo) error {
@@ -1222,11 +1212,6 @@ func syncDirectory(path string) error {
 		err = closeErr
 	}
 	return err
-}
-
-func readBackupManifest(root string) (BackupManifest, error) {
-	manifest, _, err := readBackupManifestData(root)
-	return manifest, err
 }
 
 func readBackupManifestData(root string) (BackupManifest, []byte, error) {

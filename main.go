@@ -6,20 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cyberducttape/StePanel/internal/audit"
-	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
-	"github.com/cyberducttape/StePanel/internal/domainname"
-	httputil "github.com/cyberducttape/StePanel/internal/http"
-	"github.com/cyberducttape/StePanel/internal/metadata"
-	"github.com/cyberducttape/StePanel/internal/operations"
-	"github.com/cyberducttape/StePanel/internal/recovery"
-	"github.com/cyberducttape/StePanel/internal/rootbroker"
-	"github.com/cyberducttape/StePanel/internal/safehttp"
-	"github.com/cyberducttape/StePanel/internal/siteidentity"
-	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
-	"github.com/cyberducttape/StePanel/internal/sqliteutil"
-	"github.com/cyberducttape/StePanel/internal/state"
-	"github.com/cyberducttape/StePanel/internal/upload"
 	"html/template"
 	"io"
 	"io/fs"
@@ -35,6 +21,21 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/cyberducttape/StePanel/internal/audit"
+	authpolicy "github.com/cyberducttape/StePanel/internal/auth"
+	"github.com/cyberducttape/StePanel/internal/domainname"
+	httputil "github.com/cyberducttape/StePanel/internal/http"
+	"github.com/cyberducttape/StePanel/internal/metadata"
+	"github.com/cyberducttape/StePanel/internal/operations"
+	"github.com/cyberducttape/StePanel/internal/recovery"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
+	"github.com/cyberducttape/StePanel/internal/safehttp"
+	"github.com/cyberducttape/StePanel/internal/siteidentity"
+	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
+	"github.com/cyberducttape/StePanel/internal/sqliteutil"
+	"github.com/cyberducttape/StePanel/internal/state"
+	"github.com/cyberducttape/StePanel/internal/upload"
 )
 
 type App struct {
@@ -1123,9 +1124,7 @@ func (a *App) Capabilities() map[string]bool {
 		"htaccess_import":    a.Config.WebServer == "caddy" && commandAvailable(a.Config.VHostCtl),
 	}
 }
-func (a *App) capabilities(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"capabilities": a.Capabilities(), "time": time.Now().UTC()})
-}
+
 func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", 405)
@@ -2169,19 +2168,6 @@ type AuditEvent = audit.Event
 // Test compatibility - auditKeyPath is used by tests to mock the key file location
 // When set, it calls through to the audit package's test helper
 var auditKeyPath string = "/etc/stepanel-audit.key"
-
-// auditMu and auditPersistenceErr are used by tests to interact with audit state
-// For real usage, the audit package manages these internally
-var auditMu sync.Mutex
-var auditPersistenceErr error
-
-// resetAuditPersistenceErr is called by tests to clear persistence error state
-func resetAuditPersistenceErr() {
-	auditMu.Lock()
-	defer auditMu.Unlock()
-	auditPersistenceErr = nil
-	audit.TestResetPersistenceError()
-}
 
 func validateAuditEvent(event AuditEvent) error {
 	if event.Sequence == 0 || strings.TrimSpace(event.Actor) == "" || strings.TrimSpace(event.Action) == "" {

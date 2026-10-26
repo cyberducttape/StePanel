@@ -375,10 +375,6 @@ func minInt(left, right int) int {
 	return right
 }
 
-func (a *App) applyAccountResourceEnvelope(account string, plan HostingPlan) error {
-	return a.applyAccountResourceEnvelopeContext(context.Background(), account, plan)
-}
-
 func (a *App) applyAccountResourceEnvelopeContext(ctx context.Context, account string, plan HostingPlan) error {
 	// Account resource envelope is a config mutation (cgroup setup) - use standard timeout
 	if a.Config.Production {

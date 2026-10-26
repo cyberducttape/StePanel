@@ -147,17 +147,6 @@ func scheduleOffsiteRemoteProbe(target string) error {
 	return errOffsiteProbePending
 }
 
-func offsiteProbeCheckedAt(target string) *time.Time {
-	offsiteProbeCache.Lock()
-	defer offsiteProbeCache.Unlock()
-	result, ok := offsiteProbeCache.results[target]
-	if !ok || result.checked.IsZero() {
-		return nil
-	}
-	t := result.checked
-	return &t
-}
-
 func offsiteProbeEvidence(target string) (*bool, *time.Time) {
 	offsiteProbeCache.Lock()
 	defer offsiteProbeCache.Unlock()

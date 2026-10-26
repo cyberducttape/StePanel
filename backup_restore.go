@@ -903,10 +903,6 @@ func (a *App) markStagingRestoreRecoveryRequired(operation string, err error, me
 	}
 }
 
-func restoreDatabaseIntoStaging(cfg Config, stage string, input RestoreToStagingRequest) (bool, error) {
-	return restoreDatabaseIntoStagingContext(context.Background(), cfg, stage, input)
-}
-
 func extractBackupArchiveContext(ctx context.Context, archive, destination string, encryptionKeys []string, manifest BackupManifest) error {
 	if err := ctx.Err(); err != nil {
 		return err

@@ -58,14 +58,6 @@ type archiveImportRequest struct {
 	Domain  string `json:"domain"`
 }
 
-// archiveInspectionStatus is the response showing inspection results
-type archiveInspectionStatus struct {
-	Status      string                      `json:"status"` // "pending", "analyzing", "done", "failed"
-	Inspection  *importer.ArchiveInspection `json:"inspection,omitempty"`
-	Error       string                      `json:"error,omitempty"`
-	CompletedAt string                      `json:"completed_at,omitempty"`
-}
-
 type archiveInspector interface {
 	InspectArchive(ctx context.Context, url, configPath string) (*importer.ArchiveInspection, error)
 }

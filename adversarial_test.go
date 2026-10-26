@@ -385,10 +385,3 @@ func isValidDatabaseName(name string) bool {
 	}
 	return true
 }
-
-// testRandomSecret generates a random string for testing
-func testRandomSecret() string {
-	// In real code, this would use cryptographic randomness
-	// For testing, use a simple pattern
-	return "test_secret_12345"
-}

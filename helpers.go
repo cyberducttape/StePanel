@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	h "github.com/cyberducttape/StePanel/internal/helper"
-	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"io"
 	"os"
 	"os/exec"
@@ -14,12 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	h "github.com/cyberducttape/StePanel/internal/helper"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
-
-// Type aliases for backward compatibility
-type boundedBuffer = h.BoundedBuffer
-
-const maxCommandOutput = h.MaxCommandOutput
 
 // Operation-specific timeout classes (re-exported from internal/helper)
 const (
@@ -29,8 +25,6 @@ const (
 	helperDatabaseOperationTimeout  = h.DatabaseOperationTimeout
 	helperContainerOperationTimeout = h.ContainerOperationTimeout
 	helperBackupRestoreTimeout      = h.BackupRestoreTimeout
-	// helperCommandTimeout is deprecated - use operation-specific timeouts instead
-	helperCommandTimeout = h.ConfigMutationTimeout // default for backward compatibility
 )
 
 func runBoundedCommand(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {

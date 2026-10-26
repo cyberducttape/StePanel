@@ -1,6 +1,6 @@
 # Gate 5: Durable Checkpoint Integration Guide
 
-> **Archived 2026-10-10.** The site-creation journal integration described here is implemented (`site_creation_journal.go`). Current Gate 5 status: [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md#gate-5-failure-injection-testing).
+> **Archived 2026-10-10.** The site-creation journal integration described here is implemented in the root broker (`internal/rootbroker/creation_journal.go`); the earlier root-package `site_creation_journal.go` copy was unused and has been removed. Current Gate 5 status: [V1_PRODUCTION_GATES.md](../V1_PRODUCTION_GATES.md#gate-5-failure-injection-testing).
 
 **Purpose:** Step-by-step guide for integrating site creation journal into broker operations
 

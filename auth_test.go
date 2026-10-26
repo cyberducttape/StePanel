@@ -321,11 +321,7 @@ func TestAuthRejectsInvalidTOTPSecret(t *testing.T) {
 }
 
 func TestAuthenticatedMutationFailsClosedWhenAuditIsUnavailable(t *testing.T) {
-	t.Cleanup(func() {
-		auditMu.Lock()
-		auditPersistenceErr = nil
-		auditMu.Unlock()
-	})
+	resetAuditHealthAfter(t)
 	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
 	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
 	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")

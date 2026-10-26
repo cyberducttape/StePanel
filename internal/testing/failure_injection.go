@@ -220,7 +220,6 @@ type FailureStats struct {
 // RecoveryValidator verifies that recovery from a failure was clean and deterministic.
 type RecoveryValidator struct {
 	mu                sync.Mutex
-	initialState      interface{}
 	recoveredState    interface{}
 	consistencyChecks []ConsistencyCheck
 	isValid           bool

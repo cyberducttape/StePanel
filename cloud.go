@@ -602,18 +602,6 @@ func (a *App) cloudSnapshots(w http.ResponseWriter, r *http.Request) {
 
 var cloudNumericID = regexp.MustCompile(`^[0-9]{1,12}$`)
 
-func numeric(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, r := range value {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 // queueDNSJob enqueues the provider change as one durable job. The job is
 // the only write: while it is queued or running, dnsDesiredView reports the
 // record as pending, and the job records applied or failed when it ends, so

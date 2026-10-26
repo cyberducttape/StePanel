@@ -321,10 +321,6 @@ func (a *App) stagingCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, result)
 }
 
-func cloneManagedDatabaseToStaging(cfg Config, source, target, user, password string, site SiteCapability) (bool, error) {
-	return cloneManagedDatabaseToStagingContext(context.Background(), cfg, source, target, user, password, site, nil)
-}
-
 func cloneManagedDatabaseToStagingContext(ctx context.Context, cfg Config, source, target, user, password string, site SiteCapability, ledger *capacityLedger) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err

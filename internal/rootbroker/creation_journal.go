@@ -42,17 +42,6 @@ const (
 	stepCompleted       = "COMPLETED"
 )
 
-// creationStepOrder is the canonical execution order. Every step must be
-// idempotent so that retries are safe.
-var creationStepOrder = []string{
-	stepInitialized,
-	stepPersisted,
-	stepPHPConfigured,
-	stepDatabaseCreated,
-	stepVhostCreated,
-	stepCompleted,
-}
-
 type creationJournal struct {
 	Version   int             `json:"version"`
 	JobID     string          `json:"job_id"`

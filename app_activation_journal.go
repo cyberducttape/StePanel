@@ -36,10 +36,6 @@ type appActivationJournal struct {
 	path              string
 }
 
-func newAppActivationJournal(cfg Config, site, manifestPath string, previous []byte, restore *AppManifest) (*appActivationJournal, error) {
-	return newAppActivationJournalWithBackup(cfg, site, manifestPath, previous, restore, nil, false)
-}
-
 func newAppActivationJournalWithBackup(cfg Config, site, manifestPath string, previous []byte, restore *AppManifest, previousBackup []byte, hadPreviousBackup bool) (*appActivationJournal, error) {
 	if strings.TrimSpace(cfg.AppRoot) == "" || safeUser(site) == "" || manifestPath == "" {
 		return nil, errors.New("application activation journal requires app root, site, and manifest")

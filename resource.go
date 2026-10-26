@@ -21,7 +21,6 @@ type ResourceBudget struct {
 type workloadClass struct {
 	name     string
 	maxSlots int
-	active   int
 	slots    chan struct{}
 }
 

@@ -160,21 +160,6 @@ func TestOpenAPIStructure(t *testing.T) {
 	}
 }
 
-// isOperation checks if a key is an HTTP method
-func isOperation(key string) bool {
-	methods := map[string]bool{
-		"get":     true,
-		"post":    true,
-		"put":     true,
-		"delete":  true,
-		"patch":   true,
-		"head":    true,
-		"options": true,
-		"trace":   true,
-	}
-	return methods[strings.ToLower(key)]
-}
-
 // TestOpenAPISecuritySchemes verifies security definitions match code
 func TestOpenAPISecuritySchemes(t *testing.T) {
 	text := readSpecFile(t)

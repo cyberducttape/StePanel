@@ -10,7 +10,7 @@ Verified against the tree on 2026-10-10. Three binaries are built from
 - `cmd/stepanel-root` — the root broker
 - `cmd/stepanelctl` — the read-only operator CLI for the authenticated API
 
-### Root package (`package stepanel`, 99 non-test files)
+### Root package (`package stepanel`, 111 non-test files)
 
 The root package holds the HTTP application, its handlers, and workflow
 orchestration:
@@ -21,8 +21,12 @@ orchestration:
 - **Authentication and accounts**: `auth.go`, `accounts.go`,
   `account_management.go`, `account_activity.go`, `api_tokens.go`,
   `api_token_limiter.go`, `tenancy.go`
+- **Hosting accounts and the customer panel** ([ADR-0007](adr/0007-home-account-layout.md)):
+  `hosting_accounts.go` (account users and site placement), `site_location.go`
+  (where a site lives), `account_hosting.go` (account summary API),
+  `customer_panel.go` (`/panel`), `site_files.go` (file manager API)
 - **Sites and routing**: `sites.go`, `site_lifecycle.go`,
-  `site_lifecycle_journal.go`, `site_creation_journal.go`, `site_lock.go`,
+  `site_lifecycle_journal.go`, `site_lock.go`,
   `site_creation.go`, `site_operations.go`, `site_manager_bridge.go`,
   `site_usage.go`, `domain_claims.go`,
   `certificates.go`, `node_proxy.go`, `staging.go`, `staging_cleanup.go`,
@@ -30,8 +34,11 @@ orchestration:
 - **Backups and recovery**: `backups.go`, `backup_encryption.go`,
   `backup_restore.go`, `backup_restore_validation.go`, `backup_retention.go`,
   `backup_schedule.go`, `offsite.go`, `recovery.go`, `recovery_status.go`,
-  `dr.go`, `retention.go`, `startup_recovery.go`
-- **Migrations and imports**: `cpmove.go`, `importer.go`, `wpress.go`,
+  `dr.go`, `retention.go`, `startup_recovery.go`, `startup_barrier.go`
+  (cross-process startup recovery barrier), `startup_reconcile.go`,
+  `recovery_proof_wordpress.go` (WordPress restore proof)
+- **Migrations and imports**: `cpmove.go`, `cpmove_domains.go` (addon and
+  subdomain sites), `importer.go`, `wpress.go`,
   `wordpress.go`, `wordpress_maintenance.go`, `wpcli.go`, `migration_scan.go`,
   `doctor.go`, `upload_admission.go`
 - **Deployments and runtimes**: `deployments.go`, `git_deploy.go`,
@@ -42,15 +49,18 @@ orchestration:
   `redis.go`, `resource.go`, `resources.go`
 - **Jobs and tasks**: `jobs.go`, `tasks.go`, `task_webhook.go`,
   `event_streams.go`
-- **Databases**: `database.go`, `database_operations.go`
+- **Databases**: `database.go`, `database_operations.go`,
+  `database_restore_capacity.go`
 - **Control plane state**: `controlplane.go`, `state_persistence.go`,
+  `state_file.go`,
   `metadata_cache.go`, `encryption_format.go`
 - **Security and audit**: `security.go`, `security_center.go`,
   `security_headers.go`, `malware.go`, `audit_events.go`, `audit_outbox.go`, `audit_contract.go` (see
   [AUDIT_CONTRACT.md](AUDIT_CONTRACT.md))
 - **Operations and observability**: `health.go`, `capabilities.go`, `logs.go`,
-  `metrics.go`, `services.go`, `support_bundle.go`, `failure_injection.go`
-- **Infrastructure integrations**: `cloud.go`, `dns.go`, `dns_desired.go`,
+  `metrics.go`, `services.go`, `support_bundle.go`, `failure_injection.go`,
+  `operator_notifications.go` (failure alert outbox)
+- **Infrastructure integrations**: `cloud.go`, `cloud_linode.go`, `dns.go`, `dns_desired.go`,
   `ssh_access.go`, `ssh_inventory.go`
 
 ### Internal packages (`internal/`)

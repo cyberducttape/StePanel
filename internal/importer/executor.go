@@ -629,12 +629,6 @@ func safeArchiveMode(mode os.FileMode, directory bool) os.FileMode {
 	return perm
 }
 
-// validateConfigPath validates that a config path is safe (no traversal, not absolute, stays within webRoot)
-func validateConfigPath(webRoot, configPath string) error {
-	_, err := safeConfigPath(webRoot, configPath)
-	return err
-}
-
 func safeConfigPath(webRoot, configPath string) (string, error) {
 	if strings.TrimSpace(configPath) == "" {
 		return "", errors.New("config path is empty")
@@ -1354,75 +1348,6 @@ func extractWordPressDefine(content, key string) string {
 		return ""
 	}
 	return unescapePHPKey(content[definition.valueStart+1 : definition.valueEnd-1])
-}
-
-func extractWordPressDefineLegacy(content, key string) string {
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		// Skip commented lines
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		// Look for define function with flexible spacing
-		if !strings.Contains(line, "define") {
-			continue
-		}
-
-		// Try both quote types
-		for _, quote := range []string{"'", "\""} {
-			// Find 'define(' part (with possible spaces)
-			defineIdx := strings.Index(line, "define")
-			if defineIdx < 0 {
-				continue
-			}
-
-			// Look for the opening paren after define (with spaces)
-			afterDefine := line[defineIdx+6:]
-			parenIdx := strings.Index(afterDefine, "(")
-			if parenIdx < 0 {
-				continue
-			}
-
-			// Look for the key pattern: quote + key + quote
-			keyPattern := fmt.Sprintf("%s%s%s", quote, key, quote)
-			keyIdx := strings.Index(afterDefine[parenIdx:], keyPattern)
-			if keyIdx < 0 {
-				continue
-			}
-
-			// Find comma after the key
-			afterKey := afterDefine[parenIdx+keyIdx+len(keyPattern):]
-			commaIdx := strings.Index(afterKey, ",")
-			if commaIdx < 0 {
-				continue
-			}
-
-			// Get the value part (after comma)
-			afterComma := strings.TrimSpace(afterKey[commaIdx+1:])
-			if len(afterComma) == 0 {
-				continue
-			}
-
-			// Value should start with a quote
-			if !strings.HasPrefix(afterComma, "'") && !strings.HasPrefix(afterComma, "\"") {
-				continue
-			}
-
-			valueQuote := afterComma[0:1]
-			rest := afterComma[1:]
-
-			// Find closing quote
-			closeIdx := strings.Index(rest, valueQuote)
-			if closeIdx < 0 {
-				continue
-			}
-
-			return rest[:closeIdx]
-		}
-	}
-	return ""
 }
 
 // generateJobID creates a unique job ID

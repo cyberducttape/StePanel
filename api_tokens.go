@@ -117,8 +117,6 @@ func (s *apiTokenStore) create(username, name string, expiresAt *int64) (apiToke
 	return s.createScoped(username, name, expiresAt, nil, customerAPIScopes)
 }
 
-const legacyTokenExpirationErrorMsg = "legacy unscoped API tokens have been deprecated and expired; create a new scoped API token"
-
 var adminAPIScopes = map[string]bool{"admin:read": true, "admin:operate": true}
 
 // customerAPIScopes are the capabilities a customer automation token (a
@@ -831,77 +829,4 @@ func (a *App) customerSecurityCenter(w http.ResponseWriter, r *http.Request) {
 		"warning_message":     "Legacy API tokens with unlimited access were created before scope-based access control was introduced. Regenerate them with specific scopes to limit what they can do.",
 		"notification_sent":   false, // Phase 2: email notifications not yet implemented
 	})
-}
-
-// sendLegacyTokenNotifications sends email warnings to users with legacy unscoped tokens
-// Phase 2 implementation: Send day 0 notification to all legacy token users
-func (a *App) sendLegacyTokenNotifications(username string) error {
-	if a.APITokens == nil {
-		return errors.New("API token store unavailable")
-	}
-
-	items, err := a.APITokens.list(username)
-	if err != nil {
-		return err
-	}
-
-	// Find legacy tokens
-	var legacyTokens []apiTokenInfo
-	for _, token := range items {
-		if token.LegacyUnscoped && token.RevokedAt == nil {
-			legacyTokens = append(legacyTokens, token)
-		}
-	}
-
-	if len(legacyTokens) == 0 {
-		return nil // No legacy tokens to notify about
-	}
-
-	// Email notifications are not implemented in-panel and no scheduled
-	// notification pipeline exists. Callers of this function should NOT
-	// treat a nil return as "the token holder has been notified" — the
-	// event below records only that a notification is needed, not that
-	// one was sent. Operator action (or an external notification pipeline
-	// consuming the audit log) is required for the token holder to learn
-	// their token is deprecated.
-	//
-	// Independently of any notification, the deprecation is enforced at
-	// authentication time via LegacyTokenDeprecation.IsLegacyTokenExpired
-	// (see auth.go validAPITokenWithScopes) — the token is refused when
-	// the grace period elapses regardless of whether the holder was
-	// notified.
-	if err := SecurityAuditRequired(a.Config.AuditLog, username, "token.legacy_unscoped.notification_required", "legacy-tokens", "operator or external pipeline must deliver notification"); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// buildLegacyTokenNotificationEmail creates the notification content for legacy tokens
-func buildLegacyTokenNotificationEmail(username string, legacyTokens []apiTokenInfo) string {
-	subject := "Action Required: Regenerate Your API Tokens"
-
-	content := "Dear customer,\n\n"
-	content += "We've identified that your account has API tokens created before scope-based access control was introduced.\n\n"
-	content += "Current Status:\n"
-	for _, token := range legacyTokens {
-		content += "- Token: " + token.Name + " (" + token.Prefix + ")\n"
-		content += "  Access level: Full account access (all scopes)\n"
-		content += "  Created: " + time.Unix(token.CreatedAt, 0).Format("2006-01-02") + "\n"
-	}
-
-	content += "\nAction Required:\n"
-	content += "1. Go to Account → API Tokens\n"
-	content += "2. Click 'Regenerate' next to the legacy token\n"
-	content += "3. Select the specific scopes you actually need\n"
-	content += "4. Update your applications to use the new token\n\n"
-
-	content += "Timeline:\n"
-	content += "- Day 0 (Today): This notification\n"
-	content += "- Day 30 (2026-10-15): Final warning with shutdown notice\n"
-	content += "- Day 60 (2026-11-15): Legacy tokens will stop working\n\n"
-
-	content += "Questions? Contact support.\n"
-
-	return "Subject: " + subject + "\n" + content
 }

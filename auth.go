@@ -509,9 +509,6 @@ func (a Auth) sessionID(r *http.Request) string {
 	}
 	return parts[2]
 }
-func (a Auth) credentialFingerprint() string {
-	return a.credentialFingerprintFor(a.Username, a.PasswordHash)
-}
 
 func (a Auth) credentialFingerprintFor(username, passwordHash string) string {
 	key := passwordHash

@@ -757,11 +757,6 @@ func readControlPlaneBlob(db *sql.DB, name string) ([]byte, bool, error) {
 	return payload, true, nil
 }
 
-func writeControlPlaneBlob(db *sql.DB, name string, payload []byte) error {
-	_, err := db.Exec(`INSERT INTO state_blobs (name, payload, updated_at, revision) VALUES (?, ?, unixepoch(), 1) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at, revision=state_blobs.revision+1`, name, payload)
-	return err
-}
-
 var controlPlaneStateRevisions sync.Map // Tracks read revisions per store
 var controlPlaneStateSnapshots sync.Map // Tracks the last durable payload per store
 

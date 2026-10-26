@@ -9,7 +9,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cyberducttape/StePanel/internal/audit"
 )
+
+// resetAuditHealthAfter clears the audit package's process-wide failure
+// counters when a test that deliberately fails an audit write ends.
+func resetAuditHealthAfter(t *testing.T) {
+	t.Helper()
+	t.Cleanup(audit.TestResetPersistenceError)
+}
 
 func TestAuditChainRecordsActorAndVerifies(t *testing.T) {
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("k", 32))
@@ -61,6 +70,7 @@ func TestAuditEventsFiltersVerifiedHistory(t *testing.T) {
 }
 
 func TestAuditRequiresStrongSigningKey(t *testing.T) {
+	resetAuditHealthAfter(t)
 	t.Setenv("STEPANEL_AUDIT_KEY", "")
 	t.Setenv("STEPANEL_SESSION_SECRET", "")
 	previousKeyPath := auditKeyPath
@@ -69,9 +79,6 @@ func TestAuditRequiresStrongSigningKey(t *testing.T) {
 	if err := SecurityAuditRequired(filepath.Join(t.TempDir(), "audit.jsonl"), "system", "test.action", "site", "detail"); err == nil {
 		t.Fatal("audit event was accepted without a signing key")
 	}
-	auditMu.Lock()
-	auditPersistenceErr = nil
-	auditMu.Unlock()
 }
 
 func TestVerifyAuditLogRejectsTampering(t *testing.T) {
@@ -94,6 +101,7 @@ func TestVerifyAuditLogRejectsTampering(t *testing.T) {
 }
 
 func TestVerifyAuditLogRejectsWrongKey(t *testing.T) {
+	resetAuditHealthAfter(t)
 	t.Setenv("STEPANEL_AUDIT_KEY", strings.Repeat("a", 32))
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 	if err := SecurityAuditRequired(path, "admin", "test.action", "site", "detail"); err != nil {
@@ -106,9 +114,6 @@ func TestVerifyAuditLogRejectsWrongKey(t *testing.T) {
 	if err := SecurityAuditRequired(path, "admin", "second.action", "site", "detail"); err == nil {
 		t.Fatal("audit chain accepted an event signed with a replacement key")
 	}
-	auditMu.Lock()
-	auditPersistenceErr = nil
-	auditMu.Unlock()
 }
 
 func TestVerifyAuditLogRejectsRewrittenState(t *testing.T) {

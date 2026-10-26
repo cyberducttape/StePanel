@@ -263,63 +263,6 @@ func validateTaskCalendarInterval(ctx context.Context, calendar string, minimumS
 	return nil
 }
 
-// recordTaskExecution updates task with execution results
-func (s *TaskStore) recordTaskExecution(key string, exitCode int, output []string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	task, exists := s.values[key]
-	if !exists {
-		return errors.New("task not found")
-	}
-
-	task.LastRunAt = time.Now().Unix()
-	task.LastRunExitCode = exitCode
-	task.LastRunOutput = output
-
-	// Track consecutive failures for auto-disable
-	if exitCode == 0 {
-		task.ConsecutiveFailures = 0
-		task.LastError = ""
-	} else {
-		task.ConsecutiveFailures++
-		task.LastError = "task exited with code " + strconv.Itoa(exitCode)
-
-		// Auto-disable after too many consecutive failures
-		if task.ConsecutiveFailures >= autoDisableFailureCount {
-			task.Enabled = false
-			task.AutoDisabledAt = time.Now().Unix()
-			task.LastError = "auto-disabled after " + strconv.Itoa(autoDisableFailureCount) + " consecutive failures"
-		}
-	}
-
-	return persistMapKeyChange(s.values, key, &task, s.persistLocked)
-}
-
-// captureTaskOutput captures and limits output from task execution
-func captureTaskOutput(output string) []string {
-	lines := strings.Split(output, "\n")
-
-	// Keep only last N lines
-	if len(lines) > maxTaskOutputLines {
-		lines = lines[len(lines)-maxTaskOutputLines:]
-	}
-
-	// Ensure total size doesn't exceed limit
-	var result []string
-	totalSize := 0
-	for i := len(lines) - 1; i >= 0; i-- {
-		lineSize := len(lines[i])
-		if totalSize+lineSize > maxTaskOutputSize {
-			break
-		}
-		result = append([]string{lines[i]}, result...)
-		totalSize += lineSize
-	}
-
-	return result
-}
-
 // killTask stops a running scheduled task via the typed root broker in
 // production; non-production development keeps the local helper adapter.
 func (a *App) killTask(ctx context.Context, site, name string) error {

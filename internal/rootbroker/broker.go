@@ -702,10 +702,6 @@ func (b *Broker) snapshotBoundary(site string) (string, string, error) {
 	return filepath.Join(siteRoot, "public"), b.snapshotRecoveryRoot, nil
 }
 
-func (b *Broker) validateSnapshotPaths(siteRoot, sourcePath, destinationPath string) (string, string, error) {
-	return b.validateSnapshotPathsAt(filepath.Join(siteRoot, "public"), b.snapshotRecoveryRoot, sourcePath, destinationPath)
-}
-
 func (b *Broker) validateSnapshotPathsAt(public, recoveryRoot, sourcePath, destinationPath string) (string, string, error) {
 	source, err := filepath.Abs(sourcePath)
 	if err != nil || strings.TrimSpace(sourcePath) == "" {

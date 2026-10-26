@@ -874,13 +874,6 @@ func (l *capacityLedger) heldBytes(path string) uint64 {
 	return l.held[device]
 }
 
-// admitCapacity preserves the package-level capacity check used by older
-// callers. New request paths should use capacityLedger so concurrent upload
-// reservations are accounted for.
-func admitCapacity(cfg Config, workflow string, demands []capacityDemand) error {
-	return (&capacityLedger{}).check(cfg, workflow, demands)
-}
-
 // declaredUploadBytes is the archive size admitted before the body is read.
 // Content-Length bounds the archive (multipart framing only adds to it); a
 // streamed body without one reports known=false with the configured upload
@@ -923,22 +916,6 @@ func saturatingAdd(a, b uint64) uint64 {
 		return ^uint64(0)
 	}
 	return a + b
-}
-
-// uploadSpaceCheck preserves the pre-ledger streaming check for callers that
-// need a standalone, non-reserving callback. Upload handlers use
-// capacityReservation.consume instead.
-func uploadSpaceCheck(cfg Config, declared uint64) func(int64) error {
-	return func(written int64) error {
-		if written < 0 {
-			return fmt.Errorf("invalid upload byte count")
-		}
-		remaining := uint64(0)
-		if uint64(written) < declared {
-			remaining = declared - uint64(written)
-		}
-		return admitCapacity(cfg, "upload", []capacityDemand{{Path: cfg.ImportRoot, Bytes: remaining}})
-	}
 }
 
 // idleDeadlineBody refreshes the connection read deadline as body bytes
@@ -1030,12 +1007,6 @@ func writeUploadErrorResponse(w http.ResponseWriter, r *http.Request, err error)
 		http.Error(w, "could not stage upload", http.StatusInternalServerError)
 	}
 	return reason
-}
-
-// writeUploadError is retained for package-level callers that predate the
-// application metrics hook.
-func writeUploadError(w http.ResponseWriter, err error) {
-	writeUploadErrorResponse(w, nil, err)
 }
 
 func (a *App) writeUploadError(w http.ResponseWriter, r *http.Request, err error) {
