@@ -1,49 +1,31 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-25
+**Last Updated:** 2026-10-26
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
 
-### Current evidence snapshot — 2026-10-25 (application source `73975a3`; evidence head `67d9e6f`)
+### Current evidence snapshot — 2026-10-26 (application source `c071169`)
 
-Exact-head Integration passed on application source
-[`73975a3740e52835e097363dd58cd3f3b7aba977`](https://github.com/cyberducttape/StePanel/commit/73975a3740e52835e097363dd58cd3f3b7aba977)
-([run 40210745823](https://github.com/cyberducttape/StePanel/actions/runs/40210745823)),
-including Go tests/coverage, race and recovery drills, real ENOSPC,
-MySQL/PostgreSQL restores, security/static scans, deployment validation, and
-UI E2E. Documentation and CodeQL passed on evidence head
-[`67d9e6ff2826930c4200d6a1eb0fb4fe42f486a9`](https://github.com/cyberducttape/StePanel/commit/67d9e6ff2826930c4200d6a1eb0fb4fe42f486a9)
-([40212502036](https://github.com/cyberducttape/StePanel/actions/runs/40212502036)
-and [40212502088](https://github.com/cyberducttape/StePanel/actions/runs/40212502088));
-CodeQL reports zero open alerts.
+Exact-head Integration passed on
+[`c071169a0ff4c2f7ce16b412ddd3b60d2fa714fe`](https://github.com/cyberducttape/StePanel/commit/c071169a0ff4c2f7ce16b412ddd3b60d2fa714fe)
+([run 40253133749](https://github.com/cyberducttape/StePanel/actions/runs/40253133749));
+Documentation ([40253133877](https://github.com/cyberducttape/StePanel/actions/runs/40253133877))
+and CodeQL ([40253134087](https://github.com/cyberducttape/StePanel/actions/runs/40253134087))
+also passed on that source. CodeQL reports zero open alerts. The exact-source
+AlmaLinux 9/Caddy install smoke remains active
+([40253133851](https://github.com/cyberducttape/StePanel/actions/runs/40253133851));
+it is not counted as passed.
 
-Current-host runs are incomplete: a two-iteration Rocky Linux 9 + Caddy +
-MariaDB recovery shard on `67d9e6f`
-([40212718792](https://github.com/cyberducttape/StePanel/actions/runs/40212718792));
-an ext4 quota-enabled Ubuntu install on source `2680808`
-([40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828));
-and an XFS quota-enabled Ubuntu run queued on `67d9e6f`
-([40212633884](https://github.com/cyberducttape/StePanel/actions/runs/40212633884)).
-None is counted as passed. A separate two-repeat AlmaLinux run
-([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
-is still running on stale source `42c69cb6` and is not current-source evidence.
-
-Nine additional two-iteration recovery shards were dispatched on evidence head
-`5664ea1`, covering all six supported OS/web-server combinations. They are
-queued, not running or passed: [40213883873](https://github.com/cyberducttape/StePanel/actions/runs/40213883873),
-[40213886188](https://github.com/cyberducttape/StePanel/actions/runs/40213886188),
-[40213888634](https://github.com/cyberducttape/StePanel/actions/runs/40213888634),
-[40213890949](https://github.com/cyberducttape/StePanel/actions/runs/40213890949),
-[40213893719](https://github.com/cyberducttape/StePanel/actions/runs/40213893719),
-[40213896190](https://github.com/cyberducttape/StePanel/actions/runs/40213896190),
-[40213898545](https://github.com/cyberducttape/StePanel/actions/runs/40213898545),
-[40213901094](https://github.com/cyberducttape/StePanel/actions/runs/40213901094),
-and [40213903617](https://github.com/cyberducttape/StePanel/actions/runs/40213903617).
-Together with the first current-source shard, this schedules 20 repetitions;
-the release gate remains open until the required operation/fault cohorts
-complete and their post-boot invariants are reviewed.
+A diagnostic ext4 quota-VM run on PR source `d1e9abf` remains active
+([40249633583](https://github.com/cyberducttape/StePanel/actions/runs/40249633583));
+it is not exact-source evidence for `c071169`. Two full-matrix recovery shards
+started on `2c6546e` were canceled after discovering their base (`dd6a65f`) was
+behind current main by 48 files, including root-broker and control-plane
+changes. They count as zero current-source repetitions. The one-iteration
+shard harness has been rebased onto `c071169`; current-source recovery runs are
+required before updating the repetition count.
 
 The six-host installed-system smoke on older source `070dce9`
 ([40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637))

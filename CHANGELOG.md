@@ -17,8 +17,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   two-iteration shards were canceled mid-iteration, producing no complete
   repeated-recovery evidence.
 - Reconcile the latest release evidence: record current-head Documentation and
-  CodeQL passes, classify the previous recovery/quota shards as failed, and
-  track the new ext4 diagnostic rerun separately as in progress.
+  CodeQL passes on `c071169`, record its active installed-host smoke, and
+  distinguish the ext4 diagnostic run on PR source `d1e9abf`.
 
 - Retain `CAP_SETUID` and `CAP_SETGID` in the root broker's ambient capability
   set so its validated customer file-manager helper can switch to the site's
@@ -43,6 +43,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Update the recovery-matrix contract to require 20 unique one-iteration shards
   across the supported OS/web-server matrix; count no repetition until its
   workflow completes and its recovery evidence is reviewed.
+- Cancel two recovery shards based on stale source `dd6a65f`; rebase the
+  one-iteration harness onto current main before collecting new evidence. The
+  20-run cohort remains planned, not completed or certified.
 
 - Record the full exact-head Integration, Documentation, and CodeQL passes on
   `73975a3`, retaining the active quota-VM and repeated installed-host runs as
