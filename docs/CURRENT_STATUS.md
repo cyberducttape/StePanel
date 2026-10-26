@@ -6,34 +6,44 @@
 
 ---
 
-### Current evidence snapshot — 2026-10-26 (`main` source `3dbb73a`)
+### Current evidence snapshot — 2026-10-26 (`main` source `ebeca0a`)
 
-The backup-manifest bound, placement-aware root-broker setup, bounded recovery
-shards, and Git quota test isolation are merged into `main` in PRs #41, #42,
-#46, and #47. Post-merge validation is not complete: Integration
-([40261573545](https://github.com/cyberducttape/StePanel/actions/runs/40261573545))
-is pending, CodeQL
-([40261573495](https://github.com/cyberducttape/StePanel/actions/runs/40261573495))
+PR #49 was fast-forwarded to `main` as
+[`ebeca0a1622571409e605213cb2662a791cb0275`](https://github.com/cyberducttape/StePanel/commit/ebeca0a1622571409e605213cb2662a791cb0275).
+The commit records the Ubuntu 24.04/ext4 quota smoke evidence and adds
+post-reboot quota-state assertions to the quota workflow. Its PR Go tests,
+CodeQL, and Analyze Go checks passed. The hosted Documentation check was still
+queued at merge; the exact workflow commands, including link checks, 91-source
+reference validation, and documentation contract tests, passed locally on the
+PR commit.
+
+Exact-commit main validation is not complete: CI integration
+([40263816009](https://github.com/cyberducttape/StePanel/actions/runs/40263816009)),
+CodeQL
+([40263816196](https://github.com/cyberducttape/StePanel/actions/runs/40263816196)),
 and Documentation
-([40261573467](https://github.com/cyberducttape/StePanel/actions/runs/40261573467))
-are queued. The installed-host run
-([40261524917](https://github.com/cyberducttape/StePanel/actions/runs/40261524917))
-is for the immediately preceding commit `33f7a5b`, not current `main`, and is
-still pending. Older quota and recovery jobs are based on pre-merge PR sources;
-they do not certify the merged source. One Ubuntu 24.04/ext4 quota-enabled
-install smoke did pass on PR #42 source `a26de03`
-([run 40255950868](https://github.com/cyberducttape/StePanel/actions/runs/40255950868));
-it verified active user/project quotas, actual quota exhaustion, customer-site
+([40263816121](https://github.com/cyberducttape/StePanel/actions/runs/40263816121))
+are pending or queued. The exact-commit quota install run
+([40262294553](https://github.com/cyberducttape/StePanel/actions/runs/40262294553))
+is still running and must pass its post-reboot enforcement assertions before
+counting as evidence. A six-host recovery shard
+([40256143103](https://github.com/cyberducttape/StePanel/actions/runs/40256143103))
+is still running on older source `e870ac3`; it does not certify this commit.
+
+One Ubuntu 24.04/ext4 quota-enabled install smoke passed on PR #42 source
+`a26de03` ([run 40255950868](https://github.com/cyberducttape/StePanel/actions/runs/40255950868));
+it verified active user/project quotas, quota exhaustion, customer-site
 provisioning, WordPress recovery, abrupt guest reboot, and two real-ENOSPC
-checks. Its exact scope and caveats are in the
+checks. Its scope and caveats are recorded in the
 [run report](lab-results/2026-10-26-ubuntu-ext4-quota-install-40255950868.md).
-This is one-host partial evidence, not current-main or filesystem-matrix
+This is partial, older-source evidence, not filesystem-matrix or current-commit
 certification.
 
-Production remains **NO-GO**. The 20–50-repeat full-host recovery cohort,
-physical power-loss and broad ENOSPC/database-outage evidence, quota-host
-certification, live notification outage/retry proof, capacity envelope,
-upgrade/rollback policy, and independent security review remain open.
+Production remains **NO-GO**. Open gates include legacy site-identity collision
+recovery, the required 20–50-repeat installed-host recovery cohort, physical
+host power-loss and broader ENOSPC/database-outage evidence, quota certification
+across supported filesystems, live notification outage/retry proof, a measured
+capacity envelope, upgrade/rollback policy, and independent security review.
 
 ### Previous evidence snapshot — 2026-10-26 (application source `c071169`)
 

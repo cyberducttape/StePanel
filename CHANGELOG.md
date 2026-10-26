@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Reconcile the current release evidence to exact `main` commit `ebeca0a` after
+  merging PR #49. Record completed PR checks, the locally verified documentation
+  contract, the exact-commit quota run still in progress, and the older-source
+  recovery run without counting pending work as a pass. Keep production NO-GO.
+
 - Record the successful Ubuntu 24.04 ext4 quota-enabled install smoke and its
   actual quota/ENOSPC results, while documenting that the run predates the
   final merged source and does not close filesystem or recovery certification.
