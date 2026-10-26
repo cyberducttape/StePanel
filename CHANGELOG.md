@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Report every colliding legacy site account during identity migration in one
+  deterministic, transactionally fail-closed startup diagnostic instead of
+  stopping at the first collision; retain the offline reassignment gate.
+
 - Reconcile the current release evidence to exact `main` commit `ebeca0a` after
   merging PR #49. Record completed PR checks, the locally verified documentation
   contract, the exact-commit quota run still in progress, and the older-source

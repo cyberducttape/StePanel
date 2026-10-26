@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -98,6 +100,9 @@ func MigrateExisting(db *sql.DB, webRoot string) error {
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
+	if err := rejectLegacyIdentityCollisions(context.Background(), conn, entries); err != nil {
+		return err
+	}
 	for _, entry := range entries {
 		if !entry.IsDir() || !validSite(entry.Name()) {
 			continue
@@ -120,6 +125,67 @@ func MigrateExisting(db *sql.DB, webRoot string) error {
 	}
 	committed = true
 	return nil
+}
+
+// rejectLegacyIdentityCollisions performs a read-only preflight while the
+// migration owns SQLite's writer reservation. Reporting every conflicting
+// account in one deterministic error gives operators a complete recovery
+// inventory without partially inserting mappings or stopping at the first
+// colliding site.
+func rejectLegacyIdentityCollisions(ctx context.Context, conn *sql.Conn, entries []os.DirEntry) error {
+	collisions := make(map[string]map[string]struct{})
+	add := func(username, site string) {
+		if collisions[username] == nil {
+			collisions[username] = make(map[string]struct{})
+		}
+		collisions[username][site] = struct{}{}
+	}
+	owners := make(map[string][]string)
+	for _, entry := range entries {
+		if !entry.IsDir() || !validSite(entry.Name()) {
+			continue
+		}
+		username := UnixUser(entry.Name())
+		owners[username] = append(owners[username], entry.Name())
+		var persistedOwner string
+		err := conn.QueryRowContext(ctx, `SELECT site FROM site_identities WHERE username = ?`, username).Scan(&persistedOwner)
+		if err == nil && persistedOwner != entry.Name() {
+			add(username, persistedOwner)
+			add(username, entry.Name())
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("inspect legacy site identity %q: %w", entry.Name(), err)
+		}
+	}
+	for username, sites := range owners {
+		if len(sites) < 2 {
+			continue
+		}
+		for _, site := range sites {
+			add(username, site)
+		}
+	}
+	if len(collisions) == 0 {
+		return nil
+	}
+	usernames := make([]string, 0, len(collisions))
+	for username := range collisions {
+		usernames = append(usernames, username)
+	}
+	sort.Strings(usernames)
+	details := make([]string, 0, len(usernames))
+	for _, username := range usernames {
+		sites := make([]string, 0, len(collisions[username]))
+		for site := range collisions[username] {
+			sites = append(sites, site)
+		}
+		sort.Strings(sites)
+		quoted := make([]string, len(sites))
+		for index, site := range sites {
+			quoted[index] = strconv.Quote(site)
+		}
+		details = append(details, fmt.Sprintf("%s shared by %s", username, strings.Join(quoted, ", ")))
+	}
+	return fmt.Errorf("legacy site identity collisions block startup; offline recovery is required: %s", strings.Join(details, "; "))
 }
 
 func allocatedUser(site string, attempt int) string {
