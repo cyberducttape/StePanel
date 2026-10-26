@@ -6,11 +6,13 @@ checker="$repo_root/scripts/check-action-pins.sh"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-mkdir -p "$tmp/valid" "$tmp/invalid" "$tmp/empty" "$tmp/no-grep"
+mkdir -p "$tmp/valid" "$tmp/invalid" "$tmp/local" "$tmp/empty" "$tmp/no-grep"
 printf '%s\n' 'steps:' '  - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567' > "$tmp/valid/workflow.yml"
 printf '%s\n' 'steps:' '  - uses: actions/checkout@v4' > "$tmp/invalid/workflow.yml"
+printf '%s\n' 'jobs:' '  smoke:' '    uses: ./.github/workflows/install-smoke.yml' > "$tmp/local/workflow.yml"
 
 bash "$checker" "$tmp/valid"
+bash "$checker" "$tmp/local"
 if bash "$checker" "$tmp/invalid"; then
   echo 'un-pinned action unexpectedly passed validation' >&2
   exit 1

@@ -30,6 +30,18 @@ var (
 	phpErrorPattern     = regexp.MustCompile(`^[A-Z0-9_~& |]{1,80}$`)
 )
 
+// Compiled once: the validator runs on every broker request.
+var (
+	siteNamePattern     = regexp.MustCompile(`^[a-z0-9_-]+$`)
+	usernamePattern     = regexp.MustCompile(`^[a-z0-9_-]+$`)
+	databaseNamePattern = regexp.MustCompile(`^[a-z0-9_]+$`)
+	gitRefPattern       = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
+	phpReleasePattern   = regexp.MustCompile(`^[5-9]\.[0-9](\.[0-9]+)?$`)
+	nodeVersionPattern  = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+	persistedSiteUser   = regexp.MustCompile(`^sp-[a-z0-9][a-z0-9-]{1,28}$`)
+	sshPublicKeyPattern = regexp.MustCompile(`^(ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-rsa) [A-Za-z0-9+/]+={0,3}(\s.*)?$`)
+)
+
 // Validator performs input validation at the root boundary.
 // All user-supplied data is validated before any system operations.
 type Validator struct {
@@ -99,7 +111,7 @@ func (v *Validator) ValidateSiteName(site string) error {
 	if len(site) > 32 {
 		return fmt.Errorf("site name too long (max 32 characters)")
 	}
-	if !regexp.MustCompile(`^[a-z0-9_-]+$`).MatchString(site) {
+	if !siteNamePattern.MatchString(site) {
 		return fmt.Errorf("site name must contain only lowercase alphanumeric, dash, underscore")
 	}
 	return nil
@@ -192,8 +204,7 @@ func (v *Validator) ValidateSSHKey(key string) error {
 		return fmt.Errorf("SSH key contains CR (carriage return)")
 	}
 
-	pattern := `^(ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com|ssh-rsa) [A-Za-z0-9+/]+={0,3}(\s.*)?$`
-	if !regexp.MustCompile(pattern).MatchString(strings.TrimSpace(key)) {
+	if !sshPublicKeyPattern.MatchString(strings.TrimSpace(key)) {
 		return fmt.Errorf("invalid SSH key format")
 	}
 	return nil
@@ -221,7 +232,7 @@ func (v *Validator) ValidateUsername(username string) error {
 	if len(username) > 32 {
 		return fmt.Errorf("username too long (max 32)")
 	}
-	if !regexp.MustCompile(`^[a-z0-9_-]+$`).MatchString(username) {
+	if !usernamePattern.MatchString(username) {
 		return fmt.Errorf("username must be lowercase alphanumeric, dash, or underscore")
 	}
 	return nil
@@ -235,7 +246,7 @@ func (v *Validator) ValidateDatabaseName(db string) error {
 	if len(db) > 64 {
 		return fmt.Errorf("database name too long (max 64)")
 	}
-	if !regexp.MustCompile(`^[a-z0-9_]+$`).MatchString(db) {
+	if !databaseNamePattern.MatchString(db) {
 		return fmt.Errorf("database name must be lowercase alphanumeric or underscore")
 	}
 	return nil
@@ -272,7 +283,7 @@ func (v *Validator) ValidateGitRef(ref string) error {
 		return fmt.Errorf("git ref too long")
 	}
 	// Allow branch/tag names and commit hashes
-	if !regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`).MatchString(ref) {
+	if !gitRefPattern.MatchString(ref) {
 		return fmt.Errorf("git ref contains invalid characters")
 	}
 	return nil
@@ -315,7 +326,7 @@ func (v *Validator) ValidatePHPVersion(version string) error {
 		return fmt.Errorf("PHP version is required")
 	}
 	// Allow versions like "7.4", "8.0", "8.1", "8.2", "8.3"
-	if !regexp.MustCompile(`^[5-9]\.[0-9](\.[0-9]+)?$`).MatchString(version) {
+	if !phpReleasePattern.MatchString(version) {
 		return fmt.Errorf("invalid PHP version format")
 	}
 	return nil
@@ -329,7 +340,7 @@ func (v *Validator) ValidateNodeVersion(version string) error {
 	// Strip leading 'v' if present
 	version = strings.TrimPrefix(version, "v")
 	// Allow versions like "14.0.0", "16.13.2", "18.0.0"
-	if !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(version) {
+	if !nodeVersionPattern.MatchString(version) {
 		return fmt.Errorf("invalid Node version format (expected X.Y.Z)")
 	}
 	return nil
@@ -567,11 +578,12 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 	// A legacy site has a per-site sp-* account; a site placed in a hosting
 	// account runs as the account user. resolveSiteUser then requires the
 	// name to match the site's recorded identity or placement.
-	if req.SiteUser != "" && !regexp.MustCompile(`^sp-[a-z0-9][a-z0-9-]{1,28}$`).MatchString(req.SiteUser) && sitelayout.ValidUnixUser(req.SiteUser) != nil {
+	if req.SiteUser != "" && !persistedSiteUser.MatchString(req.SiteUser) && sitelayout.ValidUnixUser(req.SiteUser) != nil {
 		return errors.New("invalid persisted site Unix account")
 	}
 	if req.PHPWorkers > 0 {
-		if err := v.ValidateNumericRange("php_workers", req.PHPWorkers, 1, 256); err != nil {
+		// Matches the panel's resource profile and stepanel-sitectl (1-512).
+		if err := v.ValidateNumericRange("php_workers", req.PHPWorkers, 1, 512); err != nil {
 			return err
 		}
 	}

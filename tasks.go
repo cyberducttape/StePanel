@@ -621,11 +621,20 @@ func (a *App) reconcileTasks(ctx context.Context) (reconciled []string, failed m
 		}
 	}
 	a.Tasks.mu.RUnlock()
-	for _, task := range pending {
-		key := task.Site + "/" + task.Name
-		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, task.Site)
+	for _, snapshot := range pending {
+		key := snapshot.Site + "/" + snapshot.Name
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, snapshot.Site)
 		if lockErr != nil {
 			failed[key] = lockErr.Error()
+			continue
+		}
+		// Re-read under the site lock. Applying the earlier snapshot could
+		// recreate a task deleted, or revert one changed, after it was taken.
+		a.Tasks.mu.RLock()
+		task, exists := a.Tasks.values[key]
+		a.Tasks.mu.RUnlock()
+		if !exists || task.State != "pending" && !task.Deleted {
+			releaseUnlock()
 			continue
 		}
 		if err := a.applyTask(operationCtx, task); err != nil {

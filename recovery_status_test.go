@@ -318,3 +318,30 @@ func TestRehearsalIntervalConfig(t *testing.T) {
 		t.Fatalf("interval = %d, want default 24", got)
 	}
 }
+
+// A request naming another site's backup is refused from the unverified
+// manifest, with the same answer as a failed verification, before the
+// expensive strict verification runs.
+func TestBackupVerifyRefusesAnotherSitesBackupLikeAFailedVerification(t *testing.T) {
+	f := newRecoveryFixture(t)
+	if got := claimedBackupSite(f.dir); got != "account" {
+		t.Fatalf("claimed backup site = %q, want account", got)
+	}
+	if got := claimedBackupSite(filepath.Join(t.TempDir(), "missing")); got != "" {
+		t.Fatalf("claimed site of a missing backup = %q, want empty", got)
+	}
+	for _, site := range []string{"other", "account"} {
+		body := strings.NewReader(`{"backup":"` + f.backup + `","site":"` + site + `"}`)
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/backups/verify", body)
+		request = request.WithContext(context.WithValue(request.Context(), replayedIdentityKey{}, "admin"))
+		f.app.backupVerify(recorder, request)
+		want := http.StatusOK
+		if site == "other" {
+			want = http.StatusUnprocessableEntity
+		}
+		if recorder.Code != want {
+			t.Fatalf("verify %s backup as site %s = %d %q, want %d", f.backup, site, recorder.Code, recorder.Body.String(), want)
+		}
+	}
+}

@@ -226,10 +226,19 @@ func (a *App) reconcilePHPProfiles(ctx context.Context) (reconciled []string, fa
 		}
 	}
 	a.PHP.mu.RUnlock()
-	for _, profile := range pending {
-		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, profile.Site)
+	for _, snapshot := range pending {
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, snapshot.Site)
 		if lockErr != nil {
-			failed[profile.Site] = lockErr.Error()
+			failed[snapshot.Site] = lockErr.Error()
+			continue
+		}
+		// Re-read under the site lock so a profile saved after the snapshot
+		// is not reverted.
+		a.PHP.mu.RLock()
+		profile, exists := a.PHP.values[snapshot.Site]
+		a.PHP.mu.RUnlock()
+		if !exists || profile.State != "pending" {
+			releaseUnlock()
 			continue
 		}
 		if err := a.applyPHPProfile(operationCtx, profile); err != nil {

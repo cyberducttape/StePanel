@@ -75,9 +75,10 @@ case "$action" in
     # home by rename, so it keeps explicit access to the home directory.
     chown "$user:$user" "$home"
     chmod 0711 "$home"
-    setfacl -m u:stepanel:rwx "$home"
-    install -d -m 0711 -o "$user" -g "$user" "$home/.stepanel"
-    install -d -m 0711 -o "$user" -g "$user" "$home/.stepanel/sites"
+    setfacl -P -m u:stepanel:rwx "$home"
+    # The account controls its home, so root never resolves a path below it
+    # with install -d, which follows a planted link and re-owns the target.
+    stepanel_install_dir 0711 "$user" "$user" "$home" "$home/.stepanel" "$home/.stepanel/sites" || exit 1
     printf '%s\n' "$user"
     ;;
   account-delete)
@@ -149,7 +150,8 @@ case "$action" in
       mv -f "$staged" "$record"
     fi
     stepanel_site_location "$site"
-    install -d -m 2750 -o "$user" -g "$web_group" "$site_private" "$php_state" "$php_state/sessions" "$php_state/tmp"
+    stepanel_install_dir 0711 "$user" "$user" "$site_home" "$site_home/.stepanel" "$site_home/.stepanel/sites" || exit 1
+    stepanel_install_dir 2750 "$user" "$web_group" "$site_home" "$site_private" "$php_state" "$php_state/sessions" "$php_state/tmp" || exit 1
     printf '%s\t%s\n' "$user" "$public_root"
     ;;
   unplace)
@@ -161,8 +163,10 @@ case "$action" in
     [[ -f $record && ! -L $record ]] && grep -Fxq -- "user=$user" "$record" || { echo "site $site is not placed in account $user" >&2; exit 1; }
     stepanel_site_location "$site"
     [[ ! -e $public_root ]] || { echo "site $site still has a document root; delete the site first" >&2; exit 1; }
-    if [[ -d $site_private && ! -L $site_private ]]; then
-      rm -rf --one-file-system -- "$site_private"
+    # Remove the private state by its single name from the verified sites
+    # directory; a link planted above it cannot redirect the removal.
+    if [[ -e $site_private || -L $site_private ]]; then
+      ( stepanel_cd_dir "$site_home" "$(dirname -- "$site_private")" && rm -rf --one-file-system -- "$site" ) || { echo "could not remove the private state of site $site" >&2; exit 1; }
     fi
     rm -f -- "$record"
     rmdir -- "$stepanel_site_registry/$site"

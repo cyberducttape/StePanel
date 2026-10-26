@@ -830,7 +830,7 @@ func (j *Jobs) failClaim(id, owner, message string, retry bool) error {
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
 	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
-		return errors.New("job lease is not held by this worker")
+		return errJobLeaseNotHeld
 	}
 	previous := *item
 	item.Attempts++
@@ -870,7 +870,7 @@ func (j *Jobs) UpdateClaim(id, owner string, progress int) error {
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
 	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
-		return errors.New("job lease is not held by this worker")
+		return errJobLeaseNotHeld
 	}
 	previous := *item
 	item.Progress = progress
@@ -893,7 +893,7 @@ func (j *Jobs) UpdateClaimPayload(id, owner string, payload []byte) error {
 	defer j.mu.Unlock()
 	item, ok := j.items[id]
 	if !ok || item == nil || item.State != "running" || item.LeaseOwner != owner {
-		return errors.New("job lease is not held by this worker")
+		return errJobLeaseNotHeld
 	}
 	previous := append([]byte(nil), item.Payload...)
 	item.Payload = append([]byte(nil), payload...)
@@ -1008,6 +1008,7 @@ func (j *Jobs) RequeueDeadLetter(id string) error {
 		return errors.New("job is no longer a dead-letter record")
 	}
 	j.items[id] = item
+	j.publish(*item)
 	return nil
 }
 
@@ -1210,6 +1211,9 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 			if _, err := j.RequeueExpired(); err != nil {
 				return err
 			}
+			j.mu.Lock()
+			j.pruneFinishedCacheLocked(time.Now().Add(-finishedCacheRetention))
+			j.mu.Unlock()
 		default:
 		}
 		if open, reason := j.claimsOpen(); !open {
@@ -1277,6 +1281,9 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 			}()
 			if err != nil {
 				if failErr := j.failClaim(item.ID, owner, err.Error(), !isNonRetryableJobError(err)); failErr != nil {
+					heartbeat.mu.Lock()
+					delete(heartbeat.currentJobs, item.ID)
+					heartbeat.mu.Unlock()
 					if errors.Is(failErr, errJobLeaseNotHeld) {
 						// A replacement worker owns the claim now. It is responsible
 						// for completing or retrying the durable operation.
@@ -1316,6 +1323,9 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 			if _, err := j.RequeueExpired(); err != nil {
 				return err
 			}
+			j.mu.Lock()
+			j.pruneFinishedCacheLocked(time.Now().Add(-finishedCacheRetention))
+			j.mu.Unlock()
 		}
 	}
 }
@@ -2963,6 +2973,7 @@ func (j *Jobs) Cleanup(maxAge time.Duration) {
 		for _, id := range removed {
 			delete(j.items, id) // invalidate cache entries changed by another process
 		}
+		j.pruneFinishedCacheLocked(cutoff)
 		j.persistErr = nil
 		return
 	}
@@ -2989,6 +3000,28 @@ func (j *Jobs) Cleanup(maxAge time.Duration) {
 		return
 	}
 	j.persistErr = nil
+}
+
+// finishedCacheRetention matches the panel's Cleanup age. A worker process
+// never runs Cleanup, so without pruning it would keep every job it finished,
+// output included, for its whole lifetime.
+const finishedCacheRetention = 24 * time.Hour
+
+// pruneFinishedCacheLocked drops finished durable jobs older than cutoff from
+// the in-memory cache. SQLite stays authoritative for them (reads of a job go
+// to the database); only queued and running jobs need the local entry,
+// recent finished ones keep in-process operation keys idempotent, and
+// dead-letter jobs stay until an operator reviews them. Callers must hold
+// j.mu.
+func (j *Jobs) pruneFinishedCacheLocked(cutoff time.Time) {
+	if j.db == nil {
+		return
+	}
+	for id, item := range j.items {
+		if item != nil && item.FinishedAt != nil && item.FinishedAt.Before(cutoff) && (item.State == "completed" || item.State == "failed" || item.State == "cancelled") {
+			delete(j.items, id)
+		}
+	}
 }
 
 // cleanupDurableJobs selects and deletes a bounded batch from authoritative

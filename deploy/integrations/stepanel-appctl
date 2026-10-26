@@ -349,31 +349,38 @@ EOF
     command -v "python$version" >/dev/null || { echo "python$version is not installed" >&2; exit 1; }
     [[ -f $lockfile && ! -L $lockfile ]] || { echo 'Python dependency lockfile is unavailable' >&2; exit 1; }
     venv_stage=; venv_backup=; venv_published=0
-    cleanup_python_stage() { [[ -z ${venv_stage:-} ]] || rm -rf -- "$venv_stage"; }
+    # The virtualenv is created, replaced and removed by the site user. Its
+    # directories belong to the site's account, which could plant a link that
+    # would redirect a root mkdir, mv or rm -rf into another site or the host.
+    as_site_user() { runuser -u "$site_user" -- env -i HOME="$site_home" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 "$@"; }
+    cleanup_python_stage() { [[ -z ${venv_stage:-} ]] || as_site_user rm -rf -- "$venv_stage"; }
     rollback_python_venv() {
       if (( venv_published )); then
-        rm -rf -- "$venv"
-        if [[ -n ${venv_backup:-} && -d $venv_backup ]]; then mv -f "$venv_backup" "$venv"; fi
+        as_site_user rm -rf -- "$venv" || true
+        if [[ -n ${venv_backup:-} ]]; then as_site_user mv -fT -- "$venv_backup" "$venv" || true; fi
       fi
     }
     # Build and verify a disposable environment first. A failed pip run never
     # mutates the environment used by an existing service.
     if [[ ! -x "$venv/bin/gunicorn" ]]; then
-        venv_stage=$(mktemp -d "$site_private/.stepanel-venv.XXXXXX")
-        "python$version" -m venv "$venv_stage" || { cleanup_python_stage; echo "python$version cannot create a virtualenv; on Debian/Ubuntu install python$version-venv" >&2; exit 1; }
-        chown -R "$site_user:$site_user" "$venv_stage" || { cleanup_python_stage; exit 1; }
-        if ! runuser -u "$site_user" -- env -i HOME="$site_home" PATH="/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 "$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"; then
+        venv_stage=$(as_site_user mktemp -d "$site_private/.stepanel-venv.XXXXXX") || { echo 'could not stage the site virtualenv' >&2; exit 1; }
+        as_site_user "python$version" -m venv "$venv_stage" || { cleanup_python_stage; echo "python$version cannot create a virtualenv; on Debian/Ubuntu install python$version-venv" >&2; exit 1; }
+        if ! as_site_user "$venv_stage/bin/pip" install --quiet --require-hashes -r "$lockfile"; then
             echo 'gunicorn could not be installed in the site virtualenv' >&2
             cleanup_python_stage
             exit 1
         fi
         [[ -x "$venv_stage/bin/gunicorn" ]] || { cleanup_python_stage; echo 'gunicorn could not be installed in the site virtualenv' >&2; exit 1; }
-        if [[ -e $venv ]]; then
-            venv_backup=$(mktemp -d "$site_private/.stepanel-venv-old.XXXXXX")
-            rmdir "$venv_backup"
-            mv -f "$venv" "$venv_backup"
+        if [[ -e $venv || -L $venv ]]; then
+            venv_backup="$site_private/.stepanel-venv-old.$$.$RANDOM"
+            as_site_user mv -fT -- "$venv" "$venv_backup" || { cleanup_python_stage; echo 'could not set aside the previous site virtualenv' >&2; exit 1; }
         fi
-        mv -f "$venv_stage" "$venv"
+        if ! as_site_user mv -fT -- "$venv_stage" "$venv"; then
+            [[ -z $venv_backup ]] || as_site_user mv -fT -- "$venv_backup" "$venv" || true
+            cleanup_python_stage
+            echo 'could not publish the site virtualenv' >&2
+            exit 1
+        fi
         venv_stage=
         venv_published=1
     fi
@@ -435,8 +442,8 @@ EOF
     # Verify the service is active
     if ! systemctl is-active --quiet "$unit"; then rollback_python_deployment; rm -f "$unit_backup"; exit 1; fi
     rm -f "$unit_backup"
-    [[ -z ${venv_backup:-} ]] || rm -rf -- "$venv_backup"
-    if [[ -d $legacy_venv && ! -L $legacy_venv ]]; then rm -rf -- "$legacy_venv"; fi
+    [[ -z ${venv_backup:-} ]] || as_site_user rm -rf -- "$venv_backup" || echo "could not remove the previous virtualenv $venv_backup" >&2
+    if [[ -d $legacy_venv && ! -L $legacy_venv ]]; then as_site_user rm -rf -- "$legacy_venv" || echo "could not remove the legacy virtualenv $legacy_venv" >&2; fi
     ;;
   node-tool)
     (( $# == 5 )) || { echo 'usage: stepanel-appctl node-tool SITE ACTION PACKAGE_MANAGER ROOT' >&2; exit 64; }

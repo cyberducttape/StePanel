@@ -2,10 +2,12 @@ package stepanel
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateSSHLabel(t *testing.T) {
@@ -82,5 +84,47 @@ func TestApplySiteAccessSendsOnlyValidatedPolicyAndKeysToHelper(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "demo 1 0") || !strings.Contains(string(data), "ssh-ed25519 AAAA") {
 		t.Fatalf("helper input = %q", data)
+	}
+}
+
+// Reconciliation must not reinstall a key the customer revoked after the
+// pending snapshot was taken: it re-reads the access state under the site lock.
+func TestReconcileSiteAccessDoesNotReapplyAccessChangedWhileWaiting(t *testing.T) {
+	dir := t.TempDir()
+	invoked := filepath.Join(dir, "invoked")
+	helper := filepath.Join(dir, "helper")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\ncat > \""+invoked+"\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenSiteAccessStore(filepath.Join(dir, "access.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.values["demo"] = SiteAccess{Site: "demo", SFTPEnabled: true, Keys: []SSHKey{{PublicKey: "ssh-ed25519 AAAA revoked"}}, State: "pending"}
+	app := &App{Config: Config{SiteCtl: helper}, Access: store}
+
+	release := app.siteOperations.Acquire("demo")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		app.reconcileSiteAccess(context.Background())
+	}()
+	// Let reconciliation take its snapshot and block on the site lock, then
+	// revoke the key the way the handler does, under the lock.
+	time.Sleep(50 * time.Millisecond)
+	store.mu.Lock()
+	store.values["demo"] = SiteAccess{Site: "demo", SFTPEnabled: true, Keys: []SSHKey{}, State: "applied"}
+	store.mu.Unlock()
+	release()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reconciliation did not finish")
+	}
+	if _, err := os.Stat(invoked); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("reconciliation reapplied a stale access snapshot (helper invoked: %v)", err)
+	}
+	if got := store.values["demo"]; len(got.Keys) != 0 || got.State != "applied" {
+		t.Fatalf("access after reconciliation = %#v", got)
 	}
 }

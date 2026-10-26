@@ -443,6 +443,7 @@ func ValidateConfig(c Config) error {
 	validateIntegerEnvironment(&problems, "STEPANEL_MAX_ARCHIVE_ENTRIES", 1, 1_000_000)
 	validateIntegerEnvironment(&problems, "STEPANEL_MAX_CONCURRENT_JOBS", 1, 32)
 	validateIntegerEnvironment(&problems, "STEPANEL_STAGE_RETENTION_HOURS", 1, 87_600)
+	validateIntegerEnvironment(&problems, "STEPANEL_REHEARSAL_INTERVAL_HOURS", 0, 8760)
 	validateIntegerEnvironment(&problems, "STEPANEL_GIT_RELEASE_RETENTION", 1, 100)
 	validateIntegerEnvironment(&problems, "STEPANEL_GIT_RELEASE_MAX_AGE_HOURS", 1, 87_600)
 	validateIntegerEnvironment(&problems, "STEPANEL_GIT_RELEASE_MAX_BYTES", 1, 1<<50)

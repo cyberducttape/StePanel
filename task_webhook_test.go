@@ -175,9 +175,34 @@ func TestSiteSealAppliesACLAfterChmod(t *testing.T) {
 	text := string(helper)
 	// Each tree (the legacy site root, or a placed site's document root and
 	// private state) is chmodded in the seal loop before the ACL loop.
-	chmod := strings.Index(text, `find "$tree" -type d -exec chmod 2750 {} +`)
-	acl := strings.Index(text, `setfacl -R -m u:stepanel:rwX "$tree"`)
+	chmod := strings.Index(text, `find . -type d -execdir chmod 2750 {} +`)
+	acl := strings.Index(text, `setfacl -P -R -m u:stepanel:rwX .`)
 	if chmod < 0 || acl < 0 || acl < chmod {
 		t.Fatalf("sitectl must chmod the site tree before applying the panel ACL (chmod at %d, setfacl at %d)", chmod, acl)
+	}
+}
+
+// The account behind a site controls every path below its home, and GNU
+// install -d follows a planted link and re-owns the existing target. Root must
+// create and re-own directories there with stepanel_install_dir, and setfacl
+// on a site tree must use -P so it never follows a link argument.
+func TestSiteHelpersNeverReownAccountPathsThroughLinks(t *testing.T) {
+	for _, path := range []string{"deploy/integrations/stepanel-sitectl", "deploy/integrations/stepanel-userctl"} {
+		helper, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for number, line := range strings.Split(string(helper), "\n") {
+			code := strings.TrimSpace(line)
+			if strings.HasPrefix(code, "#") {
+				continue
+			}
+			if strings.Contains(code, "install -d") && strings.Contains(code, " -o ") && !strings.Contains(code, "-o root") {
+				t.Errorf("%s:%d: install -d to a non-root owner follows planted links; use stepanel_install_dir: %s", path, number+1, code)
+			}
+			if strings.Contains(code, "setfacl ") && !strings.Contains(code, "setfacl -P") && !strings.Contains(code, "command -v setfacl") {
+				t.Errorf("%s:%d: setfacl must use -P so it never follows a link argument: %s", path, number+1, code)
+			}
+		}
 	}
 }

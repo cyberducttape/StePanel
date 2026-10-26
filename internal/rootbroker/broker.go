@@ -551,7 +551,9 @@ func (b *Broker) handleTaskRequest(ctx context.Context, req *TaskRequest) (*Resp
 		unit := "stepanel-task-" + req.Site + "-" + req.Name + ".service"
 		args = []string{"kill", "--kill-who=all", "--signal=SIGTERM", unit}
 	case "delete", "history":
-		args = []string{req.Action, req.Site, siteUser, req.Name}
+		// stepanel-appctl names these task-delete and task-history; its bare
+		// "delete" action removes every unit of the whole site.
+		args = []string{"task-" + req.Action, req.Site, siteUser, req.Name}
 	case "apply":
 		enabled := "0"
 		if req.Enabled {
@@ -1470,6 +1472,12 @@ func (b *Broker) dbRestoreFromPath(ctx context.Context, req *DBRequest, action s
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 {
 		return &Response{OK: false, Error: "cannot determine regular database dump size"}, nil
+	}
+	// Root reads this file into a database the caller controls. As for dump
+	// targets, refuse an extra hard link that could expose a file the caller
+	// cannot read under an approved staging path.
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Nlink != 1 {
+		return &Response{OK: false, Error: "database dump must have exactly one link"}, nil
 	}
 	dumpBytes := strconv.FormatInt(info.Size(), 10)
 	var input io.Reader = file

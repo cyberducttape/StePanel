@@ -16,6 +16,11 @@ import (
 
 const maxDatabaseDumpBytes = uint64(2 << 30)
 
+// dumpExtensionGranule batches reservation growth once a dump outgrows its
+// estimate. Without it every pipe-sized write past the estimate would run its
+// own ledger transaction and statfs.
+const dumpExtensionGranule = uint64(8 << 20)
+
 // capacityDumpWriter extends the durable backup reservation before writing
 // bytes beyond the panel's estimate. The reservation includes both the dump
 // and its archive copy; written bytes are subtracted only while evaluating
@@ -96,16 +101,16 @@ func (w *capacityDumpWriter) Write(p []byte) (int, error) {
 	}
 	next := w.written + uint64(len(p))
 	if next > w.expected {
-		targetExtra := (next - w.expected) * 2
-		if targetExtra < w.extended {
-			return 0, errors.New("database dump capacity accounting overflow")
-		}
-		additional := targetExtra - w.extended
-		if additional > 0 {
-			if err := w.extend(additional); err != nil {
+		// Hold twice the overage (dump plus archive copy), rounded up to a
+		// granule. Both terms are bounded by 2*maxDatabaseDumpBytes, so the
+		// rounding cannot overflow.
+		needed := (next - w.expected) * 2
+		if needed > w.extended {
+			target := (needed + dumpExtensionGranule - 1) / dumpExtensionGranule * dumpExtensionGranule
+			if err := w.extend(target - w.extended); err != nil {
 				return 0, err
 			}
-			w.extended = targetExtra
+			w.extended = target
 		}
 	}
 	n, err := w.file.Write(p)

@@ -61,10 +61,13 @@ if [[ $action == delete ]] && (( site_placed )); then
   for unit in $(systemctl list-unit-files --type=service --no-legend 'php*-fpm.service' 'php-fpm.service' 2>/dev/null | awk '{print $1}'); do
     systemctl reload "$unit" 2>/dev/null || true
   done
+  # The document root and previous releases are direct children of the
+  # trusted home. The private state is below account-controlled directories,
+  # so it is removed by its single name after a verified walk.
   for tree in "$public_root" "$site_home/.stepanel-previous-$site_directory-"* "$site_private"; do
     [[ -e $tree || -L $tree ]] || continue
     [[ -d $tree && ! -L $tree ]] || { echo "refusing to delete $tree: not a real directory" >&2; exit 1; }
-    rm -rf --one-file-system -- "$tree"
+    ( stepanel_cd_dir "$site_home" "$(dirname -- "$tree")" && rm -rf --one-file-system -- "$(basename -- "$tree")" ) || { echo "could not delete $tree" >&2; exit 1; }
   done
   rm -f -- "$stepanel_site_registry/$site/location"
   rmdir -- "$stepanel_site_registry/$site" 2>/dev/null || true
@@ -129,31 +132,41 @@ ensure_site_user() {
   return 1
 }
 
+# Everything below the site's home (a placed site's account home, or a legacy
+# site root) is writable by its account, so root creates and re-owns
+# directories there with stepanel_install_dir, never install -d, which would
+# follow a planted link and re-own a system directory. owner_base is the
+# trusted directory those paths are resolved from.
 if (( site_placed )); then
   # The account helper created and validated the user and home; a placed
   # site never creates or adopts a Unix account here.
-  install -d -m 2750 -o "$site_user" -g "$web_group" "$site_private"
+  owner_base=$site_home
+  stepanel_install_dir 0711 "$site_user" "$site_user" "$owner_base" "$site_home/.stepanel" "$site_home/.stepanel/sites" || exit 1
+  stepanel_install_dir 2750 "$site_user" "$web_group" "$owner_base" "$site_private" || exit 1
   if [[ $action == prepare-root ]]; then
     action=prepare
   elif [[ $action == prepare ]]; then
     [[ ! -L $public_root ]] || { echo 'document root must not be a symlink' >&2; exit 1; }
-    install -d -m 2750 -o "$site_user" -g "$web_group" "$public_root"
+    stepanel_install_dir 2750 "$site_user" "$web_group" "$owner_base" "$public_root" || exit 1
   fi
 else
   ensure_site_user
   [[ -d /var/www/sites && ! -L /var/www/sites ]] || { echo 'shared site root is missing or unsafe' >&2; exit 1; }
   chmod 2711 /var/www/sites
+  owner_base=$site_root
+  # The site root's own entry is in the root-owned shared site root, so its
+  # account cannot replace it.
+  stepanel_install_dir 2750 "$site_user" "$web_group" /var/www/sites "$site_root" || exit 1
   # prepare-root applies the full isolation contract except creating the
   # public tree, which the panel publishes through the site manager's staged
   # activation (cPanel import, archive import, restore).
   if [[ $action == prepare-root ]]; then
-    install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root"
     action=prepare
   else
-    install -d -m 2750 -o "$site_user" -g "$web_group" "$site_root" "$public_root"
+    stepanel_install_dir 2750 "$site_user" "$web_group" "$owner_base" "$public_root" || exit 1
   fi
 fi
-install -d -m 0750 -o "$site_user" -g "$web_group" "$php_state" "$php_state/sessions" "$php_state/tmp"
+stepanel_install_dir 0750 "$site_user" "$web_group" "$owner_base" "$php_state" "$php_state/sessions" "$php_state/tmp" || exit 1
 
 # FTPS and SSH/SFTP key access share the account's password field. It holds
 # the FTPS password while FTPS is enabled, otherwise a random hash nobody
@@ -214,7 +227,9 @@ if [[ $action == access ]]; then
       [[ -n $line && ${#line} -le 8192 && $line != *$'\r'* ]] || { echo 'invalid SSH key line' >&2; exit 1; }
       [[ $line =~ ^(ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com|ssh-rsa|rsa-sha2-256|rsa-sha2-512)[[:space:]]+[A-Za-z0-9+/]+={0,3}([[:space:]].*)?$ ]] || { echo 'invalid SSH public key input' >&2; exit 1; }
     done < "$staged"
-    if ! ssh-keygen -lf "$staged" >/dev/null 2>&1; then
+    # An enabled policy with no keys is valid (a new site, or the last key was
+    # removed): ssh-keygen rejects an empty file, and nothing is installed.
+    if [[ -s $staged ]] && ! ssh-keygen -lf "$staged" >/dev/null 2>&1; then
       echo 'SSH public key input failed host validation' >&2
       exit 1
     fi
@@ -255,7 +270,7 @@ if [[ $action == access ]]; then
   else
     usermod --shell /usr/sbin/nologin "$site_user" || { restore_access; echo 'could not disable the site shell' >&2; exit 1; }
   fi
-  if [[ $sftp == 1 || $shell == 1 ]]; then
+  if [[ ($sftp == 1 || $shell == 1) && -s $staged ]]; then
     # System accounts are created locked. Public-key SSH/SFTP access still
     # requires an unlocked account. RHEL-family usermod rejects an empty
     # password field, so install a random hash that is not known to anyone,
@@ -369,6 +384,33 @@ if [[ $action == ftp ]]; then
   exit 0
 fi
 
+# write_php_state NAME publishes stdin as a root-owned file in the PHP state
+# directory. The directory is entered with stepanel_cd_dir and the file is
+# renamed by its single name, so the site's account cannot redirect the write
+# with a planted link; -T refuses to move the file into a planted directory.
+write_php_state() {
+  local name=$1
+  (
+    stepanel_cd_dir "$owner_base" "$php_state" || exit 1
+    staged=$(mktemp ".$name.XXXXXX") || exit 1
+    if ! { cat > "$staged" && chown root:root "$staged" && chmod 0600 "$staged" && mv -fT -- "$staged" "$name"; }; then
+      rm -f -- "$staged"
+      exit 1
+    fi
+  )
+}
+
+# read_php_state NAME prints a regular file from the PHP state directory, or
+# nothing when it is absent, resolved the same way as write_php_state.
+read_php_state() {
+  local name=$1
+  (
+    stepanel_cd_dir "$owner_base" "$php_state" || exit 1
+    [[ -f $name && ! -L $name ]] || exit 0
+    head -c 65536 -- "$name"
+  )
+}
+
 profile="$php_state/runtime.env"
 php_version=""
 memory_limit=128M
@@ -381,11 +423,10 @@ display_errors=0
 error_reporting='E_ALL & ~E_DEPRECATED & ~E_STRICT'
 
 parse_config_file() {
-  local filepath=$1
-  if [[ ! -f $filepath ]] || [[ -L $filepath ]]; then
-    return 0
-  fi
-  local line key value
+  local filepath=$1 content
+  content=$(read_php_state "$(basename -- "$filepath")") || return 1
+  [[ -n $content ]] || return 0
+  local key value
   while IFS='=' read -r key value || [[ -n $key ]]; do
     [[ -z $key || $key =~ ^# ]] && continue
     case "$key" in
@@ -434,7 +475,7 @@ parse_config_file() {
         return 1
         ;;
     esac
-  done < "$filepath"
+  done <<< "$content"
   return 0
 }
 
@@ -451,17 +492,14 @@ if [[ $action == runtime ]]; then
   php_version=$4; memory_limit=$5; max_execution_time=$6; upload_max_filesize=$7; post_max_size=$8; max_input_vars=$9; opcache_enabled=${10}; display_errors=${11}; error_reporting=${12}
   error_pattern='^[A-Z0-9_~& |]{1,80}$'
   [[ $php_version =~ ^[0-9]+\.[0-9]+$ && $memory_limit =~ ^[1-9][0-9]{0,4}M$ && $max_execution_time =~ ^[1-9][0-9]{0,4}$ && $upload_max_filesize =~ ^[1-9][0-9]{0,4}M$ && $post_max_size =~ ^[1-9][0-9]{0,4}M$ && $max_input_vars =~ ^[1-9][0-9]{0,6}$ && $opcache_enabled =~ ^[01]$ && $display_errors =~ ^[01]$ && $error_reporting =~ $error_pattern ]] || { echo 'invalid PHP runtime profile' >&2; exit 1; }
-  tmp=$(mktemp "$php_state/.runtime.XXXXXX")
   # Values have already passed strict allow-list validation, so write the
   # profile format directly. Shell-escaping with %q would persist backslashes
   # that parse_config_file intentionally does not interpret.
-  printf 'php_version=%s\nmemory_limit=%s\nmax_execution_time=%s\nupload_max_filesize=%s\npost_max_size=%s\nmax_input_vars=%s\nopcache_enabled=%s\ndisplay_errors=%s\nerror_reporting=%s\n' "$php_version" "$memory_limit" "$max_execution_time" "$upload_max_filesize" "$post_max_size" "$max_input_vars" "$opcache_enabled" "$display_errors" "$error_reporting" > "$tmp"
-  chown root:root "$tmp"; chmod 0600 "$tmp"; mv -f "$tmp" "$profile"
+  printf 'php_version=%s\nmemory_limit=%s\nmax_execution_time=%s\nupload_max_filesize=%s\npost_max_size=%s\nmax_input_vars=%s\nopcache_enabled=%s\ndisplay_errors=%s\nerror_reporting=%s\n' "$php_version" "$memory_limit" "$max_execution_time" "$upload_max_filesize" "$post_max_size" "$max_input_vars" "$opcache_enabled" "$display_errors" "$error_reporting" | write_php_state runtime.env || { echo 'could not write the PHP runtime profile' >&2; exit 1; }
 elif [[ $action == resources ]]; then
   workers=$4
   [[ $workers =~ ^[0-9]+$ ]] && (( workers >= 1 && workers <= 512 )) || { echo 'invalid PHP worker limit' >&2; exit 1; }
-  tmp=$(mktemp "$php_state/.resources.XXXXXX")
-  printf 'php_max_children=%q\n' "$workers" > "$tmp"; chown root:root "$tmp"; chmod 0600 "$tmp"; mv -f "$tmp" "$php_state/resources.env"
+  printf 'php_max_children=%s\n' "$workers" | write_php_state resources.env || { echo 'could not write the PHP resource profile' >&2; exit 1; }
 elif [[ $action == quota ]]; then
   disk_mb=$4; inodes=$5
   [[ $disk_mb =~ ^[0-9]+$ && $inodes =~ ^[0-9]+$ ]] || { echo 'invalid filesystem quota' >&2; exit 1; }
@@ -499,16 +537,26 @@ if [[ $action == seal && -d $public_root ]]; then
 fi
 # A legacy site owns its whole root. A placed site owns only its document
 # root and private state; the account's home and other sites are untouched.
+# tree_base is the trusted directory each tree is entered from: recursive
+# changes start from "." after stepanel_cd_dir, so a link the account plants
+# at or above a tree cannot redirect them. chown -R and setfacl -P do not
+# follow links inside the tree, and find -execdir hands each command a single
+# name in a directory find itself entered.
 if (( site_placed )); then
   site_trees=("$public_root" "$site_private")
+  tree_base=$site_home
 else
   site_trees=("$site_root")
+  tree_base=/var/www/sites
 fi
 if [[ $action == seal ]]; then
   for tree in "${site_trees[@]}"; do
-    [[ -d $tree && ! -L $tree ]] || continue
-    chown -R "$site_user:$web_group" "$tree"
-    find "$tree" -type d -exec chmod 2750 {} +
+    [[ -e $tree || -L $tree ]] || continue
+    (
+      stepanel_cd_dir "$tree_base" "$tree" &&
+        chown -R "$site_user:$web_group" . &&
+        find . -type d -execdir chmod 2750 {} +
+    ) || { echo "could not seal $tree" >&2; exit 1; }
   done
 fi
 
@@ -521,14 +569,17 @@ if [[ $action == prepare || $action == seal ]]; then
   # directory defaults cover files and directories created later, so routine
   # runtime/resource changes do not rescan the whole site.
   for tree in "${site_trees[@]}"; do
-    [[ -d $tree && ! -L $tree ]] || continue
-    setfacl -R -m u:stepanel:rwX "$tree"
-    find "$tree" -type d -exec setfacl -m d:u:stepanel:rwx {} +
+    [[ -e $tree || -L $tree ]] || continue
+    (
+      stepanel_cd_dir "$tree_base" "$tree" &&
+        setfacl -P -R -m u:stepanel:rwX . &&
+        find . -type d -execdir setfacl -P -m d:u:stepanel:rwx {} +
+    ) || { echo "could not apply panel access to $tree" >&2; exit 1; }
   done
   # The site root (a placed site's home) is the parent used for atomic
   # publication and recovery renames. Keep its panel access explicit even
   # when an ACL mask was rewritten by a host-specific chmod implementation.
-  setfacl -m u:stepanel:rwx "$site_root"
+  setfacl -P -m u:stepanel:rwx "$site_root"
 fi
 
 # PHP-FPM runs in the httpd SELinux domain on RHEL-family hosts. A hosting
@@ -572,7 +623,9 @@ pool_error() {
   trap - ERR
   rollback_pools
   local unit
-  for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit" 2>/dev/null || true; done
+  if [[ ${STEPANEL_IDENTITY_REPAIR_OFFLINE:-0} != 1 ]]; then
+    for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit" 2>/dev/null || true; done
+  fi
   cleanup_pool_temp
   exit "$status"
 }
@@ -658,7 +711,9 @@ for validator in "${validators[@]}"; do
   fi
   rm -f "$validator_output"
 done
-for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit"; done
+if [[ ${STEPANEL_IDENTITY_REPAIR_OFFLINE:-0} != 1 ]]; then
+  for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit"; done
+fi
 trap - ERR
 cleanup_pool_temp
 

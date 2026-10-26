@@ -92,18 +92,20 @@ func (a *App) backups(w http.ResponseWriter, r *http.Request) {
 						http.Error(w, "unable to inspect site assignments", http.StatusInternalServerError)
 						return
 					}
+					// One scan, newest first across every site: listing each site
+					// separately rescanned the whole backup root per site and let
+					// one busy site push the others' newest backups off the page.
+					authorized := make([]SiteCapability, 0, len(assignedSites))
 					for _, assignedSite := range assignedSites {
-						access, _ := a.authorizeSite(r, assignedSite)
-						items, err := listBackupsPage(a.Config.BackupRoot, access, limit, a.Config.backupVerificationKeys()...)
-						if err != nil {
-							http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
-							return
+						if access, ok := a.authorizeSite(r, assignedSite); ok {
+							authorized = append(authorized, access)
 						}
-						backups = append(backups, items...)
 					}
-				}
-				if len(backups) > limit {
-					backups = backups[:limit]
+					backups, err = listBackupsPageForSites(a.Config.BackupRoot, authorized, limit, a.Config.backupVerificationKeys()...)
+					if err != nil {
+						http.Error(w, "unable to inspect backups", http.StatusInternalServerError)
+						return
+					}
 				}
 				writeJSON(w, http.StatusOK, map[string]any{"backups": backups})
 				return
@@ -1317,6 +1319,20 @@ func VerifySiteBackupForListing(root string, signingKey string, encryptionKeys .
 // VerifySiteBackupStrict always re-hashes and fully validates the archive. It
 // deliberately bypasses the listing cache because a path-only cache cannot
 // establish that the bytes being consumed are the bytes that were verified.
+// claimedBackupSite reads the site an unverified backup manifest names. It is
+// a cheap pre-check, never an authorization: handlers use it to refuse a
+// backup of another site before the expensive strict verification, with the
+// response a failed verification gets, so the check costs nothing and does
+// not reveal whether another tenant's backup exists. Strict verification
+// still authenticates the manifest before anything trusts it.
+func claimedBackupSite(root string) string {
+	manifest, _, err := readBackupManifestData(root)
+	if err != nil {
+		return ""
+	}
+	return manifest.Site
+}
+
 func VerifySiteBackupStrict(root string, signingKey string, encryptionKeys ...string) (BackupManifest, error) {
 	return verifySiteBackup(root, false, signingKey, encryptionKeys...)
 }
@@ -1385,6 +1401,12 @@ func listBackupsPageUnscoped(root, site string, limit int, signingKey ...string)
 // Verifying every archive before applying the site filter and limit made a
 // routine site-specific listing scale with the entire host's retained data.
 func listBackupsForSite(root, site string, limit int, signingKey ...string) ([]BackupResult, error) {
+	return listBackupsMatching(root, func(candidate string) bool { return site == "" || candidate == site }, limit, signingKey...)
+}
+
+// listBackupsMatching is listBackupsForSite for any set of sites: one scan of
+// the backup root, newest first across all matching sites.
+func listBackupsMatching(root string, matches func(site string) bool, limit int, signingKey ...string) ([]BackupResult, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return []BackupResult{}, nil
@@ -1416,7 +1438,7 @@ func listBackupsForSite(root, site string, limit int, signingKey ...string) ([]B
 			log.Printf("skip unauthenticated backup manifest %s: %v", entry.Name(), err)
 			continue
 		}
-		if site != "" && manifest.Site != site {
+		if !matches(manifest.Site) {
 			continue
 		}
 		// Do not retain manifest.Entries while scanning the whole backup root:
@@ -1437,7 +1459,7 @@ func listBackupsForSite(root, site string, limit int, signingKey ...string) ([]B
 			break
 		}
 		manifest, data, err := readBackupManifestData(item.path)
-		if err != nil || manifest.Site != item.site || !manifest.CreatedAt.Equal(item.createdAt) || (site != "" && manifest.Site != site) {
+		if err != nil || manifest.Site != item.site || !manifest.CreatedAt.Equal(item.createdAt) || !matches(manifest.Site) {
 			if err == nil {
 				err = errors.New("backup manifest changed during listing")
 			}
@@ -1476,4 +1498,20 @@ func listBackupsPage(root string, site SiteCapability, limit int, signingKey ...
 		return nil, errors.New("site capability is required to list backups")
 	}
 	return listBackupsForSite(root, site.Site(), limit, signingKey...)
+}
+
+// listBackupsPageForSites lists the newest backups across several authorized
+// sites in one scan of the backup root.
+func listBackupsPageForSites(root string, sites []SiteCapability, limit int, signingKey ...string) ([]BackupResult, error) {
+	allowed := make(map[string]bool, len(sites))
+	for _, site := range sites {
+		if site == nil || site.Site() == "" {
+			return nil, errors.New("site capability is required to list backups")
+		}
+		allowed[site.Site()] = true
+	}
+	if len(allowed) == 0 {
+		return []BackupResult{}, nil
+	}
+	return listBackupsMatching(root, func(site string) bool { return allowed[site] }, limit, signingKey...)
 }

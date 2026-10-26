@@ -549,3 +549,15 @@ func TestBrokerRejectsUnauthorizedFilesystemMutation(t *testing.T) {
 		t.Errorf("validateDumpPath rejected a regular staged dump: %v", err)
 	}
 }
+
+func TestValidateSiteResourcesAcceptsPanelPHPWorkerRange(t *testing.T) {
+	v := NewValidator(t.TempDir())
+	for _, workers := range []int{1, 300, 512} {
+		if err := v.validateSiteRequest(&SiteRequest{Action: "resources", Site: "example", PHPWorkers: workers}); err != nil {
+			t.Errorf("php_workers=%d rejected: %v", workers, err)
+		}
+	}
+	if err := v.validateSiteRequest(&SiteRequest{Action: "resources", Site: "example", PHPWorkers: 513}); err == nil {
+		t.Error("php_workers=513 accepted")
+	}
+}

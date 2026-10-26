@@ -6,7 +6,64 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security
+
+- Root helpers no longer resolve paths below a site's home with commands
+  that follow links. `stepanel-sitectl` and `stepanel-userctl` re-owned
+  directories such as a legacy site's `.php` and `public` trees and a placed
+  site's `~/.stepanel` state with `install -d`, which follows a planted link
+  and re-owns the existing target; a site account (SFTP, shell, or PHP code
+  running as the site) could make root hand it a system directory. These
+  paths are now created, re-owned, sealed, written and removed through a
+  verified walk (`stepanel_cd_dir`/`stepanel_install_dir`) that refuses
+  links and acts on the opened directory. `setfacl` on site trees uses `-P`.
+- `stepanel-appctl python-apply` builds, replaces and removes the site
+  virtualenv as the site user, so a planted link cannot make root delete
+  another site's files.
+- `stepanel-runnerctl` copied the build source as root and handed the copy
+  to the site's own build; swapping the document root for a link during the
+  image pull exposed host files such as other tenants' deploy keys. The site
+  account now makes the copy into its root-parented runner storage.
+- Startup and administrator reconciliation no longer reinstall an SSH key
+  the customer revoked (or recreate a deleted task, or revert a resource
+  profile) while reconciliation waited for the site lock.
+- `stepanel-gitctl clone` takes the release stage from the site account for
+  the duration of the root clone, so the account cannot swap a directory git
+  has created for a link and redirect root's writes of repository content.
+
+### Fixed
+
+- Root broker task deletion and history invoked appctl's whole-site
+  `delete` action and an unknown `history` action; both failed for every
+  production request. PHP worker limits of 257-512 were rejected by the
+  broker although the panel accepts them.
+
+- Site identity repair: a repaired site whose legacy account name is still
+  held by a deleted site now passes the startup migration; previously the
+  repair could never complete and startup stayed blocked. The startup gate
+  and the repair planner now share one collision definition and read the
+  identity table once instead of querying per site.
+- Site identity repair no longer fails verification on the root-owned PHP
+  state files inside a site root, no longer requires user quotas on hosts
+  whose profiles set no filesystem limit, refuses sites placed in a hosting
+  account before committing mappings, and checks that the site helper sealed
+  the assigned account. A refused preflight no longer persists a stale plan;
+  the SQLite snapshot is taken immediately before the mapping commit,
+  published atomically, and named for the journal.
+- `stepanel-sitectl access` accepts an enabled SSH/SFTP policy with no keys
+  (a new site, or after removing the last key) and revokes key login instead
+  of failing host validation and leaving the policy pending.
+
 ### Changed
+
+- Exclude local reusable workflow paths from the third-party GitHub Action SHA
+  pin check, while retaining pin enforcement for external actions.
+
+- Add an offline, journaled site-identity collision repair command. It commits
+  unique mappings atomically, reconciles host state forward-only, verifies
+  ownership and service identity, preserves a SQLite snapshot, and resumes
+  safely after interruption. Require explicit approval to revoke FTPS
+  credentials.
 
 - Add a pinned 20–50 repetition installed-host recovery cohort workflow. Each
   unique shard runs one complete six-host recovery matrix, records its source

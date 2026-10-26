@@ -92,3 +92,57 @@ stepanel_require_site_user() {
   (( site_placed )) || return 0
   [[ $requested == "$site_location_user" ]] || { echo "site belongs to account $site_location_user, not $requested" >&2; return 1; }
 }
+
+# stepanel_cd_dir BASE DIR [MODE] changes the current directory to DIR, a
+# directory below BASE, without following a symbolic link. The site's account
+# controls everything below BASE, so root must never resolve a path there:
+# a component swapped for a link would redirect a chown, write or removal to
+# a system directory. Each component is entered with cd -P and accepted only
+# if it is the directory that lstat saw, so a link planted before or during
+# the walk is refused; afterwards root acts on "." or on single names, which
+# the account cannot redirect. BASE must be trusted (root-owned, or a home or
+# site root its account cannot replace). DIR may be BASE itself. With MODE, a
+# missing final component is created with that mode. Call it in a subshell;
+# it changes the directory.
+stepanel_cd_dir() {
+  local base=$1 dir=$2 mode=${3:-} component expected actual index last
+  local -a components
+  [[ $base == /* && -d $base && ! -L $base ]] || { echo "trusted directory $base is missing or unsafe" >&2; return 1; }
+  if [[ $dir == "$base" ]]; then
+    cd -P -- "$base" || return 1
+    return 0
+  fi
+  [[ $dir == "$base"/* ]] || { echo "$dir is not below $base" >&2; return 1; }
+  IFS=/ read -r -a components <<<"${dir#"$base"/}"
+  last=$(( ${#components[@]} - 1 ))
+  (( last >= 0 )) || { echo "invalid directory $dir" >&2; return 1; }
+  cd -P -- "$base" || return 1
+  for (( index = 0; index <= last; index++ )); do
+    component=${components[index]}
+    [[ -n $component && $component != . && $component != .. ]] || { echo "invalid directory $dir" >&2; return 1; }
+    if [[ -n $mode ]] && (( index == last )) && [[ ! -e $component && ! -L $component ]]; then
+      mkdir -m "$mode" -- "$component" || return 1
+    fi
+    expected=$(stat -c '%F %d:%i' -- "$component") || return 1
+    [[ $expected == 'directory '* ]] || { echo "refusing to use $dir: $component is not a real directory" >&2; return 1; }
+    cd -P -- "$component" || return 1
+    actual=$(stat -c '%F %d:%i' -- .) || return 1
+    [[ $actual == "$expected" ]] || { echo "refusing to use $dir: $component changed while it was opened" >&2; return 1; }
+  done
+}
+
+# stepanel_install_dir MODE OWNER GROUP BASE DIR... is install -d -m MODE
+# -o OWNER -g GROUP for directories below a trusted BASE, without following
+# links (install -d follows them and re-owns an existing target). Only the
+# final component of each DIR is created or changed; list parents first.
+# MODE has four octal digits.
+stepanel_install_dir() {
+  local mode=$1 owner=$2 group=$3 base=$4 dir
+  shift 4
+  for dir in "$@"; do
+    [[ $dir == "$base"/* ]] || { echo "$dir is not below $base" >&2; return 1; }
+    # A five-digit mode sets or clears a directory's setgid bit exactly as
+    # install does; chmod keeps it for a four-digit one.
+    ( stepanel_cd_dir "$base" "$dir" "$mode" && chown -- "$owner:$group" . && chmod -- "0$mode" . ) || return 1
+  done
+}
