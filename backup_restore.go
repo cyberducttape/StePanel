@@ -535,6 +535,10 @@ func (a *App) backupRehearse(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
 		return
 	}
+	if claimedBackupSite(backupRoot) != input.Site {
+		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
+		return
+	}
 	manifest, err := VerifySiteBackupStrict(backupRoot, a.Config.BackupSigningKey, a.Config.backupDecryptionKeys()...)
 	if err != nil || manifest.Site != input.Site {
 		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
@@ -589,6 +593,10 @@ func (a *App) backupVerify(w http.ResponseWriter, r *http.Request) {
 	path, err := safePath(a.Config.BackupRoot, input.Backup)
 	if err != nil {
 		http.Error(w, "invalid backup", http.StatusUnprocessableEntity)
+		return
+	}
+	if claimedBackupSite(path) != input.Site {
+		http.Error(w, "backup verification failed", http.StatusUnprocessableEntity)
 		return
 	}
 	manifest, err := VerifySiteBackupStrict(path, a.Config.BackupSigningKey, a.Config.backupDecryptionKeys()...)
@@ -681,6 +689,10 @@ func (a *App) backupRestoreToStagingPath(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	defer releaseUnlock()
+	if claimed := claimedBackupSite(backup); claimed == "" || !a.canAccessSite(r, claimed) {
+		http.Error(w, "backup verification failed", 422)
+		return
+	}
 	manifest, e := VerifySiteBackupStrict(backup, a.Config.BackupSigningKey, a.Config.backupDecryptionKeys()...)
 	if e != nil {
 		http.Error(w, "backup verification failed", 422)

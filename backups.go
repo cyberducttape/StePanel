@@ -1317,6 +1317,20 @@ func VerifySiteBackupForListing(root string, signingKey string, encryptionKeys .
 // VerifySiteBackupStrict always re-hashes and fully validates the archive. It
 // deliberately bypasses the listing cache because a path-only cache cannot
 // establish that the bytes being consumed are the bytes that were verified.
+// claimedBackupSite reads the site an unverified backup manifest names. It is
+// a cheap pre-check, never an authorization: handlers use it to refuse a
+// backup of another site before the expensive strict verification, with the
+// response a failed verification gets, so the check costs nothing and does
+// not reveal whether another tenant's backup exists. Strict verification
+// still authenticates the manifest before anything trusts it.
+func claimedBackupSite(root string) string {
+	manifest, _, err := readBackupManifestData(root)
+	if err != nil {
+		return ""
+	}
+	return manifest.Site
+}
+
 func VerifySiteBackupStrict(root string, signingKey string, encryptionKeys ...string) (BackupManifest, error) {
 	return verifySiteBackup(root, false, signingKey, encryptionKeys...)
 }
