@@ -37,6 +37,8 @@ type PHPProfileStore struct {
 }
 
 var phpSizePattern = regexp.MustCompile(`^[1-9][0-9]{0,4}M$`)
+var phpVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
+var phpErrorReportingPattern = regexp.MustCompile(`^[A-Z0-9_~& |]{1,80}$`)
 
 func OpenPHPProfileStore(path string) (*PHPProfileStore, error) {
 	s := &PHPProfileStore{path: path, values: map[string]PHPProfile{}}
@@ -146,7 +148,7 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Site = site
 	p.Version = strings.TrimPrefix(p.Version, "v")
-	if !regexp.MustCompile(`^[0-9]+\.[0-9]+$`).MatchString(p.Version) || !phpSizePattern.MatchString(p.MemoryLimit) || !phpSizePattern.MatchString(p.UploadMaxFilesize) || !phpSizePattern.MatchString(p.PostMaxSize) || p.MaxExecutionTime < 1 || p.MaxExecutionTime > 3600 || p.MaxInputVars < 1 || p.MaxInputVars > 1000000 || !regexp.MustCompile(`^[A-Z0-9_~& |]{1,80}$`).MatchString(p.ErrorReporting) {
+	if !phpVersionPattern.MatchString(p.Version) || !phpSizePattern.MatchString(p.MemoryLimit) || !phpSizePattern.MatchString(p.UploadMaxFilesize) || !phpSizePattern.MatchString(p.PostMaxSize) || p.MaxExecutionTime < 1 || p.MaxExecutionTime > 3600 || p.MaxInputVars < 1 || p.MaxInputVars > 1000000 || !phpErrorReportingPattern.MatchString(p.ErrorReporting) {
 		http.Error(w, "invalid PHP profile", 422)
 		return
 	}
