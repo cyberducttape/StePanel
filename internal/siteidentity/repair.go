@@ -43,9 +43,12 @@ type RepairJournal struct {
 
 // RepairHost is implemented by the privileged maintenance command. Reconcile
 // must be safe to repeat after interruption; Verify must confirm that the
-// site's host state now uses the assigned account.
+// site's host state now uses the assigned account. BeforeCommit runs after
+// the plan is durable and immediately before the mapping transaction; it may
+// run more than once for one journal and must be idempotent.
 type RepairHost interface {
 	Preflight(context.Context, []RepairAssignment) error
+	BeforeCommit(context.Context, RepairJournal) error
 	Reconcile(context.Context, RepairAssignment) error
 	Verify(context.Context, RepairAssignment) error
 	Finalize(context.Context, []RepairAssignment) error
@@ -69,82 +72,34 @@ func PlanCollisionRepair(db *sql.DB, webRoot string) (RepairJournal, error) {
 	if err != nil {
 		return RepairJournal{}, fmt.Errorf("scan existing site roots: %w", err)
 	}
-	byLegacy := make(map[string][]string)
-	for _, entry := range entries {
-		if entry.IsDir() && validSite(entry.Name()) {
-			byLegacy[UnixUser(entry.Name())] = append(byLegacy[UnixUser(entry.Name())], entry.Name())
-		}
+	index, err := loadIdentityIndex(context.Background(), db)
+	if err != nil {
+		return RepairJournal{}, err
 	}
-	legacyUsers := make([]string, 0, len(byLegacy))
-	for legacy := range byLegacy {
+	// Plan exactly what the startup gate rejects, so a completed repair is
+	// guaranteed to let the panel start.
+	collisions := unresolvedLegacyCollisions(liveSites(entries), index)
+	legacyUsers := make([]string, 0, len(collisions))
+	for legacy := range collisions {
 		legacyUsers = append(legacyUsers, legacy)
 	}
 	sort.Strings(legacyUsers)
-
-	rows, err := db.Query(`SELECT site, username FROM site_identities`)
-	if err != nil {
-		return RepairJournal{}, fmt.Errorf("read site identity assignments: %w", err)
-	}
-	assigned := make(map[string]string)
-	reserved := make(map[string]bool)
-	for rows.Next() {
-		var site, username string
-		if err := rows.Scan(&site, &username); err != nil {
-			rows.Close()
-			return RepairJournal{}, fmt.Errorf("read site identity assignment: %w", err)
-		}
-		assigned[site] = username
-		reserved[username] = true
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return RepairJournal{}, fmt.Errorf("finish site identity scan: %w", err)
-	}
-	if err := rows.Close(); err != nil {
-		return RepairJournal{}, fmt.Errorf("close site identity scan: %w", err)
-	}
-
+	reserved := index.byUser
 	var plan []RepairAssignment
 	for _, legacy := range legacyUsers {
-		sites := byLegacy[legacy]
-		sort.Strings(sites)
-		allAssignedSafe := true
-		conflict := false
-		for _, site := range sites {
-			username, ok := assigned[site]
-			if !ok || username == legacy {
-				allAssignedSafe = false
-				var owner string
-				ownerErr := db.QueryRow(`SELECT site FROM site_identities WHERE username = ?`, legacy).Scan(&owner)
-				if ownerErr != nil && !errors.Is(ownerErr, sql.ErrNoRows) {
-					return RepairJournal{}, fmt.Errorf("inspect legacy identity owner %q: %w", legacy, ownerErr)
-				}
-				if ownerErr == nil && owner != site {
-					conflict = true
-				}
-			}
-		}
-		if len(sites) > 1 && !allAssignedSafe {
-			conflict = true
-		}
-		if !conflict {
-			continue
-		}
-		for _, site := range sites {
-			previous := assigned[site]
-			var username string
+		for _, site := range collisions[legacy].Live {
+			username := ""
 			for attempt := 0; attempt < 1024; attempt++ {
-				candidate := allocatedUser(site, attempt)
-				if !reserved[candidate] {
+				if candidate := allocatedUser(site, attempt); reserved[candidate] == "" {
 					username = candidate
-					reserved[candidate] = true
+					reserved[candidate] = site
 					break
 				}
 			}
 			if username == "" {
 				return RepairJournal{}, fmt.Errorf("could not allocate a unique account for site %q", site)
 			}
-			plan = append(plan, RepairAssignment{Site: site, PreviousUser: previous, LegacyUser: legacy, Username: username})
+			plan = append(plan, RepairAssignment{Site: site, PreviousUser: index.bySite[site], LegacyUser: legacy, Username: username})
 		}
 	}
 	if len(plan) == 0 {
@@ -175,14 +130,13 @@ func ExecuteCollisionRepair(ctx context.Context, db *sql.DB, webRoot, journalPat
 		return RepairJournal{}, err
 	}
 	journal, err := readRepairJournal(journalPath)
+	planned := false
 	if errors.Is(err, os.ErrNotExist) {
 		journal, err = PlanCollisionRepair(db, webRoot)
 		if err != nil {
 			return RepairJournal{}, err
 		}
-		if err := writeRepairJournal(journalPath, journal); err != nil {
-			return RepairJournal{}, err
-		}
+		planned = true
 	} else if err != nil {
 		return RepairJournal{}, err
 	}
@@ -202,6 +156,19 @@ func ExecuteCollisionRepair(ctx context.Context, db *sql.DB, webRoot, journalPat
 		return journal, fmt.Errorf("site identity repair preflight: %w", err)
 	}
 	if journal.State == "planned" {
+		// A new plan becomes durable only once the host has accepted it, so
+		// a refused preflight leaves nothing behind and the next run replans.
+		// It must be durable before the mapping commit: after a crash between
+		// the two, the journal is the only record of which sites still need
+		// host reconciliation.
+		if planned {
+			if err := writeRepairJournal(journalPath, journal); err != nil {
+				return journal, err
+			}
+		}
+		if err := host.BeforeCommit(ctx, journal); err != nil {
+			return journal, fmt.Errorf("prepare site identity mapping commit: %w", err)
+		}
 		if err := applyRepairMappings(ctx, db, journal.Assignments); err != nil {
 			return journal, err
 		}

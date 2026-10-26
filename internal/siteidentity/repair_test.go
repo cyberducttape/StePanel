@@ -13,12 +13,18 @@ import (
 
 type repairHostStub struct {
 	preflightErr error
+	commitErr    error
+	commits      int
 	reconcile    map[string]int
 	verify       map[string]int
 	verifyErr    map[string]error
 }
 
 func (h *repairHostStub) Preflight(context.Context, []RepairAssignment) error { return h.preflightErr }
+func (h *repairHostStub) BeforeCommit(context.Context, RepairJournal) error {
+	h.commits++
+	return h.commitErr
+}
 func (h *repairHostStub) Reconcile(_ context.Context, assignment RepairAssignment) error {
 	h.reconcile[assignment.Site]++
 	return nil
@@ -108,8 +114,86 @@ func TestExecuteCollisionRepairFailsBeforeMappingWhenPreflightFails(t *testing.T
 	if username != UnixUser(sites[0]) {
 		t.Fatalf("preflight failure changed identity to %q", username)
 	}
-	if host.reconcile[sites[0]] != 0 {
-		t.Fatalf("host mutation ran before preflight: %v", host.reconcile)
+	if host.reconcile[sites[0]] != 0 || host.commits != 0 {
+		t.Fatalf("host mutation ran before preflight: reconcile %v, commits %d", host.reconcile, host.commits)
+	}
+	if _, err := os.Lstat(journal); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused preflight persisted a stale plan: %v", err)
+	}
+}
+
+func TestExecuteCollisionRepairLeavesMappingsWhenPreCommitStepFails(t *testing.T) {
+	db, root, sites := collisionFixture(t)
+	journal := repairJournalPath(t)
+	host := newRepairHostStub()
+	host.commitErr = errors.New("snapshot failed")
+	if _, err := ExecuteCollisionRepair(context.Background(), db, root, journal, host); err == nil {
+		t.Fatal("failed pre-commit snapshot did not stop the repair")
+	}
+	var username string
+	if err := db.QueryRow(`SELECT username FROM site_identities WHERE site = ?`, sites[0]).Scan(&username); err != nil {
+		t.Fatal(err)
+	}
+	if username != UnixUser(sites[0]) {
+		t.Fatalf("pre-commit failure changed identity to %q", username)
+	}
+	host.commitErr = nil
+	completed, err := ExecuteCollisionRepair(context.Background(), db, root, journal, host)
+	if err != nil || completed.State != "completed" {
+		t.Fatalf("resume after pre-commit failure = %q, %v", completed.State, err)
+	}
+}
+
+func TestExecuteCollisionRepairResumesWhenCommitOutlivedJournalUpdate(t *testing.T) {
+	db, root, sites := collisionFixture(t)
+	journalPath := repairJournalPath(t)
+	plan, err := PlanCollisionRepair(db, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a crash after the mapping transaction committed but before
+	// the journal recorded it: the journal still says planned.
+	if err := writeRepairJournal(journalPath, plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyRepairMappings(context.Background(), db, plan.Assignments); err != nil {
+		t.Fatal(err)
+	}
+	host := newRepairHostStub()
+	completed, err := ExecuteCollisionRepair(context.Background(), db, root, journalPath, host)
+	if err != nil || completed.State != "completed" {
+		t.Fatalf("resume after committed mappings = %q, %v", completed.State, err)
+	}
+	for _, site := range sites {
+		if host.reconcile[site] != 1 || host.verify[site] != 1 {
+			t.Fatalf("site %q was not reconciled after resume: reconcile %v verify %v", site, host.reconcile, host.verify)
+		}
+	}
+}
+
+func TestExecuteCollisionRepairCompletesPersistedOwnerConflict(t *testing.T) {
+	db := testIdentityDB(t)
+	root := t.TempDir()
+	site := "shared-site-prefix00018346"
+	if err := os.MkdirAll(filepath.Join(root, "sites", site), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO site_identities(site, username, created_at) VALUES (?, ?, 1)`, "deleted-owner", UnixUser(site)); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateExisting(db, root); err == nil {
+		t.Fatal("persisted owner conflict did not block startup before repair")
+	}
+	completed, err := ExecuteCollisionRepair(context.Background(), db, root, repairJournalPath(t), newRepairHostStub())
+	if err != nil || completed.State != "completed" {
+		t.Fatalf("persisted owner repair = %q, %v", completed.State, err)
+	}
+	if err := MigrateExisting(db, root); err != nil {
+		t.Fatalf("startup migration after persisted owner repair: %v", err)
+	}
+	var owner string
+	if err := db.QueryRow(`SELECT site FROM site_identities WHERE username = ?`, UnixUser(site)).Scan(&owner); err != nil || owner != "deleted-owner" {
+		t.Fatalf("repair released the tombstoned legacy name: owner %q, %v", owner, err)
 	}
 }
 

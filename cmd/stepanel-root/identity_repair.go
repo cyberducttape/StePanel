@@ -53,6 +53,9 @@ type identityRepairHost struct {
 	siteCtl       string
 	appCtl        string
 	stateDir      string
+	siteRegistry  string
+	recoveryRoot  string
+	db            *sql.DB
 	revokeFTPS    bool
 	access        map[string]repairSiteAccess
 	profiles      map[string]repairResourceProfile
@@ -123,22 +126,12 @@ func runIdentityRepair(args []string) int {
 	}
 
 	journalPath := filepath.Join(*recoveryRoot, "site-identity-repair.json")
-	if _, err := os.Lstat(journalPath); errors.Is(err, os.ErrNotExist) {
-		backupPath := filepath.Join(*recoveryRoot, fmt.Sprintf("site-identities-before-%s.sqlite", time.Now().UTC().Format("20060102T150405Z")))
-		if err := createIdentityDBSnapshot(db, backupPath); err != nil {
-			fmt.Fprintf(os.Stderr, "create pre-repair database snapshot: %v\n", err)
-			return 1
-		}
-		fmt.Fprintf(os.Stderr, "pre-repair SQLite snapshot: %s\n", backupPath)
-	} else if err != nil {
-		fmt.Fprintf(os.Stderr, "inspect repair journal: %v\n", err)
-		return 1
-	}
 	host, err := newIdentityRepairHost(*webRoot, "/usr/local/sbin/stepanel-sitectl", "/usr/local/sbin/stepanel-appctl", *stateDir, *revokeFTPS)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load site state for identity repair: %v\n", err)
 		return 1
 	}
+	host.recoveryRoot, host.db = *recoveryRoot, db
 	journal, err := siteidentity.ExecuteCollisionRepair(context.Background(), db, *webRoot, journalPath, host)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "site identity repair is incomplete; keep StePanel services stopped and rerun apply to resume: %v\n", err)
@@ -163,19 +156,50 @@ func verifyPrivateRecoveryRoot(path string) error {
 	return nil
 }
 
+// BeforeCommit records a consistent pre-repair SQLite snapshot named for the
+// journal. A snapshot left by an earlier attempt of the same journal is
+// already pre-commit state and is kept.
+func (h *identityRepairHost) BeforeCommit(_ context.Context, journal siteidentity.RepairJournal) error {
+	if h.db == nil || h.recoveryRoot == "" {
+		return errors.New("snapshot database and recovery root are not configured")
+	}
+	path := filepath.Join(h.recoveryRoot, "site-identities-before-"+journal.ID+".sqlite")
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("existing snapshot %s is not a regular file", path)
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := createIdentityDBSnapshot(h.db, path); err != nil {
+		return fmt.Errorf("create pre-repair database snapshot: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "pre-repair SQLite snapshot: %s\n", path)
+	return nil
+}
+
+// createIdentityDBSnapshot writes the snapshot under a temporary name and
+// publishes it with a rename, so an interrupted VACUUM never leaves a
+// truncated file at the final path.
 func createIdentityDBSnapshot(db *sql.DB, path string) error {
 	if _, err := os.Lstat(path); err == nil {
 		return fmt.Errorf("snapshot already exists: %s", path)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if _, err := db.Exec(`VACUUM INTO ?`, path); err != nil {
+	stage := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp")
+	if err := os.Remove(stage); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale snapshot stage: %w", err)
+	}
+	defer os.Remove(stage)
+	if _, err := db.Exec(`VACUUM INTO ?`, stage); err != nil {
 		return fmt.Errorf("SQLite VACUUM INTO: %w", err)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := os.Chmod(stage, 0o600); err != nil {
 		return fmt.Errorf("set snapshot mode: %w", err)
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(stage)
 	if err != nil {
 		return err
 	}
@@ -185,6 +209,9 @@ func createIdentityDBSnapshot(db *sql.DB, path string) error {
 	}
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close snapshot: %w", err)
+	}
+	if err := os.Rename(stage, path); err != nil {
+		return fmt.Errorf("publish snapshot: %w", err)
 	}
 	dir, err := os.Open(filepath.Dir(path))
 	if err != nil {
@@ -196,7 +223,7 @@ func createIdentityDBSnapshot(db *sql.DB, path string) error {
 
 func newIdentityRepairHost(webRoot, siteCtl, appCtl, stateDir string, revokeFTPS bool) (*identityRepairHost, error) {
 	host := &identityRepairHost{
-		webRoot: webRoot, siteCtl: siteCtl, appCtl: appCtl, stateDir: stateDir, revokeFTPS: revokeFTPS,
+		webRoot: webRoot, siteCtl: siteCtl, appCtl: appCtl, stateDir: stateDir, siteRegistry: "/etc/stepanel/sites", revokeFTPS: revokeFTPS,
 		access: map[string]repairSiteAccess{}, profiles: map[string]repairResourceProfile{}, ftpUsers: map[string]bool{}, oldHomes: map[string]string{},
 		commandRunner: runRepairCommand,
 	}
@@ -245,8 +272,18 @@ func (h *identityRepairHost) Preflight(ctx context.Context, assignments []siteid
 	}
 	checkedOldUsers := map[string]bool{}
 	for _, assignment := range assignments {
-		siteRoot := filepath.Join(h.webRoot, "sites", assignment.Site)
-		if err := verifyNoRepairHardlinks(siteRoot); err != nil {
+		siteRoot := filepath.Clean(filepath.Join(h.webRoot, "sites", assignment.Site))
+		// A site placed in a hosting account (ADR-0007) runs as the account's
+		// user, never a per-site sp- account; the site helper would refuse
+		// it only after the mappings had committed.
+		if h.siteRegistry != "" {
+			if _, err := os.Lstat(filepath.Join(h.siteRegistry, assignment.Site, "location")); err == nil {
+				return fmt.Errorf("site %q is placed in a hosting account and has no per-site Unix account to repair", assignment.Site)
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("inspect placement of site %q: %w", assignment.Site, err)
+			}
+		}
+		if err := h.verifyNoRepairHardlinks(ctx, siteRoot); err != nil {
 			return fmt.Errorf("site %q is not safe to reassign: %w", assignment.Site, err)
 		}
 		if err := verifyNoNestedRepairMounts(siteRoot); err != nil {
@@ -256,28 +293,36 @@ func (h *identityRepairHost) Preflight(ctx context.Context, assignments []siteid
 			if h.ftpUsers[oldUser] && !h.revokeFTPS {
 				return fmt.Errorf("legacy identity %q has FTPS credentials that cannot be transferred; rerun with --revoke-ftps to explicitly revoke them", oldUser)
 			}
-			if !checkedOldUsers[oldUser] {
-				home, exists, err := h.accountHome(ctx, oldUser)
-				if err != nil {
-					return fmt.Errorf("inspect legacy account %q: %w", oldUser, err)
-				}
-				if !exists || !affectedRoots[filepath.Clean(home)] {
-					return fmt.Errorf("legacy account %q is missing or its home is outside the affected site set", oldUser)
-				}
-				h.oldHomes[oldUser] = filepath.Clean(home)
-				if err := h.requireNoProcesses(ctx, oldUser); err != nil {
-					return err
-				}
-				checkedOldUsers[oldUser] = true
+			if checkedOldUsers[oldUser] {
+				continue
 			}
-			if home, exists, err := h.accountHome(ctx, assignment.Username); err != nil {
-				return fmt.Errorf("inspect target account %q: %w", assignment.Username, err)
-			} else if exists && filepath.Clean(home) != filepath.Clean(filepath.Join(h.webRoot, "sites", assignment.Site)) {
-				return fmt.Errorf("target account %q already belongs to another site", assignment.Username)
-			} else if exists {
-				if err := h.requireNoProcesses(ctx, assignment.Username); err != nil {
-					return err
-				}
+			home, exists, err := h.accountHome(ctx, oldUser)
+			if err != nil {
+				return fmt.Errorf("inspect legacy account %q: %w", oldUser, err)
+			}
+			if !exists {
+				// An account removed earlier holds no credentials, processes
+				// or quota to revoke; the seal re-owns its orphaned files.
+				h.oldHomes[oldUser] = ""
+				checkedOldUsers[oldUser] = true
+				continue
+			}
+			if !affectedRoots[filepath.Clean(home)] {
+				return fmt.Errorf("legacy account %q has its home outside the affected site set", oldUser)
+			}
+			h.oldHomes[oldUser] = filepath.Clean(home)
+			if err := h.requireNoProcesses(ctx, oldUser); err != nil {
+				return err
+			}
+			checkedOldUsers[oldUser] = true
+		}
+		if home, exists, err := h.accountHome(ctx, assignment.Username); err != nil {
+			return fmt.Errorf("inspect target account %q: %w", assignment.Username, err)
+		} else if exists && filepath.Clean(home) != siteRoot {
+			return fmt.Errorf("target account %q already belongs to another site", assignment.Username)
+		} else if exists {
+			if err := h.requireNoProcesses(ctx, assignment.Username); err != nil {
+				return err
 			}
 		}
 		if access := h.access[assignment.Site]; access.State == "pending" {
@@ -342,7 +387,7 @@ func (h *identityRepairHost) accountHome(ctx context.Context, username string) (
 	return fields[5], true, nil
 }
 
-func verifyNoRepairHardlinks(siteRoot string) error {
+func (h *identityRepairHost) verifyNoRepairHardlinks(ctx context.Context, siteRoot string) error {
 	info, err := os.Lstat(siteRoot)
 	if err != nil {
 		return err
@@ -350,9 +395,7 @@ func verifyNoRepairHardlinks(siteRoot string) error {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return errors.New("site root must be a real directory")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-	defer cancel()
-	output, err := runRepairCommand(ctx, "find", nil, "-P", siteRoot, "-xdev", "-type", "f", "-links", "+1", "-print", "-quit")
+	output, err := h.commandRunner(ctx, "find", nil, "-P", siteRoot, "-xdev", "-type", "f", "-links", "+1", "-print", "-quit")
 	if err != nil {
 		return fmt.Errorf("inspect hard links: %w", err)
 	}
@@ -402,7 +445,9 @@ func (h *identityRepairHost) Reconcile(ctx context.Context, assignment siteident
 			if !ok {
 				return fmt.Errorf("preflight did not establish the home of legacy account %q", previous)
 			}
-			if oldHome != filepath.Clean(filepath.Join(h.webRoot, "sites", assignment.Site)) {
+			// The helper manages an account only through the site that is its
+			// home, so a shared account is revoked once, via that site.
+			if oldHome == "" || oldHome != filepath.Clean(filepath.Join(h.webRoot, "sites", assignment.Site)) {
 				continue
 			}
 			if h.ftpUsers[previous] {
@@ -415,8 +460,15 @@ func (h *identityRepairHost) Reconcile(ctx context.Context, assignment siteident
 			}
 		}
 	}
-	if _, err := h.commandRunner(ctx, h.siteCtl, nil, "seal", assignment.Site, assignment.Username); err != nil {
+	output, err := h.commandRunner(ctx, h.siteCtl, nil, "seal", assignment.Site, assignment.Username)
+	if err != nil {
 		return fmt.Errorf("apply filesystem ownership and PHP-FPM identity: %w", err)
+	}
+	// Like the broker, refuse to continue if the helper sealed a different
+	// account than the one this repair assigned.
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if reported := strings.TrimSpace(lines[len(lines)-1]); reported != assignment.Username {
+		return fmt.Errorf("site helper sealed account %q, expected %q", reported, assignment.Username)
 	}
 	if err := rootbroker.SecureSealSiteTree(ctx, filepath.Join(h.webRoot, "sites", assignment.Site, "public")); err != nil {
 		return fmt.Errorf("secure public document tree: %w", err)
@@ -450,13 +502,13 @@ func (h *identityRepairHost) Reconcile(ctx context.Context, assignment siteident
 	if _, err := h.commandRunner(ctx, h.siteCtl, nil, "resources", assignment.Site, assignment.Username, number(profile.PHPWorkers)); err != nil {
 		return fmt.Errorf("restore PHP worker limit: %w", err)
 	}
+	// A new account starts without a quota, so a profile without filesystem
+	// limits needs no quota call. Clearing one would require user quotas on
+	// hosts that never enabled them, as the panel's own apply path avoids.
 	if profile.DiskMB > 0 || profile.Inodes > 0 {
-		_, err := h.commandRunner(ctx, h.siteCtl, nil, "quota", assignment.Site, assignment.Username, number(profile.DiskMB), number(profile.Inodes))
-		if err != nil {
+		if _, err := h.commandRunner(ctx, h.siteCtl, nil, "quota", assignment.Site, assignment.Username, number(profile.DiskMB), number(profile.Inodes)); err != nil {
 			return fmt.Errorf("restore site disk quota: %w", err)
 		}
-	} else if _, err := h.commandRunner(ctx, h.siteCtl, nil, "quota-clear", assignment.Site, assignment.Username); err != nil {
-		return fmt.Errorf("clear unintended site quota: %w", err)
 	}
 	return nil
 }
@@ -471,32 +523,54 @@ func (h *identityRepairHost) Verify(ctx context.Context, assignment siteidentity
 	if len(fields) < 6 || fields[0] != assignment.Username || filepath.Clean(fields[5]) != filepath.Clean(wantHome) {
 		return fmt.Errorf("new Unix account home does not match site root %q", wantHome)
 	}
-	output, err = h.commandRunner(ctx, "find", nil, "-P", wantHome, "-xdev", "!", "-type", "l", "!", "-user", assignment.Username, "-print", "-quit")
+	// The helpers keep root-owned state such as .php/resources.env inside
+	// the site root; every other path must belong to the new account.
+	output, err = h.commandRunner(ctx, "find", nil, "-P", wantHome, "-xdev", "!", "-type", "l", "!", "-user", assignment.Username, "!", "-uid", "0", "-print", "-quit")
 	if err != nil {
 		return fmt.Errorf("verify site filesystem ownership: %w", err)
 	}
 	if len(bytes.TrimSpace(output)) > 0 {
-		return fmt.Errorf("site tree still contains paths not owned by %q", assignment.Username)
+		return fmt.Errorf("site tree still contains paths not owned by %q or root: %s", assignment.Username, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
 
 func (h *identityRepairHost) Finalize(ctx context.Context, assignments []siteidentity.RepairAssignment) error {
 	seen := map[string]bool{}
+	var retired []string
 	for _, assignment := range assignments {
 		for _, previous := range oldRepairUsers(assignment) {
-			if previous == "" || previous == assignment.Username || seen[previous] {
+			if previous == assignment.Username || seen[previous] {
 				continue
 			}
 			seen[previous] = true
-			output, err := h.commandRunner(ctx, "find", nil, "-P", filepath.Join(h.webRoot, "sites"), "-xdev", "-user", previous, "-print", "-quit")
-			if err != nil {
-				return fmt.Errorf("verify retired identity %q no longer owns site data: %w", previous, err)
-			}
-			if len(bytes.TrimSpace(output)) > 0 {
-				return fmt.Errorf("retired identity %q still owns paths under the sites tree; inspect before restarting", previous)
+			// find rejects an unknown user name, and an account that no
+			// longer exists cannot own anything by name.
+			if _, exists, err := h.accountHome(ctx, previous); err != nil {
+				return fmt.Errorf("inspect retired identity %q: %w", previous, err)
+			} else if exists {
+				retired = append(retired, previous)
 			}
 		}
+	}
+	if len(retired) == 0 {
+		return nil
+	}
+	// One scan of the sites tree covers every retired account.
+	args := []string{"-P", filepath.Join(h.webRoot, "sites"), "-xdev", "("}
+	for index, user := range retired {
+		if index > 0 {
+			args = append(args, "-o")
+		}
+		args = append(args, "-user", user)
+	}
+	args = append(args, ")", "-print", "-quit")
+	output, err := h.commandRunner(ctx, "find", nil, args...)
+	if err != nil {
+		return fmt.Errorf("verify retired identities no longer own site data: %w", err)
+	}
+	if path := strings.TrimSpace(string(output)); path != "" {
+		return fmt.Errorf("a retired identity still owns %s under the sites tree; inspect before restarting", path)
 	}
 	return nil
 }
@@ -560,7 +634,7 @@ func runRepairCommand(ctx context.Context, command string, stdin []byte, args ..
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, command, args...)
-	if command == "/usr/local/sbin/stepanel-sitectl" || strings.HasSuffix(command, "stepanel-sitectl") {
+	if base == "stepanel-sitectl" {
 		cmd.Env = append(os.Environ(), "STEPANEL_IDENTITY_REPAIR_OFFLINE=1")
 	}
 	if stdin != nil {

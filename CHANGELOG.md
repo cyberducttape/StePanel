@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Site identity repair: a repaired site whose legacy account name is still
+  held by a deleted site now passes the startup migration; previously the
+  repair could never complete and startup stayed blocked. The startup gate
+  and the repair planner now share one collision definition and read the
+  identity table once instead of querying per site.
+- Site identity repair no longer fails verification on the root-owned PHP
+  state files inside a site root, no longer requires user quotas on hosts
+  whose profiles set no filesystem limit, refuses sites placed in a hosting
+  account before committing mappings, and checks that the site helper sealed
+  the assigned account. A refused preflight no longer persists a stale plan;
+  the SQLite snapshot is taken immediately before the mapping commit,
+  published atomically, and named for the journal.
+- `stepanel-sitectl access` accepts an enabled SSH/SFTP policy with no keys
+  (a new site, or after removing the last key) and revokes key login instead
+  of failing host validation and leaving the policy pending.
+
 ### Changed
 
 - Exclude local reusable workflow paths from the third-party GitHub Action SHA

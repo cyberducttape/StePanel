@@ -6,9 +6,9 @@ account, files, PHP-FPM pool, SSH policy, and quotas must converge with the
 database mapping.
 
 The `stepanel-root identity-repair` maintenance command performs a forward-only
-repair. It first records a private SQLite snapshot and a root-owned journal,
-commits unique per-site mappings together, then idempotently reconciles and
-verifies each site. If interrupted, leave services stopped and rerun `apply`;
+repair. Once preflight accepts the plan, it records a root-owned journal and a
+private SQLite snapshot, commits unique per-site mappings together, then
+idempotently reconciles and verifies each site. If interrupted, leave services stopped and rerun `apply`;
 the command resumes from its durable journal. It deliberately does not roll
 back a committed database mapping to a shared account.
 
@@ -25,6 +25,10 @@ back a committed database mapping to a shared account.
   Every affected site must have a valid durable resource profile. The repair
   refuses hard-linked site files because recursive ownership changes could
   otherwise affect paths outside the site being repaired.
+- Sites placed in a hosting account (ADR-0007) run as the account's user and
+  are refused; the repair only reassigns per-site `sp-` accounts. A legacy
+  account that no longer exists is accepted: it holds nothing to revoke, and
+  the seal re-owns its orphaned files.
 - FTPS credentials cannot be transferred from the colliding Unix account.
   Inspect the plan and use `--revoke-ftps` only when you accept revoking those
   credentials. Customers must receive new FTPS credentials after recovery.
@@ -39,8 +43,11 @@ sudo /usr/local/sbin/stepanel-root identity-repair plan \
   --control-plane-db /var/lib/ste-panel/stepanel-control.db
 ```
 
-Apply the reviewed plan. The command prints the snapshot location and persists
-its journal at `/var/lib/stepanel/recovery/site-identity-repair.json`:
+Apply the reviewed plan. The command persists its journal at
+`/var/lib/stepanel/recovery/site-identity-repair.json` and prints the location
+of the snapshot, `site-identities-before-<journal id>.sqlite` in the same
+directory. If preflight refuses the plan, nothing is written; correct the
+reported condition and rerun:
 
 ```sh
 sudo /usr/local/sbin/stepanel-root identity-repair apply \

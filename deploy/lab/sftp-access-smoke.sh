@@ -72,4 +72,10 @@ ssh -q -p "$port" -i "$tmp/client" -o BatchMode=yes -o StrictHostKeyChecking=no 
 shell_status=$?
 set -e
 (( shell_status != 0 )) || { echo 'SFTP-only account accepted a shell command' >&2; exit 1; }
+
+# Removing the last key leaves SFTP enabled with an empty key list. The
+# helper must accept that policy and revoke key login instead of failing.
+"$helper" access "$site" 1 0 </dev/null || { echo 'SFTP policy with no keys was rejected' >&2; exit 1; }
+[[ ! -e $authorized_keys ]] || { echo 'empty SFTP key list left an authorized-key file' >&2; exit 1; }
+[[ $(getent shadow "$site_user" | cut -d: -f2) == '!'* ]] || { echo 'empty SFTP key list left the account unlocked' >&2; exit 1; }
 echo 'SFTP-only OpenSSH client/server smoke passed'

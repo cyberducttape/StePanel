@@ -140,7 +140,7 @@ func TestMigrateExistingRejectsPartiallyReassignedLegacyCollision(t *testing.T) 
 	}
 }
 
-func TestRejectLegacyIdentityCollisionsCollectsPersistedOwnerConflicts(t *testing.T) {
+func TestLegacyCollisionErrorCollectsPersistedOwnerConflicts(t *testing.T) {
 	db := testIdentityDB(t)
 	owner := "deleted-site"
 	newSite := "unrelated"
@@ -158,16 +158,11 @@ func TestRejectLegacyIdentityCollisionsCollectsPersistedOwnerConflicts(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, err := db.Conn(context.Background())
+	index, err := loadIdentityIndex(context.Background(), db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
-		t.Fatal(err)
-	}
-	defer conn.ExecContext(context.Background(), "ROLLBACK")
-	err = rejectLegacyIdentityCollisions(context.Background(), conn, entries)
+	err = legacyCollisionError(liveSites(entries), index)
 	want := fmt.Sprintf("%s shared by %q, %q", UnixUser(newSite), owner, newSite)
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("persisted collision error = %v, want to include %q", err, want)
