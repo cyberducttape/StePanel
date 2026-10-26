@@ -20,6 +20,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   CodeQL passes on `c071169`, record its active installed-host smoke, and
   distinguish the ext4 diagnostic run on PR source `d1e9abf`.
 
+- Isolate the Git staging quota test from host-configured production broker
+  sockets so it deterministically verifies fail-closed behavior without making
+  an unintended RPC to a developer's running broker.
+
 - Retain `CAP_SETUID` and `CAP_SETGID` in the root broker's ambient capability
   set so its validated customer file-manager helper can switch to the site's
   recorded Unix identity under systemd; require the capability contract in

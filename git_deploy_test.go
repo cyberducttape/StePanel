@@ -728,6 +728,11 @@ func TestCommittedReleaseIsNeverReportedAsCancelled(t *testing.T) {
 
 func TestGitStageQuotaIsSkippedOnlyInDevelopment(t *testing.T) {
 	t.Setenv("STEPANEL_LAB_DIRECT_ROOT_BROKER", "")
+	// Make the production failure assertion independent of a developer's
+	// configured broker socket. Otherwise this test can issue a real RPC and
+	// block on host state instead of proving that a missing broker fails closed.
+	t.Setenv("STEPANEL_ENV", "production")
+	t.Setenv("STEPANEL_ROOT_BROKER_SOCKET", "")
 	dev := &App{Config: Config{WebRoot: t.TempDir()}}
 	projectID, err := dev.enableGitStageQuota(context.Background(), "site", "/unused", 1<<20)
 	if err != nil || projectID != 0 {
