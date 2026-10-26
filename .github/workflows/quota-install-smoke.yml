@@ -28,10 +28,10 @@ jobs:
     # Run the installer in a genuine guest because the hosted runner's outer
     # mount namespace cannot create loop mounts. TCG avoids requiring nested KVM.
     runs-on: ubuntu-24.04
-    # The install smoke may use up to 60 minutes on a TCG guest. The
+    # The install smoke may use up to 90 minutes on a TCG guest. The
     # rootless-runner check, abrupt-loss recovery loop, and final ENOSPC drill
     # have separate bounds; leave enough headroom for all stages in one run.
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -226,7 +226,7 @@ jobs:
           REMOTE
           install_log="$vm_root/install-smoke-output.log"
           set +e
-          timeout --foreground 60m ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+          timeout --foreground 90m ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo env STEPANEL_UNSAFE_LAB=1 STEPANEL_QUOTA_SMOKE=1 STEPANEL_DB_ENGINE=mariadb STEPANEL_WEBSERVER=caddy bash /work/deploy/lab/install-smoke.sh' \
             2>&1 | tee "$install_log"
           install_status=${PIPESTATUS[0]}

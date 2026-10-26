@@ -12,6 +12,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   publishing them, so successful backups remain eligible for strict restore
   verification.
 
+- Extend the quota VM's install-smoke deadline to 90 minutes and the job
+  deadline to 150 minutes. The XFS run hit the old deadline before completing
+  later gates; the ext4 run reached customer file-manager validation but failed
+  because `runuser` could not switch to the placed account. Neither is a quota
+  certification pass; both outcomes remain release-gate evidence.
 - Keep lab-mode root-broker setup from creating a legacy `/var/www/sites`
   tree for sites placed in customer account homes; exercise the broker path
   with a placement-aware regression test.

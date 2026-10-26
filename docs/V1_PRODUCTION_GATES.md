@@ -33,17 +33,28 @@ lab-only broker setup also created `/var/www/sites/ci-cust-main` after the site
 had been placed at `/home/cismokecust/public_html`. The failure artifact is
 [quota-install-ext4-40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828).
 This does not count as a quota certification pass. The lab path was corrected
-on `db195af`; an ext4 rerun is queued on that source
-([40216152671](https://github.com/cyberducttape/StePanel/actions/runs/40216152671)).
-An XFS quota-enabled Ubuntu run is also queued on `67d9e6f`
-([40212633884](https://github.com/cyberducttape/StePanel/actions/runs/40212633884)).
-None is counted as passed. A separate two-repeat AlmaLinux run
+on `db195af`. The XFS run
+([40212633884](https://github.com/cyberducttape/StePanel/actions/runs/40212633884))
+but its install-smoke step hit the 60-minute deadline after account-suspension
+and deployment recovery, before the later customer-site, rootless-runner,
+abrupt-restart, or real ENOSPC checks. The ext4 rerun
+([40216152671](https://github.com/cyberducttape/StePanel/actions/runs/40216152671))
+passed through app lifecycle, then failed customer file-manager upload with
+`runuser: cannot set user id: Operation not permitted`; quota enforcement was
+active, but the guest did not complete customer acceptance. The install-smoke
+deadline is being extended to 90 minutes (job deadline 150 minutes), and the
+account-user privilege transition requires investigation. Neither run is
+counted as passed. A separate two-repeat AlmaLinux run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
 is still running on stale source `42c69cb6` and is not current-source evidence.
 
 Nine additional two-iteration shards were dispatched on evidence head
-`5664ea1`, covering all six supported OS/web-server combinations. They are
-queued, not running or passed: [40213883873](https://github.com/cyberducttape/StePanel/actions/runs/40213883873),
+`5664ea1`, covering all six supported OS/web-server combinations. All nine
+ended failed; none is counted as a successful repetition. The
+[Ubuntu/Caddy artifact](https://github.com/cyberducttape/StePanel/actions/runs/40213883873)
+shows `context canceled` during iteration 2 of the exhaustive recovery matrix
+at the six-hour job limit. The other shards also failed their installed-host
+smoke steps; review each artifact before attributing a common cause:
 [40213886188](https://github.com/cyberducttape/StePanel/actions/runs/40213886188),
 [40213888634](https://github.com/cyberducttape/StePanel/actions/runs/40213888634),
 [40213890949](https://github.com/cyberducttape/StePanel/actions/runs/40213890949),
@@ -52,9 +63,17 @@ queued, not running or passed: [40213883873](https://github.com/cyberducttape/St
 [40213898545](https://github.com/cyberducttape/StePanel/actions/runs/40213898545),
 [40213901094](https://github.com/cyberducttape/StePanel/actions/runs/40213901094),
 and [40213903617](https://github.com/cyberducttape/StePanel/actions/runs/40213903617).
-Together with the first current-source shard, this schedules 20 repetitions;
-the gate remains open until the operation/fault cohorts pass and their
-post-boot invariants are reviewed.
+The planned 20 repetitions were not achieved. The matrix needs bounded shards
+that finish within the hosted six-hour job limit before it can produce release
+evidence. The original run list was: [40213883873](https://github.com/cyberducttape/StePanel/actions/runs/40213883873),
+[40213886188](https://github.com/cyberducttape/StePanel/actions/runs/40213886188),
+[40213888634](https://github.com/cyberducttape/StePanel/actions/runs/40213888634),
+[40213890949](https://github.com/cyberducttape/StePanel/actions/runs/40213890949),
+[40213893719](https://github.com/cyberducttape/StePanel/actions/runs/40213893719),
+[40213896190](https://github.com/cyberducttape/StePanel/actions/runs/40213896190),
+[40213898545](https://github.com/cyberducttape/StePanel/actions/runs/40213898545),
+[40213901094](https://github.com/cyberducttape/StePanel/actions/runs/40213901094),
+and [40213903617](https://github.com/cyberducttape/StePanel/actions/runs/40213903617).
 
 The six-host installed-system smoke on older source `070dce9`
 ([40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637))
@@ -830,7 +849,7 @@ published only as a certified envelope, never as targets.
 | Supported runtime matrix | ⚠️ Partial | Exact-source smoke [40176491637](https://github.com/cyberducttape/StePanel/actions/runs/40176491637) passed all six listed combinations: Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache/Caddy + MariaDB, including WordPress application recovery. The jobs used disposable systemd containers and one recovery iteration each; this does not certify dedicated-VM behavior or repeated recovery. `INSTALLATION.md` describes these as Operator Beta smoke-tested, not production-certified. Debian 12, OpenLiteSpeed, other database engines, PHP minor-version combinations, alternate SELinux modes, and filesystem combinations remain unclaimed. |
 | Security lifecycle | ⚠️ Partial | [SECURITY.md](../SECURITY.md) defines private reporting, beta limitations, stable-version support windows, and patch-response objectives. Remaining: an independent security review of the release candidate and operational evidence that the advisory, patch, and credential-rotation process is usable. |
 | Typed privileged-operation protocol | ✅ Implemented | Production callsites use concrete root-broker request types, including environment/resource operations, database cleanup/reconciliation, and managed route deletion. `Request` no longer contains a generic helper payload, the broker has no generic handler, and production helper wrappers fail closed without a typed route. A regression test rejects the removed request type. |
-| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Application source `070dce9` passed full Integration on `c648995` ([run 40206761607](https://github.com/cyberducttape/StePanel/actions/runs/40206761607)); exact-head Integration on workflow/evidence commit `73975a3` also passed all Go, coverage, race, recovery, ENOSPC, restore, static/security, deployment, and UI checks ([run 40210745823](https://github.com/cyberducttape/StePanel/actions/runs/40210745823)). Documentation and CodeQL passed on `73975a3` ([runs 40210745830](https://github.com/cyberducttape/StePanel/actions/runs/40210745830) and [40210745764](https://github.com/cyberducttape/StePanel/actions/runs/40210745764)); alert query returns zero open alerts. Six-host installed-system WordPress recovery passed once per combination ([report](./lab-results/2026-10-25-six-host-installed-smoke-40176491637.md)). Two-repeat AlmaLinux recovery remains in progress ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576)); ext4 quota VM run is active but incomplete ([40210323828](https://github.com/cyberducttape/StePanel/actions/runs/40210323828)). Repeated host recovery, power-loss/host ENOSPC, capacity certification, live notification outage/retry, upgrade/rollback policy, and independent security review remain open. |
+| Release documentation reconciled with executable evidence | ⚠️ Partial; release gates remain open | Application source `070dce9` passed full Integration on `c648995` ([run 40206761607](https://github.com/cyberducttape/StePanel/actions/runs/40206761607)); exact-head Integration on workflow/evidence commit `73975a3` also passed all Go, coverage, race, recovery, ENOSPC, restore, static/security, deployment, and UI checks ([run 40210745823](https://github.com/cyberducttape/StePanel/actions/runs/40210745823)). Documentation and CodeQL passed on `73975a3` ([runs 40210745830](https://github.com/cyberducttape/StePanel/actions/runs/40210745830) and [40210745764](https://github.com/cyberducttape/StePanel/actions/runs/40210745764)); alert query returns zero open alerts. Six-host installed-system WordPress recovery passed once per combination ([report](./lab-results/2026-10-25-six-host-installed-smoke-40176491637.md)). Later quota runs did not pass: XFS hit the install-smoke timeout and ext4 failed customer file-manager access because `runuser` could not switch to the placed account ([40212633884](https://github.com/cyberducttape/StePanel/actions/runs/40212633884), [40216152671](https://github.com/cyberducttape/StePanel/actions/runs/40216152671)). The placement fix is under review in PR [#42](https://github.com/cyberducttape/StePanel/pull/42); these quota outcomes still require a complete rerun. Nine two-iteration recovery shards on `5664ea1` all failed; the sampled Ubuntu/Caddy artifact hit the six-hour limit during iteration 2 ([40213883873](https://github.com/cyberducttape/StePanel/actions/runs/40213883873)). Repeated host recovery, power-loss/host ENOSPC, capacity certification, live notification outage/retry, upgrade/rollback policy, and independent security review remain open. |
 
 The repository production gate was rerun on the exact pushed commit `ee563eb`
 and passed, including coverage thresholds, the complete race suite,
