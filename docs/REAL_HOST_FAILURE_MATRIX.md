@@ -25,30 +25,21 @@ also runs weekly. Record the exact tested commit and retain all run artifacts;
 scheduled or single-iteration success does not replace the 20–50 repeat
 release-candidate cohort below.
 
-The GitHub installed-host workflow is sharded because a sequential 20-repeat
-job exceeds the hosted runner's six-hour limit. A recovery shard accepts one or
-two iterations; two-iteration shards require unique IDs so Actions concurrency
-does not replace pending evidence. For a 20-iteration cohort, dispatch ten
-shards against the same `main` commit. Set `repeats=50` for 25 shards:
+The reusable installed-host workflow runs one exhaustive recovery iteration
+per shard. The `recovery-cohort.yml` workflow creates a 20–50 shard cohort and
+runs one shard at a time. Every shard invokes the same six-host installed
+matrix, and all run against the exact commit selected when the cohort is
+dispatched. A failed or timed-out host invalidates that repetition; rerun the
+entire cohort after a source change.
 
 ```sh
-set -euo pipefail
-repeats=20
-(( repeats >= 20 && repeats <= 50 && repeats % 2 == 0 ))
-shard_count=$((repeats / 2))
-cohort="gate5-$(date -u +%Y%m%dT%H%M%S)-$(git rev-parse --short=7 HEAD)"
-for shard in $(seq -w 1 "$shard_count"); do
-  gh workflow run install-smoke.yml --ref main \
-    -f full_recovery_matrix=true \
-    -f recovery_matrix_repeats=2 \
-    -f recovery_matrix_shard="$cohort-$shard"
-done
+gh workflow run recovery-cohort.yml --ref release/vX.Y -f repetitions=20
 ```
 
-Record every workflow run ID and verify that all six OS/web-server jobs passed
-for every shard before aggregating the cohort. All shards must use the same
-source SHA; a source change starts a new cohort. A partial or timed-out shard
-contributes no iteration to the release gate.
+The cohort planner pins every shard to the selected workflow run's source
+commit and records that SHA and the aggregate result in the run summary. Review
+the cohort run and each shard's six host jobs and diagnostic artifacts. Only a
+successful aggregate run contributes 20–50 repetitions to the release gate.
 
 | Operation | SIGKILL | Reboot/power-loss | ENOSPC | DB failure | Broker kill |
 | --- | --- | --- | --- | --- | --- |

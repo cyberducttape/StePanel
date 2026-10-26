@@ -1,6 +1,28 @@
 name: Installation smoke
 
 on:
+  workflow_call:
+    inputs:
+      full_recovery_matrix:
+        description: Run every supported recovery boundary
+        required: false
+        type: boolean
+        default: false
+      recovery_matrix_repeats:
+        description: One exhaustive recovery iteration per shard
+        required: false
+        type: number
+        default: 1
+      recovery_matrix_shard:
+        description: Unique identifier for this exhaustive recovery shard
+        required: false
+        type: string
+        default: ''
+      host:
+        description: Installed-host combination, or all
+        required: false
+        type: string
+        default: all
   schedule:
     - cron: '17 3 * * *'
   # Changes to the privileged side or the installed-host drills run one host
@@ -208,6 +230,8 @@ jobs:
           docker_diag() { docker_bounded 10s "$@"; }
           diagnostics_dir="$RUNNER_TEMP/stepanel-install-diagnostics"
           mkdir -p "$diagnostics_dir"
+          recovery_identity="${GITHUB_RUN_ID}-${RECOVERY_MATRIX_SHARD:-default}-${{ matrix.name }}"
+          recovery_prefix="g$(printf '%s' "$recovery_identity" | sha256sum | cut -c1-12)"
           cleanup() { timeout --foreground --kill-after=2s 15s docker rm -f stepanel-install >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           running=$(docker_diag inspect --format '{{.State.Running}}' stepanel-install 2>/dev/null || true)
@@ -231,6 +255,8 @@ jobs:
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX_FULL=${{ inputs.full_recovery_matrix && '1' || '0' }} \
             -e RECOVERY_MATRIX_REPEATS="$RECOVERY_MATRIX_REPEATS" \
+            -e RECOVERY_MATRIX_SHARD="$RECOVERY_MATRIX_SHARD" \
+            -e RECOVERY_MATRIX_PREFIX="$recovery_prefix" \
             stepanel-install /work/deploy/lab/install-smoke.sh \
             2>&1 | tee "$diagnostics_dir/install-smoke-output.txt"
           smoke_status=${PIPESTATUS[0]}
@@ -265,6 +291,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: stepanel-install-diagnostics-${{ matrix.name }}
+          name: stepanel-install-diagnostics-${{ inputs.recovery_matrix_shard || 'default' }}-${{ matrix.name }}
           path: ${{ runner.temp }}/stepanel-install-diagnostics
           if-no-files-found: ignore

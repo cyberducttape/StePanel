@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Add a pinned 20–50 repetition installed-host recovery cohort workflow. Each
+  unique shard runs one complete six-host recovery matrix, records its source
+  SHA and aggregate result, and emits non-colliding diagnostic artifacts.
+- Replace manual repeat-shard instructions with the cohort workflow and test
+  the shard planner and workflow contracts in release checks.
+
 - Reconcile the detailed production-gate table with exact-source six-host
   installed smoke and Ubuntu ext4 quota/abrupt-guest recovery artifacts; keep
   physical power-loss, repeated-cohort, XFS, and other certification gaps open.

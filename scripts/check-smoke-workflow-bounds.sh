@@ -6,6 +6,23 @@ workflows=(
   .github/workflows/upgrade-smoke.yml
 )
 
+cohort_workflow=.github/workflows/recovery-cohort.yml
+[[ -f $cohort_workflow ]] || { echo "missing recovery cohort workflow: $cohort_workflow" >&2; exit 1; }
+for contract in \
+  'full_recovery_matrix: true' \
+  'recovery_matrix_repeats: 1' \
+  'max-parallel: 1' \
+  'fail-fast: false' \
+  'matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}' \
+  'uses: ./.github/workflows/install-smoke.yml' \
+  'RESULT == success'; do
+  grep -Fq -- "$contract" "$cohort_workflow" || {
+    echo "$cohort_workflow is missing recovery cohort contract: $contract" >&2
+    exit 1
+  }
+done
+python3 scripts/test-recovery-cohort-plan.py
+
 for workflow in "${workflows[@]}"; do
   [[ -f $workflow ]] || { echo "missing host smoke workflow: $workflow" >&2; exit 1; }
   if grep -En '^[[:space:]]*(docker (info|ps|events|logs|inspect|exec|run|rm)([[:space:]]|$)|run:[[:space:]]+docker (info|ps|events|logs|inspect|exec|run|rm)([[:space:]]|$))' "$workflow"; then
@@ -44,6 +61,18 @@ for workflow in "${workflows[@]}"; do
       }
       grep -Fq 'FULL_RECOVERY_MATRIX: ${{ inputs.full_recovery_matrix || false }}' "$workflow" || {
         echo "$workflow must pass the exhaustive recovery input to the job" >&2
+        exit 1
+      }
+      grep -Fq 'workflow_call:' "$workflow" || {
+        echo "$workflow must support the reusable cohort workflow" >&2
+        exit 1
+      }
+      grep -Fq 'RECOVERY_MATRIX_PREFIX="$recovery_prefix"' "$workflow" || {
+        echo "$workflow must pass a bounded, unique identity prefix to the host drill" >&2
+        exit 1
+      }
+      grep -Fq 'stepanel-install-diagnostics-${{ inputs.recovery_matrix_shard || '\''default'\'' }}-${{ matrix.name }}' "$workflow" || {
+        echo "$workflow must keep diagnostic artifacts unique across shards" >&2
         exit 1
       }
       grep -Fq '[[ $full == true ]]' scripts/validate-recovery-matrix-inputs.sh || {
