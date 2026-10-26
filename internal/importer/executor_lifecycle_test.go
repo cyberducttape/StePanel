@@ -90,10 +90,13 @@ func TestValidateSiteCreation_RejectsExistingPath(t *testing.T) {
 }
 
 func TestImportSiteStatusNeverClaimsReadyWithoutDatabaseWork(t *testing.T) {
-	if got := importSiteStatus("/staging/backup.sql"); got != "needs_database_restore" {
+	if got := importSiteStatus("/staging/backup.sql", true); got != "ready" {
+		t.Fatalf("automatically restored dump status = %q, want ready", got)
+	}
+	if got := importSiteStatus("/staging/backup.sql", false); got != "needs_database_restore" {
 		t.Fatalf("database dump status = %q", got)
 	}
-	if got := importSiteStatus(""); got != "needs_database_setup" {
+	if got := importSiteStatus("", false); got != "needs_database_setup" {
 		t.Fatalf("missing database status = %q", got)
 	}
 }

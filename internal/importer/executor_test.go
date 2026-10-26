@@ -256,6 +256,23 @@ func TestFindDatabaseDumpRecursive(t *testing.T) {
 	}
 }
 
+func TestFindDatabaseDumpPrefersConventionalNameOverEarlierDump(t *testing.T) {
+	tmpDir := t.TempDir()
+	// "a-old.sql" sorts, and is walked, before "database.sql".
+	for _, name := range []string{"a-old.sql", "database.sql"} {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte("-- SQL dump\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found, err := (&Executor{}).findDatabaseDump(tmpDir)
+	if err != nil {
+		t.Fatalf("find database dump: %v", err)
+	}
+	if want := filepath.Join(tmpDir, "database.sql"); found != want {
+		t.Fatalf("found %s, want the conventional dump %s", found, want)
+	}
+}
+
 func TestFindDatabaseDumpPropagatesTraversalErrors(t *testing.T) {
 	tmpDir := t.TempDir()
 	blocked := filepath.Join(tmpDir, "unreadable")

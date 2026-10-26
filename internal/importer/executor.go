@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -513,19 +514,29 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 		"2. Check site configuration (domain, SSL certificates)",
 	}
 
-	// Add database restoration instructions
-	if sqlFile != "" {
+	// Add database restoration instructions. The dump is named relative to
+	// the site root: extractRoot is a staging path the caller renames into
+	// place, so an absolute path here would not exist afterwards.
+	restored := sqlFile != "" && req.AutoRestoreDB
+	switch {
+	case restored:
+		nextSteps = append(nextSteps, fmt.Sprintf("3. Verify the restored database %s", dbName))
+	case sqlFile != "":
+		dumpName := filepath.Base(sqlFile)
+		if rel, err := filepath.Rel(job.WebRoot, sqlFile); err == nil {
+			dumpName = filepath.ToSlash(rel)
+		}
 		nextSteps = append(nextSteps, []string{
-			fmt.Sprintf("3. Restore database using: mysql -u %s %s < %s", dbUser, dbName, sqlFile),
-			fmt.Sprintf("   (SQL dump location: %s)", sqlFile),
+			fmt.Sprintf("3. Restore database using: mysql -u %s %s < %s", dbUser, dbName, dumpName),
+			fmt.Sprintf("   (SQL dump location in the site root: %s)", dumpName),
 		}...)
-	} else {
+	default:
 		nextSteps = append(nextSteps, "3. Set up database (if required by application)")
 	}
 
 	nextSteps = append(nextSteps, "4. Test application functionality")
 
-	siteStatus := importSiteStatus(sqlFile)
+	siteStatus := importSiteStatus(sqlFile, restored)
 	result := &ImportResult{
 		JobID:         job.ID,
 		Success:       true, // Files and config are done; database is optional/deferred
@@ -547,7 +558,10 @@ func (e *Executor) ExecuteImport(ctx context.Context, req *ArchiveImportRequest,
 	return result, nil
 }
 
-func importSiteStatus(databaseDumpPath string) string {
+func importSiteStatus(databaseDumpPath string, restored bool) string {
+	if restored {
+		return "ready"
+	}
 	if databaseDumpPath != "" {
 		return "needs_database_restore"
 	}
@@ -824,31 +838,33 @@ func (e *Executor) extractZip(reader io.Reader, job *ImportJob, onProgress func(
 // silently treating an unreadable subtree as absent can produce a seemingly
 // successful partial migration.
 func (e *Executor) findDatabaseDump(webRoot string) (string, error) {
-	var found string
+	// A conventional dump name anywhere in the tree wins over the first other
+	// .sql file in walk order, so a stray old dump cannot shadow it.
+	var preferred, fallback string
 	err := filepath.WalkDir(webRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if found != "" {
-			return filepath.SkipDir
+		if d.IsDir() {
+			return nil
 		}
-		if !d.IsDir() {
-			name := d.Name()
-			// Check for common database dump names
-			if strings.HasSuffix(name, ".sql") || strings.HasSuffix(name, ".sql.gz") {
-				// Prioritize specific names
-				if name == "backup.sql" || name == "database.sql" || name == "db.sql" {
-					found = path
-					return nil
-				}
-				if found == "" {
-					found = path
-				}
-			}
+		name := d.Name()
+		if !strings.HasSuffix(name, ".sql") && !strings.HasSuffix(name, ".sql.gz") {
+			return nil
+		}
+		if name == "backup.sql" || name == "database.sql" || name == "db.sql" {
+			preferred = path
+			return fs.SkipAll
+		}
+		if fallback == "" {
+			fallback = path
 		}
 		return nil
 	})
-	return found, err
+	if preferred != "" {
+		return preferred, err
+	}
+	return fallback, err
 }
 
 // restoreDatabase validates SQL dump or performs automated restoration if credentials provided
