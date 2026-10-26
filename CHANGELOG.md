@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Refresh the production evidence snapshot after merging PRs #41, #42, #46, and
+  #47. Record exact post-merge checks as pending/queued and keep predecessor or
+  PR-source host runs from being counted as current-main certification.
+
 - Reject backup manifests larger than the verifier's bounded-read limit before
   publishing them, so successful backups remain eligible for strict restore
   verification.
