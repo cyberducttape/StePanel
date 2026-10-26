@@ -25,10 +25,13 @@ The exact-source six-host installed-system smoke
 passed Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy plus
 MariaDB. This is one installed-system smoke per combination, not the required
 20–50-repeat recovery cohort, and these hosted jobs do not simulate physical
-host power loss. The quota-enabled production install smoke
-([40307543702](https://github.com/cyberducttape/StePanel/actions/runs/40307543702))
-is still running; it is not counted as evidence until it completes and its
-post-reboot quota assertions are reviewed.
+host power loss. The exact-source Ubuntu 24.04/ext4 quota-enabled production
+install smoke ([40307543702](https://github.com/cyberducttape/StePanel/actions/runs/40307543702))
+also passed, including quota enforcement before and after abrupt guest loss and
+two real ENOSPC recovery cases. The detailed
+[run report](lab-results/2026-10-26-ubuntu-ext4-quota-install-40307543702.md)
+records scope and limits. This remains one ext4 guest run; it does not certify
+XFS or physical host power-loss behavior.
 
 Production remains **NO-GO**. Open gates include legacy site-identity collision
 recovery, the required 20–50-repeat installed-host recovery cohort, physical
