@@ -10,8 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Refresh the authoritative release evidence for application source `ab6cde8`:
   record passing integration, documentation, CodeQL and six-host installed
-  system smoke runs, keep the quota-enabled install marked in progress, and
-  retain production NO-GO while the remaining release gates are open.
+  system smoke runs, then record the successful exact-source ext4 quota install
+  and abrupt-guest recovery evidence with its limits. Keep production NO-GO
+  while the remaining release gates are open.
 
 - Report every colliding legacy site account during identity migration in one
   deterministic, transactionally fail-closed startup diagnostic instead of
