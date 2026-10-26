@@ -1136,3 +1136,38 @@ func TestCreateSiteBackupCancelsInFlightDatabaseDump(t *testing.T) {
 		t.Fatalf("backup ignored cancellation for %s", elapsed)
 	}
 }
+
+func TestListBackupsForSitesIsNewestFirstAcrossSites(t *testing.T) {
+	root := t.TempDir()
+	webRoot := filepath.Join(root, "www")
+	backupRoot := filepath.Join(root, "backups")
+	cfg := Config{WebRoot: webRoot, BackupRoot: backupRoot}
+	for _, site := range []string{"alpha", "beta", "gamma"} {
+		writeTestFile(t, filepath.Join(webRoot, "sites", site, "public", "index.html"), site)
+	}
+	// alpha has the most backups, but beta's single backup is newer than all
+	// but alpha's last one; gamma is not listed.
+	var created []string
+	for _, site := range []string{"alpha", "alpha", "gamma", "beta", "alpha"} {
+		result, err := CreateSiteBackup(cfg, AuthorizedSite{site: site}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		created = append(created, filepath.Base(result.Path))
+		time.Sleep(2 * time.Millisecond)
+	}
+	listed, err := listBackupsPageForSites(backupRoot, []SiteCapability{AuthorizedSite{site: "alpha"}, AuthorizedSite{site: "beta"}}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(listed))
+	for _, item := range listed {
+		got = append(got, filepath.Base(item.Path))
+	}
+	if want := []string{created[4], created[3]}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("newest two backups across alpha and beta = %v, want %v", got, want)
+	}
+	if empty, err := listBackupsPageForSites(backupRoot, nil, 10); err != nil || len(empty) != 0 {
+		t.Fatalf("listing for no sites = %v, %v", empty, err)
+	}
+}
