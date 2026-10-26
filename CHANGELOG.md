@@ -23,20 +23,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Keep lab-mode root-broker setup from creating a legacy `/var/www/sites`
   tree for sites placed in customer account homes; exercise the broker path
   with a placement-aware regression test.
-- Record the failed ext4 quota VM's customer-placement assertion and link the
-  corrected-source rerun as queued evidence, not a pass.
-
-- Reconcile the latest release evidence: record current-head Documentation and
-  CodeQL passes and keep the recovery shard plus ext4/XFS quota runs incomplete
-  until their hosted jobs finish.
-
-- Queue nine unique two-iteration installed-host recovery shards across the
-  supported OS/web-server matrix; record all 20 planned repetitions as pending
-  until each workflow completes and its recovery evidence is reviewed.
-
-- Record the full exact-head Integration, Documentation, and CodeQL passes on
-  `73975a3`, retaining the active quota-VM and repeated installed-host runs as
-  incomplete release evidence.
+- Reconcile hosted evidence: the corrected-source ext4 run reached customer
+  file management but failed during the account-user transition; the XFS run
+  exceeded its old step deadline; and all nine repeated recovery shards ended
+  unsuccessfully, with the sampled Ubuntu shard hitting the six-hour limit.
+  None counts toward quota certification or the planned 20 recovery repeats.
 
 
 - Reconcile exact-head evidence with the passing full Integration run on
