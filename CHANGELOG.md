@@ -12,6 +12,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   publishing them, so successful backups remain eligible for strict restore
   verification.
 
+- Limit hosted exhaustive recovery shards to one iteration, require a unique
+  shard ID, and reserve 350 minutes of the six-hour job budget. The previous
+  two-iteration shards were canceled mid-iteration, producing no complete
+  repeated-recovery evidence.
+- Reconcile the latest release evidence: record current-head Documentation and
+  CodeQL passes, classify the previous recovery/quota shards as failed, and
+  track the new ext4 diagnostic rerun separately as in progress.
+
 - Retain `CAP_SETUID` and `CAP_SETGID` in the root broker's ambient capability
   set so its validated customer file-manager helper can switch to the site's
   recorded Unix identity under systemd; require the capability contract in

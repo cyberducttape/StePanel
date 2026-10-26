@@ -31,12 +31,12 @@ expect_reject() {
 }
 
 expect_accept 1 false '' 'single bounded smoke run'
-expect_accept 1 true '' 'single exhaustive recovery run'
-expect_accept 2 true 'production-20261023-a' 'two-repeat exhaustive shard'
-expect_reject 2 false 'production-20261023-b' 'repeated bounded smoke run'
-expect_reject 2 true '' 'repeated run without shard identity'
-expect_reject 2 true '../unsafe' 'malformed shard identity'
-expect_reject 3 true 'production-20261023-c' 'too many repeats in one shard'
+expect_accept 1 true 'production-20261023-a' 'single exhaustive recovery shard'
+expect_reject 1 true '' 'full recovery run without shard identity'
+expect_reject 2 true 'production-20261023-b' 'two-iteration shard exceeds hosted job budget'
+expect_reject 2 false 'production-20261023-c' 'repeated bounded smoke run'
+expect_reject 1 true '../unsafe' 'malformed shard identity'
+expect_reject 3 true 'production-20261023-d' 'too many repeats in one shard'
 expect_reject 0 false '' 'zero repeats'
 expect_reject 1 maybe '' 'invalid full-matrix boolean'
 

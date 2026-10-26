@@ -30,8 +30,16 @@ for workflow in "${workflows[@]}"; do
         echo "$workflow is missing the disposable-host boot step deadline" >&2
         exit 1
       }
-      grep -Fq 'max-parallel: ${{ inputs.recovery_matrix_repeats > 1 && 1 || 6 }}' "$workflow" || {
-        echo "$workflow must bound repeated recovery shards to avoid runner starvation" >&2
+      grep -Fq 'timeout-minutes: ${{ inputs.full_recovery_matrix && 360 || 150 }}' "$workflow" || {
+        echo "$workflow must reserve the six-hour hosted job budget for a full recovery iteration" >&2
+        exit 1
+      }
+      grep -Fq "inputs.full_recovery_matrix && '350m' || '140m'" "$workflow" || {
+        echo "$workflow must bound one full iteration below the hosted job limit" >&2
+        exit 1
+      }
+      grep -Fq 'max-parallel: 6' "$workflow" || {
+        echo "$workflow must cap its OS matrix to six hosted runners" >&2
         exit 1
       }
       grep -Fq 'FULL_RECOVERY_MATRIX: ${{ inputs.full_recovery_matrix || false }}' "$workflow" || {

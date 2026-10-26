@@ -19,17 +19,17 @@ on:
   workflow_dispatch:
     inputs:
       full_recovery_matrix:
-        description: 'Run every supported recovery boundary (required for repeated certification shards)'
+        description: 'Run every supported recovery boundary'
         required: false
         default: false
         type: boolean
       recovery_matrix_repeats:
-        description: 'Run 1-2 exhaustive recovery iterations in this shard; use multiple shards for 20-50 repeats'
+        description: 'Run one exhaustive recovery iteration per shard; use unique shard IDs for repeated certification'
         required: false
         default: 1
         type: number
       recovery_matrix_shard:
-        description: 'Unique identifier for this parallel recovery shard (required for 2 iterations)'
+        description: 'Unique identifier (required for each full recovery shard)'
         required: false
         default: ''
         type: string
@@ -96,17 +96,17 @@ jobs:
   install:
     needs: select-hosts
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 150 }}
+    timeout-minutes: ${{ inputs.full_recovery_matrix && 360 || 150 }}
     env:
       RECOVERY_MATRIX_REPEATS: ${{ inputs.recovery_matrix_repeats || 1 }}
       RECOVERY_MATRIX_SHARD: ${{ inputs.recovery_matrix_shard || '' }}
       FULL_RECOVERY_MATRIX: ${{ inputs.full_recovery_matrix || false }}
     strategy:
       fail-fast: false
-      # A repeated recovery cohort may contain many independent shards. Limit
-      # each shard to one host combination so dispatching ten shards does not
-      # occupy sixty hosted runners and starve ordinary CI/install checks.
-      max-parallel: ${{ inputs.recovery_matrix_repeats > 1 && 1 || 6 }}
+      # The six supported OS/web-server combinations are the largest matrix
+      # in one run. Repetition happens across uniquely identified workflows,
+      # each with one exhaustive iteration, so no job can exceed six hours.
+      max-parallel: 6
       matrix:
         include: ${{ fromJSON(needs.select-hosts.outputs.hosts) }}
     name: ${{ matrix.name }} / shard ${{ inputs.recovery_matrix_shard || 'default' }}
@@ -222,10 +222,10 @@ jobs:
           # entire matrix job timeout. Two Ubuntu runs reached the prior
           # 80-minute deadline while apt was still provisioning vsftpd; allow
           # 140 minutes by default and preserve ten minutes for diagnostics.
-          # Full-matrix runs exercise every restore checkpoint and are opt-in
-          # because they need substantially more wall-clock time on TCG/shared
-          # CI hosts.
-          timeout --foreground --kill-after=5s ${{ inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '140m' }} docker exec \
+          # One full recovery iteration needs substantially more wall-clock
+          # time on TCG/shared CI hosts. Give it 350 minutes and leave ten
+          # minutes for diagnostics inside the six-hour GitHub job limit.
+          timeout --foreground --kill-after=5s ${{ inputs.full_recovery_matrix && '350m' || '140m' }} docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
             -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
