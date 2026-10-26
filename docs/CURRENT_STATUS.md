@@ -6,7 +6,28 @@
 
 ---
 
-### Current evidence snapshot — 2026-10-26 (application source `c071169`)
+### Current evidence snapshot — 2026-10-26 (`main` source `3dbb73a`)
+
+The backup-manifest bound, placement-aware root-broker setup, bounded recovery
+shards, and Git quota test isolation are merged into `main` in PRs #41, #42,
+#46, and #47. Post-merge validation is not complete: Integration
+([40261573545](https://github.com/cyberducttape/StePanel/actions/runs/40261573545))
+is pending, CodeQL
+([40261573495](https://github.com/cyberducttape/StePanel/actions/runs/40261573495))
+and Documentation
+([40261573467](https://github.com/cyberducttape/StePanel/actions/runs/40261573467))
+are queued. The installed-host run
+([40261524917](https://github.com/cyberducttape/StePanel/actions/runs/40261524917))
+is for the immediately preceding commit `33f7a5b`, not current `main`, and is
+still pending. Older quota and recovery jobs are based on pre-merge PR sources;
+they do not certify the merged source.
+
+Production remains **NO-GO**. The 20–50-repeat full-host recovery cohort,
+physical power-loss and broad ENOSPC/database-outage evidence, quota-host
+certification, live notification outage/retry proof, capacity envelope,
+upgrade/rollback policy, and independent security review remain open.
+
+### Previous evidence snapshot — 2026-10-26 (application source `c071169`)
 
 Exact-head Integration passed on
 [`c071169a0ff4c2f7ce16b412ddd3b60d2fa714fe`](https://github.com/cyberducttape/StePanel/commit/c071169a0ff4c2f7ce16b412ddd3b60d2fa714fe)
