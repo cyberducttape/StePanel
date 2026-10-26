@@ -167,10 +167,19 @@ func (a *App) reconcileSiteAccess(ctx context.Context) (reconciled []string, fai
 		}
 	}
 	a.Access.mu.RUnlock()
-	for _, access := range pending {
-		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, access.Site)
+	for _, snapshot := range pending {
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, snapshot.Site)
 		if lockErr != nil {
-			failed[access.Site] = lockErr.Error()
+			failed[snapshot.Site] = lockErr.Error()
+			continue
+		}
+		// Re-read under the site lock. Applying the earlier snapshot would
+		// reinstall a key the customer revoked after it was taken.
+		a.Access.mu.RLock()
+		access, exists := a.Access.values[snapshot.Site]
+		a.Access.mu.RUnlock()
+		if !exists || access.State != "pending" {
+			releaseUnlock()
 			continue
 		}
 		if _, err := a.applyAndSaveSiteAccess(operationCtx, access); err != nil {

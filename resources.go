@@ -794,10 +794,20 @@ func (a *App) reconcileResourceProfiles(ctx context.Context) (reconciled []strin
 			pending = append(pending, p)
 		}
 	}
-	for _, p := range pending {
-		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(ctx, resourceMutationLockKeys(p.Site, p.Account)...)
+	for _, snapshot := range pending {
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLocksContext(ctx, resourceMutationLockKeys(snapshot.Site, snapshot.Account)...)
 		if lockErr != nil {
-			failed[p.Site] = lockErr.Error()
+			failed[snapshot.Site] = lockErr.Error()
+			continue
+		}
+		// Re-read under the site lock. The snapshot predates it, and applying
+		// and saving it would revert a profile an administrator saved in the
+		// meantime.
+		a.Resources.mu.RLock()
+		p, exists := a.Resources.values[snapshot.Site]
+		a.Resources.mu.RUnlock()
+		if !exists {
+			releaseUnlock()
 			continue
 		}
 		err := a.applyResourceProfile(operationCtx, p, p.FilesystemQuotaState == "clear-pending")

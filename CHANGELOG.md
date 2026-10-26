@@ -24,6 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   to the site's own build; swapping the document root for a link during the
   image pull exposed host files such as other tenants' deploy keys. The site
   account now makes the copy into its root-parented runner storage.
+- Startup and administrator reconciliation no longer reinstall an SSH key
+  the customer revoked (or recreate a deleted task, or revert a resource
+  profile) while reconciliation waited for the site lock.
 - `stepanel-gitctl clone` takes the release stage from the site account for
   the duration of the root clone, so the account cannot swap a directory git
   has created for a link and redirect root's writes of repository content.
