@@ -15,6 +15,10 @@ RestartSec=1s
 TimeoutStopSec=2h5min
 UMask=0007
 NoNewPrivileges=true
+# The file manager runs validated operations as the owning site account. Keep
+# these two narrowly scoped capabilities effective so the broker can drop to
+# that UID/GID even on systemd hosts that otherwise clear them for root units.
+AmbientCapabilities=CAP_SETUID CAP_SETGID
 PrivateTmp=true
 # The quota tools that apply site and Git staging quotas resolve the block
 # device behind each mount, which a private /dev hides. Keep everything else

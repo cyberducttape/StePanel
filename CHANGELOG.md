@@ -12,6 +12,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   publishing them, so successful backups remain eligible for strict restore
   verification.
 
+- Retain `CAP_SETUID` and `CAP_SETGID` in the root broker's ambient capability
+  set so its validated customer file-manager helper can switch to the site's
+  recorded Unix identity under systemd; require the capability contract in
+  release checks.
 - Extend the quota VM's install-smoke deadline to 90 minutes and the job
   deadline to 150 minutes. The XFS run hit the old deadline before completing
   later gates; the ext4 run reached customer file-manager validation but failed
