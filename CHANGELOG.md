@@ -17,6 +17,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   later gates; the ext4 run reached customer file-manager validation but failed
   because `runuser` could not switch to the placed account. Neither is a quota
   certification pass; both outcomes remain release-gate evidence.
+- Add failure-only account, systemd sandbox, broker capability, and direct
+  `runuser` diagnostics to the customer-site smoke after the ext4 file-manager
+  failure; use the resulting evidence to choose the smallest safe fix.
 - Keep lab-mode root-broker setup from creating a legacy `/var/www/sites`
   tree for sites placed in customer account homes; exercise the broker path
   with a placement-aware regression test.

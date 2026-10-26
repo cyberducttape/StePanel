@@ -107,7 +107,23 @@ status=$(api "$cookie" "$csrf" GET /api/account/hosting)
 status=$(curl --silent --show-error --max-time 30 -o "$work/response" -w '%{http_code}' -X PUT \
   -H "Cookie: $cookie" -H "X-CSRF-Token: $csrf" --data-binary 'customer smoke' \
   "$PANEL/api/sites/files/$site/content?path=smoke.txt")
-[[ $status == 200 ]] || fail "file manager write returned HTTP $status"
+if [[ $status != 200 ]]; then
+  echo 'customer file-manager broker diagnostics:' >&2
+  getent passwd "$customer" >&2 || true
+  id "$customer" >&2 || true
+  broker_pid=$(systemctl show --property=MainPID --value stepanel-root-broker.service 2>/dev/null || true)
+  systemctl show stepanel-root-broker.service \
+    --property=User --property=Group --property=CapabilityBoundingSet \
+    --property=NoNewPrivileges --property=RestrictNamespaces \
+    --property=SystemCallFilter >&2 || true
+  if [[ $broker_pid =~ ^[1-9][0-9]*$ && -r /proc/$broker_pid/status ]]; then
+    grep -E '^(Uid|Gid|Cap(Inh|Prm|Eff|Bnd)|NoNewPrivs|Seccomp):' \
+      "/proc/$broker_pid/status" >&2 || true
+  fi
+  echo 'direct root runuser probe:' >&2
+  runuser -u "$customer" -- id >&2 || true
+  fail "file manager write returned HTTP $status"
+fi
 [[ $(cat "$docroot/smoke.txt") == 'customer smoke' && $(stat -c %U "$docroot/smoke.txt") == "$customer" ]] || fail 'file manager write did not run as the account user'
 
 echo "customer site smoke passed (site $site in /home/$customer, starter quota enforced)"
