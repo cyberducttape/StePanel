@@ -19,8 +19,11 @@ Freeze a candidate before collecting release evidence:
 3. Run against the branch head: CI integration, the six-host installation
    smoke (`gh workflow run install-smoke.yml --ref release/vX.Y`), the
    quota-enabled smoke on ext4 and XFS, the N-1 upgrade smoke, and the
-   recovery cohort shards the [production gates](V1_PRODUCTION_GATES.md)
-   require.
+   recovery cohort required by the [production gates](V1_PRODUCTION_GATES.md).
+   Start the automated cohort with
+   `gh workflow run recovery-cohort.yml --ref release/vX.Y -f repetitions=20`
+   (or 50 for the full cohort); it pins all shards to that dispatch's exact
+   release-branch commit.
 4. Record each result with the branch-head commit it ran on. Evidence for a
    different commit does not count.
 5. Tag the release from the branch head once the gates pass (step 4 of the

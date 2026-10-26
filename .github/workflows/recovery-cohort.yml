@@ -1,0 +1,86 @@
+name: Installed recovery cohort
+
+run-name: Gate 5 recovery cohort (${{ inputs.repetitions || 20 }} repeats, ${{ github.sha }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      repetitions:
+        description: Number of complete installed-host recovery repetitions (20–50)
+        required: true
+        default: 20
+        type: number
+
+concurrency:
+  group: stepanel-recovery-cohort-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+      repetitions: ${{ steps.plan.outputs.repetitions }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: plan
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: python3 scripts/plan-recovery-cohort.py "$SOURCE_SHA" "$RUN_ID" "$REPETITIONS" >> "$GITHUB_OUTPUT"
+      - name: Record immutable cohort source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: |
+          {
+            echo '### Installed recovery cohort'
+            echo
+            echo "- Source commit: `$SOURCE_SHA`"
+            echo "- Full six-host repetitions: $REPETITIONS"
+            echo '- Each repetition is one six-host matrix with one exhaustive recovery iteration per host.'
+            echo '- Cohort succeeds only if every host job in every repetition succeeds.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  recovery:
+    needs: plan
+    strategy:
+      fail-fast: false
+      # One complete six-host cohort at a time avoids oversubscribing the
+      # hosted runner pool while retaining an exact source SHA for every shard.
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    uses: ./.github/workflows/install-smoke.yml
+    with:
+      full_recovery_matrix: true
+      recovery_matrix_repeats: 1
+      recovery_matrix_shard: ${{ matrix.shard }}
+      host: all
+
+  summarize:
+    if: always()
+    needs: [plan, recovery]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Record cohort result
+        env:
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          REPETITIONS: ${{ needs.plan.outputs.repetitions }}
+          RESULT: ${{ needs.recovery.result }}
+        run: |
+          {
+            echo '### Gate 5 cohort result'
+            echo
+            echo "- Source commit: `$SOURCE_SHA`"
+            echo "- Requested repetitions: $REPETITIONS"
+            echo "- All-shard result: **$RESULT**"
+            echo '- Review each shard and all six host jobs before counting any repetition.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [[ $RESULT == success ]]
