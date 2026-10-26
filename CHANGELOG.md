@@ -40,6 +40,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   exceeded its old step deadline; and all nine repeated recovery shards ended
   unsuccessfully, with the sampled Ubuntu shard hitting the six-hour limit.
   None counts toward quota certification or the planned 20 recovery repeats.
+- Update the recovery-matrix contract to require 20 unique one-iteration shards
+  across the supported OS/web-server matrix; count no repetition until its
+  workflow completes and its recovery evidence is reviewed.
+
+- Record the full exact-head Integration, Documentation, and CodeQL passes on
+  `73975a3`, retaining the active quota-VM and repeated installed-host runs as
+  incomplete release evidence.
 
 
 - Reconcile exact-head evidence with the passing full Integration run on

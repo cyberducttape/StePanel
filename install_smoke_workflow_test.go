@@ -46,9 +46,10 @@ func TestInstallRecoveryShardsHaveIndependentConcurrencyGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, contract := range []string{
-		"[[ $repeats =~ ^[12]$ ]]",
+		"[[ $repeats == 1 ]]",
 		"[[ $full == true ]]",
-		"two-iteration recovery shards require a unique recovery_matrix_shard",
+		"recovery_matrix_repeats must be 1; run repeated certification as one-iteration shards",
+		"full recovery shards require a unique recovery_matrix_shard",
 	} {
 		if !strings.Contains(string(validator), contract) {
 			t.Errorf("recovery-matrix validator is missing contract %q", contract)
@@ -63,10 +64,11 @@ func TestInstallSmokeTimeoutLeavesHostAndDiagnosticHeadroom(t *testing.T) {
 	}
 	text := string(workflow)
 	for _, budget := range []string{
-		"timeout-minutes: ${{ inputs.recovery_matrix_repeats > 1 && 360 || inputs.full_recovery_matrix && 180 || 150 }}",
-		"inputs.recovery_matrix_repeats > 1 && '350m' || inputs.full_recovery_matrix && '170m' || '140m'",
+		"timeout-minutes: ${{ inputs.full_recovery_matrix && 360 || 150 }}",
+		"inputs.full_recovery_matrix && '350m' || '140m'",
 		"80-minute deadline while apt was still provisioning vsftpd",
 		"140 minutes by default and preserve ten minutes for diagnostics.",
+		"One full recovery iteration needs substantially more wall-clock",
 	} {
 		if !strings.Contains(text, budget) {
 			t.Errorf("install smoke timeout contract is missing %q", budget)
