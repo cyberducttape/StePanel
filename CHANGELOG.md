@@ -6,7 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security
+
+- Root helpers no longer resolve paths below a site's home with commands
+  that follow links. `stepanel-sitectl` and `stepanel-userctl` re-owned
+  directories such as a legacy site's `.php` and `public` trees and a placed
+  site's `~/.stepanel` state with `install -d`, which follows a planted link
+  and re-owns the existing target; a site account (SFTP, shell, or PHP code
+  running as the site) could make root hand it a system directory. These
+  paths are now created, re-owned, sealed, written and removed through a
+  verified walk (`stepanel_cd_dir`/`stepanel_install_dir`) that refuses
+  links and acts on the opened directory. `setfacl` on site trees uses `-P`.
+- `stepanel-appctl python-apply` builds, replaces and removes the site
+  virtualenv as the site user, so a planted link cannot make root delete
+  another site's files.
+
 ### Fixed
+
+- Root broker task deletion and history invoked appctl's whole-site
+  `delete` action and an unknown `history` action; both failed for every
+  production request. PHP worker limits of 257-512 were rejected by the
+  broker although the panel accepts them.
 
 - Site identity repair: a repaired site whose legacy account name is still
   held by a deleted site now passes the startup migration; previously the
