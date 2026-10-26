@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Reconcile the detailed production-gate table with exact-source six-host
+  installed smoke and Ubuntu ext4 quota/abrupt-guest recovery artifacts; keep
+  physical power-loss, repeated-cohort, XFS, and other certification gaps open.
+
 - Refresh the authoritative release evidence for application source `ab6cde8`:
   record passing integration, documentation, CodeQL and six-host installed
   system smoke runs, then record the successful exact-source ext4 quota install
