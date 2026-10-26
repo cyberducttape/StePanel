@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Exclude local reusable workflow paths from the third-party GitHub Action SHA
+  pin check, while retaining pin enforcement for external actions.
+
 - Add an offline, journaled site-identity collision repair command. It commits
   unique mappings atomically, reconciles host state forward-only, verifies
   ownership and service identity, preserves a SQLite snapshot, and resumes

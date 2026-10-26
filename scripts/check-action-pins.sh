@@ -30,6 +30,11 @@ while IFS= read -r match; do
   ref=${match#*uses:}
   ref=${ref#"${ref%%[![:space:]]*}"}
   [[ -n "$ref" ]] || continue
+  # Local reusable workflows are versioned with the checked-out source tree,
+  # not fetched from an external action repository.
+  if [[ "$ref" == ./* ]]; then
+    continue
+  fi
   action=${ref%%@*}
   revision=${ref##*@}
   if [[ ! "$revision" =~ ^[a-f0-9]{40}$ ]]; then
