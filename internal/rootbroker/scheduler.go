@@ -131,10 +131,20 @@ func requestLockKeys(req *Request) []string {
 			add("proxyctl", "host")
 		}
 	case "db":
-		add("site", req.DB.Site)
-		add("database", req.DB.Database)
-		if len(keys) == 0 || req.DB.Action == "reconcile" || req.DB.Action == "inventory" {
-			// Engine-wide reads (inventory); dbctl locks its own catalog.
+		switch req.DB.Action {
+		case "reconcile", "inventory", "diagnostics", "sessions", "settings", "terminate":
+			// Engine-wide operations; dbctl locks its own catalog. Their site
+			// and database fields are placeholders, not resources.
+		case "dump":
+			// A dump reads one database. Its site field is a placeholder
+			// ("dump"), so keying on it would serialize every backup on the
+			// host behind one another and behind a real site of that name.
+			add("database", req.DB.Database)
+		default:
+			add("site", req.DB.Site)
+			add("database", req.DB.Database)
+		}
+		if len(keys) == 0 {
 			add("dbctl", "engine")
 		}
 	case "files":

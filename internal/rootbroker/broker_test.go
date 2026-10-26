@@ -261,7 +261,7 @@ func TestBrokerTaskDeleteAndHistoryUseFixedHelper(t *testing.T) {
 				t.Fatal(err)
 			}
 			fakeAppctl := filepath.Join(t.TempDir(), "appctl")
-			script := "#!/bin/sh\n[ \"$#\" -eq 4 ] && [ \"$1\" = \"" + action + "\" ] && [ \"$2\" = demo ] && [ \"$3\" = " + siteidentity.UnixUser("demo") + " ] && [ \"$4\" = nightly ] || exit 9\n"
+			script := "#!/bin/sh\n[ \"$#\" -eq 4 ] && [ \"$1\" = \"task-" + action + "\" ] && [ \"$2\" = demo ] && [ \"$3\" = " + siteidentity.UnixUser("demo") + " ] && [ \"$4\" = nightly ] || exit 9\n"
 			if action == "history" {
 				script += "printf '%s' '{\"enabled\":true}'\n"
 			}

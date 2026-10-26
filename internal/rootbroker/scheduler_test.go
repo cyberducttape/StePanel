@@ -288,6 +288,8 @@ func TestRequestLockKeys(t *testing.T) {
 		{"vhost", &Request{RequestType: "vhost", Vhost: &VhostRequest{Action: "apply", Site: "alpha"}}, []string{"site:alpha"}},
 		{"db with site", &Request{RequestType: "db", DB: &DBRequest{Action: "provision", Site: "alpha", Database: "alpha_db"}}, []string{"site:alpha", "database:alpha_db"}},
 		{"db inventory", &Request{RequestType: "db", DB: &DBRequest{Action: "inventory"}}, []string{"dbctl:engine"}},
+		{"db inventory placeholders", &Request{RequestType: "db", DB: &DBRequest{Action: "inventory", Site: "inventory", Database: "inventory"}}, []string{"dbctl:engine"}},
+		{"db dump ignores placeholder site", &Request{RequestType: "db", DB: &DBRequest{Action: "dump", Site: "dump", Database: "alpha_db"}}, []string{"database:alpha_db"}},
 		{"git site", &Request{RequestType: "git", Git: &GitRequest{Action: "delete", Site: "alpha"}}, []string{"site:alpha"}},
 		{"git clone", &Request{RequestType: "git", Git: &GitRequest{Action: "clone", Destination: "/var/www/sites/alpha/.stepanel-release-1"}}, []string{"git:/var/www/sites/alpha/.stepanel-release-1"}},
 		{"certificate", &Request{RequestType: "certificate", Certificate: &CertificateRequest{Action: "issue", Domain: "example.org"}}, []string{"certificate:example.org"}},

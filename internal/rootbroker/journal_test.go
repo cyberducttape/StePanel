@@ -288,15 +288,16 @@ func TestBrokerDumpsIntoCallerCreatedFile(t *testing.T) {
 	if err := json.Unmarshal(firstResponse.Details, &dumpDetails); err != nil {
 		t.Fatal(err)
 	}
-	if dumpDetails.CapacityAddedBytes != 24 {
-		t.Fatalf("stream capacity extension = %d bytes, want 24", dumpDetails.CapacityAddedBytes)
+	// The 12-byte overage needs 24 bytes, rounded up to one extension granule.
+	if dumpDetails.CapacityAddedBytes != dumpExtensionGranule {
+		t.Fatalf("stream capacity extension = %d bytes, want %d", dumpDetails.CapacityAddedBytes, dumpExtensionGranule)
 	}
 	var reserved int64
 	if err := db.QueryRow(`SELECT bytes FROM capacity_reservations WHERE reservation_id='capacity-test-1'`).Scan(&reserved); err != nil {
 		t.Fatal(err)
 	}
-	if reserved != 3145752 {
-		t.Fatalf("durable reservation after stream = %d, want 3145752", reserved)
+	if reserved != 3145728+int64(dumpExtensionGranule) {
+		t.Fatalf("durable reservation after stream = %d, want %d", reserved, 3145728+int64(dumpExtensionGranule))
 	}
 	if data, _ := os.ReadFile(target); string(data) != "DUMP OF site_db\n" {
 		t.Fatalf("dump file = %q", data)
