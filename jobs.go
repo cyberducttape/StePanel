@@ -3009,15 +3009,16 @@ const finishedCacheRetention = 24 * time.Hour
 
 // pruneFinishedCacheLocked drops finished durable jobs older than cutoff from
 // the in-memory cache. SQLite stays authoritative for them (reads of a job go
-// to the database); only queued and running jobs need the local entry, and
-// recent finished ones keep in-process operation keys idempotent. Callers
-// must hold j.mu.
+// to the database); only queued and running jobs need the local entry,
+// recent finished ones keep in-process operation keys idempotent, and
+// dead-letter jobs stay until an operator reviews them. Callers must hold
+// j.mu.
 func (j *Jobs) pruneFinishedCacheLocked(cutoff time.Time) {
 	if j.db == nil {
 		return
 	}
 	for id, item := range j.items {
-		if item != nil && item.FinishedAt != nil && item.FinishedAt.Before(cutoff) && item.State != "queued" && item.State != "running" {
+		if item != nil && item.FinishedAt != nil && item.FinishedAt.Before(cutoff) && (item.State == "completed" || item.State == "failed" || item.State == "cancelled") {
 			delete(j.items, id)
 		}
 	}

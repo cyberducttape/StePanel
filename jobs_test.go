@@ -1839,7 +1839,7 @@ func TestDurableJobCachePrunesOnlyOldFinishedJobs(t *testing.T) {
 	j.mu.Lock()
 	j.pruneFinishedCacheLocked(time.Now().Add(-finishedCacheRetention))
 	j.mu.Unlock()
-	for id, want := range map[string]bool{"old-finished": false, "old-dead-letter": false, "recent-finished": true, "running": true} {
+	for id, want := range map[string]bool{"old-finished": false, "old-dead-letter": true, "recent-finished": true, "running": true} {
 		if _, kept := j.items[id]; kept != want {
 			t.Errorf("cache entry %s kept = %v, want %v", id, kept, want)
 		}
