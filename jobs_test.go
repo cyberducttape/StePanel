@@ -1793,3 +1793,55 @@ func TestRunWorkerPoolDeadLettersNonRetryableFailuresImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A worker whose lease moved to another worker must see the shared sentinel
+// from every claim mutation, so RunWorker skips the job instead of exiting.
+func TestDurableJobLostLeaseReportsSentinel(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	j := newJobsWithDB(db, 1)
+	item := &Job{ID: "job-lost-lease", Kind: "test", State: "queued", User: "tenant", MaxAttempts: 3, StartedAt: time.Now().UTC()}
+	if err := j.add(item); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := j.Claim(item.ID, "worker-a"); err != nil || !ok {
+		t.Fatalf("claim = %v, %v", ok, err)
+	}
+	for name, mutate := range map[string]func() error{
+		"fail":     func() error { return j.FailClaim(item.ID, "worker-b", "boom") },
+		"progress": func() error { return j.UpdateClaim(item.ID, "worker-b", 50) },
+		"payload":  func() error { return j.UpdateClaimPayload(item.ID, "worker-b", []byte(`{}`)) },
+	} {
+		if err := mutate(); !errors.Is(err, errJobLeaseNotHeld) {
+			t.Errorf("%s by a worker without the lease = %v, want errJobLeaseNotHeld", name, err)
+		}
+	}
+}
+
+func TestDurableJobCachePrunesOnlyOldFinishedJobs(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	j := newJobsWithDB(db, 1)
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	recent := time.Now().UTC().Add(-time.Minute)
+	j.items = map[string]*Job{
+		"old-finished":    {ID: "old-finished", State: "completed", FinishedAt: &old},
+		"old-dead-letter": {ID: "old-dead-letter", State: "dead-letter", FinishedAt: &old},
+		"recent-finished": {ID: "recent-finished", State: "completed", FinishedAt: &recent},
+		"running":         {ID: "running", State: "running"},
+	}
+	j.mu.Lock()
+	j.pruneFinishedCacheLocked(time.Now().Add(-finishedCacheRetention))
+	j.mu.Unlock()
+	for id, want := range map[string]bool{"old-finished": false, "old-dead-letter": false, "recent-finished": true, "running": true} {
+		if _, kept := j.items[id]; kept != want {
+			t.Errorf("cache entry %s kept = %v, want %v", id, kept, want)
+		}
+	}
+}
