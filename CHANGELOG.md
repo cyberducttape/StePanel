@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Record the successful Ubuntu 24.04 ext4 quota-enabled install smoke and its
+  actual quota/ENOSPC results, while documenting that the run predates the
+  final merged source and does not close filesystem or recovery certification.
+- Recheck user/project quota enforcement after simulated guest reboot in the
+  quota workflow, so persistent-disk restart recovery is part of the gate.
+
 - Refresh the production evidence snapshot and runtime table after merging PRs
   #41, #42, #46, and #47. Record exact post-merge checks as pending/queued and
   keep predecessor or PR-source host runs from counting as current-main

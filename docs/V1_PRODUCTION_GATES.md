@@ -23,7 +23,16 @@ are queued. The installed-host run
 ([40261524917](https://github.com/cyberducttape/StePanel/actions/runs/40261524917))
 is for the immediately preceding commit `33f7a5b`, not current `main`, and is
 still pending. Older quota and recovery jobs are based on pre-merge PR sources;
-they do not certify the merged source.
+they do not certify the merged source. One Ubuntu 24.04/ext4 quota-enabled
+install smoke did pass on PR #42 source `a26de03`
+([run 40255950868](https://github.com/cyberducttape/StePanel/actions/runs/40255950868));
+it verified active user/project quotas, actual quota exhaustion, customer-site
+provisioning, WordPress recovery, abrupt guest reboot, and two real-ENOSPC
+checks. See the [run report](./lab-results/2026-10-26-ubuntu-ext4-quota-install-40255950868.md).
+This is one-host partial evidence, not current-main or filesystem-matrix
+certification. Its captured console also includes an early failed
+`quotaon.service` start; post-mount effective enforcement passed, but startup
+behavior and quota state after reboot need explicit follow-up.
 
 The 20–50-repeat full-host recovery cohort, physical power-loss and broad
 ENOSPC/database-outage evidence, quota-host certification, live notification

@@ -76,6 +76,35 @@ func TestInstallSmokeTimeoutLeavesHostAndDiagnosticHeadroom(t *testing.T) {
 	}
 }
 
+func TestQuotaSmokeRechecksEnforcementAfterAbruptGuestRestart(t *testing.T) {
+	workflow, err := os.ReadFile(".github/workflows/quota-install-smoke.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	recovery := strings.Index(text, "echo 'quota-enabled guest recovered after abrupt QEMU loss'")
+	verification := strings.Index(text, "echo 'quota accounting and enforcement verified after abrupt QEMU loss'")
+	if recovery < 0 || verification <= recovery {
+		t.Fatal("quota smoke must verify filesystem quota enforcement after abrupt guest recovery")
+	}
+	postRebootChecks := text[recovery:verification]
+	for _, contract := range []string{
+		"findmnt -no OPTIONS -T /var/www",
+		"findmnt -no OPTIONS -T /home",
+		"(usrquota|uquota)",
+		"(prjquota|pquota)",
+		"Accounting: ON",
+		"Enforcement: ON",
+		"user quota on /var/www",
+		"project quota on /var/www",
+		"user quota on /home",
+	} {
+		if !strings.Contains(postRebootChecks, contract) {
+			t.Errorf("post-reboot quota verification is missing %q", contract)
+		}
+	}
+}
+
 func TestControlPlaneDBOutageSmokeRequiresExplicitFailClosedEvidence(t *testing.T) {
 	script, err := os.ReadFile("deploy/lab/control-plane-db-outage-smoke.sh")
 	if err != nil {

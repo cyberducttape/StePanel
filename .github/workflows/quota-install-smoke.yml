@@ -296,6 +296,41 @@ jobs:
             exit 1
           }
           echo 'quota-enabled guest recovered after abrupt QEMU loss'
+          # Recheck effective quota state after the guest restart, not just
+          # before installation. The persistent disks survive this simulated
+          # loss, so their user/project enforcement must be active again too.
+          timeout --foreground 20s ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
+            "sudo bash -s -- '$quota_filesystem'" <<'REMOTE'
+          set -Eeuo pipefail
+          filesystem=$1
+          options=$(findmnt -no OPTIONS -T /var/www)
+          printf 'post-reboot quota filesystem=%s mount options=%s\n' "$filesystem" "$options"
+          [[ $options =~ (^|,)(usrquota|uquota)(,|$) ]]
+          [[ $options =~ (^|,)(prjquota|pquota)(,|$) ]]
+          home_options=$(findmnt -no OPTIONS -T /home)
+          printf 'post-reboot home mount options=%s\n' "$home_options"
+          [[ $home_options =~ (^|,)(usrquota|uquota)(,|$) ]]
+          if [[ $filesystem == xfs ]]; then
+            quota_state=$(xfs_quota -x -c 'state -up' /var/www 2>&1 || true)
+            printf '%s\n' "$quota_state"
+            grep -F 'Accounting: ON' <<<"$quota_state"
+            grep -F 'Enforcement: ON' <<<"$quota_state"
+            home_quota_state=$(xfs_quota -x -c 'state -u' /home 2>&1 || true)
+            printf '%s\n' "$home_quota_state"
+            grep -F 'Accounting: ON' <<<"$home_quota_state"
+            grep -F 'Enforcement: ON' <<<"$home_quota_state"
+          else
+            user_quota_state=$(quotaon -p -u /var/www 2>&1 || true)
+            project_quota_state=$(quotaon -p -P /var/www 2>&1 || true)
+            home_user_quota_state=$(quotaon -p -u /home 2>&1 || true)
+            printf '%s\n%s\n' "$user_quota_state" "$project_quota_state"
+            printf '%s\n' "$home_user_quota_state"
+            grep -Eq '^user quota on /var/www \(.*\) is on' <<<"$user_quota_state"
+            grep -Eq '^project quota on /var/www \(.*\) is on' <<<"$project_quota_state"
+            grep -Eq '^user quota on /home \(.*\) is on' <<<"$home_user_quota_state"
+          fi
+          REMOTE
+          echo 'quota accounting and enforcement verified after abrupt QEMU loss'
           # shellcheck disable=SC2016
           timeout --foreground 10m ssh "${ssh_args[@]}" vmtest@127.0.0.1 \
             'sudo test "$(findmnt -n -o FSTYPE --target /mnt/stepanel-enospc)" = ext4 && sudo test "$(findmnt -n -o SOURCE --target /mnt/stepanel-enospc)" = /dev/vdc && sudo env STEPANEL_ENOSPC_BACKUP_ROOT=/mnt/stepanel-enospc STEPANEL_ENOSPC_RESTORE_ROOT=/mnt/stepanel-enospc /work/stepanel-enospc.test -test.run "^Test(Backup|RestoreFiles)RecoversFromRealENOSPC$" -test.v'
