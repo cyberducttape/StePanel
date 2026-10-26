@@ -3,8 +3,10 @@ package siteidentity
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -49,14 +51,31 @@ func TestMigrateExistingRejectsLegacyCollision(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "sites"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	// These names are a known collision for the legacy 32-bit derivation.
-	for _, site := range []string{"shared-site-prefix00018346", "shared-site-prefix0001d455"} {
+	// These are two independent collisions for the legacy 32-bit derivation.
+	sites := []string{
+		"shared-site-prefix00018346", "shared-site-prefix0001d455",
+		"other-site-prefixx0217f8", "other-site-prefixx02264b",
+	}
+	for _, site := range sites {
 		if err := os.Mkdir(filepath.Join(root, "sites", site), 0o750); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := MigrateExisting(db, root); err == nil {
+	err := MigrateExisting(db, root)
+	if err == nil {
 		t.Fatal("legacy identity collision was accepted")
+	}
+	for _, detail := range []string{
+		"offline recovery is required",
+		UnixUser(sites[0]), sites[0], sites[1],
+		UnixUser(sites[2]), sites[2], sites[3],
+	} {
+		if !strings.Contains(err.Error(), detail) {
+			t.Errorf("collision diagnostic %q does not include %q", err, detail)
+		}
+	}
+	if strings.Index(err.Error(), UnixUser(sites[2])) > strings.Index(err.Error(), UnixUser(sites[0])) {
+		t.Fatalf("collision diagnostic is not deterministic: %v", err)
 	}
 	var mapped int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM site_identities`).Scan(&mapped); err != nil {
@@ -64,6 +83,40 @@ func TestMigrateExistingRejectsLegacyCollision(t *testing.T) {
 	}
 	if mapped != 0 {
 		t.Fatalf("collision-aborted migration left %d partial identity mappings", mapped)
+	}
+}
+
+func TestRejectLegacyIdentityCollisionsCollectsPersistedOwnerConflicts(t *testing.T) {
+	db := testIdentityDB(t)
+	owner := "deleted-site"
+	newSite := "unrelated"
+	if _, err := db.Exec(`INSERT INTO site_identities(site, username, created_at) VALUES (?, ?, 1)`, owner, UnixUser(newSite)); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "sites"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "sites", newSite), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "sites"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.ExecContext(context.Background(), "ROLLBACK")
+	err = rejectLegacyIdentityCollisions(context.Background(), conn, entries)
+	want := fmt.Sprintf("%s shared by %q, %q", UnixUser(newSite), owner, newSite)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("persisted collision error = %v, want to include %q", err, want)
 	}
 }
 
