@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Add an offline, journaled site-identity collision repair command. It commits
+  unique mappings atomically, reconciles host state forward-only, verifies
+  ownership and service identity, preserves a SQLite snapshot, and resumes
+  safely after interruption. Require explicit approval to revoke FTPS
+  credentials.
+
 - Add a pinned 20–50 repetition installed-host recovery cohort workflow. Each
   unique shard runs one complete six-host recovery matrix, records its source
   SHA and aggregate result, and emits non-colliding diagnostic artifacts.

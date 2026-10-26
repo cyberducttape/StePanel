@@ -86,6 +86,60 @@ func TestMigrateExistingRejectsLegacyCollision(t *testing.T) {
 	}
 }
 
+func TestMigrateExistingAcceptsFullyReassignedLegacyCollision(t *testing.T) {
+	db := testIdentityDB(t)
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "sites"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	sites := []string{"shared-site-prefix00018346", "shared-site-prefix0001d455"}
+	for _, site := range sites {
+		if err := os.Mkdir(filepath.Join(root, "sites", site), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO site_identities(site, username, created_at) VALUES (?, ?, 1)`, site, allocatedUser(site, 0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := MigrateExisting(db, root); err != nil {
+		t.Fatalf("completed unique reassignment did not permit startup migration: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(DISTINCT username) FROM site_identities WHERE site IN (?, ?)`, sites[0], sites[1]).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("reassigned identities have %d unique users, want 2", count)
+	}
+}
+
+func TestMigrateExistingRejectsPartiallyReassignedLegacyCollision(t *testing.T) {
+	db := testIdentityDB(t)
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "sites"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	sites := []string{"shared-site-prefix00018346", "shared-site-prefix0001d455"}
+	for _, site := range sites {
+		if err := os.Mkdir(filepath.Join(root, "sites", site), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO site_identities(site, username, created_at) VALUES (?, ?, 1)`, sites[0], allocatedUser(sites[0], 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateExisting(db, root); err == nil || !strings.Contains(err.Error(), "offline recovery is required") {
+		t.Fatalf("partial collision reassignment error = %v, want fail-closed recovery diagnostic", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM site_identities`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("failed partial migration changed identity row count to %d", count)
+	}
+}
+
 func TestRejectLegacyIdentityCollisionsCollectsPersistedOwnerConflicts(t *testing.T) {
 	db := testIdentityDB(t)
 	owner := "deleted-site"

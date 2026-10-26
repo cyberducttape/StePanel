@@ -27,6 +27,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "identity-repair" {
+		os.Exit(runIdentityRepair(os.Args[2:]))
+	}
 	webRootFlag := flag.String("webroot", "/var/www", "Web root directory")
 	controlPlaneDBFlag := flag.String("control-plane-db", os.Getenv("STEPANEL_CONTROL_PLANE_DB"), "SQLite control-plane database used for fencing")
 	recoveryRootFlag := flag.String("recovery-root", os.Getenv("STEPANEL_RECOVERY_ROOT"), "durable recovery journal root")

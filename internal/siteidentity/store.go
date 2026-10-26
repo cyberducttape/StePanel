@@ -147,6 +147,18 @@ func rejectLegacyIdentityCollisions(ctx context.Context, conn *sql.Conn, entries
 		}
 		username := UnixUser(entry.Name())
 		owners[username] = append(owners[username], entry.Name())
+		// A completed offline repair assigns every colliding site a distinct,
+		// persisted account. The legacy digest remains the same by definition,
+		// but it no longer describes the host identity and must not block the
+		// next startup. An absent or still-legacy mapping remains unresolved.
+		var assigned string
+		assignmentErr := conn.QueryRowContext(ctx, `SELECT username FROM site_identities WHERE site = ?`, entry.Name()).Scan(&assigned)
+		if assignmentErr == nil && assigned != username {
+			continue
+		}
+		if assignmentErr != nil && !errors.Is(assignmentErr, sql.ErrNoRows) {
+			return fmt.Errorf("inspect site identity assignment %q: %w", entry.Name(), assignmentErr)
+		}
 		var persistedOwner string
 		err := conn.QueryRowContext(ctx, `SELECT site FROM site_identities WHERE username = ?`, username).Scan(&persistedOwner)
 		if err == nil && persistedOwner != entry.Name() {
@@ -160,8 +172,22 @@ func rejectLegacyIdentityCollisions(ctx context.Context, conn *sql.Conn, entries
 		if len(sites) < 2 {
 			continue
 		}
+		allReassigned := true
 		for _, site := range sites {
-			add(username, site)
+			var assigned string
+			err := conn.QueryRowContext(ctx, `SELECT username FROM site_identities WHERE site = ?`, site).Scan(&assigned)
+			if errors.Is(err, sql.ErrNoRows) || err == nil && assigned == username {
+				allReassigned = false
+				break
+			}
+			if err != nil {
+				return fmt.Errorf("inspect colliding site identity %q: %w", site, err)
+			}
+		}
+		if !allReassigned {
+			for _, site := range sites {
+				add(username, site)
+			}
 		}
 	}
 	if len(collisions) == 0 {

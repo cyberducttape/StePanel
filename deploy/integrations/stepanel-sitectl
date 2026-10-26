@@ -572,7 +572,9 @@ pool_error() {
   trap - ERR
   rollback_pools
   local unit
-  for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit" 2>/dev/null || true; done
+  if [[ ${STEPANEL_IDENTITY_REPAIR_OFFLINE:-0} != 1 ]]; then
+    for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit" 2>/dev/null || true; done
+  fi
   cleanup_pool_temp
   exit "$status"
 }
@@ -658,7 +660,9 @@ for validator in "${validators[@]}"; do
   fi
   rm -f "$validator_output"
 done
-for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit"; done
+if [[ ${STEPANEL_IDENTITY_REPAIR_OFFLINE:-0} != 1 ]]; then
+  for unit in "${fpm_units[@]}"; do systemctl reload-or-restart "$unit"; done
+fi
 trap - ERR
 cleanup_pool_temp
 

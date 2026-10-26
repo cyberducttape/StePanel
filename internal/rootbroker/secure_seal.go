@@ -82,3 +82,9 @@ func secureSealTree(ctx context.Context, root string) error {
 	}
 	return nil
 }
+
+// SecureSealSiteTree applies the broker's descriptor-relative public-tree
+// permission contract for offline identity recovery tooling.
+func SecureSealSiteTree(ctx context.Context, root string) error {
+	return secureSealTree(ctx, root)
+}
