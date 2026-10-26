@@ -20,6 +20,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `stepanel-appctl python-apply` builds, replaces and removes the site
   virtualenv as the site user, so a planted link cannot make root delete
   another site's files.
+- `stepanel-runnerctl` copied the build source as root and handed the copy
+  to the site's own build; swapping the document root for a link during the
+  image pull exposed host files such as other tenants' deploy keys. The site
+  account now makes the copy into its root-parented runner storage.
+- `stepanel-gitctl clone` takes the release stage from the site account for
+  the duration of the root clone, so the account cannot swap a directory git
+  has created for a link and redirect root's writes of repository content.
 
 ### Fixed
 

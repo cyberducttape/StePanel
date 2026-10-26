@@ -886,6 +886,7 @@ func TestRunnerWorksUnderSELinuxAndKeepsLastGoodArtifact(t *testing.T) {
 		"--property=ProtectClock", "--property=RestrictRealtime", "RestrictAddressFamilies=",
 		`-v "$root:/src`, `--working-directory="$root"`, `runner_runtime="stepanel-runner-${site_user}-${BASHPID}`,
 		`-delete`, "systemd-run --quiet --wait --pipe",
+		"\ncp -a --reflink=auto --no-preserve=ownership -- \"$root/.\"",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("runner helper must not contain %q", forbidden)
@@ -896,8 +897,10 @@ func TestRunnerWorksUnderSELinuxAndKeepsLastGoodArtifact(t *testing.T) {
 		`graphroot = "%s"`,
 		`runner_runtime="stepanel-runner-${site_user}"`,
 		`--working-directory="$runner_home"`,
-		`cp -a --reflink=auto --no-preserve=ownership -- "$root/." "$source_copy/"`,
-		`chown -R -h -- "$site_user:$site_user" "$source_copy"`,
+		// The site account copies its own source: a root copy of a tree the
+		// account controls could be redirected to host files.
+		`run_site_command cp -a --reflink=auto --no-preserve=ownership -- "$root/." "$source_copy/"`,
+		`install -d -m 0700 -o "$site_user" -g "$site_user" "$source_copy"`,
 		`-v "$source_copy:/src:ro,Z"`,
 		`-v "$build_artifact:/artifact:rw,Z"`,
 		`restorecon -R -F -x -- "$build_artifact"`,

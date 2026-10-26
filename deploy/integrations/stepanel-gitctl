@@ -203,6 +203,25 @@ case "$action" in
     git_host=${BASH_REMATCH[1]}
     git_host_allowed "$git_host" || { echo 'repository host is not in STEPANEL_GIT_ALLOWED_HOSTS' >&2; exit 1; }
     valid_stage_path "$site" "$destination" || { echo 'invalid clone destination' >&2; exit 1; }
+    # The site's tree owner receives the clone. A placed site's private state
+    # is below directories its account controls, so read it from a verified
+    # walk rather than a path the account could redirect to another tenant.
+    clone_owner=$( if (( site_placed )); then stepanel_cd_dir "$site_home" "$site_private" && stat -c '%u:%g' .; else stat -c '%u:%g' -- "$site_private"; fi ) || { echo 'cannot resolve the site tree owner' >&2; exit 1; }
+    # stage-limit gives the stage to the site account. While root checks out
+    # repository content the account controls, the account could swap a
+    # directory git has just created (and cached as checked) for a link and
+    # redirect root's writes. Take the stage from the account for the clone;
+    # the EXIT trap hands it back, also when the clone fails. The parent is
+    # not tenant-writable, so the stage entry itself cannot be replaced.
+    stage_owner=$(stat -c '%u:%g' -- "$destination")
+    stage_mode=$(stat -c '%a' -- "$destination")
+    restore_stage() {
+      chown --no-dereference -- "$stage_owner" "$destination" 2>/dev/null || true
+      chmod -- "0$stage_mode" "$destination" 2>/dev/null || true
+    }
+    trap restore_stage EXIT
+    chown --no-dereference -- root:root "$destination"
+    chmod 0700 "$destination"
     [[ -z $(find "$destination" -mindepth 1 -maxdepth 1 -print -quit) ]] || { echo 'Git release staging directory must be empty before clone' >&2; exit 1; }
     project_root=/var/lib/stepanel/git-stage-projects
     marker="$project_root/$project_id"
@@ -217,7 +236,8 @@ case "$action" in
       clone --depth 1 --branch "$ref" --single-branch --no-tags "$repository" "$destination"
     # The clone takes the ownership of the site's own tree: the legacy site
     # root, or a placed site's private state.
-    chown -R --no-dereference "$(stat -c '%u:%g' "$site_private")" "$destination"
+    chown -R --no-dereference -- "$clone_owner" "$destination"
+    stage_owner=$clone_owner
     ;;
   *) echo 'usage: stepanel-gitctl generate|public|delete|stage-limit|stage-clear|clone SITE ...' >&2; exit 64 ;;
 esac

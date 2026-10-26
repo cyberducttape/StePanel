@@ -231,6 +231,9 @@ install -o "$site_user" -g "$site_gid" -m 0400 -- "$script" "$runner_script"
 # writable view is limited to this site's tree and private runner storage.
 # Keep output in a root-only file because --pipe is unreliable for nested
 # systemd-run invocations from a system service.
+# site_command_properties adds or overrides systemd properties for the next
+# run_site_command calls, for example a read-only bind of the build source.
+site_command_properties=()
 run_site_command() {
   local unit="stepanel-runner-sitecmd-${runner_owner_pid}-${RANDOM}.service"
   local log="$runner_log_dir/$BASHPID-$RANDOM.log"
@@ -247,8 +250,9 @@ run_site_command() {
     --property=PrivateTmp=yes "${home_protection[@]}" \
     --property=ProtectSystem=strict --property=ProtectProc=invisible \
     --property="ReadWritePaths=$site_root" --property="ReadWritePaths=$runner_home" \
+    --property="ReadWritePaths=-$runner_storage_root/src-$site_user" \
     --property=PartOf=stepanel-root-broker.service \
-    --property=RuntimeMaxSec=2min --property=TimeoutStopSec=5s \
+    --property=RuntimeMaxSec=2min --property=TimeoutStopSec=5s "${site_command_properties[@]}" \
     -- "$@"; then
     status=0
   else
@@ -429,16 +433,22 @@ build_script="$runner_script"
 # a release about to be published) that way would relabel served files and
 # lock the web server out of them.
 #
-# Root makes the copy because a release staged by the panel is private to the
-# panel account. It copies into a root-owned directory (never into a path the
-# site account controls, which could be swapped for a symlink), without
-# following links, and then hands the copy to the site account without
-# following links either.
+# The site account makes the copy. The source (its document root or its own
+# release stage) is a tree that account controls: a root copy could be
+# redirected by swapping the source, or any directory in it, for a link to a
+# host directory, and the copy is handed to the account's own build. As the
+# account, a redirected copy reads only what the account could read anyway.
+# The destination's entry is in root-owned runner storage, which the account
+# cannot replace. A placed site's home is hidden from the unit, so the source
+# is bound in read-only.
 source_copy="$runner_storage_root/src-$site_user"
 rm -rf -- "$source_copy"
-install -d -m 0700 -o root -g root "$source_copy"
-cp -a --reflink=auto --no-preserve=ownership -- "$root/." "$source_copy/"
-chown -R -h -- "$site_user:$site_user" "$source_copy"
+install -d -m 0700 -o "$site_user" -g "$site_user" "$source_copy"
+site_command_properties=("--property=BindReadOnlyPaths=$root" --property=RuntimeMaxSec=30min)
+copy_status=0
+run_site_command cp -a --reflink=auto --no-preserve=ownership -- "$root/." "$source_copy/" || copy_status=$?
+site_command_properties=()
+(( copy_status == 0 )) || { echo "could not copy the build source (status $copy_status)" >&2; exit 1; }
 cpus=$(awk "BEGIN { printf \"%.2f\", $cpu_percent / 100 }")
 # Convert network_mode to podman flag: "none" -> "--network none", "egress" -> "--network slirp4netns"
 network_args=(--network none)
