@@ -68,7 +68,10 @@ smoke steps; review each artifact before attributing a common cause:
 and [40213903617](https://github.com/cyberducttape/StePanel/actions/runs/40213903617).
 The planned 20 repetitions were not achieved. The matrix needs bounded shards
 that finish within the hosted six-hour job limit before it can produce release
-evidence. The original run list was: [40213883873](https://github.com/cyberducttape/StePanel/actions/runs/40213883873),
+evidence. The workflow now permits only one exhaustive iteration per uniquely
+identified shard and reserves up to 350 minutes of the six-hour job budget;
+this adjustment still requires hosted validation. The original run list was:
+[40213883873](https://github.com/cyberducttape/StePanel/actions/runs/40213883873),
 [40213886188](https://github.com/cyberducttape/StePanel/actions/runs/40213886188),
 [40213888634](https://github.com/cyberducttape/StePanel/actions/runs/40213888634),
 [40213890949](https://github.com/cyberducttape/StePanel/actions/runs/40213890949),
