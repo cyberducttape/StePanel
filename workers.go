@@ -325,11 +325,20 @@ func (a *App) reconcileWorkers(ctx context.Context) (reconciled []string, failed
 		}
 	}
 	a.Workers.mu.RUnlock()
-	for _, worker := range pending {
-		key := worker.Site + "/" + worker.Name
-		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, worker.Site)
+	for _, snapshot := range pending {
+		key := snapshot.Site + "/" + snapshot.Name
+		operationCtx, releaseUnlock, lockErr := a.acquireSiteMutationLockContext(ctx, snapshot.Site)
 		if lockErr != nil {
 			failed[key] = lockErr.Error()
+			continue
+		}
+		// Re-read under the site lock so a worker deleted or changed after
+		// the snapshot is not recreated or reverted.
+		a.Workers.mu.RLock()
+		worker, exists := a.Workers.values[key]
+		a.Workers.mu.RUnlock()
+		if !exists || worker.State != "pending" && !worker.Deleted {
+			releaseUnlock()
 			continue
 		}
 		if err := a.applyWorker(operationCtx, worker); err != nil {
