@@ -1051,12 +1051,12 @@ successful unit test. The installed-host smoke matrix currently exercises:
 
 | Distribution | Web server | Database | Latest WordPress recovery-proof result |
 |---|---|---|---|
-| Ubuntu 24.04 | Apache | MariaDB | Pass, 5.156 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324583) |
-| AlmaLinux 9 | Apache | MariaDB | Pass, 5.459 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324815) |
-| Rocky Linux 9 | Apache | MariaDB | Pass, 3.997 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324810) |
-| Ubuntu 24.04 | Caddy | MariaDB | Pass, 5.107 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324881) |
-| AlmaLinux 9 | Caddy | MariaDB | Pass, 6.531 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324878) |
-| Rocky Linux 9 | Caddy | MariaDB | Pass, 5.581 s proof RTO, [latest completed job](https://github.com/cyberducttape/StePanel/actions/runs/38670211824/job/116211324768) |
+| Ubuntu 24.04 | Apache | MariaDB | Pass, 5.480 s proof RTO, [job 121118194339](https://github.com/cyberducttape/StePanel/actions/runs/40176491637/job/121118194339) |
+| AlmaLinux 9 | Apache | MariaDB | Pass, 5.154 s proof RTO, [job 121118194403](https://github.com/cyberducttape/StePanel/actions/runs/40176491637/job/121118194403) |
+| Rocky Linux 9 | Apache | MariaDB | Pass, 4.109 s proof RTO, [job 121118194343](https://github.com/cyberducttape/StePanel/actions/runs/40176491637/job/121118194343) |
+| Ubuntu 24.04 | Caddy | MariaDB | Pass, 6.316 s proof RTO, [job 121118194399](https://github.com/cyberducttape/StePanel/actions/runs/40176491637/job/121118194399) |
+| AlmaLinux 9 | Caddy | MariaDB | Pass, 5.082 s proof RTO, [job 121118194356](https://github.com/cyberducttape/StePanel/actions/runs/40176491637/job/121118194356) |
+| Rocky Linux 9 | Caddy | MariaDB | Pass, 6.479 s proof RTO, [job 121118194342](https://github.com/cyberducttape/StePanel/actions/runs/40176491637/job/121118194342) |
 
 These are one-run smoke results, not production certification or a general
 support promise. They do not certify repeated recovery, PHP versions, upgrade
