@@ -43,10 +43,13 @@ passed through app lifecycle, then failed customer file-manager upload with
 `runuser: cannot set user id: Operation not permitted`; quota enforcement was
 active, but the guest did not complete customer acceptance. The install-smoke
 deadline is being extended to 90 minutes (job deadline 150 minutes), and the
-account-user privilege transition requires investigation. Neither run is
-counted as passed. A separate two-repeat AlmaLinux run
+account-user privilege transition requires investigation. The smoke now emits
+the broker's effective/bounding capabilities, systemd sandbox properties,
+account mapping, and a direct root `runuser` comparison on this failure.
+Neither run is counted as passed. A separate two-repeat AlmaLinux run
 ([40196578576](https://github.com/cyberducttape/StePanel/actions/runs/40196578576))
-is still running on stale source `42c69cb6` and is not current-source evidence.
+ended at the six-hour job limit during iteration 2 of its recovery matrix. It
+used stale source `42c69cb6` and is not current-source evidence.
 
 Nine additional two-iteration shards were dispatched on evidence head
 `5664ea1`, covering all six supported OS/web-server combinations. All nine
