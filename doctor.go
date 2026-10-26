@@ -457,6 +457,7 @@ func (a *App) migrationDoctor(w http.ResponseWriter, r *http.Request) {
 
 	var req migrationAnalysisRequest
 	if err := decodeJSON(w, r, 8192, &req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 

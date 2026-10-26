@@ -1621,12 +1621,11 @@ func (a *App) importBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not encode restore job", http.StatusInternalServerError)
 		return
 	}
-	queued, existing, err := a.Jobs.EnqueueIdempotent("cpmove.restore", user, operationKey, payload, 3)
+	queued, _, err := a.Jobs.EnqueueIdempotent("cpmove.restore", user, operationKey, payload, 3)
 	if err != nil {
 		http.Error(w, "could not persist restore job", http.StatusInternalServerError)
 		return
 	}
-	_ = existing
 	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": queued.ID, "status_url": filepath.Join("/api/jobs", queued.ID)})
 }
 func (a *App) jobStatus(w http.ResponseWriter, r *http.Request) {

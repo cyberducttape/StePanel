@@ -248,6 +248,7 @@ func (a *App) accountMembers(w http.ResponseWriter, r *http.Request) {
 		}
 		var req tenantMemberRequest
 		if err := decodeJSON(w, r, 4096, &req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
 		req.Username = safeUser(req.Username)
@@ -302,7 +303,11 @@ func (a *App) accountMembers(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if a.Auth.sessions != nil {
-				_ = a.Auth.sessions.revokeUser(memberName)
+				if err := a.Auth.sessions.revokeUser(memberName); err != nil {
+					intent.Completed("member identity removed; session revocation failed: " + err.Error())
+					http.Error(w, "member removed but session revocation could not be persisted", http.StatusServiceUnavailable)
+					return
+				}
 			}
 			intent.Completed("member identity removed")
 			w.WriteHeader(http.StatusNoContent)
@@ -313,6 +318,7 @@ func (a *App) accountMembers(w http.ResponseWriter, r *http.Request) {
 			Role      string `json:"role"`
 		}
 		if err := decodeJSON(w, r, 2048, &input); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
 		if input.Suspended == nil && strings.TrimSpace(input.Role) == "" {
@@ -373,6 +379,7 @@ func (a *App) accountSuspend(w http.ResponseWriter, r *http.Request) {
 
 	var req SuspensionRequest
 	if err := decodeJSON(w, r, 2048, &req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 
@@ -458,6 +465,7 @@ func (a *App) accountUnsuspend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := decodeJSON(w, r, 2048, &req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 

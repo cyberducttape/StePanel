@@ -453,10 +453,7 @@ func (a *App) webhookConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "webhook configuration unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	actor := a.Auth.UsernameForRequest(r)
-	if actor == "" {
-		actor = a.Auth.Username
-	}
+	actor := a.Auth.AuditActor(r)
 	operationCtx, release, lockErr := a.acquireSiteMutationLockContext(r.Context(), site)
 	if lockErr != nil {
 		http.Error(w, "webhook configuration is busy", http.StatusConflict)
@@ -854,7 +851,7 @@ func (a *App) gitDeploy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	actor := a.Auth.UsernameForRequest(r)
+	actor := a.Auth.AuditActor(r)
 	if isWebhook {
 		actor = "webhook"
 	}
@@ -1507,7 +1504,9 @@ func (wcs *WebhookConfigStore) SetWebhookConfig(site, secret string, repos, refP
 		if err != nil {
 			return err
 		}
-		id, _ = result.LastInsertId()
+		if id, err = result.LastInsertId(); err != nil {
+			return err
+		}
 	} else {
 		_, err := tx.Exec(
 			"UPDATE webhook_configs SET webhook_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",

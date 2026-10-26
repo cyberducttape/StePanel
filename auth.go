@@ -332,6 +332,12 @@ func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid CSRF token", http.StatusForbidden)
 		return
 	}
+	// Resolve the actor before revoking: once the session is gone the
+	// request no longer identifies anyone.
+	actor := a.AuditActor(r)
+	if actor == "" {
+		actor = "unknown"
+	}
 	if a.sessions != nil {
 		if id := a.sessionID(r); id != "" {
 			if err := a.sessions.revoke(id); err != nil {
@@ -339,10 +345,6 @@ func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	}
-	actor := a.UsernameForRequest(r)
-	if actor == "" {
-		actor = a.Username
 	}
 	TelemetryAudit(a.AuditLog, actor, "auth.logout", a.ClientIP(r), "session ended")
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_session", MaxAge: -1, Path: "/", HttpOnly: true, Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
@@ -375,7 +377,7 @@ func (a Auth) Require(next http.Handler) http.Handler {
 		}
 		if a.validSession(r) {
 			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-				if err := SecurityAuditRequired(a.AuditLog, a.UsernameForRequest(r), "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
+				if err := SecurityAuditRequired(a.AuditLog, a.AuditActor(r), "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
 					http.Error(w, "audit persistence is unavailable", http.StatusServiceUnavailable)
 					return
 				}

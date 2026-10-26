@@ -1816,7 +1816,11 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if a.Auth.sessions != nil {
-				_ = a.Auth.sessions.revokeUser(username)
+				if err := a.Auth.sessions.revokeUser(username); err != nil {
+					intent.Completed("customer identity removed; session revocation failed: " + err.Error())
+					http.Error(w, "customer removed but session revocation could not be persisted", http.StatusServiceUnavailable)
+					return
+				}
 			}
 			intent.Completed("customer identity removed after site ownership was cleared")
 			w.WriteHeader(http.StatusNoContent)

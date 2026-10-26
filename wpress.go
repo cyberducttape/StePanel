@@ -1015,5 +1015,11 @@ func mysqlClient() string {
 	return "mysql"
 }
 
-func sqlString(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
-func sqlIdent(value string) string  { return "`" + strings.ReplaceAll(value, "`", "``") + "`" }
+// sqlString quotes a MySQL string literal. Backslashes are escaped too:
+// MySQL treats them as escapes by default, so `\'` would otherwise end the
+// literal early.
+func sqlString(value string) string {
+	return "'" + strings.ReplaceAll(strings.ReplaceAll(value, `\`, `\\`), "'", "''") + "'"
+}
+
+func sqlIdent(value string) string { return "`" + strings.ReplaceAll(value, "`", "``") + "`" }

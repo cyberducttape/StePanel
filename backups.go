@@ -244,7 +244,7 @@ func createSiteBackupContext(ctx context.Context, cfg Config, site SiteCapabilit
 		return result, fmt.Errorf("lock backup staging directory: %w", err)
 	}
 	defer func() { _ = releaseBackupStageLock(stageLock) }()
-	reservation, err := reserveBackupCapacity(cfg, tempDir, includeDatabases, ledger, siteBytes)
+	reservation, err := reserveBackupCapacity(cfg, tempDir, ledger, siteBytes)
 	if err != nil {
 		return result, err
 	}
@@ -481,7 +481,7 @@ func backupDatabasePeakReservation(dumpBytes uint64) uint64 {
 	return saturatingAdd(saturatingAdd(dumpBytes, dumpBytes), backupDatabaseArchiveOverhead)
 }
 
-func reserveBackupCapacity(cfg Config, stagingPath string, includeDatabases bool, ledger *capacityLedger, siteBytes int64) (*capacityReservation, error) {
+func reserveBackupCapacity(cfg Config, stagingPath string, ledger *capacityLedger, siteBytes int64) (*capacityReservation, error) {
 	if ledger == nil {
 		return nil, nil
 	}
@@ -492,7 +492,6 @@ func reserveBackupCapacity(cfg Config, stagingPath string, includeDatabases bool
 	// Database dumps are reserved individually immediately before each dump,
 	// using inventory estimates. Do not reserve one shared allowance here: it
 	// undercounts several smaller databases and permits aggregate overcommit.
-	_ = includeDatabases
 	return ledger.reserve(cfg, "backup", stagingPath, []capacityDemand{{Path: stagingPath, Bytes: estimate}})
 }
 

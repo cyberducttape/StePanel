@@ -51,6 +51,20 @@ func TestSQLIdent(t *testing.T) {
 	}
 }
 
+func TestSQLString(t *testing.T) {
+	cases := map[string]string{
+		"simple":        "'simple'",
+		"it's":          "'it''s'",
+		`\' OR 1=1 -- `: `'\\'' OR 1=1 -- '`,
+		"":              "''",
+	}
+	for input, want := range cases {
+		if got := sqlString(input); got != want {
+			t.Errorf("sqlString(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestFileExists(t *testing.T) {
 	dir := t.TempDir()
 	present := filepath.Join(dir, "present.txt")

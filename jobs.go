@@ -1720,6 +1720,10 @@ func (j *Jobs) resealLegacyPayloads() error {
 				legacy = append(legacy, item)
 			}
 		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
 		if err := rows.Close(); err != nil {
 			return err
 		}
