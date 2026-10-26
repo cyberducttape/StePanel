@@ -89,6 +89,12 @@ if ! grep -Fq -- '-snapshot-recovery-root /var/www/sites/.stepanel-recovery' dep
   echo "root broker service does not declare the panel snapshot recovery root" >&2
   exit 1
 fi
+for broker_unit in deploy/stepanel-root-broker.service deploy/lab/stepanel-root-broker.service; do
+  if ! grep -Fxq 'AmbientCapabilities=CAP_SETUID CAP_SETGID' "$broker_unit"; then
+    echo "$broker_unit does not retain the account-switching capabilities required by customer file operations" >&2
+    exit 1
+  fi
+done
 if ! grep -Fq "prlimit --as=2147483648 --fsize=\"\$max_file_bytes\" -- git " deploy/integrations/stepanel-gitctl; then
   echo "private Git clone must preserve its 2 GiB address-space limit and enforce the configured per-file limit" >&2
   exit 1

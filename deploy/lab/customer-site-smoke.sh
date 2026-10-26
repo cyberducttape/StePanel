@@ -104,6 +104,15 @@ quota -w -u "$customer" 2>/dev/null | grep -q " $want_blocks " || fail "account 
 status=$(api "$cookie" "$csrf" GET /api/account/hosting)
 [[ $status == 200 && $(json unix_user) == "$customer" && $(json sites 0 doc_root) == "$docroot" ]] || fail 'account summary does not report the placed site'
 
+broker_pid=$(systemctl show --property=MainPID --value stepanel-root-broker.service 2>/dev/null || true)
+if [[ $broker_pid =~ ^[1-9][0-9]*$ && -r /proc/$broker_pid/status ]]; then
+  cap_eff=$(awk '$1 == "CapEff:" { print $2 }' "/proc/$broker_pid/status")
+  [[ $cap_eff =~ ^[[:xdigit:]]+$ ]] || fail 'could not inspect root-broker effective capabilities'
+  (( (16#$cap_eff & (1 << 7)) != 0 )) || fail 'root broker lacks effective CAP_SETUID required for customer file operations'
+else
+  fail 'could not inspect root-broker process capabilities'
+fi
+
 status=$(curl --silent --show-error --max-time 30 -o "$work/response" -w '%{http_code}' -X PUT \
   -H "Cookie: $cookie" -H "X-CSRF-Token: $csrf" --data-binary 'customer smoke' \
   "$PANEL/api/sites/files/$site/content?path=smoke.txt")

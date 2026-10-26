@@ -12,6 +12,9 @@ Restart=on-failure
 RestartSec=1s
 UMask=0007
 NoNewPrivileges=true
+# Keep the validated account-switching operation available to the file
+# manager helper under the same broker capability contract as production.
+AmbientCapabilities=CAP_SETUID CAP_SETGID
 # Quota tools resolve the block device behind a mount; see the production unit.
 DevicePolicy=closed
 CapabilityBoundingSet=~CAP_MKNOD CAP_SYS_RAWIO
