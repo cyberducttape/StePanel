@@ -6,38 +6,45 @@
 
 ---
 
-### Current evidence snapshot — 2026-10-26 (`main` source `ebeca0a`)
+### Current evidence snapshot — 2026-10-26 (application source `ab6cde8`)
+
+Application source under test is
+[`ab6cde808faef6e31d8a66eacf044d28cb901cd9`](https://github.com/cyberducttape/StePanel/commit/ab6cde808faef6e31d8a66eacf044d28cb901cd9).
+This evidence snapshot was reconciled in a documentation-only change after
+that source's runs completed.
+Exact-head CI integration ([40265175171](https://github.com/cyberducttape/StePanel/actions/runs/40265175171)),
+Documentation ([40265175232](https://github.com/cyberducttape/StePanel/actions/runs/40265175232)),
+and CodeQL ([40265175183](https://github.com/cyberducttape/StePanel/actions/runs/40265175183))
+passed. The full integration run includes Go tests and coverage, race tests,
+repository recovery and real tmpfs ENOSPC drills, database restore checks,
+static analysis, container/deployment validation, and UI end-to-end tests.
+Code scanning currently reports zero open alerts.
+
+The exact-source six-host installed-system smoke
+([40295509910](https://github.com/cyberducttape/StePanel/actions/runs/40295509910))
+passed Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy plus
+MariaDB. This is one installed-system smoke per combination, not the required
+20–50-repeat recovery cohort, and these hosted jobs do not simulate physical
+host power loss. The quota-enabled production install smoke
+([40307543702](https://github.com/cyberducttape/StePanel/actions/runs/40307543702))
+is still running; it is not counted as evidence until it completes and its
+post-reboot quota assertions are reviewed.
+
+Production remains **NO-GO**. Open gates include legacy site-identity collision
+recovery, the required 20–50-repeat installed-host recovery cohort, physical
+host power-loss and broader ENOSPC/database-outage evidence, quota certification
+across supported filesystems, live notification outage/retry proof, a measured
+capacity envelope, upgrade/rollback policy, and independent security review.
+
+### Previous evidence snapshot — 2026-10-26 (`main` source `ebeca0a`)
 
 PR #49 was fast-forwarded to `main` as
 [`ebeca0a1622571409e605213cb2662a791cb0275`](https://github.com/cyberducttape/StePanel/commit/ebeca0a1622571409e605213cb2662a791cb0275).
-The commit records the Ubuntu 24.04/ext4 quota smoke evidence and adds
-post-reboot quota-state assertions to the quota workflow. Its PR Go tests,
-CodeQL, and Analyze Go checks passed. The hosted Documentation check was still
-queued at merge; the exact workflow commands, including link checks, 91-source
-reference validation, and documentation contract tests, passed locally on the
-PR commit.
-
-Exact-commit main validation is not complete: CI integration
-([40263816009](https://github.com/cyberducttape/StePanel/actions/runs/40263816009)),
-CodeQL
-([40263816196](https://github.com/cyberducttape/StePanel/actions/runs/40263816196)),
-and Documentation
-([40263816121](https://github.com/cyberducttape/StePanel/actions/runs/40263816121))
-are pending or queued. The exact-commit quota install run
+Its exact-main CI integration, CodeQL, and Documentation checks were pending
+at the time of the snapshot. The quota install run
 ([40262294553](https://github.com/cyberducttape/StePanel/actions/runs/40262294553))
-is still running and must pass its post-reboot enforcement assertions before
-counting as evidence. A six-host recovery shard
-([40256143103](https://github.com/cyberducttape/StePanel/actions/runs/40256143103))
-is still running on older source `e870ac3`; it does not certify this commit.
-
-One Ubuntu 24.04/ext4 quota-enabled install smoke passed on PR #42 source
-`a26de03` ([run 40255950868](https://github.com/cyberducttape/StePanel/actions/runs/40255950868));
-it verified active user/project quotas, quota exhaustion, customer-site
-provisioning, WordPress recovery, abrupt guest reboot, and two real-ENOSPC
-checks. Its scope and caveats are recorded in the
-[run report](lab-results/2026-10-26-ubuntu-ext4-quota-install-40255950868.md).
-This is partial, older-source evidence, not filesystem-matrix or current-commit
-certification.
+was still running then. This older snapshot is retained as history; its pending
+checks are superseded by the exact-head results above.
 
 Production remains **NO-GO**. Open gates include legacy site-identity collision
 recovery, the required 20–50-repeat installed-host recovery cohort, physical
