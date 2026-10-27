@@ -317,7 +317,7 @@ In an interactive terminal, the installer asks for the database engine and versi
 | `STEPANEL_GIT_RELEASE_MAX_BYTES` | Positive bytes | Maximum retained previous-release storage per site; defaults to `5368709120` (5 GiB) |
 | `STEPANEL_GIT_RELEASE_MAX_TREE_BYTES` | Positive bytes | Maximum unpacked size of one Git checkout/build artifact; defaults to `5368709120` (5 GiB) |
 | `STEPANEL_RUNNERCTL` | Absolute helper path | Rootless Podman build-runner helper; defaults to `/usr/local/sbin/stepanel-runnerctl` |
-| `STEPANEL_INSTALL_SECURITY` | `0` or `1` | Install ClamAV and the PHP malware guard |
+| `STEPANEL_INSTALL_SECURITY` | `0` or `1` | Install ClamAV and the PHP malware guard. The guard watches legacy sites under `/var/www/sites` only; sites placed in hosting accounts under `/home` are covered by the on-demand malware scan, not the background guard. |
 | `STEPANEL_OFFSITE_TARGET` | rclone destination | Offsite copy target, required for production installs, for example `s3:bucket/stepanel` |
 | `STEPANEL_OFFSITE_TRANSFER_TIMEOUT` | Go duration, default `168h` | Maximum total time for one offsite transfer workflow; configurable from `1m` through `720h`. Rclone's separate 30-minute I/O timeout detects stalled transfers. |
 | `STEPANEL_REQUIRE_OFFSITE_BACKUP` | `0` or `1` | Reject production startup unless an offsite target is configured |
