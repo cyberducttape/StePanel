@@ -50,11 +50,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the assigned account. A refused preflight no longer persists a stale plan;
   the SQLite snapshot is taken immediately before the mapping commit,
   published atomically, and named for the journal.
+- A completed site identity repair journal no longer suppresses later legacy
+  collision repairs. Concurrent repair invocations are serialized, and each
+  completed journal is durably archived before the active journal is reused.
 - `stepanel-sitectl access` accepts an enabled SSH/SFTP policy with no keys
   (a new site, or after removing the last key) and revokes key login instead
   of failing host validation and leaving the policy pending.
 
 ### Changed
+
+- Add an installed-host recovery drill for legacy Unix-account collisions. It
+  exercises the root repair journal, the persisted mapping change, repeat
+  invocation, and cross-site read/write denial in a disposable host.
 
 - Distinguish the evidence snapshot's `main` documentation merge `d373cc1`
   from tested application source `c89e3a5` in release evidence.

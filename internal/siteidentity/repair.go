@@ -18,6 +18,8 @@ import (
 
 const repairJournalVersion = 1
 
+var ErrNoLegacyIdentityCollisions = errors.New("no unresolved legacy site identity collisions were found")
+
 // RepairAssignment is one existing site identity that must be moved away
 // from its collision-prone legacy account.
 type RepairAssignment struct {
@@ -103,7 +105,7 @@ func PlanCollisionRepair(db *sql.DB, webRoot string) (RepairJournal, error) {
 		}
 	}
 	if len(plan) == 0 {
-		return RepairJournal{}, errors.New("no unresolved legacy site identity collisions were found")
+		return RepairJournal{}, ErrNoLegacyIdentityCollisions
 	}
 	var idBytes [16]byte
 	if _, err := rand.Read(idBytes[:]); err != nil {
@@ -129,6 +131,14 @@ func ExecuteCollisionRepair(ctx context.Context, db *sql.DB, webRoot, journalPat
 	if err := checkRepairJournalDirectory(filepath.Dir(journalPath)); err != nil {
 		return RepairJournal{}, err
 	}
+	lock, err := acquireRepairJournalLock(journalPath)
+	if err != nil {
+		return RepairJournal{}, fmt.Errorf("lock site identity repair: %w", err)
+	}
+	defer func() {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+	}()
 	journal, err := readRepairJournal(journalPath)
 	planned := false
 	if errors.Is(err, os.ErrNotExist) {
@@ -140,14 +150,25 @@ func ExecuteCollisionRepair(ctx context.Context, db *sql.DB, webRoot, journalPat
 	} else if err != nil {
 		return RepairJournal{}, err
 	}
-	if journal.Version != repairJournalVersion || journal.WebRoot != filepath.Clean(webRoot) || len(journal.Assignments) == 0 {
+	if journal.Version != repairJournalVersion || journal.WebRoot != filepath.Clean(webRoot) || len(journal.Assignments) == 0 || !validRepairJournalID(journal.ID) {
 		return journal, errors.New("repair journal version, web root, or assignments are invalid")
 	}
 	if !filepath.IsAbs(journal.WebRoot) {
 		return journal, errors.New("repair journal web root must be absolute")
 	}
 	if journal.State == "completed" {
-		return journal, nil
+		next, planErr := PlanCollisionRepair(db, webRoot)
+		if errors.Is(planErr, ErrNoLegacyIdentityCollisions) {
+			return journal, nil
+		}
+		if planErr != nil {
+			return journal, fmt.Errorf("plan subsequent site identity repair: %w", planErr)
+		}
+		if err := archiveCompletedRepairJournal(journalPath, journal.ID); err != nil {
+			return journal, fmt.Errorf("preserve completed site identity repair journal: %w", err)
+		}
+		journal = next
+		planned = true
 	}
 	if journal.State != "planned" && journal.State != "mappings-committed" {
 		return journal, fmt.Errorf("unsupported repair journal state %q", journal.State)
@@ -218,6 +239,59 @@ func ExecuteCollisionRepair(ctx context.Context, db *sql.DB, webRoot, journalPat
 		return journal, fmt.Errorf("record completed site identity repair: %w", err)
 	}
 	return journal, nil
+}
+
+func acquireRepairJournalLock(journalPath string) (*os.File, error) {
+	path := journalPath + ".lock"
+	fd, err := syscall.Open(path, syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	lock := os.NewFile(uintptr(fd), path)
+	info, err := lock.Stat()
+	if err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || !ok || int(stat.Uid) != os.Geteuid() {
+		_ = lock.Close()
+		return nil, errors.New("repair journal lock must be a private regular file owned by the effective user")
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	return lock, nil
+}
+
+func validRepairJournalID(id string) bool {
+	decoded, err := hex.DecodeString(id)
+	return err == nil && len(decoded) == 16
+}
+
+// archiveCompletedRepairJournal keeps the previous completed audit record
+// before the stable active-journal path is reused for a later collision.
+func archiveCompletedRepairJournal(path, id string) error {
+	if !validRepairJournalID(id) {
+		return errors.New("completed repair journal has an invalid identity")
+	}
+	directory := filepath.Dir(path)
+	archive := filepath.Join(directory, "site-identity-repair.completed-"+id+".json")
+	if _, err := os.Lstat(archive); err == nil {
+		return fmt.Errorf("completed journal archive already exists: %s", filepath.Base(archive))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(path, archive); err != nil {
+		return err
+	}
+	dir, err := os.Open(directory)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func applyRepairMappings(ctx context.Context, db *sql.DB, assignments []RepairAssignment) error {

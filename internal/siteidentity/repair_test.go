@@ -216,6 +216,58 @@ func TestPlanCollisionRepairIsIdempotentAfterAllMappingsAreReassigned(t *testing
 	}
 }
 
+func TestExecuteCollisionRepairStartsNewGenerationAfterCompletedJournal(t *testing.T) {
+	db, root, _ := collisionFixture(t)
+	journalPath := repairJournalPath(t)
+	first, err := ExecuteCollisionRepair(context.Background(), db, root, journalPath, newRepairHostStub())
+	if err != nil || first.State != "completed" {
+		t.Fatalf("first repair = %#v, %v", first, err)
+	}
+
+	secondSites := []string{"other-site-prefixx0217f8", "other-site-prefixx02264b"}
+	for _, site := range secondSites {
+		if err := os.Mkdir(filepath.Join(root, "sites", site), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if UnixUser(secondSites[0]) != UnixUser(secondSites[1]) || UnixUser(secondSites[0]) == UnixUser("shared-site-prefix00018346") {
+		t.Fatal("fixture must contain a later, independent legacy collision")
+	}
+	if _, err := db.Exec(`INSERT INTO site_identities(site, username, created_at) VALUES (?, ?, 1)`, secondSites[0], UnixUser(secondSites[0])); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := ExecuteCollisionRepair(context.Background(), db, root, journalPath, newRepairHostStub())
+	if err != nil || second.State != "completed" {
+		t.Fatalf("subsequent repair = %#v, %v", second, err)
+	}
+	if second.ID == first.ID || len(second.Assignments) != 2 {
+		t.Fatalf("subsequent repair reused old journal: first=%#v second=%#v", first, second)
+	}
+	for _, site := range secondSites {
+		found := false
+		for _, assignment := range second.Assignments {
+			found = found || assignment.Site == site
+		}
+		if !found {
+			t.Errorf("subsequent journal omitted site %q: %#v", site, second.Assignments)
+		}
+	}
+
+	archive := filepath.Join(filepath.Dir(journalPath), "site-identity-repair.completed-"+first.ID+".json")
+	archived, err := readRepairJournal(archive)
+	if err != nil || archived.ID != first.ID || archived.State != "completed" {
+		t.Fatalf("previous completed journal was not retained: %#v, %v", archived, err)
+	}
+	active, err := readRepairJournal(journalPath)
+	if err != nil || active.ID != second.ID {
+		t.Fatalf("active journal = %#v, %v; want subsequent repair %q", active, err, second.ID)
+	}
+	if _, err := ExecuteCollisionRepair(context.Background(), db, root, journalPath, newRepairHostStub()); err != nil {
+		t.Fatalf("completed second generation was not idempotent: %v", err)
+	}
+}
+
 func TestPlanCollisionRepairFindsPersistedOwnerConflictForOneLiveSite(t *testing.T) {
 	db := testIdentityDB(t)
 	root := t.TempDir()

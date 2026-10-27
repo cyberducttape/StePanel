@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: ''
+      identity_repair_smoke:
+        description: Exercise legacy site identity collision repair on the installed disposable host
+        required: false
+        type: boolean
+        default: false
       host:
         description: Installed-host combination, or all
         required: false
@@ -55,6 +60,11 @@ on:
         required: false
         default: ''
         type: string
+      identity_repair_smoke:
+        description: 'Exercise legacy site identity collision repair on the installed disposable host'
+        required: false
+        default: false
+        type: boolean
       host:
         description: 'Limit this diagnostic run to one installed-host combination'
         required: false
@@ -123,6 +133,7 @@ jobs:
       RECOVERY_MATRIX_REPEATS: ${{ inputs.recovery_matrix_repeats || 1 }}
       RECOVERY_MATRIX_SHARD: ${{ inputs.recovery_matrix_shard || '' }}
       FULL_RECOVERY_MATRIX: ${{ inputs.full_recovery_matrix || false }}
+      RUN_IDENTITY_REPAIR_SMOKE: ${{ inputs.identity_repair_smoke || (github.event_name == 'push') }}
     strategy:
       fail-fast: false
       # The six supported OS/web-server combinations are the largest matrix
@@ -283,6 +294,10 @@ jobs:
             docker_diag logs --tail 200 stepanel-install >"$diagnostics_dir/container.log" 2>&1 || true
             cat "$diagnostics_dir"/*.txt "$diagnostics_dir"/*.log >&2 || true
             exit "$smoke_status"
+          fi
+          if [[ "$RUN_IDENTITY_REPAIR_SMOKE" == true ]]; then
+            timeout --foreground --kill-after=5s 15m docker exec stepanel-install \
+              /work/deploy/lab/identity-repair-smoke.sh
           fi
       - name: Remove disposable systemd host
         if: always()
