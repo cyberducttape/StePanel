@@ -22,10 +22,19 @@ not confused with it.
 
 | From | To | Status | Evidence |
 | --- | --- | --- | --- |
-| v0.6.0 | current source | Tested with a modified fixture | [N-1 upgrade run](lab-results/2026-10-24-n-minus-one-upgrade-40115776818.md): install, upgrade, preserved operator settings, and recovery of the prior candidate after a deliberately broken upgrade. The v0.6.0 fixture was adapted to the current credential and service contract, so an unmodified v0.6.0 host is not yet proven. |
-| v0.7.0 | current source | Untested | — |
+| v0.6.0 | current source | Tested | [Upgrade matrix run](lab-results/2026-10-27-upgrade-matrix-40452352170.md): upgrade, an upgrade killed before commit and completed by a rerun, installer rollback of a broken candidate, the documented downgrade back to v0.6.0, and a repeat upgrade, on an Ubuntu 24.04 QEMU guest (Apache) and in a systemd container (Caddy). The release is adapted only as far as it needs to install at all (see below). |
+| v0.7.0 | current source | Tested | Same run and checks as v0.6.0. |
 | `0.8` | current source | Unsupported | Pre-release snapshot (see above). |
-| current source | an older version | Refused | See [Downgrades](#downgrades). |
+| current source | v0.6.0, v0.7.0 | Tested, by the documented procedure only | Same run: the procedure in [Rollback](#rollback) restored each release, which then served `/readyz` and verified the audit log. A binary never opens a newer schema on its own (see [Downgrades](#downgrades)). |
+
+v0.6.0 and v0.7.0 cannot complete a fresh install as published on a current
+Ubuntu 24.04 host: their local database helper runs through `sudo`, which
+their own service sandbox refuses, and with Caddy the PHP packages they
+install start `apache2` on port 80 first. The upgrade tests therefore drop
+only their `STEPANEL_DBCTL` entry and use Apache on the QEMU guest; the
+systemd `LoadCredential` credential handoff the upgrade migrates is as
+published ([fixture](../deploy/lab/upgrade-fixture.sh)). The upgrade itself
+does not depend on either defect.
 
 Upgrades are in place: re-run `install.sh` from the new source tree. The
 installer keeps the explicitly listed operator runtime settings in
@@ -61,21 +70,47 @@ journal under `/var/lib/stepanel/install-journal/` before restarting
 anything.
 
 **The upgrade committed and must be undone.** There is no automatic
-downgrade. To return to the previous version:
+downgrade. Before an upgrade changes anything, the installer keeps a copy of
+the replaced release's `/etc/ste-panel.env` in
+`/var/lib/stepanel/upgrade-rollback/` (root-only; the newest five are kept)
+and prints `Kept the replaced release's configuration in …`. An older
+installer may refuse the newer environment file (v0.6.0 and v0.7.0 reject the
+`RCLONE_CONFIG` entry the current installer writes), so the downgrade restores
+that copy. To return to the previous version:
 
-1. Stop `stepanel`, `stepanel-worker` and `stepanel-root-broker`.
-2. Take a copy of the current control-plane database and its `-wal` and
+1. Find the copy made when the installed release replaced the previous one:
+
+   ```sh
+   grep -lFx "replaced_by_sha256=$(sha256sum /opt/stepanel/stepanel | cut -d' ' -f1)" \
+     /var/lib/stepanel/upgrade-rollback/*/upgrade | sort | tail -n 1
+   ```
+
+   Its directory holds `ste-panel.env`. After an interrupted upgrade this is
+   still the copy of the previous release's file, made by the first attempt.
+2. Stop `stepanel`, `stepanel-worker` and `stepanel-root-broker`.
+3. Take a copy of the current control-plane database and its `-wal` and
    `-shm` files.
-3. Restore the newest `pre-migration-v*` snapshot that predates the upgrade
-   over the control-plane database, removing its `-wal` and `-shm` files.
-4. Re-run the previous release's `install.sh`.
-5. Start the services and check `/readyz`.
+4. Restore the kept `ste-panel.env` to `/etc/ste-panel.env` (owner root,
+   mode 0600).
+5. Restore the newest `pre-migration-v*` snapshot from
+   `STEPANEL_CONTROL_PLANE_DB.snapshots` over the control-plane database and
+   remove its `-wal` and `-shm` files. A release from before the SQLite
+   control plane (v0.6.0, v0.7.0) ignores the database and reads its own
+   state files, which the upgrade leaves in place.
+6. If the previous release predates the root broker (v0.6.0, v0.7.0), run
+   `systemctl disable stepanel-root-broker.service` so it does not start at
+   the next boot.
+7. Re-run the previous release's `install.sh`.
+8. Check `/readyz` and verify the audit log with the previous release's
+   `stepanel verify-audit`.
 
 Control-plane changes made after the upgrade (jobs, accounts, settings,
 audit records) are lost. Sites placed in `/home` after the upgrade cannot be
 served by a release older than schema 21; delete or migrate them before
 downgrading. Site files, databases and backups themselves are not changed by
-the downgrade.
+the downgrade. A host rolled back this way can be upgraded again; if it is
+upgraded to the same release, the copy from the first upgrade is reused, so
+settings changed under the older release in between must be reapplied.
 
 ## Downgrades
 
@@ -86,7 +121,8 @@ Downgrading always means restoring a pre-migration snapshot as above.
 
 ## Open before 1.0
 
-- Prove an unmodified v0.7.0 → candidate and v0.6.0 → candidate upgrade.
-- Repeat upgrade interruption and rollback on each release candidate.
+- Run the upgrade matrix on each release candidate, and extend it to
+  AlmaLinux and Rocky guests, other interruption points, and a previous
+  release with populated sites, databases and backups.
 - Decide the supported upgrade window (for example, N-1 minor releases) and
   publish it here with each release.

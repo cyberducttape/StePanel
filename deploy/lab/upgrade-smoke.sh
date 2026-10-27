@@ -5,6 +5,19 @@ set -Eeuo pipefail
 previous_root=${1:?previous release tree is required}
 candidate_root=${2:?candidate release tree is required}
 broken_root=${3:-}
+# STEPANEL_UPGRADE_INTERRUPT_AT names an installer journal phase. When set,
+# the first candidate install is killed with SIGKILL as soon as that phase
+# starts, so no rollback runs, and the smoke then requires a plain rerun of
+# the candidate installer to complete the upgrade.
+interrupt_at=${STEPANEL_UPGRADE_INTERRUPT_AT:-}
+[[ -z $interrupt_at || $interrupt_at =~ ^[a-z_]+$ ]] || { echo "invalid installer phase: $interrupt_at" >&2; exit 1; }
+# STEPANEL_UPGRADE_ROLLBACK=1 finally undoes the committed upgrade with the
+# documented procedure (docs/COMPATIBILITY.md), proves the previous release
+# runs again, and upgrades once more.
+post_upgrade_rollback=${STEPANEL_UPGRADE_ROLLBACK:-0}
+[[ $post_upgrade_rollback == 0 || $post_upgrade_rollback == 1 ]] || { echo 'STEPANEL_UPGRADE_ROLLBACK must be 0 or 1' >&2; exit 1; }
+previous_version=${STEPANEL_PREVIOUS_VERSION:?STEPANEL_PREVIOUS_VERSION (for example 0.7.0) is required}
+[[ $previous_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid previous version: $previous_version" >&2; exit 1; }
 
 [[ -x "$previous_root/install.sh" && -x "$previous_root/stepanel" ]] || { echo "invalid previous release tree: $previous_root" >&2; exit 1; }
 [[ -x "$candidate_root/install.sh" && -x "$candidate_root/stepanel" && -x "$candidate_root/stepanel-root" ]] || { echo "invalid candidate release tree: $candidate_root" >&2; exit 1; }
@@ -72,16 +85,16 @@ chown root:root /etc/stepanel/rclone.conf
 chmod 0644 /etc/stepanel/rclone.conf
 export RCLONE_CONFIG=/etc/stepanel/rclone.conf
 # Avoid taking the running daemon's process lock just to verify the immutable
-# N-1 build identity; the release version is compiled into the executable.
-grep -aFq '0.6.0' /opt/stepanel/stepanel
+# previous-release build identity; the release version is compiled into the executable.
+grep -aFq "$previous_version" /opt/stepanel/stepanel || { echo "installed binary is not release $previous_version" >&2; exit 1; }
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
 
-# Prove the N-1 audit chain before the candidate installer touches the
+# Prove the previous release's audit chain before the candidate installer touches the
 # service. If the candidate later reports a signature failure, this separates
 # an incompatible legacy state from state mutation during the upgrade.
 "$previous_root/stepanel" verify-audit /var/lib/ste-panel/audit.jsonl
 
-# Exercise the N-1 state path before the candidate opens the durable database.
+# Exercise the previous release's state path before the candidate opens the durable database.
 install -d -m 0750 -o stepanel -g stepanel /var/lib/ste-panel
 printf '%s\n' '[]' > /var/lib/ste-panel/jobs.json
 chown stepanel:stepanel /var/lib/ste-panel/jobs.json
@@ -93,6 +106,58 @@ chmod 0600 /var/lib/ste-panel/jobs.json
 printf '%s\n' 'STEPANEL_GIT_ALLOWED_HOSTS="git.example.test,code.example.test"' >> /etc/ste-panel.env
 printf '%s\n' 'STEPANEL_HSTS_PRELOAD="0"' >> /etc/ste-panel.env
 chmod 0600 /etc/ste-panel.env
+
+wait_ready() {
+  local label=$1
+  for _ in {1..30}; do
+    curl --fail --silent --max-time 2 http://127.0.0.1:8090/readyz >/dev/null && return 0
+    sleep 1
+  done
+  echo "$label did not become ready" >&2
+  curl --silent --show-error --max-time 5 http://127.0.0.1:8090/readyz >&2 || true
+  return 1
+}
+
+# interrupt_candidate_install PHASE starts the candidate installer in its own
+# process group and kills the whole group once its journal records PHASE.
+interrupt_candidate_install() {
+  local phase=$1 marker journal='' pid pgid log=/tmp/stepanel-interrupted-install.log
+  marker=$(mktemp)
+  (cd "$candidate_root" && exec setsid ./install.sh --unsafe-lab) >"$log" 2>&1 &
+  pid=$!
+  # Package installation can take minutes; the phase itself may be short,
+  # so poll finely.
+  for _ in {1..12000}; do
+    [[ -n $journal ]] || journal=$(find /var/lib/stepanel/install-journal -maxdepth 1 -name '*.tsv' -newer "$marker" -print -quit 2>/dev/null || true)
+    if [[ -n $journal ]] && grep -q $'\t'"$phase"$'\tstarted\t' "$journal"; then
+      break
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "candidate installer exited before reaching phase $phase" >&2
+      tail -n 40 "$log" >&2 || true
+      return 1
+    fi
+    sleep 0.1
+  done
+  [[ -n $journal ]] && grep -q $'\t'"$phase"$'\tstarted\t' "$journal" || { echo "candidate installer never reached phase $phase" >&2; return 1; }
+  pgid=$(ps -o pgid= -p "$pid" | tr -d ' ')
+  [[ $pgid =~ ^[0-9]+$ && $pgid != 1 ]] || { echo "could not find the installer process group" >&2; return 1; }
+  kill -KILL -- "-$pgid"
+  wait "$pid" 2>/dev/null || true
+  rm -f -- "$marker"
+  # A kill that landed after the commit record would not test an interrupted
+  # upgrade.
+  if grep -q $'\tcommit\t' "$journal"; then
+    echo "installer committed before it was killed; the interruption was not exercised" >&2
+    return 1
+  fi
+  echo "candidate installer killed at phase $phase; journal $journal:"
+  cut -f2-4 "$journal"
+}
+
+if [[ -n $interrupt_at ]]; then
+  interrupt_candidate_install "$interrupt_at"
+fi
 
 cd "$candidate_root"
 if ! ./install.sh --unsafe-lab; then
@@ -165,4 +230,55 @@ if [[ -n "$broken_root" ]]; then
   # aside), and the database now in place is the sound pre-upgrade one.
   compgen -G "$control_db.failed-upgrade-*" >/dev/null || { echo 'broken candidate never reached the database; rollback was not exercised' >&2; exit 1; }
   /opt/stepanel/stepanel restore-control-plane "$control_db" --dry-run
+fi
+
+# Undo the committed upgrade as docs/COMPATIBILITY.md instructs: restore the
+# previous release's configuration (its installer may refuse the new one) and
+# its pre-migration database snapshot, then reinstall it. A release from
+# before the SQLite control plane (v0.6.0, v0.7.0) reads its own state files,
+# which the upgrade leaves in place, and predates the root broker, which must
+# be disabled so it does not return at the next boot.
+if (( post_upgrade_rollback )); then
+  control_db=/var/lib/ste-panel/stepanel-control.db
+  # The copy to restore is the one made when the release now installed
+  # replaced the previous one.
+  installed_sha=$(sha256sum /opt/stepanel/stepanel | cut -d' ' -f1)
+  marker=$(grep -lFx "replaced_by_sha256=$installed_sha" /var/lib/stepanel/upgrade-rollback/*/upgrade 2>/dev/null | sort | tail -n 1 || true)
+  [[ -n $marker ]] || { echo 'the upgrade kept no copy of the previous release configuration' >&2; exit 1; }
+  echo "restoring the previous release configuration from $(dirname "$marker")"
+  systemctl stop stepanel.service stepanel-worker.service stepanel-root-broker.service
+  install -m 0600 -o root -g root "$(dirname "$marker")/ste-panel.env" /etc/ste-panel.env
+  aside=/var/lib/ste-panel/post-upgrade-$(date -u +%Y%m%dT%H%M%SZ)
+  install -d -m 0700 -o root -g root "$aside"
+  for file in "$control_db" "$control_db-wal" "$control_db-shm"; do
+    [[ ! -e $file ]] || cp -p -- "$file" "$aside/"
+  done
+  snapshot=$(find "$control_db.snapshots" -maxdepth 1 -name 'pre-migration-v*.db' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -n 1 | cut -d' ' -f2- || true)
+  if [[ -n $snapshot ]]; then
+    echo "restoring pre-migration snapshot $snapshot"
+    install -m 0600 -o stepanel -g stepanel -- "$snapshot" "$control_db"
+  else
+    echo 'no pre-migration snapshot: the previous release predates the SQLite control plane'
+    rm -f -- "$control_db"
+  fi
+  rm -f -- "$control_db-wal" "$control_db-shm"
+  if [[ ! -f $previous_root/deploy/stepanel-root-broker.service ]]; then
+    systemctl disable stepanel-root-broker.service
+  fi
+  (cd "$previous_root" && ./install.sh --unsafe-lab)
+  systemctl is-active --quiet stepanel.service
+  grep -aFq "$previous_version" /opt/stepanel/stepanel || { echo "rollback did not reinstall release $previous_version" >&2; exit 1; }
+  ! systemctl is-active --quiet stepanel-root-broker.service || { echo 'the root broker is still running under the previous release' >&2; exit 1; }
+  wait_ready "release $previous_version after the post-upgrade rollback"
+  # The previous release must still accept the audit log, including the
+  # records the upgraded release appended.
+  "$previous_root/stepanel" verify-audit /var/lib/ste-panel/audit.jsonl
+  echo "post-upgrade rollback to $previous_version passed"
+
+  # The rolled-back host must accept the same upgrade again.
+  (cd "$candidate_root" && ./install.sh --unsafe-lab)
+  systemctl is-active --quiet stepanel.service stepanel-worker.service
+  wait_ready 'the candidate after upgrading the rolled-back host'
+  /opt/stepanel/stepanel restore-control-plane "$control_db" --dry-run
+  echo 'repeat upgrade after rollback passed'
 fi

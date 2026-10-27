@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- The N-1 upgrade smoke now covers v0.6.0 and v0.7.0, in a systemd
+  container (with and without the first candidate install killed at its
+  verification phase) and on an Ubuntu 24.04 QEMU guest that keeps their real
+  `LoadCredential` credential handoff. Every run ends by undoing the
+  committed upgrade with the documented procedure, checking that the previous
+  release serves and accepts the audit log, and upgrading again. Both
+  releases are adapted only as far as they need to install at all: as
+  published they cannot complete a fresh install on current Ubuntu (their
+  sudo-based database helper is refused by their own service sandbox). See
+  `docs/lab-results/2026-10-27-upgrade-matrix-40452352170.md`.
 - Updated production-gate evidence to identify the merged installer journal
   fix, separate prior-source recovery runs from current-main validation, and
   record which post-merge checks remain pending.
@@ -51,6 +61,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- A committed upgrade can now be undone as documented. Reinstalling v0.6.0
+  or v0.7.0 after an upgrade failed at once ("/etc/ste-panel.env contains an
+  unsupported entry"): those installers reject the `RCLONE_CONFIG` entry the
+  current installer writes, and no copy of the earlier file was kept. Before
+  it changes anything, the installer now keeps the replaced release's
+  environment file in `/var/lib/stepanel/upgrade-rollback/` (root-only, newest
+  five), keyed to the release that replaced it so an interrupted upgrade's
+  rerun cannot overwrite the first attempt's copy, and stops if it cannot.
+  `docs/COMPATIBILITY.md` gives the full downgrade procedure, including
+  disabling the root broker for releases that predate it.
 - The PHP malware guard logs a file it cannot quarantine and keeps watching.
   Previously one unmovable file stopped the guard, and each restart failed on
   the same file, leaving every site unguarded.
