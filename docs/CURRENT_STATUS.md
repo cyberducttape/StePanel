@@ -1,15 +1,19 @@
 # StePanel Project Status
 
 **Version:** v0.7.0 (Operator Beta)  
-**Last Updated:** 2026-10-26
+**Last Updated:** 2026-10-27
 **Status:** Operator Beta; not approved for v1.0 production release
 
 ---
 
-### Current evidence snapshot — 2026-10-26 (main source `c89e3a5`)
+### Current evidence snapshot — 2026-10-27 (main `d373cc1`, application source `c89e3a5`)
 
-Current `main` is
+At this evidence capture, `main` was documentation merge
+[`d373cc179da3545c992bcab8fe9a0b2a13d548f5`](https://github.com/cyberducttape/StePanel/commit/d373cc179da3545c992bcab8fe9a0b2a13d548f5),
+whose application-code parent is
 [`c89e3a565f3faa614cb582188820ff517ae2f57e`](https://github.com/cyberducttape/StePanel/commit/c89e3a565f3faa614cb582188820ff517ae2f57e).
+The merge changed documentation only. The tested application source is
+`c89e3a5`.
 Exact-merge CI integration ([40343485124](https://github.com/cyberducttape/StePanel/actions/runs/40343485124)),
 Documentation ([40343485103](https://github.com/cyberducttape/StePanel/actions/runs/40343485103)),
 CodeQL ([40343485161](https://github.com/cyberducttape/StePanel/actions/runs/40343485161)),
@@ -30,8 +34,9 @@ was dispatched on older source `59ec0f4`. Its first three six-host shards
 passed; shard 04 was cancelled after the source mismatch was identified. These
 three historical repetitions do not count toward current-source certification.
 A replacement cohort [40424048020](https://github.com/cyberducttape/StePanel/actions/runs/40424048020)
-is now running on exact source `c89e3a5`; it must complete all 20 repetitions
-before the gate can close.
+is now running on application source `c89e3a5`, which is unchanged by the
+documentation-only `d373cc1` merge; it must complete all 20 repetitions before
+the gate can close.
 
 Production remains **NO-GO**. Open gates include installed-host testing of
 identity collision recovery, a complete same-source 20–50-repeat recovery

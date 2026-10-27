@@ -56,6 +56,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Distinguish the evidence snapshot's `main` documentation merge `d373cc1`
+  from tested application source `c89e3a5` in release evidence.
+
 - Reconcile the current production status and recovery-gate table to merged
   source `c89e3a5`, exact-merge CI, and the replacement current-source cohort;
   distinguish three completed older-source repetitions from current evidence.
