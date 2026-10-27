@@ -106,6 +106,19 @@ func TestIdentityRepairReconcilesHostPolicyAndVerifiesNewAccount(t *testing.T) {
 	if !strings.Contains(newAccessInput, "ssh-ed25519 AAAATEST") {
 		t.Fatalf("site SSH key was not restored to the new identity: %q", newAccessInput)
 	}
+	wantResourceApply := []string{"stepanel-appctl", "resource-apply", "example", assignment.Username, "100", "100", "460", "512", "100", "128", ""}
+	resourceApplyFound := false
+	for _, call := range calls {
+		if len(call) > 1 && call[0] == "stepanel-appctl" && call[1] == "resource-apply" {
+			resourceApplyFound = true
+			if strings.Join(call, "\x00") != strings.Join(wantResourceApply, "\x00") {
+				t.Fatalf("resource-apply arguments = %q, want %q", call, wantResourceApply)
+			}
+		}
+	}
+	if !resourceApplyFound {
+		t.Fatalf("reconciliation did not apply the site resource profile: %v", calls)
+	}
 	for _, action := range []string{"ftp", "access", "seal", "quota"} {
 		found := false
 		for _, call := range calls {

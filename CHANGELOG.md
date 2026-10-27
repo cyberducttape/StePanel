@@ -38,6 +38,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   prove that reassigned accounts have no running processes. A minimal
   AlmaLinux 9 host had no `pgrep`, causing the repair smoke and real upgrade
   path to stop safely before applying the identity migration.
+- Site-identity repair now passes each reassigned Unix account to the
+  privileged resource helper when restoring the site's resource profile.
+  Without it, the helper rejected repairs after the identity mapping had been
+  committed, leaving the journal safely resumable but incomplete.
 - The installed site-identity collision fixture no longer calls SQLite's
   `unixepoch()` SQL function, which is absent from older distro Python SQLite
   builds; it supplies the epoch timestamp from Python instead.

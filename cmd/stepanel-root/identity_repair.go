@@ -496,7 +496,7 @@ func (h *identityRepairHost) Reconcile(ctx context.Context, assignment siteident
 			return fmt.Errorf("restore hosting-account resource profile: %w", err)
 		}
 	}
-	if _, err := h.commandRunner(ctx, h.appCtl, nil, "resource-apply", assignment.Site, number(profile.CPUPercent), number(profile.CPUWeight), number(profile.MemoryHighMB), number(profile.MemoryMB), number(profile.IOWeight), number(profile.TasksMax), profile.Account); err != nil {
+	if _, err := h.commandRunner(ctx, h.appCtl, nil, "resource-apply", assignment.Site, assignment.Username, number(profile.CPUPercent), number(profile.CPUWeight), number(profile.MemoryHighMB), number(profile.MemoryMB), number(profile.IOWeight), number(profile.TasksMax), profile.Account); err != nil {
 		return fmt.Errorf("restore site resource profile: %w", err)
 	}
 	if _, err := h.commandRunner(ctx, h.siteCtl, nil, "resources", assignment.Site, assignment.Username, number(profile.PHPWorkers)); err != nil {
