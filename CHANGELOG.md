@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Documentation
+
+- Restored the explicit release-gate statement that XFS and real production
+  mount behavior still require verification for Git staging quotas.
+
 ### Security
 
 - Root helpers no longer resolve paths below a site's home with commands
