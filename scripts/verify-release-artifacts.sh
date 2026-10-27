@@ -94,6 +94,13 @@ for archive in "${archives[@]}"; do
         exit 1
     fi
 
+    if tar -tzf "$archive" | grep -Eq '(^|/)deploy/lib/install-upgrade-retention\.sh$'; then
+        echo "  ✓ installer upgrade-rollback configuration retention present"
+    else
+        echo "  ✗ FAIL: deploy/lib/install-upgrade-retention.sh missing" >&2
+        exit 1
+    fi
+
     if tar -tzf "$archive" | grep -Eq '(^|/)deploy/lib/vsftpd-config-validation\.sh$'; then
         echo "  ✓ bounded vsftpd configuration validator present"
     else
