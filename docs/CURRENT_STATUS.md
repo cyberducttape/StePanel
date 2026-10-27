@@ -26,10 +26,12 @@ a real colliding site identity has been repaired in this evidence set; installed
 collision recovery and cross-site access-denial testing remain open.
 
 The 20-repeat cohort [40328635038](https://github.com/cyberducttape/StePanel/actions/runs/40328635038)
-was dispatched on older source `59ec0f4`. Its first three six-host shards have
-passed and shard 04 is running, but none count toward current-source
-certification because the tested source predates `c89e3a5`. A 20-repeat cohort
-must complete on the release-candidate source SHA before the gate can close.
+was dispatched on older source `59ec0f4`. Its first three six-host shards
+passed; shard 04 was cancelled after the source mismatch was identified. These
+three historical repetitions do not count toward current-source certification.
+A replacement cohort [40424048020](https://github.com/cyberducttape/StePanel/actions/runs/40424048020)
+is now running on exact source `c89e3a5`; it must complete all 20 repetitions
+before the gate can close.
 
 Production remains **NO-GO**. Open gates include installed-host testing of
 identity collision recovery, a complete same-source 20–50-repeat recovery

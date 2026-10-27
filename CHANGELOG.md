@@ -57,8 +57,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 
 - Reconcile the current production status and recovery-gate table to merged
-  source `c89e3a5`, exact-merge CI, and the in-progress older-source cohort;
-  do not count those cohort repetitions for current-source certification.
+  source `c89e3a5`, exact-merge CI, and the replacement current-source cohort;
+  distinguish three completed older-source repetitions from current evidence.
 
 - Exclude local reusable workflow paths from the third-party GitHub Action SHA
   pin check, while retaining pin enforcement for external actions.
