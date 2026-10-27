@@ -6,7 +6,39 @@
 
 ---
 
-### Current evidence snapshot — 2026-10-26 (application source `ab6cde8`)
+### Current evidence snapshot — 2026-10-26 (main source `c89e3a5`)
+
+Current `main` is
+[`c89e3a565f3faa614cb582188820ff517ae2f57e`](https://github.com/cyberducttape/StePanel/commit/c89e3a565f3faa614cb582188820ff517ae2f57e).
+Exact-merge CI integration ([40343485124](https://github.com/cyberducttape/StePanel/actions/runs/40343485124)),
+Documentation ([40343485103](https://github.com/cyberducttape/StePanel/actions/runs/40343485103)),
+CodeQL ([40343485161](https://github.com/cyberducttape/StePanel/actions/runs/40343485161)),
+and installed-host smoke ([40343485100](https://github.com/cyberducttape/StePanel/actions/runs/40343485100))
+passed. The integration run passed Go tests and UI E2E; the installed smoke
+passed on AlmaLinux 9 with Caddy and MariaDB. This is one host combination,
+not a six-host or repeated recovery certification.
+
+The offline site-identity collision repair is now implemented in
+`stepanel-root identity-repair plan|apply`, with atomic mapping updates,
+root-owned durable journaling, forward-only host reconciliation, preflight,
+and interruption/resume tests. PR #56 merged at this source. No host containing
+a real colliding site identity has been repaired in this evidence set; installed
+collision recovery and cross-site access-denial testing remain open.
+
+The 20-repeat cohort [40328635038](https://github.com/cyberducttape/StePanel/actions/runs/40328635038)
+was dispatched on older source `59ec0f4`. Its first three six-host shards have
+passed and shard 04 is running, but none count toward current-source
+certification because the tested source predates `c89e3a5`. A 20-repeat cohort
+must complete on the release-candidate source SHA before the gate can close.
+
+Production remains **NO-GO**. Open gates include installed-host testing of
+identity collision recovery, a complete same-source 20–50-repeat recovery
+cohort, physical host power-loss and broader ENOSPC/database-outage evidence,
+quota certification across supported filesystems, live notification
+outage/retry proof, a measured capacity envelope, upgrade/rollback policy, and
+independent security review.
+
+### Previous evidence snapshot — 2026-10-26 (application source `ab6cde8`)
 
 Application source under test is
 [`ab6cde808faef6e31d8a66eacf044d28cb901cd9`](https://github.com/cyberducttape/StePanel/commit/ab6cde808faef6e31d8a66eacf044d28cb901cd9).
