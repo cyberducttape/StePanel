@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -74,6 +75,66 @@ func TestGitReleaseMetricsExposeInventoryReadFailures(t *testing.T) {
 	writeGitReleaseMetrics(&output, Config{WebRoot: root})
 	if !strings.Contains(output.String(), "stepanel_git_release_inventory_errors 1") {
 		t.Fatalf("inventory error metric missing: %s", output.String())
+	}
+}
+
+func TestGitReleaseMetricsCacheRefreshesAtMostOncePerInterval(t *testing.T) {
+	var cache gitReleaseMetricsCache
+	current := time.Unix(1_800_000_000, 0)
+	clock := func() time.Time { return current }
+	refreshes := 0
+	refresh := func() gitReleaseMetricsSnapshot {
+		refreshes++
+		return gitReleaseMetricsSnapshot{totalBytes: int64(refreshes * 100), total: refreshes}
+	}
+
+	first, firstAt := cache.get("web-root", clock, refresh)
+	current = current.Add(gitReleaseMetricsRefreshInterval - time.Nanosecond)
+	cached, cachedAt := cache.get("web-root", clock, refresh)
+	if first != cached || !firstAt.Equal(cachedAt) || refreshes != 1 {
+		t.Fatalf("cache before expiry = %#v at %s; want %#v at %s from one refresh", cached, cachedAt, first, firstAt)
+	}
+
+	current = current.Add(2 * time.Nanosecond)
+	updated, updatedAt := cache.get("web-root", clock, refresh)
+	if updated.totalBytes != 200 || updated.total != 2 || !updatedAt.Equal(current) || refreshes != 2 {
+		t.Fatalf("cache after expiry = %#v at %s with %d refreshes", updated, updatedAt, refreshes)
+	}
+}
+
+func TestGitReleaseMetricsCacheCoalescesConcurrentInitialRefresh(t *testing.T) {
+	var cache gitReleaseMetricsCache
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var refreshes int
+	var refreshMu sync.Mutex
+	refresh := func() gitReleaseMetricsSnapshot {
+		refreshMu.Lock()
+		refreshes++
+		refreshMu.Unlock()
+		close(started)
+		<-release
+		return gitReleaseMetricsSnapshot{totalBytes: 42, total: 1}
+	}
+	now := time.Now
+	results := make(chan gitReleaseMetricsSnapshot, 2)
+	for range 2 {
+		go func() {
+			snapshot, _ := cache.get("web-root", now, refresh)
+			results <- snapshot
+		}()
+	}
+	<-started
+	close(release)
+	for range 2 {
+		if got := <-results; got.totalBytes != 42 || got.total != 1 {
+			t.Fatalf("concurrent cached snapshot = %#v", got)
+		}
+	}
+	refreshMu.Lock()
+	defer refreshMu.Unlock()
+	if refreshes != 1 {
+		t.Fatalf("initial refreshes = %d, want 1", refreshes)
 	}
 }
 

@@ -59,6 +59,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Cache the aggregate retained Git-release size between Prometheus scrapes and
+  expose the inventory refresh timestamp, avoiding a recursive release-tree
+  walk on every metrics request.
+
 - Add an installed-host recovery drill for legacy Unix-account collisions. It
   exercises the root repair journal, the persisted mapping change, repeat
   invocation, and cross-site read/write denial in a disposable host.

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -447,27 +448,114 @@ func writeBackupScheduleMetrics(w io.Writer, schedules []BackupSchedule) {
 	}
 }
 
-// writeGitReleaseMetrics counts the previous releases kept beside every
-// managed site's document root: in {webRoot}/sites/{site} for a legacy site,
-// in the account home with the site's own prefix for a placed site.
+const gitReleaseMetricsRefreshInterval = time.Minute
+
+type gitReleaseMetricsSnapshot struct {
+	totalBytes      int64
+	total           int
+	inventoryErrors int
+}
+
+type gitReleaseMetricsCacheEntry struct {
+	snapshot   gitReleaseMetricsSnapshot
+	updatedAt  time.Time
+	valid      bool
+	refreshing bool
+	done       chan struct{}
+}
+
+type gitReleaseMetricsCache struct {
+	mu      sync.Mutex
+	entries map[string]*gitReleaseMetricsCacheEntry
+}
+
+func (c *gitReleaseMetricsCache) get(key string, now func() time.Time, refresh func() gitReleaseMetricsSnapshot) (gitReleaseMetricsSnapshot, time.Time) {
+	c.mu.Lock()
+	if c.entries == nil {
+		c.entries = make(map[string]*gitReleaseMetricsCacheEntry)
+	}
+	entry := c.entries[key]
+	if entry == nil {
+		entry = &gitReleaseMetricsCacheEntry{}
+		c.entries[key] = entry
+	}
+	if entry.valid && now().Sub(entry.updatedAt) < gitReleaseMetricsRefreshInterval {
+		snapshot, updatedAt := entry.snapshot, entry.updatedAt
+		c.mu.Unlock()
+		return snapshot, updatedAt
+	}
+	if entry.refreshing {
+		if entry.valid {
+			// A scrape can use the last complete sample while a refresh runs.
+			snapshot, updatedAt := entry.snapshot, entry.updatedAt
+			c.mu.Unlock()
+			return snapshot, updatedAt
+		}
+		done := entry.done
+		c.mu.Unlock()
+		<-done
+		c.mu.Lock()
+		snapshot, updatedAt := entry.snapshot, entry.updatedAt
+		c.mu.Unlock()
+		return snapshot, updatedAt
+	}
+	entry.refreshing = true
+	entry.done = make(chan struct{})
+	done := entry.done
+	c.mu.Unlock()
+
+	snapshot := refresh()
+	updatedAt := now()
+	c.mu.Lock()
+	entry.snapshot = snapshot
+	entry.updatedAt = updatedAt
+	entry.valid = true
+	entry.refreshing = false
+	close(done)
+	c.mu.Unlock()
+	return snapshot, updatedAt
+}
+
+var processGitReleaseMetricsCache gitReleaseMetricsCache
+
+// writeGitReleaseMetrics serves a cached release inventory so Prometheus
+// scrapes do not recursively walk every retained deployment tree. A refresh
+// runs at most once per minute; the exported timestamp makes sample age clear.
 func writeGitReleaseMetrics(w io.Writer, cfg Config) {
-	var totalBytes int64
-	var total int
-	var inventoryErrors int
+	key := filepath.Clean(cfg.WebRoot) + "\x00" + filepath.Clean(cfg.HomeRoot) + "\x00" + fmt.Sprintf("%p", sitePlacementDB.Load())
+	snapshot, refreshedAt := processGitReleaseMetricsCache.get(key, time.Now, func() gitReleaseMetricsSnapshot {
+		return collectGitReleaseMetrics(cfg)
+	})
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_git_release_bytes Bytes retained by previous Git releases")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_git_release_bytes gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_git_release_bytes %d\n", snapshot.totalBytes)
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_git_releases_total Number of previous Git releases retained")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_git_releases_total gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_git_releases_total %d\n", snapshot.total)
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_git_release_inventory_errors Number of unreadable Git release inventory directories")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_git_release_inventory_errors gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_git_release_inventory_errors %d\n", snapshot.inventoryErrors)
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_git_release_metrics_last_refresh_timestamp_seconds Unix timestamp when Git release inventory was last refreshed")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_git_release_metrics_last_refresh_timestamp_seconds gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_git_release_metrics_last_refresh_timestamp_seconds %d\n", refreshedAt.Unix())
+}
+
+func collectGitReleaseMetrics(cfg Config) gitReleaseMetricsSnapshot {
+	var snapshot gitReleaseMetricsSnapshot
 	sites, err := allManagedSiteNames(cfg)
 	if err != nil {
-		inventoryErrors++
+		snapshot.inventoryErrors++
 	}
 	for _, site := range sites {
 		location, err := siteLocationFor(cfg, site)
 		if err != nil {
-			inventoryErrors++
+			snapshot.inventoryErrors++
 			continue
 		}
 		children, err := os.ReadDir(location.Home)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
-				inventoryErrors++
+				snapshot.inventoryErrors++
 			}
 			continue
 		}
@@ -477,18 +565,10 @@ func writeGitReleaseMetrics(w io.Writer, cfg Config) {
 			}
 			size, err := gitReleaseSize(filepath.Join(location.Home, release.Name()))
 			if err == nil {
-				total++
-				totalBytes += size
+				snapshot.total++
+				snapshot.totalBytes += size
 			}
 		}
 	}
-	_, _ = fmt.Fprintln(w, "# HELP stepanel_git_release_bytes Bytes retained by previous Git releases")
-	_, _ = fmt.Fprintln(w, "# TYPE stepanel_git_release_bytes gauge")
-	_, _ = fmt.Fprintf(w, "stepanel_git_release_bytes %d\n", totalBytes)
-	_, _ = fmt.Fprintln(w, "# HELP stepanel_git_releases_total Number of previous Git releases retained")
-	_, _ = fmt.Fprintln(w, "# TYPE stepanel_git_releases_total gauge")
-	_, _ = fmt.Fprintf(w, "stepanel_git_releases_total %d\n", total)
-	_, _ = fmt.Fprintln(w, "# HELP stepanel_git_release_inventory_errors Number of unreadable Git release inventory directories")
-	_, _ = fmt.Fprintln(w, "# TYPE stepanel_git_release_inventory_errors gauge")
-	_, _ = fmt.Fprintf(w, "stepanel_git_release_inventory_errors %d\n", inventoryErrors)
+	return snapshot
 }
