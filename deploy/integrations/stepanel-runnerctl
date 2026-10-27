@@ -276,43 +276,44 @@ run_podman_as_site() {
   # Rootless Podman may fail its native-overlay capability probe inside the
   # service sandbox before it can discover the FUSE fallback. Give each
   # invocation a controlled config outside the customer-writable site tree.
-  # RuntimeDirectory= is created by systemd before the command starts, but
-  # systemd-run keeps it root-owned by default. Podman needs both the runtime
-  # directory itself and its runroot/events directory writable by the site
-  # account, so create the complete tree with the same ownership before
-  # starting the transient unit. Do not delegate this to RuntimeDirectory=;
-  # its default root ownership is exactly what makes rootless Podman fail.
-  # Podman validates XDG_RUNTIME_DIR itself, including the directory at the
-  # exact path rather than only its children.  Do not rely on install(1)'s
-  # ownership handling for intermediate directories: on some systemd/tmpfs
-  # combinations the runtime root is created by another component and remains
-  # root-owned even though the child paths are correct.
-  install -d -m 0700 \
-    "/run/$runner_runtime/containers" \
-    "/run/$runner_runtime/config/containers"
-  chown "$site_user:$site_user" \
-    "/run/$runner_runtime" \
-    "/run/$runner_runtime/containers" \
-    "/run/$runner_runtime/config" \
-    "/run/$runner_runtime/config/containers"
-  chmod 0700 \
-    "/run/$runner_runtime" \
-    "/run/$runner_runtime/containers" \
-    "/run/$runner_runtime/config" \
-    "/run/$runner_runtime/config/containers"
-  [[ $(stat -c '%u:%g' "/run/$runner_runtime") == "$(id -u "$site_user"):$(id -g "$site_user")" ]] || {
-    echo "runtime directory is not owned by $site_user" >&2
-    rm -rf -- "/run/$runner_runtime"
-    runner_runtime=
-    return 1
-  }
-  install -o "$site_user" -g "$site_user" -m 0600 /dev/null "/run/$runner_runtime/config/containers/storage.conf"
-  printf '[storage]\ndriver = "overlay"\ngraphroot = "%s"\nrunroot = "%s"\n[storage.options.overlay]\nmount_program = "%s"\n' \
-    "$runner_home/storage" "/run/$runner_runtime/containers" "$fuse_overlayfs" \
-    > "/run/$runner_runtime/config/containers/storage.conf"
-  [[ $(stat -c '%u:%g:%a' "/run/$runner_runtime/config/containers/storage.conf") == "$site_uid:$site_gid:600" ]] || {
+  # Podman needs the runtime directory itself, its runroot and its config
+  # tree owned by the site account (RuntimeDirectory= would leave them
+  # root-owned), and validates XDG_RUNTIME_DIR at the exact path.
+  #
+  # The site account runs code of its own (PHP, SSH) while this helper works.
+  # Once it owns a directory it can replace that directory's entries, and
+  # chown, chmod and a shell redirect all follow a planted link: a tree handed
+  # over top-down would let it swap a child for a link to /etc before root
+  # changes the child. So root builds the complete tree while every directory
+  # is still root-owned, then hands it over deepest entry first and the
+  # runtime directory last. Until that final chown the account cannot enter
+  # the tree; afterwards root only inspects it with stat, which does not
+  # follow links.
+  local runtime="/run/$runner_runtime"
+  local storage_conf="$runtime/config/containers/storage.conf"
+  install -d -m 0700 -o root -g root \
+    "$runtime" "$runtime/containers" "$runtime/config" "$runtime/config/containers"
+  ( umask 077 && printf '[storage]\ndriver = "overlay"\ngraphroot = "%s"\nrunroot = "%s"\n[storage.options.overlay]\nmount_program = "%s"\n' \
+    "$runner_home/storage" "$runtime/containers" "$fuse_overlayfs" > "$storage_conf" )
+  chmod 0600 "$storage_conf"
+  chown -h "$site_user:$site_user" \
+    "$storage_conf" \
+    "$runtime/config/containers" \
+    "$runtime/config" \
+    "$runtime/containers"
+  chown -h "$site_user:$site_user" "$runtime"
+  local entry
+  for entry in "$runtime" "$runtime/containers" "$runtime/config" "$runtime/config/containers"; do
+    [[ -d $entry && ! -L $entry && $(stat -c '%u:%g:%a' -- "$entry") == "$site_uid:$site_gid:700" ]] || {
+      echo "runtime directory $entry has unexpected ownership, mode or type" >&2
+      rm -rf -- "$runtime"
+      runner_runtime=
+      return 1
+    }
+  done
+  [[ -f $storage_conf && ! -L $storage_conf && $(stat -c '%u:%g:%a' -- "$storage_conf") == "$site_uid:$site_gid:600" ]] || {
     echo 'runner storage configuration has unexpected ownership or mode' >&2
-    rm -rf -- "/run/$runner_runtime"
+    rm -rf -- "$runtime"
     runner_runtime=
     return 1
   }

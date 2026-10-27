@@ -957,3 +957,52 @@ func TestRootlessRunnerUsesBoundedTransientService(t *testing.T) {
 		t.Fatal("Podman must run outside the broker's inherited NoNewPrivileges restriction")
 	}
 }
+
+// TestRunnerRuntimeTreeIsHandedOverDeepestFirst pins the handover of the
+// rootless Podman runtime tree. The site account runs its own code during a
+// build; once it owns a directory it can swap that directory's entries for
+// links, and root's chown, chmod or redirect would follow them out of the
+// tree (for example to /etc). Root therefore writes the whole tree while it
+// is root-owned, changes ownership without following links, and hands over
+// the runtime directory itself last.
+func TestRunnerRuntimeTreeIsHandedOverDeepestFirst(t *testing.T) {
+	helper, err := os.ReadFile("deploy/integrations/stepanel-runnerctl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(helper)
+	start := strings.Index(text, "run_podman_as_site() {")
+	if start < 0 {
+		t.Fatal("run_podman_as_site not found")
+	}
+	body := text[start:]
+	body = body[:strings.Index(body, "\n}\n")]
+
+	created := strings.Index(body, `install -d -m 0700 -o root -g root \`)
+	written := strings.Index(body, `> "$storage_conf" )`)
+	children := strings.Index(body, `chown -h "$site_user:$site_user" \`+"\n"+`    "$storage_conf"`)
+	top := strings.Index(body, `chown -h "$site_user:$site_user" "$runtime"`+"\n")
+	if created < 0 || written < 0 || children < 0 || top < 0 || !(created < written && written < children && children < top) {
+		t.Fatalf("runtime tree must be created root-owned, written, then handed over children first and the runtime directory last (created=%d written=%d children=%d top=%d)", created, written, children, top)
+	}
+	for _, line := range strings.Split(body[:top+1], "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "chown ") && !strings.HasPrefix(trimmed, "chown -h ") {
+			t.Errorf("runtime tree ownership must not follow links: %s", trimmed)
+		}
+	}
+	// After the account owns the runtime directory, root may only inspect
+	// the tree; any further mutation by path could be redirected.
+	for _, mutation := range []string{"chown ", "chmod ", "install ", "printf ", "> \""} {
+		after := body[top+len(`chown -h "$site_user:$site_user" "$runtime"`):]
+		if end := strings.Index(after, "local device_args"); end >= 0 {
+			after = after[:end]
+		}
+		if strings.Contains(after, mutation) {
+			t.Errorf("root mutates the runtime tree with %q after handing it to the site account", mutation)
+		}
+	}
+	if strings.Contains(body, `install -o "$site_user"`) {
+		t.Error("runtime files must be created root-owned and handed over, not created into an account-owned directory")
+	}
+}
