@@ -6,42 +6,52 @@
 
 ---
 
-### Current evidence snapshot — 2026-10-27 (`main` `04646a2`)
+### Current evidence snapshot — 2026-10-27 02:22 UTC (`main` `3bb1e6b`)
 
-Current source is
-[`04646a28c7cc5e15ae8f4d07080408c0fc1edaeb`](https://github.com/cyberducttape/StePanel/commit/04646a28c7cc5e15ae8f4d07080408c0fc1edaeb).
-PR #60 was fast-forwarded to `main` at this exact SHA. Its exact-source
-[CI](https://github.com/cyberducttape/StePanel/actions/runs/40428362081),
-[CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/40428362179),
-and [Documentation](https://github.com/cyberducttape/StePanel/actions/runs/40428362092)
-checks passed. The CI run passed its test job; these checks are not host
-recovery certification. Push-triggered checks on `main`
-([CI](https://github.com/cyberducttape/StePanel/actions/runs/40428739336),
-[CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/40428739306),
-[Documentation](https://github.com/cyberducttape/StePanel/actions/runs/40428739302))
-were queued or pending at this snapshot.
+Current application source is
+[`3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7`](https://github.com/cyberducttape/StePanel/commit/3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7),
+fast-forwarded from PR #63. Exact-source CI
+([40433445780](https://github.com/cyberducttape/StePanel/actions/runs/40433445780)),
+Go analysis and CodeQL
+([40433445654](https://github.com/cyberducttape/StePanel/actions/runs/40433445654)),
+and documentation
+([40433445610](https://github.com/cyberducttape/StePanel/actions/runs/40433445610))
+passed before merge. Push-triggered CodeQL
+([40435936389](https://github.com/cyberducttape/StePanel/actions/runs/40435936389))
+and Documentation
+([40435936306](https://github.com/cyberducttape/StePanel/actions/runs/40435936306))
+passed. Push CI integration
+([40435936337](https://github.com/cyberducttape/StePanel/actions/runs/40435936337))
+also passed. The single-host AlmaLinux 9/Caddy install smoke
+([40435936293](https://github.com/cyberducttape/StePanel/actions/runs/40435936293))
+was still running when this snapshot was prepared.
 
-The source includes journaled site-identity collision repair and its
-installed-host smoke, plus cached Git release inventory metrics. The identity
-repair smoke ([40427860789](https://github.com/cyberducttape/StePanel/actions/runs/40427860789))
-and a separately dispatched copy
-([40426954619](https://github.com/cyberducttape/StePanel/actions/runs/40426954619))
-were still running on parent source `f5e2bce`; neither is counted as passed or
-as exact-`04646a2` evidence.
+The exact-source six-host installed smoke
+([40433464444](https://github.com/cyberducttape/StePanel/actions/runs/40433464444))
+passed Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy plus
+MariaDB. Each host passed one recovery-matrix iteration, restored a populated
+WordPress application with HTTP proof, and repaired two colliding legacy site
+identities. Measured WordPress recovery RTO ranged from 5.419 to 16.400 seconds.
+The hosted systemd containers do not establish physical-host power-loss or
+dedicated-VM recovery behavior. See the
+[run report](lab-results/2026-10-27-six-host-identity-repair-40433464444.md).
 
-The 20-repeat cohort
-([40424048020](https://github.com/cyberducttape/StePanel/actions/runs/40424048020))
-was still running on older source `c89e3a5`, before identity repair. It cannot
-certify current `main`; only a complete cohort on one immutable current source
-can satisfy that gate. No repetitions from that run count toward current-source
-certification.
+The same-source 20-repeat Gate 5 cohort
+([40436448192](https://github.com/cyberducttape/StePanel/actions/runs/40436448192))
+is in progress; its first six-host shard is running. None of its repetitions
+count until all shards complete and their host results are reviewed.
+Production remains **NO-GO**. Open gates include
+that repeated cohort, physical host power loss and broader ENOSPC/database
+outage evidence, quota certification across supported filesystems, live
+notification outage/retry proof, a measured capacity envelope,
+upgrade/rollback policy, and independent security review.
 
-Production remains **NO-GO**. Open gates include exact-current-source
-installed-host testing of identity collision recovery, a complete same-source
-20–50-repeat recovery cohort, physical host power-loss and broader
-ENOSPC/database-outage evidence, quota certification across supported
-filesystems, live notification outage/retry proof, a measured capacity
-envelope, upgrade/rollback policy, and independent security review.
+### Previous evidence snapshot — 2026-10-27 (`main` `04646a2`)
+
+PR #60's source predates the process-tool dependency and resource-helper fixes
+above. Its install smoke is superseded by the exact-source six-host result for
+`3bb1e6b`; the historical checks and their limitations remain recorded in the
+GitHub Actions history.
 
 ### Previous evidence snapshot — 2026-10-26 (application source `ab6cde8`)
 

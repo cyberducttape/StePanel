@@ -72,6 +72,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Reconcile the authoritative production evidence to `main` source `3bb1e6b`.
+  Record all six installed-host identity-repair and WordPress recovery passes,
+  their measured RTOs, passing main CI, the in-progress same-source 20-repeat
+  cohort, and the remaining NO-GO gates in the status, gate, and
+  deployment-readiness documents.
+
 - Refresh the production-evidence snapshot to exact `main` source `04646a2`;
   distinguish passing exact-SHA PR checks from queued push checks, parent-source
   installed smoke, and the older-source recovery cohort.
