@@ -13,8 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   same content as `main`, matching by tree so rebase merges and multi-commit
   pushes are handled correctly. Historical dated snapshots moved to
   `docs/archive/EVIDENCE_HISTORY.md`; reviewed gate status remains in the P0
-  table. The current recovery cohort's observed failure and the completed
-  v0.6/v0.7 upgrade matrix are recorded in `docs/V1_PRODUCTION_GATES.md`.
+  table. The superseded recovery cohort's failure and cancellation and the
+  completed v0.6/v0.7 upgrade matrix are recorded in
+  `docs/V1_PRODUCTION_GATES.md`.
 - The N-1 upgrade smoke now covers v0.6.0 and v0.7.0, including interrupted
   installation, rollback and documented downgrade; details are in
   `docs/lab-results/2026-10-27-upgrade-matrix-40452352170.md`.
