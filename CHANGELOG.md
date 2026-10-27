@@ -59,6 +59,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Refresh the production-evidence snapshot to exact `main` source `04646a2`;
+  distinguish passing exact-SHA PR checks from queued push checks, parent-source
+  installed smoke, and the older-source recovery cohort.
+
 - Cache the aggregate retained Git-release size between Prometheus scrapes and
   expose the inventory refresh timestamp, avoiding a recursive release-tree
   walk on every metrics request.

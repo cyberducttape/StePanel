@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-26
+**Last Updated:** 2026-10-27
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -9,35 +9,39 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current evidence snapshot — 2026-10-26 (application source `ab6cde8`)
+### Current evidence snapshot — 2026-10-27 (`main` source `04646a2`)
 
-Application source under test is
-[`ab6cde808faef6e31d8a66eacf044d28cb901cd9`](https://github.com/cyberducttape/StePanel/commit/ab6cde808faef6e31d8a66eacf044d28cb901cd9).
-This evidence snapshot was reconciled in a documentation-only change after
-that source's runs completed.
-Exact-head CI integration ([40265175171](https://github.com/cyberducttape/StePanel/actions/runs/40265175171)),
-Documentation ([40265175232](https://github.com/cyberducttape/StePanel/actions/runs/40265175232)),
-and CodeQL ([40265175183](https://github.com/cyberducttape/StePanel/actions/runs/40265175183))
-passed. The full integration run includes Go tests and coverage, race tests,
-repository recovery and real tmpfs ENOSPC drills, database restore checks,
-static analysis, container/deployment validation, and UI end-to-end tests.
-Code scanning currently reports zero open alerts.
+Current source is
+[`04646a28c7cc5e15ae8f4d07080408c0fc1edaeb`](https://github.com/cyberducttape/StePanel/commit/04646a28c7cc5e15ae8f4d07080408c0fc1edaeb).
+Exact-source PR checks passed: CI
+([40428362081](https://github.com/cyberducttape/StePanel/actions/runs/40428362081)),
+CodeQL ([40428362179](https://github.com/cyberducttape/StePanel/actions/runs/40428362179)),
+and Documentation
+([40428362092](https://github.com/cyberducttape/StePanel/actions/runs/40428362092)).
+The corresponding push-triggered checks on `main` were queued or pending at
+capture: CI
+([40428739336](https://github.com/cyberducttape/StePanel/actions/runs/40428739336)),
+CodeQL ([40428739306](https://github.com/cyberducttape/StePanel/actions/runs/40428739306)),
+and Documentation
+([40428739302](https://github.com/cyberducttape/StePanel/actions/runs/40428739302)).
 
-The exact-source six-host installed-system smoke
-([40295509910](https://github.com/cyberducttape/StePanel/actions/runs/40295509910))
-passed Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy plus
-MariaDB. This is one installed-system smoke per combination, not the required
-20–50-repeat recovery cohort, and these hosted jobs do not simulate physical
-host power loss. The exact-source Ubuntu 24.04/ext4 quota-enabled production
-install smoke ([40307543702](https://github.com/cyberducttape/StePanel/actions/runs/40307543702))
-also passed, including quota enforcement before and after abrupt guest loss and
-two real ENOSPC recovery cases. The detailed
-[run report](./lab-results/2026-10-26-ubuntu-ext4-quota-install-40307543702.md)
-records scope and limits. This remains one ext4 guest run; it does not certify
-XFS or physical host power-loss behavior.
+The identity-repair installed-host smoke
+([40427860789](https://github.com/cyberducttape/StePanel/actions/runs/40427860789))
+was still running on parent source `f5e2bce`; it is neither a passing result
+nor an exact-`04646a2` run. A separate identical smoke
+([40426954619](https://github.com/cyberducttape/StePanel/actions/runs/40426954619))
+was also running on `f5e2bce`. The 20-repeat recovery cohort
+([40424048020](https://github.com/cyberducttape/StePanel/actions/runs/40424048020))
+was still running on older source `c89e3a5`, which predates identity repair,
+and contributes zero repetitions to current-source certification.
 
-Production remains **NO-GO**. Open gates include legacy site-identity collision
-recovery, the required 20–50-repeat installed-host recovery cohort, physical
+The earlier exact-source six-host installed-system smoke and Ubuntu 24.04/ext4
+quota guest run remain useful historical evidence, with their limits described
+in the previous snapshots below. They do not establish repeated current-source
+recovery, XFS quota behavior, or physical host power-loss recovery.
+
+Production remains **NO-GO**. Open gates include current-source installed-host
+identity repair, a complete same-source 20–50-repeat recovery cohort, physical
 host power-loss and broader ENOSPC/database-outage evidence, quota certification
 across supported filesystems, live notification outage/retry proof, a measured
 capacity envelope, upgrade/rollback policy, and independent security review.

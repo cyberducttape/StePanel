@@ -1,29 +1,27 @@
 # StePanel Production Readiness
 
-**Last Updated:** 2026-10-25
+**Last Updated:** 2026-10-27
 **Status:** Operator Beta; release approval is governed by [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md)
 
 **👉 For overall project status, see [CURRENT_STATUS.md](./CURRENT_STATUS.md) — the single authoritative source for version, progress, and release gates.**
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
-Latest application source: `00ea35f3afa2ec6b872a81c0db74f72c21c104bb`;
-prior evidence commit: `7229c186c0365c1cec5a17f70925ba49865dc1ed`.
-Exact-head Integration ([run 40144536676](https://github.com/cyberducttape/StePanel/actions/runs/40144536676)),
-Documentation ([run 40144536669](https://github.com/cyberducttape/StePanel/actions/runs/40144536669)),
-and CodeQL ([run 40144536662](https://github.com/cyberducttape/StePanel/actions/runs/40144536662))
-passed. The installed-host Caddy smoke
-([run 40144536672](https://github.com/cyberducttape/StePanel/actions/runs/40144536672));
-has built and started its AlmaLinux 9 + Caddy + MariaDB host, and the
-installed-host install/recovery step is in progress. Its parent-source run
-failed at the initial HTTPS fixture with HTTP 404 before the document-root
-activation test. Diagnostics from the exact-source run are pending.
-Production approval remains
-**NO-GO** pending recovery certification, physical power-loss and broader
-ENOSPC evidence, supported-platform application restore proof, capacity
-certification, live alert failure/retry evidence, upgrade policy, and
-independent security assessment. See [CURRENT_STATUS.md](./CURRENT_STATUS.md)
-for the latest detailed run evidence.
+Current application source is
+[`04646a28c7cc5e15ae8f4d07080408c0fc1edaeb`](https://github.com/cyberducttape/StePanel/commit/04646a28c7cc5e15ae8f4d07080408c0fc1edaeb).
+Its exact-source PR checks passed for CI
+([run 40428362081](https://github.com/cyberducttape/StePanel/actions/runs/40428362081)),
+CodeQL ([run 40428362179](https://github.com/cyberducttape/StePanel/actions/runs/40428362179)),
+and documentation
+([run 40428362092](https://github.com/cyberducttape/StePanel/actions/runs/40428362092)).
+Push-triggered checks and current-source installed-host evidence were still
+pending at this snapshot; the collision-repair smoke then running was on parent
+source `f5e2bce`. Production approval remains **NO-GO** pending recovery
+certification, physical power-loss and broader ENOSPC evidence,
+supported-platform application restore proof, capacity certification, live
+alert failure/retry evidence, upgrade policy, and independent security
+assessment. See [CURRENT_STATUS.md](./CURRENT_STATUS.md) for the detailed
+source and run status.
 
 ## Certified operating envelope
 

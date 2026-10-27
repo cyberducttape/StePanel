@@ -6,44 +6,42 @@
 
 ---
 
-### Current evidence snapshot — 2026-10-27 (main `d373cc1`, application source `c89e3a5`)
+### Current evidence snapshot — 2026-10-27 (`main` `04646a2`)
 
-At this evidence capture, `main` was documentation merge
-[`d373cc179da3545c992bcab8fe9a0b2a13d548f5`](https://github.com/cyberducttape/StePanel/commit/d373cc179da3545c992bcab8fe9a0b2a13d548f5),
-whose application-code parent is
-[`c89e3a565f3faa614cb582188820ff517ae2f57e`](https://github.com/cyberducttape/StePanel/commit/c89e3a565f3faa614cb582188820ff517ae2f57e).
-The merge changed documentation only. The tested application source is
-`c89e3a5`.
-Exact-merge CI integration ([40343485124](https://github.com/cyberducttape/StePanel/actions/runs/40343485124)),
-Documentation ([40343485103](https://github.com/cyberducttape/StePanel/actions/runs/40343485103)),
-CodeQL ([40343485161](https://github.com/cyberducttape/StePanel/actions/runs/40343485161)),
-and installed-host smoke ([40343485100](https://github.com/cyberducttape/StePanel/actions/runs/40343485100))
-passed. The integration run passed Go tests and UI E2E; the installed smoke
-passed on AlmaLinux 9 with Caddy and MariaDB. This is one host combination,
-not a six-host or repeated recovery certification.
+Current source is
+[`04646a28c7cc5e15ae8f4d07080408c0fc1edaeb`](https://github.com/cyberducttape/StePanel/commit/04646a28c7cc5e15ae8f4d07080408c0fc1edaeb).
+PR #60 was fast-forwarded to `main` at this exact SHA. Its exact-source
+[CI](https://github.com/cyberducttape/StePanel/actions/runs/40428362081),
+[CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/40428362179),
+and [Documentation](https://github.com/cyberducttape/StePanel/actions/runs/40428362092)
+checks passed. The CI run passed its test job; these checks are not host
+recovery certification. Push-triggered checks on `main`
+([CI](https://github.com/cyberducttape/StePanel/actions/runs/40428739336),
+[CodeQL](https://github.com/cyberducttape/StePanel/actions/runs/40428739306),
+[Documentation](https://github.com/cyberducttape/StePanel/actions/runs/40428739302))
+were queued or pending at this snapshot.
 
-The offline site-identity collision repair is now implemented in
-`stepanel-root identity-repair plan|apply`, with atomic mapping updates,
-root-owned durable journaling, forward-only host reconciliation, preflight,
-and interruption/resume tests. PR #56 merged at this source. No host containing
-a real colliding site identity has been repaired in this evidence set; installed
-collision recovery and cross-site access-denial testing remain open.
+The source includes journaled site-identity collision repair and its
+installed-host smoke, plus cached Git release inventory metrics. The identity
+repair smoke ([40427860789](https://github.com/cyberducttape/StePanel/actions/runs/40427860789))
+and a separately dispatched copy
+([40426954619](https://github.com/cyberducttape/StePanel/actions/runs/40426954619))
+were still running on parent source `f5e2bce`; neither is counted as passed or
+as exact-`04646a2` evidence.
 
-The 20-repeat cohort [40328635038](https://github.com/cyberducttape/StePanel/actions/runs/40328635038)
-was dispatched on older source `59ec0f4`. Its first three six-host shards
-passed; shard 04 was cancelled after the source mismatch was identified. These
-three historical repetitions do not count toward current-source certification.
-A replacement cohort [40424048020](https://github.com/cyberducttape/StePanel/actions/runs/40424048020)
-is now running on application source `c89e3a5`, which is unchanged by the
-documentation-only `d373cc1` merge; it must complete all 20 repetitions before
-the gate can close.
+The 20-repeat cohort
+([40424048020](https://github.com/cyberducttape/StePanel/actions/runs/40424048020))
+was still running on older source `c89e3a5`, before identity repair. It cannot
+certify current `main`; only a complete cohort on one immutable current source
+can satisfy that gate. No repetitions from that run count toward current-source
+certification.
 
-Production remains **NO-GO**. Open gates include installed-host testing of
-identity collision recovery, a complete same-source 20–50-repeat recovery
-cohort, physical host power-loss and broader ENOSPC/database-outage evidence,
-quota certification across supported filesystems, live notification
-outage/retry proof, a measured capacity envelope, upgrade/rollback policy, and
-independent security review.
+Production remains **NO-GO**. Open gates include exact-current-source
+installed-host testing of identity collision recovery, a complete same-source
+20–50-repeat recovery cohort, physical host power-loss and broader
+ENOSPC/database-outage evidence, quota certification across supported
+filesystems, live notification outage/retry proof, a measured capacity
+envelope, upgrade/rollback policy, and independent security review.
 
 ### Previous evidence snapshot — 2026-10-26 (application source `ab6cde8`)
 
