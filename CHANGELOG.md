@@ -36,6 +36,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   link: it skips links and sets the quarantine mode only after the entry is
   inside the root-only quarantine, so swapping a scanned file for a link
   cannot redirect root's `chmod`.
+- `stepanel-runnerctl` hands the rootless Podman runtime tree to the site
+  account only after root has finished writing it, deepest entry first and
+  the runtime directory last, with `chown -h`. It previously made the runtime
+  directory site-owned and then changed its children and wrote
+  `storage.conf` by path, so site code running during a build could swap a
+  child for a link and have root re-own or overwrite a host file such as a
+  directory in `/etc`.
 - Root helpers no longer resolve paths below a site's home with commands
   that follow links. `stepanel-sitectl` and `stepanel-userctl` re-owned
   directories such as a legacy site's `.php` and `public` trees and a placed
