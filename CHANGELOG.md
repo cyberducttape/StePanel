@@ -33,6 +33,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- The installed site-identity collision fixture no longer calls SQLite's
+  `unixepoch()` SQL function, which is absent from older distro Python SQLite
+  builds; it supplies the epoch timestamp from Python instead.
+
 - Root broker task deletion and history invoked appctl's whole-site
   `delete` action and an unknown `history` action; both failed for every
   production request. PHP worker limits of 257-512 were rejected by the

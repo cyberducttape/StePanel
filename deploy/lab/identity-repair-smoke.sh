@@ -78,6 +78,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import time
 
 database, state_dir, legacy_user, site_a, site_b = sys.argv[1:]
 db = sqlite3.connect(database, timeout=15)
@@ -87,7 +88,7 @@ try:
         raise SystemExit("site identity schema is unavailable or incomplete")
     if db.execute("SELECT 1 FROM site_identities WHERE site IN (?,?)", (site_a, site_b)).fetchone():
         raise SystemExit("collision fixture sites already have identity mappings")
-    db.execute("INSERT INTO site_identities(site,username,created_at) VALUES(?,?,unixepoch())", (site_a, legacy_user))
+    db.execute("INSERT INTO site_identities(site,username,created_at) VALUES(?,?,?)", (site_a, legacy_user, int(time.time())))
     db.commit()
 finally:
     db.close()
