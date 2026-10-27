@@ -1,0 +1,62 @@
+name: Release evidence
+
+# Publishes, for the current main commit, which release workflows ran on the
+# same content and what they concluded. This replaces hand-written evidence
+# snapshots in the documentation, which went stale on every merge. Gate
+# status remains a reviewed decision in docs/V1_PRODUCTION_GATES.md.
+on:
+  workflow_run:
+    workflows:
+      - CI integration
+      - CodeQL
+      - Documentation
+      - Installation smoke
+      - Installed recovery cohort
+      - Quota-enabled production install smoke
+      - N-1 upgrade smoke
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit to report on (defaults to the head of main)
+        required: false
+        type: string
+        default: ''
+
+# Only the newest report matters; a later run supersedes an earlier one.
+concurrency:
+  group: stepanel-release-evidence
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # The default branch, never the triggering run's code: workflow_run
+      # executes with repository permissions.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          # Commits of deleted pull-request branches are fetched by SHA;
+          # the repository is public, so no credentials are kept.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.10'
+          cache: true
+      - name: Generate release evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          commit=${COMMIT:-HEAD}
+          [[ $commit == HEAD || $commit =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid commit: $commit" >&2; exit 1; }
+          go run ./cmd/stepanel-evidence --commit "$commit" > evidence.md
+          cat evidence.md >> "$GITHUB_STEP_SUMMARY"

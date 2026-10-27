@@ -22,6 +22,7 @@ declare -A COVERAGE_TARGETS=(
   ["github.com/cyberducttape/StePanel/internal/rootbroker"]="65"
   ["github.com/cyberducttape/StePanel/internal/importer"]="55"
   ["github.com/cyberducttape/StePanel/internal/backup"]="90"
+  ["github.com/cyberducttape/StePanel/internal/evidence"]="85"
 )
 
 profile=${1:-coverage.out}
