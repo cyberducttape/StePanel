@@ -9,8 +9,8 @@ install_optional_postcommit_action() {
   shift 2
 
   if ! install_journal_record post_install started partial "action=$label"; then
-    POST_INSTALL_PENDING+=(installer_journal)
-    echo "Post-install journal update failed before action: $label" >&2
+    POST_INSTALL_PENDING+=(installer_journal "$label")
+    echo "Post-install journal update failed before action; not attempted: $label (retry: $retry)." >&2
     return 0
   fi
 

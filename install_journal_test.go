@@ -162,7 +162,7 @@ func TestInstallerOptionalPostCommitActionRecordsOutcome(t *testing.T) {
 	}{
 		{name: "success", exit: "0", wantStatus: "complete", wantPending: "POST_INSTALL_PENDING=()", wantRecords: 2, wantAction: true},
 		{name: "action failure", exit: "7", wantStatus: "pending", wantPending: "vsftpd", wantRecords: 2, wantAction: true},
-		{name: "start journal failure", exit: "0", journalFail: "1", wantPending: "installer_journal", wantRecords: 0, wantAction: false},
+		{name: "start journal failure", exit: "0", journalFail: "1", wantPending: `([0]="installer_journal" [1]="vsftpd")`, wantRecords: 0, wantAction: false},
 		{name: "completion journal failure", exit: "0", journalFail: "2", wantPending: "installer_journal", wantRecords: 1, wantAction: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
