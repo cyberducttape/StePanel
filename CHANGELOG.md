@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Updated production-gate evidence to identify the merged installer journal
+  fix, separate prior-source recovery runs from current-main validation, and
+  record which post-merge checks remain pending.
+
 - Reconciled the current release-gate snapshot with the completed exact-source
   AlmaLinux 9/Caddy install smoke while keeping the repeated recovery cohort
   explicitly open.
