@@ -33,6 +33,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- The native installer now installs the distribution's `pgrep` provider
+  (`procps` or `procps-ng`), which the site-identity repair preflight uses to
+  prove that reassigned accounts have no running processes. A minimal
+  AlmaLinux 9 host had no `pgrep`, causing the repair smoke and real upgrade
+  path to stop safely before applying the identity migration.
 - The installed site-identity collision fixture no longer calls SQLite's
   `unixepoch()` SQL function, which is absent from older distro Python SQLite
   builds; it supplies the epoch timestamp from Python instead.

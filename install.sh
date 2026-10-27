@@ -263,6 +263,7 @@ if [[ "$INSTALL_DB_ADMIN" != "0" && "$INSTALL_DB_ADMIN" != "1" ]]; then echo 'ST
 # shellcheck source=/etc/os-release
 source /etc/os-release
 if command -v apt-get >/dev/null; then PKG="apt"; APACHE_SERVICE="apache2"; elif command -v dnf >/dev/null; then PKG="dnf"; APACHE_SERVICE="httpd"; else echo "Unsupported operating system: $ID" >&2; exit 1; fi
+PROCPS_PACKAGE="$([[ "$PKG" == "dnf" ]] && printf procps-ng || printf procps)"
 
 if [[ -z "${STEPANEL_DB_ENGINE:-}" && -t 0 ]]; then
   read -r -p "Database engine [mysql/mariadb/postgresql] (mysql): " DB_ENGINE
@@ -337,7 +338,7 @@ for db_service in mysql mariadb postgresql; do
 done
 echo "  unix login accounts (uid >= 1000): $(awk -F: '$3 >= 1000 && $3 < 65534' /etc/passwd | wc -l)"
 echo "PROPOSED CHANGES:"
-echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate $WEB_PACKAGE $DB_PACKAGE"
+echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate $PROCPS_PACKAGE $WEB_PACKAGE $DB_PACKAGE"
 if [[ "$PKG" == "dnf" ]] && command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   echo '  INSTALL SELinux policy tools: policycoreutils-python-utils'
 fi
@@ -453,7 +454,7 @@ install_journal_on_exit() {
 trap install_journal_on_exit EXIT
 
 install_phase "installing base PHP and host utility packages"
-if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl curl git util-linux sudo logrotate
+if [[ "$PKG" == "apt" ]]; then export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl curl git util-linux sudo logrotate "$PROCPS_PACKAGE"
 else
   # Rocky/Alma cloud images may ship the full curl package while minimal
   # images ship curl-minimal. They provide conflicting binaries, so do not
@@ -462,7 +463,7 @@ else
   if rpm -q curl >/dev/null 2>&1 || rpm -q curl-minimal >/dev/null 2>&1; then RHEL_CURL_PACKAGES=(); fi
   RHEL_SELINUX_PACKAGES=()
   if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then RHEL_SELINUX_PACKAGES+=(policycoreutils-python-utils); fi
-  dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl "${RHEL_CURL_PACKAGES[@]}" "${RHEL_SELINUX_PACKAGES[@]}" git util-linux sudo logrotate
+  dnf install -y php php-cli php-fpm "$DB_PHP_PACKAGE" php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl "${RHEL_CURL_PACKAGES[@]}" "${RHEL_SELINUX_PACKAGES[@]}" git util-linux sudo logrotate "$PROCPS_PACKAGE"
 fi
 install_phase "base PHP and host utility packages installed"
 if (( UNSAFE_LAB == 0 )); then
