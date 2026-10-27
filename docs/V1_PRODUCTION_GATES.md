@@ -9,7 +9,33 @@ All release approval decisions must use this document. `PRODUCTION_READINESS.md`
 is a deployment-status summary; `archive/PRODUCTION_SCORECARD.md` (archived) and prior audits are
 historical and must not be treated as current approval.
 
-### Current evidence snapshot — 2026-10-27 02:22 UTC (`main` source `3bb1e6b`)
+### Current evidence snapshot — 2026-10-27 02:45 UTC (`main` `0cbfed7`; application source `3bb1e6b`)
+
+The current main commit is
+[`0cbfed72ab5c2c13e58d04869cd32237e559db75`](https://github.com/cyberducttape/StePanel/commit/0cbfed72ab5c2c13e58d04869cd32237e559db75),
+a documentation-only rebase of PR #64; application source remains
+[`3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7`](https://github.com/cyberducttape/StePanel/commit/3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7).
+PR-head CI, Go analysis, CodeQL, and documentation checks passed on
+[`8b25b41`](https://github.com/cyberducttape/StePanel/commit/8b25b41f8706bdf9b2b73d2b4aa5ebfd98bf816d)
+before merge ([PR #64](https://github.com/cyberducttape/StePanel/pull/64)).
+Main's post-merge Documentation ([40439683192](https://github.com/cyberducttape/StePanel/actions/runs/40439683192))
+and CodeQL ([40439683184](https://github.com/cyberducttape/StePanel/actions/runs/40439683184))
+passed.
+
+The exact-source AlmaLinux 9/Caddy/MariaDB installed smoke
+([40435936293](https://github.com/cyberducttape/StePanel/actions/runs/40435936293))
+completed successfully on application source `3bb1e6b`. This is one installed
+host combination and one recovery-matrix iteration. The same-source 20-repeat
+cohort ([40436448192](https://github.com/cyberducttape/StePanel/actions/runs/40436448192))
+is still in progress; its first six-host shard has not completed, so no cohort
+repetitions count yet.
+
+Production remains **NO-GO**. Physical host power-loss and broader
+ENOSPC/database-outage evidence, quota certification across supported
+filesystems, live notification outage/retry proof, measured capacity,
+upgrade/rollback policy, and independent security review remain open.
+
+### Previous evidence snapshot — 2026-10-27 02:22 UTC (`main` source `3bb1e6b`)
 
 Current application source is
 [`3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7`](https://github.com/cyberducttape/StePanel/commit/3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7),
