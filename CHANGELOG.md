@@ -22,6 +22,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- The PHP malware guard no longer follows a customer-controlled symbolic
+  link: it skips links and sets the quarantine mode only after the entry is
+  inside the root-only quarantine, so swapping a scanned file for a link
+  cannot redirect root's `chmod`.
 - Root helpers no longer resolve paths below a site's home with commands
   that follow links. `stepanel-sitectl` and `stepanel-userctl` re-owned
   directories such as a legacy site's `.php` and `public` trees and a placed
@@ -47,6 +51,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- The PHP malware guard logs a file it cannot quarantine and keeps watching.
+  Previously one unmovable file stopped the guard, and each restart failed on
+  the same file, leaving every site unguarded.
 - Optional installer integrations now remain pending without running if the
   post-commit journal cannot durably record their start. This prevents an
   untracked service mutation when the installer journal is unavailable.
