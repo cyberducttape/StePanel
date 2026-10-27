@@ -41,6 +41,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Optional installer integrations now remain pending without running if the
+  post-commit journal cannot durably record their start. This prevents an
+  untracked service mutation when the installer journal is unavailable.
 - The native installer now installs the distribution's `pgrep` provider
   (`procps` or `procps-ng`), which the site-identity repair preflight uses to
   prove that reassigned accounts have no running processes. A minimal

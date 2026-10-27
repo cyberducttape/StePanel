@@ -158,10 +158,12 @@ func TestInstallerOptionalPostCommitActionRecordsOutcome(t *testing.T) {
 		wantStatus  string
 		wantPending string
 		wantRecords int
+		wantAction  bool
 	}{
-		{name: "success", exit: "0", wantStatus: "complete", wantPending: "POST_INSTALL_PENDING=()", wantRecords: 2},
-		{name: "action failure", exit: "7", wantStatus: "pending", wantPending: "vsftpd", wantRecords: 2},
-		{name: "completion journal failure", exit: "0", journalFail: "2", wantPending: "installer_journal", wantRecords: 1},
+		{name: "success", exit: "0", wantStatus: "complete", wantPending: "POST_INSTALL_PENDING=()", wantRecords: 2, wantAction: true},
+		{name: "action failure", exit: "7", wantStatus: "pending", wantPending: "vsftpd", wantRecords: 2, wantAction: true},
+		{name: "start journal failure", exit: "0", journalFail: "1", wantPending: "installer_journal", wantRecords: 0, wantAction: false},
+		{name: "completion journal failure", exit: "0", journalFail: "2", wantPending: "installer_journal", wantRecords: 1, wantAction: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			journal := filepath.Join(t.TempDir(), "journal.tsv")
@@ -189,19 +191,27 @@ func TestInstallerOptionalPostCommitActionRecordsOutcome(t *testing.T) {
 				t.Fatalf("pending output = %q, want %q", output, tc.wantPending)
 			}
 			records, err := os.ReadFile(journal)
-			if err != nil {
+			var lines []string
+			if tc.wantRecords == 0 {
+				if !os.IsNotExist(err) {
+					t.Fatalf("journal contents = %q, err = %v; wanted no action record", records, err)
+				}
+			} else if err != nil {
 				t.Fatal(err)
+			} else {
+				lines = strings.Split(strings.TrimSpace(string(records)), "\n")
 			}
-			lines := strings.Split(strings.TrimSpace(string(records)), "\n")
-			if len(lines) != tc.wantRecords || !strings.HasPrefix(lines[0], "started|action=vsftpd") ||
+			if len(lines) != tc.wantRecords || (tc.wantRecords > 0 && !strings.HasPrefix(lines[0], "started|action=vsftpd")) ||
 				(tc.wantRecords == 2 && !strings.HasPrefix(lines[1], tc.wantStatus+"|action=vsftpd")) {
 				t.Fatalf("journal records = %#v", lines)
 			}
 			if !strings.Contains(string(output), tc.wantPending) {
 				t.Fatalf("pending state missing from output %q", output)
 			}
-			if _, err := os.Stat(actionLog); err != nil {
+			if _, err := os.Stat(actionLog); tc.wantAction && err != nil {
 				t.Fatalf("optional action was not attempted: %v", err)
+			} else if !tc.wantAction && !os.IsNotExist(err) {
+				t.Fatalf("optional action ran without a durable start record: stat err=%v", err)
 			}
 		})
 	}
