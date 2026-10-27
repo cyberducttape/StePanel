@@ -11,6 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Reconciled the current release-gate snapshot with the completed exact-source
   AlmaLinux 9/Caddy install smoke while keeping the repeated recovery cohort
   explicitly open.
+- Clarified that optional installer actions remain unattempted when their
+  durable start record cannot be written.
 - Restored the explicit release-gate statement that XFS and real production
   mount behavior still require verification for Git staging quotas.
 
