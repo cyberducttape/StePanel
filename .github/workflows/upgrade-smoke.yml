@@ -10,6 +10,23 @@ permissions:
 
 jobs:
   upgrade:
+    # Every published release that can be upgraded in place, in a systemd
+    # container with the container fixture (deploy/lab/upgrade-fixture.sh):
+    # v0.6.0 and v0.7.0 cannot complete a fresh install as published, and the
+    # container cannot expose their LoadCredential handoff to the service.
+    # The upgrade-vm job keeps that handoff on a real guest. Each combination
+    # also runs once with the first candidate
+    # install killed at its verification phase (after the new binaries
+    # started, before the installer commits), which a plain rerun must
+    # complete. Every run ends by undoing the committed upgrade with the
+    # documented procedure and upgrading again.
+    name: upgrade ${{ matrix.previous }} (${{ matrix.fixture }}, interrupt ${{ matrix.interrupt }})
+    strategy:
+      fail-fast: false
+      matrix:
+        previous: [v0.6.0, v0.7.0]
+        fixture: [container]
+        interrupt: [none, verification]
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
@@ -20,22 +37,17 @@ jobs:
         with:
           go-version: '1.26.10'
           cache: true
-      - name: Build N-1 and candidate installer trees
+      - name: Build previous-release and candidate installer trees
+        env:
+          PREVIOUS: ${{ matrix.previous }}
+          FIXTURE: ${{ matrix.fixture }}
         run: |
           set -eu
-          mkdir -p /tmp/stepanel-v0.6.0 /tmp/stepanel-candidate /tmp/stepanel-broken
-          git archive v0.6.0 | tar -x -C /tmp/stepanel-v0.6.0
+          mkdir -p /tmp/stepanel-previous /tmp/stepanel-candidate /tmp/stepanel-broken
+          git archive "$PREVIOUS" | tar -x -C /tmp/stepanel-previous
           tar -C "$GITHUB_WORKSPACE" --exclude=.git -cf - . | tar -x -C /tmp/stepanel-candidate
-          # v0.6.0 shipped a systemd LoadCredential unit with a root-only
-          # source file. The current supported service contract uses the
-          # service-readable credential file and direct path; normalize only
-          # this disposable N-1 fixture so the test reaches the migration
-          # and rollback assertions instead of failing while bootstrapping an
-          # obsolete credential handoff.
-          sed -i '/^LoadCredential=db-password:/d; s#Environment=STEPANEL_DB_PASSWORD_FILE=%d/db-password#Environment=STEPANEL_DB_PASSWORD_FILE=/etc/stepanel-db.password#' /tmp/stepanel-v0.6.0/deploy/stepanel.service
-          sed -i 's/install -m 0600 -o root -g root "\$INSTALL_TXN\/stepanel-db.password"/install -m 0640 -o root -g "\$APP_USER" "\$INSTALL_TXN\/stepanel-db.password"/' /tmp/stepanel-v0.6.0/install.sh
-          sed -i 's|^  if \[\[ "\$DB_LOCAL_HELPER" == "1" \]\]; then write_env STEPANEL_DBCTL|  if false; then write_env STEPANEL_DBCTL|' /tmp/stepanel-v0.6.0/install.sh
-          (cd /tmp/stepanel-v0.6.0 && go build -trimpath -ldflags='-s -w' -o stepanel .)
+          bash deploy/lab/upgrade-fixture.sh /tmp/stepanel-previous "$FIXTURE"
+          (cd /tmp/stepanel-previous && go build -trimpath -ldflags='-s -w' -o stepanel .)
           (cd /tmp/stepanel-candidate && go build -trimpath -ldflags='-s -w' -o stepanel ./cmd/stepanel && go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root)
           cp -a /tmp/stepanel-candidate/. /tmp/stepanel-broken/
           mv /tmp/stepanel-broken/stepanel /tmp/stepanel-broken/stepanel.real
@@ -43,8 +55,11 @@ jobs:
       - name: Build disposable systemd host image
         timeout-minutes: 20
         run: docker build --build-arg BASE_IMAGE=ubuntu:24.04 -f deploy/lab/Dockerfile.systemd -t stepanel-upgrade-systemd-host .
-      - name: Upgrade v0.6.0 on a disposable systemd host
+      - name: Upgrade ${{ matrix.previous }} on a disposable systemd host
         timeout-minutes: 45
+        env:
+          PREVIOUS: ${{ matrix.previous }}
+          INTERRUPT: ${{ matrix.interrupt }}
         run: |
           set -eu
           docker_bounded() {
@@ -59,7 +74,7 @@ jobs:
             --cgroupns=host \
             --tmpfs /run --tmpfs /run/lock \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            -v /tmp/stepanel-v0.6.0:/work/previous:ro \
+            -v /tmp/stepanel-previous:/work/previous:ro \
             -v /tmp/stepanel-candidate:/work/candidate:ro \
             -v /tmp/stepanel-broken:/work/broken:ro \
             stepanel-upgrade-systemd-host /sbin/init
@@ -76,7 +91,7 @@ jobs:
             exit 1
           fi
           set +e
-          timeout --foreground --kill-after=5s 40m docker exec stepanel-upgrade /work/candidate/deploy/lab/upgrade-smoke.sh /work/previous /work/candidate /work/broken
+          timeout --foreground --kill-after=5s 40m docker exec -e STEPANEL_PREVIOUS_VERSION="${PREVIOUS#v}" -e STEPANEL_UPGRADE_INTERRUPT_AT="${INTERRUPT#none}" -e STEPANEL_UPGRADE_ROLLBACK=1 stepanel-upgrade /work/candidate/deploy/lab/upgrade-smoke.sh /work/previous /work/candidate /work/broken
           smoke_status=$?
           if [[ "$smoke_status" != 0 ]]; then
             echo '--- upgrade smoke output diagnostics ---' >&2
@@ -86,3 +101,46 @@ jobs:
             docker_diag logs --tail 200 stepanel-upgrade >&2 || true
           fi
           exit "$smoke_status"
+
+  upgrade-vm:
+    # Previous releases on a real guest kernel and systemd, changed only as
+    # far as they need to install at all (the helper fixture drops their
+    # sudo-based database helper), so the upgrade migrates their real
+    # LoadCredential handoff. Apache: their fresh Caddy install cannot bind
+    # port 80 on Ubuntu 24.04 (see deploy/lab/upgrade-vm.sh).
+    name: upgrade ${{ matrix.previous }} (helper fixture, Apache, QEMU guest)
+    strategy:
+      fail-fast: false
+      matrix:
+        previous: [v0.6.0, v0.7.0]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.10'
+          cache: true
+      - name: Build previous-release and candidate installer trees
+        env:
+          PREVIOUS: ${{ matrix.previous }}
+        run: |
+          set -eu
+          mkdir -p /tmp/stepanel-previous /tmp/stepanel-candidate /tmp/stepanel-broken
+          git archive "$PREVIOUS" | tar -x -C /tmp/stepanel-previous
+          tar -C "$GITHUB_WORKSPACE" --exclude=.git -cf - . | tar -x -C /tmp/stepanel-candidate
+          bash deploy/lab/upgrade-fixture.sh /tmp/stepanel-previous helper
+          (cd /tmp/stepanel-previous && go build -trimpath -ldflags='-s -w' -o stepanel .)
+          (cd /tmp/stepanel-candidate && go build -trimpath -ldflags='-s -w' -o stepanel ./cmd/stepanel && go build -trimpath -ldflags='-s -w' -o stepanel-root ./cmd/stepanel-root)
+          cp -a /tmp/stepanel-candidate/. /tmp/stepanel-broken/
+          mv /tmp/stepanel-broken/stepanel /tmp/stepanel-broken/stepanel.real
+          install -m 0755 /tmp/stepanel-candidate/deploy/lab/broken-candidate.sh /tmp/stepanel-broken/stepanel
+      - name: Upgrade ${{ matrix.previous }} on a disposable QEMU guest
+        timeout-minutes: 90
+        env:
+          PREVIOUS: ${{ matrix.previous }}
+        run: |
+          timeout --foreground --kill-after=5s 88m bash deploy/lab/upgrade-vm.sh "$RUNNER_TEMP/stepanel-upgrade-vm" \
+            /tmp/stepanel-previous /tmp/stepanel-candidate /tmp/stepanel-broken "${PREVIOUS#v}"
