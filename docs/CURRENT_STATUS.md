@@ -6,27 +6,36 @@
 
 ---
 
-### Current evidence snapshot — 2026-10-27 02:45 UTC (`main` `0cbfed7`; application source `3bb1e6b`)
+### Current evidence snapshot — 2026-10-27 03:02 UTC (`main` `28b0184`)
 
 The current main commit is
-[`0cbfed72ab5c2c13e58d04869cd32237e559db75`](https://github.com/cyberducttape/StePanel/commit/0cbfed72ab5c2c13e58d04869cd32237e559db75),
-a documentation-only rebase of PR #64; the application source remains
-[`3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7`](https://github.com/cyberducttape/StePanel/commit/3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7).
-PR-head CI, Go analysis, CodeQL, and documentation checks passed on
-[`8b25b41`](https://github.com/cyberducttape/StePanel/commit/8b25b41f8706bdf9b2b73d2b4aa5ebfd98bf816d)
-before merge ([PR #64](https://github.com/cyberducttape/StePanel/pull/64)).
-Main's post-merge Documentation ([40439683192](https://github.com/cyberducttape/StePanel/actions/runs/40439683192))
-and CodeQL ([40439683184](https://github.com/cyberducttape/StePanel/actions/runs/40439683184))
-also passed.
+[`28b0184919879659b51b0a8ec79830a552925292`](https://github.com/cyberducttape/StePanel/commit/28b0184919879659b51b0a8ec79830a552925292).
+It includes the release-evidence reconciliation from PR #65 and the installer
+post-commit journal fix from PR #66. All required checks passed on PR #66's
+head, whose source tree matches this main commit. The focused installer journal
+regression tests also passed locally.
 
-The exact-source AlmaLinux 9/Caddy/MariaDB installed smoke
-([40435936293](https://github.com/cyberducttape/StePanel/actions/runs/40435936293))
-completed successfully on application source `3bb1e6b`. This is one installed
-host combination and one recovery-matrix iteration, not a repeated recovery
-certification. The same-source 20-repeat cohort
+Post-merge validation on this exact main commit is not complete at this
+snapshot: CI integration
+([40441810295](https://github.com/cyberducttape/StePanel/actions/runs/40441810295))
+and CodeQL
+([40441810365](https://github.com/cyberducttape/StePanel/actions/runs/40441810365))
+are in progress; Documentation
+([40441810584](https://github.com/cyberducttape/StePanel/actions/runs/40441810584))
+and the installed-host smoke
+([40441810363](https://github.com/cyberducttape/StePanel/actions/runs/40441810363))
+are queued.
+
+The six-host installed smoke
+([40433464444](https://github.com/cyberducttape/StePanel/actions/runs/40433464444)),
+the single-host AlmaLinux 9/Caddy smoke
+([40435936293](https://github.com/cyberducttape/StePanel/actions/runs/40435936293)),
+and the 20-repeat cohort
 ([40436448192](https://github.com/cyberducttape/StePanel/actions/runs/40436448192))
-is still in progress; its first six-host shard has not completed, so no cohort
-repetitions count yet.
+all target the earlier application source `3bb1e6b`. The cohort remains in
+progress and has not completed its first six-host shard. None of this host
+evidence validates the later installer journal change or counts as a completed
+repeated recovery certification for current main.
 
 Production remains **NO-GO**. Physical host power-loss and broader
 ENOSPC/database-outage evidence, quota certification across supported
