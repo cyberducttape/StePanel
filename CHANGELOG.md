@@ -65,6 +65,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Reconcile production-gate smoke claims with authoritative GitHub run SHAs;
+  prior-source WordPress and recovery results are labeled historical, while
+  current PHP-FPM socket-root validation is listed as pending until its host
+  runs complete.
+
 - Refresh the repeated-recovery P0 entry to the active exact-source 20-repeat
   cohort on `4b03fe5`; its first six-host repetition remains incomplete.
 - Record three completed host jobs and three still-running jobs in the exact-
