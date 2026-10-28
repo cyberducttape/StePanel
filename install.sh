@@ -919,6 +919,7 @@ managed_targets=(
   /usr/local/sbin/stepanel-gitctl
   /usr/local/sbin/stepanel-proxyctl
   /usr/local/sbin/stepanel-sitectl
+  /usr/local/sbin/stepanel-ensure-php-socket-root
   /usr/local/sbin/stepanel-userctl
   /usr/local/sbin/stepanel-filectl
   /usr/local/lib/stepanel/site-location.sh
@@ -938,6 +939,10 @@ managed_targets=(
   /etc/sudoers.d/stepanel
   /etc/stepanel-audit.key
 )
+for fpm_unit in "${FPM_UNITS[@]}"; do
+  [[ $fpm_unit =~ ^[A-Za-z0-9_.@:-]+\.service$ ]] || { echo "unexpected PHP-FPM unit name: $fpm_unit" >&2; exit 1; }
+  managed_targets+=("/etc/systemd/system/$fpm_unit.d/stepanel-socket-root.conf")
+done
 install_journal_record configuration transaction_preparing partial "registered file and control-plane database snapshots are being prepared under $INSTALL_TXN"
 if [[ "$INSTALL_DB_ADMIN" == "1" && "$WEB_SERVER" == "apache" && "$PKG" == "apt" ]]; then
   managed_targets+=(/etc/apache2/stepanel-panel/db-admin.conf /etc/apache2/conf-enabled/phpmyadmin.conf /etc/apache2/conf-enabled/phppgadmin.conf)
@@ -1009,6 +1014,17 @@ else
   install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-proxyctl" /usr/local/sbin/stepanel-proxyctl
 fi
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-sitectl" /usr/local/sbin/stepanel-sitectl
+install -m 0755 -o root -g root "$ROOT_DIR/deploy/integrations/stepanel-ensure-php-socket-root" /usr/local/sbin/stepanel-ensure-php-socket-root
+"/usr/local/sbin/stepanel-ensure-php-socket-root" "$PHP_SOCKET_ROOT"
+for fpm_unit in "${FPM_UNITS[@]}"; do
+  dropin="/etc/systemd/system/$fpm_unit.d/stepanel-socket-root.conf"
+  install -d -o root -g root -m 0755 "$(dirname "$dropin")"
+  printf '[Service]\nExecStartPre=/usr/local/sbin/stepanel-ensure-php-socket-root %s\n' "$PHP_SOCKET_ROOT" > "$INSTALL_TXN/fpm-socket-root.conf"
+  dropin_tmp=$(mktemp "${dropin}.XXXXXX")
+  TXN_TEMPS+=("$dropin_tmp")
+  install -m 0644 -o root -g root "$INSTALL_TXN/fpm-socket-root.conf" "$dropin_tmp"
+  mv -f "$dropin_tmp" "$dropin"
+done
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-userctl" /usr/local/sbin/stepanel-userctl
 install -m 0755 "$ROOT_DIR/deploy/integrations/stepanel-filectl" /usr/local/sbin/stepanel-filectl
 # Root-owned and not writable: every privileged helper sources it.

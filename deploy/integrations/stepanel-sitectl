@@ -30,10 +30,7 @@ web_group=$(sed -n 's/^STEPANEL_WEB_GROUP="\([a-z_][a-z0-9_-]*\)"$/\1/p' "$web_g
 socket_root=$(sed -n 's/^STEPANEL_PHP_SOCKET_ROOT="\(\/[^"[:space:]]*\)"$/\1/p' "$web_group_config")
 [[ $web_group =~ ^[a-z_][a-z0-9_-]*$ && $socket_root == /* && $socket_root != *$'\n'* && $socket_root != *$'\r'* && $socket_root != *' '* ]] || { echo 'authoritative web identity configuration is invalid' >&2; exit 1; }
 getent group "$web_group" >/dev/null || { echo "configured web server group $web_group does not exist" >&2; exit 1; }
-if [[ ! -d $socket_root ]]; then
-  [[ ! -e $socket_root ]] || { echo "PHP socket root $socket_root is unavailable" >&2; exit 1; }
-  install -d -m 0755 "$socket_root"
-fi
+/usr/local/sbin/stepanel-ensure-php-socket-root "$socket_root"
 
 site_user=$3
 location_lib=/usr/local/lib/stepanel/site-location.sh
@@ -686,14 +683,14 @@ for pool_root in /etc/php/*/fpm/pool.d; do
   [[ -z $php_version || $version == "$php_version" ]] || continue
   validator=$(command -v "php-fpm$version") || { echo "php-fpm$version validator was not found" >&2; false; }
   validators+=("$validator")
-  install -d -m 0755 "$socket_root"
+  /usr/local/sbin/stepanel-ensure-php-socket-root "$socket_root"
   write_pool "$pool_root/stepanel-$site.conf" "$socket_root/stepanel-$site-$version.sock"
   pool_written=1
 done
 if [[ -d /etc/php-fpm.d ]]; then
   validator=$(command -v php-fpm) || { echo 'php-fpm validator was not found' >&2; false; }
   validators+=("$validator")
-  install -d -m 0755 "$socket_root"
+  /usr/local/sbin/stepanel-ensure-php-socket-root "$socket_root"
   write_pool "/etc/php-fpm.d/stepanel-$site.conf" "$socket_root/stepanel-$site.sock"
   pool_written=1
 fi
