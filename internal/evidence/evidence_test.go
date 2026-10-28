@@ -167,6 +167,20 @@ func TestClientRejectsInvalidRepository(t *testing.T) {
 	}
 }
 
+func TestClientReportsRequestAndResponseDecodeFailures(t *testing.T) {
+	client := &Client{BaseURL: "://invalid", Repo: "owner/repo"}
+	if _, err := client.Runs(context.Background(), "ci.yml", "", 1); err == nil {
+		t.Fatal("invalid API URL unexpectedly succeeded")
+	}
+
+	client = newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	if _, err := client.Runs(context.Background(), "ci.yml", "", 1); err == nil || !strings.Contains(err.Error(), "decode") {
+		t.Fatalf("malformed API response error = %v", err)
+	}
+}
+
 func TestRenderStatesWhatCountsAndWhatDoesNot(t *testing.T) {
 	matched := run(2, shaB, "completed", "success")
 	matched.Event = "pull_request"
@@ -271,6 +285,29 @@ func TestRenderWithGatesIncludesDecisionAndFreshness(t *testing.T) {
 	}
 }
 
+func TestFreshnessHelpersHandleUnknownAndClockSkew(t *testing.T) {
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"unknown", runAge(now, time.Time{}), "unknown"},
+		{"clock skew", runAge(now, now.Add(time.Minute)), "clock skew"},
+		{"hours", runAge(now, now.Add(-3*time.Hour)), "3h"},
+		{"short sha", short(shaA), "aaaaaaa"},
+		{"short value", short("abc"), "abc"},
+		{"future document date", documentAge(now, now.AddDate(0, 0, 1)), "updated date is in the future"},
+		{"today document date", documentAge(now, now), "updated today (date precision)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.got != tc.want {
+				t.Fatalf("got %q, want %q", tc.got, tc.want)
+			}
+		})
+	}
+}
+
 func TestOutcomeNamesEveryConclusion(t *testing.T) {
 	for conclusion, want := range map[string]string{
 		"success": "✅ passed", "failure": "❌ failed", "timed_out": "❌ timed out",
@@ -365,5 +402,47 @@ func TestGitFetchesMissingCommit(t *testing.T) {
 	}
 	if len(fetched) != 1 || fetched[0] != missing {
 		t.Fatalf("fetched = %v, want the missing commit", fetched)
+	}
+}
+
+func TestGitReadFileAtValidatesAndReadsImmutableSource(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q")
+	commit := commitFile(t, dir, "docs/gates.md", "exact source\n")
+	repo := Git{Dir: dir}
+	content, err := repo.ReadFileAt(context.Background(), commit, "docs/gates.md")
+	if err != nil || string(content) != "exact source\n" {
+		t.Fatalf("ReadFileAt = %q, %v", content, err)
+	}
+	for _, tc := range []struct{ commit, path string }{
+		{"HEAD", "docs/gates.md"},
+		{commit, "../outside"},
+		{strings.Repeat("f", 40), "docs/gates.md"},
+	} {
+		if _, err := repo.ReadFileAt(context.Background(), tc.commit, tc.path); err == nil {
+			t.Errorf("ReadFileAt(%q, %q) unexpectedly succeeded", tc.commit, tc.path)
+		}
+	}
+}
+
+func TestGitFetchFromOriginReturnsRemoteFailure(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q")
+	if err := (Git{Dir: dir}).FetchFromOrigin(context.Background(), shaA); err == nil {
+		t.Fatal("fetch without an origin unexpectedly succeeded")
+	}
+}
+
+func TestParseGateReportRejectsIncompleteDocuments(t *testing.T) {
+	for name, content := range map[string]string{
+		"missing date":     "Production is **NO-GO**\n### P0 — required before 1.0\n| A | ❌ Open | — |\n",
+		"missing decision": "**Last Updated:** 2026-10-28\n### P0 — required before 1.0\n| A | ❌ Open | — |\n",
+		"missing gates":    "**Last Updated:** 2026-10-28\nProduction is **NO-GO**\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseGateReport([]byte(content)); err == nil {
+				t.Fatal("incomplete gate document unexpectedly parsed")
+			}
+		})
 	}
 }
