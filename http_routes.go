@@ -30,6 +30,7 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 	mux.Handle("/api/database/sessions/", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.databaseSessionTerminate)), http.MethodDelete))
 	mux.Handle("/api/database/settings", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.databaseSettings)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/databases", allowMethods(a.Auth.Require(http.HandlerFunc(a.databaseCollection)), http.MethodGet, http.MethodHead, http.MethodPost))
+	mux.Handle("/api/databases/{id}/deletion-preview", allowMethods(a.Auth.Require(http.HandlerFunc(a.databaseResource)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/databases/", allowMethods(a.Auth.Require(http.HandlerFunc(a.databaseResource)), http.MethodGet, http.MethodHead, http.MethodPatch, http.MethodDelete))
 	mux.Handle("/api/ftp", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.ftpEndpoint)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/security/audit", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.securityAudit)), http.MethodGet, http.MethodHead))

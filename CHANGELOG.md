@@ -25,7 +25,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Refresh the production-gate evidence with the completed six-host smoke, the queued single-host smoke for merged main, and the still-running first repetition of the 20-run recovery cohort; none is presented as host recovery certification.
 - Git rollback now requires an administrator-reviewed preview of the active and target releases, estimated file counts and sizes, document-root swap, and service impact. Execution rejects a stale preview if release-tree metadata changed before confirmation.
-- Database deletion now previews the affected database and managed user, the required verified safety backup, and service impact; deletion requires a matching inventory-bound preview token.
+- Database deletion now previews the affected database and managed user, the required verified safety backup, and service impact; deletion requires a matching inventory-bound preview token through an explicitly registered API route.
 - Site recovery status now provides an evidence-driven operator procedure and distinguishes application-level recovery measurements from archive-only rehearsal time. An older backup's proof is explicitly separated from the newest recovery point.
 - Site termination now shows an inspected change preview before typed confirmation, including the site filesystem root, managed database names, virtual hosts, proxy routes, service cleanup, and site-owned configuration. Unavailable resource inventories block queueing.
 - Redacted support bundles now retain readiness remediation details and include safe failure categories for failed jobs without embedding raw error messages.
