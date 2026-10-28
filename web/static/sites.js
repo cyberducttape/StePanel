@@ -823,17 +823,25 @@
       el('div', { className: 'item-meta' }, [el('strong', {}, db.name), el('small', {}, `${ctx.formatBytes(db.bytes)}${db.user ? ` · user ${db.user}` : ''}`)]),
       ctx.can('database:write') ? el('div', { className: 'item-actions' }, [
         ctx.button('Delete', async () => {
+          output.textContent = 'Loading deletion preview…';
+          let preview;
+          try {
+            preview = await ctx.getJSON(`/api/databases/${encodeURIComponent(db.name)}/deletion-preview`);
+          } catch (error) {
+            output.textContent = error.message;
+            return;
+          }
           const confirmed = await ctx.confirmDangerous({
             title: `Delete ${db.name}?`,
-            message: 'A safety backup is taken automatically before the database is dropped, but the live database will be gone immediately.',
-            facts: [['Database', db.name], ['Size', ctx.formatBytes(db.bytes)], ['Owning site', site]],
+            message: [preview.database_effect, preview.backup_effect, preview.service_effect].join('\n\n'),
+            facts: [['Database', preview.database.name], ['Engine', preview.engine], ['Size', ctx.formatBytes(preview.database.bytes)], ['Owning site', preview.database.site], ['Database user', preview.database.user]],
             confirmText: `DROP ${db.name}`,
             actionLabel: 'Delete database',
           });
           if (!confirmed) return;
           output.textContent = 'Deleting…';
           try {
-            await api.request(`/api/databases/${encodeURIComponent(db.name)}`, { method: 'DELETE', json: { user: db.user, confirm: `DROP ${db.name}` } });
+            await api.request(`/api/databases/${encodeURIComponent(db.name)}`, { method: 'DELETE', json: { user: db.user, confirm: `DROP ${db.name}`, preview_token: preview.preview_token } });
             output.textContent = 'Database deleted.';
             renderDatabasesTab(site, panel, ctx);
           } catch (error) { output.textContent = error.message; }

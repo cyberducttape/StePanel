@@ -77,6 +77,14 @@ paths:
       summary: Rotate a managed database user's password
       responses:
         '204': {description: Credential rotated; caller must update the application secret}
+  /api/databases/{name}/deletion-preview:
+    get:
+      summary: Preview managed database deletion before confirmation
+      description: Requires database:write scope. Returns current database inventory, verified safety-backup behavior, service impact, and a preview token bound to the inventory.
+      responses:
+        '200': {description: Deletion plan and preview token}
+        '404': {description: Managed database not found}
+        '503': {description: Database inventory is unavailable}
   /livez:
     get:
       security: []
@@ -804,6 +812,13 @@ paths:
       summary: Disable a site's signed webhook authorization
       responses:
         '204': {description: Webhook authorization disabled}
+  /api/sites/git-rollback/preview:
+    get:
+      summary: Preview the current-to-previous Git release swap
+      description: Administrator-only. The returned preview token must be submitted with the rollback request and is checked again under the site mutation lock.
+      responses:
+        '200': {description: Release identities, file counts and sizes, document-root change, service effect, and preview token}
+        '409': {description: A safe rollback preview could not be produced}
   /api/sites/git-rollback:
     post:
       summary: Atomically restore the latest preserved Git site release
@@ -813,10 +828,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [site, confirm]
+              required: [site, confirm, preview_token]
               properties:
                 site: {type: string, pattern: '^[a-z0-9_-]{1,32}$'}
                 confirm: {type: string, description: 'Must equal ROLLBACK followed by the site name'}
+                preview_token: {type: string, description: Token from the current Git rollback preview}
       responses:
         '200': {description: Previous release activated and replaced release preserved}
         '409': {description: No valid previous release is available}

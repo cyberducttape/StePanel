@@ -91,6 +91,64 @@ func TestDatabaseResourceReturnsReadOnlyDetailWithoutCSRF(t *testing.T) {
 	}
 }
 
+func TestDatabaseDeletionPreviewDescribesEffectsAndBindsInventory(t *testing.T) {
+	item := DatabaseResource{Name: "site_db", Site: "site", User: "site_user", Bytes: 4096, Encoding: "utf8mb4"}
+	preview := makeDatabaseDeletionPreview(item, "mysql")
+	if preview.PreviewToken == "" || !strings.Contains(preview.DatabaseEffect, "site_user") || !strings.Contains(preview.BackupEffect, "verify") || !strings.Contains(preview.ServiceEffect, "other databases") {
+		t.Fatalf("incomplete database deletion preview: %+v", preview)
+	}
+	changed := item
+	changed.Bytes++
+	if preview.PreviewToken == makeDatabaseDeletionPreview(changed, "mysql").PreviewToken {
+		t.Fatal("database size change did not invalidate deletion preview")
+	}
+	if preview.PreviewToken == makeDatabaseDeletionPreview(item, "postgresql").PreviewToken {
+		t.Fatal("database engine change did not invalidate deletion preview")
+	}
+}
+
+func TestDatabaseResourceServesDeletionPreview(t *testing.T) {
+	helper := filepath.Join(t.TempDir(), "dbctl")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf 'site_db\\tsite\\tsite_user\\t4096\\tutf8mb4\\n'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{DBEngine: "mysql", DBCtl: helper}}
+	response := httptest.NewRecorder()
+	app.databaseResource(response, httptest.NewRequest(http.MethodGet, "/api/databases/site_db/deletion-preview", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"database_effect"`) || !strings.Contains(response.Body.String(), `"preview_token"`) {
+		t.Fatalf("deletion preview status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestDatabaseDeleteRejectsInventoryChangedAfterPreview(t *testing.T) {
+	root := t.TempDir()
+	helper := filepath.Join(root, "dbctl")
+	counter := filepath.Join(root, "inventory-count")
+	calls := filepath.Join(root, "helper-calls")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = inventory ]; then\n" +
+		"  n=0; [ ! -f \"$TEST_DB_COUNT\" ] || read -r n < \"$TEST_DB_COUNT\"; n=$((n+1)); echo \"$n\" > \"$TEST_DB_COUNT\"\n" +
+		"  size=4096; [ \"$n\" -lt 2 ] || size=8192\n" +
+		"  printf 'site_db\\tsite\\tsite_user\\t%s\\tutf8mb4\\n' \"$size\"\n" +
+		"else printf '%s\\n' \"$*\" >> \"$TEST_DB_CALLS\"; fi\n"
+	if err := os.WriteFile(helper, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_DB_COUNT", counter)
+	t.Setenv("TEST_DB_CALLS", calls)
+	preview := makeDatabaseDeletionPreview(DatabaseResource{Name: "site_db", Site: "site", User: "site_user", Bytes: 4096}, "mysql")
+	app := &App{Config: Config{DBEngine: "mysql", DBCtl: helper, WebRoot: root}, Auth: Auth{Username: "admin"}}
+	body := `{"user":"site_user","confirm":"DROP site_db","preview_token":"` + preview.PreviewToken + `"}`
+	response := httptest.NewRecorder()
+	app.databaseResource(response, httptest.NewRequest(http.MethodDelete, "/api/databases/site_db", strings.NewReader(body)))
+	if response.Code != http.StatusConflict {
+		t.Fatalf("changed database inventory deletion status=%d body=%s", response.Code, response.Body.String())
+	}
+	if helperCalls, _ := os.ReadFile(calls); len(helperCalls) != 0 {
+		t.Fatalf("destructive helper was invoked after preview became stale: %s", helperCalls)
+	}
+}
+
 func TestDatabaseProvisionDoesNotReturnPassword(t *testing.T) {
 	root := t.TempDir()
 	helper := filepath.Join(root, "dbctl")

@@ -331,7 +331,8 @@ Other delivery endpoints:
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/sites/git-deploy` | Checkout and atomically activate a validated release |
-| `POST` | `/api/sites/git-rollback` | Administrator rollback to the retained release |
+| `GET` | `/api/sites/git-rollback/preview?site={site}` | Administrator preview of the active-to-previous release swap |
+| `POST` | `/api/sites/git-rollback` | Administrator rollback with the current preview token and typed confirmation |
 | `POST` | `/api/sites/git-webhook` | Deploy a signed Git webhook payload |
 | `POST` | `/api/runner/build` | Run a bounded immutable-image build |
 | `GET` | `/api/deployments` | Read durable build and activation records |
@@ -379,8 +380,13 @@ curl -fsS -H "Authorization: Bearer $STEPANEL_TOKEN" \
 
 Customer database operations use `POST /api/databases`,
 `PATCH /api/databases/{name}/credentials`, and
-`DELETE /api/databases/{name}`. Deletion creates a safety dump first and
-refuses to continue if that backup fails. Passwords are never returned by the
+`DELETE /api/databases/{name}`. Before deletion, fetch
+`GET /api/databases/{name}/deletion-preview` with `database:write` scope. The
+preview describes the database and managed user that will be removed, the
+verified safety dump, and service impact. Submit its `preview_token` with the
+exact `DROP <name>` confirmation. StePanel checks that the inventory still
+matches before and after creating the safety dump; it refuses to drop a
+database whose previewed state changed. Passwords are never returned by the
 API.
 
 Administrator-only database operations include:
