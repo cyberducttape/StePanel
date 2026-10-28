@@ -24,6 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   six-job v0.6/v0.7 N-1 matrix in
   `docs/lab-results/2026-10-28-current-source-installed-and-upgrade-smokes.md`.
   Keep physical host power-loss and repeated Gate 5 evidence open.
+- Clarify that the XFS run proves aggregate quota enforcement in one disposable
+  guest, while production mount configurations still need certification; keep
+  the recovery cohort's source-equivalence check intact.
 
 ### Security
 
