@@ -62,12 +62,12 @@ func TestGitCloneDiskQuotaRemainsAnExplicitHostValidationGate(t *testing.T) {
 	doc := strings.ToLower(string(data))
 	for _, required := range []string{
 		"aggregate write-time limits for git release staging",
-		"implemented; host evidence open",
+		"implemented; two disposable filesystem runs",
 		"project hard quota",
 		"unsupported quota filesystems fail closed",
-		// The ext4 smoke has passed in CI; certification still needs XFS and
-		// real production mounts.
-		"xfs and real production mount behavior still require verification",
+		// Disposable XFS enforcement has passed; the lab guest does not
+		// certify production mount behavior.
+		"real production mount behavior remains unverified",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Errorf("production gate must retain Git staging disk-admission limitation %q", required)

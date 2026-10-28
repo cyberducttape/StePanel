@@ -19,6 +19,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The N-1 upgrade smoke now covers v0.6.0 and v0.7.0, including interrupted
   installation, rollback and documented downgrade; details are in
   `docs/lab-results/2026-10-27-upgrade-matrix-40452352170.md`.
+- Record current-source XFS quota enforcement, abrupt QEMU guest recovery,
+  real ENOSPC backup/file-restore results, installed WordPress proof, and the
+  six-job v0.6/v0.7 N-1 matrix in
+  `docs/lab-results/2026-10-28-current-source-installed-and-upgrade-smokes.md`.
+  Keep physical host power-loss and repeated Gate 5 evidence open.
 
 ### Security
 
