@@ -23,6 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Refresh the production-gate evidence with the completed six-host smoke, the queued single-host smoke for merged main, and the still-running first repetition of the 20-run recovery cohort; none is presented as host recovery certification.
 - Site recovery status now provides an evidence-driven operator procedure and distinguishes application-level recovery measurements from archive-only rehearsal time. An older backup's proof is explicitly separated from the newest recovery point.
 - Site termination now shows an inspected change preview before typed confirmation, including the site filesystem root, managed database names, virtual hosts, proxy routes, service cleanup, and site-owned configuration. Unavailable resource inventories block queueing.
 - Redacted support bundles now retain readiness remediation details and include safe failure categories for failed jobs without embedding raw error messages.
@@ -46,6 +47,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Refresh the repeated-recovery P0 entry to the active exact-source 20-repeat
+  cohort on `4b03fe5`; its first six-host repetition remains incomplete.
+- Record three completed host jobs and three still-running jobs in the exact-
+  source installed-smoke rerun, without counting the partial matrix as a pass.
 - Record a current-source, two-process SQLite contention probe with its host,
   workload, result, and explicit limits; the measurement is exploratory and
   does not certify a production operating envelope.
