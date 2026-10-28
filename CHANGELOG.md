@@ -18,10 +18,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   journal reports services that need manual restoration, and installed-host
   smoke coverage exercises existing Apache and partial mail installations.
 - Site overview now correlates deployment, PHP profile, resource enforcement,
-  disk allowance, bounded web/PHP-FPM log signals, and the latest administrative
-  change into an explainable incident snapshot. Unmeasured database latency and
-  live PHP-FPM saturation are called out as unknown. The diagnostics footer now
-  links to the registered production-readiness endpoint.
+  disk allowance, bounded web/PHP-FPM log signals, host-wide database
+  contention, and the latest administrative change into an explainable incident
+  snapshot. Unmeasured per-site database latency and live PHP-FPM saturation are
+  called out as unknown. The diagnostics footer now links to the registered
+  production-readiness endpoint.
 
 ### Documentation
 

@@ -311,7 +311,7 @@
 
   async function renderOverviewTab(site, panel, ctx) {
     const observe = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
-    const [overview, backups, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, activityResult] = await Promise.all([
+    const [overview, backups, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, activityResult, databaseResult] = await Promise.all([
       ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
       observe(ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=500`)),
       observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
@@ -322,6 +322,7 @@
       ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=error&lines=100`)) : Promise.resolve(null),
       ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=php-fpm&lines=100`)) : Promise.resolve(null),
       ctx.isAdministrator ? observe(ctx.getJSON(`/api/audit/events?target=${encodeURIComponent(site)}&limit=8`)) : Promise.resolve(null),
+      ctx.isAdministrator ? observe(ctx.getJSON('/api/database/diagnostics')) : Promise.resolve(null),
     ]);
 
     const routes = overview.routes || [];
@@ -386,7 +387,7 @@
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'A quick read on whether this site is healthy: what is deployed, when it last backed up, and what changed most recently.'),
       grid,
-      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, lastDeployment, webLogResult, phpLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null }),
+      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, lastDeployment, webLogResult, phpLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok }),
     );
 
     if (ctx.isAdministrator) {
@@ -410,7 +411,7 @@
   function renderIncidentAssessment(signals) {
     const findings = [];
     const add = (level, title, evidence, next) => findings.push({ level, title, evidence, next });
-    const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, lastDeployment, webLogResult, phpLogResult, canReadLogs, latestChange } = signals;
+    const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, lastDeployment, webLogResult, phpLogResult, canReadLogs, latestChange, databaseDiagnostics, databaseDiagnosticsAvailable } = signals;
     const applications = overview.applications || [];
     const unhealthy = applications.filter((app) => !['applied', 'running'].includes(String(app.state || '').toLowerCase()));
     if (unhealthy.length) add('critical', 'Application is not reported as running', unhealthy.map((app) => `${app.domain}: ${app.state || 'unknown state'}`).join('; '), 'Review the deployment history and application logs before retrying activation.');
@@ -435,6 +436,14 @@
     if (lastDeployment && ['failed', 'dead-letter'].includes(String(lastDeployment.state || '').toLowerCase())) {
       add('warning', 'Most recent deployment failed', `${lastDeployment.stage || 'Deployment'} · ${lastDeployment.state}`, 'Open deployment history and inspect the associated durable job before retrying.');
     }
+    if (databaseDiagnosticsAvailable && databaseDiagnostics && databaseDiagnostics.available) {
+      const values = databaseDiagnostics.values || {};
+      if (Number(values.blocked_sessions) > 0 || Number(values.long_transactions) > 0) {
+        add('warning', 'Database contention is present on this host', `${values.blocked_sessions || 0} blocked session(s); ${values.long_transactions || 0} transaction(s) older than five minutes. This is host-wide evidence, not attribution to this site.`, 'Review database sessions and correlate their database names and start times with this site’s traffic.');
+      }
+    } else if (databaseDiagnosticsAvailable === false) {
+      add('unknown', 'Database diagnostics are unavailable', 'The host database diagnostic probe did not return usable measurements.', 'Check database service health and its restricted diagnostic helper.');
+    }
     const inspectLog = (result, label, saturation) => {
       if (!canReadLogs) return;
       if (!result || !result.ok) {
@@ -448,7 +457,7 @@
     };
     inspectLog(webLogResult, 'Web-server', false);
     inspectLog(phpLogResult, 'PHP-FPM', true);
-    const unknowns = ['Per-site database query latency is not measured by this overview.'];
+    const unknowns = ['Per-site database query latency is not measured. Available blocked-session and long-transaction counts are host-wide and are not attributed to this site.'];
     if (!canReadLogs) unknowns.push('Recent web-server and PHP-FPM logs are hidden because this account lacks logs:read.');
     else unknowns.push('PHP-FPM saturation is only flagged when explicit max_children/listen-queue messages appear in the recent log tail; live pool queue metrics are not collected here.');
     const levelLabel = { critical: 'Action needed', warning: 'Review', unknown: 'Not verified' };
