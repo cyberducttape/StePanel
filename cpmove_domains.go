@@ -31,9 +31,10 @@ const (
 
 // cpmoveDomainPlan is how a backup's domains map onto the account layout.
 type cpmoveDomainPlan struct {
-	MainDomain string
-	Parked     []string
-	Sites      []cpmoveDomainSite
+	MainDomain         string
+	Parked             []string
+	Sites              []cpmoveDomainSite
+	InventoryAvailable bool
 	// MainExcludes are directories under public_html that are document roots
 	// of addon or subdomain sites (the classic layout); the main site does
 	// not keep a second copy of them.
@@ -165,6 +166,7 @@ func planCPMoveDomains(root, user string) (cpmoveDomainPlan, error) {
 	if err != nil {
 		return plan, err
 	}
+	plan.InventoryAvailable = true
 	if main.MainDomain != "" {
 		if err := domainname.Validate(main.MainDomain); err != nil {
 			return plan, fmt.Errorf("backup main domain: %w", err)

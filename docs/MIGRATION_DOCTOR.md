@@ -67,5 +67,6 @@ SSH host keys should be supplied through `source_ssh_known_hosts`; strict host-k
 ## Related Documents
 
 - [ARCHIVE_IMPORTER.md](./ARCHIVE_IMPORTER.md) — Generic archive import workflow
+- [MIGRATION_CUTOVER.md](./MIGRATION_CUTOVER.md) — DNS, mail, cron, verification, and rollback checklist for cPanel cutover
 - [PRODUCTION_READINESS.md](./PRODUCTION_READINESS.md) — Migration capabilities by workflow
 - [SECURITY.md](./SECURITY.md) — Security considerations during migration
