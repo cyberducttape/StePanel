@@ -382,6 +382,11 @@ func (a *App) proveWordPressRestore(ctx context.Context, stage string, databases
 		// The transaction is never committed. Remove everything the proof
 		// published, keeping the lease's fencing token even if ctx ended.
 		if teardownErr := a.teardownWordPressProof(context.WithoutCancel(lockCtx), txn, manager, plan.site); teardownErr != nil {
+			// The application probe may have passed, but the proof is not a
+			// successful operation until its throwaway resources are removed.
+			// Keep the transaction for startup recovery and record the audit
+			// intent as failed rather than leaving a success outcome behind.
+			outcome = ""
 			err = errors.Join(err, fmt.Errorf("tear down recovery proof site %s (startup recovery will retry): %w", plan.site, teardownErr))
 		}
 	}()
