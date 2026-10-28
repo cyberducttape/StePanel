@@ -48,6 +48,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Refresh the repeated-recovery P0 entry to the active exact-source 20-repeat
   cohort on `4b03fe5`; its first six-host repetition remains incomplete.
+- Record three completed host jobs and three still-running jobs in the exact-
+  source installed-smoke rerun, without counting the partial matrix as a pass.
 - Record a current-source, two-process SQLite contention probe with its host,
   workload, result, and explicit limits; the measurement is exploratory and
   does not certify a production operating envelope.
