@@ -24,6 +24,19 @@ func TestRunCappedReturnsCombinedOutputWithinLimit(t *testing.T) {
 	}
 }
 
+func TestRunCappedDoesNotStartWithAlreadyCanceledContext(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "started")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := RunCapped(ctx, exec.Command("sh", "-c", "touch \"$1\"", "sh", marker), 1024)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunCapped error = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("subprocess ran despite canceled context: stat error = %v", err)
+	}
+}
+
 // TestRunCappedStopsUnboundedWriterAndItsProcessGroup proves memory stays
 // bounded while the child is still writing, and that descendants die too.
 func TestRunCappedStopsUnboundedWriterAndItsProcessGroup(t *testing.T) {

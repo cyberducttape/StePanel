@@ -168,7 +168,9 @@ func readBounded(r io.Reader, limit int64) ([]byte, error) {
 }
 
 // Write replaces a file atomically: a temporary file beside it, then a
-// rename. An existing file keeps its permissions; a new one is 0640.
+// rename. It syncs the file before publication and the parent directory after
+// rename for crash durability on filesystems that support directory fsync.
+// An existing file keeps its permissions; a new one is 0640.
 func (l Local) Write(_ context.Context, site, rel string, content io.Reader) (err error) {
 	if content == nil {
 		return errors.New("file content is required")
@@ -233,10 +235,19 @@ func (l Local) Write(_ context.Context, site, rel string, content io.Reader) (er
 	if err := root.Chmod(temp, mode); err != nil {
 		return fmt.Errorf("set file permissions: %w", err)
 	}
+	parent := path.Dir(rel)
 	if err := root.Rename(temp, rel); err != nil {
 		return fmt.Errorf("replace file: %w", err)
 	}
 	committed = true
+	parentDir, err := root.Open(name(parent))
+	if err != nil {
+		return fmt.Errorf("%w: replacement is visible but opening its parent failed: %v", ErrDurabilityUncertain, err)
+	}
+	defer parentDir.Close()
+	if err := parentDir.Sync(); err != nil {
+		return fmt.Errorf("%w: replacement is visible but parent directory sync failed: %v", ErrDurabilityUncertain, err)
+	}
 	return nil
 }
 

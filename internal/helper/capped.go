@@ -148,6 +148,9 @@ func runCapped(ctx context.Context, cmd *exec.Cmd, stdout io.Writer, stderr *cap
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	PrepareCommand(cmd)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := cmd.Start(); err != nil {
 		return err
 	}

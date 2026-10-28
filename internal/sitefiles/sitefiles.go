@@ -30,6 +30,7 @@ const (
 // ErrNotFound reports a path that does not exist.
 var ErrNotFound = errors.New("path does not exist")
 var ErrTooLarge = errors.New("file exceeds the configured size limit")
+var ErrDurabilityUncertain = errors.New("file replacement durability is uncertain")
 
 // RefusedError is an operation refused because of the customer's own files
 // or request ("path already exists"). Its message is safe to show to the

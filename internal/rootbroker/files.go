@@ -211,6 +211,9 @@ func (c *Client) FilesWrite(ctx context.Context, site, rel string, content io.Re
 	}
 	if !resp.OK {
 		if _, message, found := strings.Cut(resp.Error, "files write failed: "); found {
+			if strings.Contains(message, "parent directory durability is uncertain") {
+				return sitefiles.ErrDurabilityUncertain
+			}
 			if strings.Contains(message, "larger than") {
 				return sitefiles.ErrTooLarge
 			}

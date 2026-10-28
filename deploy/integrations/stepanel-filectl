@@ -137,7 +137,35 @@ case $action in
     else
       as_user chmod 0640 -- "$temp"
     fi
+    # Persist the completed temporary file before publishing it. Run the
+    # descriptor operations as the site account; these paths are tenant
+    # writable and must never be opened by the privileged shell for syncing.
+    as_user python3 - "$temp" <<'PY'
+import os, sys
+import stat
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+try:
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        raise SystemExit("upload staging path is not a regular file")
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
     as_user mv -fT -- "$temp" "$target"
+    # A successful rename is not crash durable until its parent directory is
+    # synchronized. Report an indeterminate publication if directory fsync
+    # fails: the new file may already be visible.
+    as_user python3 - "$parent" <<'PY' || { echo 'replacement is visible but parent directory durability is uncertain' >&2; exit 1; }
+import os, sys
+import stat
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
+try:
+    if not stat.S_ISDIR(os.fstat(fd).st_mode):
+        raise SystemExit("upload parent is not a directory")
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
     trap - EXIT
     ;;
   mkdir)

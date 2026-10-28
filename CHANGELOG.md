@@ -70,7 +70,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   and refuse the read if the file grew after its size check. Uploads stream
   through a bounded, explicitly terminated broker protocol instead of being
   buffered and base64-encoded in JSON; the broker stages the complete body
-  before invoking the existing site-account atomic writer.
+  before invoking the existing site-account atomic writer. Both development
+  and installed file writers now sync the completed file before rename and
+  the containing directory afterward; the installed helper performs these
+  syncs as the site account. Capped subprocess execution also returns before
+  launch when its context is already canceled; directory-sync failures are
+  reported as uncertain publication so operators check the visible file
+  before retrying.
 - A committed upgrade can now be undone as documented. Reinstalling v0.6.0
   or v0.7.0 after an upgrade failed at once ("/etc/ste-panel.env contains an
   unsupported entry"): those installers reject the `RCLONE_CONFIG` entry the

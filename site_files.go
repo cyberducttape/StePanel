@@ -288,6 +288,8 @@ func writeSiteFilesError(w http.ResponseWriter, err error) {
 		http.Error(w, refused.Message, http.StatusUnprocessableEntity)
 	case errors.Is(err, sitefiles.ErrTooLarge):
 		http.Error(w, fmt.Sprintf("file content must be at most %d bytes", sitefiles.MaxWriteBytes), http.StatusRequestEntityTooLarge)
+	case errors.Is(err, sitefiles.ErrDurabilityUncertain):
+		http.Error(w, "the file was replaced, but crash durability could not be confirmed; check its contents before retrying", http.StatusServiceUnavailable)
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		http.Error(w, "the file operation was interrupted", http.StatusServiceUnavailable)
 	default:
