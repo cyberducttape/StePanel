@@ -89,11 +89,12 @@ required release gates.
 
 Administrators can download a redacted incident artifact from
 `GET /api/admin/support-bundle`. It is a streamed ZIP containing runtime
-metadata, safe configuration posture, readiness results, production checks,
-Prometheus metrics, and job summaries. The bundle deliberately excludes
-passwords, encryption keys, TOTP material, job payloads and outputs, database
-contents, and raw customer logs. Treat site names and operational metadata as
-confidential even though credentials are not included.
+metadata, safe configuration posture, readiness results with remediation
+details, production checks, Prometheus metrics, and job summaries. Failed jobs
+include coarse failure categories without raw error messages. The bundle
+deliberately excludes passwords, encryption keys, TOTP material, job payloads
+and outputs, database contents, and raw customer logs. Treat site names and
+operational metadata as confidential even though credentials are not included.
 
 For recovery confidence without changing customer state, use the backup
 `Rehearse restore` action (or `POST /api/backups/rehearse`). The durable job

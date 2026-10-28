@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -16,14 +17,15 @@ import (
 // outputs can contain credentials, archive metadata, or customer content and
 // must never be copied into a support artifact.
 type supportBundleJob struct {
-	ID         string     `json:"id"`
-	Kind       string     `json:"kind"`
-	Owner      string     `json:"owner"`
-	State      string     `json:"state"`
-	Progress   int        `json:"progress,omitempty"`
-	Attempts   int        `json:"attempts,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	ID              string     `json:"id"`
+	Kind            string     `json:"kind"`
+	Owner           string     `json:"owner"`
+	State           string     `json:"state"`
+	Progress        int        `json:"progress,omitempty"`
+	Attempts        int        `json:"attempts,omitempty"`
+	FailureCategory string     `json:"failure_category,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
 }
 
 type supportBundleConfig struct {
@@ -92,7 +94,7 @@ func writeSupportBundle(out io.Writer, a *App) error {
 	}
 
 	generated := time.Now().UTC()
-	if err := writeText("README.txt", "StePanel support bundle\n\nThis bundle contains redacted operational diagnostics. It does not contain passwords, encryption keys, TOTP seeds, database contents, job payloads, job outputs, or raw customer logs.\n"); err != nil {
+	if err := writeText("README.txt", "StePanel support bundle\n\nThis bundle contains redacted operational diagnostics and readiness details. Failed jobs include coarse failure categories only. It does not contain passwords, encryption keys, TOTP seeds, database contents, raw job errors, job payloads, job outputs, or raw customer logs.\n"); err != nil {
 		return closeArchive(err)
 	}
 	if err := writeJSON("metadata.json", map[string]any{
@@ -127,19 +129,11 @@ func writeSupportBundle(out io.Writer, a *App) error {
 	}
 
 	readiness := readinessChecks(a.Config, a.Jobs)
-	readinessSummary := make(map[string]bool, len(readiness))
-	for name, check := range readiness {
-		readinessSummary[name] = check.Ready
-	}
-	if err := writeJSON("readiness.json", map[string]any{"ready": allReadinessChecksPass(readiness), "checks": readinessSummary}); err != nil {
+	if err := writeJSON("readiness.json", map[string]any{"ready": allReadinessChecksPass(readiness), "checks": readiness}); err != nil {
 		return closeArchive(err)
 	}
 	operational := operationalChecks(a.Config, a.Jobs)
-	operationalSummary := make(map[string]bool, len(operational))
-	for name, check := range operational {
-		operationalSummary[name] = check.Ready
-	}
-	if err := writeJSON("operational-readiness.json", map[string]any{"operational": allReadinessChecksPass(operational), "checks": operationalSummary}); err != nil {
+	if err := writeJSON("operational-readiness.json", map[string]any{"operational": allReadinessChecksPass(operational), "checks": operational}); err != nil {
 		return closeArchive(err)
 	}
 	if err := writeJSON("production-readiness.json", a.checkProductionReadiness()); err != nil {
@@ -170,7 +164,11 @@ func writeSupportBundle(out io.Writer, a *App) error {
 			logSupportBundleError(fmt.Errorf("read jobs for support bundle: %w", err))
 		} else {
 			for _, item := range items {
-				jobs = append(jobs, supportBundleJob{ID: item.ID, Kind: item.Kind, Owner: item.User, State: item.State, Progress: item.Progress, Attempts: item.Attempts, CreatedAt: item.StartedAt, FinishedAt: item.FinishedAt})
+				job := supportBundleJob{ID: item.ID, Kind: item.Kind, Owner: item.User, State: item.State, Progress: item.Progress, Attempts: item.Attempts, CreatedAt: item.StartedAt, FinishedAt: item.FinishedAt}
+				if item.State == "failed" || item.State == "dead-letter" {
+					job.FailureCategory = classifySupportBundleFailure(item.Error)
+				}
+				jobs = append(jobs, job)
 			}
 		}
 	}
@@ -181,6 +179,28 @@ func writeSupportBundle(out io.Writer, a *App) error {
 		return closeArchive(err)
 	}
 	return closeArchive(nil)
+}
+
+// classifySupportBundleFailure provides useful triage without copying raw
+// command output, provider responses, paths, or credentials into the bundle.
+func classifySupportBundleFailure(message string) string {
+	message = strings.ToLower(message)
+	switch {
+	case strings.Contains(message, "timeout"), strings.Contains(message, "timed out"), strings.Contains(message, "deadline exceeded"):
+		return "timeout"
+	case strings.Contains(message, "no space left"), strings.Contains(message, "disk quota"), strings.Contains(message, "insufficient storage"):
+		return "storage_capacity"
+	case strings.Contains(message, "permission denied"), strings.Contains(message, "operation not permitted"):
+		return "permissions"
+	case strings.Contains(message, "mysql"), strings.Contains(message, "mariadb"), strings.Contains(message, "database"), strings.Contains(message, "sqlite"):
+		return "database"
+	case strings.Contains(message, "certificate"), strings.Contains(message, "tls"):
+		return "tls"
+	case strings.Contains(message, "not found"), strings.Contains(message, "does not exist"):
+		return "missing_resource"
+	default:
+		return "other_or_unclassified"
+	}
 }
 
 func allReadinessChecksPass(checks map[string]ReadinessCheck) bool {
