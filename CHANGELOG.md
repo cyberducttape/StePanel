@@ -25,6 +25,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Make the installed PHP-FPM public-status smoke tolerate a brief web-server
   listener transition and capture the selected web-server's unit and journal
   when the endpoint remains unavailable or exposes the private status path.
+- Extend the bounded installed PHP-FPM status-route retry to 20 attempts with
+  a one-second connect timeout after a focused smoke showed Caddy's restart
+  could outlast the original five-attempt window; rerun evidence is pending.
+- Record that the initial retry still failed during Caddy restart, based on
+  installed-smoke diagnostics, rather than treating it as a fixed issue.
 - Add coverage for exact-source gate parsing, freshness reporting, Git file reads,
   and API error handling; `internal/evidence` now exceeds its enforced 85% floor.
 - Make the Git staging quota fail-closed test use an explicitly absent broker

@@ -423,12 +423,12 @@ if not status.get("available") or not status.get("pools"):
 print("Installed PHP-FPM status probe passed: " + ", ".join(pool.get("php_version", "default") for pool in status["pools"] if pool.get("state") == "available"))
 PY
 public_status=000
-for _ in {1..5}; do
+for _ in {1..20}; do
   if [[ $STEPANEL_WEBSERVER == caddy ]]; then
-    public_status=$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' --max-time 2 \
+    public_status=$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' --connect-timeout 1 --max-time 2 \
       --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-fpm-status 2>/dev/null || true)
   else
-    public_status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 \
+    public_status=$(curl --silent --output /dev/null --write-out '%{http_code}' --connect-timeout 1 --max-time 2 \
       --resolve ci-smoke.localhost:80:127.0.0.1 http://ci-smoke.localhost/stepanel-fpm-status 2>/dev/null || true)
   fi
   [[ $public_status != 000 ]] && break
