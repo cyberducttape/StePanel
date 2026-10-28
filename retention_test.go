@@ -179,6 +179,29 @@ func TestImportStageLeaseProcessHelper(t *testing.T) {
 		return
 	}
 	id := os.Getenv("STEPANEL_TEST_IMPORT_STAGE_ID")
+	if os.Getenv("STEPANEL_TEST_IMPORT_STAGE_CONTEND") == "1" {
+		stageName := id
+		if name := os.Getenv("STEPANEL_TEST_IMPORT_STAGE_NAME"); name != "" {
+			stageName = name
+		}
+		lock, err := os.OpenFile(importStageLockPath(filepath.Join(root, stageName)), os.O_RDWR, 0600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		result := "blocked"
+		if err == nil {
+			result = "acquired"
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		} else if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
+			t.Fatal(err)
+		}
+		_ = lock.Close()
+		if err := os.WriteFile(filepath.Join(root, "contender-result"), []byte(result), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
 	var stage string
 	var lock *os.File
 	var err error
@@ -208,6 +231,71 @@ func TestImportStageLeaseProcessHelper(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+// A creator must not open a replacement stage lock until removal has released
+// and unlinked the old lock under root coordination. The parent, creator, and
+// contender are separate processes to exercise real flock semantics.
+func TestImportStageRecreationSerializesLockLifecycleAcrossProcesses(t *testing.T) {
+	root := t.TempDir()
+	name := "20200101-010101-customer-AbCdEf012_-x"
+	path, oldLock, err := createNamedImportStage(root, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatal(err)
+	}
+	coordination, err := acquireImportStageCoordination(root)
+	if err != nil {
+		_ = releaseBackupStageLock(oldLock)
+		t.Fatal(err)
+	}
+
+	creator := exec.Command(os.Args[0], "-test.run=^TestImportStageLeaseProcessHelper$")
+	creator.Env = append(os.Environ(), "STEPANEL_TEST_IMPORT_STAGE_ROOT="+root,
+		"STEPANEL_TEST_IMPORT_STAGE_ID=recreated", "STEPANEL_TEST_IMPORT_STAGE_NAME="+name)
+	if err := creator.Start(); err != nil {
+		_ = releaseBackupStageLock(coordination)
+		_ = releaseBackupStageLock(oldLock)
+		t.Fatal(err)
+	}
+	stopCreator := func() {
+		_ = os.WriteFile(filepath.Join(root, "stop"), []byte("stop"), 0600)
+		_ = creator.Wait()
+	}
+	defer stopCreator()
+	if err := finalizeImportStageRemoval(path, oldLock); err != nil {
+		_ = releaseBackupStageLock(coordination)
+		t.Fatal(err)
+	}
+	if err := releaseBackupStageLock(coordination); err != nil {
+		t.Fatal(err)
+	}
+	waitForStageHelperFile(t, filepath.Join(root, "ready-recreated"))
+
+	contender := exec.Command(os.Args[0], "-test.run=^TestImportStageLeaseProcessHelper$")
+	contender.Env = append(os.Environ(), "STEPANEL_TEST_IMPORT_STAGE_ROOT="+root,
+		"STEPANEL_TEST_IMPORT_STAGE_ID=recreated", "STEPANEL_TEST_IMPORT_STAGE_NAME="+name,
+		"STEPANEL_TEST_IMPORT_STAGE_CONTEND=1")
+	if output, err := contender.CombinedOutput(); err != nil {
+		t.Fatalf("lock contender: %v: %s", err, output)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "contender-result")); err != nil || string(got) != "blocked" {
+		t.Fatalf("new stage lock is not held by its owner: result=%q err=%v", got, err)
+	}
+}
+
+func waitForStageHelperFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("subprocess did not create %s", path)
 }
 
 func TestCleanupImportStagesHonorsCrossProcessNamedRestoreLease(t *testing.T) {
