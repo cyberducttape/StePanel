@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -165,6 +167,63 @@ func TestClientDBProvisionIncludesRequiredFields(t *testing.T) {
 	}
 	if err := <-serverErr; err != nil {
 		t.Fatalf("socket server: %v", err)
+	}
+}
+
+func TestClientFilesWriteStreamsRawBoundedContent(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "root-broker.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	want := strings.Repeat("streamed-content-", 4096)
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		defer conn.Close()
+		decoder := json.NewDecoder(conn)
+		var req Request
+		if err := decoder.Decode(&req); err != nil {
+			serverErr <- err
+			return
+		}
+		if req.Files == nil || req.Files.Action != "write" || !req.Files.StreamContent || req.Files.Site != "alice" || req.Files.Path != "public/data.bin" {
+			serverErr <- fmt.Errorf("unexpected streamed files request: %+v", req.Files)
+			return
+		}
+		content, err := io.ReadAll(NewFileContentReader(io.MultiReader(decoder.Buffered(), conn)))
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		if string(content) != want {
+			serverErr <- fmt.Errorf("received %d bytes, want %d", len(content), len(want))
+			return
+		}
+		serverErr <- json.NewEncoder(conn).Encode(Response{OK: true})
+	}()
+	t.Setenv("STEPANEL_LAB_DIRECT_ROOT_BROKER", "1")
+	t.Setenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE", "1")
+	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", socketPath)
+	client, err := NewClient("/usr/local/sbin/stepanel-root", "/var/www")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.FilesWrite(context.Background(), "alice", "public/data.bin", strings.NewReader(want)); err != nil {
+		select {
+		case serverErr := <-serverErr:
+			t.Fatalf("FilesWrite: %v (server: %v)", err, serverErr)
+		default:
+			t.Fatalf("FilesWrite: %v", err)
+		}
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("streaming server: %v", err)
 	}
 }
 

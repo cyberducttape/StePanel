@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path"
 	"sort"
@@ -143,14 +144,34 @@ func (l Local) Read(_ context.Context, site, rel string) ([]byte, error) {
 		return nil, err
 	}
 	defer file.Close()
-	return io.ReadAll(io.LimitReader(file, MaxReadBytes))
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat opened file: %w", err)
+	}
+	if !openedInfo.Mode().IsRegular() {
+		return nil, Refused("not a regular file")
+	}
+	return readBounded(file, MaxReadBytes)
+}
+
+// readBounded distinguishes a complete file at the limit from a file that
+// grew after its earlier size check. The extra byte is never returned.
+func readBounded(r io.Reader, limit int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, Refused("file is larger than %d bytes", limit)
+	}
+	return data, nil
 }
 
 // Write replaces a file atomically: a temporary file beside it, then a
 // rename. An existing file keeps its permissions; a new one is 0640.
-func (l Local) Write(_ context.Context, site, rel string, data []byte) (err error) {
-	if len(data) > MaxWriteBytes {
-		return Refused("file is larger than %d bytes", MaxWriteBytes)
+func (l Local) Write(_ context.Context, site, rel string, content io.Reader) (err error) {
+	if content == nil {
+		return errors.New("file content is required")
 	}
 	root, err := l.open(site)
 	if err != nil {
@@ -189,9 +210,18 @@ func (l Local) Write(_ context.Context, site, rel string, data []byte) (err erro
 			}
 		}
 	}()
-	if _, err := file.Write(data); err != nil {
+	written, err := io.Copy(file, io.LimitReader(content, MaxWriteBytes+1))
+	if err != nil {
 		file.Close()
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return ErrTooLarge
+		}
 		return fmt.Errorf("write file: %w", err)
+	}
+	if written > MaxWriteBytes {
+		file.Close()
+		return ErrTooLarge
 	}
 	if err := file.Sync(); err != nil {
 		file.Close()

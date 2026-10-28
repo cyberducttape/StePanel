@@ -31,9 +31,8 @@ import (
 
 const siteFilesPrefix = "/api/sites/files/"
 
-// siteFileWrites bounds file manager uploads held in memory at once: each
-// body is read whole (at most sitefiles.MaxWriteBytes) before it is sent to
-// the broker.
+// siteFileWrites bounds concurrent file uploads so slow clients and helper
+// processes cannot exhaust host resources.
 var siteFileWrites = make(chan struct{}, 8)
 
 // errSiteNotPlaced reports a legacy site, whose tree the file manager does
@@ -67,9 +66,12 @@ func (s brokerFileStore) Read(ctx context.Context, site, rel string) ([]byte, er
 	return resp.Content, err
 }
 
-func (s brokerFileStore) Write(ctx context.Context, site, rel string, data []byte) error {
-	_, err := s.run(ctx, rootbroker.FilesRequest{Action: "write", Site: site, Path: rel, Content: data})
-	return err
+func (s brokerFileStore) Write(ctx context.Context, site, rel string, content io.Reader) error {
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", s.cfg.WebRoot)
+	if err != nil {
+		return err
+	}
+	return client.FilesWrite(ctx, site, rel, content)
 }
 
 func (s brokerFileStore) Mkdir(ctx context.Context, site, rel string) error {
@@ -145,13 +147,8 @@ func (a *App) siteFiles(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, sitefiles.MaxWriteBytes)
-		data, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("file content must be at most %d bytes", sitefiles.MaxWriteBytes), http.StatusRequestEntityTooLarge)
-			return
-		}
-		a.siteFilesMutate(w, r, site, "site.files.write", fmt.Sprintf("%s (%d bytes)", rel, len(data)), func(ctx context.Context) error {
-			return store.Write(ctx, site, rel, data)
+		a.siteFilesMutate(w, r, site, "site.files.write", rel+" (streamed upload)", func(ctx context.Context) error {
+			return store.Write(ctx, site, rel, r.Body)
 		})
 	case r.Method == http.MethodPost && (operation == "mkdir" || operation == "rename" || operation == "delete"):
 		var input struct {
@@ -289,6 +286,8 @@ func writeSiteFilesError(w http.ResponseWriter, err error) {
 		http.Error(w, err.Error(), http.StatusConflict)
 	case errors.As(err, &refused):
 		http.Error(w, refused.Message, http.StatusUnprocessableEntity)
+	case errors.Is(err, sitefiles.ErrTooLarge):
+		http.Error(w, fmt.Sprintf("file content must be at most %d bytes", sitefiles.MaxWriteBytes), http.StatusRequestEntityTooLarge)
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		http.Error(w, "the file operation was interrupted", http.StatusServiceUnavailable)
 	default:

@@ -1,13 +1,24 @@
 package rootbroker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cyberducttape/StePanel/internal/sitefiles"
 )
+
+type failedStreamReader struct{}
+
+func (failedStreamReader) Read(p []byte) (int, error) {
+	copy(p, "partial")
+	return len("partial"), errors.New("simulated interrupted upload")
+}
 
 func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 	v := NewValidator("/var/www")
@@ -15,7 +26,7 @@ func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 		{Action: "list", Site: "alice"},
 		{Action: "list", Site: "alice", Path: "wp-content/themes"},
 		{Action: "read", Site: "alice", Path: "index.php"},
-		{Action: "write", Site: "alice", Path: "index.php", Content: []byte("<?php")},
+		{Action: "write", Site: "alice", Path: "index.php", StreamContent: true, ContentReader: strings.NewReader("<?php")},
 		{Action: "mkdir", Site: "alice", Path: "assets"},
 		{Action: "rename", Site: "alice", Path: "a.txt", Destination: "assets/a.txt"},
 		{Action: "delete", Site: "alice", Path: "assets"},
@@ -35,8 +46,8 @@ func TestValidatorFilesRequestsAcceptOnlyCanonicalPaths(t *testing.T) {
 		{Action: "rename", Site: "alice", Path: "a", Destination: ""},
 		{Action: "rename", Site: "alice", Path: "a", Destination: "../a"},
 		{Action: "mkdir", Site: "alice", Path: "a", Destination: "b"},
-		{Action: "read", Site: "alice", Path: "a", Content: []byte("x")},
-		{Action: "write", Site: "alice", Path: "big", Content: make([]byte, 4<<20+1)},
+		{Action: "read", Site: "alice", Path: "a", StreamContent: true, ContentReader: strings.NewReader("x")},
+		{Action: "write", Site: "alice", Path: "missing-stream"},
 		{Action: "chmod", Site: "alice", Path: "a"},
 	}
 	for _, req := range invalid {
@@ -94,8 +105,14 @@ func TestBrokerFilesRunAsTheRecordedAccountUser(t *testing.T) {
 	if resp, details = run(&FilesRequest{Action: "read", Site: "alice", Path: "index.php"}); !resp.OK || string(details.Content) != "hello" {
 		t.Fatalf("read = %+v, %q", resp, details.Content)
 	}
-	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", Path: "index.php", Content: []byte("<?php echo 1;")}); !resp.OK {
+	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", Path: "index.php", StreamContent: true, ContentReader: strings.NewReader("<?php echo 1;")}); !resp.OK {
 		t.Fatalf("write = %s", resp.Error)
+	}
+	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", Path: "too-large", StreamContent: true, ContentReader: bytes.NewReader(make([]byte, sitefiles.MaxWriteBytes+1))}); resp.OK || !strings.Contains(resp.Error, "larger than") {
+		t.Fatalf("oversized stream response = %+v", resp)
+	}
+	if resp, _ = run(&FilesRequest{Action: "write", Site: "alice", Path: "interrupted", StreamContent: true, ContentReader: failedStreamReader{}}); resp.OK || !strings.Contains(resp.Error, "incomplete") {
+		t.Fatalf("interrupted stream response = %+v", resp)
 	}
 	if data, err := os.ReadFile(stdin); err != nil || string(data) != "<?php echo 1;" {
 		t.Fatalf("helper stdin = %q, %v", data, err)

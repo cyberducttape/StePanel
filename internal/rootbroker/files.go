@@ -1,14 +1,17 @@
 package rootbroker
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"strings"
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
+	"github.com/cyberducttape/StePanel/internal/operations"
 	"github.com/cyberducttape/StePanel/internal/sitefiles"
 )
 
@@ -19,11 +22,12 @@ import (
 // control-plane placement and stepanel-filectl runs the operation as that
 // user, so a request can only do what the account's own SFTP login can.
 type FilesRequest struct {
-	Action      string `json:"action"` // list, read, write, mkdir, rename, delete
-	Site        string `json:"site"`
-	Path        string `json:"path,omitempty"`
-	Destination string `json:"destination,omitempty"`
-	Content     []byte `json:"content,omitempty"`
+	Action        string    `json:"action"` // list, read, write, mkdir, rename, delete
+	Site          string    `json:"site"`
+	Path          string    `json:"path,omitempty"`
+	Destination   string    `json:"destination,omitempty"`
+	StreamContent bool      `json:"stream_content,omitempty"`
+	ContentReader io.Reader `json:"-"`
 }
 
 // FilesResponse carries a listing or a file's bytes.
@@ -67,11 +71,12 @@ func (v *Validator) validateFilesRequest(req *FilesRequest) error {
 	} else if req.Destination != "" {
 		return fmt.Errorf("files %s does not take a destination", req.Action)
 	}
-	if req.Action != "write" && len(req.Content) > 0 {
+	if req.Action == "write" {
+		if !req.StreamContent || req.ContentReader == nil {
+			return errors.New("file writes require a streamed content body")
+		}
+	} else if req.StreamContent || req.ContentReader != nil {
 		return fmt.Errorf("files %s does not take content", req.Action)
-	}
-	if len(req.Content) > sitefiles.MaxWriteBytes {
-		return fmt.Errorf("file content exceeds %d bytes", sitefiles.MaxWriteBytes)
 	}
 	return nil
 }
@@ -89,8 +94,28 @@ func (b *Broker) handleFilesRequest(ctx context.Context, req *FilesRequest) (*Re
 		args = append(args, req.Destination)
 	}
 	cmd := stepanelhelper.NewCommand(ctx, b.filectlPath(), args...)
+	var staged *os.File
 	if req.Action == "write" {
-		cmd.Stdin = bytes.NewReader(req.Content)
+		staged, err = os.CreateTemp("", "stepanel-file-upload-*")
+		if err != nil {
+			return nil, fmt.Errorf("stage streamed file content: %w", err)
+		}
+		defer func() {
+			name := staged.Name()
+			_ = staged.Close()
+			_ = os.Remove(name)
+		}()
+		written, copyErr := io.Copy(staged, io.LimitReader(req.ContentReader, sitefiles.MaxWriteBytes+1))
+		if copyErr != nil {
+			return &Response{OK: false, Error: "files write failed: incomplete streamed content"}, nil
+		}
+		if written > sitefiles.MaxWriteBytes {
+			return &Response{OK: false, Error: fmt.Sprintf("files write failed: file is larger than %d bytes", sitefiles.MaxWriteBytes)}, nil
+		}
+		if _, err := staged.Seek(0, io.SeekStart); err != nil {
+			return nil, fmt.Errorf("rewind streamed file content: %w", err)
+		}
+		cmd.Stdin = staged
 	}
 	stdout, stderr, err := stepanelhelper.RunCappedSeparate(ctx, cmd, sitefiles.MaxReadBytes+1, maxBrokerCommandOutput)
 	if err != nil {
@@ -159,4 +184,39 @@ func (c *Client) Files(ctx context.Context, req FilesRequest) (FilesResponse, er
 		}
 	}
 	return details, nil
+}
+
+// FilesWrite streams file bytes separately from the JSON request metadata.
+// This avoids base64 expansion and whole-file copies in the panel and broker.
+func (c *Client) FilesWrite(ctx context.Context, site, rel string, content io.Reader) error {
+	if content == nil {
+		return errors.New("file content is required")
+	}
+	req := &Request{RequestType: "files", Files: &FilesRequest{
+		Action: "write", Site: site, Path: rel, StreamContent: true,
+	}}
+	if tokens := operations.FencingTokens(ctx); len(tokens) > 0 {
+		req.Fencing = tokens
+	}
+	resp, err := c.executeStream(ctx, req, content)
+	if err != nil {
+		if errors.Is(err, errFileStreamTooLarge) {
+			return sitefiles.ErrTooLarge
+		}
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return sitefiles.ErrTooLarge
+		}
+		return err
+	}
+	if !resp.OK {
+		if _, message, found := strings.Cut(resp.Error, "files write failed: "); found {
+			if strings.Contains(message, "larger than") {
+				return sitefiles.ErrTooLarge
+			}
+			return sitefiles.Refused("%s", message)
+		}
+		return fmt.Errorf("root broker rejected files write: %s", resp.Error)
+	}
+	return nil
 }

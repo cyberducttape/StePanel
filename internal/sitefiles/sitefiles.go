@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,7 @@ const (
 
 // ErrNotFound reports a path that does not exist.
 var ErrNotFound = errors.New("path does not exist")
+var ErrTooLarge = errors.New("file exceeds the configured size limit")
 
 // RefusedError is an operation refused because of the customer's own files
 // or request ("path already exists"). Its message is safe to show to the
@@ -62,7 +64,7 @@ type Listing struct {
 type Store interface {
 	List(ctx context.Context, site, path string) (Listing, error)
 	Read(ctx context.Context, site, path string) ([]byte, error)
-	Write(ctx context.Context, site, path string, data []byte) error
+	Write(ctx context.Context, site, path string, content io.Reader) error
 	Mkdir(ctx context.Context, site, path string) error
 	Rename(ctx context.Context, site, path, destination string) error
 	Delete(ctx context.Context, site, path string) error

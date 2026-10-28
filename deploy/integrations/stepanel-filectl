@@ -114,7 +114,10 @@ case $action in
     [[ -f $target ]] || { echo 'not a regular file' >&2; exit 1; }
     size=$(stat -c %s -- "$target")
     (( size <= max_read_bytes )) || { echo "file is larger than $max_read_bytes bytes" >&2; exit 1; }
-    as_user head -c "$max_read_bytes" -- "$target"
+    # Read one sentinel byte beyond the stat-based admission check so a file
+    # that grows between stat and open is rejected by the broker, not silently
+    # returned as a valid truncated read.
+    as_user head -c "$(( max_read_bytes + 1 ))" -- "$target"
     ;;
   write)
     [[ $relative != . ]] || { echo 'cannot write the document root' >&2; exit 1; }
