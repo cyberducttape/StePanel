@@ -192,13 +192,14 @@ func readinessChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 	} else if err := jobs.PersistenceError(); err != nil {
 		checks["job_state"] = ReadinessCheck{Ready: false, Detail: err.Error()}
 	} else if jobs.db != nil {
-		if err := jobs.LightweightReadiness(); err != nil {
+		capacityCheck, err := jobs.ReadinessStatus()
+		if err != nil {
 			checks["control_plane_integrity"] = ReadinessCheck{Ready: false, Detail: "control-plane readiness query failed: " + err.Error()}
 		} else {
 			checks["control_plane_integrity"] = ReadinessCheck{Ready: true, Detail: "control-plane readiness query succeeded"}
 		}
 		checks["job_state"] = ReadinessCheck{Ready: true}
-		checks["capacity_ledger"] = capacityLedgerReadiness(jobs)
+		checks["capacity_ledger"] = capacityCheck
 	} else {
 		checks["job_state"] = ReadinessCheck{Ready: true}
 	}
@@ -251,7 +252,8 @@ func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 		checks["dead_letter_jobs"] = ReadinessCheck{Ready: true}
 	}
 	if jobs != nil && jobs.db != nil {
-		checks["capacity_ledger"] = capacityLedgerReadiness(jobs)
+		capacityCheck, _ := jobs.ReadinessStatus()
+		checks["capacity_ledger"] = capacityCheck
 		_, integrityErr, checked := jobs.IntegrityStatus()
 		switch {
 		case !checked:
@@ -290,29 +292,6 @@ func operationalChecks(cfg Config, jobs *Jobs) map[string]ReadinessCheck {
 		}
 	}
 	return checks
-}
-
-func capacityLedgerReadiness(jobs *Jobs) ReadinessCheck {
-	if jobs == nil || jobs.db == nil {
-		return ReadinessCheck{Ready: false, Detail: "durable capacity ledger database is unavailable"}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-	defer cancel()
-	var tables, columns int
-	// Validate the table and every column used by reservation admission without
-	// scanning live holds or taking a write lock.
-	if err := jobs.db.QueryRowContext(ctx, `
-		SELECT
-			(SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='capacity_reservations'),
-			(SELECT COUNT(*) FROM pragma_table_info('capacity_reservations')
-			 WHERE name IN ('reservation_id','device','bytes','workflow','staging_path','created_at','owner_pid','owner_start'))
-	`).Scan(&tables, &columns); err != nil {
-		return ReadinessCheck{Ready: false, Detail: fmt.Sprintf("durable capacity reservation ledger is unavailable: %v", err)}
-	}
-	if tables != 1 || columns != 8 {
-		return ReadinessCheck{Ready: false, Detail: fmt.Sprintf("durable capacity reservation schema is incomplete (table=%d, required columns=%d/8)", tables, columns)}
-	}
-	return ReadinessCheck{Ready: true, Detail: "durable capacity reservation ledger is readable"}
 }
 
 func rootBrokerHealthCheck() ReadinessCheck {

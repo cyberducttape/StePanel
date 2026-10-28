@@ -47,6 +47,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Combine the readiness database and capacity-ledger schema checks into one
+  bounded SQLite query, avoiding two serial connection-pool waits under mixed
+  job load while continuing to fail readiness when the ledger is unavailable.
+
 - Normalize Debian/Ubuntu and RHEL PHP-FPM socket roots to root-owned `0755`
   before managed pool creation and on every PHP-FPM service start. Installer
   rollback tracks the service drop-ins, preventing package-created writable
