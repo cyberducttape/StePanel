@@ -15,6 +15,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Extract HTTP route registration from process initialization into `http_routes.go`
   without changing route patterns or middleware ordering, making the API
   surface independently reviewable.
+- Keep the OpenAPI, authorization-audit, and site-operation route contract tests
+  pointed at the extracted HTTP route registry.
 - Release evidence is generated instead of hand-written. The Release evidence
   workflow (`cmd/stepanel-evidence`) reports which workflow runs cover the
   same content as `main`, matching by tree so rebase merges and multi-commit

@@ -25,7 +25,7 @@ func readSpecFile(t *testing.T) string {
 
 // TestOpenAPIContractSync verifies OpenAPI spec matches registered routes
 func TestOpenAPIContractSync(t *testing.T) {
-	// Get actual routes from main.go
+	// Get actual routes from http_routes.go
 	actualRoutes := getRegisteredRoutes(t)
 
 	// Get documented routes from openapi.yaml
@@ -48,16 +48,16 @@ func TestOpenAPIContractSync(t *testing.T) {
 	}
 }
 
-// getRegisteredRoutes extracts all /api/* routes from main.go
+// getRegisteredRoutes extracts all /api/* routes from http_routes.go
 func getRegisteredRoutes(t *testing.T) []string {
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory: %v", err)
 	}
-	mainPath := filepath.Join(wd, "main.go")
+	mainPath := filepath.Join(wd, "http_routes.go")
 	content, err := os.ReadFile(mainPath)
 	if err != nil {
-		t.Fatalf("failed to read main.go: %v", err)
+		t.Fatalf("failed to read http_routes.go: %v", err)
 	}
 
 	// Pattern: mux.Handle("/api/...", ...)
