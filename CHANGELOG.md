@@ -23,7 +23,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
-- Refresh the production-gate evidence to distinguish the earlier-source 20-repeat cohort from current-source evidence, record the pre-fix PHP-FPM fencing failure, and track the exact-current-source AlmaLinux 9/Caddy smoke while it is running. Neither the partial cohort nor the single-host smoke is presented as host recovery certification.
+- Refresh the production-gate evidence to distinguish the earlier-source 20-repeat cohort from current-source evidence, record the pre-fix PHP-FPM fencing failure and successful one-host rerun on `cb05467`, and identify that the in-progress `311e928` smoke predates the later `6bbe07e` recovery-proof audit fix. None of these runs is presented as host recovery certification for current source.
+- Trigger installed-host smoke when WordPress recovery proof, backup restore,
+  database restore, import parsing, site lifecycle, or broker code changes, so
+  these production paths receive real-service validation on `main`.
 - Record a WordPress recovery proof as failed when its live application check
   passes but cleanup of the temporary site fails; startup recovery still retries
   cleanup from the open transaction.
