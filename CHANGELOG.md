@@ -18,6 +18,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing
 
+- Refresh the production-gate record with exact-source `3fb7667` installed-host
+  results: four Linux/web-server combinations passed their WordPress recovery
+  proof and one-iteration outage matrix; two host smokes and the repeated
+  recovery, quota, and upgrade cohorts remain in progress or incomplete.
 - Record the failed exact-main recovery-cohort attempt and its pre-matrix Caddy
   TLS probe failure in the authoritative production gates.
 - Stop scheduling later installed-recovery cohort repetitions after a failed
