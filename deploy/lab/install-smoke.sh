@@ -72,10 +72,80 @@ printf '[local]\ntype = local\n' > /etc/stepanel/rclone.conf
 chmod 0644 /etc/stepanel/rclone.conf
 export RCLONE_CONFIG=/etc/stepanel/rclone.conf
 
-if ! ./install.sh --unsafe-lab; then
+install_args=(--unsafe-lab)
+if [[ ${STEPANEL_INSTALLER_PREEXISTING_APACHE_SMOKE:-0} == 1 ]]; then
+  [[ $STEPANEL_WEBSERVER == caddy && -x /usr/bin/apt-get ]] || {
+    echo 'pre-existing Apache takeover probe is defined for the Ubuntu/Caddy host only' >&2
+    exit 1
+  }
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get install -y apache2 dovecot-core
+  legacy_vhost=/etc/apache2/sites-available/legacy-customer.conf
+  legacy_root=/srv/legacy-customer/public
+  install -d -m 0755 "$legacy_root"
+  printf '%s\n' 'legacy-customer-content-preserved' > "$legacy_root/index.html"
+  cat > "$legacy_vhost" <<EOF
+<VirtualHost *:80>
+  ServerName legacy-customer.example.test
+  DocumentRoot $legacy_root
+  <Directory $legacy_root>
+    Require all granted
+  </Directory>
+</VirtualHost>
+EOF
+  a2ensite legacy-customer >/dev/null
+  apachectl -t
+  systemctl enable --now apache2
+  legacy_vhost_sha=$(sha256sum "$legacy_vhost" | cut -d' ' -f1)
+
+  # Model an existing, intentionally inactive partial mail stack. Installing
+  # Exim and SpamAssassin later must not activate Dovecot or replace its
+  # operator configuration just because package scripts ran.
+  legacy_mail_config=/etc/dovecot/conf.d/99-legacy-operator.conf
+  printf '%s\n' '# legacy operator configuration; preserve byte-for-byte' > "$legacy_mail_config"
+  systemctl disable --now dovecot 2>/dev/null || true
+  legacy_mail_sha=$(sha256sum "$legacy_mail_config" | cut -d' ' -f1)
+
+  # A pre-existing customer service must remain untouched until the operator
+  # explicitly consents to takeover. This attempt must stop at preflight.
+  if ./install.sh --unsafe-lab > /tmp/stepanel-no-consent.log 2>&1; then
+    echo 'installer accepted active pre-existing Apache without takeover consent' >&2
+    exit 1
+  fi
+  grep -Fq 'rerun with --take-over-host to stop and disable: apache2' /tmp/stepanel-no-consent.log || {
+    cat /tmp/stepanel-no-consent.log >&2
+    echo 'installer refusal did not explain the required takeover consent' >&2
+    exit 1
+  }
+  systemctl is-active --quiet apache2
+  systemctl is-enabled --quiet apache2
+  [[ $(sha256sum "$legacy_vhost" | cut -d' ' -f1) == "$legacy_vhost_sha" ]]
+  [[ $(<"$legacy_root/index.html") == legacy-customer-content-preserved ]]
+  systemctl is-active --quiet dovecot && { echo 'installer activated a previously inactive partial mail service' >&2; exit 1; }
+  systemctl is-enabled --quiet dovecot && { echo 'installer enabled a previously disabled partial mail service' >&2; exit 1; }
+  [[ $(sha256sum "$legacy_mail_config" | cut -d' ' -f1) == "$legacy_mail_sha" ]]
+  install_args+=(--take-over-host)
+  export STEPANEL_INSTALL_MAIL=1
+  export STEPANEL_ACTIVATE_MAIL=0
+fi
+
+if ! ./install.sh "${install_args[@]}"; then
   systemctl status stepanel.service stepanel-worker.service --no-pager || true
   journalctl -u stepanel.service -u stepanel-worker.service --no-pager -n 100 || true
   exit 1
+fi
+if [[ ${STEPANEL_INSTALLER_PREEXISTING_APACHE_SMOKE:-0} == 1 ]]; then
+  if systemctl is-active --quiet apache2 || systemctl is-enabled --quiet apache2; then
+    echo 'consented takeover did not stop and disable pre-existing Apache' >&2
+    exit 1
+  fi
+  [[ $(sha256sum /etc/apache2/sites-available/legacy-customer.conf | cut -d' ' -f1) == "$legacy_vhost_sha" ]]
+  [[ $(< /srv/legacy-customer/public/index.html) == legacy-customer-content-preserved ]]
+  systemctl is-active --quiet dovecot && { echo 'partial mail service activation state changed during installation' >&2; exit 1; }
+  systemctl is-enabled --quiet dovecot && { echo 'partial mail service enablement changed during installation' >&2; exit 1; }
+  [[ $(sha256sum /etc/dovecot/conf.d/99-legacy-operator.conf | cut -d' ' -f1) == "$legacy_mail_sha" ]]
+  takeover_journal=$(grep -l 'taking over pre-existing web service apache2' /var/lib/stepanel/install-journal/*.tsv | tail -n 1)
+  [[ -n $takeover_journal ]]
 fi
 if ! runuser -u stepanel -- test -r "$RCLONE_CONFIG"; then
   echo 'StePanel service account cannot read the configured rclone file' >&2

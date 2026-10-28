@@ -88,7 +88,7 @@ func TestInstallerJournalsBeforeMutationAndRecordsPartialRollbackContract(t *tes
 		"install_journal_on_exit()",
 		"dependency_installation started manual",
 		"recovery required manual",
-		"registered files and core service state restored where possible; packages, repository/module changes and unregistered host configuration may remain",
+		"pre-install web/mail/core service active-enabled state restored where possible; packages, repository/module changes and unregistered host configuration may remain",
 		"docs/INSTALLER_RECOVERY.md",
 	} {
 		if !strings.Contains(text, contract) {
@@ -106,8 +106,8 @@ func TestInstallerJournalsBeforeMutationAndRecordsPartialRollbackContract(t *tes
 	if modsecJournal < 0 || modsecApply < 0 || modsecComplete < 0 || transaction < 0 || !(modsecJournal < modsecApply && modsecApply < modsecComplete && modsecComplete < transaction) {
 		t.Fatal("ModSecurity must be journaled as manual-recovery work and completed before the managed-file transaction begins")
 	}
-	if !strings.Contains(text, `install_journal_record recovery required manual "registered files and core service state restored where possible; packages, repository/module changes and unregistered host configuration may remain"`) {
-		t.Fatal("installer rollback must report that pre-transaction host changes may remain")
+	if !strings.Contains(text, `install_journal_record recovery required manual "registered files and pre-install web/mail/core service active-enabled state restored where possible; packages, repository/module changes and unregistered host configuration may remain"`) {
+		t.Fatal("installer rollback must report restored service state and the remaining manual host recovery boundary")
 	}
 	postCommitPlan := strings.Index(text, "install_journal_record post_install planned retained \"actions=$POST_INSTALL_PLAN_TEXT\"")
 	installCommit := strings.Index(text, "INSTALL_COMMITTED=1")

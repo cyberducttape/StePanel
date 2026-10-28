@@ -76,6 +76,57 @@ func TestInstallSmokeTimeoutLeavesHostAndDiagnosticHeadroom(t *testing.T) {
 	}
 }
 
+func TestInstalledSmokeCoversExistingApacheAndPartialMailServices(t *testing.T) {
+	workflow, err := os.ReadFile(".github/workflows/install-smoke.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile("deploy/lab/install-smoke.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer, err := os.ReadFile("install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []struct {
+		name string
+		text string
+		want []string
+	}{
+		{
+			name: "host matrix",
+			text: string(workflow),
+			want: []string{"STEPANEL_INSTALLER_PREEXISTING_APACHE_SMOKE", "ubuntu-24.04-caddy-mariadb"},
+		},
+		{
+			name: "installed fixture",
+			text: string(script),
+			want: []string{
+				"apache2 dovecot-core", "./install.sh --unsafe-lab", "--take-over-host",
+				"legacy-customer-content-preserved", "legacy_mail_sha",
+				"STEPANEL_INSTALL_MAIL=1", "STEPANEL_ACTIVATE_MAIL=0",
+				"systemctl is-active --quiet apache2", "systemctl is-enabled --quiet dovecot",
+			},
+		},
+		{
+			name: "installer rollback",
+			text: string(installer),
+			want: []string{
+				"install_capture_service_state \"$web_service\"",
+				"install_restore_service_state \"$service\"",
+				"install_restore_service_state \"$host_service\"",
+			},
+		},
+	} {
+		for _, want := range contract.want {
+			if !strings.Contains(contract.text, want) {
+				t.Errorf("%s is missing installed-host recovery contract %q", contract.name, want)
+			}
+		}
+	}
+}
+
 func TestQuotaSmokeRechecksEnforcementAfterAbruptGuestRestart(t *testing.T) {
 	workflow, err := os.ReadFile(".github/workflows/quota-install-smoke.yml")
 	if err != nil {

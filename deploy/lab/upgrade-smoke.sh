@@ -100,6 +100,40 @@ printf '%s\n' '[]' > /var/lib/ste-panel/jobs.json
 chown stepanel:stepanel /var/lib/ste-panel/jobs.json
 chmod 0600 /var/lib/ste-panel/jobs.json
 
+# Upgrade a host containing actual customer-like data, not only an empty
+# control plane. The legacy layout is intentionally retained across the N-1
+# upgrade and documented downgrade.
+legacy_site=upgrade-customer
+legacy_site_root="/var/www/sites/$legacy_site/public"
+legacy_site_marker=customer-content-survives-upgrade-and-rollback
+install -d -m 0755 "$legacy_site_root"
+printf '%s\n' "$legacy_site_marker" > "$legacy_site_root/index.html"
+legacy_db=stepanel_upgrade_customer
+mariadb --protocol=socket --user=root --batch --skip-column-names <<SQL
+CREATE DATABASE $legacy_db;
+CREATE TABLE $legacy_db.recovery_fixture (value VARCHAR(128) NOT NULL);
+INSERT INTO $legacy_db.recovery_fixture VALUES ('customer-database-survives-upgrade-and-rollback');
+SQL
+assert_populated_upgrade_fixture() {
+  [[ $(<"$legacy_site_root/index.html") == "$legacy_site_marker" ]] || {
+    echo 'upgrade or rollback changed the existing customer site marker' >&2
+    return 1
+  }
+  local database_value
+  database_value=$(mariadb --protocol=socket --user=root --batch --skip-column-names \
+    --execute "SELECT value FROM $legacy_db.recovery_fixture")
+  [[ $database_value == customer-database-survives-upgrade-and-rollback ]] || {
+    echo 'upgrade or rollback changed the existing customer database fixture' >&2
+    return 1
+  }
+}
+
+web_service=apache2
+[[ $STEPANEL_WEBSERVER != caddy ]] || web_service=caddy
+[[ $STEPANEL_WEBSERVER != openlitespeed ]] || web_service=lsws
+web_active_before_candidate=$(systemctl is-active "$web_service")
+web_enabled_before_candidate=$(systemctl is-enabled "$web_service")
+
 # Operators configure these runtime values in /etc/ste-panel.env. The
 # candidate installer must preserve them while regenerating installer-owned
 # settings. Use non-secret values with no external side effects in this lab.
@@ -139,7 +173,10 @@ interrupt_candidate_install() {
     fi
     sleep 0.1
   done
-  [[ -n $journal ]] && grep -q $'\t'"$phase"$'\tstarted\t' "$journal" || { echo "candidate installer never reached phase $phase" >&2; return 1; }
+  if [[ -z $journal ]] || ! grep -q $'\t'"$phase"$'\tstarted\t' "$journal"; then
+    echo "candidate installer never reached phase $phase" >&2
+    return 1
+  fi
   pgid=$(ps -o pgid= -p "$pid" | tr -d ' ')
   [[ $pgid =~ ^[0-9]+$ && $pgid != 1 ]] || { echo "could not find the installer process group" >&2; return 1; }
   kill -KILL -- "-$pgid"
@@ -176,6 +213,7 @@ if ! ./install.sh --unsafe-lab; then
 fi
 systemctl is-active --quiet stepanel.service stepanel-worker.service
 curl --fail --silent --max-time 5 http://127.0.0.1:8090/readyz >/dev/null
+assert_populated_upgrade_fixture
 test -s /var/lib/ste-panel/stepanel-control.db
 grep -Fxq 'STEPANEL_GIT_ALLOWED_HOSTS="git.example.test,code.example.test"' /etc/ste-panel.env || {
   echo 'candidate upgrade dropped operator-managed Git host configuration' >&2
@@ -211,6 +249,15 @@ if [[ -n "$broken_root" ]]; then
     exit 1
   fi
   systemctl is-active --quiet stepanel.service stepanel-worker.service
+  [[ $(systemctl is-active "$web_service") == "$web_active_before_candidate" ]] || {
+    echo "installer rollback did not restore $web_service active state" >&2
+    exit 1
+  }
+  [[ $(systemctl is-enabled "$web_service") == "$web_enabled_before_candidate" ]] || {
+    echo "installer rollback did not restore $web_service enabled state" >&2
+    exit 1
+  }
+  assert_populated_upgrade_fixture
   /opt/stepanel/stepanel version | grep -Fx "StePanel $candidate_version"
   ready_after_rollback=0
   for _ in {1..30}; do
@@ -270,6 +317,7 @@ if (( post_upgrade_rollback )); then
   grep -aFq "$previous_version" /opt/stepanel/stepanel || { echo "rollback did not reinstall release $previous_version" >&2; exit 1; }
   ! systemctl is-active --quiet stepanel-root-broker.service || { echo 'the root broker is still running under the previous release' >&2; exit 1; }
   wait_ready "release $previous_version after the post-upgrade rollback"
+  assert_populated_upgrade_fixture
   # The previous release must still accept the audit log, including the
   # records the upgraded release appended.
   "$previous_root/stepanel" verify-audit /var/lib/ste-panel/audit.jsonl
@@ -279,6 +327,7 @@ if (( post_upgrade_rollback )); then
   (cd "$candidate_root" && ./install.sh --unsafe-lab)
   systemctl is-active --quiet stepanel.service stepanel-worker.service
   wait_ready 'the candidate after upgrading the rolled-back host'
+  assert_populated_upgrade_fixture
   /opt/stepanel/stepanel restore-control-plane "$control_db" --dry-run
   echo 'repeat upgrade after rollback passed'
 fi
