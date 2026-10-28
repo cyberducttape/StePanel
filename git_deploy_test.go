@@ -777,7 +777,11 @@ func TestGitStageQuotaIsSkippedOnlyInDevelopment(t *testing.T) {
 	// configured broker socket. Otherwise this test can issue a real RPC and
 	// block on host state instead of proving that a missing broker fails closed.
 	t.Setenv("STEPANEL_ENV", "production")
-	t.Setenv("STEPANEL_ROOT_BROKER_SOCKET", "")
+	// Point at a deliberately absent production socket. An empty setting could
+	// let a non-production environment fall through to the legacy sudo client,
+	// which can hang this assertion waiting for a privileged helper response.
+	missingBrokerSocket := filepath.Join(t.TempDir(), "missing-root-broker.sock")
+	t.Setenv("STEPANEL_ROOT_BROKER_SOCKET", missingBrokerSocket)
 	dev := &App{Config: Config{WebRoot: t.TempDir()}}
 	projectID, err := dev.enableGitStageQuota(context.Background(), "site", "/unused", 1<<20)
 	if err != nil || projectID != 0 {
@@ -788,7 +792,6 @@ func TestGitStageQuotaIsSkippedOnlyInDevelopment(t *testing.T) {
 	}
 	// Production must reach the broker and fail closed when it is absent.
 	prod := &App{Config: Config{Production: true, WebRoot: t.TempDir()}}
-	t.Setenv("STEPANEL_LAB_ROOT_BROKER_SOCKET", filepath.Join(t.TempDir(), "missing.sock"))
 	if _, err := prod.enableGitStageQuota(context.Background(), "site", "/unused", 1<<20); err == nil {
 		t.Fatal("production Git staging quota succeeded without the root broker")
 	}
