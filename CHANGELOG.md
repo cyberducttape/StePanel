@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing
 
+- Replace the unsupported “85% there” production-readiness estimate with the
+  documented Operator Beta/staging status and the explicit P0 evidence gate.
 - Record all six exact-source `3fb7667` installed-host combinations passing
   their WordPress recovery proof and one-iteration database/broker outage
   matrix, with per-host measured RTOs. Repeated recovery, quota, and upgrade

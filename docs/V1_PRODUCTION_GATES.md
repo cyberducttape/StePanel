@@ -41,12 +41,11 @@ Hand-written snapshots kept until 2026-10-27 are in
 
 ## Executive Summary
 
-v1.0.0 is NOT about adding new features. It's about making existing architecture bulletproof.
-
-The design is sound. The implementation is 85% there. The remaining work is:
-- Finishing what's already designed
-- Testing failure paths rigorously
-- Making recovery guarantees explicit
+Production readiness has not been established. StePanel remains at Operator
+Beta/staging readiness; every P0 gate below needs reviewed, reproducible
+evidence before the single-host production promise can be made. Implemented
+recovery mechanisms and passing software tests do not substitute for
+installed-host, failure-injection, and operational certification.
 
 ## Finite release contract
 
