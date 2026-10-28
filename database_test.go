@@ -105,6 +105,11 @@ func TestDatabaseDeletionPreviewDescribesEffectsAndBindsInventory(t *testing.T) 
 	if preview.PreviewToken == makeDatabaseDeletionPreview(item, "postgresql").PreviewToken {
 		t.Fatal("database engine change did not invalidate deletion preview")
 	}
+	changed = item
+	changed.Encoding = "latin1"
+	if preview.PreviewToken == makeDatabaseDeletionPreview(changed, "mysql").PreviewToken {
+		t.Fatal("database encoding change did not invalidate deletion preview")
+	}
 }
 
 func TestDatabaseResourceServesDeletionPreview(t *testing.T) {
