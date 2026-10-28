@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing
 
+- Record the failed exact-main recovery-cohort attempt and its pre-matrix Caddy
+  TLS probe failure in the authoritative production gates.
 - Stop scheduling later installed-recovery cohort repetitions after a failed
   six-host shard; finish the current shard for complete diagnostics first.
 - Make the installed PHP-FPM public-status smoke tolerate a brief web-server
