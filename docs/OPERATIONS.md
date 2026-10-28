@@ -96,6 +96,14 @@ deliberately excludes passwords, encryption keys, TOTP material, job payloads
 and outputs, database contents, and raw customer logs. Treat site names and
 operational metadata as confidential even though credentials are not included.
 
+Site termination first requests a read-only preview. It lists the canonical
+site root, managed databases, virtual hosts, proxy routes, and the service and
+site-configuration cleanup expected. If the database, route, or proxy inventory
+cannot be read, the UI will not offer the typed confirmation. The preview is a
+snapshot: the worker rechecks state under the site mutation lease before it
+changes host resources. Termination cannot be rolled back automatically; its
+final verified backup is the recovery path.
+
 For recovery confidence without changing customer state, use the backup
 `Rehearse restore` action (or `POST /api/backups/rehearse`). The durable job
 verifies the signed archive, extracts it into a temporary isolated directory,

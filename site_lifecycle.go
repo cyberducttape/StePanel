@@ -26,36 +26,82 @@ type terminationPlanCheck struct {
 	Detail string `json:"detail"`
 }
 
+type terminationPlanChange struct {
+	Resource string   `json:"resource"`
+	Action   string   `json:"action"`
+	Targets  []string `json:"targets,omitempty"`
+	Detail   string   `json:"detail,omitempty"`
+}
+
 type terminationPlan struct {
-	Operation     string                 `json:"operation"`
-	Site          string                 `json:"site"`
-	Ready         bool                   `json:"ready"`
-	Preconditions []terminationPlanCheck `json:"preconditions"`
-	Changes       []string               `json:"changes"`
-	Rollback      string                 `json:"rollback"`
+	Operation     string                  `json:"operation"`
+	Site          string                  `json:"site"`
+	Ready         bool                    `json:"ready"`
+	Preconditions []terminationPlanCheck  `json:"preconditions"`
+	Changes       []terminationPlanChange `json:"changes"`
+	Rollback      string                  `json:"rollback"`
+	PreviewNote   string                  `json:"preview_note"`
 }
 
 func (a *App) buildTerminationPlan(site string) terminationPlan {
 	plan := terminationPlan{
-		Operation: "terminate",
-		Site:      site,
-		Changes: []string{
-			"Acquire the site mutation lease",
-			"Create or retain a verified termination backup",
-			"Disable routes and remove managed services",
-			"Remove managed databases and site state",
-			"Preserve the recovery journal until every step commits",
-			"Remove the canonical site tree",
-		},
-		Rollback: "Available through the retained verified backup; termination itself is not automatically reversible.",
+		Operation:   "terminate",
+		Site:        site,
+		PreviewNote: "This is a read-only snapshot. The worker rechecks resources under the site mutation lease before changing host state.",
+		Rollback:    "Termination is not automatically reversible. Recovery requires restoring the verified backup and recreating service configuration.",
 	}
 	checks := []terminationPlanCheck{{Name: "Site document root", Status: "pass", Detail: "site document root exists"}}
+	if root, err := siteDocRoot(a.Config, site); err != nil {
+		checks = append(checks, terminationPlanCheck{Name: "Filesystem inventory", Status: "blocker", Detail: "site document root could not be resolved"})
+	} else {
+		plan.Changes = append(plan.Changes, terminationPlanChange{Resource: "Filesystem", Action: "remove after verified backup", Targets: []string{root}})
+	}
 	if a.Config.DBCtl == "" {
 		checks = append(checks, terminationPlanCheck{Name: "Managed database helper", Status: "blocker", Detail: "no database helper is configured"})
 	} else {
-		checks = append(checks, terminationPlanCheck{Name: "Managed database helper", Status: "pass", Detail: "configured helper will perform idempotent database cleanup"})
+		databases, err := managedDatabaseInventory(a.Config)
+		if err != nil {
+			checks = append(checks, terminationPlanCheck{Name: "Managed database inventory", Status: "blocker", Detail: "database inventory is unavailable; cleanup targets cannot be confirmed"})
+		} else {
+			targets := []string{}
+			for _, database := range databases {
+				if database.Site == site {
+					targets = append(targets, database.Name)
+				}
+			}
+			checks = append(checks, terminationPlanCheck{Name: "Managed database helper", Status: "pass", Detail: "database cleanup targets were read from the managed inventory"})
+			plan.Changes = append(plan.Changes, terminationPlanChange{Resource: "Databases", Action: "drop managed databases", Targets: targets, Detail: "Only databases assigned to this site are eligible for removal."})
+		}
 	}
 	checks = append(checks, terminationPlanCheck{Name: "Verified backup", Status: "warning", Detail: "no existing recovery artifact is asserted; execution will create and verify a final backup before destructive steps"})
+	routes, routeErr := siteRoutesForWithError(a.Config.VHostRoot, site)
+	if routeErr != nil {
+		checks = append(checks, terminationPlanCheck{Name: "Route inventory", Status: "blocker", Detail: "managed route inventory is unavailable"})
+	} else {
+		targets := make([]string, 0, len(routes))
+		for _, route := range routes {
+			targets = append(targets, route.Domain)
+		}
+		plan.Changes = append(plan.Changes, terminationPlanChange{Resource: "Web routes", Action: "remove managed virtual hosts", Targets: targets})
+	}
+	proxies, proxyErr := siteProxiesForWithError(a.Config.ProxyRoot, site)
+	if proxyErr != nil {
+		checks = append(checks, terminationPlanCheck{Name: "Proxy inventory", Status: "blocker", Detail: "managed proxy inventory is unavailable"})
+	} else {
+		targets := make([]string, 0, len(proxies))
+		for _, proxy := range proxies {
+			targets = append(targets, proxy.Name)
+		}
+		plan.Changes = append(plan.Changes, terminationPlanChange{Resource: "Proxy routes", Action: "remove managed proxy configuration", Targets: targets})
+	}
+	if a.Config.SiteCtl == "" {
+		checks = append(checks, terminationPlanCheck{Name: "Site service helper", Status: "blocker", Detail: "site teardown helper is unavailable"})
+	}
+	plan.Changes = append(plan.Changes,
+		terminationPlanChange{Resource: "Services", Action: "remove site services", Targets: []string{"PHP-FPM pool", "managed application units", "site account"}},
+		terminationPlanChange{Resource: "Site configuration", Action: "remove site-owned records", Targets: []string{"domain claims", "environment values", "resource profile", "PHP profile", "Redis allocation", "Composer state", "workers", "scheduled tasks", "backup schedule"}},
+		terminationPlanChange{Resource: "Recovery", Action: "create and verify final backup before cleanup", Detail: "The backup is retained; offsite upload is required when configured."},
+	)
 	if a.Jobs != nil {
 		jobs, err := a.Jobs.ListActiveForSite(site)
 		if err != nil {
