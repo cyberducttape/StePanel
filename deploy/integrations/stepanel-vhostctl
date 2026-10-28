@@ -121,6 +121,9 @@ case "$action" in
     <DirectoryMatch "(?i)^$public_root_pattern/(.*/)?(node_modules|\\.git|\\.svn|\\.hg|\\.ssh|\\.aws|\\.gnupg|backup|backups|private)(/|$)">
         Require all denied
     </DirectoryMatch>
+    <LocationMatch "^/stepanel-fpm-status(/|$)">
+        Require all denied
+    </LocationMatch>
     <FilesMatch "\\.php$">
         SetHandler "proxy:unix:$socket|fcgi://localhost/"
     </FilesMatch>

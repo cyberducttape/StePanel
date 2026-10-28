@@ -611,6 +611,17 @@ func (v *Validator) validateSiteRequest(req *SiteRequest) error {
 		}
 	case "quota-clear":
 		// No additional fields are accepted.
+	case "fpm-status":
+		// The broker derives pool and socket paths from root-owned config.
+		// Callers can request only aggregate counters for this site.
+		if req.SiteUser != "" || req.SnapshotSource != "" || req.SnapshotDestination != "" || req.SSHKeys != "" ||
+			req.SFTPEnabled != nil || req.ShellEnabled != nil || req.FTPEnabled != nil || req.FTPPassword != "" ||
+			req.PHPWorkers != 0 || req.DiskMB != 0 || req.Inodes != 0 || req.PHPVersion != "" || req.MemoryLimit != "" ||
+			req.UploadMaxFilesize != "" || req.PostMaxSize != "" || req.MaxInputVars != 0 || req.OPcache || req.ErrorReporting != "" ||
+			req.MemoryMB != 0 || req.ExecTimeout != 0 || req.UploadSize != 0 || req.PostSize != 0 || req.InputTimeout != 0 ||
+			req.OpcacheSize != 0 || req.DisplayErrors || req.ErrorLogging {
+			return errors.New("PHP-FPM status request contains unsupported fields")
+		}
 	case "runtime":
 		if !phpVersionPattern.MatchString(req.PHPVersion) || !phpSizePattern.MatchString(req.MemoryLimit) ||
 			!phpSizePattern.MatchString(req.UploadMaxFilesize) || !phpSizePattern.MatchString(req.PostMaxSize) ||

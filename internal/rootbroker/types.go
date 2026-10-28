@@ -17,7 +17,7 @@ type Request struct {
 	// immediately before dispatching the host mutation.
 	Fencing []operations.FencingToken `json:"fencing,omitempty"`
 
-	// Site operations: create, delete, seal, prepare, access, resources, quota, quota-clear, runtime
+	// Site operations: create, delete, seal, prepare, access, resources, quota, quota-clear, runtime, fpm-status
 	Site *SiteRequest `json:"site,omitempty"`
 
 	// App operations: apply, start, stop, restart, rollback
@@ -191,10 +191,11 @@ type SiteRequest struct {
 }
 
 type SiteResponse struct {
-	Username string `json:"username,omitempty"` // site_user for new sites
-	Created  bool   `json:"created,omitempty"`
-	Sealed   bool   `json:"sealed,omitempty"`
-	Deleted  bool   `json:"deleted,omitempty"`
+	Username  string     `json:"username,omitempty"` // site_user for new sites
+	Created   bool       `json:"created,omitempty"`
+	Sealed    bool       `json:"sealed,omitempty"`
+	Deleted   bool       `json:"deleted,omitempty"`
+	FPMStatus *FPMStatus `json:"fpm_status,omitempty"`
 }
 
 // --- App Operations ---

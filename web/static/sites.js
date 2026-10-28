@@ -430,6 +430,28 @@
         const limit = Number(profile.disk_mb) * 1024 * 1024;
         if (usageData.bytes >= limit * 0.9) add('warning', 'Site is near its configured disk allowance', `${formatBytes(usageData.bytes)} of ${formatBytes(limit)} in regular-file content (${Math.min(100, Math.round(usageData.bytes / limit * 100))}%).`, 'Review old releases, uploads, and backup policy before the site reaches its configured limit.');
       }
+      const fpm = resourceData.fpm_status || {};
+      const pools = Array.isArray(fpm.pools) ? fpm.pools : [];
+      const livePools = pools.filter((pool) => pool.state === 'available');
+      if (!fpm.available || livePools.length === 0) {
+        add('unknown', 'Live PHP-FPM pool status is unavailable', fpm.detail || 'No current pool counters were returned.', 'Check the PHP-FPM service, managed pool configuration, and root-broker status probe.');
+      } else {
+        const saturated = livePools.filter((pool) => pool.saturated);
+        if (saturated.length) {
+          add('critical', 'PHP-FPM pool is currently saturated', saturated.map((pool) => `PHP ${pool.php_version || 'default'}: ${pool.active_processes}/${pool.max_children} active, queue ${pool.listen_queue}`).join('; '), 'Review slow requests and workload, then adjust the pool only after checking host memory headroom.');
+        }
+        const atCapacity = livePools.filter((pool) => pool.at_capacity && !pool.saturated);
+        if (atCapacity.length) {
+          add('warning', 'PHP-FPM pool is at its worker limit', atCapacity.map((pool) => `PHP ${pool.php_version || 'default'}: ${pool.active_processes}/${pool.max_children} active with no queued requests at the sample time.`).join('; '), 'Check nearby samples and request latency; reaching the worker limit alone does not prove requests are waiting.');
+        }
+        const historical = livePools.filter((pool) => Number(pool.max_children_reached) > 0);
+        if (historical.length) {
+          add('warning', 'PHP-FPM has reached its worker limit since pool start', historical.map((pool) => `PHP ${pool.php_version || 'default'}: ${pool.max_children_reached} limit event(s), ${pool.slow_requests || 0} slow request(s)`).join('; '), 'This counter is historical, not proof of current saturation. Correlate it with traffic and recent changes.');
+        }
+        if (fpm.warnings && fpm.warnings.length) {
+          add('unknown', 'Some PHP-FPM pools could not be sampled', fpm.warnings.join('; '), 'Check the affected PHP-FPM pool and socket before drawing conclusions from the available versions.');
+        }
+      }
     } else if (!resourceAvailable) {
       add('unknown', 'Resource enforcement could not be inspected', 'The site resource status endpoint was unavailable.', 'Check the host broker and resource reconciliation status.');
     }
@@ -459,7 +481,7 @@
     inspectLog(phpLogResult, 'PHP-FPM', true);
     const unknowns = ['Per-site database query latency is not measured. Available blocked-session and long-transaction counts are host-wide and are not attributed to this site.'];
     if (!canReadLogs) unknowns.push('Recent web-server and PHP-FPM logs are hidden because this account lacks logs:read.');
-    else unknowns.push('PHP-FPM saturation is only flagged when explicit max_children/listen-queue messages appear in the recent log tail; live pool queue metrics are not collected here.');
+    if (!resourceAvailable || !resourceData || !resourceData.fpm_status || !resourceData.fpm_status.available) unknowns.push('Live PHP-FPM counters are unavailable unless the installed root broker can safely query a managed pool.');
     const levelLabel = { critical: 'Action needed', warning: 'Review', unknown: 'Not verified' };
     return el('section', { className: 'incident-assessment', 'aria-label': 'Site incident assessment' }, [
       el('div', { className: 'section-heading' }, [el('h3', {}, 'Why this site may be failing'), el('small', {}, `Snapshot · ${new Date().toLocaleTimeString()}`)]),

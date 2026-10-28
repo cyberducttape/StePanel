@@ -397,6 +397,32 @@ PY
 
 apply_smoke_vhost "$site" ci-smoke.localhost
 /usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256
+runuser -u stepanel -- python3 - "$site" <<'PY'
+import json, socket, sys
+request = {"type": "site", "site": {"action": "fpm-status", "site": sys.argv[1]}}
+connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+connection.settimeout(5)
+connection.connect("/run/stepanel-root-broker.sock")
+connection.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
+response = json.loads(connection.makefile("rb").readline())
+if not response.get("ok"):
+    raise SystemExit("PHP-FPM status broker request failed: " + str(response.get("error", "unknown error")))
+status = response.get("details", {}).get("fpm_status", {})
+if not status.get("available") or not status.get("pools"):
+    raise SystemExit("installed managed PHP-FPM pool did not return live status: " + json.dumps(status))
+print("Installed PHP-FPM status probe passed: " + ", ".join(pool.get("php_version", "default") for pool in status["pools"] if pool.get("state") == "available"))
+PY
+if [[ $STEPANEL_WEBSERVER == caddy ]]; then
+  public_status=$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
+    --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-fpm-status)
+else
+  public_status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
+    --resolve ci-smoke.localhost:80:127.0.0.1 http://ci-smoke.localhost/stepanel-fpm-status)
+fi
+[[ $public_status == 403 || $public_status == 404 ]] || {
+  echo "public PHP-FPM status URL returned HTTP $public_status; expected 403 or 404" >&2
+  exit 1
+}
 bash /work/deploy/lab/task-safeguards-smoke.sh "$site"
 if [[ $STEPANEL_WEBSERVER == apache ]]; then
   apachectl -t 2>/dev/null || httpd -t

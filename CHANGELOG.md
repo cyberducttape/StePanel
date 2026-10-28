@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Site incident snapshots can query aggregate PHP-FPM pool counters through a
+  typed root-broker FastCGI request. Managed pools enable a private status path
+  that Caddy and Apache explicitly deny to public requests; the incident view
+  separates current queue saturation from historical worker-limit events.
+
 ### Testing
 
 - Add coverage for exact-source gate parsing, freshness reporting, Git file reads,

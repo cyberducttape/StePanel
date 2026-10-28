@@ -653,6 +653,7 @@ listen.group = $web_group
 listen.mode = 0660
 pm = ondemand
 pm.max_children = $php_max_children
+pm.status_path = /stepanel-fpm-status
 pm.process_idle_timeout = 10s
 pm.max_requests = 500
 chdir = /
