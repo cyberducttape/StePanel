@@ -24,6 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   socket, preventing fallback to a potentially blocking privileged subprocess.
 - Record the current-source-equivalent Ubuntu/Caddy installed recovery smoke,
   including its one-iteration matrix and measured WordPress recovery time.
+- Add the passing AlmaLinux 9/Caddy installed recovery evidence and measured
+  WordPress recovery time; retain Ubuntu/Apache as pending.
 
 ### Fixed
 
