@@ -371,8 +371,149 @@ func (a *App) finishCommittedRelease(ctx context.Context, stage, detail, release
 }
 
 type gitRollbackRequest struct {
-	Site    string `json:"site"`
-	Confirm string `json:"confirm"`
+	Site         string `json:"site"`
+	Confirm      string `json:"confirm"`
+	PreviewToken string `json:"preview_token"`
+}
+
+type gitRollbackPreview struct {
+	Site             string `json:"site"`
+	CurrentRelease   string `json:"current_release"`
+	TargetRelease    string `json:"target_release"`
+	CurrentFiles     int64  `json:"current_files"`
+	TargetFiles      int64  `json:"target_files"`
+	CurrentBytes     int64  `json:"current_bytes"`
+	TargetBytes      int64  `json:"target_bytes"`
+	DocumentRoot     string `json:"document_root"`
+	ServiceEffect    string `json:"service_effect"`
+	PreservedRelease string `json:"preserved_release"`
+	PreviewToken     string `json:"preview_token"`
+}
+
+// gitRollbackPreviewHandler describes the release swap and returns a token
+// that the mutation endpoint rechecks while holding the site's mutation lock.
+func (a *App) gitRollbackPreviewHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	site := safeUser(r.URL.Query().Get("site"))
+	if site == "" {
+		http.Error(w, "invalid site", http.StatusUnprocessableEntity)
+		return
+	}
+	preview, err := a.buildGitRollbackPreview(site)
+	if err != nil {
+		http.Error(w, "Git rollback preview is unavailable", http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
+	location, err := siteLocationFor(a.Config, site)
+	if err != nil {
+		return gitRollbackPreview{}, err
+	}
+	current, err := existingManagedDocRoot(a.Config, site)
+	if err != nil {
+		return gitRollbackPreview{}, err
+	}
+	target, err := latestPreviousRelease(location.Home, location.PreviousPrefix)
+	if err != nil {
+		return gitRollbackPreview{}, err
+	}
+	maxBytes := a.Config.GitReleaseMaxTreeBytes
+	if maxBytes <= 0 {
+		maxBytes = 1 << 40
+	}
+	targetBytes, targetFiles, targetFingerprint, err := gitReleaseFingerprint(target, maxBytes, a.Config.MaxEntries, false)
+	if err != nil {
+		return gitRollbackPreview{}, err
+	}
+	currentBytes, currentFiles, currentFingerprint, err := gitReleaseFingerprint(current, 1<<62, a.Config.MaxEntries, true)
+	if err != nil {
+		return gitRollbackPreview{}, err
+	}
+	targetInfo, err := os.Stat(target)
+	if err != nil {
+		return gitRollbackPreview{}, err
+	}
+	revision := fmt.Sprintf("%s:%d:%d:%s", filepath.Base(target), targetInfo.ModTime().UnixNano(), targetInfo.Size(), targetFingerprint)
+	currentInfo, err := os.Stat(current)
+	if err != nil {
+		return gitRollbackPreview{}, err
+	}
+	revision += fmt.Sprintf("|%s:%d:%d:%s", filepath.Base(current), currentInfo.ModTime().UnixNano(), currentInfo.Size(), currentFingerprint)
+	token := sha256.Sum256([]byte(site + "\x00" + location.DocRoot + "\x00" + revision))
+	return gitRollbackPreview{
+		Site: site, CurrentRelease: filepath.Base(current), TargetRelease: filepath.Base(target),
+		CurrentFiles: currentFiles, TargetFiles: targetFiles, CurrentBytes: currentBytes, TargetBytes: targetBytes,
+		DocumentRoot:     location.DocRoot,
+		ServiceEffect:    "The document root is atomically switched; PHP-FPM and web-server configuration are unchanged, and the service is not restarted.",
+		PreservedRelease: "The currently active release is retained as the next rollback point.",
+		PreviewToken:     hex.EncodeToString(token[:]),
+	}, nil
+}
+
+// gitReleaseFingerprint returns bounded tree size and regular-file count. It
+// hashes directory metadata for an optimistic concurrency check without
+// reading application file contents during a preview.
+
+func gitReleaseFingerprint(root string, maxBytes int64, maxEntries int, allowSymlinks bool) (int64, int64, string, error) {
+	if maxEntries < 1 {
+		maxEntries = 100000
+	}
+	var total, files, entries int64
+	digest := sha256.New()
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == filepath.Join(root, ".git") || strings.HasPrefix(path, filepath.Join(root, ".git")+string(os.PathSeparator)) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		entries++
+		if entries > int64(maxEntries) {
+			return errors.New("release exceeds the configured entry limit")
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		isSymlink := entry.Type()&os.ModeSymlink != 0
+		if isSymlink && !allowSymlinks || !isSymlink && !entry.IsDir() && !info.Mode().IsRegular() {
+			return errors.New("release contains an unsupported file type")
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(digest, "%s\x00%o\x00%d\x00%d\n", relative, info.Mode(), info.Size(), info.ModTime().UnixNano()); err != nil {
+			return err
+		}
+		if isSymlink {
+			linkTarget, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			if _, err := io.WriteString(digest, linkTarget+"\x00"); err != nil {
+				return err
+			}
+		}
+		if info.Mode().IsRegular() {
+			if info.Size() > maxBytes-total {
+				return errors.New("release exceeds configured size limit")
+			}
+			total += info.Size()
+			files++
+		}
+		return nil
+	})
+	return total, files, hex.EncodeToString(digest.Sum(nil)), err
 }
 
 // gitWebhookSiteKey carries the authenticatedWebhook for a request that
@@ -1035,19 +1176,16 @@ func (a *App) gitRollback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git rollback cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
-	previous, err := latestPreviousRelease(location.Home, location.PreviousPrefix)
+	preview, err := a.buildGitRollbackPreview(input.Site)
 	if err != nil {
-		http.Error(w, "no previous Git release is available", http.StatusConflict)
+		http.Error(w, "Git rollback preview is unavailable; refresh the preview before retrying", http.StatusConflict)
 		return
 	}
-	if err := validateGitRelease(previous, a.Config.MaxEntries); err != nil {
-		http.Error(w, "previous release failed safety validation", http.StatusConflict)
+	if input.PreviewToken == "" || !hmac.Equal([]byte(input.PreviewToken), []byte(preview.PreviewToken)) {
+		http.Error(w, "site releases changed after preview; refresh and confirm the updated rollback plan", http.StatusConflict)
 		return
 	}
-	if _, err := existingManagedDocRoot(a.Config, input.Site); err != nil {
-		http.Error(w, "active site release is unavailable", http.StatusConflict)
-		return
-	}
+	previous := filepath.Join(location.Home, preview.TargetRelease)
 	intent, err := BeginSecurityAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.git-rolled-back", input.Site, filepath.Base(previous))
 	if err != nil {
 		refuseWithoutSecurityAudit(w)

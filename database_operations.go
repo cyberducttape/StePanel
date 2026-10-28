@@ -2,6 +2,9 @@ package stepanel
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +25,34 @@ type DatabaseResource struct {
 	User     string `json:"user,omitempty"`
 	Bytes    uint64 `json:"bytes"`
 	Encoding string `json:"encoding"`
+}
+
+type databaseDeletionPreview struct {
+	Database       DatabaseResource `json:"database"`
+	Engine         string           `json:"engine"`
+	DatabaseEffect string           `json:"database_effect"`
+	BackupEffect   string           `json:"backup_effect"`
+	ServiceEffect  string           `json:"service_effect"`
+	PreviewToken   string           `json:"preview_token"`
+}
+
+func makeDatabaseDeletionPreview(item DatabaseResource, engine string) databaseDeletionPreview {
+	if engine == "" {
+		engine = "mysql"
+	}
+	identity := fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%s\x00%s", engine, item.Name, item.Site, item.Bytes, item.User, item.Encoding)
+	token := sha256.Sum256([]byte(identity))
+	databaseEffect := fmt.Sprintf("Drop database %s.", item.Name)
+	if item.User != "" {
+		databaseEffect = fmt.Sprintf("Drop database %s and its managed database user %s.", item.Name, item.User)
+	}
+	return databaseDeletionPreview{
+		Database: item, Engine: engine,
+		DatabaseEffect: databaseEffect,
+		BackupEffect:   "Create and verify a safety backup before deletion; refuse deletion if backup creation or verification fails.",
+		ServiceEffect:  "The database server and other databases remain running.",
+		PreviewToken:   hex.EncodeToString(token[:]),
+	}
 }
 
 type DatabaseDiagnostics struct {
@@ -483,7 +514,8 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/databases/")
 	credentialRotation := strings.HasSuffix(path, "/credentials")
-	name := strings.TrimSuffix(path, "/credentials")
+	deletionPreview := strings.HasSuffix(path, "/deletion-preview")
+	name := strings.TrimSuffix(strings.TrimSuffix(path, "/credentials"), "/deletion-preview")
 	if !validManagedDatabaseIdentifier(name, databaseNameLimit(a.Config)) || strings.Contains(name, "/") {
 		http.Error(w, "invalid database", http.StatusUnprocessableEntity)
 		return
@@ -512,11 +544,19 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !credentialRotation {
-		if !a.requireCustomerScope(w, r, "database:read") {
+		scope := "database:read"
+		if deletionPreview {
+			scope = "database:write"
+		}
+		if !a.requireCustomerScope(w, r, scope) {
 			return
 		}
 		for _, item := range items {
 			if item.Name == name {
+				if deletionPreview {
+					writeJSON(w, http.StatusOK, makeDatabaseDeletionPreview(item, a.Config.DBEngine))
+					return
+				}
 				writeJSON(w, http.StatusOK, map[string]any{"database": item, "engine": a.Config.DBEngine})
 				return
 			}
@@ -532,7 +572,12 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "API token lacks the database:write scope", http.StatusForbidden)
 		return
 	}
-	var in struct{ User, Password, Confirm string }
+	var in struct {
+		User         string `json:"user"`
+		Password     string `json:"password"`
+		Confirm      string `json:"confirm"`
+		PreviewToken string `json:"preview_token"`
+	}
 	if err := decodeJSON(w, r, 4096, &in); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
@@ -598,10 +643,50 @@ func (a *App) databaseResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseUnlock()
+		if in.PreviewToken == "" {
+			http.Error(w, "database deletion requires a current deletion preview", http.StatusConflict)
+			return
+		}
+		currentItems, inventoryErr := managedDatabaseInventory(a.Config)
+		if inventoryErr != nil {
+			http.Error(w, "database inventory is unavailable; deletion refused", http.StatusServiceUnavailable)
+			return
+		}
+		var current DatabaseResource
+		currentFound := false
+		for _, item := range currentItems {
+			if item.Name == name {
+				current, currentFound = item, true
+				break
+			}
+		}
+		if !currentFound || current.User != "" && current.User != in.User || !hmac.Equal([]byte(in.PreviewToken), []byte(makeDatabaseDeletionPreview(current, a.Config.DBEngine).PreviewToken)) {
+			http.Error(w, "database inventory changed after preview; refresh and confirm the updated deletion plan", http.StatusConflict)
+			return
+		}
 		safetyBackup, err := createDatabaseSafetyBackupContext(operationCtx, a.Config, name, a.capacityLedger())
 		if err != nil {
 			log.Printf("database safety backup failed for %s: %v", name, err)
 			http.Error(w, "database deletion refused because its safety backup failed", http.StatusServiceUnavailable)
+			return
+		}
+		// The live database may have changed while its safety dump was being
+		// created. Recheck the preview-bound inventory before issuing DROP.
+		latestItems, inventoryErr := managedDatabaseInventory(a.Config)
+		if inventoryErr != nil {
+			http.Error(w, "database inventory became unavailable after the safety backup; deletion refused", http.StatusServiceUnavailable)
+			return
+		}
+		var latest DatabaseResource
+		latestFound := false
+		for _, item := range latestItems {
+			if item.Name == name {
+				latest, latestFound = item, true
+				break
+			}
+		}
+		if !latestFound || latest.User != "" && latest.User != in.User || !hmac.Equal([]byte(in.PreviewToken), []byte(makeDatabaseDeletionPreview(latest, a.Config.DBEngine).PreviewToken)) {
+			http.Error(w, "database changed during its safety backup; the verified backup was retained and deletion was refused", http.StatusConflict)
 			return
 		}
 		if err := operationCtx.Err(); err != nil {
