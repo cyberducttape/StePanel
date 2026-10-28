@@ -52,7 +52,12 @@ jobs:
   recovery:
     needs: plan
     strategy:
-      fail-fast: false
+      # Let the called workflow finish its six-host matrix (which has its own
+      # fail-fast: false) so the failing repetition has complete diagnostics.
+      # A failed repetition invalidates the all-pass certification cohort, so
+      # stop scheduling later repeats instead of spending runner-hours on a
+      # run that cannot satisfy the gate.
+      fail-fast: true
       # One complete six-host cohort at a time avoids oversubscribing the
       # hosted runner pool while retaining an exact source SHA for every shard.
       max-parallel: 1
