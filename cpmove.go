@@ -236,7 +236,6 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	seen := map[string]bool{}
 	seenMail := map[string]bool{}
 	seenZones := map[string]bool{}
-	seenCron := map[string]bool{}
 	var cronInventoryBytes int64
 	paths := archivesafe.NewPathSet()
 	var total int64
@@ -342,13 +341,10 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 				// Record only the five-field schedule. Commands can contain secrets
 				// and are not imported by this workflow.
 				schedule := strings.Join(fields[:scheduleFields], " ")
-				if !seenCron[schedule] {
-					if len(info.CronSchedules) < maxMigrationEvidenceItems {
-						info.CronSchedules = append(info.CronSchedules, schedule)
-					} else {
-						info.CronOmitted++
-					}
-					seenCron[schedule] = true
+				if len(info.CronSchedules) < maxMigrationEvidenceItems {
+					info.CronSchedules = append(info.CronSchedules, schedule)
+				} else {
+					info.CronOmitted++
 				}
 			}
 		}
