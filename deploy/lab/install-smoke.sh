@@ -422,14 +422,27 @@ if not status.get("available") or not status.get("pools"):
     raise SystemExit("installed managed PHP-FPM pool did not return live status: " + json.dumps(status))
 print("Installed PHP-FPM status probe passed: " + ", ".join(pool.get("php_version", "default") for pool in status["pools"] if pool.get("state") == "available"))
 PY
-if [[ $STEPANEL_WEBSERVER == caddy ]]; then
-  public_status=$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
-    --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-fpm-status)
-else
-  public_status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 \
-    --resolve ci-smoke.localhost:80:127.0.0.1 http://ci-smoke.localhost/stepanel-fpm-status)
-fi
+public_status=000
+for _ in {1..5}; do
+  if [[ $STEPANEL_WEBSERVER == caddy ]]; then
+    public_status=$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' --max-time 2 \
+      --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-fpm-status 2>/dev/null || true)
+  else
+    public_status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 \
+      --resolve ci-smoke.localhost:80:127.0.0.1 http://ci-smoke.localhost/stepanel-fpm-status 2>/dev/null || true)
+  fi
+  [[ $public_status != 000 ]] && break
+  sleep 1
+done
 [[ $public_status == 403 || $public_status == 404 ]] || {
+  if [[ $STEPANEL_WEBSERVER == apache ]]; then
+    web_unit=apache2.service
+    systemctl cat "$web_unit" >/dev/null 2>&1 || web_unit=httpd.service
+  else
+    web_unit=caddy.service
+  fi
+  systemctl status "$web_unit" --no-pager >&2 || true
+  journalctl -u "$web_unit" --no-pager -n 80 >&2 || true
   echo "public PHP-FPM status URL returned HTTP $public_status; expected 403 or 404" >&2
   exit 1
 }
