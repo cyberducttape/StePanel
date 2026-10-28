@@ -236,6 +236,28 @@ func TestWordPressProofFailsAndTearsDownWhenDatabaseIsUnreachable(t *testing.T) 
 	f.assertTornDown(t)
 }
 
+func TestWordPressProofAuditFailsWhenTeardownFailsAfterSuccessfulProbe(t *testing.T) {
+	f := newWordPressProofFixture(t, proofTestConfig)
+	if err := os.WriteFile(f.app.Config.VHostCtl, []byte("#!/usr/bin/env bash\nif [[ $1 == delete ]]; then exit 1; fi\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	serveProofWebServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/wp-login.php" {
+			_, _ = w.Write([]byte(`<form><input name="log"></form>`))
+			return
+		}
+		_, _ = w.Write([]byte(`<link href="/wp-content/themes/x/style.css">`))
+	})
+	_, err := f.app.proveWordPressRestore(context.Background(), f.stage, []string{"shop_db"})
+	if err == nil || !strings.Contains(err.Error(), "startup recovery will retry") {
+		t.Fatalf("proof error = %v, want durable cleanup failure", err)
+	}
+	want := "recovery.proof.site.initiated,recovery.proof.site.failed"
+	if got := strings.Join(auditActions(t, f.app.Config.AuditLog), ","); got != want {
+		t.Fatalf("proof audit actions = %s, want %s", got, want)
+	}
+}
+
 func TestWordPressProofReservesSiteVolumeBeforeCopy(t *testing.T) {
 	f := newWordPressProofFixture(t, proofTestConfig)
 	f.app.Config.MinFreeBytes = 1 << 62

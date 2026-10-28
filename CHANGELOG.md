@@ -24,6 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - Refresh the production-gate evidence to distinguish the earlier-source 20-repeat cohort from current-source evidence, record the pre-fix PHP-FPM fencing failure, and track the exact-current-source AlmaLinux 9/Caddy smoke while it is running. Neither the partial cohort nor the single-host smoke is presented as host recovery certification.
+- Record a WordPress recovery proof as failed when its live application check
+  passes but cleanup of the temporary site fails; startup recovery still retries
+  cleanup from the open transaction.
 - Git rollback now requires an administrator-reviewed preview of the active and target releases, estimated file counts and sizes, document-root swap, and service impact. Execution rejects a stale preview if release-tree metadata changed before confirmation.
 - Database deletion now previews the affected database and managed user, the required verified safety backup, and service impact; deletion requires a matching inventory-bound preview token through an explicitly registered API route. The token covers engine, owner, size, user, and encoding.
 - Treat the bounded PHP-FPM status broker operation as read-only so production
