@@ -13,6 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Redacted support bundles now retain readiness remediation details and include safe failure categories for failed jobs without embedding raw error messages.
 - cPanel import evidence now inventories DNS zone filenames and cron schedules, marks them as requiring manual cutover, and omits cron command text to avoid exposing embedded credentials. Inventory reads have explicit byte limits and bounded result lists.
 - cPanel import results now include bounded, itemized migration evidence for
   accounts, website roots, databases, mailboxes, and domain placement, with
