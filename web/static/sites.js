@@ -311,13 +311,18 @@
 
   async function renderOverviewTab(site, panel, ctx) {
     const observe = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
-    const [overview, backups, deploymentList, usage, php, recoveryResult] = await Promise.all([
+    const [overview, backups, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, activityResult, databaseResult] = await Promise.all([
       ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
       observe(ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=500`)),
       observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
       observe(ctx.getJSON(`/api/sites/usage/${encodeURIComponent(site)}`)),
       observe(ctx.getJSON(`/api/sites/php/${encodeURIComponent(site)}`)),
       ctx.can('backup:read') ? observe(ctx.getJSON(`/api/sites/recovery/${encodeURIComponent(site)}`)) : Promise.resolve(null),
+      observe(ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`)),
+      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=error&lines=100`)) : Promise.resolve(null),
+      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=php-fpm&lines=100`)) : Promise.resolve(null),
+      ctx.isAdministrator ? observe(ctx.getJSON(`/api/audit/events?target=${encodeURIComponent(site)}&limit=8`)) : Promise.resolve(null),
+      ctx.isAdministrator ? observe(ctx.getJSON('/api/database/diagnostics')) : Promise.resolve(null),
     ]);
 
     const routes = overview.routes || [];
@@ -326,6 +331,7 @@
     const deploymentData = deploymentList.ok ? deploymentList.value : null;
     const usageData = usage.ok ? usage.value : null;
     const phpData = php.ok ? php.value : null;
+    const resourceData = resourceResult.ok ? resourceResult.value : null;
     const backup = latestBackup(backupData?.backups, site);
     const deployments = (deploymentData?.deployments || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const lastDeployment = deployments[0];
@@ -381,12 +387,12 @@
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'A quick read on whether this site is healthy: what is deployed, when it last backed up, and what changed most recently.'),
       grid,
+      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, lastDeployment, webLogResult, phpLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok }),
     );
 
     if (ctx.isAdministrator) {
-      try {
-        const activity = await ctx.getJSON(`/api/audit/events?target=${encodeURIComponent(site)}&limit=8`);
-        const events = activity.events || [];
+      if (activityResult && activityResult.ok) {
+        const events = activityResult.value.events || [];
         panel.append(
           el('h4', {}, 'Recent activity'),
           events.length
@@ -396,10 +402,82 @@
             ])))
             : el('p', { className: 'empty-state' }, 'No recorded activity yet.'),
         );
-      } catch (error) {
-        panel.append(el('h4', {}, 'Recent activity'), errorState('Audit trail', error));
+      } else {
+        panel.append(el('h4', {}, 'Recent activity'), errorState('Audit trail', activityResult && activityResult.error));
       }
     }
+  }
+
+  function renderIncidentAssessment(signals) {
+    const findings = [];
+    const add = (level, title, evidence, next) => findings.push({ level, title, evidence, next });
+    const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, lastDeployment, webLogResult, phpLogResult, canReadLogs, latestChange, databaseDiagnostics, databaseDiagnosticsAvailable } = signals;
+    const applications = overview.applications || [];
+    const unhealthy = applications.filter((app) => !['applied', 'running'].includes(String(app.state || '').toLowerCase()));
+    if (unhealthy.length) add('critical', 'Application is not reported as running', unhealthy.map((app) => `${app.domain}: ${app.state || 'unknown state'}`).join('; '), 'Review the deployment history and application logs before retrying activation.');
+    if (phpAvailable && phpData && phpData.configured && phpData.profile && (phpData.profile.state === 'pending' || phpData.profile.last_error)) {
+      add('warning', 'PHP runtime changes need attention', phpData.profile.last_error || `Runtime profile is ${phpData.profile.state}.`, 'Open Runtime and reconcile the pending PHP-FPM configuration.');
+    } else if (!phpAvailable) {
+      add('unknown', 'PHP runtime state is unavailable', 'The site PHP profile endpoint did not return a usable result.', 'Retry the site overview and inspect the Runtime tab if this persists.');
+    }
+    if (resourceAvailable && resourceData) {
+      const profile = resourceData.profile || {};
+      const observed = resourceData.observed || {};
+      if (resourceData.configured === false || profile.state === 'pending' || profile.filesystem_quota_state === 'apply-pending' || profile.filesystem_quota_state === 'clear-pending' || observed.state === 'failed' || observed.state === 'unavailable') {
+        add('warning', 'Resource enforcement needs verification', `Desired profile: ${profile.state || 'not configured'}; observed unit: ${observed.state || 'unknown'}; quota: ${profile.filesystem_quota_state || 'unknown'}.`, 'Review the resource profile and host quota state before increasing workload.');
+      }
+      if (usageAvailable && usageData && Number.isFinite(Number(profile.disk_mb)) && Number(profile.disk_mb) > 0) {
+        const limit = Number(profile.disk_mb) * 1024 * 1024;
+        if (usageData.bytes >= limit * 0.9) add('warning', 'Site is near its configured disk allowance', `${formatBytes(usageData.bytes)} of ${formatBytes(limit)} in regular-file content (${Math.min(100, Math.round(usageData.bytes / limit * 100))}%).`, 'Review old releases, uploads, and backup policy before the site reaches its configured limit.');
+      }
+    } else if (!resourceAvailable) {
+      add('unknown', 'Resource enforcement could not be inspected', 'The site resource status endpoint was unavailable.', 'Check the host broker and resource reconciliation status.');
+    }
+    if (lastDeployment && ['failed', 'dead-letter'].includes(String(lastDeployment.state || '').toLowerCase())) {
+      add('warning', 'Most recent deployment failed', `${lastDeployment.stage || 'Deployment'} · ${lastDeployment.state}`, 'Open deployment history and inspect the associated durable job before retrying.');
+    }
+    if (databaseDiagnosticsAvailable && databaseDiagnostics && databaseDiagnostics.available) {
+      const values = databaseDiagnostics.values || {};
+      if (Number(values.blocked_sessions) > 0 || Number(values.long_transactions) > 0) {
+        add('warning', 'Database contention is present on this host', `${values.blocked_sessions || 0} blocked session(s); ${values.long_transactions || 0} transaction(s) older than five minutes. This is host-wide evidence, not attribution to this site.`, 'Review database sessions and correlate their database names and start times with this site’s traffic.');
+      }
+    } else if (databaseDiagnosticsAvailable === false) {
+      add('unknown', 'Database diagnostics are unavailable', 'The host database diagnostic probe did not return usable measurements.', 'Check database service health and its restricted diagnostic helper.');
+    }
+    const inspectLog = (result, label, saturation) => {
+      if (!canReadLogs) return;
+      if (!result || !result.ok) {
+        add('unknown', `${label} log signal unavailable`, 'The bounded recent-log request did not complete.', 'Open Logs to inspect availability and retry.');
+        return;
+      }
+      const lines = result.value.lines || [];
+      const pattern = saturation ? /max_children|reached pm\.max_children|listen queue/i : /\b(error|critical|crit|fatal|emerg|failed)\b/i;
+      const matches = lines.filter((line) => pattern.test(line));
+      if (matches.length) add(saturation ? 'warning' : 'warning', saturation ? 'PHP-FPM saturation signal found' : `${label} errors appear in the recent log tail`, `${matches.length} matching line(s) in the latest ${lines.length} lines. Log content is not copied into this summary.`, 'Open Logs and correlate timestamps with recent deployments and workload changes.');
+    };
+    inspectLog(webLogResult, 'Web-server', false);
+    inspectLog(phpLogResult, 'PHP-FPM', true);
+    const unknowns = ['Per-site database query latency is not measured. Available blocked-session and long-transaction counts are host-wide and are not attributed to this site.'];
+    if (!canReadLogs) unknowns.push('Recent web-server and PHP-FPM logs are hidden because this account lacks logs:read.');
+    else unknowns.push('PHP-FPM saturation is only flagged when explicit max_children/listen-queue messages appear in the recent log tail; live pool queue metrics are not collected here.');
+    const levelLabel = { critical: 'Action needed', warning: 'Review', unknown: 'Not verified' };
+    return el('section', { className: 'incident-assessment', 'aria-label': 'Site incident assessment' }, [
+      el('div', { className: 'section-heading' }, [el('h3', {}, 'Why this site may be failing'), el('small', {}, `Snapshot · ${new Date().toLocaleTimeString()}`)]),
+      findings.length ? el('ul', { className: 'incident-findings' }, findings.map((finding) => el('li', { className: `incident-finding incident-${finding.level}` }, [
+        el('strong', {}, `${levelLabel[finding.level]} · ${finding.title}`),
+        el('p', {}, finding.evidence),
+        el('small', {}, finding.next),
+      ]))) : el('p', { className: 'incident-clear' }, 'No failing signal was found in the available snapshot. This does not establish application health by itself.'),
+      latestChange ? el('div', { className: 'incident-recent-change' }, [
+        el('strong', {}, 'Most recent recorded change'),
+        el('span', {}, `${latestChange.action || 'Change'} · ${latestChange.detail || 'No additional detail recorded'}`),
+        el('small', {}, latestChange.time ? new Date(latestChange.time).toLocaleString() : 'Timestamp unavailable'),
+      ]) : null,
+      el('details', { className: 'incident-limits' }, [
+        el('summary', {}, 'Signals not established by this snapshot'),
+        el('ul', {}, unknowns.map((item) => el('li', {}, item))),
+      ]),
+    ]);
   }
 
   // ---------------------------------------------------------------------
