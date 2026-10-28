@@ -262,6 +262,7 @@ jobs:
           # minutes for diagnostics inside the six-hour GitHub job limit.
           timeout --foreground --kill-after=5s ${{ inputs.full_recovery_matrix && '350m' || '140m' }} docker exec \
             -e STEPANEL_DB_ENGINE="$DB" -e STEPANEL_WEBSERVER="$WEB" \
+            -e STEPANEL_INSTALLER_PREEXISTING_APACHE_SMOKE="${{ matrix.name == 'ubuntu-24.04-caddy-mariadb' && '1' || '0' }}" \
             -e STEPANEL_UNSAFE_LAB=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX=1 \
             -e STEPANEL_RUN_RECOVERY_MATRIX_FULL=${{ inputs.full_recovery_matrix && '1' || '0' }} \

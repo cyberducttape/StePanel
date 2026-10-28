@@ -180,6 +180,84 @@ func TestInstallScriptWiresControlPlaneTransaction(t *testing.T) {
 	}
 }
 
+func TestInstallerRollbackRestoresCapturedWebServiceState(t *testing.T) {
+	lib, err := filepath.Abs("deploy/lib/install-service-state.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := `
+set -Eeuo pipefail
+declare -A mock_active mock_enabled
+mock_active[apache2]=active
+mock_enabled[apache2]=enabled
+mock_active[caddy]=inactive
+mock_enabled[caddy]=disabled
+mock_active[dovecot]=inactive
+mock_enabled[dovecot]=enabled
+mock_active[exim4]=inactive
+mock_enabled[exim4]=not-found
+systemctl() {
+  local action=$1 service=$2
+  case $action in
+    is-active) printf '%s\n' "${mock_active[$service]:-inactive}" ;;
+    is-enabled) printf '%s\n' "${mock_enabled[$service]:-not-found}" ;;
+    enable) mock_enabled[$service]=enabled ;;
+    disable) mock_enabled[$service]=disabled ;;
+    start) mock_active[$service]=active ;;
+    stop) mock_active[$service]=inactive ;;
+    *) return 64 ;;
+  esac
+}
+. "$LIB"
+install_capture_service_state apache2
+install_capture_service_state caddy
+install_capture_service_state dovecot
+install_capture_service_state exim4
+# Model takeover plus package post-install activation of the selected server.
+mock_active[apache2]=inactive
+mock_enabled[apache2]=disabled
+mock_active[caddy]=active
+mock_enabled[caddy]=enabled
+mock_active[dovecot]=active
+mock_active[exim4]=active
+mock_enabled[exim4]=enabled
+install_restore_service_state apache2
+install_restore_service_state caddy
+install_restore_service_state dovecot
+install_restore_service_state exim4
+[[ ${mock_active[apache2]} == active && ${mock_enabled[apache2]} == enabled ]] || { declare -p mock_active mock_enabled; exit 1; }
+[[ ${mock_active[caddy]} == inactive && ${mock_enabled[caddy]} == disabled ]] || { declare -p mock_active mock_enabled; exit 1; }
+[[ ${mock_active[dovecot]} == inactive && ${mock_enabled[dovecot]} == enabled ]] || { declare -p mock_active mock_enabled; exit 1; }
+[[ ${mock_active[exim4]} == inactive && ${mock_enabled[exim4]} == disabled ]] || { declare -p mock_active mock_enabled; exit 1; }
+`
+	cmd := exec.Command("bash", "-c", script)
+	cmd.Env = append(os.Environ(), "LIB="+lib)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("restore previous service states: %v\n%s", err, output)
+	}
+
+	installer, err := os.ReadFile("install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(installer)
+	rollbackStart := strings.Index(text, "rollback_install() {")
+	if rollbackStart < 0 {
+		t.Fatal("could not locate installer rollback function")
+	}
+	rollbackEnd := strings.Index(text[rollbackStart:], "\n}\n")
+	if rollbackEnd < 0 {
+		t.Fatal("could not locate installer rollback function")
+	}
+	rollback := text[rollbackStart : rollbackStart+rollbackEnd]
+	if !strings.Contains(text, `install_capture_service_state "$web_service"`) || !strings.Contains(rollback, `install_restore_service_state "$host_service"`) {
+		t.Fatal("installer must capture host service state before mutation and restore it on pre-commit failure")
+	}
+	if !strings.Contains(rollback, "HOST_SERVICE_RESTORE_FAILURES") || !strings.Contains(rollback, "pre-install web/mail/core service active-enabled state restored") {
+		t.Fatal("rollback journal must make web-service restoration failures visible")
+	}
+}
+
 func TestPanelServicesStartAfterRootBroker(t *testing.T) {
 	for _, path := range []string{"deploy/stepanel.service", "deploy/stepanel-worker.service"} {
 		unit, err := os.ReadFile(path)

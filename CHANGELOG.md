@@ -11,6 +11,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Add coverage for exact-source gate parsing, freshness reporting, Git file reads,
   and API error handling; `internal/evidence` now exceeds its enforced 85% floor.
 
+### Fixed
+
+- Installer failures before commit now restore the captured active/enabled
+  state of recognized web and optional mail services. The installer recovery
+  journal reports services that need manual restoration, and installed-host
+  smoke coverage exercises existing Apache and partial mail installations.
+
 ### Documentation
 
 - Release evidence now reports the exact source SHA, equivalent CI outcomes
@@ -83,6 +90,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- A failed pre-commit install or upgrade now attempts to restore the captured
+  active/enabled state of recognized web and optional mail services after
+  restoring StePanel files. Failures are reported in the recovery journal;
+  third-party configuration and package changes remain outside automatic
+  rollback.
 - File-manager reads now fetch one sentinel byte beyond the configured limit
   and refuse the read if the file grew after its size check. Uploads stream
   through a bounded, explicitly terminated broker protocol instead of being

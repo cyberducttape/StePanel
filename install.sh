@@ -313,14 +313,22 @@ web_package_available() {
 }
 PREEXISTING_WEB_SERVICES=()
 preflight_blockers=()
+. "$ROOT_DIR/deploy/lib/install-service-state.sh"
+MAIL_EXIM_SERVICE=$([[ "$PKG" == apt ]] && printf exim4 || printf exim)
+MAIL_SPAM_SERVICE=$([[ "$PKG" == apt ]] && printf spamassassin || printf spamd)
+INSTALL_HOST_SERVICES=(apache2 httpd caddy lsws "$MAIL_EXIM_SERVICE" dovecot "$MAIL_SPAM_SERVICE")
 echo "StePanel host preflight"
 echo "DETECTED:"
 [[ -f "$ENV_FILE" ]] && echo "  existing StePanel installation ($ENV_FILE); this run is an upgrade"
 for web_service in apache2 httpd caddy lsws; do
+  install_capture_service_state "$web_service"
   if state=$(web_service_state "$web_service"); then
     echo "  web server $state"
     [[ "$web_service" == "$SELECTED_WEB_SERVICE" ]] || PREEXISTING_WEB_SERVICES+=("$web_service")
   fi
+done
+for host_service in "$MAIL_EXIM_SERVICE" dovecot "$MAIL_SPAM_SERVICE"; do
+  install_capture_service_state "$host_service"
 done
 if command -v ss >/dev/null 2>&1; then
   while read -r listener; do
@@ -443,10 +451,21 @@ install_journal_record preflight complete retained "take_over_host=$TAKE_OVER_HO
 install_journal_record dependency_installation started manual "package and repository changes are retained if this run fails"
 install_journal_record configuration started partial "package scripts and subsequent host configuration may change services before the file transaction"
 install_journal_on_exit() {
-  local status=$?
+  local status=$? service recovery_detail
+  local -a service_restore_failures=()
   trap - EXIT
   if (( status != 0 && INSTALL_JOURNAL_TERMINAL == 0 )); then
-    install_journal_record recovery required manual "installer exited status=$status; inspect host services, packages and configuration; see docs/INSTALLER_RECOVERY.md" || true
+    for service in "${INSTALL_HOST_SERVICES[@]}"; do
+      if ! install_restore_service_state "$service"; then
+        service_restore_failures+=("$service")
+        echo "Could not restore pre-install active/enabled state for $service; inspect it manually." >&2
+      fi
+    done
+    recovery_detail="installer exited status=$status; inspect host services, packages and configuration; see docs/INSTALLER_RECOVERY.md"
+    if (( ${#service_restore_failures[@]} )); then
+      recovery_detail="installer exited status=$status; service state restoration failed for ${service_restore_failures[*]}; inspect packages and configuration; see docs/INSTALLER_RECOVERY.md"
+    fi
+    install_journal_record recovery required manual "$recovery_detail" || true
     echo "Installer stopped before commit; recovery journal: $INSTALL_JOURNAL" >&2
   fi
   return "$status"
@@ -612,6 +631,7 @@ else
 fi
 
 install_mail_stack() {
+  local service
   if [[ "$PKG" == "apt" ]]; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get install -y exim4 dovecot-core dovecot-imapd spamassassin
@@ -621,6 +641,12 @@ install_mail_stack() {
     MAIL_SPAM_SERVICE="spamd"
   fi
   install -d -m 0750 "$DATA_DIR/mail"
+  # Package scripts can start partially installed services even when the
+  # operator asked to install mail without activating new services. Restore
+  # the pre-install state; explicit activation runs only after core commit.
+  for service in "$MAIL_EXIM_SERVICE" dovecot "$MAIL_SPAM_SERVICE"; do
+    install_restore_service_state "$service" || return
+  done
   if [[ "$ACTIVATE_MAIL" == "0" ]]; then
     [[ "$MAIL_EXIM_PREEXISTING" == "1" ]] || systemctl disable --now "$([[ "$PKG" == "apt" ]] && echo exim4 || echo exim)" 2>/dev/null || true
     [[ "$MAIL_DOVECOT_PREEXISTING" == "1" ]] || systemctl disable --now dovecot 2>/dev/null || true
@@ -836,7 +862,8 @@ backup_managed_target() {
 }
 
 rollback_install() {
-  local status=$? index temporary
+  local status=$? index temporary web_service host_service
+  local -a HOST_SERVICE_RESTORE_FAILURES=()
   trap - ERR EXIT INT TERM
   if (( INSTALL_COMMITTED )); then exit "$status"; fi
   install_journal_record recovery started partial "restoring registered StePanel files, control-plane database and core service state" || echo 'Could not append installer recovery-start journal record.' >&2
@@ -853,17 +880,29 @@ rollback_install() {
   done
   for temporary in "${TXN_TEMPS[@]}"; do rm -f "$temporary"; done
   systemctl daemon-reload 2>/dev/null || true
+  for host_service in "${INSTALL_HOST_SERVICES[@]}"; do
+    if ! install_restore_service_state "$host_service"; then
+      HOST_SERVICE_RESTORE_FAILURES+=("$host_service")
+      echo "Could not restore pre-install active/enabled state for $host_service; inspect it manually." >&2
+    fi
+  done
   if (( STEPANEL_BROKER_WAS_ENABLED )); then systemctl enable stepanel-root-broker.service 2>/dev/null || true; else systemctl disable stepanel-root-broker.service 2>/dev/null || true; fi
   if (( STEPANEL_BROKER_WAS_ACTIVE )); then systemctl restart stepanel-root-broker.service 2>/dev/null || true; else systemctl stop stepanel-root-broker.service 2>/dev/null || true; fi
   if (( STEPANEL_WAS_ENABLED )); then systemctl enable stepanel.service 2>/dev/null || true; else systemctl disable stepanel.service 2>/dev/null || true; fi
   if (( STEPANEL_WAS_ACTIVE )); then systemctl restart stepanel.service 2>/dev/null || true; else systemctl stop stepanel.service 2>/dev/null || true; fi
   if (( STEPANEL_WORKER_WAS_ENABLED )); then systemctl enable stepanel-worker.service 2>/dev/null || true; else systemctl disable stepanel-worker.service 2>/dev/null || true; fi
   if (( STEPANEL_WORKER_WAS_ACTIVE )); then systemctl restart stepanel-worker.service 2>/dev/null || true; else systemctl stop stepanel-worker.service 2>/dev/null || true; fi
-  if command -v apachectl >/dev/null 2>&1 && apachectl -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
-  elif command -v httpd >/dev/null 2>&1 && httpd -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
+  if [[ ${INSTALL_HOST_SERVICE_WAS_ACTIVE[$APACHE_SERVICE]:-0} == 1 ]]; then
+    if command -v apachectl >/dev/null 2>&1 && apachectl -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
+    elif command -v httpd >/dev/null 2>&1 && httpd -t >/dev/null 2>&1; then systemctl reload "$APACHE_SERVICE" 2>/dev/null || true
+    fi
   fi
   rm -rf "$INSTALL_TXN"
-  install_journal_record recovery required manual "registered files and core service state restored where possible; packages, repository/module changes and unregistered host configuration may remain" || echo 'Could not append installer recovery result; operator inspection is required.' >&2
+  if (( ${#HOST_SERVICE_RESTORE_FAILURES[@]} )); then
+    install_journal_record recovery required manual "registered files restored where possible; host service state restoration failed for ${HOST_SERVICE_RESTORE_FAILURES[*]}; packages and unregistered host configuration may remain" || echo 'Could not append installer recovery result; operator inspection is required.' >&2
+  else
+    install_journal_record recovery required manual "registered files and pre-install web/mail/core service active-enabled state restored where possible; packages, repository/module changes and unregistered host configuration may remain" || echo 'Could not append installer recovery result; operator inspection is required.' >&2
+  fi
   echo "Installation rollback ended; host-level recovery is not complete. Journal: $INSTALL_JOURNAL" >&2
   exit "$status"
 }
