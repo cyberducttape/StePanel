@@ -1,9 +1,7 @@
 name: Release evidence
 
-# Publishes, for the current main commit, which release workflows ran on the
-# same content and what they concluded. This replaces hand-written evidence
-# snapshots in the documentation, which went stale on every merge. Gate
-# status remains a reviewed decision in docs/V1_PRODUCTION_GATES.md.
+# Publishes a downloadable report for one exact source commit, including
+# content-equivalent workflow runs and the reviewed P0 table from that commit.
 on:
   workflow_run:
     workflows:
@@ -54,9 +52,20 @@ jobs:
       - name: Generate release evidence
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          COMMIT: ${{ inputs.commit }}
+          COMMIT: ${{ inputs.commit || github.event.workflow_run.head_sha || github.sha }}
+        id: report
         run: |
-          commit=${COMMIT:-HEAD}
-          [[ $commit == HEAD || $commit =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid commit: $commit" >&2; exit 1; }
-          go run ./cmd/stepanel-evidence --commit "$commit" > evidence.md
-          cat evidence.md >> "$GITHUB_STEP_SUMMARY"
+          [[ $COMMIT =~ ^[0-9a-f]{40}$ ]] || { echo "expected a full commit SHA, got: $COMMIT" >&2; exit 1; }
+          git fetch --quiet --no-tags origin "$COMMIT"
+          commit=$(git rev-parse --verify --end-of-options "$COMMIT^{commit}")
+          go run ./cmd/stepanel-evidence --commit "$commit" > release-evidence.md
+          grep -Fq "Source commit: [\`$commit\`]" release-evidence.md || { echo 'report source identity does not match requested commit' >&2; exit 1; }
+          cat release-evidence.md >> "$GITHUB_STEP_SUMMARY"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - name: Upload exact-source release evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-evidence-${{ steps.report.outputs.commit }}
+          path: release-evidence.md
+          if-no-files-found: error
+          retention-days: 90

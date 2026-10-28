@@ -6,6 +6,11 @@ set -Eeuo pipefail
 shopt -s nullglob
 
 DIST_DIR="${1:-dist}"
+: "${EXPECTED_RELEASE_SHA:?EXPECTED_RELEASE_SHA must identify the tagged source commit}"
+[[ "$EXPECTED_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "ERROR: EXPECTED_RELEASE_SHA must be a full commit SHA" >&2
+    exit 1
+}
 
 if [ ! -d "$DIST_DIR" ]; then
     echo "ERROR: $DIST_DIR not found" >&2
@@ -14,6 +19,14 @@ fi
 
 echo "=== Release Artifact Verification ==="
 echo
+
+echo "Checking exact-source release evidence..."
+evidence_file="$DIST_DIR/RELEASE_EVIDENCE.md"
+if [[ ! -f "$evidence_file" ]] || ! grep -Fq "Source commit: [\`$EXPECTED_RELEASE_SHA\`]" "$evidence_file"; then
+    echo "✗ FAIL: exact-source RELEASE_EVIDENCE.md missing or for a different commit" >&2
+    exit 1
+fi
+echo "✓ RELEASE_EVIDENCE.md identifies $EXPECTED_RELEASE_SHA"
 
 archives=("$DIST_DIR"/*.tar.gz)
 if [ "${#archives[@]}" -eq 0 ]; then

@@ -16,13 +16,16 @@ record of each gate's status and remaining work.
 
 ### Release evidence
 
-Per-commit CI evidence is generated, not written by hand. After each tracked
-workflow completes on `main`, the
+Per-commit release evidence is generated from an exact full source SHA, not
+written by hand. After each tracked workflow completes on `main`, the
 [Release evidence workflow](https://github.com/cyberducttape/StePanel/actions/workflows/evidence.yml)
-publishes a table in its run summary: for the head of `main`, which
-documentation, CI, CodeQL, installed-host smoke, recovery cohort, quota and
-upgrade runs exist and what they concluded. To report on any commit locally,
-run `go run ./cmd/stepanel-evidence --commit <rev>`.
+publishes a downloadable `release-evidence-<full-sha>` artifact and a run
+summary. The report includes the source identity, equivalent workflow results
+and run ages, the production decision, the P0 gate list from that exact commit,
+and the date of the reviewed gate table. A release tag workflow regenerates
+this report from the tagged source and attaches it as `RELEASE_EVIDENCE.md`;
+artifact verification fails if its source SHA differs from the tag. To report
+on any commit locally, run `go run ./cmd/stepanel-evidence --commit <full-sha>`.
 
 A run counts for a commit when it ran on the same content: an identical tree
 for documentation, identical non-Markdown files for code checks. This covers

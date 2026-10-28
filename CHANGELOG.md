@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Release evidence now reports the exact source SHA, equivalent CI outcomes
+  and ages, and P0 production-gate status from that same commit. Release tags
+  attach the verified report; stale source snapshots were removed from the
+  production-readiness summary.
+- Extract HTTP route registration from process initialization into `http_routes.go`
+  without changing route patterns or middleware ordering, making the API
+  surface independently reviewable.
 - Release evidence is generated instead of hand-written. The Release evidence
   workflow (`cmd/stepanel-evidence`) reports which workflow runs cover the
   same content as `main`, matching by tree so rebase merges and multi-commit
