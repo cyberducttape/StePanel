@@ -16,6 +16,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   guidance. A single sample never changes a pool or recommends increasing its
   limit without sustained observations and memory-headroom review.
 
+### Fixed
+
+- Import-stage cleanup now centralizes lock finalization and checks whether a
+  stage path was recreated before unlinking its lock file; a three-process
+  regression verifies serialized same-name stage recreation.
+
 ### Testing
 
 - Replace the unsupported “85% there” production-readiness estimate with the

@@ -124,8 +124,26 @@ func removeImportStage(path string, lock *os.File) {
 		return
 	}
 	defer releaseBackupStageLock(coordination)
-	_ = releaseBackupStageLock(lock)
-	_ = os.Remove(importStageLockPath(path))
+	_ = finalizeImportStageRemoval(path, lock)
+}
+
+// finalizeImportStageRemoval runs with the root coordination lock held. A
+// creator may have reused the stage name while tree removal ran outside that
+// lock. In that case its lock pathname belongs to the new owner and must stay.
+func finalizeImportStageRemoval(path string, stageLock *os.File) error {
+	var releaseErr error
+	if stageLock != nil {
+		releaseErr = releaseBackupStageLock(stageLock)
+	}
+	if _, err := os.Lstat(path); err == nil {
+		return releaseErr
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return errors.Join(releaseErr, err)
+	}
+	if err := os.Remove(importStageLockPath(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return errors.Join(releaseErr, err)
+	}
+	return releaseErr
 }
 
 // outsideStageCoordination runs a tree removal with the root coordination
@@ -236,11 +254,8 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 					_ = releaseBackupStageLock(lock)
 					return err
 				}
-				_ = releaseBackupStageLock(lock)
-				if lock != nil {
-					if err := os.Remove(lockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-						return err
-					}
+				if err := finalizeImportStageRemoval(path, lock); err != nil {
+					return err
 				}
 			}
 			continue
@@ -268,14 +283,8 @@ func CleanupImportStages(root string, maxAge time.Duration) error {
 				_ = releaseBackupStageLock(stageLock)
 				return err
 			}
-			if stageLock != nil {
-				if err := os.Remove(lockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-					_ = releaseBackupStageLock(stageLock)
-					return err
-				}
-				if err := releaseBackupStageLock(stageLock); err != nil {
-					return err
-				}
+			if err := finalizeImportStageRemoval(path, stageLock); err != nil {
+				return err
 			}
 		} else if !entry.IsDir() && isOrphanUpload(entry.Name()) {
 			if err := os.Remove(path); err != nil {
