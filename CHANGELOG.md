@@ -13,6 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Record a current-source, two-process SQLite contention probe with its host,
+  workload, result, and explicit limits; the measurement is exploratory and
+  does not certify a production operating envelope.
 - Release evidence now reports the exact source SHA, equivalent CI outcomes
   and ages, and P0 production-gate status from that same commit. Release tags
   attach the verified report; stale source snapshots were removed from the
