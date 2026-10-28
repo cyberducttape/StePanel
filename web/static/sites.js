@@ -1374,16 +1374,31 @@
         el('h4', {}, 'Danger zone'),
         el('p', { className: 'import-note' }, 'Terminating a site removes its files, databases, routes, and services after taking a final verified backup. This cannot be undone from the panel.'),
         ctx.button('Terminate site', async () => {
-          const confirmed = await ctx.confirmDangerous({
-            title: `Terminate ${site}?`,
-            message: 'A final verified backup is taken first, then the site is permanently removed.',
-            facts: [['Site', site]],
-            confirmText: `DELETE ${site}`,
-            actionLabel: 'Terminate site',
-          });
-          if (!confirmed) return;
-          dangerOutput.textContent = 'Termination queued…';
           try {
+            dangerOutput.textContent = 'Inspecting proposed changes…';
+            const previewResponse = await ctx.postJSON('/api/sites/terminate', { site, confirmation: `DELETE ${site}`, dry_run: true });
+            const plan = previewResponse?.plan;
+            if (!plan) throw new Error('The server did not return a termination preview.');
+            const blockers = (plan.preconditions || []).filter((check) => check.status === 'blocker');
+            if (!plan.ready || blockers.length) {
+              dangerOutput.textContent = `Termination is blocked: ${blockers.map((check) => `${check.name}: ${check.detail}`).join('; ') || 'preconditions are not satisfied'}.`;
+              return;
+            }
+            const facts = (plan.changes || []).map((change) => {
+              const targets = (change.targets || []).join(', ') || 'none found';
+              return [change.resource, `${change.action}: ${targets}${change.detail ? ` (${change.detail})` : ''}`];
+            });
+            facts.push(['Rollback', plan.rollback || 'No rollback guidance is available.']);
+            const warning = (plan.preconditions || []).filter((check) => check.status === 'warning').map((check) => `${check.name}: ${check.detail}`).join(' ');
+            const confirmed = await ctx.confirmDangerous({
+              title: `Review termination of ${site}`,
+              message: `${plan.preview_note || 'Review the proposed changes before continuing.'}${warning ? ` ${warning}` : ''}`,
+              facts,
+              confirmText: `DELETE ${site}`,
+              actionLabel: 'Queue termination',
+            });
+            if (!confirmed) { dangerOutput.textContent = 'Termination cancelled; no changes were made.'; return; }
+            dangerOutput.textContent = 'Termination queued…';
             await ctx.postJSON('/api/sites/terminate', { site, confirmation: `DELETE ${site}` });
             dangerOutput.textContent = 'Termination queued. Track progress in Activity.';
           } catch (error) { dangerOutput.textContent = error.message; }
