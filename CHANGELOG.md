@@ -69,6 +69,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   prior-source WordPress and recovery results are labeled historical, while
   current PHP-FPM socket-root validation is listed as pending until its host
   runs complete.
+- Retain the exact Git staging quota limitation required by the production-gate
+  contract test while correcting the cited evidence's source identity.
 
 - Refresh the repeated-recovery P0 entry to the active exact-source 20-repeat
   cohort on `4b03fe5`; its first six-host repetition remains incomplete.
