@@ -16,6 +16,8 @@
     info.has_home ? 'website files found' : 'no website files detected',
     window.StepanelUI.plural(info.database_count || 0, 'database dump'),
     window.StepanelUI.plural(info.mailbox_count || 0, 'mailbox', 'mailboxes'),
+    window.StepanelUI.plural(info.dns_zone_count || 0, 'DNS zone file'),
+    window.StepanelUI.plural(info.cron_job_count || 0, 'cron schedule'),
   ].join(', ');
 
   const renderMigrationEvidence = (items) => {
@@ -75,7 +77,7 @@
       const info = await StepanelAPI.request('/api/cpmove/inspect', { method: 'POST', body, signal: inspection.signal });
       uploadID = info.upload_id;
       if (info.database_count > 0) database.checked = true;
-      StepanelUI.setStatus(status, `Ready: ${summary(info)}. DNS records and scheduled jobs are not imported; the result will list them as not inspected.`, 'warning');
+      StepanelUI.setStatus(status, `Ready: ${summary(info)}. DNS records and scheduled task commands are not imported; the result will show observed schedules and cutover work.`, 'warning');
     } catch (error) {
       if (error.name !== 'AbortError') StepanelUI.setStatus(status, error.message, 'error');
     }
