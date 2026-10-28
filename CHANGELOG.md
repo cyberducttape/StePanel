@@ -23,6 +23,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   regression verifies serialized same-name stage recreation.
 - Exact-source release evidence now distinguishes queued and waiting GitHub
   workflow runs from jobs that are actually in progress.
+- Exact-source release evidence reports ext4 and XFS quota smoke results
+  independently, so a newer queued filesystem run cannot hide another run.
 
 ### Testing
 

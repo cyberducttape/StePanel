@@ -116,6 +116,39 @@ func TestCollectMatchesRunsByContentNotSHA(t *testing.T) {
 	}
 }
 
+func TestCollectSeparatesQuotaFilesystemVariants(t *testing.T) {
+	ext4Queued := run(6, shaA, "queued", "")
+	ext4Queued.DisplayTitle = "Quota-enabled production install smoke (ext4)"
+	xfsPassed := run(5, shaA, "completed", "success")
+	xfsPassed.DisplayTitle = "Quota-enabled production install smoke (xfs)"
+	legacyUntyped := run(7, shaA, "completed", "failure")
+	legacyUntyped.DisplayTitle = "Quota-enabled production install smoke"
+	api := &fakeAPI{
+		runs: map[string][]Run{
+			"quota-install-smoke.yml": {legacyUntyped, ext4Queued, xfsPassed},
+		},
+		jobs: map[int64][]string{
+			6: {""},
+			5: {"success"},
+			7: {"failure"},
+		},
+	}
+	checks := []Check{
+		{Name: "Quota ext4", Workflow: "quota-install-smoke.yml", Scope: Code, Variant: "ext4"},
+		{Name: "Quota XFS", Workflow: "quota-install-smoke.yml", Scope: Code, Variant: "xfs"},
+	}
+	results, err := Collect(context.Background(), newClient(t, api), sameAs{}, shaA, checks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := results[0]; !got.Matches || got.Run.ID != 6 || got.Jobs != (Jobs{Total: 1, Running: 1}) {
+		t.Errorf("ext4 result = %+v; should select the ext4 queued run, not another filesystem or an untyped historical run", got)
+	}
+	if got := results[1]; !got.Matches || got.Run.ID != 5 || got.Jobs != (Jobs{Total: 1, Passed: 1}) {
+		t.Errorf("XFS result = %+v; should select the passing XFS run", got)
+	}
+}
+
 func TestSelectRunFallsBackToCancelled(t *testing.T) {
 	runs := []Run{run(2, shaA, "completed", "cancelled"), run(1, shaA, "completed", "cancelled")}
 	if got := selectRun(runs); got == nil || got.ID != 2 {

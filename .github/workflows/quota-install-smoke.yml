@@ -1,5 +1,7 @@
 name: Quota-enabled production install smoke
 
+run-name: Quota-enabled production install smoke (${{ inputs.filesystem || 'ext4' }})
+
 on:
   schedule:
     - cron: '41 4 * * 1'
