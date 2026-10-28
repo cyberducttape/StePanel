@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Testing
 
+- Stop scheduling later installed-recovery cohort repetitions after a failed
+  six-host shard; finish the current shard for complete diagnostics first.
 - Make the installed PHP-FPM public-status smoke tolerate a brief web-server
   listener transition and capture the selected web-server's unit and journal
   when the endpoint remains unavailable or exposes the private status path.
