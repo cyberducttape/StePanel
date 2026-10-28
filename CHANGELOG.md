@@ -20,6 +20,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Add coverage for exact-source gate parsing, freshness reporting, Git file reads,
   and API error handling; `internal/evidence` now exceeds its enforced 85% floor.
+- Make the Git staging quota fail-closed test use an explicitly absent broker
+  socket, preventing fallback to a potentially blocking privileged subprocess.
+- Record the current-source-equivalent Ubuntu/Caddy installed recovery smoke,
+  including its one-iteration matrix and measured WordPress recovery time.
 
 ### Fixed
 
