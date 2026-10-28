@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Testing
+
+- Add coverage for exact-source gate parsing, freshness reporting, Git file reads,
+  and API error handling; `internal/evidence` now exceeds its enforced 85% floor.
+
 ### Documentation
 
 - Release evidence now reports the exact source SHA, equivalent CI outcomes
