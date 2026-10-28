@@ -76,6 +76,8 @@ type App struct {
 	databaseInventoryMu      sync.Mutex
 	databaseInventoryCache   []DatabaseResource
 	databaseInventoryAt      time.Time
+	fpmStatusMu              sync.Mutex
+	fpmStatusCache           map[string]fpmStatusCacheEntry
 	gitActivationMu          sync.Mutex
 	capacityInitMu           sync.Mutex
 	webhookReplayCache       *WebhookReplayCache

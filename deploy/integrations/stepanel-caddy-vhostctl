@@ -358,6 +358,10 @@ case "$action" in
 	}
 	respond @stepanel_sensitive_dirs 404
 EOF
+      cat <<'EOF'
+	@stepanel_fpm_status path /stepanel-fpm-status /stepanel-fpm-status/*
+	respond @stepanel_fpm_status 404
+EOF
       if [[ -f "$site_private/.stepanel-staging-noindex" && ! -L "$site_private/.stepanel-staging-noindex" ]]; then printf '\theader X-Robots-Tag "noindex, nofollow"\n'; fi
       if [[ $action == apply-auth ]]; then printf '\tbasic_auth {\n\t\t%s %s\n\t}\n' "$auth_user" "$auth_hash"; fi
       if [[ $action == import-htaccess ]]; then

@@ -256,6 +256,23 @@ func TestCaddyFastCGIUsesCanonicalSiteRoot(t *testing.T) {
 	}
 }
 
+func TestPHPFPMStatusIsPrivateAndEnabledForManagedPools(t *testing.T) {
+	pool := string(mustReadTestFile(t, "deploy/integrations/stepanel-sitectl"))
+	caddy := string(mustReadTestFile(t, "deploy/integrations/stepanel-caddy-vhostctl"))
+	apache := string(mustReadTestFile(t, "deploy/integrations/stepanel-vhostctl"))
+	if !strings.Contains(pool, "pm.status_path = /stepanel-fpm-status") {
+		t.Fatal("managed PHP-FPM pools must configure their private status path")
+	}
+	caddyDeny := strings.Index(caddy, "@stepanel_fpm_status path /stepanel-fpm-status")
+	caddyFastCGI := strings.Index(caddy, "php_fastcgi unix/%s")
+	if caddyDeny < 0 || caddyFastCGI < 0 || caddyDeny > caddyFastCGI || !strings.Contains(caddy, "respond @stepanel_fpm_status 404") {
+		t.Fatal("Caddy must deny the private FPM status path before FastCGI handling")
+	}
+	if !strings.Contains(apache, "<LocationMatch \"^/stepanel-fpm-status(/|$)\">\n        Require all denied\n    </LocationMatch>") {
+		t.Fatal("Apache must deny external requests to the private FPM status path")
+	}
+}
+
 func TestCaddyLegacyViewCleanupNeverRemovesMountedSiteDocumentRoot(t *testing.T) {
 	source := string(mustReadTestFile(t, "deploy/integrations/stepanel-caddy-vhostctl"))
 	cleanupStart := strings.Index(source, "remove_legacy_view() {")

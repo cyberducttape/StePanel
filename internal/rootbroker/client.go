@@ -3,6 +3,7 @@ package rootbroker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -67,6 +68,27 @@ func (c *Client) Ping(ctx context.Context) error {
 		return fmt.Errorf("root broker rejected health check: %s", resp.Error)
 	}
 	return nil
+}
+
+// SiteFPMStatus reads aggregate PHP-FPM counters for a managed site through
+// the privileged broker. The request does not accept a socket or filesystem
+// path from the caller.
+func (c *Client) SiteFPMStatus(ctx context.Context, site string) (FPMStatus, error) {
+	resp, err := c.Execute(ctx, &Request{RequestType: "site", Site: &SiteRequest{Action: "fpm-status", Site: site}})
+	if err != nil {
+		return FPMStatus{}, err
+	}
+	if !resp.OK {
+		return FPMStatus{}, fmt.Errorf("root broker rejected PHP-FPM status request: %s", resp.Error)
+	}
+	var details SiteResponse
+	if err := json.Unmarshal(resp.Details, &details); err != nil {
+		return FPMStatus{}, fmt.Errorf("decode PHP-FPM status response: %w", err)
+	}
+	if details.FPMStatus == nil {
+		return FPMStatus{}, errors.New("root broker returned no PHP-FPM status")
+	}
+	return *details.FPMStatus, nil
 }
 
 func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Response, error) {

@@ -131,4 +131,7 @@ confidence for each pool. StePanel resource profiles use the reviewed
 `PHPWorkers` ceiling; they do not silently import or apply an unreviewed Lens
 plan. Use the Lens target/max recommendation as the operator input, then
 observe the resulting FPM pool through StePanel's resource status and usage
-views.
+views. The site incident view also provides per-site, single-sample guidance:
+it distinguishes queued requests from a pool merely at its worker limit and
+never applies a tuning change. Use it as an investigation prompt, not as a
+replacement for FPM Lens's sustained observations and memory-bounded plan.

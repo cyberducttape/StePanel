@@ -647,6 +647,8 @@ func (b *Broker) handleSiteRequest(ctx context.Context, req *SiteRequest) (*Resp
 		return b.siteQuotaClear(ctx, req)
 	case "runtime":
 		return b.siteRuntime(ctx, req)
+	case "fpm-status":
+		return b.siteFPMStatus(ctx, req)
 	default:
 		return &Response{OK: false, Error: fmt.Sprintf("unknown site action: %s", req.Action)}, nil
 	}
@@ -1120,6 +1122,22 @@ func (b *Broker) siteRuntime(ctx context.Context, req *SiteRequest) (*Response, 
 		req.PostMaxSize, strconv.Itoa(req.MaxInputVars), boolArg(req.OPcache),
 		boolArg(req.DisplayErrors), req.ErrorReporting)
 	return siteHelperResponse("site runtime", output, err)
+}
+
+func (b *Broker) siteFPMStatus(ctx context.Context, req *SiteRequest) (*Response, error) {
+	siteUser, err := b.resolveSiteUser(req, false)
+	if err != nil {
+		return &Response{OK: false, Error: err.Error()}, nil
+	}
+	status, err := collectFPMStatus(ctx, req.Site, siteUser)
+	if err != nil {
+		return &Response{OK: false, Error: fmt.Sprintf("PHP-FPM status probe failed: %v", err)}, nil
+	}
+	details, err := json.Marshal(SiteResponse{FPMStatus: &status})
+	if err != nil {
+		return nil, err
+	}
+	return &Response{OK: true, Details: details}, nil
 }
 
 // resolveSiteUser is the broker-side identity authority. Production brokers

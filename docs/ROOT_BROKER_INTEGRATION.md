@@ -196,7 +196,7 @@ Typed requests the broker executes today (verified against
 
 | Request type | Supported actions | Not implemented (use the helper path) |
 |--------------|-------------------|---------------------------------------|
-| `site` | `create`, `delete`, `seal`, `prepare` | `access`, `resources`, `quota`, `quota-clear`, `runtime` (via `sitectl` helper requests) |
+| `site` | `create`, `delete`, `seal`, `prepare`, `snapshot`, `snapshot-restore`, `access`, `ftp`, `resources`, `quota`, `quota-clear`, `runtime`, `fpm-status` | none |
 | `app` | `apply`, `delete`, `start`, `stop`, `restart` | `rollback` (orchestrated by the panel as a re-apply) |
 | `db` | `inventory`, `dump`, `provision`, `restore-dump`, `restore`, `restore-wordpress`, `drop`, `drop-managed`, `cleanup-wordpress`, `rotate` | none |
 | `task` | `apply`, `delete`, `kill`, `history` | none |

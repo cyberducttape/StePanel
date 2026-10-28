@@ -15,6 +15,13 @@ import (
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
 
+type fpmStatusCacheEntry struct {
+	status    rootbroker.FPMStatus
+	expiresAt time.Time
+}
+
+const fpmStatusCacheTTL = 5 * time.Second
+
 // Validation bounds: syntactically acceptable limits for resource values.
 // These are upper limits for what the API accepts, not operational defaults.
 const (
@@ -628,7 +635,8 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			observed = a.resourceObserved(r.Context(), site)
 		}
-		writeJSON(w, 200, map[string]any{"configured": ok, "profile": p, "observed": observed, "enforcement": "systemd slice for managed apps/workers/scheduled tasks; isolated PHP-FPM max_children"})
+		fpmStatus := a.siteFPMStatusSnapshot(r.Context(), site)
+		writeJSON(w, 200, map[string]any{"configured": ok, "profile": p, "observed": observed, "fpm_status": fpmStatus, "enforcement": "systemd slice for managed apps/workers/scheduled tasks; isolated PHP-FPM max_children"})
 		return
 	}
 	if r.Method != http.MethodPut || !a.Auth.CSRF(r) || !a.Auth.IsAdministrator(r) {
@@ -728,6 +736,51 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 	}
 	TelemetryAudit(a.Config.AuditLog, a.Auth.AuditActor(r), "site.resources.applied", site, "cgroup/FPM profile")
 	writeJSON(w, 202, p)
+}
+
+func (a *App) siteFPMStatusSnapshot(parent context.Context, site string) rootbroker.FPMStatus {
+	a.fpmStatusMu.Lock()
+	if cached, ok := a.fpmStatusCache[site]; ok && time.Now().Before(cached.expiresAt) {
+		a.fpmStatusMu.Unlock()
+		return cached.status
+	}
+	a.fpmStatusMu.Unlock()
+
+	status := rootbroker.FPMStatus{Available: false, CollectedAt: time.Now().UTC(), Pools: []rootbroker.FPMStatusPool{}, Warnings: []string{}, Detail: "Live PHP-FPM status is available only through the installed root broker."}
+	if a.Config.Production || labDirectRootBrokerEnabled() {
+		ctx, cancel := context.WithTimeout(parent, 1800*time.Millisecond)
+		defer cancel()
+		client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
+		if err == nil {
+			status, err = client.SiteFPMStatus(ctx, site)
+		}
+		if err != nil {
+			status = rootbroker.FPMStatus{Available: false, CollectedAt: time.Now().UTC(), Pools: []rootbroker.FPMStatusPool{}, Warnings: []string{}, Detail: "Live PHP-FPM status could not be collected: " + err.Error()}
+		}
+	}
+	a.fpmStatusMu.Lock()
+	if a.fpmStatusCache == nil {
+		a.fpmStatusCache = make(map[string]fpmStatusCacheEntry)
+	}
+	if len(a.fpmStatusCache) >= 256 {
+		var oldestSite string
+		var oldestExpiry time.Time
+		for cachedSite, entry := range a.fpmStatusCache {
+			if !time.Now().Before(entry.expiresAt) {
+				delete(a.fpmStatusCache, cachedSite)
+				continue
+			}
+			if oldestSite == "" || entry.expiresAt.Before(oldestExpiry) {
+				oldestSite, oldestExpiry = cachedSite, entry.expiresAt
+			}
+		}
+		if len(a.fpmStatusCache) >= 256 && oldestSite != "" {
+			delete(a.fpmStatusCache, oldestSite)
+		}
+	}
+	a.fpmStatusCache[site] = fpmStatusCacheEntry{status: status, expiresAt: time.Now().Add(fpmStatusCacheTTL)}
+	a.fpmStatusMu.Unlock()
+	return status
 }
 
 func (a *App) resourceObserved(ctx context.Context, site string) map[string]string {
