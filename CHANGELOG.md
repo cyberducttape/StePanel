@@ -8,27 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
-- The N-1 upgrade smoke now covers v0.6.0 and v0.7.0, in a systemd
-  container (with and without the first candidate install killed at its
-  verification phase) and on an Ubuntu 24.04 QEMU guest that keeps their real
-  `LoadCredential` credential handoff. Every run ends by undoing the
-  committed upgrade with the documented procedure, checking that the previous
-  release serves and accepts the audit log, and upgrading again. Both
-  releases are adapted only as far as they need to install at all: as
-  published they cannot complete a fresh install on current Ubuntu (their
-  sudo-based database helper is refused by their own service sandbox). See
+- Release evidence is generated instead of hand-written. The Release evidence
+  workflow (`cmd/stepanel-evidence`) reports which workflow runs cover the
+  same content as `main`, matching by tree so rebase merges and multi-commit
+  pushes are handled correctly. Historical dated snapshots moved to
+  `docs/archive/EVIDENCE_HISTORY.md`; reviewed gate status remains in the P0
+  table. The superseded recovery cohort's failure and cancellation and the
+  completed v0.6/v0.7 upgrade matrix are recorded in
+  `docs/V1_PRODUCTION_GATES.md`.
+- The N-1 upgrade smoke now covers v0.6.0 and v0.7.0, including interrupted
+  installation, rollback and documented downgrade; details are in
   `docs/lab-results/2026-10-27-upgrade-matrix-40452352170.md`.
-- Updated production-gate evidence to identify the merged installer journal
-  fix, separate prior-source recovery runs from current-main validation, and
-  record which post-merge checks remain pending.
-
-- Reconciled the current release-gate snapshot with the completed exact-source
-  AlmaLinux 9/Caddy install smoke while keeping the repeated recovery cohort
-  explicitly open.
-- Clarified that optional installer actions remain unattempted when their
-  durable start record cannot be written.
-- Restored the explicit release-gate statement that XFS and real production
-  mount behavior still require verification for Git staging quotas.
 
 ### Security
 
