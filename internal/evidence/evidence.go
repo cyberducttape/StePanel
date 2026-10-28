@@ -47,6 +47,9 @@ type Check struct {
 	Name     string
 	Workflow string // workflow file name under .github/workflows
 	Scope    Scope
+	// Variant requires this case-insensitive fragment in a run's display
+	// title. Use it when one workflow implements multiple independent gates.
+	Variant string
 }
 
 // DefaultChecks are the workflows the release gates cite.
@@ -57,19 +60,21 @@ var DefaultChecks = []Check{
 	{Name: "CI integration", Workflow: "ci-integration.yml", Scope: Code},
 	{Name: "Installation smoke", Workflow: "install-smoke.yml", Scope: Code},
 	{Name: "Installed recovery cohort", Workflow: "recovery-cohort.yml", Scope: Code},
-	{Name: "Quota-enabled install smoke", Workflow: "quota-install-smoke.yml", Scope: Code},
+	{Name: "Quota-enabled install smoke (ext4)", Workflow: "quota-install-smoke.yml", Scope: Code, Variant: "ext4"},
+	{Name: "Quota-enabled install smoke (XFS)", Workflow: "quota-install-smoke.yml", Scope: Code, Variant: "xfs"},
 	{Name: "N-1 upgrade smoke", Workflow: "upgrade-smoke.yml", Scope: Code},
 }
 
 // Run is a workflow run as the Actions API reports it.
 type Run struct {
-	ID         int64     `json:"id"`
-	Event      string    `json:"event"`
-	HeadSHA    string    `json:"head_sha"`
-	Status     string    `json:"status"`
-	Conclusion string    `json:"conclusion"`
-	HTMLURL    string    `json:"html_url"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID           int64     `json:"id"`
+	DisplayTitle string    `json:"display_title"`
+	Event        string    `json:"event"`
+	HeadSHA      string    `json:"head_sha"`
+	Status       string    `json:"status"`
+	Conclusion   string    `json:"conclusion"`
+	HTMLURL      string    `json:"html_url"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Jobs counts a run's jobs by outcome.
@@ -230,7 +235,12 @@ func Collect(ctx context.Context, c *Client, repo Repository, commit string, che
 			return nil, fmt.Errorf("%s: %w", check.Name, err)
 		}
 		var matching []Run
+		var relevant []Run
 		for _, run := range runs {
+			if check.Variant != "" && !strings.Contains(strings.ToLower(run.DisplayTitle), strings.ToLower(check.Variant)) {
+				continue
+			}
+			relevant = append(relevant, run)
 			k := key{run.HeadSHA, check.Scope == Code}
 			same, seen := equivalent[k]
 			if !seen {
@@ -246,7 +256,7 @@ func Collect(ctx context.Context, c *Client, repo Repository, commit string, che
 		if result.Run = selectRun(matching); result.Run != nil {
 			result.Matches = true
 		} else {
-			result.Run = selectRun(runs)
+			result.Run = selectRun(relevant)
 		}
 		if result.Run != nil {
 			if result.Jobs, err = c.Jobs(ctx, result.Run.ID); err != nil {
