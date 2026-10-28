@@ -112,6 +112,12 @@ checks the site tree and every recorded database dump, reports counts and
 bytes, and removes the temporary directory. The reservation is released only
 after the staging tree has been removed.
 
+Each site's Recovery panel shows the newest recovery point, offsite state,
+rehearsal level, and a generated operator procedure. The time estimate is
+explicitly scoped: archive-level rehearsal time excludes database import and
+application startup, and an application proof for an older backup does not
+establish the newest backup's recovery time.
+
 **WordPress application proof (built in).** For a WordPress backup, the
 rehearsal then restores it into a throwaway site through the production
 lifecycle path and records the `application` level only if the restored site

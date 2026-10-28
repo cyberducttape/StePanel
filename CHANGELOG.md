@@ -13,6 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Site recovery status now provides an evidence-driven operator procedure and distinguishes application-level recovery measurements from archive-only rehearsal time. An older backup's proof is explicitly separated from the newest recovery point.
 - Site termination now shows an inspected change preview before typed confirmation, including the site filesystem root, managed database names, virtual hosts, proxy routes, service cleanup, and site-owned configuration. Unavailable resource inventories block queueing.
 - Redacted support bundles now retain readiness remediation details and include safe failure categories for failed jobs without embedding raw error messages.
 - cPanel import evidence now inventories DNS zone filenames and cron schedules, marks them as requiring manual cutover, and omits cron command text to avoid exposing embedded credentials. Inventory reads have explicit byte limits and bounded result lists.
