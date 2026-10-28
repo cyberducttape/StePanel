@@ -290,6 +290,27 @@ func (g Git) Resolve(ctx context.Context, rev string) (string, error) {
 	return commit, nil
 }
 
+// ReadFileAt reads a repository file from a specific immutable commit without
+// checking out or executing that commit's contents.
+func (g Git) ReadFileAt(ctx context.Context, commit, file string) ([]byte, error) {
+	if !shaPattern.MatchString(commit) {
+		return nil, fmt.Errorf("invalid source commit %q", commit)
+	}
+	if file == "" || strings.HasPrefix(file, "/") || strings.Contains(file, "..") || strings.ContainsAny(file, "\x00\r\n") {
+		return nil, fmt.Errorf("invalid repository file path %q", file)
+	}
+	if !g.available(ctx, commit) {
+		return nil, fmt.Errorf("source commit %s is unavailable", short(commit))
+	}
+	cmd := exec.CommandContext(ctx, "git", "show", commit+":"+file)
+	cmd.Dir = g.Dir
+	content, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("read %s at %s: %w", file, short(commit), err)
+	}
+	return content, nil
+}
+
 func (g Git) available(ctx context.Context, sha string) bool {
 	if _, err := g.run(ctx, "cat-file", "-e", sha+"^{commit}"); err == nil {
 		return true
@@ -388,8 +409,18 @@ func jobSummary(jobs Jobs) string {
 
 // Render writes the report as Markdown.
 func Render(w io.Writer, repo, commit string, generated time.Time, results []Result) error {
+	return render(w, repo, commit, generated, results, nil)
+}
+
+// RenderWithGates writes CI results and the reviewed production-gate state
+// from the same immutable source commit.
+func RenderWithGates(w io.Writer, repo, commit string, generated time.Time, results []Result, gates GateReport) error {
+	return render(w, repo, commit, generated, results, &gates)
+}
+
+func render(w io.Writer, repo, commit string, generated time.Time, results []Result, gates *GateReport) error {
 	commitURL := func(sha string) string {
-		return fmt.Sprintf("[`%s`](https://github.com/%s/commit/%s)", short(sha), repo, sha)
+		return fmt.Sprintf("[`%s`](https://github.com/%s/commit/%s)", sha, repo, sha)
 	}
 	ranOn := func(run *Run) string {
 		if run.HeadSHA == commit {
@@ -398,30 +429,103 @@ func Render(w io.Writer, repo, commit string, generated time.Time, results []Res
 		return fmt.Sprintf("`%s` (%s)", short(run.HeadSHA), run.Event)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "## Release evidence for %s\n\n", commitURL(commit))
-	fmt.Fprintf(&b, "Generated %s from the latest %d runs of each workflow. ", generated.UTC().Format("2006-01-02 15:04 UTC"), RunHistory)
-	b.WriteString("A run counts when its commit has the same content as this one: an identical tree for documentation, identical non-Markdown files for code checks.\n\n")
-	b.WriteString("| Check | Counts | Result | Ran on | Run | Jobs |\n|---|---|---|---|---|---|\n")
-	missing := 0
+	fmt.Fprintf(&b, "# Exact-source release evidence\n\nSource commit: %s  \n", commitURL(commit))
+	fmt.Fprintf(&b, "Report generated: %s  \n", generated.UTC().Format("2006-01-02 15:04 UTC"))
+	fmt.Fprintf(&b, "Workflow history inspected: latest %d runs per check. Run freshness is measured from each run's creation time.\n\n", RunHistory)
+	b.WriteString("A run counts when its commit has the same content as this source: an identical tree for documentation, identical non-Markdown files for code checks.\n\n")
+	b.WriteString("| Check | Content match | Result | Ran on | Run age | Run | Jobs |\n|---|---|---|---|---|---|---|\n")
+	missing, passed, incomplete, failed := 0, 0, 0, 0
 	for _, r := range results {
+		if !r.Matches || r.Run == nil {
+			missing++
+			incomplete++
+		} else if r.Run.Status != "completed" {
+			incomplete++
+		} else {
+			switch r.Run.Conclusion {
+			case "success":
+				passed++
+			case "failure", "timed_out", "startup_failure":
+				failed++
+			default:
+				incomplete++
+			}
+		}
 		switch {
 		case r.Run == nil:
-			missing++
-			fmt.Fprintf(&b, "| %s | %s | — no runs | — | — | — |\n", r.Check.Name, r.Check.Scope)
+			fmt.Fprintf(&b, "| %s | %s | — no runs | — | — | — | — |\n", r.Check.Name, r.Check.Scope)
 		case !r.Matches:
-			missing++
-			fmt.Fprintf(&b, "| %s | %s | ⚠️ no equivalent run; latest was %s | %s | [%d](%s) | %s |\n",
-				r.Check.Name, r.Check.Scope, outcome(r.Run), ranOn(r.Run), r.Run.ID, r.Run.HTMLURL, jobSummary(r.Jobs))
+			fmt.Fprintf(&b, "| %s | %s | ⚠️ no equivalent run; latest was %s | %s | %s | [%d](%s) | %s |\n",
+				r.Check.Name, r.Check.Scope, outcome(r.Run), ranOn(r.Run), runAge(generated, r.Run.CreatedAt), r.Run.ID, r.Run.HTMLURL, jobSummary(r.Jobs))
 		default:
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | [%d](%s) | %s |\n",
-				r.Check.Name, r.Check.Scope, outcome(r.Run), ranOn(r.Run), r.Run.ID, r.Run.HTMLURL, jobSummary(r.Jobs))
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | [%d](%s) | %s |\n",
+				r.Check.Name, r.Check.Scope, outcome(r.Run), ranOn(r.Run), runAge(generated, r.Run.CreatedAt), r.Run.ID, r.Run.HTMLURL, jobSummary(r.Jobs))
 		}
 	}
-	b.WriteString("\n")
+	fmt.Fprintf(&b, "\n**Executable checks:** %d passed, %d incomplete, %d failed, %d without equivalent evidence.\n\n", passed, incomplete, failed, missing)
 	if missing > 0 {
-		fmt.Fprintf(&b, "%d check(s) have no run on equivalent content; their latest results describe different code and do not count for this commit. ", missing)
+		fmt.Fprintf(&b, "%d check(s) have no run on equivalent content; their latest results describe different code and do not count for this source.\n\n", missing)
 	}
-	b.WriteString("This report states CI results only. Gate status and the production decision are recorded in `docs/V1_PRODUCTION_GATES.md`.\n")
+	if gates != nil {
+		fmt.Fprintf(&b, "## Production release gates\n\n**Decision recorded at this source:** %s  \n", gates.ProductionStatus)
+		fmt.Fprintf(&b, "**P0 gate table last updated:** %s (%s)\n\n", gates.LastUpdated.Format("2006-01-02"), documentAge(generated, gates.LastUpdated))
+		b.WriteString("These statuses are read from `docs/V1_PRODUCTION_GATES.md` in the exact source commit above.\n\n")
+		b.WriteString("### P0 requirements recorded complete\n\n")
+		completeCount := 0
+		for _, gate := range gates.Gates {
+			if gate.Complete {
+				fmt.Fprintf(&b, "- %s — %s\n", gate.Requirement, gate.Status)
+				completeCount++
+			}
+		}
+		if completeCount == 0 {
+			b.WriteString("- None\n")
+		}
+		b.WriteString("\n### P0 requirements incomplete or requiring follow-up\n\n")
+		incompleteCount := 0
+		for _, gate := range gates.Gates {
+			if !gate.Complete {
+				fmt.Fprintf(&b, "- %s — %s\n", gate.Requirement, gate.Status)
+				incompleteCount++
+			}
+		}
+		if incompleteCount == 0 {
+			b.WriteString("- None\n")
+		}
+		fmt.Fprintf(&b, "\n**P0 summary:** %d complete; %d incomplete of %d.\n", completeCount, incompleteCount, len(gates.Gates))
+	}
+	b.WriteString("\nThis report summarizes workflow evidence and the reviewed P0 table; it does not independently approve a release.\n")
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+func runAge(now, then time.Time) string {
+	if then.IsZero() {
+		return "unknown"
+	}
+	age := now.Sub(then)
+	if age < 0 {
+		return "clock skew"
+	}
+	switch {
+	case age < time.Hour:
+		return fmt.Sprintf("%dm", int(age.Round(time.Minute)/time.Minute))
+	case age < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(age.Round(time.Hour)/time.Hour))
+	default:
+		return fmt.Sprintf("%dd", int(age.Round(24*time.Hour)/(24*time.Hour)))
+	}
+}
+
+func documentAge(now, updated time.Time) string {
+	nowDate := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	updatedDate := time.Date(updated.UTC().Year(), updated.UTC().Month(), updated.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	days := int(nowDate.Sub(updatedDate) / (24 * time.Hour))
+	if days < 0 {
+		return "updated date is in the future"
+	}
+	if days == 0 {
+		return "updated today (date precision)"
+	}
+	return fmt.Sprintf("%d calendar day(s) before report", days)
 }

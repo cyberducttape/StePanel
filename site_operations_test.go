@@ -383,7 +383,7 @@ func TestGitWebhookQueuesTheDeployment(t *testing.T) {
 
 // Every registered operation is wired to its route.
 func TestSiteOperationsAreRouted(t *testing.T) {
-	source, err := os.ReadFile("main.go")
+	source, err := os.ReadFile("http_routes.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,14 +391,14 @@ func TestSiteOperationsAreRouted(t *testing.T) {
 		if name == "test.echo" {
 			continue
 		}
-		if !strings.Contains(string(source), `app.siteOperation("`+name+`")`) {
+		if !strings.Contains(string(source), `a.siteOperation("`+name+`")`) {
 			t.Errorf("site operation %s is not routed", name)
 		}
 	}
-	if !strings.Contains(string(source), `app.Auth.Require(app.siteOperation("git.deploy"))`) {
+	if !strings.Contains(string(source), `a.Auth.Require(a.siteOperation("git.deploy"))`) {
 		t.Fatal("Git deployment must use the site-scoped customer authorization wrapper")
 	}
-	if strings.Contains(string(source), `app.Auth.RequireAdministrator(app.siteOperation("git.deploy"))`) {
+	if strings.Contains(string(source), `a.Auth.RequireAdministrator(a.siteOperation("git.deploy"))`) {
 		t.Fatal("Git deployment must not be administrator-only")
 	}
 }

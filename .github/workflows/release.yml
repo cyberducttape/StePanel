@@ -51,6 +51,16 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate exact-source release evidence
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+          go run ./cmd/stepanel-evidence --commit "$GITHUB_SHA" > dist/RELEASE_EVIDENCE.md
+          grep -Fq "Source commit: [\`$GITHUB_SHA\`]" dist/RELEASE_EVIDENCE.md || {
+            echo 'release evidence does not match the tagged source commit' >&2
+            exit 1
+          }
       - name: Generate SBOM
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
@@ -58,6 +68,8 @@ jobs:
           format: spdx-json
           output-file: dist/SBOM.spdx.json
       - name: Verify release artifacts
+        env:
+          EXPECTED_RELEASE_SHA: ${{ github.sha }}
         run: bash scripts/verify-release-artifacts.sh dist/
       - name: Attest release provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -84,4 +96,6 @@ jobs:
       - name: Attach SBOM to GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
-          files: dist/SBOM.spdx.json
+          files: |
+            dist/SBOM.spdx.json
+            dist/RELEASE_EVIDENCE.md

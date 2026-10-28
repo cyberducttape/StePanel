@@ -114,7 +114,10 @@ case $action in
     [[ -f $target ]] || { echo 'not a regular file' >&2; exit 1; }
     size=$(stat -c %s -- "$target")
     (( size <= max_read_bytes )) || { echo "file is larger than $max_read_bytes bytes" >&2; exit 1; }
-    as_user head -c "$max_read_bytes" -- "$target"
+    # Read one sentinel byte beyond the stat-based admission check so a file
+    # that grows between stat and open is rejected by the broker, not silently
+    # returned as a valid truncated read.
+    as_user head -c "$(( max_read_bytes + 1 ))" -- "$target"
     ;;
   write)
     [[ $relative != . ]] || { echo 'cannot write the document root' >&2; exit 1; }
@@ -134,7 +137,35 @@ case $action in
     else
       as_user chmod 0640 -- "$temp"
     fi
+    # Persist the completed temporary file before publishing it. Run the
+    # descriptor operations as the site account; these paths are tenant
+    # writable and must never be opened by the privileged shell for syncing.
+    as_user python3 - "$temp" <<'PY'
+import os, sys
+import stat
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+try:
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        raise SystemExit("upload staging path is not a regular file")
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
     as_user mv -fT -- "$temp" "$target"
+    # A successful rename is not crash durable until its parent directory is
+    # synchronized. Report an indeterminate publication if directory fsync
+    # fails: the new file may already be visible.
+    as_user python3 - "$parent" <<'PY' || { echo 'replacement is visible but parent directory durability is uncertain' >&2; exit 1; }
+import os, sys
+import stat
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
+try:
+    if not stat.S_ISDIR(os.fstat(fd).st_mode):
+        raise SystemExit("upload parent is not a directory")
+    os.fsync(fd)
+finally:
+    os.close(fd)
+PY
     trap - EXIT
     ;;
   mkdir)

@@ -398,8 +398,12 @@ func serveRequests(broker executor, reader io.Reader, writer io.Writer, logger *
 			_ = encoder.Encode(resp)
 			continue
 		}
+		attachFilesStream(&req, decoder, budgeted)
 		if err := encoder.Encode(executeRequest(broker, &req, logger)); err != nil {
 			logger.Printf("encode error: %v", err)
+		}
+		if req.Files != nil && req.Files.StreamContent {
+			return // a raw body owns the connection until its final frame
 		}
 		budgeted.nextRequest()
 	}
@@ -450,15 +454,33 @@ func serveConn(broker executor, conn net.Conn, limits connLimits, logger *log.Lo
 			}
 			return
 		}
-		// The operation may legitimately outlast the read deadline.
-		if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		attachFilesStream(&req, decoder, budgeted)
+		// Bound a streamed upload independently. Ordinary broker operations
+		// can outlast their initial request read deadline.
+		if req.Files != nil && req.Files.StreamContent {
+			if err := conn.SetReadDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+				logger.Printf("set streamed broker body deadline: %v", err)
+				return
+			}
+		} else if err := conn.SetReadDeadline(time.Time{}); err != nil {
 			logger.Printf("clear broker socket read deadline: %v", err)
 			return
 		}
 		if !writeSocketResponse(conn, encoder, executeRequest(broker, &req, logger), limits, logger) {
 			return
 		}
+		if req.Files != nil && req.Files.StreamContent {
+			return // do not parse any bytes after a streamed request as JSON
+		}
 		budgeted.nextRequest()
+	}
+}
+
+func attachFilesStream(req *rootbroker.Request, decoder *json.Decoder, reader io.Reader) {
+	if req != nil && req.Files != nil && req.Files.StreamContent {
+		// JSON decoding can read ahead into the raw framed body. Preserve those
+		// bytes before continuing through the budgeted connection reader.
+		req.Files.ContentReader = rootbroker.NewFileContentReader(io.MultiReader(decoder.Buffered(), reader))
 	}
 }
 

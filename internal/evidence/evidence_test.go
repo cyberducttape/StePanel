@@ -76,7 +76,7 @@ func (s sameAs) Equivalent(_ context.Context, a, b string, _ bool) (bool, error)
 }
 
 func run(id int64, sha, status, conclusion string) Run {
-	return Run{ID: id, Event: "push", HeadSHA: sha, Status: status, Conclusion: conclusion, HTMLURL: fmt.Sprintf("https://example.invalid/runs/%d", id)}
+	return Run{ID: id, Event: "push", HeadSHA: sha, Status: status, Conclusion: conclusion, CreatedAt: time.Date(2026, 10, 27, 3, 4, 0, 0, time.UTC), HTMLURL: fmt.Sprintf("https://example.invalid/runs/%d", id)}
 }
 
 func TestCollectMatchesRunsByContentNotSHA(t *testing.T) {
@@ -184,17 +184,89 @@ func TestRenderStatesWhatCountsAndWhatDoesNot(t *testing.T) {
 	}
 	report := out.String()
 	for _, want := range []string{
-		"## Release evidence for [`aaaaaaa`](https://github.com/owner/repo/commit/" + shaA + ")",
-		"Generated 2026-10-27 03:04 UTC",
-		"| CI | identical code | ✅ passed | `bbbbbbb` (pull_request) | [2](https://example.invalid/runs/2) | 1/1 passed |",
-		"| Smoke | identical code | ⏳ in progress | this commit | [3](https://example.invalid/runs/3) | 4/6 passed, 2 running |",
-		"| Cohort | identical code | ⚠️ no equivalent run; latest was ❌ failed | `ccccccc` (push) | [4](https://example.invalid/runs/4) | 1/2 passed, 1 failed |",
-		"| Docs | identical tree | — no runs | — | — | — |",
+		"# Exact-source release evidence",
+		"Source commit: [`" + shaA + "`](https://github.com/owner/repo/commit/" + shaA + ")",
+		"Report generated: 2026-10-27 03:04 UTC",
+		"| CI | identical code | ✅ passed | `bbbbbbb` (pull_request) | 0m | [2](https://example.invalid/runs/2) | 1/1 passed |",
+		"| Smoke | identical code | ⏳ in progress | this commit | 0m | [3](https://example.invalid/runs/3) | 4/6 passed, 2 running |",
+		"| Cohort | identical code | ⚠️ no equivalent run; latest was ❌ failed | `ccccccc` (push) | 0m | [4](https://example.invalid/runs/4) | 1/2 passed, 1 failed |",
+		"| Docs | identical tree | — no runs | — | — | — | — |",
+		"**Executable checks:** 1 passed, 3 incomplete, 0 failed, 2 without equivalent evidence.",
 		"2 check(s) have no run on equivalent content",
-		"docs/V1_PRODUCTION_GATES.md",
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("report is missing %q:\n%s", want, report)
+		}
+	}
+}
+
+func TestParseGateReportSeparatesCompleteAndOpenP0Items(t *testing.T) {
+	markdown := []byte(`
+# Production gates
+**Last Updated:** 2026-10-28
+## Current release status
+Production is **NO-GO**. Open requirements remain.
+### P0 — required before 1.0
+| Requirement | Current status | Evidence |
+|-------------|----------------|----------|
+| Safe import | ✅ Implemented | tests pass |
+| Host restore | ⚠️ Partial; evidence remains open | repeat host runs |
+| Quota | ✅ Implemented; host evidence open | more hosts |
+### P1 — strongly recommended
+| Other | ❌ Open | — |
+`)
+	report, err := ParseGateReport(markdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ProductionStatus != "NO-GO" || report.LastUpdated.Format("2006-01-02") != "2026-10-28" || len(report.Gates) != 3 {
+		t.Fatalf("report header = %+v", report)
+	}
+	if !report.Gates[0].Complete || report.Gates[1].Complete || report.Gates[2].Complete {
+		t.Fatalf("gate completion = %+v", report.Gates)
+	}
+}
+
+func TestParseCurrentProductionGateTable(t *testing.T) {
+	content, err := os.ReadFile("../../docs/V1_PRODUCTION_GATES.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := ParseGateReport(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ProductionStatus != "NO-GO" {
+		t.Fatalf("production status = %q, want NO-GO", report.ProductionStatus)
+	}
+	if len(report.Gates) < 10 {
+		t.Fatalf("parsed only %d P0 gates", len(report.Gates))
+	}
+	for _, gate := range report.Gates {
+		if strings.Contains(strings.ToLower(gate.Status), "evidence open") && gate.Complete {
+			t.Errorf("gate with open host evidence marked complete: %+v", gate)
+		}
+		if strings.Contains(strings.ToLower(gate.Status), "needs matrix evidence") && gate.Complete {
+			t.Errorf("gate with pending matrix evidence marked complete: %+v", gate)
+		}
+	}
+}
+
+func TestRenderWithGatesIncludesDecisionAndFreshness(t *testing.T) {
+	var out strings.Builder
+	generated := time.Date(2026, 10, 29, 3, 4, 0, 0, time.UTC)
+	runAt := generated.Add(-25 * time.Hour)
+	result := Result{Check: Check{Name: "CI", Scope: Code}, Run: &Run{ID: 7, HeadSHA: shaA, Status: "completed", Conclusion: "success", CreatedAt: runAt}, Matches: true}
+	gates := GateReport{ProductionStatus: "NO-GO", LastUpdated: time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC), Gates: []Gate{
+		{Requirement: "Unit gate", Status: "✅ Implemented", Complete: true},
+		{Requirement: "Host recovery", Status: "⚠️ Partial", Complete: false},
+	}}
+	if err := RenderWithGates(&out, "owner/repo", shaA, generated, []Result{result}, gates); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"| CI | identical code | ✅ passed | this commit | 1d |", "Decision recorded at this source:** NO-GO", "P0 gate table last updated:** 2026-10-28 (1 calendar day(s) before report)", "Unit gate — ✅ Implemented", "Host recovery — ⚠️ Partial", "**P0 summary:** 1 complete; 1 incomplete of 2."} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("release report missing %q:\n%s", want, out.String())
 		}
 	}
 }

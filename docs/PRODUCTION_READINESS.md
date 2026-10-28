@@ -7,26 +7,13 @@
 
 This document describes deployment capabilities and limitations. It is not a release approval; the sole current release-gate document is [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md). Older scorecards and audits are historical evidence only.
 
-Current application source is
-[`3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7`](https://github.com/cyberducttape/StePanel/commit/3bb1e6bf2ff873def292ab2d406d5ceebd7b96f7).
-Its exact-source CI, Go analysis, CodeQL, and documentation checks passed.
-Push-triggered CI integration also passed
-([run 40435936337](https://github.com/cyberducttape/StePanel/actions/runs/40435936337)).
-The six-host installed smoke
-([run 40433464444](https://github.com/cyberducttape/StePanel/actions/runs/40433464444))
-also passed Ubuntu 24.04, AlmaLinux 9, and Rocky Linux 9 with Apache and Caddy;
-all hosts passed WordPress HTTP restore proof and legacy identity-collision
-repair. This is one recovery-matrix iteration per host in disposable hosted
-systemd containers, not repeated physical-host certification. The same-source
-20-repeat cohort
-([run 40436448192](https://github.com/cyberducttape/StePanel/actions/runs/40436448192))
-was in progress, with its first six-host shard running at the 2026-10-27
-02:22 UTC snapshot. None of the 20 repetitions count until all shards complete
-and are reviewed. Production approval remains **NO-GO** pending that cohort,
-physical power-loss and broader ENOSPC evidence,
-quota certification, live alert failure/retry evidence, capacity certification,
-upgrade policy, and independent security assessment. See
-[CURRENT_STATUS.md](./CURRENT_STATUS.md) for exact run status and results.
+Release evidence is generated for an exact full commit by the
+[Release evidence workflow](https://github.com/cyberducttape/StePanel/actions/workflows/evidence.yml).
+The downloadable per-commit report includes equivalent CI run results and ages,
+the production decision, and P0 gate statuses read from that same commit.
+Historical results below are deployment context only; use the generated report
+and [V1_PRODUCTION_GATES.md](./V1_PRODUCTION_GATES.md) for current release
+approval. The release workflow attaches `RELEASE_EVIDENCE.md` to each release.
 
 ## Certified operating envelope
 

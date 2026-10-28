@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -297,6 +298,55 @@ func TestSocketRejectsMalformedRequestAndCloses(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("connection stayed open after a malformed request")
+	}
+}
+
+type fileStreamCaptureExecutor struct{ content chan []byte }
+
+func (e fileStreamCaptureExecutor) Execute(_ context.Context, req *rootbroker.Request) (*rootbroker.Response, error) {
+	if req.Files == nil || req.Files.ContentReader == nil {
+		return nil, errors.New("stream reader was not attached to the broker request")
+	}
+	content, err := io.ReadAll(req.Files.ContentReader)
+	if err != nil {
+		return nil, err
+	}
+	e.content <- content
+	return &rootbroker.Response{OK: true}, nil
+}
+
+func TestSocketAttachesExplicitlyTerminatedFileStream(t *testing.T) {
+	server, client := net.Pipe()
+	defer client.Close()
+	content := make(chan []byte, 1)
+	go serveConn(fileStreamCaptureExecutor{content: content}, server, defaultConnLimits, log.New(io.Discard, "", 0))
+	req := &rootbroker.Request{RequestType: "files", Files: &rootbroker.FilesRequest{Action: "write", Site: "alice", Path: "file", StreamContent: true}}
+	if err := json.NewEncoder(client).Encode(req); err != nil {
+		t.Fatal(err)
+	}
+	const want = "complete file content over broker stream"
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], uint32(len(want)))
+	if _, err := client.Write(header[:]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write([]byte(want)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write(make([]byte, 4)); err != nil {
+		t.Fatal(err)
+	}
+	var resp rootbroker.Response
+	if err := json.NewDecoder(client).Decode(&resp); err != nil || !resp.OK {
+		t.Fatalf("stream response = %+v, %v", resp, err)
+	}
+	select {
+	case got := <-content:
+		if string(got) != want {
+			t.Fatalf("captured stream = %q, want %q", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("broker did not consume the streamed body")
 	}
 }
 

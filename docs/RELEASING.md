@@ -25,9 +25,13 @@ Freeze a candidate before collecting release evidence:
    (or 50 for the full cohort); it pins all shards to that dispatch's exact
    release-branch commit.
 4. Record each result with the branch-head commit it ran on. Evidence for a
-   different commit does not count.
+   different commit does not count. Generate and review the downloadable
+   `release-evidence-<full-sha>` artifact for that exact branch head; it lists
+   workflow-result freshness and P0 gate state from the same source.
 5. Tag the release from the branch head once the gates pass (step 4 of the
-   checklist).
+   checklist). The tag workflow regenerates the report and attaches
+   `RELEASE_EVIDENCE.md`; artifact verification rejects a mismatched source
+   SHA.
 
 ## Release Checklist
 
@@ -68,7 +72,8 @@ Freeze a candidate before collecting release evidence:
    creates tar archives and SHA-256 checksums, publishes provenance, pushes
    multi-architecture container images, and attaches the artifacts to the
    GitHub release. The workflow also attaches an SPDX SBOM generated for the
-   checked-out source tree.
+   checked-out source tree and `RELEASE_EVIDENCE.md`, which identifies the
+   exact tag commit and the gate statuses recorded in that commit.
 
 Never include database passwords, backup archives, production configuration, or
 session secrets in release artifacts.

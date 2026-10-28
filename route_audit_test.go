@@ -24,7 +24,7 @@ var publicMutatingRoutes = map[string]string{
 
 func TestEveryMutatingRouteIsAudited(t *testing.T) {
 	fileSet := token.NewFileSet()
-	file, err := parser.ParseFile(fileSet, "main.go", nil, parser.ParseComments)
+	file, err := parser.ParseFile(fileSet, "http_routes.go", nil, parser.ParseComments)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestEveryMutatingRouteIsAudited(t *testing.T) {
 		return true
 	})
 	if checked < 50 {
-		t.Fatalf("only %d mutating routes found; the route pattern no longer matches main.go", checked)
+		t.Fatalf("only %d mutating routes found; the route pattern no longer matches http_routes.go", checked)
 	}
 }
 

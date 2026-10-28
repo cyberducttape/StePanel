@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Documentation
 
+- Release evidence now reports the exact source SHA, equivalent CI outcomes
+  and ages, and P0 production-gate status from that same commit. Release tags
+  attach the verified report; stale source snapshots were removed from the
+  production-readiness summary.
+- Extract HTTP route registration from process initialization into `http_routes.go`
+  without changing route patterns or middleware ordering, making the API
+  surface independently reviewable.
+- Keep the OpenAPI, authorization-audit, and site-operation route contract tests
+  pointed at the extracted HTTP route registry.
 - Release evidence is generated instead of hand-written. The Release evidence
   workflow (`cmd/stepanel-evidence`) reports which workflow runs cover the
   same content as `main`, matching by tree so rebase merges and multi-commit
@@ -66,6 +75,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- File-manager reads now fetch one sentinel byte beyond the configured limit
+  and refuse the read if the file grew after its size check. Uploads stream
+  through a bounded, explicitly terminated broker protocol instead of being
+  buffered and base64-encoded in JSON; the broker stages the complete body
+  before invoking the existing site-account atomic writer. Both development
+  and installed file writers now sync the completed file before rename and
+  the containing directory afterward; the installed helper performs these
+  syncs as the site account. Capped subprocess execution also returns before
+  launch when its context is already canceled; directory-sync failures are
+  reported as uncertain publication so operators check the visible file
+  before retrying.
 - A committed upgrade can now be undone as documented. Reinstalling v0.6.0
   or v0.7.0 after an upgrade failed at once ("/etc/ste-panel.env contains an
   unsupported entry"): those installers reject the `RCLONE_CONFIG` entry the

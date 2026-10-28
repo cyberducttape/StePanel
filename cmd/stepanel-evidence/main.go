@@ -43,7 +43,15 @@ func run(ctx context.Context, repo, rev, dir, api string) error {
 	if err != nil {
 		return err
 	}
-	return evidence.Render(os.Stdout, repo, commit, time.Now(), results)
+	gateDocument, err := git.ReadFileAt(ctx, commit, "docs/V1_PRODUCTION_GATES.md")
+	if err != nil {
+		return err
+	}
+	gates, err := evidence.ParseGateReport(gateDocument)
+	if err != nil {
+		return err
+	}
+	return evidence.RenderWithGates(os.Stdout, repo, commit, time.Now(), results, gates)
 }
 
 func envOr(name, fallback string) string {

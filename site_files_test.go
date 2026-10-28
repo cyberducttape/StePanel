@@ -123,7 +123,7 @@ func TestSiteFilesRefusesUnsafeRequests(t *testing.T) {
 			t.Errorf("%s = %d %s, want %d", name, w.Code, strings.TrimSpace(w.Body.String()), tc.want)
 		}
 	}
-	// Uploads held in memory are bounded.
+	// Concurrent uploads are bounded before they consume host resources.
 	for i := 0; i < cap(siteFileWrites); i++ {
 		siteFileWrites <- struct{}{}
 	}

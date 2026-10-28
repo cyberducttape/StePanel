@@ -12,6 +12,7 @@ import (
 
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 	"github.com/cyberducttape/StePanel/internal/operations"
+	"github.com/cyberducttape/StePanel/internal/sitefiles"
 )
 
 // Client communicates with the root broker via the production subprocess
@@ -145,6 +146,96 @@ func (c *Client) execute(ctx context.Context, req *Request, direct bool) (*Respo
 		return nil, fmt.Errorf("broker failed: %w", err)
 	}
 
+	return &resp, nil
+}
+
+// executeStream sends JSON request metadata followed by a bounded framed body.
+// Each stream uses one connection/process so its bytes cannot be confused
+// with another broker request.
+func (c *Client) executeStream(ctx context.Context, req *Request, content io.Reader) (*Response, error) {
+	direct := labDirectBrokerEnabled()
+	if socketPath := strings.TrimSpace(os.Getenv("STEPANEL_ROOT_BROKER_SOCKET")); socketPath != "" {
+		return c.executeStreamSocket(ctx, req, content, socketPath)
+	}
+	if direct {
+		if socketPath := strings.TrimSpace(os.Getenv("STEPANEL_LAB_ROOT_BROKER_SOCKET")); socketPath != "" {
+			return c.executeStreamSocket(ctx, req, content, socketPath)
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("STEPANEL_ENV")), "production") {
+		return nil, fmt.Errorf("production root broker socket is not configured")
+	}
+	command, args := "sudo", []string{c.brokerPath, "-webroot", c.webRoot}
+	if direct {
+		command, args = c.brokerPath, []string{"-webroot", c.webRoot}
+	}
+	cmd := stepanelhelper.NewCommand(ctx, command, args...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("create streamed broker stdin: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = stdin.Close()
+		return nil, fmt.Errorf("create streamed broker stdout: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start broker: %w", err)
+	}
+	if err := json.NewEncoder(stdin).Encode(req); err != nil {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("encode streamed broker request: %w", err)
+	}
+	_, streamErr := writeFileStream(stdin, content, sitefiles.MaxWriteBytes)
+	_ = stdin.Close()
+	var resp Response
+	decodeErr := json.NewDecoder(stdout).Decode(&resp)
+	waitErr := cmd.Wait()
+	if decodeErr != nil {
+		return nil, fmt.Errorf("decode streamed broker response: %w", decodeErr)
+	}
+	if streamErr != nil {
+		return &resp, streamErr
+	}
+	if !resp.OK {
+		return &resp, nil
+	}
+	if waitErr != nil {
+		return nil, fmt.Errorf("broker failed: %w", waitErr)
+	}
+	return &resp, nil
+}
+
+func (c *Client) executeStreamSocket(ctx context.Context, req *Request, content io.Reader, socketPath string) (*Response, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+	if err != nil {
+		return nil, fmt.Errorf("connect to root broker socket: %w", err)
+	}
+	defer conn.Close()
+	closed := make(chan struct{})
+	defer close(closed)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-closed:
+		}
+	}()
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return nil, fmt.Errorf("encode streamed broker request: %w", err)
+	}
+	_, streamErr := writeFileStream(conn, content, sitefiles.MaxWriteBytes)
+	if unixConn, ok := conn.(*net.UnixConn); ok {
+		_ = unixConn.CloseWrite()
+	}
+	var resp Response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("decode streamed broker response: %w", err)
+	}
+	if streamErr != nil {
+		return &resp, streamErr
+	}
 	return &resp, nil
 }
 
