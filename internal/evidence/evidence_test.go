@@ -126,6 +126,26 @@ func TestSelectRunFallsBackToCancelled(t *testing.T) {
 	}
 }
 
+func TestOutcomeDistinguishesQueuedWaitingAndRunning(t *testing.T) {
+	for _, test := range []struct {
+		status string
+		want   string
+	}{
+		{status: "queued", want: "⏳ queued"},
+		{status: "pending", want: "⏳ queued"},
+		{status: "requested", want: "⏳ queued"},
+		{status: "waiting", want: "⏳ waiting"},
+		{status: "in_progress", want: "⏳ in progress"},
+		{status: "unknown", want: "❔ unknown"},
+	} {
+		t.Run(test.status, func(t *testing.T) {
+			if got := outcome(&Run{Status: test.status}); got != test.want {
+				t.Fatalf("outcome(%q) = %q, want %q", test.status, got, test.want)
+			}
+		})
+	}
+}
+
 func TestJobsPaginatesLargeRuns(t *testing.T) {
 	conclusions := make([]string, 250)
 	for i := range conclusions {
