@@ -44,6 +44,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- Keep the root-broker RPC contract typed: tests pin its reviewed top-level
+  payload set, reject generic helper/executable requests and caller-selected
+  executable fields, and the site-helper wrapper no longer accepts a path.
 - The PHP malware guard no longer follows a customer-controlled symbolic
   link: it skips links and sets the quarantine mode only after the entry is
   inside the root-only quarantine, so swapping a scanned file for a link

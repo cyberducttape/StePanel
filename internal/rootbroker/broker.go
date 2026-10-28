@@ -863,7 +863,7 @@ func (b *Broker) siteDelete(ctx context.Context, req *SiteRequest) (*Response, e
 		if resolveErr != nil {
 			return &Response{OK: false, Error: resolveErr.Error()}, nil
 		}
-		resp, err := b.runLabHelper(ctx, "/usr/local/sbin/stepanel-sitectl", "delete", req.Site, siteUser)
+		resp, err := b.runSiteHelper(ctx, "delete", req.Site, siteUser)
 		if err != nil || resp == nil || !resp.OK {
 			return resp, err
 		}
@@ -1909,11 +1909,11 @@ func gitDeleteResponse() (*Response, error) {
 	return &Response{OK: true, Details: details}, nil
 }
 
-func (b *Broker) runLabHelper(ctx context.Context, path string, args ...string) (*Response, error) {
-	cmd := stepanelhelper.NewCommand(ctx, path, args...)
+func (b *Broker) runSiteHelper(ctx context.Context, args ...string) (*Response, error) {
+	cmd := stepanelhelper.NewCommand(ctx, siteHelperPath, args...)
 	output, err := stepanelhelper.RunCapped(ctx, cmd, maxBrokerCommandOutput)
 	if err != nil {
-		return &Response{OK: false, Error: fmt.Sprintf("lab helper failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
+		return &Response{OK: false, Error: fmt.Sprintf("site helper failed: %v: %s", err, strings.TrimSpace(string(output)))}, nil
 	}
 	return &Response{OK: true}, nil
 }
