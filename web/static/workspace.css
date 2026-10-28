@@ -1403,6 +1403,7 @@ textarea[aria-invalid="true"] {
 .incident-critical { border-left-color: #c84747; }
 .incident-warning { border-left-color: #bd8120; }
 .incident-unknown { border-left-color: #77849a; }
+.incident-guidance { border-left-color: #3f7ea0; }
 .incident-clear { margin: 0 0 12px; color: var(--panel-muted); }
 .incident-recent-change { display: grid; gap: 3px; margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--panel-border) 22%, transparent); }
 .incident-recent-change span { color: var(--panel-text); font-size: 13px; overflow-wrap: anywhere; }

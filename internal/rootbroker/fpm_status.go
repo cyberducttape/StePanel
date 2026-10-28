@@ -33,11 +33,23 @@ var fpmSitePattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 // pools. It intentionally contains aggregate counters only, never request,
 // script, or customer data.
 type FPMStatus struct {
-	Available   bool            `json:"available"`
-	CollectedAt time.Time       `json:"collected_at"`
-	Pools       []FPMStatusPool `json:"pools"`
-	Warnings    []string        `json:"warnings"`
-	Detail      string          `json:"detail,omitempty"`
+	Available           bool            `json:"available"`
+	CollectedAt         time.Time       `json:"collected_at"`
+	Pools               []FPMStatusPool `json:"pools"`
+	Warnings            []string        `json:"warnings"`
+	PerformanceGuidance []FPMGuidance   `json:"performance_guidance"`
+	Detail              string          `json:"detail,omitempty"`
+}
+
+// FPMGuidance links a read-only recommendation to its counters. It never
+// changes the pool; any adjustment remains a deliberate operator action.
+type FPMGuidance struct {
+	State                  string `json:"state"`
+	PHPVersion             string `json:"php_version,omitempty"`
+	Title                  string `json:"title"`
+	Evidence               string `json:"evidence"`
+	Recommendation         string `json:"recommendation"`
+	OperatorApprovalNeeded bool   `json:"operator_approval_needed"`
 }
 
 type FPMStatusPool struct {
@@ -76,7 +88,7 @@ func collectFPMStatus(ctx context.Context, site, siteUser string) (FPMStatus, er
 }
 
 func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig string, poolRoots []string) (FPMStatus, error) {
-	result := FPMStatus{CollectedAt: time.Now().UTC(), Pools: []FPMStatusPool{}, Warnings: []string{}}
+	result := FPMStatus{CollectedAt: time.Now().UTC(), Pools: []FPMStatusPool{}, Warnings: []string{}, PerformanceGuidance: []FPMGuidance{}}
 	socketRoot, err := readFPMSocketRoot(identityConfig)
 	if err != nil {
 		return result, err
@@ -115,6 +127,7 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		item.MaxChildrenReached = stats.MaxChildrenReached
 		item.SlowRequests = stats.SlowRequests
 		item.AtCapacity, item.Saturated = fpmPoolIndicators(stats.Active, stats.Queue, pool.max)
+		result.PerformanceGuidance = append(result.PerformanceGuidance, fpmPoolGuidance(pool.version, item))
 		result.Available = true
 		result.Pools = append(result.Pools, item)
 	}
@@ -128,6 +141,29 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 
 func fpmPoolIndicators(active, queue, maxChildren uint64) (atCapacity, saturated bool) {
 	return maxChildren > 0 && active >= maxChildren, queue > 0
+}
+
+func fpmPoolGuidance(version string, pool FPMStatusPool) FPMGuidance {
+	evidence := fmt.Sprintf("One sample: %d active, %d idle, %d queued, max_children %d; %d historical max_children events and %d slow requests since pool start.",
+		pool.ActiveProcesses, pool.IdleProcesses, pool.ListenQueue, pool.MaxChildren, pool.MaxChildrenReached, pool.SlowRequests)
+	guidance := FPMGuidance{
+		State:                  "no-change",
+		PHPVersion:             version,
+		Title:                  "No worker increase indicated by this sample",
+		Evidence:               evidence,
+		Recommendation:         "Keep the current worker limit. A single snapshot is not enough to justify tuning; collect sustained samples and review per-worker memory and host headroom before proposing a change.",
+		OperatorApprovalNeeded: true,
+	}
+	if pool.Saturated {
+		guidance.State = "review"
+		guidance.Title = "Review PHP-FPM capacity under sustained load"
+		guidance.Recommendation = "Investigate queued requests and slow-request causes. Collect several minutes of samples, then measure per-worker memory and host headroom before an administrator considers changing the worker limit. StePanel will not apply a change from this signal."
+	} else if pool.AtCapacity || pool.MaxChildrenReached > 0 || pool.SlowRequests > 0 {
+		guidance.State = "review"
+		guidance.Title = "Review PHP-FPM workload before tuning"
+		guidance.Recommendation = "This pool has reached its worker ceiling or recorded slow requests historically, but this sample has no waiting requests. Check repeated samples and per-worker memory before an administrator considers changing the worker limit."
+	}
+	return guidance
 }
 
 func readFPMSocketRoot(path string) (string, error) {

@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   typed root-broker FastCGI request. Managed pools enable a private status path
   that Caddy and Apache explicitly deny to public requests; the incident view
   separates current queue saturation from historical worker-limit events.
+- PHP-FPM incident snapshots include evidence-linked, review-only worker
+  guidance. A single sample never changes a pool or recommends increasing its
+  limit without sustained observations and memory-headroom review.
 
 ### Testing
 

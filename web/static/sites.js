@@ -451,6 +451,11 @@
         if (fpm.warnings && fpm.warnings.length) {
           add('unknown', 'Some PHP-FPM pools could not be sampled', fpm.warnings.join('; '), 'Check the affected PHP-FPM pool and socket before drawing conclusions from the available versions.');
         }
+        (Array.isArray(fpm.performance_guidance) ? fpm.performance_guidance : []).forEach((guidance) => {
+          add('guidance', guidance.title,
+            `${guidance.php_version ? `PHP ${guidance.php_version} · ` : ''}${guidance.evidence} ${guidance.recommendation}`,
+            guidance.operator_approval_needed ? 'Review the evidence and approve any PHP worker change separately. StePanel has not changed the pool.' : 'No configuration change was applied.');
+        });
       }
     } else if (!resourceAvailable) {
       add('unknown', 'Resource enforcement could not be inspected', 'The site resource status endpoint was unavailable.', 'Check the host broker and resource reconciliation status.');
@@ -482,7 +487,7 @@
     const unknowns = ['Per-site database query latency is not measured. Available blocked-session and long-transaction counts are host-wide and are not attributed to this site.'];
     if (!canReadLogs) unknowns.push('Recent web-server and PHP-FPM logs are hidden because this account lacks logs:read.');
     if (!resourceAvailable || !resourceData || !resourceData.fpm_status || !resourceData.fpm_status.available) unknowns.push('Live PHP-FPM counters are unavailable unless the installed root broker can safely query a managed pool.');
-    const levelLabel = { critical: 'Action needed', warning: 'Review', unknown: 'Not verified' };
+    const levelLabel = { critical: 'Action needed', warning: 'Review', unknown: 'Not verified', guidance: 'Performance guidance' };
     return el('section', { className: 'incident-assessment', 'aria-label': 'Site incident assessment' }, [
       el('div', { className: 'section-heading' }, [el('h3', {}, 'Why this site may be failing'), el('small', {}, `Snapshot · ${new Date().toLocaleTimeString()}`)]),
       findings.length ? el('ul', { className: 'incident-findings' }, findings.map((finding) => el('li', { className: `incident-finding incident-${finding.level}` }, [
