@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+  echo 'must run as root' >&2
+  exit 1
+fi
+(( $# == 1 )) || { echo 'usage: stepanel-ensure-php-socket-root /run/php|/run/php-fpm' >&2; exit 64; }
+
+socket_root=$1
+case $socket_root in
+  /run/php|/run/php-fpm) ;;
+  *) echo 'unsupported PHP socket root' >&2; exit 64 ;;
+esac
+
+if [[ -L $socket_root || ( -e $socket_root && ! -d $socket_root ) ]]; then
+  echo "PHP socket root is not a real directory: $socket_root" >&2
+  exit 1
+fi
+
+install -d -o root -g root -m 0755 -- "$socket_root"
+chown root:root -- "$socket_root"
+chmod 0755 -- "$socket_root"
+
+[[ ! -L $socket_root && -d $socket_root && $(stat -c '%u:%g:%a' -- "$socket_root") == 0:0:755 ]] || {
+  echo "could not secure PHP socket root: $socket_root" >&2
+  exit 1
+}

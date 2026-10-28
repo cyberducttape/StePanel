@@ -23,6 +23,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Normalize Debian/Ubuntu and RHEL PHP-FPM socket roots to root-owned `0755`
+  before managed pool creation and on every PHP-FPM service start. Installer
+  rollback tracks the service drop-ins, preventing package-created writable
+  runtime directories from blocking privileged FPM status checks after install,
+  reboot, or service restart.
+
 - Refresh the production-gate evidence to distinguish the earlier-source 20-repeat cohort from current-source evidence, record the pre-fix PHP-FPM fencing failure and successful one-host rerun on `cb05467`, and identify that the in-progress `311e928` smoke predates the later `6bbe07e` recovery-proof audit fix. None of these runs is presented as host recovery certification for current source.
 - Record the completed exact-`311e928` AlmaLinux 9/Caddy installed smoke: PHP-FPM status passed, installed WordPress recovery proof measured 7.061 s RTO, and the one-iteration recovery matrix passed. The result is explicitly marked as preceding the `6bbe07e` recovery-proof audit correction.
 - Trigger installed-host smoke when WordPress recovery proof, backup restore,

@@ -397,6 +397,16 @@ PY
 
 apply_smoke_vhost "$site" ci-smoke.localhost
 /usr/local/sbin/stepanel-appctl resource-apply "$site" 100 100 128 512 100 256
+socket_root=$(sed -n 's/^STEPANEL_PHP_SOCKET_ROOT="\([^"]*\)"$/\1/p' /etc/ste-panel.env)
+[[ $socket_root == /run/php || $socket_root == /run/php-fpm ]] || { echo "unexpected PHP socket root: $socket_root" >&2; exit 1; }
+for fpm_unit in $(systemctl list-unit-files --type=service --no-legend 'php*-fpm.service' 'php-fpm.service' | awk '{print $1}'); do
+  systemctl cat "$fpm_unit" | grep -Fq "/usr/local/sbin/stepanel-ensure-php-socket-root $socket_root" || {
+    echo "PHP-FPM unit $fpm_unit has no socket-root startup guard" >&2
+    exit 1
+  }
+  systemctl restart "$fpm_unit"
+done
+[[ $(stat -c '%u:%g:%a' "$socket_root") == 0:0:755 ]] || { echo "PHP socket root is not root:root 0755 after FPM restart: $socket_root" >&2; exit 1; }
 runuser -u stepanel -- python3 - "$site" <<'PY'
 import json, socket, sys
 request = {"type": "site", "site": {"action": "fpm-status", "site": sys.argv[1]}}
