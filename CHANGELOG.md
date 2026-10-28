@@ -23,7 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
-- Refresh the production-gate evidence with current-source installed-smoke progress and the still-running first repetition of the 20-run recovery cohort; incomplete results remain explicitly non-certifying.
+- Refresh the production-gate evidence with the completed current-source six-host smoke and still-running first repetition of the 20-run recovery cohort; the smoke is not presented as host recovery certification.
 - Site recovery status now provides an evidence-driven operator procedure and distinguishes application-level recovery measurements from archive-only rehearsal time. An older backup's proof is explicitly separated from the newest recovery point.
 - Site termination now shows an inspected change preview before typed confirmation, including the site filesystem root, managed database names, virtual hosts, proxy routes, service cleanup, and site-owned configuration. Unavailable resource inventories block queueing.
 - Redacted support bundles now retain readiness remediation details and include safe failure categories for failed jobs without embedding raw error messages.
