@@ -861,6 +861,47 @@
     return ctx.badge(label, tone);
   };
 
+  const recoveryProcedure = (status) => {
+    const backup = status.last_backup;
+    if (!backup) return [
+      'No recovery point is available. Create a verified backup that includes the site files and required database dumps.',
+      'Configure and verify an offsite destination before relying on this host as the only copy.',
+      'Run a restore rehearsal and an application HTTP check before declaring the site recoverable.',
+    ];
+    const passed = status.last_passed_rehearsal;
+    const latestBackupProven = Boolean(passed && passed.backup === backup.name);
+    const applicationProvenForLatest = latestBackupProven && passed.level === 'application';
+    const steps = [
+      `Select recovery point ${backup.name}, created ${new Date(backup.created_at).toLocaleString()}.`,
+      status.offsite?.state === 'verified'
+        ? 'Retrieve the confirmed offsite copy; retain the local copy until recovery is verified.'
+        : 'Use the local backup. No confirmed offsite copy is recorded for the newest recovery point.',
+      backup.integrity === 'verified'
+        ? 'Verify the signed manifest and archive checksums, then decrypt with the configured backup key if encrypted.'
+        : 'Validate the unsigned backup manifest and archive carefully; its authenticity is not established by a signature.',
+      'Restore the site files and import the required database dump into the destination database service.',
+      applicationProvenForLatest
+        ? 'Recreate the tested PHP-FPM and virtual-host configuration, then run the application HTTP probe.'
+        : 'Recreate PHP-FPM and virtual-host configuration, verify database credentials, and run an application HTTP probe; this application recovery has not been proven by the latest passing rehearsal.',
+      'Review DNS, mail routing, cron commands, and external integrations before cutover; these may require separate migration steps.',
+    ];
+    return steps;
+  };
+
+  const recoveryEstimate = (status) => {
+    const passed = status.last_passed_rehearsal;
+    if (!passed) return 'No successful rehearsal is available to estimate recovery time.';
+    const duration = formatDuration(status.measured_recovery_ms);
+    if (passed.level === 'application' && passed.backup === status.last_backup?.name) return `Latest recovery point passed application-level proof in ${duration} (${ctxAgeLabel(passed.at)}). This is an observed run, not an RTO guarantee.`;
+    if (passed.level === 'application') return `A previous backup passed application-level proof in ${duration} (${ctxAgeLabel(passed.at)}), but the latest recovery point differs; its full-site recovery time is unknown.`;
+    return `Last archive-level rehearsal: ${duration}. This excludes database import, service activation, and application HTTP verification, so a full-site recovery estimate is unknown.`;
+  };
+
+  const ctxAgeLabel = (timestamp) => {
+    const date = new Date(timestamp);
+    return Number.isNaN(date.getTime()) ? 'time unavailable' : date.toLocaleString();
+  };
+
   const automaticRehearsalNote = (status) => {
     if (!status.automatic_rehearsals_enabled) return 'Automatic rehearsals are turned off on this server.';
     if (!status.scheduled_backups) return 'Automatic rehearsals start once scheduled backups are enabled for this site.';
@@ -879,7 +920,7 @@
       ['Last restore rehearsal', latest ? ctx.formatAge(latest.at) : 'Never',
         latest ? `${latest.outcome === 'passed' ? 'Passed' : 'Failed'} · ${latest.trigger} · ${latest.backup}` : 'Use “Rehearse restore” on a backup below'],
       ['Measured recovery time', passed ? formatDuration(status.measured_recovery_ms) : '—',
-        passed ? 'Verify, decrypt, and extract the backup' : 'No passing rehearsal yet'],
+        passed ? (passed.level === 'application' && status.last_backup?.name === passed.backup ? 'Application proof for the newest backup' : passed.level === 'application' ? 'Proof was for a different backup' : 'Archive-only rehearsal; full-site time unknown') : 'No passing rehearsal yet'],
       ['Recovery point', last ? ctx.formatAge(last.created_at) : '—',
         'Changes made after the newest backup would be lost'],
       ['Encryption key', status.encryption_key === 'healthy' ? 'Proven' : 'Not proven',
@@ -896,7 +937,12 @@
       status.reasons.length ? el('ul', { className: 'resource-list', 'aria-label': 'Recovery findings' }, status.reasons.map((reason) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [el('small', {}, reason)]),
       ]))) : null,
-      proof ? el('p', { className: 'import-note' }, `What a passing rehearsal proves: ${proof}`) : null,
+      el('details', { className: 'recovery-procedure' }, [
+        el('summary', {}, 'Estimated recovery procedure'),
+        el('p', { className: 'import-note' }, recoveryEstimate(status)),
+        el('ol', {}, recoveryProcedure(status).map((step) => el('li', {}, step))),
+      ]),
+      proof ? el('p', { className: 'import-note' }, `${passed && status.last_backup?.name !== passed.backup ? `An earlier backup passed a rehearsal. ${passed.level_description}` : `What the passing rehearsal proves: ${proof}`}`) : null,
       el('p', { className: 'import-note' }, automaticRehearsalNote(status)),
     ]);
   }

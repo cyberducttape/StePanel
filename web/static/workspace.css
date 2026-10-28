@@ -1425,6 +1425,11 @@ textarea[aria-invalid="true"] {
 .recovery-facts dd { margin: 0; display: flex; flex-direction: column; gap: 2px; }
 .recovery-facts dd strong { color: var(--panel-text); font-size: 14px; }
 .recovery-facts dd small { color: var(--panel-muted); font-size: 11px; }
+.recovery-procedure { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--panel-border); border-radius: 9px; background: var(--panel-bg); }
+.recovery-procedure summary { cursor: pointer; color: var(--panel-text); font-weight: 600; }
+.recovery-procedure p { margin: 9px 0; color: var(--panel-muted); font-size: 12px; }
+.recovery-procedure ol { margin: 0; padding-left: 22px; color: var(--panel-text); }
+.recovery-procedure li { margin: 6px 0; line-height: 1.45; }
 
 /*
   Layout and legibility refinements.
