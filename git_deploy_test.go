@@ -1,10 +1,12 @@
 package stepanel
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -377,7 +379,15 @@ func TestGitRollbackAtomicallySwapsPreviousRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := &App{Config: Config{WebRoot: webRoot, MaxEntries: 100}}
-	request := httptest.NewRequest(http.MethodPost, "/api/sites/git-rollback", strings.NewReader(`{"site":"example","confirm":"ROLLBACK example"}`))
+	preview, err := app.buildGitRollbackPreview("example")
+	if err != nil {
+		t.Fatalf("build rollback preview: %v", err)
+	}
+	if preview.CurrentRelease != "public" || preview.TargetRelease != ".stepanel-previous-old" || preview.CurrentFiles != 1 || preview.TargetFiles != 1 || preview.CurrentBytes != int64(len("current")) || preview.TargetBytes != int64(len("previous")) {
+		t.Fatalf("unexpected rollback preview: %+v", preview)
+	}
+	body, _ := json.Marshal(gitRollbackRequest{Site: "example", Confirm: "ROLLBACK example", PreviewToken: preview.PreviewToken})
+	request := httptest.NewRequest(http.MethodPost, "/api/sites/git-rollback", bytes.NewReader(body))
 	response := httptest.NewRecorder()
 	app.gitRollback(response, request)
 	data, err := os.ReadFile(filepath.Join(publicRoot, "version"))
@@ -400,6 +410,41 @@ func TestGitRollbackAtomicallySwapsPreviousRelease(t *testing.T) {
 	}
 	if !foundCurrent {
 		t.Fatal("rollback did not preserve the replaced active release")
+	}
+}
+
+func TestGitRollbackRejectsStalePreview(t *testing.T) {
+	webRoot := filepath.Join(t.TempDir(), "www")
+	siteRoot := filepath.Join(webRoot, "sites", "example")
+	publicRoot := filepath.Join(siteRoot, "public")
+	previousRoot := filepath.Join(siteRoot, ".stepanel-previous-old")
+	for _, root := range []string{publicRoot, previousRoot} {
+		if err := os.MkdirAll(root, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(publicRoot, "version"), []byte("current"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(previousRoot, "version"), []byte("previous"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{WebRoot: webRoot, MaxEntries: 100}}
+	preview, err := app.buildGitRollbackPreview("example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := filepath.Join(previousRoot, "version")
+	if err := os.WriteFile(version, []byte("changed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	requestBody, _ := json.Marshal(gitRollbackRequest{Site: "example", Confirm: "ROLLBACK example", PreviewToken: preview.PreviewToken})
+	request := httptest.NewRequest(http.MethodPost, "/api/sites/git-rollback", bytes.NewReader(requestBody))
+	response := httptest.NewRecorder()
+	app.gitRollback(response, request)
+	active, readErr := os.ReadFile(filepath.Join(publicRoot, "version"))
+	if response.Code != http.StatusConflict || readErr != nil || string(active) != "current" {
+		t.Fatalf("stale preview result status=%d active=%q readErr=%v body=%s", response.Code, active, readErr, response.Body.String())
 	}
 }
 

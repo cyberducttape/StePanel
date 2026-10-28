@@ -109,6 +109,7 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 	mux.Handle("/api/sites/git-webhook/", allowMethods(http.HandlerFunc(a.gitWebhook), http.MethodPost))
 	mux.Handle("/api/admin/webhooks/", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.webhookConfig)), http.MethodPost, http.MethodPut, http.MethodDelete))
 	mux.Handle("/api/sites/git-rollback", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.gitRollback)), http.MethodPost))
+	mux.Handle("/api/sites/git-rollback/preview", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.gitRollbackPreviewHandler)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/caddy/htaccess", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.htaccessMigration)), http.MethodPost))
 	mux.Handle("/api/apps/", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.appAction)), http.MethodPost))
 	mux.Handle("/api/cpmove/inspect", allowMethods(a.Auth.RequireAdministrator(a.limitConcurrentResource(http.HandlerFunc(a.inspect), "extract")), http.MethodPost))
