@@ -25,6 +25,8 @@ Unknown facts are reported as warnings or blockers rather than replaced with dem
 - User crontab count
 - Destination free-space comparison and transfer/capacity estimates
 
+The cPanel archive import separately inventories DNS zone filenames and cron schedule expressions when present in `dnszones/` and `cron/`. Its import result identifies these as observed but not migrated. Individual zone records are not parsed or applied, and cron command text is deliberately omitted from reports because it can contain credentials. Cron metadata reads are capped at 1 MiB per file and 8 MiB total; evidence lists are capped at 500 entries and report additional omitted items.
+
 SSH host keys should be supplied through `source_ssh_known_hosts`; strict host-key checking remains enabled. Private keys are accepted only when `STEPANEL_ACCOUNT_KEY` is configured, because the queued job must encrypt the durable payload.
 
 ### Planned application analysis

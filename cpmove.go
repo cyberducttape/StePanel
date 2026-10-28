@@ -39,6 +39,10 @@ type CPMoveInfo struct {
 	HasMySQL          bool     `json:"has_mysql"`
 	HasMail           bool     `json:"has_mail"`
 	Mailboxes         []string `json:"mailboxes,omitempty"`
+	DNSZones          []string `json:"dns_zones,omitempty"`
+	CronSchedules     []string `json:"cron_schedules,omitempty"`
+	DNSZoneOmitted    int      `json:"dns_zone_omitted_count,omitempty"`
+	CronOmitted       int      `json:"cron_omitted_count,omitempty"`
 	Databases         []string `json:"databases"`
 }
 
@@ -57,6 +61,8 @@ type CPMoveInspectionResponse struct {
 	HasMail           bool   `json:"has_mail"`
 	DatabaseCount     int    `json:"database_count"`
 	MailboxCount      int    `json:"mailbox_count"`
+	DNSZoneCount      int    `json:"dns_zone_count"`
+	CronJobCount      int    `json:"cron_job_count"`
 }
 
 func (info CPMoveInfo) response(uploadID string) CPMoveInspectionResponse {
@@ -72,11 +78,15 @@ func (info CPMoveInfo) response(uploadID string) CPMoveInspectionResponse {
 		HasMail:           info.HasMail,
 		DatabaseCount:     len(info.Databases),
 		MailboxCount:      len(info.Mailboxes),
+		DNSZoneCount:      len(info.DNSZones) + info.DNSZoneOmitted,
+		CronJobCount:      len(info.CronSchedules) + info.CronOmitted,
 	}
 }
 
 const maxCPMoveExpandedBytes int64 = 80 << 30
 const maxCPMoveUploadMetadataBytes = 16 << 10
+const maxCPMoveCronFileBytes = 1 << 20
+const maxCPMoveCronInventoryBytes = 8 << 20
 
 // randomSecret uses base64.RawURLEncoding, whose first character may be '-'
 // or '_' as well as an alphanumeric. Keep the full URL-safe alphabet valid.
@@ -225,6 +235,9 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 	info := CPMoveInfo{Archive: html.EscapeString(header.Filename), ArchiveBytes: header.Size, User: html.EscapeString(userFromArchiveName(header.Filename))}
 	seen := map[string]bool{}
 	seenMail := map[string]bool{}
+	seenZones := map[string]bool{}
+	seenCron := map[string]bool{}
+	var cronInventoryBytes int64
 	paths := archivesafe.NewPathSet()
 	var total int64
 	for {
@@ -287,9 +300,63 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 				}
 			}
 		}
+		if strings.HasPrefix(name, "dnszones/") && strings.HasSuffix(strings.ToLower(name), ".db") {
+			zone := filepath.Base(name)
+			zone = strings.TrimSuffix(zone, filepath.Ext(zone))
+			if zone != "" && !seenZones[zone] {
+				if len(info.DNSZones) < maxMigrationEvidenceItems {
+					info.DNSZones = append(info.DNSZones, zone)
+				} else {
+					info.DNSZoneOmitted++
+				}
+				seenZones[zone] = true
+			}
+		}
+		if strings.HasPrefix(name, "cron/") && kind == archivesafe.File {
+			if h.Size > maxCPMoveCronFileBytes {
+				return info, errors.New("cPanel cron inventory exceeds the 1 MiB per-file inspection limit")
+			}
+			if cronInventoryBytes > maxCPMoveCronInventoryBytes-h.Size {
+				return info, errors.New("cPanel cron inventory exceeds the 8 MiB total inspection limit")
+			}
+			cronInventoryBytes += h.Size
+			data, readErr := io.ReadAll(io.LimitReader(tr, maxCPMoveCronFileBytes+1))
+			if readErr != nil || int64(len(data)) > maxCPMoveCronFileBytes {
+				return info, errors.New("could not safely inspect cPanel cron inventory")
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, "#") {
+					continue
+				}
+				fields := strings.Fields(line)
+				scheduleFields := 5
+				if strings.HasPrefix(fields[0], "@") {
+					scheduleFields = 1
+				} else if len(fields) < 6 {
+					continue
+				}
+				if strings.Contains(fields[0], "=") {
+					continue
+				}
+				// Record only the five-field schedule. Commands can contain secrets
+				// and are not imported by this workflow.
+				schedule := strings.Join(fields[:scheduleFields], " ")
+				if !seenCron[schedule] {
+					if len(info.CronSchedules) < maxMigrationEvidenceItems {
+						info.CronSchedules = append(info.CronSchedules, schedule)
+					} else {
+						info.CronOmitted++
+					}
+					seenCron[schedule] = true
+				}
+			}
+		}
 	}
 	sort.Strings(info.Databases)
 	sort.Strings(info.Mailboxes)
+	sort.Strings(info.DNSZones)
+	sort.Strings(info.CronSchedules)
 	info.ExpandedBytes = total
 	if info.Entries == 0 {
 		return info, errors.New("backup archive is empty")
@@ -643,10 +710,23 @@ func buildCPMoveMigrationEvidence(info CPMoveInfo, result ImportResult, database
 	}
 	domainEvidence = boundMigrationEvidence(domainEvidence)
 	evidence = append(evidence, boundMigrationEvidence(db), boundMigrationEvidence(mail), domainEvidence)
-	evidence = append(evidence,
-		MigrationEvidence{Category: "dns", Status: "not_inspected", Details: "DNS records were not inventoried or changed. Before cutover, record A/AAAA, CNAME, MX, SPF, DKIM, DMARC, and TTL values; lower TTL in advance and switch only after staging verification."},
-		MigrationEvidence{Category: "cron_jobs", Status: "not_inspected", Details: "Per-account scheduled jobs were not inventoried or installed. Review the source crontab, recreate required tasks on the destination, then test commands, paths, and environment before cutover."},
-	)
+	dns := MigrationEvidence{Category: "dns", Status: "observed_not_migrated", SourceItems: append([]string(nil), info.DNSZones...), OmittedItemCount: info.DNSZoneOmitted, Details: "The archive contains these DNS zone files. Individual records were not parsed or changed; compare authoritative A/AAAA, CNAME, MX, SPF, DKIM, DMARC, CAA, and TTL values before cutover."}
+	for _, zone := range info.DNSZones {
+		dns.SkippedItems = append(dns.SkippedItems, zone+": DNS records require explicit review and were not changed")
+	}
+	if len(info.DNSZones) == 0 {
+		dns.Status = "not_inspected"
+		dns.Details = "No DNS zone files were found in the archive. Inventory records at the authoritative DNS provider before cutover."
+	}
+	cron := MigrationEvidence{Category: "cron_jobs", Status: "observed_not_migrated", SourceItems: append([]string(nil), info.CronSchedules...), OmittedItemCount: info.CronOmitted, Details: "Schedules were read from the cPanel archive; command text is intentionally omitted because it may contain credentials. Tasks were not installed. Review source commands, paths, environment, and permissions, then recreate and test them on the destination."}
+	for _, schedule := range info.CronSchedules {
+		cron.SkippedItems = append(cron.SkippedItems, schedule+": command was not migrated")
+	}
+	if len(info.CronSchedules) == 0 {
+		cron.Status = "not_inspected"
+		cron.Details = "No readable scheduled tasks were found in the archive. Verify the source account crontab before cutover."
+	}
+	evidence = append(evidence, boundMigrationEvidence(dns), boundMigrationEvidence(cron))
 	return evidence
 }
 
@@ -1093,7 +1173,7 @@ func safeArchivePath(path string) bool {
 func normalizeCPMovePath(path string) cpmovePathInfo {
 	name := strings.Trim(filepath.ToSlash(path), "/")
 	parts := strings.Split(name, "/")
-	if len(parts) >= 2 && isCPMoveRoot(parts[0]) && (parts[1] == "homedir" || parts[1] == "mysql") {
+	if len(parts) >= 2 && isCPMoveRoot(parts[0]) && (parts[1] == "homedir" || parts[1] == "mysql" || parts[1] == "dnszones" || parts[1] == "cron") {
 		return cpmovePathInfo{Path: strings.Join(parts[1:], "/"), User: userFromArchiveName(parts[0])}
 	}
 	return cpmovePathInfo{Path: name}
