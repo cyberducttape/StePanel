@@ -13,6 +13,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- cPanel import results now include bounded, itemized migration evidence for
+  accounts, website roots, databases, mailboxes, and domain placement, with
+  omitted-item counts and explicit DNS/cron states when those components were
+  not inspected or migrated. The import screen explains this cutover boundary,
+  and `docs/MIGRATION_CUTOVER.md` provides DNS, mail, cron, verification, and
+  rollback guidance.
 - Installer failures before commit now restore the captured active/enabled
   state of recognized web and optional mail services. The installer recovery
   journal reports services that need manual restoration, and installed-host

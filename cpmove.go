@@ -168,12 +168,28 @@ type ImportResult struct {
 	// account (ADR-0007): the main domain is served from public_html, addon
 	// and subdomains become their own sites beside it, and parked domains
 	// are aliases of the main site waiting for a route.
-	Account       string           `json:"account,omitempty"`
-	MainDomain    string           `json:"main_domain,omitempty"`
-	ParkedDomains []string         `json:"parked_domains,omitempty"`
-	Domains       []ImportedDomain `json:"domains,omitempty"`
-	DomainErrors  []string         `json:"domain_errors,omitempty"`
+	Account       string              `json:"account,omitempty"`
+	MainDomain    string              `json:"main_domain,omitempty"`
+	ParkedDomains []string            `json:"parked_domains,omitempty"`
+	Domains       []ImportedDomain    `json:"domains,omitempty"`
+	DomainErrors  []string            `json:"domain_errors,omitempty"`
+	Evidence      []MigrationEvidence `json:"migration_evidence,omitempty"`
 }
+
+// MigrationEvidence records observed source items and their destination
+// disposition. A not_inspected category is explicit; absence of evidence is
+// never presented as a successful migration.
+type MigrationEvidence struct {
+	Category         string   `json:"category"`
+	Status           string   `json:"status"` // completed, not_selected, not_inspected
+	SourceItems      []string `json:"source_items,omitempty"`
+	ImportedItems    []string `json:"imported_items,omitempty"`
+	SkippedItems     []string `json:"skipped_items,omitempty"`
+	OmittedItemCount int      `json:"omitted_item_count,omitempty"`
+	Details          string   `json:"details,omitempty"`
+}
+
+const maxMigrationEvidenceItems = 500
 
 // ImportedDomain is an addon or subdomain restored as its own site.
 type ImportedDomain struct {
@@ -332,7 +348,8 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	if err != nil {
 		return ImportResult{}, err
 	}
-	if _, err := inspectCPMove(input, header, cfg.MaxEntries); err != nil {
+	archiveInfo, err := inspectCPMove(input, header, cfg.MaxEntries)
+	if err != nil {
 		input.Close()
 		return ImportResult{}, err
 	}
@@ -376,6 +393,7 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 	_, legacyErr := existingManagedSiteRoot(cfg.WebRoot, user)
 	intoAccount := db != nil && legacyErr != nil
 	var plan cpmoveDomainPlan
+	var domainInventoryErr error
 	placedByJob := false
 	if intoAccount {
 		if plan, err = planCPMoveDomains(root, user); err != nil {
@@ -394,6 +412,9 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 			}
 		}
 	}()
+	if !intoAccount {
+		plan, domainInventoryErr = planCPMoveDomains(root, user)
+	}
 	home, err := siteDocRoot(cfg, user)
 	if err != nil {
 		return ImportResult{}, err
@@ -521,7 +542,131 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 		result.Account, result.MainDomain, result.ParkedDomains = user, plan.MainDomain, plan.Parked
 		result.Domains, result.DomainErrors = restoreCPMoveDomainSites(ctx, cfg, db, manager, user, plan)
 	}
+	result.Evidence = buildCPMoveMigrationEvidence(archiveInfo, result, databases, plan, domainInventoryErr)
 	return result, nil
+}
+
+func buildCPMoveMigrationEvidence(info CPMoveInfo, result ImportResult, databasesSelected bool, plan cpmoveDomainPlan, domainInventoryErr error) []MigrationEvidence {
+	accountTarget := result.Account
+	if accountTarget == "" {
+		accountTarget = result.User
+	}
+	evidence := []MigrationEvidence{boundMigrationEvidence(MigrationEvidence{
+		Category:      "account",
+		Status:        "completed",
+		SourceItems:   []string{info.User},
+		ImportedItems: []string{accountTarget},
+		Details:       "The source account was mapped to the destination account shown.",
+	})}
+
+	website := MigrationEvidence{Category: "website_files", Status: "completed", Details: fmt.Sprintf("Inspected %d archive entries (%d expanded bytes); file-level names are not retained in the migration report.", info.Entries, info.ExpandedBytes)}
+	if info.HasHome {
+		website.SourceItems = append(website.SourceItems, "cPanel home directory")
+	}
+	if result.FilesRestored {
+		website.ImportedItems = append(website.ImportedItems, "main site document root")
+	} else if info.HasHome {
+		website.SkippedItems = append(website.SkippedItems, "main site document root: no public_html tree was present")
+	}
+	for _, domain := range plan.Sites {
+		website.SourceItems = append(website.SourceItems, domain.Domain)
+		if domain.Source == "" {
+			website.SkippedItems = append(website.SkippedItems, domain.Domain+": source document root was absent")
+		}
+	}
+	for _, domain := range result.Domains {
+		website.ImportedItems = append(website.ImportedItems, domain.Domain)
+	}
+	evidence = append(evidence, boundMigrationEvidence(website))
+
+	db := MigrationEvidence{Category: "databases", Status: "completed", SourceItems: append([]string(nil), info.Databases...), ImportedItems: append([]string(nil), result.DatabasesRestored...)}
+	if !databasesSelected {
+		db.Status = "not_selected"
+		for _, name := range info.Databases {
+			db.SkippedItems = append(db.SkippedItems, name+": database restore was not selected")
+		}
+	} else if len(result.DatabaseErrors) > 0 {
+		db.Details = "The job failed during database restore; inspect its error and retry/recovery state."
+	}
+
+	mail := MigrationEvidence{Category: "mailboxes", Status: "completed", SourceItems: append([]string(nil), info.Mailboxes...), ImportedItems: append([]string(nil), result.MailboxesStaged...), Details: "Mailbox data is staged privately; mail delivery, credentials, aliases, forwarding, and MX records are not activated by this import."}
+	if info.HasMail && !result.MailStaged {
+		mail.Status = "not_selected"
+		mail.Details = "Mail data was present but was not staged on the destination."
+	}
+
+	domains := []string{}
+	if plan.MainDomain != "" {
+		domains = append(domains, plan.MainDomain)
+	}
+	domains = append(domains, plan.Parked...)
+	for _, domain := range plan.Sites {
+		domains = append(domains, domain.Domain)
+	}
+	destinationDomains := []string{}
+	if result.MainDomain != "" {
+		destinationDomains = append(destinationDomains, result.MainDomain)
+	}
+	for _, domain := range result.ParkedDomains {
+		destinationDomains = append(destinationDomains, domain+" (route pending)")
+	}
+	for _, domain := range result.Domains {
+		destinationDomains = append(destinationDomains, domain.Domain)
+	}
+	domainEvidence := MigrationEvidence{Category: "domains", Status: "completed", SourceItems: domains, ImportedItems: destinationDomains, Details: "Destination routes are separate from public DNS changes."}
+	switch {
+	case domainInventoryErr != nil:
+		domainEvidence.Status = "not_inspected"
+		domainEvidence.Details = "Could not safely read domain declarations from the archive; inspect userdata/main before cutover."
+	case !plan.InventoryAvailable:
+		domainEvidence.Status = "not_inspected"
+		domainEvidence.Details = "The archive did not include a readable userdata/main domain inventory."
+	case result.Account == "" && len(domains) > 0:
+		domainEvidence.Status = "not_selected"
+		for _, domain := range domains {
+			domainEvidence.SkippedItems = append(domainEvidence.SkippedItems, domain+": addon/parked-domain placement was not part of this legacy-layout import")
+		}
+	case result.Account != "":
+		for _, domain := range plan.Sites {
+			if containsImportedDomain(result.Domains, domain.Domain) {
+				continue
+			}
+			reason := domain.Domain + ": domain site was not restored"
+			for _, failure := range result.DomainErrors {
+				if strings.HasPrefix(failure, domain.Domain+":") {
+					reason = failure
+					break
+				}
+			}
+			domainEvidence.SkippedItems = append(domainEvidence.SkippedItems, reason)
+		}
+	}
+	domainEvidence = boundMigrationEvidence(domainEvidence)
+	evidence = append(evidence, boundMigrationEvidence(db), boundMigrationEvidence(mail), domainEvidence)
+	evidence = append(evidence,
+		MigrationEvidence{Category: "dns", Status: "not_inspected", Details: "DNS records were not inventoried or changed. Before cutover, record A/AAAA, CNAME, MX, SPF, DKIM, DMARC, and TTL values; lower TTL in advance and switch only after staging verification."},
+		MigrationEvidence{Category: "cron_jobs", Status: "not_inspected", Details: "Per-account scheduled jobs were not inventoried or installed. Review the source crontab, recreate required tasks on the destination, then test commands, paths, and environment before cutover."},
+	)
+	return evidence
+}
+
+func containsImportedDomain(imported []ImportedDomain, domain string) bool {
+	for _, item := range imported {
+		if item.Domain == domain {
+			return true
+		}
+	}
+	return false
+}
+
+func boundMigrationEvidence(item MigrationEvidence) MigrationEvidence {
+	for _, values := range []*[]string{&item.SourceItems, &item.ImportedItems, &item.SkippedItems} {
+		if len(*values) > maxMigrationEvidenceItems {
+			item.OmittedItemCount += len(*values) - maxMigrationEvidenceItems
+			*values = (*values)[:maxMigrationEvidenceItems]
+		}
+	}
+	return item
 }
 
 func siteHelperContext(ctx context.Context, cfg Config, action, site string) error {

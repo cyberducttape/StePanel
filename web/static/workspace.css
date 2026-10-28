@@ -1410,6 +1410,16 @@ textarea[aria-invalid="true"] {
 .incident-limits { margin-top: 14px; color: var(--panel-muted); font-size: 12px; }
 .incident-limits summary { cursor: pointer; font-weight: 600; }
 .incident-limits ul { margin-bottom: 0; }
+.migration-evidence { display: grid; gap: 10px; width: min(100%, 980px); margin-top: 16px; text-align: left; }
+.migration-evidence h3 { margin: 0; }
+.migration-evidence-item { padding: 10px 12px; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel-bg); }
+.migration-evidence-item > strong { display: block; margin-bottom: 6px; text-transform: capitalize; }
+.migration-evidence-item > small { display: block; color: var(--panel-muted); }
+.migration-evidence-item ul { margin: 2px 0 8px; padding-left: 20px; color: var(--panel-text); }
+.migration-evidence-item li { overflow-wrap: anywhere; }
+.migration-evidence-item p { margin: 6px 0 0; color: var(--panel-muted); }
+.migration-evidence-not_inspected,
+.migration-evidence-not_selected { border-left: 3px solid #bd8120; }
 .recovery-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 18px; margin: 0 0 14px; }
 .recovery-facts dt { color: var(--panel-muted); font-size: 11px; margin-bottom: 2px; }
 .recovery-facts dd { margin: 0; display: flex; flex-direction: column; gap: 2px; }
