@@ -24,6 +24,13 @@ mixes at [`HTTP_LOAD_BASELINE_2026-10-02.md`](HTTP_LOAD_BASELINE_2026-10-02.md).
 They are short developer-host or CI measurements and do not represent a
 certified workload envelope.
 
+A current-source, two-process SQLite write probe is recorded in the
+[cross-process contention report](lab-results/2026-10-28-sqlite-process-contention-34045cb.md).
+Both processes completed 100,000 writes without busy errors on a shared WAL
+database. The run used an unsupported Ubuntu 26.04 developer host and tmpfs;
+it does not establish checkpoint behavior, killed-process recovery, or a
+production capacity limit.
+
 ## What remains unmeasured
 
 Before publishing site, account, domain, or concurrent-job ceilings, run the
