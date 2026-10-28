@@ -100,7 +100,10 @@ func TestCapacityLedgerReadinessRejectsIncompleteSchema(t *testing.T) {
 		CREATE TABLE capacity_reservations (reservation_id TEXT PRIMARY KEY, bytes INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	check := capacityLedgerReadiness(newJobsWithDB(db))
+	check, err := newJobsWithDB(db).ReadinessStatus()
+	if err != nil {
+		t.Fatalf("readiness database query failed unexpectedly: %v", err)
+	}
 	if check.Ready || !strings.Contains(check.Detail, "schema is incomplete") {
 		t.Fatalf("capacity ledger readiness = %#v; want incomplete-schema failure", check)
 	}

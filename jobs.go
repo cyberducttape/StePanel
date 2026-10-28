@@ -1085,23 +1085,35 @@ func (j *Jobs) QueueStats() (JobQueueStats, error) {
 	return stats, nil
 }
 
-// LightweightReadiness performs the cheap query used by frequent readiness
-// probes. Full SQLite integrity verification runs in the maintenance loop and
-// is exposed through IntegrityStatus instead of contending with every probe.
-func (j *Jobs) LightweightReadiness() error {
+// ReadinessStatus performs the bounded database and capacity-ledger checks
+// used by frequent health probes in one SQLite query. This matters because
+// the panel uses a single connection: separate checks can each wait for their
+// own timeout while competing with job traffic. Full integrity verification
+// runs in maintenance and is exposed through IntegrityStatus.
+func (j *Jobs) ReadinessStatus() (ReadinessCheck, error) {
 	if j == nil || j.db == nil {
-		return errors.New("control-plane database is unavailable")
+		return ReadinessCheck{Ready: false, Detail: "durable capacity ledger database is unavailable"}, errors.New("control-plane database is unavailable")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
-	var result int
-	if err := j.db.QueryRowContext(ctx, `SELECT 1`).Scan(&result); err != nil {
-		return err
+	var result, tables, columns int
+	err := j.db.QueryRowContext(ctx, `
+		SELECT 1,
+			(SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='capacity_reservations'),
+			(SELECT COUNT(*) FROM pragma_table_info('capacity_reservations')
+			 WHERE name IN ('reservation_id','device','bytes','workflow','staging_path','created_at','owner_pid','owner_start'))
+	`).Scan(&result, &tables, &columns)
+	if err != nil {
+		return ReadinessCheck{Ready: false, Detail: fmt.Sprintf("durable capacity reservation ledger is unavailable: %v", err)}, err
 	}
 	if result != 1 {
-		return fmt.Errorf("control-plane readiness query returned %d", result)
+		err := fmt.Errorf("control-plane readiness query returned %d", result)
+		return ReadinessCheck{Ready: false, Detail: "durable capacity reservation ledger is unavailable: " + err.Error()}, err
 	}
-	return nil
+	if tables != 1 || columns != 8 {
+		return ReadinessCheck{Ready: false, Detail: fmt.Sprintf("durable capacity reservation schema is incomplete (table=%d, required columns=%d/8)", tables, columns)}, nil
+	}
+	return ReadinessCheck{Ready: true, Detail: "durable capacity reservation ledger is readable"}, nil
 }
 
 // VerifyIntegrity runs the expensive structural check outside the readiness

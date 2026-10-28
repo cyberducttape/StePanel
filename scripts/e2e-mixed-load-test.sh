@@ -151,7 +151,11 @@ for worker in $(seq 1 "$WORKERS"); do
     : > "$result"
     for request in $(seq 1 "$REQUESTS"); do
       endpoint="${endpoints[$(( (request - 1) % ${#endpoints[@]} ))]}"
-      curl --silent --show-error --output /dev/null --max-time 5 \
+      response_file=/dev/null
+      if [[ $endpoint == /readyz ]]; then
+        response_file="$TEST_ROOT/readyz.$worker.$request.json"
+      fi
+      curl --silent --show-error --output "$response_file" --max-time 5 \
         --write-out "%{http_code} %{time_total} $endpoint\n" --cookie "$COOKIE_JAR" \
         "$BASE_URL$endpoint" >> "$result" || printf '000 5 %s\n' "$endpoint" >> "$result"
     done
@@ -190,7 +194,15 @@ done
 cat "$TEST_ROOT"/results.* > "$TEST_ROOT/all-results"
 if awk '$1 !~ /^2[0-9][0-9]$/ { bad++ } END { exit bad ? 0 : 1 }' "$TEST_ROOT/all-results"; then
   echo "non-2xx responses under load:" >&2
-  awk '$1 !~ /^2[0-9][0-9]$/ { print $1 }' "$TEST_ROOT/all-results" | sort | uniq -c >&2
+  awk '$1 !~ /^2[0-9][0-9]$/ { printf "  HTTP %-3s %7ss %s\n", $1, $2, $3 }' "$TEST_ROOT/all-results" >&2
+  for response in "$TEST_ROOT"/readyz.*.json; do
+    [[ -f $response ]] || continue
+    if ! jq -e '.operational == true' "$response" >/dev/null 2>&1; then
+      echo "readiness response ($response, first 2 KiB):" >&2
+      head -c 2048 "$response" >&2
+      echo >&2
+    fi
+  done
   exit 1
 fi
 total=$(wc -l < "$TEST_ROOT/all-results")
