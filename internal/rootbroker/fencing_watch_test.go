@@ -181,3 +181,17 @@ func TestDatabaseFencingDistinguishesReads(t *testing.T) {
 		}
 	}
 }
+
+func TestSiteFencingDistinguishesFPMStatusRead(t *testing.T) {
+	for action, fenced := range map[string]bool{
+		"fpm-status": false,
+		"create":     true,
+		"delete":     true,
+		"runtime":    true,
+	} {
+		req := &Request{RequestType: "site", Site: &SiteRequest{Action: action, Site: "demo"}}
+		if got := requestRequiresFencing(req); got != fenced {
+			t.Errorf("site %s requires fencing = %v, want %v", action, got, fenced)
+		}
+	}
+}

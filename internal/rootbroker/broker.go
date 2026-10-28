@@ -398,6 +398,10 @@ func requestRequiresFencing(req *Request) bool {
 	switch req.RequestType {
 	case "health":
 		return false
+	case "site":
+		// PHP-FPM status derives its paths from root-owned configuration and
+		// only reads bounded counters. It has no host mutation to fence.
+		return req.Site != nil && req.Site.Action != "fpm-status"
 	case "db":
 		return req.DB != nil && !dbReadOnlyActions[req.DB.Action]
 	case "git":
