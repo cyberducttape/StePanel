@@ -21,6 +21,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Import-stage cleanup now centralizes lock finalization and checks whether a
   stage path was recreated before unlinking its lock file; a three-process
   regression verifies serialized same-name stage recreation.
+- Exact-source release evidence now distinguishes queued and waiting GitHub
+  workflow runs from jobs that are actually in progress.
 
 ### Testing
 

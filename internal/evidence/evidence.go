@@ -375,7 +375,16 @@ func short(sha string) string {
 
 func outcome(run *Run) string {
 	if run.Status != "completed" {
-		return "⏳ in progress"
+		switch run.Status {
+		case "in_progress":
+			return "⏳ in progress"
+		case "queued", "pending", "requested":
+			return "⏳ queued"
+		case "waiting":
+			return "⏳ waiting"
+		default:
+			return "❔ " + run.Status
+		}
 	}
 	switch run.Conclusion {
 	case "success":
