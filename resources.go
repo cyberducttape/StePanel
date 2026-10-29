@@ -784,12 +784,11 @@ func resourceProfileEffects(before, proposed ResourceProfile, status rootbroker.
 		perWorker := pool.WorkerMemory.P95RSSBytes
 		oldP95 := perWorker * uint64(before.PHPWorkers)
 		newP95 := perWorker * uint64(proposed.PHPWorkers)
-		oldObservedMax := pool.WorkerMemory.MaxRSSBytes * uint64(before.PHPWorkers)
 		newObservedMax := pool.WorkerMemory.MaxRSSBytes * uint64(proposed.PHPWorkers)
-		effects = append(effects, fmt.Sprintf("PHP %s measured worker RSS across %d sampled process(es): P95 %s and largest observed worker %s. At the proposed %d workers, estimated pool RSS is %s at P95 and %s using the largest observed worker (current profile: %s P95 / %s largest-observed projection). The P95 estimate changes by %+d MiB. These instantaneous, shared-page-inclusive projections are planning estimates, not reservations or a sustained-load guarantee.",
-			pool.PHPVersion, pool.WorkerMemory.SampledWorkers, formatPHPBytes(perWorker), formatPHPBytes(pool.WorkerMemory.MaxRSSBytes), proposed.PHPWorkers,
-			formatPHPBytes(newP95), formatPHPBytes(newObservedMax), formatPHPBytes(oldP95), formatPHPBytes(oldObservedMax),
-			(int64(newP95)-int64(oldP95))/(1024*1024)))
+		effects = append(effects, fmt.Sprintf("PHP %s measured worker RSS across %d sampled process(es): P95 %s and largest observed worker %s. The estimated pool RSS changes from %s at %d workers to %s at %d workers (change %+d MiB) at measured P95; the proposed profile also projects %s using the largest observed worker. These instantaneous, shared-page-inclusive projections are planning estimates, not reservations or a sustained-load guarantee.",
+			pool.PHPVersion, pool.WorkerMemory.SampledWorkers, formatPHPBytes(perWorker), formatPHPBytes(pool.WorkerMemory.MaxRSSBytes),
+			formatPHPBytes(oldP95), before.PHPWorkers, formatPHPBytes(newP95), proposed.PHPWorkers,
+			(int64(newP95)-int64(oldP95))/(1024*1024), formatPHPBytes(newObservedMax)))
 	}
 	if !memoryObserved {
 		effects = append(effects, "PHP-FPM worker memory could not be measured; no memory-based worker sizing estimate is available. Collect representative measurements before increasing max_children.")

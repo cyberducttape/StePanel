@@ -38,7 +38,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   estimate based on the largest worker in the sample. This makes the likely
   memory effect easier to assess without treating one instantaneous sample as
   a reservation or sustained-load guarantee; the settings remain previewed
-  and administrator-approved before application.
+  and administrator-approved before application. The preview states the
+  estimated before-and-after pool RSS and memory delta at the current and
+  proposed worker counts explicitly.
 
 - PHP-FPM resource details now show the summed RSS of the sampled site workers,
   distinguish it from the separately measured systemd-slice memory, and include
