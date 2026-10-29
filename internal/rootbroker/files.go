@@ -131,7 +131,7 @@ func (b *Broker) handleFilesRequest(ctx context.Context, req *FilesRequest) (*Re
 		result.Listing = &listing
 	case "read":
 		if len(stdout) > sitefiles.MaxReadBytes {
-			return &Response{OK: false, Error: fmt.Sprintf("file is larger than %d bytes", sitefiles.MaxReadBytes)}, nil
+			return &Response{OK: false, Error: fmt.Sprintf("files read failed: file is larger than %d bytes", sitefiles.MaxReadBytes)}, nil
 		}
 		result.Content = stdout
 	}

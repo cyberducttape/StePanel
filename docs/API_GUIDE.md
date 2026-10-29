@@ -29,7 +29,7 @@ restored. Restore artifact verification remains part of each restore request.
 The web login is a form POST to `/login`. It sets two cookies:
 
 - `stepanel_session`: HttpOnly authenticated session cookie.
-- `stepanel_csrf`: CSRF value used for browser mutations.
+- `stepanel_csrf`: CSRF value used for browser mutations. It is derived from the session with the server secret, so only the value issued for the current session is accepted; a cookie set by another subdomain is not.
 
 Production login requires the administrator or customer username, password,
 and TOTP code. Recovery codes can be supplied in the TOTP field when a

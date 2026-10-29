@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -134,5 +135,24 @@ func TestBrokerFilesRunAsTheRecordedAccountUser(t *testing.T) {
 	want := "list alice alice \nread alice alice index.php\nwrite alice alice index.php\nrename alice alice a b\ndelete alice alice gone\n"
 	if string(data) != want {
 		t.Fatalf("helper calls =\n%s\nwant\n%s", data, want)
+	}
+}
+
+func TestBrokerFilesReadReportsGrownFileAsRefusal(t *testing.T) {
+	broker, _, _ := newAccountBroker(t)
+	stub := filepath.Join(t.TempDir(), "stepanel-filectl")
+	// The helper emits one byte past the limit when a file grew after its
+	// size check; the broker must refuse it in the customer-visible form.
+	script := "#!/bin/sh\nhead -c " + strconv.Itoa(sitefiles.MaxReadBytes+1) + " /dev/zero\n"
+	if err := os.WriteFile(stub, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	broker.filectl = stub
+	resp, err := broker.handleFilesRequest(context.Background(), &FilesRequest{Action: "read", Site: "alice", Path: "growing.log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK || !strings.HasPrefix(resp.Error, "files read failed: ") || !strings.Contains(resp.Error, "larger than") {
+		t.Fatalf("grown file read response = %+v", resp)
 	}
 }

@@ -25,10 +25,7 @@ func (a *App) customerPanel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "customer account required", http.StatusForbidden)
 		return
 	}
-	csrf := ""
-	if cookie, err := r.Cookie("stepanel_csrf"); err == nil {
-		csrf = cookie.Value
-	}
+	csrf := a.Auth.CSRFToken(r)
 	var jobs []Job
 	jobsUnavailable := false
 	sites, err := a.Accounts.GetSitesWithError(username)

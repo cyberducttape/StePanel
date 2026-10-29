@@ -860,10 +860,7 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	csrf := ""
-	if cookie, err := r.Cookie("stepanel_csrf"); err == nil {
-		csrf = cookie.Value
-	}
+	csrf := a.Auth.CSRFToken(r)
 	isAdministrator := a.Auth.IsAdministrator(r)
 	if !isAdministrator && a.PanelView != nil {
 		// Customers have their own panel (web/panel.html).

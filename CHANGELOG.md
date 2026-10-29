@@ -18,6 +18,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- CSRF tokens are derived from the session with the server secret instead of
+  being an independent double-submit cookie. A sibling subdomain (same site,
+  so SameSite cookies still flow) can no longer plant a matching cookie and
+  form field, and an empty cookie and field no longer pass. Open sessions are
+  reissued the bound token on their next authenticated request.
+- A file that grows past the read limit between its size check and read is
+  now reported to the customer as a refusal instead of a host failure.
 - Git rollback previews bind the active release by directory identity rather
   than its contents, so a live application writing caches or uploads no longer
   invalidates the confirmation; the rollback preview endpoint now answers HEAD.

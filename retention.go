@@ -2,6 +2,7 @@ package stepanel
 
 import (
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -124,7 +125,10 @@ func removeImportStage(path string, lock *os.File) {
 		return
 	}
 	defer releaseBackupStageLock(coordination)
-	_ = finalizeImportStageRemoval(path, lock)
+	if err := finalizeImportStageRemoval(path, lock); err != nil {
+		// Stage cleanup reclaims what remains; record why it was left.
+		log.Printf("finalize import stage removal for %s: %v", filepath.Base(path), err)
+	}
 }
 
 // finalizeImportStageRemoval runs with the root coordination lock held. A

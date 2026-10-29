@@ -306,11 +306,6 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not create a secure session", http.StatusInternalServerError)
 		return
 	}
-	csrf, err := randomSecret()
-	if err != nil {
-		http.Error(w, "could not create a secure session", http.StatusInternalServerError)
-		return
-	}
 	payload := username + "|" + strconv.FormatInt(expiry, 10) + "|" + sessionID + "|" + a.credentialFingerprintFor(username, passwordHash)
 	token := payload + "|" + a.sign(payload)
 	if a.sessions != nil {
@@ -320,8 +315,74 @@ func (a Auth) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: "stepanel_session", Value: base64.RawURLEncoding.EncodeToString([]byte(token)), Path: "/", Expires: time.Unix(expiry, 0), HttpOnly: true, Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
-	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", Value: csrf, Path: "/", Expires: time.Unix(expiry, 0), Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
+	a.setCSRFCookie(w, a.csrfTokenFor(sessionID), expiry)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// csrfTokenFor derives a session's CSRF token from its session identity.
+// A plain double-submit cookie can be planted by a sibling subdomain (same
+// site, so SameSite cookies still flow) together with a matching form field;
+// a token derived with the session secret from the HttpOnly session cookie
+// cannot be.
+func (a Auth) csrfTokenFor(sessionIdentity string) string {
+	if sessionIdentity == "" {
+		return ""
+	}
+	return a.sign("csrf\x00" + sessionIdentity)
+}
+
+// CSRFToken returns the CSRF token bound to the request's session, or "" when
+// the request has no session cookie.
+func (a Auth) CSRFToken(r *http.Request) string {
+	token, _ := a.sessionCSRFToken(r)
+	return token
+}
+
+// sessionCSRFToken returns the session-bound CSRF token and the session's
+// expiry. Legacy three-part sessions carry no session identifier, so their
+// signed username and expiry identify them.
+func (a Auth) sessionCSRFToken(r *http.Request) (string, int64) {
+	cookie, err := r.Cookie("stepanel_session")
+	if err != nil {
+		return "", 0
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(cookie.Value)
+	if err != nil {
+		return "", 0
+	}
+	parts := strings.Split(string(raw), "|")
+	var identity string
+	switch len(parts) {
+	case 5:
+		identity = parts[2]
+	case 3:
+		identity = parts[0] + "|" + parts[1]
+	default:
+		return "", 0
+	}
+	expiry, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", 0
+	}
+	return a.csrfTokenFor(identity), expiry
+}
+
+func (a Auth) setCSRFCookie(w http.ResponseWriter, token string, expiry int64) {
+	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", Value: token, Path: "/", Expires: time.Unix(expiry, 0), Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
+}
+
+// refreshCSRFCookie reissues the session-bound token when the browser holds
+// a different value, such as a random token from before tokens were bound to
+// sessions, so open sessions keep working after an upgrade.
+func (a Auth) refreshCSRFCookie(w http.ResponseWriter, r *http.Request) {
+	token, expiry := a.sessionCSRFToken(r)
+	if token == "" {
+		return
+	}
+	if cookie, err := r.Cookie("stepanel_csrf"); err == nil && cookie.Value == token {
+		return
+	}
+	a.setCSRFCookie(w, token, expiry)
 }
 func (a Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -376,6 +437,7 @@ func (a Auth) Require(next http.Handler) http.Handler {
 			return
 		}
 		if a.validSession(r) {
+			a.refreshCSRFCookie(w, r)
 			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 				if err := SecurityAuditRequired(a.AuditLog, a.AuditActor(r), "http.request", r.URL.Path, a.ClientIP(r)); err != nil {
 					http.Error(w, "audit persistence is unavailable", http.StatusServiceUnavailable)
@@ -406,8 +468,8 @@ func (a Auth) CSRF(r *http.Request) bool {
 	if _, ok := r.Context().Value(replayedIdentityKey{}).(string); ok {
 		return true
 	}
-	cookie, err := r.Cookie("stepanel_csrf")
-	if err != nil {
+	expected := a.CSRFToken(r)
+	if expected == "" {
 		return false
 	}
 	// Prefer the header so multipart endpoints never need to parse an
@@ -421,7 +483,7 @@ func (a Auth) CSRF(r *http.Request) bool {
 		}
 		value = r.FormValue("csrf")
 	}
-	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(value)) == 1
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(value)) == 1
 }
 func (a Auth) validSession(r *http.Request) bool {
 	cookie, err := r.Cookie("stepanel_session")

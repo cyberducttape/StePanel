@@ -174,18 +174,108 @@ func TestAuthClientIPUsesTrustedProxyPolicyForLoginThrottling(t *testing.T) {
 	}
 }
 
+// csrfTestSession logs in and returns the issued cookies and CSRF token.
+func csrfTestSession(t *testing.T) (Auth, []*http.Cookie, string) {
+	t.Helper()
+	t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+	t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+	auth, err := NewAuth(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.ConfigureSessionStore(filepath.Join(t.TempDir(), "sessions.json")); err != nil {
+		t.Fatal(err)
+	}
+	login := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=admin&password=correct+horse+battery+staple"))
+	login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	auth.Login(response, login)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d", response.Code)
+	}
+	cookies := response.Result().Cookies()
+	token := ""
+	for _, cookie := range cookies {
+		if cookie.Name == "stepanel_csrf" {
+			token = cookie.Value
+		}
+	}
+	if token == "" {
+		t.Fatal("login did not issue a CSRF token")
+	}
+	return auth, cookies, token
+}
+
 func TestCSRFMultipartRequiresHeaderWithoutParsingBody(t *testing.T) {
-	auth := Auth{Enabled: true}
-	req := httptest.NewRequest(http.MethodPost, "/api/upload", strings.NewReader("csrf=body-token"))
+	auth, cookies, token := csrfTestSession(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", strings.NewReader("csrf="+token))
 	req.Header.Set("Content-Type", "multipart/form-data; boundary=test")
-	cookie := &http.Cookie{Name: "stepanel_csrf", Value: "body-token"}
-	req.AddCookie(cookie)
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
+	}
 	if auth.CSRF(req) {
 		t.Fatal("multipart body token should not be parsed for CSRF validation")
 	}
-	req.Header.Set("X-CSRF-Token", "body-token")
+	req.Header.Set("X-CSRF-Token", token)
 	if !auth.CSRF(req) {
 		t.Fatal("multipart header token should validate")
+	}
+}
+
+func TestCSRFRejectsTokenNotBoundToSession(t *testing.T) {
+	auth, cookies, token := csrfTestSession(t)
+	session := func(csrfCookie *http.Cookie, value string) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/api/mutate", strings.NewReader("csrf="+value))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for _, cookie := range cookies {
+			if cookie.Name != "stepanel_csrf" {
+				req.AddCookie(cookie)
+			}
+		}
+		if csrfCookie != nil {
+			req.AddCookie(csrfCookie)
+		}
+		return req
+	}
+	// A sibling subdomain can plant a cookie for the parent domain and submit
+	// a matching form field; that pair must not satisfy CSRF.
+	if auth.CSRF(session(&http.Cookie{Name: "stepanel_csrf", Value: "planted"}, "planted")) {
+		t.Fatal("a planted double-submit cookie satisfied CSRF")
+	}
+	if auth.CSRF(session(&http.Cookie{Name: "stepanel_csrf", Value: ""}, "")) {
+		t.Fatal("an empty CSRF cookie and field satisfied CSRF")
+	}
+	if !auth.CSRF(session(nil, token)) {
+		t.Fatal("the session-bound token was rejected")
+	}
+	noSession := httptest.NewRequest(http.MethodPost, "/api/mutate", nil)
+	noSession.AddCookie(&http.Cookie{Name: "stepanel_csrf", Value: token})
+	noSession.Header.Set("X-CSRF-Token", token)
+	if auth.CSRF(noSession) {
+		t.Fatal("a CSRF token was accepted without its session")
+	}
+}
+
+func TestRequireReissuesUnboundCSRFCookie(t *testing.T) {
+	auth, cookies, token := csrfTestSession(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, cookie := range cookies {
+		if cookie.Name != "stepanel_csrf" {
+			req.AddCookie(cookie)
+		}
+	}
+	req.AddCookie(&http.Cookie{Name: "stepanel_csrf", Value: "random-pre-upgrade-token"})
+	response := httptest.NewRecorder()
+	auth.Require(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, req)
+	reissued := ""
+	for _, cookie := range response.Result().Cookies() {
+		if cookie.Name == "stepanel_csrf" {
+			reissued = cookie.Value
+		}
+	}
+	if reissued != token {
+		t.Fatalf("Require reissued CSRF cookie %q, want the session-bound token", reissued)
 	}
 }
 
