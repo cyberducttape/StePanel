@@ -472,7 +472,7 @@ else
   printf '%s\n' 'database-secret' > "$database_export"
   printf '%s\n' 'backup-secret' > "$archived_backup"
   printf '%s\n' 'must-not-be-followed' > "$symlink_target"
-  ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
+  runuser -u "$site_user" -- ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
   trap 'rm -f "$sensitive_file" "$nested_env" "$nested_git_config" "$database_export" "$archived_backup" "$symlink_target" "$symlink_path"; if [[ -d "$activation_old_root" ]]; then rm -rf "$public_root"; mv "$activation_old_root" "$public_root"; fi; rm -f "$activation_marker"' EXIT
   caddy_https_status() {
     local request_path=$1 status=000
@@ -517,7 +517,7 @@ else
   rm -f "$symlink_path"
   apply_smoke_vhost "$site" ci-smoke.localhost
   [[ $(stat -c '%u:%g:%a' "$site_home") == "$site_home_identity" ]] || { echo 'reapplying the Caddy route changed site-parent ownership or mode' >&2; exit 1; }
-  ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
+  runuser -u "$site_user" -- ln -s ../.stepanel-caddy-outside-secret "$symlink_path"
   printf '%s' before-activation > "$activation_marker"
   activation_response=$(curl --insecure --silent --show-error --max-time 10 --write-out $'\n%{http_code}' \
     --resolve ci-smoke.localhost:443:127.0.0.1 https://ci-smoke.localhost/stepanel-activation-marker.txt)

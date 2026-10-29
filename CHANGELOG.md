@@ -85,6 +85,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- The installed Caddy security smoke now creates document-root symlinks as the
+  actual site account before requesting them over HTTPS, so the no-follow
+  document-root boundary is exercised against tenant-created links rather than
+  only root-created fixtures.
 - The adversarial archive suite now tests oversized declared expansion against
   the production verifier using a small hostile fixture, instead of spending
   minutes generating a 1 GiB compressed payload under race instrumentation.
