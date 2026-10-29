@@ -18,6 +18,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   identified as account-scoped upper bounds when a site shares an account.
   Inode measurement includes symlinks and special files without following
   them, and counts hard-linked inodes only once.
+- Added focused coverage for PHP worker-ceiling reserve math, invalid or absent
+  samples, the maximum estimate cap, and preview warnings when a proposed
+  worker count exceeds the estimate.
 
 - Prometheus now reports the presence and age of successful application-level
   recovery proofs for scheduled sites, along with the configured freshness

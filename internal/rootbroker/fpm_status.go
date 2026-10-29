@@ -22,10 +22,12 @@ import (
 )
 
 const (
-	fpmStatusPath        = "/stepanel-fpm-status"
-	fpmStatusMaxResponse = 64 << 10
-	fpmPoolConfigLimit   = 64 << 10
-	fpmStatusTimeout     = 1500 * time.Millisecond
+	fpmStatusPath          = "/stepanel-fpm-status"
+	fpmStatusMaxResponse   = 64 << 10
+	fpmPoolConfigLimit     = 64 << 10
+	fpmStatusTimeout       = 1500 * time.Millisecond
+	fpmMemoryReservePct    = 30
+	fpmEstimatedMaxWorkers = 512
 )
 
 var fpmSitePattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
@@ -177,13 +179,10 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 				// the remainder is an explicit safety reserve for other host work.
 				// This remains an advisory ceiling because MemAvailable is transient
 				// and RSS includes shared mappings.
-				additional := (result.HostMemory.AvailableBytes / 100 * 70) / memory.P95RSSBytes
-				ceiling := uint64(memory.SampledWorkers) + additional
-				if ceiling > 512 {
-					ceiling = 512
+				if ceiling, ok := estimateFPMWorkerCeiling(memory.SampledWorkers, memory.P95RSSBytes, result.HostMemory.AvailableBytes); ok {
+					memory.EstimatedWorkerCeiling = ceiling
+					memory.WorkerCeilingBasis = "sampled worker count plus 70% of current host MemAvailable divided by per-worker P95 RSS; 30% held as a host reserve; transient planning estimate, not a safe or enforced limit"
 				}
-				memory.EstimatedWorkerCeiling = ceiling
-				memory.WorkerCeilingBasis = "sampled worker count plus 70% of current host MemAvailable divided by per-worker P95 RSS; 30% held as a host reserve; transient planning estimate, not a safe or enforced limit"
 			}
 			item.WorkerMemory = memory
 		} else {
@@ -202,6 +201,18 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		result.Detail = "PHP-FPM status is partial; one or more configured pools could not be sampled."
 	}
 	return result, nil
+}
+
+func estimateFPMWorkerCeiling(sampledWorkers int, p95RSSBytes, availableBytes uint64) (uint64, bool) {
+	if sampledWorkers < 1 || p95RSSBytes == 0 || availableBytes == 0 {
+		return 0, false
+	}
+	additional := (availableBytes / 100 * uint64(100-fpmMemoryReservePct)) / p95RSSBytes
+	ceiling := uint64(sampledWorkers) + additional
+	if ceiling > fpmEstimatedMaxWorkers {
+		ceiling = fpmEstimatedMaxWorkers
+	}
+	return ceiling, true
 }
 
 func addFPMHostMemoryGuidance(guidance *FPMGuidance, pool FPMStatusPool, host *FPMHostMemory) {

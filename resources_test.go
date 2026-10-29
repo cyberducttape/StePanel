@@ -58,11 +58,14 @@ func TestResourceProfilePreviewQuantifiesMeasuredWorkerMemoryDelta(t *testing.T)
 	proposed.PHPWorkers = 10
 	status := rootbroker.FPMStatus{Available: true, Pools: []rootbroker.FPMStatusPool{{
 		PHPVersion: "8.3", State: "available", MaxChildren: 8,
-		WorkerMemory: &rootbroker.FPMWorkerMemory{SampledWorkers: 4, P95RSSBytes: 40 << 20, MaxRSSBytes: 48 << 20},
+		WorkerMemory: &rootbroker.FPMWorkerMemory{SampledWorkers: 4, P95RSSBytes: 40 << 20, MaxRSSBytes: 48 << 20, EstimatedWorkerCeiling: 8, WorkerCeilingBasis: "test basis"},
 	}}}
 	effects := strings.Join(resourceProfileEffects(before, proposed, status), " ")
 	if !strings.Contains(effects, "estimated pool RSS changes from 320.0 MiB at 8 workers to 400.0 MiB at 10 workers (change +80 MiB)") {
 		t.Fatalf("resource preview omitted measured worker-memory delta: %s", effects)
+	}
+	if !strings.Contains(effects, "proposed worker count exceeds this conservative estimate") {
+		t.Fatalf("resource preview omitted over-ceiling warning: %s", effects)
 	}
 }
 

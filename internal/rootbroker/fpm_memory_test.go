@@ -71,3 +71,23 @@ func TestFPMPoolGuidanceIncludesWorkerMemory(t *testing.T) {
 		t.Fatalf("guidance = %#v", guidance)
 	}
 }
+
+func TestEstimateFPMWorkerCeilingUsesReserveAndCapsResult(t *testing.T) {
+	ceiling, ok := estimateFPMWorkerCeiling(2, 100<<20, 1<<30)
+	if !ok || ceiling != 9 { // 2 sampled workers + 70% of 1 GiB / 100 MiB.
+		t.Fatalf("ceiling = %d/%v, want 9/true", ceiling, ok)
+	}
+	ceiling, ok = estimateFPMWorkerCeiling(500, 1, 1<<40)
+	if !ok || ceiling != fpmEstimatedMaxWorkers {
+		t.Fatalf("large ceiling = %d/%v, want cap %d", ceiling, ok, fpmEstimatedMaxWorkers)
+	}
+	for _, input := range []struct {
+		workers   int
+		p95       uint64
+		available uint64
+	}{{0, 1, 1}, {1, 0, 1}, {1, 1, 0}} {
+		if got, valid := estimateFPMWorkerCeiling(input.workers, input.p95, input.available); valid || got != 0 {
+			t.Fatalf("invalid estimate input %#v produced %d/%v", input, got, valid)
+		}
+	}
+}
