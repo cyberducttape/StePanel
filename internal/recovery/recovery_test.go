@@ -62,6 +62,44 @@ func TestStoreRecordsAndReadsLatest(t *testing.T) {
 	}
 }
 
+func TestLatestApplicationProofsRequireLatestApplicationAttemptToPass(t *testing.T) {
+	store := openStore(t)
+	ctx := context.Background()
+	applicationPass := rehearsal("demo", "app-pass", OutcomePassed, base)
+	applicationPass.Level = LevelApplication
+	archiveFailure := rehearsal("demo", "archive-fail", OutcomeFailed, base.Add(time.Hour))
+	if err := store.Record(ctx, applicationPass); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Record(ctx, archiveFailure); err != nil {
+		t.Fatal(err)
+	}
+	proofs, err := store.LatestApplicationProofs(ctx)
+	if err != nil || !proofs["demo"].Equal(base) {
+		t.Fatalf("archive-only failure changed application proof = %v, %v", proofs, err)
+	}
+
+	applicationFailure := rehearsal("demo", "app-fail", OutcomeFailed, base.Add(2*time.Hour))
+	applicationFailure.Level = LevelApplication
+	if err := store.Record(ctx, applicationFailure); err != nil {
+		t.Fatal(err)
+	}
+	proofs, err = store.LatestApplicationProofs(ctx)
+	if err != nil || len(proofs) != 0 {
+		t.Fatalf("latest failed application rehearsal retained passing proof = %v, %v", proofs, err)
+	}
+
+	applicationPass = rehearsal("demo", "app-pass-again", OutcomePassed, base.Add(3*time.Hour))
+	applicationPass.Level = LevelApplication
+	if err := store.Record(ctx, applicationPass); err != nil {
+		t.Fatal(err)
+	}
+	proofs, err = store.LatestApplicationProofs(ctx)
+	if err != nil || !proofs["demo"].Equal(applicationPass.FinishedAt) {
+		t.Fatalf("new passing application rehearsal not reported = %v, %v", proofs, err)
+	}
+}
+
 func TestStorePrunesHistoryPerSite(t *testing.T) {
 	store := openStore(t)
 	ctx := context.Background()

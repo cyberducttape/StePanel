@@ -13,7 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   window and proof-inventory availability. A newer failed application
   rehearsal clears the passing signal. Alerts distinguish missing or failed
   latest proofs, stale proofs, and unavailable recovery history; archive-only
-  verification is not represented as application recovery evidence.
+  verification is not represented as application recovery evidence. Regression
+  coverage exercises failed, archive-only, and subsequent passing attempts.
 
 - Site resource views now show live systemd-slice memory, task count, cumulative
   CPU time, PHP-FPM active/idle/queued workers, slow-request counters, and
