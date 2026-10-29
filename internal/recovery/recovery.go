@@ -101,7 +101,8 @@ const Schema = `CREATE TABLE IF NOT EXISTS recovery_rehearsals (
     duration_ms INTEGER NOT NULL,
     detail BLOB NOT NULL
 );
-CREATE INDEX IF NOT EXISTS recovery_rehearsals_site_idx ON recovery_rehearsals(site, started_at DESC, id DESC);`
+CREATE INDEX IF NOT EXISTS recovery_rehearsals_site_idx ON recovery_rehearsals(site, started_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS recovery_rehearsals_application_proof_idx ON recovery_rehearsals(outcome, level, site, finished_at DESC);`
 
 // Store persists rehearsal history in the control-plane database.
 type Store struct {
@@ -194,6 +195,33 @@ func (s *Store) Latest(ctx context.Context, site string) (*Rehearsal, error) {
 // LatestPassed returns the site's most recent successful rehearsal.
 func (s *Store) LatestPassed(ctx context.Context, site string) (*Rehearsal, error) {
 	return s.one(ctx, `SELECT `+rehearsalColumns+` FROM recovery_rehearsals WHERE site = ? AND outcome = 'passed' ORDER BY started_at DESC, id DESC LIMIT 1`, site)
+}
+
+// LatestApplicationProofs returns the most recent successful application-level
+// rehearsal per site. It intentionally returns only timestamps and site IDs
+// for low-cost operational metrics; archive-only passes do not count as an
+// application proof.
+func (s *Store) LatestApplicationProofs(ctx context.Context) (map[string]time.Time, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT site, MAX(finished_at) FROM recovery_rehearsals WHERE outcome='passed' AND level='application' GROUP BY site`)
+	if err != nil {
+		return nil, fmt.Errorf("list latest application recovery proofs: %w", err)
+	}
+	defer rows.Close()
+	proofs := make(map[string]time.Time)
+	for rows.Next() {
+		var site string
+		var finished int64
+		if err := rows.Scan(&site, &finished); err != nil {
+			return nil, fmt.Errorf("scan latest application recovery proof: %w", err)
+		}
+		if site != "" && finished > 0 {
+			proofs[site] = time.Unix(0, finished).UTC()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read latest application recovery proofs: %w", err)
+	}
+	return proofs, nil
 }
 
 func (s *Store) one(ctx context.Context, query, site string) (*Rehearsal, error) {

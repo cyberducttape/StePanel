@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/audit"
+	"github.com/cyberducttape/StePanel/internal/recovery"
 )
 
 // Metrics contains the small, dependency-free Prometheus surface exposed by
@@ -444,6 +445,60 @@ func writeBackupScheduleMetrics(w io.Writer, schedules []BackupSchedule) {
 	for _, schedule := range schedules {
 		if schedule.Enabled && schedule.LastSuccess != nil && safeUser(schedule.Site) == schedule.Site {
 			_, _ = fmt.Fprintf(w, "stepanel_backup_interval_seconds{site=%q} %d\n", schedule.Site, schedule.IntervalMinutes*60)
+		}
+	}
+}
+
+// writeRecoveryProofMetrics exposes freshness of actual application-level
+// restore proofs for sites with enabled backup schedules. Archive-only passes
+// do not count as application proofs. The per-site max age matches the
+// recovery status policy: twice the configured automatic rehearsal interval.
+func writeRecoveryProofMetrics(w io.Writer, store *recovery.Store, schedules []BackupSchedule, intervalHours int) {
+	up := 1
+	var proofs map[string]time.Time
+	if store == nil {
+		up = 0
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		var err error
+		proofs, err = store.LatestApplicationProofs(ctx)
+		cancel()
+		if err != nil {
+			up = 0
+		}
+	}
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_recovery_proof_inventory_up Whether application recovery proof inventory collection succeeded")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_recovery_proof_inventory_up gauge")
+	_, _ = fmt.Fprintf(w, "stepanel_recovery_proof_inventory_up %d\n", up)
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_recovery_application_proof_present Whether a site has a successful application-level recovery proof")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_recovery_application_proof_present gauge")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_recovery_application_proof_age_seconds Age of the latest successful application-level recovery proof")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_recovery_application_proof_age_seconds gauge")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_recovery_rehearsal_max_age_seconds Maximum age allowed by the configured automatic rehearsal policy")
+	_, _ = fmt.Fprintln(w, "# TYPE stepanel_recovery_rehearsal_max_age_seconds gauge")
+	if up == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	maxAge := max(0, intervalHours) * 2 * 3600
+	seen := make(map[string]struct{}, len(schedules))
+	for _, schedule := range schedules {
+		if !schedule.Enabled || safeUser(schedule.Site) != schedule.Site {
+			continue
+		}
+		if _, duplicate := seen[schedule.Site]; duplicate {
+			continue
+		}
+		seen[schedule.Site] = struct{}{}
+		proof, ok := proofs[schedule.Site]
+		present := 0
+		if ok {
+			present = 1
+		}
+		_, _ = fmt.Fprintf(w, "stepanel_recovery_application_proof_present{site=%q} %d\n", schedule.Site, present)
+		_, _ = fmt.Fprintf(w, "stepanel_recovery_rehearsal_max_age_seconds{site=%q} %d\n", schedule.Site, maxAge)
+		if ok {
+			_, _ = fmt.Fprintf(w, "stepanel_recovery_application_proof_age_seconds{site=%q} %.0f\n", schedule.Site, max(0, now.Sub(proof).Seconds()))
 		}
 	}
 }

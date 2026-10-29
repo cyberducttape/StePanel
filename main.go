@@ -952,9 +952,12 @@ func (a *App) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 	writeDatabaseMetrics(w, a.cachedDatabaseDiagnostics(15*time.Second))
 	writeReadinessMetrics(w, readinessChecks(a.Config, a.Jobs))
+	schedules := []BackupSchedule{}
 	if a.Schedules != nil {
-		writeBackupScheduleMetrics(w, a.Schedules.list())
+		schedules = a.Schedules.list()
+		writeBackupScheduleMetrics(w, schedules)
 	}
+	writeRecoveryProofMetrics(w, a.Recovery, schedules, a.Config.RehearsalIntervalHours)
 	writeGitReleaseMetrics(w, a.Config)
 }
 func (a *App) services(w http.ResponseWriter, r *http.Request) {

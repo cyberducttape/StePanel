@@ -190,6 +190,19 @@ when the site has not been rehearsed within `STEPANEL_REHEARSAL_INTERVAL_HOURS`
 schedule are rehearsed only on demand. Rehearsals need the configured free-space
 reserve under the import root and refuse to start without it.
 
+Prometheus exports application-proof freshness for each site with an enabled
+backup schedule: `stepanel_recovery_application_proof_present` indicates whether
+any successful application-level proof exists, and
+`stepanel_recovery_application_proof_age_seconds` reports its age.
+Archive-only rehearsals do not count. The freshness threshold is exposed as
+`stepanel_recovery_rehearsal_max_age_seconds` and is twice
+`STEPANEL_REHEARSAL_INTERVAL_HOURS`, matching the recovery-status policy.
+`stepanel_recovery_proof_inventory_up` reports whether the durable proof
+inventory could be read. The supplied Prometheus rules alert on missing or
+stale application proofs and unavailable inventory. A zero rehearsal interval
+disables freshness alerts. These metrics report recorded evidence; they do not
+claim a live site's current HTTP health.
+
 ### Independent offsite recovery proof
 
 An upload marker or a successful remote `rclone` read proves storage access,

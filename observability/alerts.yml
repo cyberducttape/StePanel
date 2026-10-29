@@ -216,3 +216,30 @@ groups:
         annotations:
           summary: Scheduled backups are failing
           description: A site has one or more consecutive scheduled backup failures; inspect the job, free space, database helper, and offsite target.
+
+      - alert: StePanelRecoveryProofInventoryDown
+        expr: stepanel_recovery_proof_inventory_up{job="stepanel"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Application recovery proof inventory is unavailable
+          description: StePanel could not read durable application-level recovery evidence. Check control-plane database health and recovery-store migrations.
+
+      - alert: StePanelApplicationRecoveryProofMissing
+        expr: stepanel_recovery_rehearsal_max_age_seconds{job="stepanel"} > 0 and on(site) stepanel_recovery_application_proof_present{job="stepanel"} == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: No application-level recovery proof for {{ $labels.site }}
+          description: This scheduled site has no successful application-level restore proof. Archive integrity checks do not prove that the application starts; configure an application recovery proof and run a rehearsal.
+
+      - alert: StePanelApplicationRecoveryProofStale
+        expr: (stepanel_recovery_application_proof_age_seconds{job="stepanel"} > on(site) stepanel_recovery_rehearsal_max_age_seconds{job="stepanel"}) and on(site) (stepanel_recovery_rehearsal_max_age_seconds{job="stepanel"} > 0)
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Application recovery proof is stale for {{ $labels.site }}
+          description: The latest successful application-level restore proof exceeds the configured freshness window. Run a full application recovery rehearsal and inspect its job result.
