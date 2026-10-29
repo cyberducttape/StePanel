@@ -339,6 +339,14 @@ func loopbackListenAddress(address string) bool {
 	return host == "127.0.0.1" || host == "::1" || strings.EqualFold(host, "localhost")
 }
 
+// secureCookieTransport reports whether the configured deployment contract
+// guarantees that browser sessions travel over HTTPS. Production and
+// explicitly TLS-terminated deployments rely on their validated ingress
+// contract; direct TLS is enabled when certificate paths are configured.
+func secureCookieTransport(c Config) bool {
+	return c.Production || c.TLSAlreadyTerminated || c.TLSCertFile != "" || c.TLSKeyFile != ""
+}
+
 // ValidateConfig rejects unsafe or malformed settings instead of allowing a
 // typo to silently select a default. LoadConfig remains deliberately simple so
 // callers that construct Config values directly (including tests and tools) do
@@ -408,6 +416,13 @@ func ValidateConfig(c Config) error {
 	}
 	if c.Production && os.Getenv("STEPANEL_LAB_HTTP_COOKIES") == "1" && os.Getenv("STEPANEL_SKIP_STARTUP_HOST_RECONCILE") != "1" {
 		problems = append(problems, errors.New("STEPANEL_LAB_HTTP_COOKIES=1 is restricted to the isolated install smoke environment"))
+	}
+	cookiesSecure := secureCookieTransport(c)
+	if os.Getenv("STEPANEL_LAB_HTTP_COOKIES") == "1" {
+		cookiesSecure = false
+	}
+	if !cookiesSecure && !loopbackListenAddress(c.Listen) {
+		problems = append(problems, errors.New("non-loopback listeners require HTTPS for secure session cookies; configure TLS or TLS termination"))
 	}
 	if raw := os.Getenv("STEPANEL_LAB_DIRECT_ROOT_BROKER"); raw != "" && raw != "0" && raw != "1" {
 		problems = append(problems, errors.New("STEPANEL_LAB_DIRECT_ROOT_BROKER must be 0 or 1"))

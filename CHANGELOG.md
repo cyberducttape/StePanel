@@ -52,6 +52,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Authenticated non-production listeners now require HTTPS whenever they bind
+  beyond loopback, preventing session and CSRF cookies from being issued
+  without the `Secure` attribute on a network-accessible HTTP endpoint. Cookie
+  security now follows production, TLS-termination, or direct-TLS configuration;
+  the explicit install-smoke HTTP override remains limited to loopback.
 - The customer website overview now exposes its labelled container as a region,
   satisfying ARIA naming rules and preserving a clear landmark for screen-reader
   navigation.

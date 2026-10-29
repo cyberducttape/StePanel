@@ -104,6 +104,39 @@ func TestLoopbackListenAddress(t *testing.T) {
 	}
 }
 
+func TestSecureCookieTransport(t *testing.T) {
+	for name, cfg := range map[string]Config{
+		"production":         {Production: true},
+		"tls terminated":     {TLSAlreadyTerminated: true},
+		"direct certificate": {TLSCertFile: "/etc/stepanel/tls.crt"},
+		"direct key":         {TLSKeyFile: "/etc/stepanel/tls.key"},
+		"plain development":  {},
+	} {
+		want := name != "plain development"
+		if got := secureCookieTransport(cfg); got != want {
+			t.Errorf("secureCookieTransport(%s) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestValidateConfigRequiresSecureCookiesOffLoopback(t *testing.T) {
+	t.Setenv("STEPANEL_LISTEN", "0.0.0.0:8080")
+	t.Setenv("STEPANEL_TLS_TERMINATED", "0")
+	t.Setenv("STEPANEL_TLS_CERT_FILE", "")
+	t.Setenv("STEPANEL_TLS_KEY_FILE", "")
+	t.Setenv("STEPANEL_LAB_HTTP_COOKIES", "0")
+	cfg := LoadConfig()
+	if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "non-loopback listeners require HTTPS") {
+		t.Fatalf("expected insecure non-loopback listener rejection, got %v", err)
+	}
+
+	t.Setenv("STEPANEL_TLS_TERMINATED", "1")
+	cfg = LoadConfig()
+	if err := ValidateConfig(cfg); err != nil && strings.Contains(err.Error(), "non-loopback listeners require HTTPS") {
+		t.Fatalf("TLS-terminated listener rejected for cookie policy: %v", err)
+	}
+}
+
 func TestHSTSOptionsAreValidatedAndConfigurable(t *testing.T) {
 	t.Setenv("STEPANEL_HSTS_INCLUDE_SUBDOMAINS", "0")
 	t.Setenv("STEPANEL_HSTS_PRELOAD", "1")

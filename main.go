@@ -357,7 +357,7 @@ func Main() {
 	// The install smoke test reaches the production-configured backend directly
 	// over HTTP. Keep production cookies Secure by default, while allowing that
 	// explicitly isolated lab path to exercise the authenticated workflows.
-	secureCookies := cfg.Production
+	secureCookies := secureCookieTransport(cfg)
 	if os.Getenv("STEPANEL_LAB_HTTP_COOKIES") == "1" {
 		secureCookies = false
 	}
