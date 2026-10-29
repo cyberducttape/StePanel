@@ -114,6 +114,11 @@ kernel or local privilege-escalation vulnerability must not cross customers.
   host locations, not in a site root or repository checkout.
 - Use a reverse proxy for TLS and network access control. Do not expose the
   backend listener directly to the internet.
+- Production, direct-TLS, and TLS-terminated configurations always issue
+  session and CSRF cookies with `Secure`. Plain HTTP is permitted only on a
+  loopback listener for development or in the isolated installation-smoke
+  environment; configuration validation rejects an exposed non-TLS listener.
+  Do not use the loopback exception as a reverse-proxy or shared-host setup.
 
 ## System-call and input safety
 

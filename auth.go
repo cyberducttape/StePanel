@@ -31,6 +31,9 @@ type Auth struct {
 	Username, PasswordHash, Secret, AuditLog string
 	credentialKey                            string
 	credentialHash                           string
+	// SecureCookies is derived from the validated transport configuration.
+	// It may be false only for loopback development or the isolated install
+	// smoke override; non-loopback HTTP configurations are rejected at startup.
 	Enabled, SecureCookies                   bool
 	TOTPEnabled                              bool
 	TrustedProxies                           authpolicy.TrustedProxies

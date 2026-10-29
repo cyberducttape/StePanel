@@ -57,6 +57,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the live database, retains the prior production database, and checks the
   promoted WordPress database before reporting success.
 
+### Security
+
+- Documented the constrained non-secure cookie exception: it is limited to
+  loopback development and isolated install smoke; production and TLS
+  deployments use `Secure` cookies, and startup rejects exposed non-TLS
+  listeners.
+
 ### Fixed
 
 - Authenticated non-production listeners now require HTTPS whenever they bind
