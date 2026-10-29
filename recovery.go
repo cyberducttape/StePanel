@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyberducttape/StePanel/internal/recovery"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
@@ -32,8 +33,8 @@ type SiteTransaction struct {
 	// account (ADR-0007): {homeRoot}/.stepanel-recovery/{ID}, on the same
 	// filesystem as the site so snapshots stay renames. Empty means the
 	// transaction directory itself.
-	SnapshotDir string `json:"snapshot_dir,omitempty"`
-	State       string `json:"state"`
+	SnapshotDir string                        `json:"snapshot_dir,omitempty"`
+	State       recovery.SiteTransactionState `json:"state"`
 	// RecoveryRequired keeps a journal durable when compensation could not be
 	// verified, even if its filesystem transaction reached a terminal state.
 	RecoveryRequired string            `json:"recovery_required,omitempty"`
@@ -260,7 +261,7 @@ func beginSiteTransaction(root, snapshotRoot, home, kind string, access SiteCapa
 		Home:        home,
 		SnapshotDir: snapshotDir,
 		Backup:      filepath.Join(backupDir, "site-before"),
-		State:       "prepared",
+		State:       recovery.SiteTransactionPrepared,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		dir:         dir,
@@ -285,8 +286,7 @@ func beginSiteTransaction(root, snapshotRoot, home, kind string, access SiteCapa
 			_ = os.RemoveAll(dir)
 			return nil, fmt.Errorf("snapshot existing site: %w", err)
 		}
-		txn.State = "site-backed-up"
-		if err := txn.persist(); err != nil {
+		if err := txn.setState(recovery.SiteTransactionBackedUp); err != nil {
 			if rollbackErr := os.Rename(txn.Backup, home); rollbackErr != nil {
 				return nil, fmt.Errorf("persist recovery transaction: %w (restore backup: %v)", err, rollbackErr)
 			}
@@ -307,8 +307,20 @@ func (t *SiteTransaction) Commit() error {
 	if err := failureInjection(transactionFailureOperation(t.Kind), "commit"); err != nil {
 		return err
 	}
-	t.State = "committed"
-	return t.persist()
+	return t.setState(recovery.SiteTransactionCommitted)
+}
+
+func (t *SiteTransaction) setState(next recovery.SiteTransactionState) error {
+	if err := recovery.ValidateSiteTransactionTransition(t.State, next); err != nil {
+		return err
+	}
+	previous := t.State
+	t.State = next
+	if err := t.persist(); err != nil {
+		t.State = previous
+		return err
+	}
+	return nil
 }
 
 func (t *SiteTransaction) TrackDatabase(database ManagedDatabase) error {
@@ -420,7 +432,7 @@ func (t *SiteTransaction) Rollback() error {
 	if err != nil {
 		return fmt.Errorf("invalid recovery site path: %w", err)
 	}
-	if t.State == "committed" || t.State == "rolled-back" {
+	if t.State == recovery.SiteTransactionCommitted || t.State == recovery.SiteTransactionRolledBack {
 		return nil
 	}
 	homeParent, err := os.OpenRoot(filepath.Dir(home))
@@ -428,8 +440,7 @@ func (t *SiteTransaction) Rollback() error {
 		// The new site was already removed (a creation or recovery proof
 		// was torn down through stepanel-sitectl delete). There is nothing
 		// to preserve and no previous site to restore.
-		t.State = "rolled-back"
-		return t.persist()
+		return t.setState(recovery.SiteTransactionRolledBack)
 	}
 	if err != nil {
 		return fmt.Errorf("open recovery site parent: %w", err)
@@ -449,19 +460,17 @@ func (t *SiteTransaction) Rollback() error {
 	if rename == nil {
 		rename = os.Rename
 	}
-	if t.State == "committed" || t.State == "rolled-back" {
+	if t.State == recovery.SiteTransactionCommitted || t.State == recovery.SiteTransactionRolledBack {
 		return nil
 	}
-	if t.State == "rolling-back" && t.HadExisting {
+	if t.State == recovery.SiteTransactionRollingBack && t.HadExisting {
 		_, backupErr := os.Lstat(backup)
 		_, homeErr := homeParent.Lstat(homeName)
 		if errors.Is(backupErr, os.ErrNotExist) && homeErr == nil {
-			t.State = "rolled-back"
-			return t.persist()
+			return t.setState(recovery.SiteTransactionRolledBack)
 		}
 	}
-	t.State = "rolling-back"
-	if err := t.persist(); err != nil {
+	if err := t.setState(recovery.SiteTransactionRollingBack); err != nil {
 		return fmt.Errorf("record rollback start: %w", err)
 	}
 	if _, err := homeParent.Lstat(homeName); err == nil {
@@ -508,11 +517,13 @@ func (t *SiteTransaction) Rollback() error {
 			}
 		}
 	}
-	t.State = "rolled-back"
-	return t.persist()
+	return t.setState(recovery.SiteTransactionRolledBack)
 }
 
 func (t *SiteTransaction) persist() error {
+	if err := recovery.ValidateSiteTransactionState(t.State); err != nil {
+		return fmt.Errorf("refuse to persist invalid site transaction phase: %w", err)
+	}
 	t.UpdatedAt = time.Now().UTC()
 	data, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
@@ -622,7 +633,7 @@ func recoverSiteTransactionsWithRename(root, site string, renameForSite func(con
 			failures = append(failures, fmt.Errorf("transaction %s requires operator intervention: %s", txn.ID, txn.RecoveryRequired))
 			continue
 		}
-		if txn.State == "committed" || txn.State == "rolled-back" {
+		if txn.State == recovery.SiteTransactionCommitted || txn.State == recovery.SiteTransactionRolledBack {
 			continue
 		}
 		if len(txn.Databases) > 0 {
@@ -705,7 +716,7 @@ func recoverTransactionDatabases(cfg Config, root string, lockSite siteLocker, s
 			}
 			continue
 		}
-		if txn.RecoveryRequired != "" || txn.State == "committed" || txn.State == "rolled-back" || len(txn.Databases) == 0 && len(txn.Routes) == 0 || (site != "" && txn.Site != site) {
+		if txn.RecoveryRequired != "" || txn.State == recovery.SiteTransactionCommitted || txn.State == recovery.SiteTransactionRolledBack || len(txn.Databases) == 0 && len(txn.Routes) == 0 || (site != "" && txn.Site != site) {
 			continue
 		}
 		siteCtx, unlock, lockErr := lockRecoveredSite(lockSite, txn.Site)
@@ -792,6 +803,9 @@ func loadSiteTransaction(dir string) (*SiteTransaction, error) {
 	}
 	if txn.Version != 1 || txn.ID != filepath.Base(dir) || safeUser(txn.Site) == "" {
 		return nil, fmt.Errorf("invalid recovery transaction %s", filepath.Base(dir))
+	}
+	if err := recovery.ValidateSiteTransactionState(txn.State); err != nil {
+		return nil, fmt.Errorf("invalid recovery transaction %s: %w", filepath.Base(dir), err)
 	}
 	if txn.Home, err = validatedRecoveryPath(txn.Home); err != nil {
 		return nil, fmt.Errorf("invalid recovery transaction %s: unsafe site path", filepath.Base(dir))
@@ -907,7 +921,7 @@ func CleanupSiteTransactions(root string, maxAge time.Duration, configuredRoots 
 		if err := validateRecoveredSitePaths(txn, webRoot, mailRoot, homeRoot); err != nil {
 			return err
 		}
-		if txn.RecoveryRequired == "" && (txn.State == "committed" || txn.State == "rolled-back") && txn.UpdatedAt.Before(cutoff) {
+		if txn.RecoveryRequired == "" && (txn.State == recovery.SiteTransactionCommitted || txn.State == recovery.SiteTransactionRolledBack) && txn.UpdatedAt.Before(cutoff) {
 			if txn.SnapshotDir != "" {
 				if err := os.RemoveAll(txn.SnapshotDir); err != nil {
 					return err

@@ -60,6 +60,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   blocked stdin. Security documentation clarifies that process groups do not
   contain descendants that deliberately detach, and per-command cgroup
   containment remains an open hardening item.
+- Site filesystem recovery journals now use a typed, validated phase
+  transition contract. Unknown persisted phases are rejected for quarantine
+  and operator review instead of being guessed as rollback work.
 
 ### Testing
 
@@ -95,6 +98,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   supported identifier; exercise browser upload progress and stall cancellation.
 - Verify pre-canceled commands do not start and that cancellation stops
   continuously writing or stdin-blocked subprocesses.
+- Cover allowed and forbidden filesystem-journal phase transitions, including
+  rejection of an unknown persisted phase during journal loading.
 - Make the Git staging quota fail-closed test use an explicitly absent broker
   socket, preventing fallback to a potentially blocking privileged subprocess.
 - Record the current-source-equivalent Ubuntu/Caddy installed recovery smoke,

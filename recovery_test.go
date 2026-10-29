@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,8 +14,37 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/operations"
+	"github.com/cyberducttape/StePanel/internal/recovery"
 	siteauthority "github.com/cyberducttape/StePanel/internal/sites"
 )
+
+func TestLoadSiteTransactionRejectsUnknownState(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "site", "public")
+	txn, err := BeginSiteTransaction(filepath.Join(root, "recovery"), home, "test.restore", AuthorizedSite{site: "site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(txn.dir, "transaction.json")
+	data, err := os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = bytes.Replace(data, []byte(`"state": "prepared"`), []byte(`"state": "future-state"`), 1)
+	if err := os.WriteFile(journal, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadSiteTransaction(txn.dir); err == nil {
+		t.Fatal("loader accepted an unknown persisted transaction state")
+	}
+}
+
+func TestSiteTransactionStateIsTyped(t *testing.T) {
+	var state recovery.SiteTransactionState = recovery.SiteTransactionPrepared
+	if err := recovery.ValidateSiteTransactionTransition(state, recovery.SiteTransactionBackedUp); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestDatabaseRecoveryJournalSurvivesProcessKill(t *testing.T) {
 	if os.Getenv("STEPANEL_DATABASE_RECOVERY_CHILD") == "1" {
