@@ -158,38 +158,35 @@ func TestArchivePathTraversal(t *testing.T) {
 }
 
 func TestArchiveDecompressionBomb(t *testing.T) {
-	// Create a tar file with highly compressible content
+	// A hostile archive can declare an expansion larger than the verifier's
+	// limit without containing the expanded bytes. Keep this fixture tiny so
+	// the regression proves the declared-size guard instead of spending minutes
+	// compressing a gigabyte of repetitive test data.
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-
-	// Add a file with highly repetitive content (compresses well)
+	declaredSize := maxBackupBytes + 1
 	header := &tar.Header{
 		Name: "bomb.txt",
-		Size: 1024 * 1024 * 1024, // 1GB
-		Mode: 0644,
+		Size: declaredSize,
+		Mode: 0600,
 	}
-
 	if err := tw.WriteHeader(header); err != nil {
-		t.Fatalf("failed to write tar header: %v", err)
+		t.Fatalf("write oversized tar header: %v", err)
 	}
-
-	// Write highly repetitive content
-	repetitive := bytes.Repeat([]byte("A"), 1024)
-	for i := 0; i < 1024*1024; i++ { // 1GB total
-		if _, err := tw.Write(repetitive); err != nil {
-			t.Fatalf("failed to write tar content: %v", err)
-		}
+	// Deliberately leave the entry body absent. The verifier must reject the
+	// declared size before attempting to consume attacker-controlled content.
+	if err := gz.Close(); err != nil {
+		t.Fatalf("close compressed hostile archive: %v", err)
 	}
-
-	tw.Close()
-	gz.Close()
-
-	compressed := buf.Bytes()
-	ratio := float64(1024*1024*1024) / float64(len(compressed))
-
-	if ratio > 100 {
-		t.Logf("✓ Created decompression bomb (%.0fx compression)", ratio)
+	if buf.Len() > 1024 {
+		t.Fatalf("hostile archive fixture unexpectedly large: %d bytes", buf.Len())
+	}
+	manifest := BackupManifest{Entries: []BackupEntry{{
+		Path: "bomb.txt", Size: maxBackupBytes, SHA256: strings.Repeat("0", 64),
+	}}}
+	if err := verifyBackupArchiveContents(bytes.NewReader(buf.Bytes()), manifest); err == nil || !strings.Contains(err.Error(), "verification limit") {
+		t.Fatalf("oversized declared entry error = %v, want verification-limit rejection", err)
 	}
 }
 
