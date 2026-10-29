@@ -15,6 +15,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   background write failures.
 - Record a current-source SQLite queue benchmark at 1K, 10K, and 100K jobs;
   the temporary ordered index did not improve the measured claim workload.
+- Record three 500-sample session-validation runs under idle, target-like
+  500-site queue activity, and saturated job polling; no claim, busy, re-arm,
+  or session errors were observed in this developer-host experiment.
 - Site incident snapshots can query aggregate PHP-FPM pool counters through a
   typed root-broker FastCGI request. Managed pools enable a private status path
   that Caddy and Apache explicitly deny to public requests; the incident view
