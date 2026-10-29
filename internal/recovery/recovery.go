@@ -102,7 +102,7 @@ const Schema = `CREATE TABLE IF NOT EXISTS recovery_rehearsals (
     detail BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS recovery_rehearsals_site_idx ON recovery_rehearsals(site, started_at DESC, id DESC);
-CREATE INDEX IF NOT EXISTS recovery_rehearsals_application_proof_idx ON recovery_rehearsals(outcome, level, site, finished_at DESC);`
+CREATE INDEX IF NOT EXISTS recovery_rehearsals_application_proof_idx ON recovery_rehearsals(site, level, started_at DESC, id DESC);`
 
 // Store persists rehearsal history in the control-plane database.
 type Store struct {
@@ -197,12 +197,19 @@ func (s *Store) LatestPassed(ctx context.Context, site string) (*Rehearsal, erro
 	return s.one(ctx, `SELECT `+rehearsalColumns+` FROM recovery_rehearsals WHERE site = ? AND outcome = 'passed' ORDER BY started_at DESC, id DESC LIMIT 1`, site)
 }
 
-// LatestApplicationProofs returns the most recent successful application-level
-// rehearsal per site. It intentionally returns only timestamps and site IDs
-// for low-cost operational metrics; archive-only passes do not count as an
-// application proof.
+// LatestApplicationProofs returns a site's latest application-level rehearsal
+// only when that latest attempt passed. A newer failed application rehearsal
+// therefore invalidates the previously successful proof for operational
+// alerting. Archive-only rehearsals do not count as application proofs.
 func (s *Store) LatestApplicationProofs(ctx context.Context) (map[string]time.Time, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT site, MAX(finished_at) FROM recovery_rehearsals WHERE outcome='passed' AND level='application' GROUP BY site`)
+	rows, err := s.db.QueryContext(ctx, `SELECT r.site, r.finished_at
+		FROM recovery_rehearsals AS r
+		WHERE r.level='application' AND r.outcome='passed'
+		AND NOT EXISTS (
+			SELECT 1 FROM recovery_rehearsals AS newer
+			WHERE newer.site=r.site AND newer.level='application'
+			AND (newer.started_at > r.started_at OR (newer.started_at = r.started_at AND newer.id > r.id))
+		)`)
 	if err != nil {
 		return nil, fmt.Errorf("list latest application recovery proofs: %w", err)
 	}

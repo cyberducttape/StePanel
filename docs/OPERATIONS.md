@@ -192,9 +192,11 @@ reserve under the import root and refuse to start without it.
 
 Prometheus exports application-proof freshness for each site with an enabled
 backup schedule: `stepanel_recovery_application_proof_present` indicates whether
-any successful application-level proof exists, and
+the latest application-level rehearsal passed, and
 `stepanel_recovery_application_proof_age_seconds` reports its age.
-Archive-only rehearsals do not count. The freshness threshold is exposed as
+Archive-only rehearsals do not count; a newer failed application rehearsal
+clears the passing-proof signal until a later application rehearsal passes.
+The freshness threshold is exposed as
 `stepanel_recovery_rehearsal_max_age_seconds` and is twice
 `STEPANEL_REHEARSAL_INTERVAL_HOURS`, matching the recovery-status policy.
 `stepanel_recovery_proof_inventory_up` reports whether the durable proof

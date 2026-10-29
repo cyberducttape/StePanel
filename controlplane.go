@@ -451,6 +451,11 @@ CREATE INDEX IF NOT EXISTS jobs_kind_owner_state_idx ON jobs(kind, owner, state)
 		_, err := tx.Exec(`CREATE INDEX IF NOT EXISTS recovery_rehearsals_application_proof_idx ON recovery_rehearsals(outcome, level, site, finished_at DESC)`)
 		return err
 	}),
+	migration.NewMigration(23, "index latest application recovery attempt", func(tx *sql.Tx) error {
+		_, err := tx.Exec(`DROP INDEX IF EXISTS recovery_rehearsals_application_proof_idx;
+CREATE INDEX recovery_rehearsals_application_proof_idx ON recovery_rehearsals(site, level, started_at DESC, id DESC);`)
+		return err
+	}),
 }
 
 func controlPlaneColumnExists(tx *sql.Tx, table, column string) (bool, error) {

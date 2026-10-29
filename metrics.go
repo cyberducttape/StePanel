@@ -470,7 +470,7 @@ func writeRecoveryProofMetrics(w io.Writer, store *recovery.Store, schedules []B
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_recovery_proof_inventory_up Whether application recovery proof inventory collection succeeded")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_recovery_proof_inventory_up gauge")
 	_, _ = fmt.Fprintf(w, "stepanel_recovery_proof_inventory_up %d\n", up)
-	_, _ = fmt.Fprintln(w, "# HELP stepanel_recovery_application_proof_present Whether a site has a successful application-level recovery proof")
+	_, _ = fmt.Fprintln(w, "# HELP stepanel_recovery_application_proof_present Whether the latest application-level recovery rehearsal passed")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_recovery_application_proof_present gauge")
 	_, _ = fmt.Fprintln(w, "# HELP stepanel_recovery_application_proof_age_seconds Age of the latest successful application-level recovery proof")
 	_, _ = fmt.Fprintln(w, "# TYPE stepanel_recovery_application_proof_age_seconds gauge")
