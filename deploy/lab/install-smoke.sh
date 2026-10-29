@@ -304,6 +304,7 @@ site=ci-smoke
 mkdir -p "/var/www/sites/$site/public"
 printf '%s\n' 'smoke' > "/var/www/sites/$site/public/index.html"
 /usr/local/sbin/stepanel-sitectl seal "$site"
+site_user=$(stat -c %U "/var/www/sites/$site")
 
 # This fixture is created directly through the host helper after the panel's
 # startup identity migration. Restart once so the legacy site account is
@@ -325,7 +326,6 @@ if [[ ${STEPANEL_QUOTA_SMOKE:-0} == 1 ]]; then
   chmod 0711 "$stage_parent"
   quota_stage="$stage_parent/.stepanel-release-$site-424242"
   install -d -o stepanel -g stepanel -m 0700 "$quota_stage"
-  site_user=$(stat -c %U "/var/www/sites/$site")
   web_group=$(sed -n 's/^STEPANEL_WEB_GROUP="\([a-z_][a-z0-9_-]*\)"$/\1/p' /etc/ste-panel.env)
   web_gid=$(getent group "$web_group" | cut -d: -f3)
   project_id=$(/usr/local/sbin/stepanel-gitctl stage-limit "$site" "$site_user" "$quota_stage" 1048576)
