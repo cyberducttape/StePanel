@@ -1184,7 +1184,7 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 				}
 				result.Rehearsal = &MigrationRehearsal{Status: "skipped", Details: "Application rehearsal did not run because the import did not complete."}
 				result.ReportCreatedAt = time.Now().UTC()
-				result.Components = buildMigrationComponents(info, result, request.RestoreDBs, restoreErr)
+				result.Components, result.OmittedComponentCount = buildMigrationComponents(info, result, request.RestoreDBs, restoreErr)
 			}
 		}
 		partial, marshalErr := json.Marshal(result)
