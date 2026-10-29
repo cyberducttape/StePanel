@@ -14,7 +14,7 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 
 1. **Authentication**: API tokens, TOTP, per-site isolation
 2. **Authorization**: Admin-only endpoints, site-scoped operations
-3. **Isolation**: Process-tree cancellation, symlink rejection, filesystem bounds
+3. **Isolation**: Process-group cancellation, symlink rejection, filesystem bounds
 4. **Hardening**: Container registry allowlist, webhook auth, no legacy protocols
 
 ## Completed Security Features
@@ -43,7 +43,7 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 
 ### File Operations
 - ✅ Symlink safety in backup/restore (O_NOFOLLOW)
-- ✅ Process tree termination (SIGKILL process groups)
+- ✅ Process-group termination (SIGKILL)
 - ✅ Recursive directory traversal safety (filepath.WalkDir)
 - ✅ Atomic file writes (temporary file + rename pattern)
 
@@ -81,9 +81,14 @@ StePanel runs as a privileged control panel for WordPress sites. Security is enf
 - Memory tracking for largest-files limited to 100 entries (to prevent memory bombs)
 - No archive encryption support
 
-### Process Management  
-- Only Linux process-tree termination tested (Setpgid + SIGKILL)
-- Windows process handling less robust
+### Process Management
+- Cancellation terminates the command's Unix process group. A descendant that
+  deliberately starts a new session or process group can escape this cleanup.
+- StePanel does not yet place each helper invocation in its own delegated
+  systemd scope/cgroup. The service-level `TasksMax` is an aggregate ceiling,
+  not per-command containment. Do not treat process-group cancellation as a
+  security boundary for hostile build scripts or installers.
+- Windows process handling is less robust; native production support is Linux.
 
 ## Threat Model
 

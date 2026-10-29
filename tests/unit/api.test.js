@@ -9,7 +9,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../../web/static/api.js'), 'utf8');
 
-function loadAPI(respond, { cookie = 'other=1; stepanel_csrf=tok%20en' } = {}) {
+function loadAPI(respond, { cookie = 'other=1; stepanel_csrf=tok%20en', XMLHttpRequest: XHR } = {}) {
   const calls = [];
   const events = [];
   const timers = [];
@@ -30,6 +30,7 @@ function loadAPI(respond, { cookie = 'other=1; stepanel_csrf=tok%20en' } = {}) {
       return respond(url, init);
     },
   };
+  if (XHR) context.XMLHttpRequest = XHR;
   vm.runInNewContext(source, context);
   return { api: window.StepanelAPI, calls, events, timers };
 }
@@ -134,7 +135,7 @@ test('network failures, timeouts, and cancellation are distinguished', async () 
   await assert.rejects(pending, (error) => error.kind === 'aborted');
 });
 
-test('reads and mutations time out by default; uploads do not', async () => {
+test('reads, mutations, and uploads have absolute default timeouts', async () => {
   const { api, timers } = loadAPI(() => response(200, {}));
   await api.get('/api/x');
   assert.deepEqual(timers, [30000]);
@@ -142,10 +143,56 @@ test('reads and mutations time out by default; uploads do not', async () => {
   assert.deepEqual(timers, [30000, 120000]);
   await api.request('/api/upload', { method: 'POST', body: new FormData() });
   await api.request('/api/upload', { method: 'POST', body: new Blob(['archive']) });
-  assert.deepEqual(timers, [30000, 120000], 'uploads must not get the default mutation timeout');
+  assert.deepEqual(timers, [30000, 120000, api.DEFAULT_UPLOAD_TIMEOUT_MS, api.DEFAULT_UPLOAD_TIMEOUT_MS]);
   await api.post('/api/x', {}, { timeout: 0 });
   await api.post('/api/x', {}, { timeout: 5000 });
-  assert.deepEqual(timers, [30000, 120000, 5000]);
+  assert.deepEqual(timers, [30000, 120000, api.DEFAULT_UPLOAD_TIMEOUT_MS, api.DEFAULT_UPLOAD_TIMEOUT_MS, 5000]);
+});
+
+test('XHR uploads report progress, attach CSRF, and recognize upload completion', async () => {
+  const calls = [];
+  class FakeXHR {
+    constructor() { this.upload = {}; this.headers = {}; }
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader(name, value) { this.headers[name] = value; }
+    getResponseHeader(name) { return name === 'X-Request-ID' ? 'upload-1' : null; }
+    send(body) {
+      calls.push({ url: this.url, method: this.method, headers: this.headers, body });
+      this.upload.onprogress({ loaded: 4, total: 10, lengthComputable: true });
+      this.upload.onload({ loaded: 10, total: 10, lengthComputable: true });
+      this.status = 201;
+      this.responseText = JSON.stringify({ upload_id: 'upload-1' });
+      this.onload();
+    }
+    abort() { if (this.onabort) this.onabort(); }
+  }
+  const progresses = [];
+  const { api } = loadAPI(() => { throw new Error('fetch must not handle browser uploads'); }, { XMLHttpRequest: FakeXHR });
+  const body = new FormData();
+  body.append('backup', new Blob(['archive']));
+  const result = await api.request('/api/cpmove/inspect', {
+    method: 'POST', body, onUploadProgress: (progress) => progresses.push(progress),
+  });
+  assert.equal(result.upload_id, 'upload-1');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].headers['X-CSRF-Token'], 'tok en');
+  assert.equal(calls[0].body, body);
+  assert.equal(progresses[0].percent, 40);
+  assert.equal(progresses[1].complete, true);
+});
+
+test('XHR uploads abort after a configurable no-progress interval', async () => {
+  class StalledXHR {
+    constructor() { this.upload = {}; }
+    open() {}
+    setRequestHeader() {}
+    send() {}
+    abort() { if (this.onabort) this.onabort(); }
+  }
+  const { api } = loadAPI(() => { throw new Error('fetch must not handle browser uploads'); }, { XMLHttpRequest: StalledXHR });
+  await assert.rejects(api.request('/api/upload', {
+    method: 'POST', body: new FormData(), timeout: 1000, stallTimeout: 10,
+  }), (error) => error.kind === 'upload_stalled' && /no progress/.test(error.message));
 });
 
 test('a malformed CSRF cookie does not throw out of the request layer', async () => {

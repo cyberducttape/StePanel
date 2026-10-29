@@ -320,6 +320,43 @@ func TestSQLDumpsFindsNestedCPanelDumps(t *testing.T) {
 	}
 }
 
+func TestCPMoveDatabaseNameValidatesNormalizedIdentifier(t *testing.T) {
+	malformedUTF8 := string([]byte{0xff, 0xfe})
+	for _, invalid := range []string{
+		"bad`name",
+		"name;DROP DATABASE other",
+		"db-name;--",
+		" leading-space",
+		"données",
+		malformedUTF8,
+		strings.Repeat("x", 65),
+	} {
+		if name, err := cpmoveDatabaseName("account", invalid, 64); err == nil {
+			t.Errorf("cPanel database name %q accepted as %q", invalid, name)
+		}
+		if quoted, err := managedDatabaseSQLIdentifier(invalid, 64); err == nil {
+			t.Errorf("managed SQL identifier %q accepted as %q", invalid, quoted)
+		}
+	}
+	if _, err := cpmoveDatabaseName("account", strings.Repeat("x", 33), 64); err == nil {
+		t.Fatal("source database component exceeding the cPanel name limit was accepted")
+	}
+
+	maxName, err := cpmoveDatabaseName(strings.Repeat("a", 32), strings.Repeat("b", 31), 64)
+	if err != nil {
+		t.Fatalf("maximum supported combined identifier was rejected: %v", err)
+	}
+	if len(maxName) != 64 {
+		t.Fatalf("maximum cPanel identifier length = %d, want 64", len(maxName))
+	}
+	if _, err := managedDatabaseSQLIdentifier(maxName, 64); err != nil {
+		t.Fatalf("maximum supported SQL identifier was rejected: %v", err)
+	}
+	if _, err := cpmoveDatabaseName(strings.Repeat("a", 32), strings.Repeat("b", 32), 64); err == nil {
+		t.Fatal("identifier longer than the engine maximum was accepted")
+	}
+}
+
 func TestSQLDumpsPropagatesWalkErrors(t *testing.T) {
 	if _, err := sqlDumps(filepath.Join(t.TempDir(), "missing-mysql")); err == nil {
 		t.Fatal("sqlDumps swallowed a directory traversal error")
@@ -340,7 +377,7 @@ func TestRestoreSQLDropsPartiallyImportedDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(root, "mysql.log")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$TEST_MYSQL_LOG\"\ncase \"$*\" in *'SELECT COUNT(*) FROM information_schema.SCHEMATA'*) printf '0\\n'; exit 0;; *'CREATE DATABASE'*) exit 0;; *'DROP DATABASE'*) exit 0;; esac\nexit 1\n"
+	script := "#!/bin/sh\nIFS= read -r query || query=''\nprintf 'ARGS: %s\\nSQL: %s\\n' \"$*\" \"$query\" >> \"$TEST_MYSQL_LOG\"\ncase \"$query\" in *'SELECT COUNT(*) FROM information_schema.SCHEMATA'*) printf '0\\n'; exit 0;; *'CREATE DATABASE'*) exit 0;; *'DROP DATABASE'*) exit 0;; esac\nexit 1\n"
 	for _, name := range []string{"mysql", "mariadb"} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0700); err != nil {
 			t.Fatal(err)

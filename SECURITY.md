@@ -103,6 +103,12 @@ kernel or local privilege-escalation vulnerability must not cross customers.
   cross an individually installed, root-owned helper with a fixed interface;
   helpers must validate their arguments and perform their own authorization
   and filesystem checks.
+- Subprocess cancellation currently signals the command's Unix process group.
+  Descendants that deliberately create a new session may escape it; service
+  `TasksMax` limits are aggregate and are not per-command cgroup containment.
+  Do not run hostile build hooks or installers as though process-group cleanup
+  were a sandbox. Per-operation systemd scope/cgroup containment remains a
+  hardening gap.
 - Keep database and webserver credentials out of requests, archives, logs, and
   child environments. Cloud and rclone credential files belong in protected
   host locations, not in a site root or repository checkout.

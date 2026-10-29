@@ -408,6 +408,13 @@ func validManagedDatabaseIdentifier(value string, max int) bool {
 	return true
 }
 
+func managedDatabaseSQLIdentifier(value string, max int) (string, error) {
+	if !validManagedDatabaseIdentifier(value, max) {
+		return "", errors.New("invalid managed database identifier")
+	}
+	return sqlIdent(value), nil
+}
+
 func (t *SiteTransaction) Rollback() error {
 	home, err := validatedRecoveryPath(t.Home)
 	if err != nil {

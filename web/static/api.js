@@ -9,11 +9,13 @@
   // Every request has a default timeout so a dropped connection cannot leave
   // the interface waiting forever. Long work is submitted as a durable job
   // and followed by job ID, so mutations only need time to be accepted.
-  // Uploads (FormData or Blob bodies) are the exception: their duration
-  // depends on archive size and link speed, and the server's upload read
-  // timeout bounds them. Pass `timeout` (0 for none) to override.
+  // Uploads can legitimately take much longer than ordinary mutations, but
+  // still have a browser-side ceiling. Archive upload callers may override
+  // both limits and receive XHR progress events.
   const DEFAULT_READ_TIMEOUT_MS = 30000;
   const DEFAULT_MUTATION_TIMEOUT_MS = 120000;
+  const DEFAULT_UPLOAD_TIMEOUT_MS = 55 * 60 * 1000;
+  const DEFAULT_UPLOAD_STALL_TIMEOUT_MS = 2 * 60 * 1000;
   // Service start/stop/restart actions run inside the request. The server
   // allows them 3 minutes (ServiceOperationPaths in
   // internal/http/timeouts.go, kept identical by
@@ -35,8 +37,9 @@
 
   const defaultTimeout = (method, body, url) => {
     if (isServiceOperation(url)) return SERVICE_OPERATION_TIMEOUT_MS;
+    if (isUpload(body)) return DEFAULT_UPLOAD_TIMEOUT_MS;
     if (!MUTATING.has(method)) return DEFAULT_READ_TIMEOUT_MS;
-    return isUpload(body) ? 0 : DEFAULT_MUTATION_TIMEOUT_MS;
+    return DEFAULT_MUTATION_TIMEOUT_MS;
   };
 
   // A malformed cookie (for example a stray "%") must not throw out of the
@@ -76,6 +79,83 @@
     }
   }
 
+  const xhrUpload = (url, init, { signal, stallTimeout, onUploadProgress }) => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    let stalled = false;
+    let uploaded = false;
+    let stallTimer = null;
+    const cleanup = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      if (signal) signal.removeEventListener('abort', abortFromSignal);
+    };
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+    const progress = (event, complete = false) => {
+      try {
+        if (typeof onUploadProgress === 'function') {
+          const total = event && event.lengthComputable ? event.total : 0;
+          const loaded = event ? event.loaded : 0;
+          onUploadProgress({ loaded, total, percent: total > 0 ? Math.floor(loaded * 100 / total) : null, complete });
+        }
+      } catch (_) {
+        // A presentation callback must not interrupt the network transfer.
+      }
+    };
+    const resetStallTimer = () => {
+      if (uploaded || stallTimeout <= 0) return;
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        stalled = true;
+        xhr.abort();
+      }, stallTimeout);
+    };
+    const abortFromSignal = () => xhr.abort();
+
+    if (signal && signal.aborted) {
+      finish(reject, new ApiError('The request was cancelled.', { kind: 'aborted' }));
+      return;
+    }
+    try {
+      xhr.open(init.method, url, true);
+      xhr.withCredentials = init.credentials === 'include';
+      for (const [name, value] of Object.entries(init.headers || {})) xhr.setRequestHeader(name, value);
+      xhr.onload = () => finish(resolve, {
+        status: xhr.status,
+        ok: xhr.status >= 200 && xhr.status < 300,
+        text: async () => xhr.responseText || '',
+        headers: { get: (name) => xhr.getResponseHeader(name) },
+      });
+      xhr.onerror = () => finish(reject, new ApiError('Could not reach StePanel. Check the network connection and try again.', { kind: 'network' }));
+      xhr.ontimeout = () => finish(reject, new ApiError('The upload timed out. Check the connection and retry.', { kind: 'timeout' }));
+      xhr.onabort = () => finish(reject, new ApiError(
+        stalled ? 'The upload stalled because no progress was received. Retry when the connection is stable.' : 'The request was cancelled.',
+        { kind: stalled ? 'upload_stalled' : 'aborted' },
+      ));
+      if (xhr.upload) {
+        xhr.upload.onprogress = (event) => {
+          resetStallTimer();
+          progress(event);
+        };
+        xhr.upload.onload = (event) => {
+          uploaded = true;
+          if (stallTimer) clearTimeout(stallTimer);
+          stallTimer = null;
+          progress(event, true);
+        };
+      }
+      if (signal) signal.addEventListener('abort', abortFromSignal, { once: true });
+      resetStallTimer();
+      xhr.send(init.body);
+    } catch (_) {
+      finish(reject, new ApiError('Could not start the upload. Check the selected file and try again.', { kind: 'network' }));
+    }
+  });
+
   // request(url, options) accepts fetch options plus:
   //   json            value to send as a JSON body (sets Content-Type)
   //   csrf            send the CSRF header; defaults to true for mutations
@@ -87,7 +167,7 @@
   // It resolves with the parsed JSON body ({} when empty or not JSON) and
   // rejects with an ApiError.
   const request = async (url, options = {}) => {
-    const { json, csrf: withCSRF, timeout, signal, expectedStatus, errorMessage, ...init } = options;
+    const { json, csrf: withCSRF, timeout, stallTimeout, onUploadProgress, signal, expectedStatus, errorMessage, ...init } = options;
     init.method = (init.method || 'GET').toUpperCase();
     init.headers = { ...(init.headers || {}) };
     if (json !== undefined) {
@@ -100,6 +180,7 @@
 
     const controller = new AbortController();
     let timedOut = false;
+    const upload = isUpload(init.body);
     const limit = timeout ?? defaultTimeout(init.method, init.body, url);
     const timer = limit > 0 ? setTimeout(() => { timedOut = true; controller.abort(); }, limit) : null;
     const forwardAbort = () => controller.abort();
@@ -112,11 +193,20 @@
     let response;
     let text;
     try {
-      response = await fetch(url, init);
+      if (upload && typeof XMLHttpRequest !== 'undefined' && init.credentials !== 'omit') {
+        response = await xhrUpload(url, init, {
+          signal: controller.signal,
+          stallTimeout: stallTimeout ?? DEFAULT_UPLOAD_STALL_TIMEOUT_MS,
+          onUploadProgress,
+        });
+      } else {
+        response = await fetch(url, init);
+      }
       text = await response.text();
     } catch (error) {
       if (timedOut) throw new ApiError('The request timed out. Check the panel connection and try again.', { kind: 'timeout' });
       if (controller.signal.aborted) throw new ApiError('The request was cancelled.', { kind: 'aborted' });
+      if (error instanceof ApiError) throw error;
       throw new ApiError('Could not reach StePanel. Check the network connection and try again.', { kind: 'network' });
     } finally {
       if (timer) clearTimeout(timer);
@@ -157,5 +247,7 @@
     put: withMethod('PUT'),
     patch: withMethod('PATCH'),
     delete: (url, options = {}) => request(url, { ...options, method: 'DELETE' }),
+    DEFAULT_UPLOAD_TIMEOUT_MS,
+    DEFAULT_UPLOAD_STALL_TIMEOUT_MS,
   });
 })();

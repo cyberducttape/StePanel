@@ -81,6 +81,51 @@ func TestRunBoundedCommandLimit(t *testing.T) {
 	}
 }
 
+func TestRunBoundedCommandDoesNotStartForCanceledContext(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "started")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd := exec.Command("sh", "-c", "printf started > \"$1\"", "sh", marker)
+	if _, err := RunBoundedCommandLimit(ctx, cmd, 64); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunBoundedCommandLimit() error = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("command started despite canceled context (stat error %v)", err)
+	}
+}
+
+func TestRunBoundedCommandCancellationDuringOutputAndStdin(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cmd  *exec.Cmd
+	}{
+		{name: "continuous output", cmd: exec.Command("sh", "-c", "while :; do printf 'streaming output\\n'; done")},
+		{name: "blocked stdin", cmd: exec.Command("sh", "-c", "sleep 10")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			if tc.name == "blocked stdin" {
+				tc.cmd.Stdin = strings.NewReader(strings.Repeat("large streamed input", 1<<18))
+			}
+			done := make(chan error, 1)
+			go func() {
+				_, err := RunBoundedCommandLimit(ctx, tc.cmd, 1024)
+				done <- err
+			}()
+			time.Sleep(30 * time.Millisecond)
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("command error = %v, want context.Canceled", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("command did not stop after cancellation")
+			}
+		})
+	}
+}
+
 func TestCancellationKillsCommandDescendants(t *testing.T) {
 	for name, run := range map[string]func(context.Context, *exec.Cmd) error{
 		"bounded": func(ctx context.Context, cmd *exec.Cmd) error {

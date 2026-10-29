@@ -49,6 +49,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Bounded subprocess diagnostics retain initial context and final error output,
   with an explicit count of omitted bytes; configured MySQL passwords are
   redacted from captured output and errors.
+- cPanel restore now validates the normalized database name against the
+  database-identifier contract before lookup, helper dispatch, import, create,
+  or deletion, and uses validated quoting for SQL DDL.
+- Browser uploads now have an absolute timeout and configurable no-progress
+  timeout. cPanel and WPress restore forms show transfer progress and provide
+  cancellation with a clear retry path.
+- Helper cancellation now refuses an already-canceled operation before
+  starting its subprocess; cancellation tests cover continuous output and
+  blocked stdin. Security documentation clarifies that process groups do not
+  contain descendants that deliberately detach, and per-command cgroup
+  containment remains an open hardening item.
 
 ### Testing
 
@@ -79,6 +90,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Cover tail-preserving command output, SQL-on-stdin behavior, credential
   isolation, option-file cleanup, and option-file parsing when the local MySQL
   utility is available.
+- Reject hostile cPanel database names (including backticks, SQL metacharacters,
+  Unicode, malformed UTF-8, and over-limit names) while accepting the maximum
+  supported identifier; exercise browser upload progress and stall cancellation.
+- Verify pre-canceled commands do not start and that cancellation stops
+  continuously writing or stdin-blocked subprocesses.
 - Make the Git staging quota fail-closed test use an explicitly absent broker
   socket, preventing fallback to a potentially blocking privileged subprocess.
 - Record the current-source-equivalent Ubuntu/Caddy installed recovery smoke,

@@ -974,14 +974,15 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 			failures = append(failures, err.Error())
 			break
 		}
-		db := safeUser(strings.TrimSuffix(filepath.Base(dump), ".sql"))
-		if db == "" {
+		db := strings.TrimSuffix(filepath.Base(dump), ".sql")
+		name, nameErr := cpmoveDatabaseName(user, db, databaseNameLimit(cfg))
+		if nameErr != nil {
 			failures = append(failures, filepath.Base(dump)+": invalid database name")
 			continue
 		}
-		name := databaseName(user, db)
-		if len(name) > 64 {
-			failures = append(failures, name+": database name exceeds 64 characters")
+		quotedName, quoteErr := managedDatabaseSQLIdentifier(name, databaseNameLimit(cfg))
+		if quoteErr != nil {
+			failures = append(failures, filepath.Base(dump)+": invalid database name")
 			continue
 		}
 		ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
@@ -1026,7 +1027,7 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 			cancel()
 			continue
 		}
-		cmd.Stdin = strings.NewReader("CREATE DATABASE " + sqlIdent(name) + ";\n")
+		cmd.Stdin = strings.NewReader("CREATE DATABASE " + quotedName + ";\n")
 		output, err := runMySQLCommand(ctx, cfg, cmd)
 		if cleanupErr := cleanupCommand(); cleanupErr != nil {
 			err = errors.Join(err, fmt.Errorf("remove private MySQL credential directory: %w", cleanupErr))
@@ -1076,6 +1077,10 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 func dropDatabase(parent context.Context, cfg Config, name string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 2*time.Minute)
 	defer cancel()
+	quotedName, err := managedDatabaseSQLIdentifier(name, databaseNameLimit(cfg))
+	if err != nil {
+		return err
+	}
 	if cfg.DBCtl != "" {
 		output, err := runDatabaseHelperContext(ctx, cfg, 2*time.Minute, "", "drop", name)
 		if err != nil {
@@ -1083,7 +1088,7 @@ func dropDatabase(parent context.Context, cfg Config, name string) error {
 		}
 		return nil
 	}
-	output, err := runMySQLQuery(ctx, cfg, "DROP DATABASE IF EXISTS "+sqlIdent(name)+";", "--batch")
+	output, err := runMySQLQuery(ctx, cfg, "DROP DATABASE IF EXISTS "+quotedName+";", "--batch")
 	if err != nil {
 		return fmt.Errorf("drop database: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -1123,6 +1128,17 @@ func databaseName(user, db string) string {
 		return db
 	}
 	return user + "_" + db
+}
+
+func cpmoveDatabaseName(user, db string, max int) (string, error) {
+	if safeUser(user) != user || safeUser(db) != db {
+		return "", errors.New("invalid cPanel database identity")
+	}
+	name := databaseName(user, db)
+	if !validManagedDatabaseIdentifier(name, max) {
+		return "", errors.New("invalid cPanel database identity")
+	}
+	return name, nil
 }
 
 func copyTreeContext(ctx context.Context, src, dst string) error {

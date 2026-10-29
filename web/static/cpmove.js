@@ -12,6 +12,22 @@
   let inspection;
   let uploadID = '';
 
+  const cancelUpload = document.createElement('button');
+  cancelUpload.type = 'button';
+  cancelUpload.className = 'import-upload-cancel';
+  cancelUpload.textContent = 'Cancel upload';
+  cancelUpload.hidden = true;
+  file.closest('.file-input').after(cancelUpload);
+
+  const formatBytes = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return 'unknown size';
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+    return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+  };
+
   const summary = (info) => [
     info.has_home ? 'website files found' : 'no website files detected',
     window.StepanelUI.plural(info.database_count || 0, 'database dump'),
@@ -61,27 +77,58 @@
 
   file.addEventListener('change', async () => {
     if (inspection) inspection.abort();
-    inspection = new AbortController();
+    inspection = null;
     uploadID = '';
     StepanelUI.setStatus(result, '');
     const chosen = file.files && file.files[0];
     if (!chosen) {
+      file.required = true;
       label.textContent = 'Choose .tar.gz backup';
       StepanelUI.setStatus(status, 'Choose a backup to inspect it before restoring.');
       return;
     }
+    const controller = new AbortController();
+    inspection = controller;
+    file.value = '';
+    file.required = false;
+    button.disabled = true;
+    cancelUpload.hidden = false;
     label.textContent = chosen.name;
-    StepanelUI.setStatus(status, 'Inspecting backup…', 'pending');
+    StepanelUI.setStatus(status, `Uploading ${formatBytes(chosen.size)} backup…`, 'pending');
     const body = new FormData(); body.append('backup', chosen);
     try {
-      const info = await StepanelAPI.request('/api/cpmove/inspect', { method: 'POST', body, signal: inspection.signal });
+      const info = await StepanelAPI.request('/api/cpmove/inspect', {
+        method: 'POST', body, signal: controller.signal,
+        onUploadProgress: (progress) => {
+          if (progress.complete) {
+            StepanelUI.setStatus(status, 'Upload received; inspecting backup contents…', 'pending');
+          } else if (progress.percent !== null) {
+            StepanelUI.setStatus(status, `Uploading backup… ${progress.percent}% (${formatBytes(progress.loaded)} of ${formatBytes(progress.total)})`, 'pending');
+          } else {
+            StepanelUI.setStatus(status, `Uploading backup… ${formatBytes(progress.loaded)} transferred`, 'pending');
+          }
+        },
+      });
       uploadID = info.upload_id;
       if (info.database_count > 0) database.checked = true;
       StepanelUI.setStatus(status, `Ready: ${summary(info)}. DNS records and scheduled task commands are not imported; the result will show observed schedules and cutover work.`, 'warning');
     } catch (error) {
-      if (error.name !== 'AbortError') StepanelUI.setStatus(status, error.message, 'error');
+      file.required = true;
+      if (error.kind === 'aborted') {
+        StepanelUI.setStatus(status, 'Upload cancelled. Select the backup again to retry.', 'warning');
+      } else {
+        StepanelUI.setStatus(status, `${error.message} Select the backup again to retry.`, 'error');
+      }
+    } finally {
+      if (inspection === controller) {
+        inspection = null;
+        cancelUpload.hidden = true;
+        button.disabled = false;
+      }
     }
   });
+
+  cancelUpload.addEventListener('click', () => inspection?.abort());
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();

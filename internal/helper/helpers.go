@@ -158,16 +158,19 @@ func RunBoundedCommand(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 // now verifies it, so a cmd built with plain exec.Command cannot silently
 // ignore its deadline here.
 //
-// CRITICAL: Ensures all commands run in their own process group so that
-// timeout/cancellation kills the entire process tree, not just the parent.
-// This is an architectural invariant preventing orphaned child processes.
+// Commands run in their own process group so timeout/cancellation can terminate
+// ordinary descendants that remain in that group. This is not a complete
+// process-tree boundary: a child that creates a new session can escape it.
 func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]byte, error) {
 	var output BoundedBuffer
 	output.limit = limit
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
-	// Ensure all commands run in their own process group
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Ensure all commands run in their own process group.
 	PrepareCommand(cmd)
 
 	if err := cmd.Start(); err != nil {
@@ -198,9 +201,8 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 		}
 		return output.Bytes(), nil
 	case <-ctx.Done():
-		// Kill the entire process group, not just the parent process.
-		// This ensures child processes (pip, npm, podman, etc.) are also terminated
-		// instead of being orphaned and continuing to run.
+		// Kill the process group, not just the direct child. Descendants that
+		// deliberately detach into another session require cgroup containment.
 		if cmd.Process != nil {
 			// Kill the process group (negative PID kills all processes in the group)
 			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
