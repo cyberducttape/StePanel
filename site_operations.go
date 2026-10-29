@@ -59,6 +59,7 @@ var siteOperationRoutes = map[string]siteOperationRoute{
 	"node.tooling":              {handler: func(a *App) http.HandlerFunc { return a.nodeTooling }, site: siteFromBody, scope: "site:deploy"},
 	"python.deploy":             {handler: func(a *App) http.HandlerFunc { return a.pythonDeploy }, site: siteFromBody, scope: "deploy:write"},
 	"staging.create":            {handler: func(a *App) http.HandlerFunc { return a.stagingCreate }, site: siteFromBody, scope: "site:deploy"},
+	"staging.promote":           {handler: func(a *App) http.HandlerFunc { return a.stagingPromote }, site: siteFromBody, scope: "site:deploy"},
 	"backup.restore-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreToStaging }, site: siteFromBody, scope: "backup:restore"},
 	"backup.offsite-to-staging": {handler: func(a *App) http.HandlerFunc { return a.backupRestoreOffsiteToStaging }, site: siteFromBody, scope: "backup:restore"},
 }
@@ -330,7 +331,7 @@ func (a *App) reconcileInterruptedSiteWithLease(ctx context.Context, site string
 	held := func(context.Context, string) (context.Context, func(), error) {
 		return ctx, func() {}, nil
 	}
-	if failures := recoverInterruptedState(a.Config, manager, held, site, a.Resources); len(failures) > 0 {
+	if failures := recoverInterruptedStateWithRoutes(a.Config, manager, held, site, a.Routes, a.Resources); len(failures) > 0 {
 		return errors.Join(failures...)
 	}
 	return nil

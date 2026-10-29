@@ -67,8 +67,13 @@ func TestNewMySQLCommandKeepsCredentialsOutOfArgvAndEnvironment(t *testing.T) {
 	}
 	if parser, err := exec.LookPath("my_print_defaults"); err == nil {
 		parsed, parseErr := exec.Command(parser, "--defaults-extra-file="+optionPath, "client").Output()
-		if parseErr != nil || string(parsed) != "--password="+cfg.DBPassword+"\n" {
-			t.Fatalf("MySQL option-file parser did not recover the original password (output %q, error %v)", parsed, parseErr)
+		parsedOption := strings.TrimSpace(string(parsed))
+		// MariaDB's my_print_defaults redacts password options as --***,
+		// while other supported MySQL clients print the parsed value. The
+		// exact option-file bytes are checked above; here verify that the
+		// parser accepted a password option without requiring it to disclose it.
+		if parseErr != nil || (parsedOption != "--password="+cfg.DBPassword && parsedOption != "--***" && parsedOption != "--password=***") {
+			t.Fatalf("MySQL option-file parser rejected the password option (output %q, error %v)", parsed, parseErr)
 		}
 	}
 }

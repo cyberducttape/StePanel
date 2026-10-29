@@ -1100,6 +1100,103 @@
     ]);
     const backups = (data.backups || []).sort((a, b) => new Date(b.created_at || b.verified_at) - new Date(a.created_at || a.verified_at));
     const output = ctx.statusOutput();
+    const cloneToStaging = async () => {
+      try {
+        const [overview, inventory] = await Promise.all([
+          ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
+          ctx.getJSON('/api/databases'),
+        ]);
+        const databases = (inventory.databases || []).filter((item) => item.site === site);
+        if (!databases.length) throw new Error('No managed production database is registered to this site.');
+        const confirmation = await ctx.confirmDangerous({
+          title: `Clone ${site} to staging?`,
+          message: 'StePanel creates a separate site identity and database, rewrites WordPress URLs, protects the route with Basic Auth and noindex, and records the production origin for later guarded promotion. Production files and database are read-only during cloning.',
+          facts: [['Source site', site], ['Production databases', databases.map((item) => item.name).join(', ')]],
+          confirmText: `CLONE ${site}`,
+          actionLabel: 'Create staging clone',
+          extraFields: [
+            { name: 'staging_site', label: 'New staging site name', placeholder: `${site}-stage` },
+            { name: 'domain', label: 'Staging domain', placeholder: 'staging.example.com' },
+            { name: 'source_database', label: 'Production database', options: databases.map((item) => ({ value: item.name, label: item.name })) },
+            { name: 'target_database', label: 'New staging database name', placeholder: `${site}_stage` },
+            { name: 'target_user', label: 'New staging database user', placeholder: `${site}_stage` },
+            { name: 'target_password', label: 'Staging database password', type: 'password', placeholder: '20+ supported characters' },
+            { name: 'auth_user', label: 'Staging Basic Auth username', placeholder: 'reviewer' },
+            { name: 'auth_password', label: 'Staging Basic Auth password', type: 'password', placeholder: '12+ characters' },
+          ],
+        });
+        if (!confirmation.confirmed) return;
+        const values = confirmation.values;
+        const stagingSite = values.staging_site.toLowerCase();
+        if (!/^[a-z0-9_-]{1,32}$/.test(stagingSite)) throw new Error('Staging site name must use lowercase letters, digits, dashes, or underscores.');
+        output.textContent = 'Creating an isolated staging site and PHP-FPM pool…';
+        const created = await ctx.postJSON('/api/sites', {
+          site: stagingSite,
+          template: 'php',
+          account: overview.account || '',
+          kind: overview.account ? 'addon' : '',
+          domain: values.domain.toLowerCase(),
+        });
+        let siteJob;
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          siteJob = await ctx.getJSON(`/api/jobs/${encodeURIComponent(created.job_id)}`);
+          if (['completed', 'failed', 'cancelled', 'dead-letter'].includes(siteJob.state)) break;
+        }
+        if (!siteJob || siteJob.state !== 'completed') throw new Error(siteJob?.error || `Staging site setup is still running (${created.job_id}).`);
+        output.textContent = 'Copying WordPress files and cloning the database into the isolated staging account…';
+        const result = await ctx.runOperation('/api/staging', {
+          source: site,
+          site: stagingSite,
+          domain: values.domain.toLowerCase(),
+          files: true,
+          environment: true,
+          database: true,
+          source_database: values.source_database,
+          target_database: values.target_database.toLowerCase(),
+          target_user: values.target_user.toLowerCase(),
+          target_password: values.target_password,
+          no_index: true,
+          basic_auth: true,
+          auth_user: values.auth_user,
+          auth_password: values.auth_password,
+        });
+        output.textContent = result.wordpress_promotion_ready
+          ? `Staging is live at https://${result.domain}. Basic Auth and noindex are enabled. Its database is isolated, and promotion back to ${site} is available with a pre-promotion backup and retained prior database.`
+          : `Staging site created at https://${result.domain}.`;
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    };
+    const promoteFromStaging = async () => {
+      const sourceInput = await ctx.confirmDangerous({
+        title: `Prepare promotion to ${site}`,
+        message: 'Enter the StePanel staging site name. The preview checks the recorded production relationship and both managed database ownership records.',
+        facts: [['Production site', site]],
+        confirmText: site,
+        actionLabel: 'Build promotion preview',
+        extraFields: [{ name: 'source', label: 'Staging site name', placeholder: `${site}-stage` }],
+      });
+      if (!sourceInput.confirmed) return;
+      const source = sourceInput.values.source.toLowerCase();
+      output.textContent = 'Checking staging relationship and database ownership…';
+      try {
+        const preview = await ctx.postJSON('/api/staging/promote/preview', { source, site });
+        const confirm = await ctx.confirmDangerous({
+          title: `Promote ${source} to ${site}?`,
+          message: `${preview.effects.join(' ')} ${preview.recovery_plan.join(' ')}`,
+          facts: [['Production domain', preview.proposed.production_domain], ['Staging database', preview.proposed.source_database], ['Current production database', preview.before.active_production_database]],
+          confirmText: `PROMOTE ${site}`,
+          actionLabel: 'Queue guarded promotion',
+        });
+        if (!confirm.confirmed) return;
+        output.textContent = 'Creating the production safety backup, candidate database, and transactional file cutover…';
+        const result = await ctx.runOperation('/api/staging/promote', { source, site, preview_token: preview.preview_token });
+        output.textContent = `Promotion completed for https://${result.domain}. Database ${result.database} passed WP-CLI validation. Previous database ${result.previous_database_retained} remains intact; safety backup ${result.safety_backup} is retained. Validate the public site before removing either recovery copy.`;
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    };
     const restoreToStaging = async (backup, includeDatabase) => {
       const backupName = backup.name || backup.path;
       const databaseNames = (backup.databases || []).filter((name) => /^[A-Za-z0-9_]+$/.test(name));
@@ -1142,15 +1239,17 @@
     panel.replaceChildren(
       recoveryStatus && recoveryStatus.__error ? errorState('Recovery status', recoveryStatus.__error) : recoveryStatus ? renderRecoveryStatus(recoveryStatus, ctx) : null,
       el('p', { className: 'panel-intro' }, 'Backups are checksummed and, when a signing key is configured, cryptographically signed and verified before they are trusted for restore.'),
-      el('div', { className: 'workspace-panel-actions' }, ctx.can('backup:create') ? [
-        ctx.button('Create verified backup', async () => {
+      el('div', { className: 'workspace-panel-actions' }, [
+        ctx.can('site:deploy') ? ctx.button('Clone WordPress to staging', cloneToStaging) : null,
+        ctx.can('site:deploy') ? ctx.button('Promote staging to production', promoteFromStaging, { className: 'danger' }) : null,
+        ctx.can('backup:create') ? ctx.button('Create verified backup', async () => {
           output.textContent = 'Creating a verified backup…';
           try {
             const result = await ctx.postJSON('/api/backups', { site, include_databases: true });
             output.textContent = `Backup queued (job ${result.job_id}). Refresh in a moment to see it listed.`;
           } catch (error) { output.textContent = error.message; }
-        }),
-      ] : [el('span', { className: 'import-note' }, 'Your role can review backups but cannot create them.')]),
+        }) : null,
+      ]),
       output,
       data.__error ? errorState('Backup inventory', data.__error) : el('ul', { className: 'resource-list' }, backups.length ? backups.map((backup) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [
@@ -1640,6 +1739,18 @@
   const createForm = document.querySelector('#siteCreateForm');
   if (createForm) {
     const createStatus = createForm.querySelector('#siteCreateStatus');
+    const templateSelect = createForm.elements.template;
+    const wordpressFields = createForm.querySelector('#wordpressCreateFields');
+    const domainInput = createForm.elements.domain;
+    const wordpressInputs = ['title', 'admin_user', 'admin_email', 'admin_password'].map((name) => createForm.elements[name]).filter(Boolean);
+    const updateTemplateFields = () => {
+      const wordpress = templateSelect.value === 'wordpress';
+      wordpressFields.hidden = !wordpress;
+      domainInput.required = wordpress;
+      wordpressInputs.forEach((input) => { input.required = wordpress; });
+    };
+    templateSelect.addEventListener('change', updateTemplateFields);
+    updateTemplateFields();
     const terminal = new Set(['completed', 'failed', 'cancelled', 'dead-letter']);
     createForm.addEventListener('submit', withBusySubmit(async (event) => {
       event.preventDefault();
@@ -1648,17 +1759,36 @@
       // Where the site lives in its hosting account (ADR-0007).
       const optional = (name) => (createForm.elements[name] ? createForm.elements[name].value.trim() : '');
       const placement = { account: optional('account'), kind: optional('kind'), domain: optional('domain').toLowerCase() };
+      const wordpress = template === 'wordpress' ? {
+        title: optional('title'),
+        admin_user: optional('admin_user'),
+        admin_email: optional('admin_email'),
+        admin_password: createForm.elements.admin_password.value,
+      } : {};
+      if (template === 'wordpress') {
+        const confirmed = await confirmDangerous({
+          title: `Create WordPress site ${site}?`,
+          message: `StePanel will create a dedicated PHP-FPM pool and database for ${placement.domain}, publish its route, configure HTTPS, and create the first database-inclusive recovery point. DNS must already point to this server for public certificate issuance.`,
+          confirmText: site,
+          actionLabel: 'Create WordPress site',
+        });
+        if (!confirmed) return;
+      }
       createStatus.textContent = `Queuing ${site}…`;
       try {
-        const queued = await postJSON('/api/sites', { site, template, ...placement });
+        const queued = await postJSON('/api/sites', { site, template, ...placement, ...wordpress });
         createStatus.textContent = `Creating ${site}: preparing its account and PHP pool…`;
         for (let attempt = 0; attempt < 90; attempt += 1) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           const job = await getJSON(`/api/jobs/${encodeURIComponent(queued.job_id)}`);
           if (!terminal.has(job.state)) continue;
           if (job.state === 'completed') {
-            createStatus.textContent = `${site} is ready. Connect a domain from its workspace.`;
+            const result = job.output || {};
+            createStatus.textContent = template === 'wordpress'
+              ? `${site} is ready at ${result.domain || placement.domain}. ${result.https || 'HTTPS configuration is active.'} Database: ${result.database || 'created'}. Integrity-verified recovery point: ${result.recovery_point || 'check Backups'}${result.recovery_verified_at ? ` (${new Date(result.recovery_verified_at).toLocaleString()})` : ''}. ${result.recovery_evidence || ''} Backups: ${result.backup_schedule || 'check schedule status'}.`
+              : `${site} is ready. Connect a domain from its workspace.`;
             createForm.reset();
+            updateTemplateFields();
             await loadGrid();
             openWorkspace(site);
           } else {

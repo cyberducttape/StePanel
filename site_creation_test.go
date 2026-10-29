@@ -160,6 +160,29 @@ func TestSiteCreationPublishesIsolatedBlankPHPSite(t *testing.T) {
 	}
 }
 
+func TestWordPressNamesFitManagedDatabaseLimitsAndDoNotCollideOnTruncation(t *testing.T) {
+	first := strings.Repeat("a", 32) + "-one"
+	second := strings.Repeat("a", 32) + "-two"
+	for _, site := range []string{"shop", first, second} {
+		if got := wordpressDatabaseName(site); len(got) > 64 || !validManagedDatabaseIdentifier(got, 64) {
+			t.Errorf("invalid WordPress database name for %q: %q", site, got)
+		}
+		if got := wordpressDatabaseUser(site); len(got) > 32 || !validManagedDatabaseIdentifier(got, 32) || got[0] < 'a' || got[0] > 'z' {
+			t.Errorf("invalid WordPress database user for %q: %q", site, got)
+		}
+	}
+	if wordpressDatabaseName(first) == wordpressDatabaseName(second) || wordpressDatabaseUser(first) == wordpressDatabaseUser(second) {
+		t.Fatal("different site names collided in generated WordPress database identity")
+	}
+	password, err := randomWordPressDBPassword()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validDatabasePassword(password) {
+		t.Fatalf("generated database password is not accepted by the database helper policy: %q", password)
+	}
+}
+
 func TestCustomerCanQueueSiteCreationWithinAssignedPlan(t *testing.T) {
 	f := newSiteCreationFixture(t, "")
 	accounts, err := OpenAccountStore(filepath.Join(f.root, "accounts.json"))
@@ -422,6 +445,15 @@ func TestStartupRecoveryRemovesInterruptedSiteCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.app.Resources = resources
+	routes, err := OpenRouteStore(filepath.Join(f.root, "routes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeName := siteVHostConfigName("caddy", "half-made", "half.example.test")
+	if err := routes.save(routeState(routeName, "half-made", "half.example.test", "applied")); err != nil {
+		t.Fatal(err)
+	}
+	f.app.Routes = routes
 	canonical := filepath.Join(f.webRoot, "sites", "half-made", "public")
 	txn, err := BeginSiteTransaction(f.app.Config.RecoveryRoot, canonical, siteCreationTransactionKind, AuthorizedSite{site: "half-made"})
 	if err != nil {
@@ -437,8 +469,11 @@ func TestStartupRecoveryRemovesInterruptedSiteCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failures := recoverUncleanShutdown(f.app.Config, manager, f.app.acquireSiteMutationLockContext, resources); len(failures) != 0 {
+	if failures := recoverUncleanShutdownWithRoutes(f.app.Config, manager, f.app.acquireSiteMutationLockContext, routes, resources); len(failures) != 0 {
 		t.Fatalf("recovery failures: %v", failures)
+	}
+	if len(routes.list()) != 0 {
+		t.Fatalf("interrupted site creation left desired route state: %#v", routes.list())
 	}
 	if _, exists := resources.values["half-made"]; exists {
 		t.Fatal("interrupted site creation left a stale resource profile")

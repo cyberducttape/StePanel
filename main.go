@@ -637,7 +637,7 @@ func Main() {
 				failures = append(failures, err)
 			}
 		}
-		recoveryFailures := recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext, app.Resources)
+		recoveryFailures := recoverUncleanShutdownWithRoutes(cfg, siteManager, app.acquireSiteMutationLockContext, app.Routes, app.Resources)
 		for _, quarantined := range quarantinedJournals(errors.Join(recoveryFailures...)) {
 			app.observeStateError(state.NewCorruptionError("recovery_journal", quarantined.cause, "quarantined "+filepath.Base(quarantined.dir)))
 		}

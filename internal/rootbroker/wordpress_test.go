@@ -17,6 +17,11 @@ func TestWordPressArgsAcceptsNamedOperations(t *testing.T) {
 		want string
 	}{
 		{WordPressRequest{Action: "status"}, "core version --format=json"},
+		{WordPressRequest{Action: "db-check"}, "--skip-plugins --skip-themes db check"},
+		{WordPressRequest{Action: "core-download"}, "core download"},
+		{WordPressRequest{Action: "core-install", URL: "https://example.test", Title: "Example", AdminUser: "siteadmin", AdminEmail: "admin@example.test", Secret: "a-strong-wordpress-password"}, "core install --url=https://example.test --title=Example --admin_user=siteadmin --admin_email=admin@example.test --prompt=admin_password --skip-email"},
+		{WordPressRequest{Action: "config-set", Name: "DISALLOW_FILE_EDIT", Value: "true"}, "config set DISALLOW_FILE_EDIT true --type=constant --raw"},
+		{WordPressRequest{Action: "config-get", Name: "DB_NAME"}, "config get DB_NAME"},
 		{WordPressRequest{Action: "maintenance-status"}, "--skip-plugins --skip-themes maintenance-mode is-active"},
 		{WordPressRequest{Action: "option-get", Name: "siteurl"}, "--skip-plugins --skip-themes option get siteurl"},
 		{WordPressRequest{Action: "option-update", Name: "home", Value: "https://example.org"}, "--skip-plugins --skip-themes option update home https://example.org"},
@@ -39,6 +44,34 @@ func TestWordPressArgsAcceptsNamedOperations(t *testing.T) {
 				t.Fatalf("%s placed the secret in argv: %q", tc.req.Action, args)
 			}
 		}
+	}
+}
+
+func TestWordPressCoreInstallValidatesHTTPSIdentityAndKeepsPasswordOffArgv(t *testing.T) {
+	req := WordPressRequest{Action: "core-install", URL: "https://example.test", Title: "Example", AdminUser: "siteadmin", AdminEmail: "admin@example.test", Secret: "a-strong-wordpress-password"}
+	args, err := WordPressArgs(&req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, arg := range args {
+		if strings.Contains(arg, req.Secret) {
+			t.Fatalf("administrator password leaked into argv: %q", arg)
+		}
+	}
+	for name, invalid := range map[string]WordPressRequest{
+		"http":             {Action: "core-install", URL: "http://example.test", Title: "Example", AdminUser: "admin", AdminEmail: "admin@example.test", Secret: req.Secret},
+		"host-port":        {Action: "core-install", URL: "https://example.test:8443", Title: "Example", AdminUser: "admin", AdminEmail: "admin@example.test", Secret: req.Secret},
+		"url-path":         {Action: "core-install", URL: "https://example.test/other", Title: "Example", AdminUser: "admin", AdminEmail: "admin@example.test", Secret: req.Secret},
+		"malformed-title":  {Action: "core-install", URL: "https://example.test", Title: "\n--exec=evil", AdminUser: "admin", AdminEmail: "admin@example.test", Secret: req.Secret},
+		"bad-email":        {Action: "core-install", URL: "https://example.test", Title: "Example", AdminUser: "admin", AdminEmail: "Admin <admin@example.test>", Secret: req.Secret},
+		"short-password":   {Action: "core-install", URL: "https://example.test", Title: "Example", AdminUser: "admin", AdminEmail: "admin@example.test", Secret: "short"},
+		"newline-password": {Action: "core-install", URL: "https://example.test", Title: "Example", AdminUser: "admin", AdminEmail: "admin@example.test", Secret: "a-strong-wordpress-password\nextra"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := WordPressArgs(&invalid); err == nil {
+				t.Fatal("invalid install request was accepted")
+			}
+		})
 	}
 }
 
@@ -70,7 +103,7 @@ func TestWordPressArgsRejectsInjectedValues(t *testing.T) {
 }
 
 func TestWordPressFencingAndLocking(t *testing.T) {
-	for action, fenced := range map[string]bool{"status": false, "maintenance-status": false, "option-get": false, "maintenance-activate": true, "core-update": true, "config-set-password": true} {
+	for action, fenced := range map[string]bool{"status": false, "db-check": false, "maintenance-status": false, "option-get": false, "core-update": true, "maintenance-activate": true, "config-set-password": true} {
 		req := &Request{RequestType: "wordpress", WordPress: &WordPressRequest{Action: action, Site: "demo"}}
 		if got := requestRequiresFencing(req); got != fenced {
 			t.Errorf("%s requires fencing = %v, want %v", action, got, fenced)

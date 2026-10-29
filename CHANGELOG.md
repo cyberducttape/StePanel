@@ -8,6 +8,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- WordPress site creation now provisions a per-site PHP-FPM pool, managed
+  database and credentials, HTTPS route, conservative security settings, an
+  integrity-verified database-inclusive first recovery point, and a daily
+  backup schedule. The completion report separates archive integrity from an
+  application-level restore rehearsal and HTTP smoke check.
+- WordPress staging clones now use a separate managed database, URL rewriting,
+  Basic Auth and noindex protection, and retain a production relationship for
+  guarded promotion. Promotion previews the effects, creates a verified
+  production safety backup, imports into a new database instead of overwriting
+  the live database, retains the prior production database, and checks the
+  promoted WordPress database before reporting success.
+
+### Fixed
+
+- The MySQL credential-file test now accepts MariaDB's redacted
+  `my_print_defaults` output while continuing to verify the exact private
+  option-file contents and filesystem permissions.
+
 - Site incident assessment now correlates PHP-FPM and web-server error excerpts,
   recent HTTP failures, site-owned database inventory, document-root metadata,
   quota state, local certificate status, and recorded changes. Findings include

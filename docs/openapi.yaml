@@ -505,8 +505,14 @@ paths:
         template into SiteManager staging, creates the site's system account
         and PHP-FPM pool through the root broker, activates the tree and seals
         its ownership. Tenant-owner requests assign the site to the account
-        under its plan before queueing. A failed or interrupted creation
-        removes everything it created. Accepts an optional Idempotency-Key header.
+        under its plan before queueing. The wordpress template additionally
+        requires a managed MySQL/MariaDB helper, WP-CLI, a backup root, and a
+        domain; it installs WordPress with a dedicated database identity,
+        managed HTTPS, baseline hardening, an integrity-verified database
+        backup, and a daily backup schedule. Archive integrity does not claim
+        an application-level recovery rehearsal. A failed or interrupted
+        creation removes everything it created. Accepts an optional
+        Idempotency-Key header.
       requestBody:
         required: true
         content:
@@ -516,7 +522,12 @@ paths:
               required: [site]
               properties:
                 site: {type: string, pattern: '^[a-z0-9_-]{1,32}$'}
-                template: {type: string, enum: [php], default: php}
+                template: {type: string, enum: [php, wordpress], default: php}
+                domain: {type: string, format: hostname, description: Required for WordPress}
+                title: {type: string, maxLength: 150, description: Required for WordPress}
+                admin_user: {type: string, maxLength: 60, description: Required for WordPress}
+                admin_email: {type: string, format: email, description: Required for WordPress}
+                admin_password: {type: string, minLength: 20, maxLength: 128, writeOnly: true, description: Required for WordPress; carried encrypted in the durable job payload}
       responses:
         '202': {description: Creation job queued, with job_id and status_url}
         '403': {description: Authentication, tenant authorization, or CSRF requirement failed}
@@ -718,8 +729,44 @@ paths:
   /api/staging:
     post:
       summary: Create a recovery-journaled staging site from safe file copies
-      description: Staging routes use no-index by default. On Caddy or Apache, set basic_auth with auth_user and auth_password to enable helper-managed Basic Auth; the plaintext password is never persisted. OpenLiteSpeed staging currently rejects Basic Auth rather than silently creating an unprotected route. Set database=true with source_database, target_database, target_user, and target_password to logically clone one managed source database into a newly provisioned destination after ownership validation. Schema rollback and promotion remain manual.
+      description: Staging routes use no-index by default. WordPress file clones require an independently managed staging database, Basic Auth, and noindex; the staging URL and database settings are rewritten, and a managed origin record enables guarded promotion. On Caddy or Apache, set basic_auth with auth_user and auth_password to enable helper-managed Basic Auth; the plaintext password is never persisted. OpenLiteSpeed staging rejects Basic Auth. Database cloning validates source ownership and imports into a new database.
       responses: {'202': {description: Staging site created}}
+  /api/staging/promote/preview:
+    post:
+      summary: Preview promotion of a managed WordPress staging clone
+      description: Requires access to both sites and site:deploy. Verifies the recorded clone relationship, active routes, and managed database ownership, then returns a short-lived preview token bound to the observed state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, site]
+              properties:
+                source: {type: string, description: Staging site}
+                site: {type: string, description: Production site}
+      responses:
+        '200': {description: Proposed file/database changes, safety backup, and recovery plan}
+        '409': {description: Staging relationship or current site state is invalid}
+  /api/staging/promote:
+    post:
+      summary: Queue guarded WordPress staging promotion
+      description: Requires a current preview token. Creates a verified production safety backup, imports staging data into a new production-owned database, activates files under maintenance mode, rewrites WordPress URLs, checks database integrity, and retains the former production database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, site, preview_token]
+              properties:
+                source: {type: string, description: Staging site}
+                site: {type: string, description: Production site}
+                preview_token: {type: string}
+      responses:
+        '202': {description: Durable promotion job queued}
+        '409': {description: Preview expired or site state changed}
+        '503': {description: Safety backup or required managed service unavailable}
   /api/tasks/:
     get:
       summary: List bounded systemd-timer scheduled tasks for a site

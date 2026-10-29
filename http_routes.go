@@ -81,6 +81,8 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 	mux.Handle("/api/reconcile/resources", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.reconcileResources)), http.MethodPost))
 	mux.Handle("/api/reconcile/tasks", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.reconcileTasksHTTP)), http.MethodPost))
 	mux.Handle("/api/staging", allowMethods(a.Auth.Require(a.siteOperation("staging.create")), http.MethodPost))
+	mux.Handle("/api/staging/promote/preview", allowMethods(a.Auth.Require(http.HandlerFunc(a.stagingPromotionPreview)), http.MethodPost))
+	mux.Handle("/api/staging/promote", allowMethods(a.Auth.Require(a.siteOperation("staging.promote")), http.MethodPost))
 	mux.Handle("/api/runner/build", allowMethods(a.Auth.Require(a.siteOperation("runner.build")), http.MethodPost))
 	mux.Handle("/api/deployments", allowMethods(a.Auth.Require(http.HandlerFunc(a.deployments)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/deployments/run", allowMethods(a.Auth.Require(a.siteOperation("release.pipeline")), http.MethodPost))

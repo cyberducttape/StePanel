@@ -2,14 +2,23 @@ package stepanel
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"net/mail"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
+	"github.com/cyberducttape/StePanel/internal/domainname"
+	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
 
@@ -20,9 +29,10 @@ import (
 // activates the staged tree, and the broker seals ownership. A SiteTransaction
 // journal makes an interrupted creation roll back on startup.
 //
-// Creation does not publish a web route. Domain verification and route
-// publication stay with POST /api/sites/deploy; customer plan ceilings are
-// applied before activation for customer-provisioning requests.
+// Blank PHP creation leaves routing to POST /api/sites/deploy. WordPress
+// creation is an end-to-end durable workflow and also provisions a managed
+// database, publishes the domain route, configures TLS, and records a first
+// database-inclusive recovery point.
 
 // siteTemplate fills a staged public root for a new site.
 type siteTemplate struct {
@@ -31,8 +41,13 @@ type siteTemplate struct {
 }
 
 var siteTemplates = map[string]siteTemplate{
-	"php": {description: "blank PHP site", populate: populateBlankPHPSite},
+	"php":       {description: "blank PHP site", populate: populateBlankPHPSite},
+	"wordpress": {description: "new WordPress site", populate: populateEmptyWordPressSite},
 }
+
+var wordpressAdminUserPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,60}$`)
+
+func populateEmptyWordPressSite(_ context.Context, _ *App, _ string, _ string) error { return nil }
 
 // blankPHPIndex is the placeholder page of a blank PHP site. It shows that
 // PHP is executing for the site and names no product or domain.
@@ -71,6 +86,120 @@ func populateBlankPHPSite(_ context.Context, _ *App, _ string, staging string) e
 	return file.Close()
 }
 
+func wordpressDatabaseName(site string) string {
+	digest := sha256.Sum256([]byte(site))
+	stem := strings.NewReplacer("-", "_").Replace(strings.Trim(safeUser(site), "_-"))
+	return "spwp_" + stem + "_" + hex.EncodeToString(digest[:8])
+}
+
+func wordpressDatabaseUser(site string) string {
+	digest := sha256.Sum256([]byte(site))
+	stem := strings.NewReplacer("-", "_").Replace(strings.Trim(safeUser(site), "_-"))
+	if len(stem) > 12 {
+		stem = stem[:12]
+	}
+	return "wp_" + stem + "_" + hex.EncodeToString(digest[:8])
+}
+
+func randomWordPressDBPassword() (string, error) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#%^*_=+.,:-"
+	var entropy [40]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return "", err
+	}
+	password := make([]byte, len(entropy))
+	for i, value := range entropy {
+		password[i] = alphabet[int(value)%len(alphabet)]
+	}
+	return string(password), nil
+}
+
+func (a *App) provisionWordPressOnNewSite(ctx context.Context, req durableSiteCreationRequest, _ SiteCapability, txn *SiteTransaction) error {
+	if req.WordPress == nil || txn == nil {
+		return errors.New("WordPress provisioning intent is missing")
+	}
+	if a.Config.DBEngine == "postgresql" {
+		return errors.New("new WordPress provisioning currently requires MySQL or MariaDB")
+	}
+	database, username := wordpressDatabaseName(req.Site), wordpressDatabaseUser(req.Site)
+	if err := txn.TrackDatabase(ManagedDatabase{Name: database, User: username, Kind: "panel"}); err != nil {
+		return fmt.Errorf("record WordPress database recovery intent: %w", err)
+	}
+	password, err := randomWordPressDBPassword()
+	if err != nil {
+		return fmt.Errorf("generate WordPress database credential: %w", err)
+	}
+	if _, err := runDatabaseHelperContext(ctx, a.Config, time.Minute, password, "provision", database, username, req.Site, "utf8mb4"); err != nil {
+		return fmt.Errorf("create isolated WordPress database and user: %w", err)
+	}
+	wp := func(action string, extra rootbroker.WordPressRequest) error {
+		extra.Action, extra.Site = action, req.Site
+		if _, err := runWordPress(ctx, a.Config, extra); err != nil {
+			return fmt.Errorf("WordPress %s: %w", action, err)
+		}
+		return nil
+	}
+	if err := wp("core-download", rootbroker.WordPressRequest{}); err != nil {
+		return err
+	}
+	dbHost := strings.TrimSpace(a.Config.DBHost)
+	if dbHost == "" {
+		dbHost = "localhost"
+	}
+	if err := wp("config-create", rootbroker.WordPressRequest{DBName: database, DBUser: username, DBHost: dbHost, DBPrefix: "wp_", Secret: password}); err != nil {
+		return fmt.Errorf("write protected WordPress database configuration: %w", err)
+	}
+	for _, setting := range []struct{ name, value string }{
+		{"DISALLOW_FILE_EDIT", "true"},
+		{"FORCE_SSL_ADMIN", "true"},
+		{"WP_AUTO_UPDATE_CORE", "true"},
+		{"WP_DEBUG", "false"},
+		{"WP_DEBUG_DISPLAY", "false"},
+		{"WP_ENVIRONMENT_TYPE", "production"},
+	} {
+		if err := wp("config-set", rootbroker.WordPressRequest{Name: setting.name, Value: setting.value}); err != nil {
+			return fmt.Errorf("apply WordPress security setting %s: %w", setting.name, err)
+		}
+	}
+	if _, err := runWordPress(ctx, a.Config, rootbroker.WordPressRequest{Action: "core-install", Site: req.Site, URL: "https://" + req.WordPress.Domain, Title: req.WordPress.Title, AdminUser: req.WordPress.AdminUser, AdminEmail: req.WordPress.AdminEmail, Secret: req.WordPress.AdminPassword}); err != nil {
+		return fmt.Errorf("install WordPress: %w", err)
+	}
+	return nil
+}
+
+func (a *App) publishWordPressRoute(ctx context.Context, req durableSiteCreationRequest, txn *SiteTransaction) (string, error) {
+	name := siteVHostConfigName(a.Config.WebServer, req.Site, req.WordPress.Domain)
+	if err := txn.TrackRoute(name); err != nil {
+		return "", fmt.Errorf("record WordPress route recovery intent: %w", err)
+	}
+	if err := runVhostMutation(ctx, a.Config, "apply", req.Site, req.WordPress.Domain); err != nil {
+		return "", fmt.Errorf("publish WordPress HTTPS route: %w", err)
+	}
+	if err := txn.MarkRouteApplied(name); err != nil {
+		return "", fmt.Errorf("record WordPress route activation: %w", err)
+	}
+	if a.Routes != nil {
+		if err := a.Routes.save(routeState(name, req.Site, req.WordPress.Domain, "applied")); err != nil {
+			return "", fmt.Errorf("persist WordPress route state: %w", err)
+		}
+	}
+	if a.Config.WebServer == "caddy" {
+		return "Caddy automatic HTTPS is configured; issuance requires public DNS and reachable ACME ports 80/443.", nil
+	}
+	client, err := rootbroker.NewClient("/usr/local/sbin/stepanel-root", a.Config.WebRoot)
+	if err != nil {
+		return "", fmt.Errorf("configure certificate broker: %w", err)
+	}
+	response, err := client.IssueCertificate(ctx, req.WordPress.Domain, req.WordPress.AdminEmail)
+	if err != nil {
+		return "", fmt.Errorf("request Apache TLS certificate: %w", err)
+	}
+	if !response.OK {
+		return "", fmt.Errorf("Apache TLS certificate issuance failed: %s", response.Error)
+	}
+	return "Apache certificate issued and HTTP redirects to HTTPS.", nil
+}
+
 // siteCreationTransactionKind marks recovery journals of site creation, whose
 // rollback also removes the prepared site account (startup_recovery.go).
 const siteCreationTransactionKind = "site.create"
@@ -83,9 +212,18 @@ type durableSiteCreationRequest struct {
 	// Account, Kind and Directory place the site inside a hosting account's
 	// home (ADR-0007). Empty means the legacy per-site layout, which only
 	// runs without a control-plane placement database (unit tests, tooling).
-	Account   string `json:"account,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-	Directory string `json:"directory,omitempty"`
+	Account   string                     `json:"account,omitempty"`
+	Kind      string                     `json:"kind,omitempty"`
+	Directory string                     `json:"directory,omitempty"`
+	WordPress *wordpressProvisionRequest `json:"wordpress,omitempty"`
+}
+
+type wordpressProvisionRequest struct {
+	Domain        string `json:"domain"`
+	Title         string `json:"title"`
+	AdminUser     string `json:"admin_user"`
+	AdminEmail    string `json:"admin_email"`
+	AdminPassword string `json:"admin_password"`
 }
 
 func (req durableSiteCreationRequest) placement() (sitelayout.Placement, bool) {
@@ -97,10 +235,18 @@ func (req durableSiteCreationRequest) placement() (sitelayout.Placement, bool) {
 
 // SiteCreationResult is the output of a completed site.create job.
 type SiteCreationResult struct {
-	Site       string   `json:"site"`
-	Template   string   `json:"template"`
-	PublicRoot string   `json:"public_root"`
-	NextSteps  []string `json:"next_steps"`
+	Site               string    `json:"site"`
+	Template           string    `json:"template"`
+	PublicRoot         string    `json:"public_root"`
+	NextSteps          []string  `json:"next_steps"`
+	Database           string    `json:"database,omitempty"`
+	Domain             string    `json:"domain,omitempty"`
+	HTTPS              string    `json:"https,omitempty"`
+	RecoveryPoint      string    `json:"recovery_point,omitempty"`
+	RecoveryVerifiedAt time.Time `json:"recovery_verified_at,omitempty"`
+	RecoverySHA256     string    `json:"recovery_sha256,omitempty"`
+	RecoveryEvidence   string    `json:"recovery_evidence,omitempty"`
+	BackupSchedule     string    `json:"backup_schedule,omitempty"`
 }
 
 // sites serves GET (list) and POST (create) on /api/sites.
@@ -139,9 +285,13 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 		Site     string `json:"site"`
 		Template string `json:"template"`
 		// Account, Kind and Domain choose where the site lives (ADR-0007).
-		Account string `json:"account"`
-		Kind    string `json:"kind"`
-		Domain  string `json:"domain"`
+		Account       string `json:"account"`
+		Kind          string `json:"kind"`
+		Domain        string `json:"domain"`
+		Title         string `json:"title"`
+		AdminUser     string `json:"admin_user"`
+		AdminEmail    string `json:"admin_email"`
+		AdminPassword string `json:"admin_password"`
 	}
 	if err := decodeJSON(w, r, 4096, &input); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -158,6 +308,41 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 	if _, ok := siteTemplates[input.Template]; !ok {
 		http.Error(w, "unsupported site template", http.StatusUnprocessableEntity)
 		return
+	}
+	var wordpress *wordpressProvisionRequest
+	if input.Template == "wordpress" {
+		input.Domain = strings.ToLower(strings.TrimSpace(input.Domain))
+		input.Title = strings.TrimSpace(input.Title)
+		input.AdminUser = strings.TrimSpace(input.AdminUser)
+		input.AdminEmail = strings.TrimSpace(input.AdminEmail)
+		address, addressErr := mail.ParseAddress(input.AdminEmail)
+		if !domainname.Valid(input.Domain) || input.Title == "" || len(input.Title) > 150 || strings.ContainsAny(input.Title, "\x00\r\n") || !wordpressAdminUserPattern.MatchString(input.AdminUser) || addressErr != nil || address.Address != input.AdminEmail || len(input.AdminEmail) > 254 || len(input.AdminPassword) < 20 || len(input.AdminPassword) > 128 || strings.ContainsAny(input.AdminPassword, "\x00\r\n") {
+			http.Error(w, "WordPress requires a valid domain, title, administrator email and username, and a 20-128 character administrator password", http.StatusUnprocessableEntity)
+			return
+		}
+		if a.Config.DBCtl == "" || a.Config.WPCLI == "" || a.Config.BackupRoot == "" || (a.Config.WebServer != "caddy" && a.Config.WebServer != "apache") || a.Config.DBEngine == "postgresql" {
+			http.Error(w, "WordPress provisioning requires the managed database helper, WP-CLI, and a configured backup root", http.StatusServiceUnavailable)
+			return
+		}
+		if a.Config.WebServer == "apache" && a.Config.Certbot == "" {
+			http.Error(w, "Apache WordPress provisioning requires the managed Certbot helper", http.StatusServiceUnavailable)
+			return
+		}
+		if a.Routes == nil {
+			http.Error(w, "WordPress provisioning requires durable route state", http.StatusServiceUnavailable)
+			return
+		}
+		if !admin {
+			verifyCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			verifyErr := a.verifyCustomerDomain(verifyCtx, input.Site, input.Domain)
+			cancel()
+			if verifyErr != nil {
+				http.Error(w, "verify the site's domain ownership before WordPress provisioning", http.StatusConflict)
+				return
+			}
+		}
+		wordpress = &wordpressProvisionRequest{Domain: input.Domain, Title: input.Title, AdminUser: input.AdminUser, AdminEmail: input.AdminEmail, AdminPassword: input.AdminPassword}
+		input.AdminPassword = ""
 	}
 	if a.Jobs == nil {
 		http.Error(w, "site creation requires the durable job store", http.StatusServiceUnavailable)
@@ -199,7 +384,7 @@ func (a *App) siteCreate(w http.ResponseWriter, r *http.Request) {
 			assigned = newlyAssigned
 		}
 	}
-	request := durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin}
+	request := durableSiteCreationRequest{Site: input.Site, Template: input.Template, Actor: a.Auth.AuditActor(r), CustomerProvisioning: !admin, WordPress: wordpress}
 	if placed {
 		request.Account, request.Kind, request.Directory = placement.Account, string(placement.Kind), placement.Directory
 	}
@@ -297,7 +482,20 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		return nil, fmt.Errorf("site creation authorization: %w", err)
 	}
 	var customerAccount HostingAccount
-	operationCtx, release, err := a.acquireSiteMutationLockContext(ctx, req.Site)
+	lockKeys := []string{req.Site}
+	if req.WordPress != nil {
+		address, addressErr := mail.ParseAddress(req.WordPress.AdminEmail)
+		if req.Template != "wordpress" || !domainname.Valid(req.WordPress.Domain) || strings.TrimSpace(req.WordPress.Title) == "" || len(req.WordPress.Title) > 150 || strings.ContainsAny(req.WordPress.Title, "\x00\r\n") || !wordpressAdminUserPattern.MatchString(req.WordPress.AdminUser) || addressErr != nil || address.Address != req.WordPress.AdminEmail || len(req.WordPress.AdminPassword) < 20 || len(req.WordPress.AdminPassword) > 128 || strings.ContainsAny(req.WordPress.AdminPassword, "\x00\r\n") {
+			return nil, errors.New("invalid durable WordPress provisioning request")
+		}
+		if a.Config.WebServer != "caddy" && a.Config.WebServer != "apache" {
+			return nil, errors.New("WordPress provisioning currently requires Caddy or Apache")
+		}
+		lockKeys = append(lockKeys, "vhost:"+siteVHostConfigName(a.Config.WebServer, req.Site, req.WordPress.Domain))
+	} else if req.Template == "wordpress" {
+		return nil, errors.New("WordPress provisioning details are missing")
+	}
+	operationCtx, release, err := a.acquireSiteMutationLocksContext(ctx, lockKeys...)
 	if err != nil {
 		return nil, fmt.Errorf("acquire site mutation lock: %w", err)
 	}
@@ -316,6 +514,13 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 		return nil, fmt.Errorf("inspect site: %w", err)
 	} else if exists {
 		return nil, fmt.Errorf("site %q already exists", req.Site)
+	}
+	if req.WordPress != nil && a.Routes != nil {
+		for _, route := range a.Routes.list() {
+			if strings.EqualFold(route.Domain, req.WordPress.Domain) {
+				return nil, fmt.Errorf("domain %q is already assigned to a managed site", req.WordPress.Domain)
+			}
+		}
 	}
 	// Place the site in its hosting account before staging, so its stage is
 	// allocated on the home filesystem (ADR-0007).
@@ -385,12 +590,31 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	}
 	committed, prepared := false, false
 	createdResourceProfile := false
+	backupScheduleCreated := false
 	defer func() {
 		if committed {
 			return
 		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(operationCtx), helperConfigMutationTimeout)
+		var compensationErrors []error
+		if err := txn.cleanupRoutes(cleanupCtx, a.Config); err != nil {
+			compensationErrors = append(compensationErrors, fmt.Errorf("remove newly published route: %w", err))
+		}
 		if err := txn.Rollback(); err != nil {
-			log.Printf("roll back site creation transaction %s: %v", txn.ID, err)
+			compensationErrors = append(compensationErrors, fmt.Errorf("restore site filesystem: %w", err))
+		}
+		if req.WordPress != nil && a.Routes != nil {
+			name := siteVHostConfigName(a.Config.WebServer, req.Site, req.WordPress.Domain)
+			if err := a.Routes.remove(name); err != nil {
+				compensationErrors = append(compensationErrors, fmt.Errorf("remove route state %s: %w", name, err))
+			}
+		}
+		if backupScheduleCreated && a.Schedules != nil {
+			a.Schedules.mu.Lock()
+			if removeErr := persistMapKeyChange(a.Schedules.items, req.Site, (*BackupSchedule)(nil), a.Schedules.persistLocked); removeErr != nil {
+				log.Printf("remove backup schedule for failed site creation %s: %v", req.Site, removeErr)
+			}
+			a.Schedules.mu.Unlock()
 		}
 		if prepared {
 			// The site did not exist before this job: remove the account, PHP
@@ -398,7 +622,6 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 			// privileged deletion path, then finalize through SiteManager.
 			// Keep the job's lease token: the broker rejects unfenced
 			// mutations, and ctx may already be cancelled.
-			cleanupCtx := context.WithoutCancel(ctx)
 			removed := false
 			if err := siteHelperContext(cleanupCtx, a.Config, "delete", req.Site); err != nil {
 				log.Printf("remove partially created site %s: %v", req.Site, err)
@@ -413,6 +636,19 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 				}
 			}
 		}
+		if prepared {
+			if err := txn.cleanupDatabases(cleanupCtx, a.Config); err != nil {
+				compensationErrors = append(compensationErrors, fmt.Errorf("remove provisioned WordPress database: %w", err))
+			}
+		}
+		if len(compensationErrors) > 0 {
+			cause := errors.Join(compensationErrors...)
+			log.Printf("site creation compensation is incomplete for %s: %v", req.Site, cause)
+			if err := txn.MarkRecoveryRequired(cause); err != nil {
+				log.Printf("persist site creation recovery requirement for %s: %v", req.Site, err)
+			}
+		}
+		cleanupCancel()
 	}()
 
 	prepared = true
@@ -433,6 +669,49 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	if err := siteHelperContext(operationCtx, a.Config, "seal", req.Site); err != nil {
 		return nil, fmt.Errorf("seal isolated site: %w", err)
 	}
+	result := SiteCreationResult{Site: req.Site, Template: req.Template, PublicRoot: canonical}
+	if req.WordPress != nil {
+		if err := a.provisionWordPressOnNewSite(operationCtx, req, access, txn); err != nil {
+			return nil, err
+		}
+		if a.Routes != nil {
+			for _, route := range a.Routes.list() {
+				if strings.EqualFold(route.Domain, req.WordPress.Domain) {
+					return nil, fmt.Errorf("domain %q became assigned to another managed route", req.WordPress.Domain)
+				}
+			}
+		}
+		httpsState, err := a.publishWordPressRoute(operationCtx, req, txn)
+		if err != nil {
+			return nil, err
+		}
+		result.Domain = req.WordPress.Domain
+		result.Database = wordpressDatabaseName(req.Site)
+		result.HTTPS = httpsState
+		backup, err := CreateSiteBackupContext(operationCtx, a.Config, access, true)
+		if err != nil {
+			return nil, fmt.Errorf("create the initial verified WordPress recovery point: %w", err)
+		}
+		result.RecoveryPoint = filepath.Base(backup.Path)
+		result.RecoveryVerifiedAt = backup.VerifiedAt
+		result.RecoverySHA256 = backup.ArchiveSHA256
+		result.RecoveryEvidence = "Archive and database dump integrity verified. Application-level restore rehearsal has not yet run."
+		if a.Schedules == nil {
+			return nil, errors.New("initial recovery point exists, but automatic backup scheduling is unavailable")
+		}
+		schedule := BackupSchedule{Site: req.Site, IntervalMinutes: 1440, KeepLast: 7, IncludeDatabases: true, Enabled: true, NextRun: time.Now().UTC().Add(24 * time.Hour)}
+		a.Schedules.mu.Lock()
+		scheduleErr := persistMapKeyChange(a.Schedules.items, req.Site, &schedule, a.Schedules.persistLocked)
+		a.Schedules.mu.Unlock()
+		if scheduleErr != nil {
+			return nil, fmt.Errorf("initial recovery point was created but daily backup schedule could not be saved: %w", scheduleErr)
+		}
+		backupScheduleCreated = true
+		result.BackupSchedule = "daily; keep last 7; include database"
+		result.NextSteps = []string{"Open the new domain over HTTPS and complete an application smoke check.", "The documented recovery point is " + result.RecoveryPoint + "; daily database-inclusive backups are scheduled."}
+	} else {
+		result.NextSteps = []string{"Publish a route for the site with POST /api/sites/deploy"}
+	}
 	if err := operationCtx.Err(); err != nil {
 		return nil, err
 	}
@@ -444,14 +723,6 @@ func (a *App) handleSiteCreation(ctx context.Context, item Job) ([]byte, error) 
 	if a.MetadataCache != nil {
 		a.MetadataCache.InvalidateSite(req.Site)
 	}
-	nextSteps := []string{
-		"Publish a route for the site with POST /api/sites/deploy",
-	}
 	creationCompleted = true
-	return json.Marshal(SiteCreationResult{
-		Site:       req.Site,
-		Template:   req.Template,
-		PublicRoot: canonical,
-		NextSteps:  nextSteps,
-	})
+	return json.Marshal(result)
 }
