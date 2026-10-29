@@ -67,6 +67,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   worker-RSS, site usage, and quota signals remain alongside review-only
   recommendations.
 
+- PHP-FPM review guidance now compares the sampled P95 cost of one additional
+  worker with current raw host `MemAvailable`. It warns against increasing
+  `max_children` when that estimate exceeds headroom and calls for an explicit
+  reserve and repeated peak-period samples when it fits. This is advisory
+  context only; shared RSS and changing host workloads prevent it from being a
+  hard admission guarantee.
+
 - A stable `/api/v1` automation namespace now backs the supported Go and
   TypeScript client packages and generated Bash, Zsh, and Fish completions.
   `stepanelctl` uses the same API workflows as the dashboard for site creation,

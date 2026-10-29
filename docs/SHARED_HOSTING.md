@@ -186,6 +186,11 @@ These are instantaneous planning estimates (RSS includes shared pages), not
 memory reservations or a peak-load guarantee. Customers do not receive
 aggregate host memory figures. Recommendations remain advisory; they do not
 change PHP-FPM settings automatically.
+When worker RSS and host memory are both available, the review guidance also
+compares one more worker's measured P95 RSS with current raw host headroom. If
+the estimate exceeds it, StePanel recommends addressing request memory or host
+capacity before raising the pool limit; if it fits, an explicit reserve and
+repeated peak samples are still required.
 
 ## Staging sites
 

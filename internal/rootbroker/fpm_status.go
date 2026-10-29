@@ -175,7 +175,9 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s worker memory could not be sampled.", pool.version))
 		}
 		item.AtCapacity, item.Saturated = fpmPoolIndicators(stats.Active, stats.Queue, pool.max)
-		result.PerformanceGuidance = append(result.PerformanceGuidance, fpmPoolGuidance(pool.version, item))
+		guidance := fpmPoolGuidance(pool.version, item)
+		addFPMHostMemoryGuidance(&guidance, item, result.HostMemory)
+		result.PerformanceGuidance = append(result.PerformanceGuidance, guidance)
 		result.Available = true
 		result.Pools = append(result.Pools, item)
 	}
@@ -185,6 +187,22 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		result.Detail = "PHP-FPM status is partial; one or more configured pools could not be sampled."
 	}
 	return result, nil
+}
+
+func addFPMHostMemoryGuidance(guidance *FPMGuidance, pool FPMStatusPool, host *FPMHostMemory) {
+	if guidance == nil || host == nil || pool.WorkerMemory == nil {
+		return
+	}
+	additional := pool.WorkerMemory.OneAdditionalWorkerBytes
+	guidance.Evidence += fmt.Sprintf(" Host MemAvailable is %s; one additional worker at sampled P95 is estimated at %s.", formatBytes(host.AvailableBytes), formatBytes(additional))
+	if additional > host.AvailableBytes {
+		guidance.State = "review"
+		guidance.Title = "Review host memory before increasing PHP workers"
+		guidance.Recommendation = "The sampled P95 RSS for one additional worker exceeds current raw host MemAvailable. Do not raise max_children based on queue counters alone; investigate per-request memory use or add host capacity, then repeat measurements. RSS includes shared pages and host headroom is transient, so this is a caution signal rather than a hard capacity boundary."
+		guidance.OperatorApprovalNeeded = true
+		return
+	}
+	guidance.Recommendation += " One additional worker's sampled P95 RSS is below current raw MemAvailable, but this excludes an operating reserve and other workloads can consume that memory; require repeated peak-period samples and an explicit safety margin before increasing max_children."
 }
 
 func readMemAvailableBytes(path string) (uint64, error) {
