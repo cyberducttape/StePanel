@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- High-backlog SQLite queue benchmarks now report claim p50/p95/p99 and
+  post-sample passive-checkpoint latency, remaining frames, and WAL file size.
 - Site incident snapshots can query aggregate PHP-FPM pool counters through a
   typed root-broker FastCGI request. Managed pools enable a private status path
   that Caddy and Apache explicitly deny to public requests; the incident view
