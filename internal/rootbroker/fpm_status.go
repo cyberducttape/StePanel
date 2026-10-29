@@ -94,6 +94,8 @@ type FPMWorkerMemory struct {
 	OneAdditionalWorkerBytes          uint64 `json:"one_additional_worker_bytes"`
 	Estimate                          string `json:"estimate"`
 	Source                            string `json:"source"`
+	EstimatedWorkerCeiling            uint64 `json:"estimated_worker_ceiling,omitempty"`
+	WorkerCeilingBasis                string `json:"worker_ceiling_basis,omitempty"`
 }
 
 type fpmPoolConfig struct {
@@ -170,6 +172,19 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 			memory.ProjectedMaxRSSAtMaxChildrenBytes = memory.MaxRSSBytes * pool.max
 			memory.OneAdditionalWorkerBytes = memory.P95RSSBytes
 			memory.Estimate = "P95 and largest-observed worker RSS from one instantaneous sample multiplied by configured max_children; shared pages are included, and neither projection is a memory limit or sustained-load forecast"
+			if result.HostMemory != nil && memory.P95RSSBytes > 0 {
+				// Treat only 70% of current MemAvailable as candidate capacity;
+				// the remainder is an explicit safety reserve for other host work.
+				// This remains an advisory ceiling because MemAvailable is transient
+				// and RSS includes shared mappings.
+				additional := (result.HostMemory.AvailableBytes / 100 * 70) / memory.P95RSSBytes
+				ceiling := uint64(memory.SampledWorkers) + additional
+				if ceiling > 512 {
+					ceiling = 512
+				}
+				memory.EstimatedWorkerCeiling = ceiling
+				memory.WorkerCeilingBasis = "sampled worker count plus 70% of current host MemAvailable divided by per-worker P95 RSS; 30% held as a host reserve; transient planning estimate, not a safe or enforced limit"
+			}
 			item.WorkerMemory = memory
 		} else {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s worker memory could not be sampled.", pool.version))

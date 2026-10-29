@@ -641,6 +641,16 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		// but should not disclose aggregate host utilization to site customers.
 		if !a.Auth.IsAdministrator(r) {
 			fpmStatus.HostMemory = nil
+			for i := range fpmStatus.Pools {
+				if fpmStatus.Pools[i].WorkerMemory != nil {
+					// The status snapshot may be backed by the short-lived cache;
+					// copy the nested value before removing admin-only host estimates.
+					memory := *fpmStatus.Pools[i].WorkerMemory
+					memory.EstimatedWorkerCeiling = 0
+					memory.WorkerCeilingBasis = ""
+					fpmStatus.Pools[i].WorkerMemory = &memory
+				}
+			}
 		}
 		writeJSON(w, 200, map[string]any{"configured": ok, "profile": p, "observed": observed, "fpm_status": fpmStatus, "enforcement": "systemd slice for managed apps/workers/scheduled tasks; isolated PHP-FPM max_children"})
 		return
@@ -801,6 +811,12 @@ func resourceProfileEffects(before, proposed ResourceProfile, status rootbroker.
 				projectedMemoryHeadroom(status.HostMemory.AvailableBytes, pool.WorkerMemory.TotalRSSBytes, newObservedMax))
 		}
 		effect += " These instantaneous, shared-page-inclusive projections are planning estimates, not reservations or a sustained-load guarantee."
+		if pool.WorkerMemory.EstimatedWorkerCeiling > 0 {
+			effect += fmt.Sprintf(" Host memory-based planning ceiling is approximately %d workers (%s); the proposed setting is %d. Treat this as a review signal only and retain the preview/approval workflow.", pool.WorkerMemory.EstimatedWorkerCeiling, pool.WorkerMemory.WorkerCeilingBasis, proposed.PHPWorkers)
+			if uint64(proposed.PHPWorkers) > pool.WorkerMemory.EstimatedWorkerCeiling {
+				effect += " The proposed worker count exceeds this conservative estimate; collect representative peak samples or increase host capacity before applying."
+			}
+		}
 		effects = append(effects, effect)
 	}
 	if !memoryObserved {

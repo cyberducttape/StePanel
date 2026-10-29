@@ -435,9 +435,9 @@
       }
       if (usageAvailable && usageData && usageData.quota) {
         const quota = usageData.quota;
-        if (Number.isFinite(Number(quota.estimated_remaining_bytes))) {
-          add('guidance', 'Measured filesystem usage and quota estimate', `${formatBytes(Number(quota.tree_bytes || 0))} in this site tree; estimated remaining account allowance up to ${formatBytes(Number(quota.estimated_remaining_bytes))}. ${quota.enforced ? 'Kernel quota is marked enforced.' : 'Kernel enforcement is not confirmed.'} ${quota.scope_note || ''}`, 'Treat this as an upper bound because other content owned by the hosting account can consume the same quota. Verify kernel quota usage before capacity changes.');
-        }
+        const byteHeadroom = Number.isFinite(Number(quota.estimated_remaining_bytes)) ? `${formatBytes(Number(quota.tree_bytes || 0))} used; up to ${formatBytes(Number(quota.estimated_remaining_bytes))} estimated bytes remain.` : 'Byte headroom is unknown.';
+        const inodeHeadroom = Number.isFinite(Number(quota.estimated_remaining_inodes)) ? ` ${Number(quota.tree_inodes || 0).toLocaleString()} inodes measured; up to ${Number(quota.estimated_remaining_inodes).toLocaleString()} estimated account inodes remain.` : '';
+        if (Number.isFinite(Number(quota.estimated_remaining_bytes)) || inodeHeadroom) add('guidance', 'Measured filesystem usage and quota estimate', `${byteHeadroom}${inodeHeadroom} ${quota.enforced ? 'Kernel quota is marked enforced.' : 'Kernel enforcement is not confirmed.'} ${quota.scope_note || ''}`, 'Treat byte and inode headroom as upper bounds because other content owned by the hosting account can consume the same quota. Verify kernel quota usage before capacity changes.');
       }
       const fpm = resourceData.fpm_status || {};
       const pools = Array.isArray(fpm.pools) ? fpm.pools : [];
@@ -471,7 +471,7 @@
             || Number(memory.max_rss_bytes || 0) * Number(pool.max_children || 0);
           add('guidance', `Measured PHP-FPM memory · PHP ${pool.php_version || 'default'}`,
             `${memory.sampled_workers} workers sampled: mean ${formatBytes(memory.mean_rss_bytes)}, P95 ${formatBytes(memory.p95_rss_bytes)}, maximum ${formatBytes(memory.max_rss_bytes)}. At max_children ${pool.max_children}, estimated pool RSS is ${formatBytes(memory.projected_rss_at_max_children_bytes)} at P95 and ${formatBytes(maxObservedProjection)} using the largest observed worker; one more worker adds about ${formatBytes(memory.one_additional_worker_bytes)} at sampled P95. ${memory.estimate || ''}`,
-            'Compare multiple peak-period samples with host available memory before adjusting PHP workers. RSS includes shared pages and is not an enforced per-site memory limit.');
+            `${memory.estimated_worker_ceiling ? `A conservative planning ceiling is about ${memory.estimated_worker_ceiling} workers using current host headroom; ${memory.worker_ceiling_basis || ''} ` : ''}Compare multiple peak-period samples before adjusting PHP workers. RSS includes shared pages and is not an enforced per-site memory limit.`);
         });
       }
     } else if (!resourceAvailable) {
@@ -1687,9 +1687,7 @@
       if (memoryCards.length) panel.append(el('h5', {}, 'Observed site resource use'), el('div', { className: 'overview-grid' }, memoryCards));
       if (usage && !usage.__error && usage.quota) {
         const quota = usage.quota;
-        const quotaDetails = Number.isFinite(Number(quota.estimated_remaining_bytes))
-          ? `${formatBytes(Number(quota.tree_bytes || 0))} measured in this site tree · up to ${formatBytes(Number(quota.estimated_remaining_bytes))} estimated allowance remaining.`
-          : `${formatBytes(Number(usage.bytes || 0))} measured in this site tree; no disk quota is configured, so quota headroom is unknown.`;
+          const quotaDetails = `${Number.isFinite(Number(quota.estimated_remaining_bytes)) ? `${formatBytes(Number(quota.tree_bytes || 0))} used · up to ${formatBytes(Number(quota.estimated_remaining_bytes))} estimated bytes remain` : `${formatBytes(Number(usage.bytes || 0))} measured · byte quota headroom unknown`}${Number.isFinite(Number(quota.estimated_remaining_inodes)) ? ` · ${(Number(quota.tree_inodes || 0)).toLocaleString()} inodes measured · up to ${Number(quota.estimated_remaining_inodes).toLocaleString()} estimated inodes remain` : ''}.`;
         panel.append(el('h5', {}, 'Filesystem quota headroom'), el('article', { className: 'resource-list-item' }, [
           el('div', { className: 'item-meta' }, [
             el('strong', {}, quota.enforced ? 'Kernel quota marked enforced' : 'Quota enforcement unconfirmed'),
@@ -1710,10 +1708,10 @@
           const maxObservedProjection = memory && (Number(memory.projected_max_rss_at_max_children_bytes)
             || Number(memory.max_rss_bytes || 0) * Number(pool.max_children || 0));
           const details = memory
-            ? `${memory.sampled_workers} worker(s) sampled · current summed RSS ${formatBytes(memory.total_rss_bytes)} · mean ${formatBytes(memory.mean_rss_bytes)} · P95 ${formatBytes(memory.p95_rss_bytes)} · projected ${formatBytes(memory.projected_rss_at_max_children_bytes)} at P95 or ${formatBytes(maxObservedProjection)} using the largest observed worker, at max_children ${pool.max_children}`
+            ? `${memory.sampled_workers} worker(s) sampled · current summed RSS ${formatBytes(memory.total_rss_bytes)} · mean ${formatBytes(memory.mean_rss_bytes)} · P95 ${formatBytes(memory.p95_rss_bytes)} · projected ${formatBytes(memory.projected_rss_at_max_children_bytes)} at P95 or ${formatBytes(maxObservedProjection)} using the largest observed worker, at max_children ${pool.max_children}${memory.estimated_worker_ceiling ? ` · conservative planning ceiling ${memory.estimated_worker_ceiling} workers from current host headroom` : ''}`
             : 'Worker RSS unavailable; FPM queue and slow-request counters remain available.';
           const slowThreshold = pool.slow_request_threshold || 'not configured';
-          return el('article', { className: 'resource-list-item' }, [el('div', { className: 'item-meta' }, [el('strong', {}, `PHP ${pool.php_version || 'default'} · ${pool.active_processes} active / ${pool.idle_processes} idle / ${pool.max_children} max`), el('small', {}, details)]), el('small', {}, `Request queue now ${pool.listen_queue} (historical peak ${pool.max_listen_queue || 0}); slow requests since FPM start ${pool.slow_requests} (threshold ${slowThreshold}); max-children events ${pool.max_children_reached}. A nonzero historical counter is evidence to investigate, not proof of current pressure.`)]);
+          return el('article', { className: 'resource-list-item' }, [el('div', { className: 'item-meta' }, [el('strong', {}, `PHP ${pool.php_version || 'default'} · ${pool.active_processes} active / ${pool.idle_processes} idle / ${pool.max_children} max`), el('small', {}, details)]), el('small', {}, `Request queue now ${pool.listen_queue} (historical peak ${pool.max_listen_queue || 0}); slow requests since FPM start ${pool.slow_requests} (threshold ${slowThreshold}); max-children events ${pool.max_children_reached}. A nonzero historical counter is evidence to investigate, not proof of current pressure. ${memory?.worker_ceiling_basis || ''}`)]);
         })));
       }
       const guidance = Array.isArray(fpm.performance_guidance) ? fpm.performance_guidance : [];

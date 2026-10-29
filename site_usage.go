@@ -54,16 +54,23 @@ func (a *App) siteUsage(w http.ResponseWriter, r *http.Request) {
 		profile, configured := a.Resources.values[site]
 		a.Resources.mu.RUnlock()
 		if configured {
-			limitMB, _, limited := a.accountFilesystemQuota(profile.Account, profile)
+			limitMB, limitInodes, limited := a.accountFilesystemQuota(profile.Account, profile)
 			quota := map[string]any{"state": profile.FilesystemQuotaState, "enforced": profile.FilesystemQuotaState == "enforced", "measured_scope": "site_tree", "complete": usage.Complete}
-			if limited && limitMB > 0 {
-				limitBytes := int64(limitMB) * 1024 * 1024
-				quota["limit_bytes"] = limitBytes
-				quota["tree_bytes"] = usage.Bytes
+			if limited && (limitMB > 0 || limitInodes > 0) {
+				if limitMB > 0 {
+					limitBytes := int64(limitMB) * 1024 * 1024
+					quota["limit_bytes"] = limitBytes
+					quota["tree_bytes"] = usage.Bytes
+					quota["estimated_remaining_bytes"] = maxInt64(0, limitBytes-usage.Bytes)
+				}
 				quota["tree_files"] = usage.Files
 				quota["tree_directories"] = usage.Directories
-				quota["estimated_remaining_bytes"] = maxInt64(0, limitBytes-usage.Bytes)
-				quota["scope_note"] = "The enforced quota belongs to the hosting account. This site-tree measurement may omit other account content, so estimated remaining space is an upper bound, not the kernel quota's exact headroom."
+				quota["tree_inodes"] = usage.Files + usage.Directories
+				if limitInodes > 0 {
+					quota["inode_limit"] = limitInodes
+					quota["estimated_remaining_inodes"] = maxInt64(0, int64(limitInodes)-int64(usage.Files)-int64(usage.Directories))
+				}
+				quota["scope_note"] = "The enforced byte and inode quotas belong to the hosting account. This site-tree measurement may omit other account content, so reported remaining values are upper bounds, not the kernel quota's exact headroom."
 			} else {
 				quota["scope_note"] = "No disk-space quota is configured; site-tree size is measured but quota headroom is unknown."
 			}

@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- PHP-FPM capacity guidance now estimates a conservative worker ceiling from
+  the site's sampled P95 worker RSS and current host memory, retaining 30% of
+  available memory as an explicit reserve. Worker previews compare the
+  proposed count with that estimate and call out when it exceeds the planning
+  ceiling; the estimate is advisory, transient, admin-only, and never applies
+  a setting automatically. Site quota reporting now includes measured inode
+  use and estimated inode headroom alongside byte headroom, with both clearly
+  identified as account-scoped upper bounds when a site shares an account.
+
 - Prometheus now reports the presence and age of successful application-level
   recovery proofs for scheduled sites, along with the configured freshness
   window and proof-inventory availability. Durable rehearsal records now
