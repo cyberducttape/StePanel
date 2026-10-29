@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -15,12 +16,15 @@ func TestMeasureBoundsAndSkipsSymlinks(t *testing.T) {
 	if err := os.Symlink("a.txt", filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
+	if err := syscall.Mkfifo(filepath.Join(root, "pipe"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	result, err := Measure(root, 10)
-	if err != nil || result.Bytes != 4 || result.Files != 1 || !result.Complete {
+	if err != nil || result.Bytes != 4 || result.Files != 1 || result.Inodes != 4 || !result.Complete {
 		t.Fatalf("usage=%#v err=%v", result, err)
 	}
 	result, err = Measure(root, 1)
-	if !errors.Is(err, ErrLimit) || result.Complete {
+	if !errors.Is(err, ErrLimit) || result.Complete || result.Inodes != 1 {
 		t.Fatalf("bounded usage=%#v err=%v", result, err)
 	}
 }
@@ -36,7 +40,7 @@ func TestMeasureCountsHardLinksOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := Measure(root, 10)
-	if err != nil || result.Bytes != 4 || result.Files != 1 {
+	if err != nil || result.Bytes != 4 || result.Files != 1 || result.Inodes != 2 {
 		t.Fatalf("usage=%#v err=%v; want one physical file", result, err)
 	}
 }

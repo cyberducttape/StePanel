@@ -16,6 +16,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   a setting automatically. Site quota reporting now includes measured inode
   use and estimated inode headroom alongside byte headroom, with both clearly
   identified as account-scoped upper bounds when a site shares an account.
+  Inode measurement includes symlinks and special files without following
+  them, and counts hard-linked inodes only once.
 
 - Prometheus now reports the presence and age of successful application-level
   recovery proofs for scheduled sites, along with the configured freshness

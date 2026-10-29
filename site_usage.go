@@ -46,6 +46,7 @@ func (a *App) siteUsage(w http.ResponseWriter, r *http.Request) {
 		"bytes":        usage.Bytes,
 		"files":        usage.Files,
 		"directories":  usage.Directories,
+		"inodes":       usage.Inodes,
 		"complete":     usage.Complete,
 		"collected_at": time.Now().UTC(),
 	}
@@ -65,10 +66,10 @@ func (a *App) siteUsage(w http.ResponseWriter, r *http.Request) {
 				}
 				quota["tree_files"] = usage.Files
 				quota["tree_directories"] = usage.Directories
-				quota["tree_inodes"] = usage.Files + usage.Directories
+				quota["tree_inodes"] = usage.Inodes
 				if limitInodes > 0 {
 					quota["inode_limit"] = limitInodes
-					quota["estimated_remaining_inodes"] = maxInt64(0, int64(limitInodes)-int64(usage.Files)-int64(usage.Directories))
+					quota["estimated_remaining_inodes"] = maxInt64(0, int64(limitInodes)-int64(usage.Inodes))
 				}
 				quota["scope_note"] = "The enforced byte and inode quotas belong to the hosting account. This site-tree measurement may omit other account content, so reported remaining values are upper bounds, not the kernel quota's exact headroom."
 			} else {

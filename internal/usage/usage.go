@@ -19,6 +19,7 @@ type SiteUsage struct {
 	Bytes       int64  `json:"bytes"`
 	Files       int    `json:"files"`
 	Directories int    `json:"directories"`
+	Inodes      int    `json:"inodes"`
 	Complete    bool   `json:"complete"`
 }
 
@@ -44,6 +45,14 @@ func Measure(root string, limit int) (SiteUsage, error) {
 		if err != nil {
 			return err
 		}
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok && !info.IsDir() && stat.Nlink > 1 {
+			key := [2]uint64{uint64(stat.Dev), uint64(stat.Ino)}
+			if _, alreadyCounted := seen[key]; alreadyCounted {
+				return nil
+			}
+			seen[key] = struct{}{}
+		}
+		result.Inodes++
 		if info.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
@@ -54,13 +63,6 @@ func Measure(root string, limit int) (SiteUsage, error) {
 		if info.Mode().IsRegular() {
 			// A hard-linked file occupies storage only once. Avoid inflating
 			// operator-facing usage when releases or site data share inodes.
-			if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Nlink > 1 {
-				key := [2]uint64{uint64(stat.Dev), uint64(stat.Ino)}
-				if _, alreadyCounted := seen[key]; alreadyCounted {
-					return nil
-				}
-				seen[key] = struct{}{}
-			}
 			result.Files++
 			result.Bytes += info.Size()
 		}
