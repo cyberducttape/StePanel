@@ -85,6 +85,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Record a full repository production-gate pass on the current code-equivalent
+  source, including race tests, coverage floors, recovery drills, benchmarks,
+  mixed HTTP load, and documentation contracts. Keep real-host power-loss,
+  ENOSPC, repeated recovery, and capacity certification explicitly open.
 - Reconcile the current exact-source installed-host smoke with the production
   gate's supported-runtime evidence and record the successful local `make
   check` result. The evidence report distinguishes the one passing
