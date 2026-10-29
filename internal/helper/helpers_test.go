@@ -17,7 +17,7 @@ func TestBoundedBuffer(t *testing.T) {
 	if n, err := b.Write([]byte("hello")); err != nil || n != 5 {
 		t.Fatalf("Write() = (%d, %v)", n, err)
 	}
-	if got := string(b.data); got != "hello" {
+	if got := string(b.Bytes()); got != "hello" {
 		t.Fatalf("buffer = %q", got)
 	}
 
@@ -25,8 +25,33 @@ func TestBoundedBuffer(t *testing.T) {
 	if n, err := b.Write([]byte("world")); err != nil || n != 5 {
 		t.Fatalf("limited Write() = (%d, %v)", n, err)
 	}
-	if got := string(b.data); got != "wor" {
+	if got := string(b.Bytes()); !strings.HasPrefix(got, "w") || !strings.HasSuffix(got, "ld") || !strings.Contains(got, "2 command output bytes omitted") {
 		t.Fatalf("limited buffer = %q", got)
+	}
+}
+
+func TestBoundedBufferRetainsTrailingDiagnosticsAndCountsOmission(t *testing.T) {
+	var b BoundedBuffer
+	b.limit = 64
+	if _, err := b.Write([]byte(strings.Repeat("context ", 32))); err != nil {
+		t.Fatal(err)
+	}
+	const finalError = "ERROR: unique-final-database-failure"
+	if _, err := b.Write([]byte("\n" + finalError + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	got := string(b.Bytes())
+	if !strings.HasPrefix(got, "context ") {
+		t.Fatalf("head context was not retained: %q", got)
+	}
+	if !strings.Contains(got, finalError) {
+		t.Fatalf("final diagnostic was not retained: %q", got)
+	}
+	if !strings.Contains(got, "command output bytes omitted") {
+		t.Fatalf("omitted byte count missing: %q", got)
+	}
+	if retained := len(b.head) + b.tailLen; retained > b.limit {
+		t.Fatalf("retained %d bytes beyond limit %d", retained, b.limit)
 	}
 }
 
@@ -38,8 +63,11 @@ func TestRunBoundedCommandLimit(t *testing.T) {
 	if got, err := RunBoundedCommandLimit(ctx, exec.Command("sh", "-c", "printf output; exit 7"), 64); err == nil || !strings.Contains(err.Error(), "output") {
 		t.Fatalf("failed command = (%q, %v)", got, err)
 	}
-	if got, err := RunBoundedCommandLimit(ctx, exec.Command("sh", "-c", "printf 123456"), 3); err != nil || string(got) != "123" {
+	if got, err := RunBoundedCommandLimit(ctx, exec.Command("sh", "-c", "printf 123456"), 3); err != nil || !strings.HasPrefix(string(got), "1") || !strings.HasSuffix(string(got), "56") {
 		t.Fatalf("bounded command = (%q, %v)", got, err)
+	}
+	if got, err := RunBoundedCommandLimit(ctx, exec.Command("sh", "-c", "printf '%050d' 0 >&2; printf 'UNIQUE_FINAL_ERROR' >&2; exit 7"), 32); err == nil || !strings.Contains(string(got), "UNIQUE_FINAL_ERROR") {
+		t.Fatalf("large failing command did not retain trailing error: (%q, %v)", got, err)
 	}
 
 	cancelCtx, cancel := context.WithCancel(context.Background())

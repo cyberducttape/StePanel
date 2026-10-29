@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,26 +42,110 @@ const (
 	BackupRestoreTimeout = 120 * time.Minute
 )
 
-// BoundedBuffer keeps the first limit bytes written to it and discards the
-// rest, so a chatty command cannot exhaust memory through its stderr.
+// BoundedBuffer retains the complete output up to limit bytes. When output is
+// larger, it keeps the first quarter and the most recent three quarters so
+// trailing diagnostics survive without allowing chatty commands to exhaust
+// memory. Bytes inserts an omission marker when truncation occurred.
 type BoundedBuffer struct {
-	data  []byte
-	limit int
+	mu        sync.Mutex
+	data      []byte
+	head      []byte
+	tail      []byte
+	tailStart int
+	tailLen   int
+	limit     int
+	total     int64
+	truncated bool
 }
 
 func (b *BoundedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	written := len(p)
+
 	limit := b.limit
 	if limit <= 0 {
 		limit = MaxCommandOutput
 	}
-	if len(b.data) < limit {
-		n := limit - len(b.data)
-		if n > len(p) {
-			n = len(p)
-		}
-		b.data = append(b.data, p[:n]...)
+	b.total += int64(len(p))
+	if !b.truncated && len(b.data)+len(p) <= limit {
+		b.data = append(b.data, p...)
+		return len(p), nil
 	}
-	return len(p), nil
+	if !b.truncated {
+		headLimit := limit / 4
+		if headLimit == 0 {
+			headLimit = 1
+		}
+		oldData := b.data
+		b.head = append([]byte(nil), oldData[:min(len(oldData), headLimit)]...)
+		if len(b.head) < headLimit {
+			take := min(headLimit-len(b.head), len(p))
+			b.head = append(b.head, p[:take]...)
+			p = p[take:]
+		}
+		oldTailStart := min(len(oldData), len(b.head))
+		b.tail = make([]byte, limit-len(b.head))
+		b.appendTail(oldData[oldTailStart:])
+		b.data = nil
+		b.truncated = true
+	}
+	b.appendTail(p)
+	return written, nil
+}
+
+// appendTail updates the bounded circular tail without shifting the retained
+// output on every write from a chatty subprocess.
+func (b *BoundedBuffer) appendTail(p []byte) {
+	capacity := len(b.tail)
+	if capacity == 0 || len(p) == 0 {
+		return
+	}
+	if len(p) >= capacity {
+		copy(b.tail, p[len(p)-capacity:])
+		b.tailStart = 0
+		b.tailLen = capacity
+		return
+	}
+	free := capacity - b.tailLen
+	first := min(free, len(p))
+	if first > 0 {
+		end := (b.tailStart + b.tailLen) % capacity
+		writeCircular(b.tail, end, p[:first])
+		b.tailLen += first
+		p = p[first:]
+	}
+	if len(p) > 0 {
+		writeCircular(b.tail, b.tailStart, p)
+		b.tailStart = (b.tailStart + len(p)) % capacity
+	}
+}
+
+func writeCircular(destination []byte, offset int, source []byte) {
+	first := min(len(source), len(destination)-offset)
+	copy(destination[offset:offset+first], source[:first])
+	copy(destination, source[first:])
+}
+
+// Bytes returns the retained command output, including an explicit marker and
+// total omitted-byte count when output exceeded the configured limit.
+func (b *BoundedBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.truncated {
+		return append([]byte(nil), b.data...)
+	}
+	omitted := b.total - int64(len(b.head)+b.tailLen)
+	marker := []byte(fmt.Sprintf("\n[... %d command output bytes omitted ...]\n", omitted))
+	result := make([]byte, 0, len(b.head)+len(marker)+b.tailLen)
+	result = append(result, b.head...)
+	result = append(result, marker...)
+	if b.tailLen > 0 {
+		first := min(b.tailLen, len(b.tail)-b.tailStart)
+		result = append(result, b.tail[b.tailStart:b.tailStart+first]...)
+		result = append(result, b.tail[:b.tailLen-first]...)
+	}
+	return result
 }
 
 func RunBoundedCommand(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
@@ -79,9 +164,6 @@ func RunBoundedCommand(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]byte, error) {
 	var output BoundedBuffer
 	output.limit = limit
-	if limit > MaxCommandOutput {
-		output.data = make([]byte, 0, min(limit, 64<<10))
-	}
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
@@ -89,7 +171,8 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 	PrepareCommand(cmd)
 
 	if err := cmd.Start(); err != nil {
-		return output.data, fmt.Errorf("%w: %s", err, string(output.data))
+		captured := output.Bytes()
+		return captured, fmt.Errorf("%w: %s", err, string(captured))
 	}
 
 	waitErr := make(chan error, 1)
@@ -106,12 +189,14 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
 		}
 		if ctx.Err() != nil {
-			return output.data, fmt.Errorf("%w: %s", ctx.Err(), string(output.data))
+			captured := output.Bytes()
+			return captured, fmt.Errorf("%w: %s", ctx.Err(), string(captured))
 		}
 		if err != nil {
-			return output.data, fmt.Errorf("%w: %s", err, string(output.data))
+			captured := output.Bytes()
+			return captured, fmt.Errorf("%w: %s", err, string(captured))
 		}
-		return output.data, nil
+		return output.Bytes(), nil
 	case <-ctx.Done():
 		// Kill the entire process group, not just the parent process.
 		// This ensures child processes (pip, npm, podman, etc.) are also terminated
@@ -121,7 +206,8 @@ func RunBoundedCommandLimit(ctx context.Context, cmd *exec.Cmd, limit int) ([]by
 			_ = unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
 		}
 		<-waitErr
-		return output.data, fmt.Errorf("%w: %s", ctx.Err(), string(output.data))
+		captured := output.Bytes()
+		return captured, fmt.Errorf("%w: %s", ctx.Err(), string(captured))
 	}
 }
 

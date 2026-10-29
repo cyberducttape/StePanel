@@ -14,7 +14,6 @@ import (
 	"log"
 	"mime/multipart"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -1021,13 +1020,17 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 				continue
 			}
 		}
-		args := mysqlArgs(cfg)
-		args = append(args, "--batch", "--execute", "CREATE DATABASE `"+name+"`")
-		cmd := exec.CommandContext(ctx, mysqlClient(), args...)
-		if cfg.DBPassword != "" {
-			cmd.Env = append(os.Environ(), "MYSQL_PWD="+cfg.DBPassword)
+		cmd, cleanupCommand, commandErr := newMySQLCommand(ctx, cfg, "--batch")
+		if commandErr != nil {
+			failures = append(failures, name+": create command failed: "+commandErr.Error())
+			cancel()
+			continue
 		}
-		output, err := runBoundedCommand(ctx, cmd)
+		cmd.Stdin = strings.NewReader("CREATE DATABASE " + sqlIdent(name) + ";\n")
+		output, err := runMySQLCommand(ctx, cfg, cmd)
+		if cleanupErr := cleanupCommand(); cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove private MySQL credential directory: %w", cleanupErr))
+		}
 		if err != nil {
 			failures = append(failures, name+": create failed: "+strings.TrimSpace(string(output)))
 			cancel()
@@ -1039,14 +1042,18 @@ func restoreSQLContext(parent context.Context, cfg Config, stage, user string, t
 			cancel()
 			continue
 		}
-		args = mysqlArgs(cfg)
-		args = append(args, name)
-		cmd = exec.CommandContext(ctx, mysqlClient(), args...)
-		if cfg.DBPassword != "" {
-			cmd.Env = append(os.Environ(), "MYSQL_PWD="+cfg.DBPassword)
+		cmd, cleanupCommand, commandErr = newMySQLCommand(ctx, cfg, name)
+		if commandErr != nil {
+			_ = input.Close()
+			failures = append(failures, name+": import command failed: "+commandErr.Error())
+			cancel()
+			continue
 		}
 		cmd.Stdin = input
-		output, err = runBoundedCommand(ctx, cmd)
+		output, err = runMySQLCommand(ctx, cfg, cmd)
+		if cleanupErr := cleanupCommand(); cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove private MySQL credential directory: %w", cleanupErr))
+		}
 		closeErr := input.Close()
 		if closeErr != nil {
 			failures = append(failures, name+": close dump failed: "+closeErr.Error())
@@ -1076,12 +1083,7 @@ func dropDatabase(parent context.Context, cfg Config, name string) error {
 		}
 		return nil
 	}
-	args := append(mysqlArgs(cfg), "--batch", "--execute", "DROP DATABASE IF EXISTS `"+name+"`")
-	cmd := exec.CommandContext(ctx, mysqlClient(), args...)
-	if cfg.DBPassword != "" {
-		cmd.Env = append(os.Environ(), "MYSQL_PWD="+cfg.DBPassword)
-	}
-	output, err := runBoundedCommand(ctx, cmd)
+	output, err := runMySQLQuery(ctx, cfg, "DROP DATABASE IF EXISTS "+sqlIdent(name)+";", "--batch")
 	if err != nil {
 		return fmt.Errorf("drop database: %w: %s", err, strings.TrimSpace(string(output)))
 	}

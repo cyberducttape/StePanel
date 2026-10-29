@@ -976,16 +976,17 @@ func importWPressDatabaseContext(parent context.Context, cfg Config, dbName, dum
 		return err
 	}
 	defer input.Close()
-	args := append(mysqlArgs(cfg), dbName)
 	ctx, cancel := context.WithTimeout(parent, 20*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, mysqlClient(), args...)
-	if cfg.DBPassword != "" {
-		cmd.Env = append(os.Environ(), "MYSQL_PWD="+cfg.DBPassword)
+	cmd, cleanup, err := newMySQLCommand(ctx, cfg, dbName)
+	if err != nil {
+		return fmt.Errorf("prepare database import: %w", err)
 	}
 	cmd.Stdin = input
-	if output, err := runBoundedCommand(ctx, cmd); err != nil {
-		return fmt.Errorf("import database: %w: %s", err, strings.TrimSpace(string(output)))
+	output, runErr := runMySQLCommand(ctx, cfg, cmd)
+	cleanupErr := cleanup()
+	if runErr != nil || cleanupErr != nil {
+		return fmt.Errorf("import database: %w: %s", errors.Join(runErr, cleanupErr), strings.TrimSpace(string(output)))
 	}
 	return nil
 }
@@ -993,18 +994,10 @@ func importWPressDatabaseContext(parent context.Context, cfg Config, dbName, dum
 func runMySQLContext(parent context.Context, cfg Config, query string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
-	args := append(mysqlArgs(cfg), "--batch", "--skip-column-names")
-	cmd := exec.CommandContext(ctx, mysqlClient(), args...)
-	if cfg.DBPassword != "" || strings.Contains(query, "IDENTIFIED BY") {
-		// Keep credentials and credential-bearing SQL out of argv/procfs.
-		cmd.Stdin = strings.NewReader(query + "\n")
-	} else {
-		cmd.Args = append(cmd.Args, "--execute", query)
+	output, err := runMySQLQuery(ctx, cfg, query, "--batch", "--skip-column-names")
+	if err != nil {
+		return string(output), err
 	}
-	if cfg.DBPassword != "" {
-		cmd.Env = append(os.Environ(), "MYSQL_PWD="+cfg.DBPassword)
-	}
-	output, err := runBoundedCommand(ctx, cmd)
 	return string(output), err
 }
 

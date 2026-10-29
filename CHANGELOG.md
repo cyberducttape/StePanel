@@ -43,6 +43,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   workflow runs from jobs that are actually in progress.
 - Exact-source release evidence reports ext4 and XFS quota smoke results
   independently, so a newer queued filesystem run cannot hide another run.
+- MySQL query text is sent through standard input for every query, and the
+  WPress/cPanel clients read passwords from short-lived mode-0600 option files
+  instead of argv or `MYSQL_PWD`.
+- Bounded subprocess diagnostics retain initial context and final error output,
+  with an explicit count of omitted bytes; configured MySQL passwords are
+  redacted from captured output and errors.
 
 ### Testing
 
@@ -70,6 +76,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   and physical-host certification gates.
 - Add coverage for exact-source gate parsing, freshness reporting, Git file reads,
   and API error handling; `internal/evidence` now exceeds its enforced 85% floor.
+- Cover tail-preserving command output, SQL-on-stdin behavior, credential
+  isolation, option-file cleanup, and option-file parsing when the local MySQL
+  utility is available.
 - Make the Git staging quota fail-closed test use an explicitly absent broker
   socket, preventing fallback to a potentially blocking privileged subprocess.
 - Record the current-source-equivalent Ubuntu/Caddy installed recovery smoke,
