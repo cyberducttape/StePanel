@@ -9,7 +9,9 @@ on:
 
 concurrency:
   group: stepanel-ci-integration-${{ github.ref }}
-  cancel-in-progress: false
+  # The latest main source is the relevant validation target. Let it replace
+  # obsolete queued or running CI instead of waiting behind stale commits.
+  cancel-in-progress: true
 
 permissions:
   contents: read

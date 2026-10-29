@@ -77,6 +77,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Main-branch CI now cancels superseded integration runs so a queued test run
+  for an obsolete commit cannot block validation of the current source.
 - Corrected Go formatting in the authentication configuration so the
   repository-wide formatting gate passes.
 - Authenticated non-production listeners now require HTTPS whenever they bind
