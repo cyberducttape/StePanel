@@ -93,6 +93,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The asset-model validator now checks all three embedded production views and
   the static asset tree, matching the current self-contained dashboard and
   customer panel binary.
+- Recorded a complete local repository production-gate run with its exact
+  source, environment, coverage, race, recovery-drill, benchmark, and mixed-load
+  results. The report explicitly leaves installed-host and disaster-recovery
+  certification gates open.
 
 - Push-triggered installed-host smokes now cancel superseded push runs instead
   of serially blocking current-source CI behind stale disposable-host work.

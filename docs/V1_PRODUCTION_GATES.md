@@ -1,7 +1,7 @@
 # StePanel v1.0.0 Production Readiness Gates
 
 **Status:** CURRENT AUTHORITATIVE RELEASE-GATE DOCUMENT
-**Last Updated:** 2026-10-28
+**Last Updated:** 2026-10-29
 **Target:** Ready to run 100+ production WordPress/PHP customer sites  
 **Approach:** Complete existing architectural contracts, add robustness testing
 
@@ -38,6 +38,12 @@ through a reviewed change to the P0 table below, citing its runs and, for
 host-level evidence, a reviewed report in [`lab-results/`](./lab-results/).
 Hand-written snapshots kept until 2026-10-27 are in
 [the evidence history](./archive/EVIDENCE_HISTORY.md).
+
+The latest local repository-level production-gate run is recorded in
+[`2026-10-29-repository-production-gate-0feaa06.md`](./lab-results/2026-10-29-repository-production-gate-0feaa06.md).
+It passed the full software gate on Go 1.26.10, including race detection,
+coverage floors, recovery drills, benchmarks, and mixed-load checks. It is
+not installed-host certification and does not close any host-level P0 gate.
 
 ## Executive Summary
 
