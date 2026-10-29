@@ -119,6 +119,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Customer-panel browser tests now provision a worker- and repeat-specific
+  account, avoiding collisions when Playwright retries or runs repeated tests
+  concurrently against the same disposable control plane.
 - Release evidence workflows now use per-source-commit concurrency and never
   cancel an in-progress report. Closely timed CI, CodeQL, documentation, and
   installed-smoke completions can no longer cancel each other's exact-source

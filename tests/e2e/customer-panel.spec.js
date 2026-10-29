@@ -30,19 +30,28 @@ async function checkA11y(page) {
   expect(result.violations, result.violations.map((violation) => `${violation.id}: ${violation.help}`).join('\n')).toEqual([]);
 }
 
-const hosting = {
-  account: customer.username,
-  unix_user: customer.username,
-  home: `/home/${customer.username}`,
-  sites: [
-    { site: 'e2e-main', placed: true, kind: 'main', directory: 'public_html', doc_root: `/home/${customer.username}/public_html` },
-    { site: 'e2e-shop', placed: true, kind: 'addon', directory: 'shop.example.org', doc_root: `/home/${customer.username}/shop.example.org` },
-  ],
-};
+function hostingFor(username) {
+  return {
+    account: username,
+    unix_user: username,
+    home: `/home/${username}`,
+    sites: [
+      { site: 'e2e-main', placed: true, kind: 'main', directory: 'public_html', doc_root: `/home/${username}/public_html` },
+      { site: 'e2e-shop', placed: true, kind: 'addon', directory: 'shop.example.org', doc_root: `/home/${username}/shop.example.org` },
+    ],
+  };
+}
 
-test('customer panel: views, file manager and accessibility', async ({ browser }) => {
+test('customer panel: views, file manager and accessibility', async ({ browser }, testInfo) => {
   test.skip(!enabled || !adminPassword, 'Set STEPANEL_E2E_BASE_URL and STEPANEL_E2E_PASSWORD for a disposable seeded instance');
   const baseURL = process.env.STEPANEL_E2E_BASE_URL;
+  // Keep repeated/parallel Playwright attempts isolated in the shared test
+  // control plane rather than racing to create the same customer account.
+  const testCustomer = {
+    ...customer,
+    username: `${customer.username}-w${testInfo.workerIndex}-r${testInfo.repeatEachIndex}`,
+  };
+  const hosting = hostingFor(testCustomer.username);
 
   // Provision the customer as the administrator.
   const admin = await browser.newContext({ baseURL });
@@ -56,7 +65,7 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   const csrf = decodeURIComponent((await admin.cookies()).find((cookie) => cookie.name === 'stepanel_csrf').value);
   const created = await adminPage.request.post('/api/accounts', {
     headers: { 'X-CSRF-Token': csrf },
-    data: { username: customer.username, password: customer.password, totp_secret: customer.secret, plan: 'professional', sites: [] },
+    data: { username: testCustomer.username, password: testCustomer.password, totp_secret: testCustomer.secret, plan: 'professional', sites: [] },
   });
   expect([201, 409]).toContain(created.status());
   await admin.close();
@@ -86,16 +95,16 @@ test('customer panel: views, file manager and accessibility', async ({ browser }
   });
 
   await page.goto('/login');
-  await page.getByLabel('Username').fill(customer.username);
-  await page.getByLabel('Password', { exact: true }).fill(customer.password);
-  await page.getByLabel('Authenticator code').fill(totp(customer.secret));
+  await page.getByLabel('Username').fill(testCustomer.username);
+  await page.getByLabel('Password', { exact: true }).fill(testCustomer.password);
+  await page.getByLabel('Authenticator code').fill(totp(testCustomer.secret));
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/panel/);
 
   // Home: the account and its websites, with no operator navigation.
-  await expect(page.getByRole('heading', { name: `Welcome back, ${customer.username}` })).toBeVisible();
-  await expect(page.locator('#panelHome')).toHaveText(`/home/${customer.username}`);
-  await expect(page.locator('#panelSiteList')).toContainText(`/home/${customer.username}/public_html`);
+  await expect(page.getByRole('heading', { name: `Welcome back, ${testCustomer.username}` })).toBeVisible();
+  await expect(page.locator('#panelHome')).toHaveText(`/home/${testCustomer.username}`);
+  await expect(page.locator('#panelSiteList')).toContainText(`/home/${testCustomer.username}/public_html`);
   await expect(page.getByRole('link', { name: 'Customers' })).toHaveCount(0);
   await checkA11y(page);
 
