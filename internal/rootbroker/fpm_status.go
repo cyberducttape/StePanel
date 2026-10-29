@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -53,18 +54,34 @@ type FPMGuidance struct {
 }
 
 type FPMStatusPool struct {
-	PHPVersion         string `json:"php_version,omitempty"`
-	State              string `json:"state"`
-	ActiveProcesses    uint64 `json:"active_processes"`
-	IdleProcesses      uint64 `json:"idle_processes"`
-	TotalProcesses     uint64 `json:"total_processes"`
-	MaxChildren        uint64 `json:"max_children"`
-	ListenQueue        uint64 `json:"listen_queue"`
-	MaxListenQueue     uint64 `json:"max_listen_queue"`
-	MaxChildrenReached uint64 `json:"max_children_reached"`
-	SlowRequests       uint64 `json:"slow_requests"`
-	AtCapacity         bool   `json:"at_capacity"`
-	Saturated          bool   `json:"saturated"`
+	PHPVersion         string           `json:"php_version,omitempty"`
+	State              string           `json:"state"`
+	ActiveProcesses    uint64           `json:"active_processes"`
+	IdleProcesses      uint64           `json:"idle_processes"`
+	TotalProcesses     uint64           `json:"total_processes"`
+	MaxChildren        uint64           `json:"max_children"`
+	ListenQueue        uint64           `json:"listen_queue"`
+	MaxListenQueue     uint64           `json:"max_listen_queue"`
+	MaxChildrenReached uint64           `json:"max_children_reached"`
+	SlowRequests       uint64           `json:"slow_requests"`
+	WorkerMemory       *FPMWorkerMemory `json:"worker_memory,omitempty"`
+	AtCapacity         bool             `json:"at_capacity"`
+	Saturated          bool             `json:"saturated"`
+}
+
+// FPMWorkerMemory is an instantaneous /proc RSS sample of the site's
+// PHP-FPM workers. RSS includes shared mappings, so it is an upper-biased
+// estimate of private memory and must not be treated as an enforced limit.
+type FPMWorkerMemory struct {
+	SampledWorkers                 int    `json:"sampled_workers"`
+	TotalRSSBytes                  uint64 `json:"total_rss_bytes"`
+	MeanRSSBytes                   uint64 `json:"mean_rss_bytes"`
+	P95RSSBytes                    uint64 `json:"p95_rss_bytes"`
+	MaxRSSBytes                    uint64 `json:"max_rss_bytes"`
+	ProjectedRSSAtMaxChildrenBytes uint64 `json:"projected_rss_at_max_children_bytes"`
+	OneAdditionalWorkerBytes       uint64 `json:"one_additional_worker_bytes"`
+	Estimate                       string `json:"estimate"`
+	Source                         string `json:"source"`
 }
 
 type fpmPoolConfig struct {
@@ -128,6 +145,17 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		item.MaxListenQueue = stats.MaxQueue
 		item.MaxChildrenReached = stats.MaxChildrenReached
 		item.SlowRequests = stats.SlowRequests
+		// Pools of different PHP versions share the pool name, so with more
+		// than one pool each worker is attributed through its master process.
+		memory, memoryErr := sampleFPMWorkerMemory("/proc", uid, site, pool.version, len(pools) > 1)
+		if memoryErr == nil {
+			memory.ProjectedRSSAtMaxChildrenBytes = memory.P95RSSBytes * pool.max
+			memory.OneAdditionalWorkerBytes = memory.P95RSSBytes
+			memory.Estimate = "P95 of this instantaneous worker sample multiplied by configured max_children; not a memory limit or sustained-load forecast"
+			item.WorkerMemory = memory
+		} else {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s worker memory could not be sampled.", pool.version))
+		}
 		item.AtCapacity, item.Saturated = fpmPoolIndicators(stats.Active, stats.Queue, pool.max)
 		result.PerformanceGuidance = append(result.PerformanceGuidance, fpmPoolGuidance(pool.version, item))
 		result.Available = true
@@ -139,6 +167,120 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		result.Detail = "PHP-FPM status is partial; one or more configured pools could not be sampled."
 	}
 	return result, nil
+}
+
+func sampleFPMWorkerMemory(procRoot string, uid uint32, site, version string, matchVersion bool) (*FPMWorkerMemory, error) {
+	entries, err := os.ReadDir(procRoot)
+	if err != nil {
+		return nil, err
+	}
+	const maxProcesses = 32768
+	if len(entries) > maxProcesses {
+		return nil, errors.New("process table exceeds sampling bound")
+	}
+	needle := "php-fpm: pool stepanel-" + site
+	values := make([]uint64, 0, 16)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := strconv.ParseUint(entry.Name(), 10, 32); err != nil {
+			continue
+		}
+		base := filepath.Join(procRoot, entry.Name())
+		status, err := os.ReadFile(filepath.Join(base, "status"))
+		if err != nil || len(status) > 64<<10 || !procStatusHasUID(status, uid) {
+			continue
+		}
+		cmdline, err := os.ReadFile(filepath.Join(base, "cmdline"))
+		if err != nil || len(cmdline) > 16<<10 || procTitle(cmdline) != needle {
+			continue
+		}
+		if matchVersion && !fpmWorkerMasterMatchesVersion(procRoot, status, version) {
+			continue
+		}
+		rss, ok := procRSSBytes(status)
+		if ok {
+			values = append(values, rss)
+		}
+		if len(values) >= 512 {
+			break
+		}
+	}
+	if len(values) == 0 {
+		return nil, errors.New("no matching worker processes found")
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	total := uint64(0)
+	for _, value := range values {
+		total += value
+	}
+	p95Index := (95*len(values)+99)/100 - 1
+	return &FPMWorkerMemory{
+		SampledWorkers: len(values), TotalRSSBytes: total,
+		MeanRSSBytes: total / uint64(len(values)), P95RSSBytes: values[p95Index],
+		MaxRSSBytes: values[len(values)-1], Source: "/proc process RSS; instantaneous, shared pages included",
+	}, nil
+}
+
+// procTitle normalizes a process title; php-fpm may pad it with NULs or spaces.
+func procTitle(cmdline []byte) string {
+	return strings.TrimRight(strings.ReplaceAll(string(cmdline), "\x00", " "), " ")
+}
+
+func fpmWorkerMasterMatchesVersion(procRoot string, status []byte, version string) bool {
+	ppid := ""
+	for _, line := range strings.Split(string(status), "\n") {
+		if strings.HasPrefix(line, "PPid:") {
+			ppid = strings.TrimSpace(strings.TrimPrefix(line, "PPid:"))
+			break
+		}
+	}
+	if _, err := strconv.ParseUint(ppid, 10, 32); err != nil {
+		return false
+	}
+	cmdline, err := os.ReadFile(filepath.Join(procRoot, ppid, "cmdline"))
+	if err != nil || len(cmdline) > 16<<10 {
+		return false
+	}
+	title := procTitle(cmdline)
+	if !strings.HasPrefix(title, "php-fpm: master process") {
+		return false
+	}
+	if version == "default" {
+		return !strings.Contains(title, "/etc/php/")
+	}
+	return strings.Contains(title, "/etc/php/"+version+"/")
+}
+
+func procStatusHasUID(status []byte, wanted uint32) bool {
+	for _, line := range strings.Split(string(status), "\n") {
+		if !strings.HasPrefix(line, "Uid:") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(line, "Uid:"))
+		if len(fields) < 2 {
+			return false
+		}
+		uid, err := strconv.ParseUint(fields[1], 10, 32)
+		return err == nil && uint32(uid) == wanted
+	}
+	return false
+}
+
+func procRSSBytes(status []byte) (uint64, bool) {
+	for _, line := range strings.Split(string(status), "\n") {
+		if !strings.HasPrefix(line, "VmRSS:") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(line, "VmRSS:"))
+		if len(fields) < 2 || fields[1] != "kB" {
+			return 0, false
+		}
+		kb, err := strconv.ParseUint(fields[0], 10, 64)
+		return kb * 1024, err == nil
+	}
+	return 0, false
 }
 
 func fpmPoolIndicators(active, queue, maxChildren uint64) (atCapacity, saturated bool) {
@@ -165,7 +307,19 @@ func fpmPoolGuidance(version string, pool FPMStatusPool) FPMGuidance {
 		guidance.Title = "Review PHP-FPM workload before tuning"
 		guidance.Recommendation = "This pool has reached its worker ceiling or recorded slow requests historically, but this sample has no waiting requests. Check repeated samples and per-worker memory before an administrator considers changing the worker limit."
 	}
+	if pool.WorkerMemory != nil {
+		memoryEvidence := fmt.Sprintf(" Current worker RSS sample: %d worker(s), mean %s, P95 %s, maximum %s; projected RSS at max_children %d is approximately %s, and one additional worker would add about %s at the sampled P95.",
+			pool.WorkerMemory.SampledWorkers, formatBytes(pool.WorkerMemory.MeanRSSBytes), formatBytes(pool.WorkerMemory.P95RSSBytes),
+			formatBytes(pool.WorkerMemory.MaxRSSBytes), pool.MaxChildren, formatBytes(pool.WorkerMemory.ProjectedRSSAtMaxChildrenBytes), formatBytes(pool.WorkerMemory.OneAdditionalWorkerBytes))
+		guidance.Evidence += memoryEvidence
+		guidance.Recommendation += " Compare this instantaneous, shared-page-inclusive estimate with host memory headroom and repeat it during representative peak traffic before changing max_children."
+	}
 	return guidance
+}
+
+func formatBytes(value uint64) string {
+	const mib = 1024 * 1024
+	return fmt.Sprintf("%.1f MiB", float64(value)/mib)
 }
 
 func readFPMSocketRoot(path string) (string, error) {
