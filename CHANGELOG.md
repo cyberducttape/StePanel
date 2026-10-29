@@ -59,12 +59,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   approval-before-preview guidance.
 
 - PHP-FPM resource status now includes a bounded host `MemAvailable` sample for
-  administrators. Worker-count previews compare the measured before/after P95
-  pool-RSS estimate with current host headroom and show estimated remaining
-  memory after the change; the dashboard labels it as host-wide, transient
-  capacity rather than a reservation. Customer-scoped resource responses omit
-  aggregate host memory. Existing slow-request, queue, worker-RSS, site usage,
-  and quota signals remain alongside review-only recommendations.
+  administrators. Worker-count previews start from sampled current pool RSS
+  and show estimated host headroom if the pool grew to the proposed maximum,
+  using both P95 and largest-observed worker RSS. The dashboard labels this as
+  transient capacity rather than a reservation. Customer-scoped resource
+  responses omit aggregate host memory. Existing slow-request, queue,
+  worker-RSS, site usage, and quota signals remain alongside review-only
+  recommendations.
 
 - A stable `/api/v1` automation namespace now backs the supported Go and
   TypeScript client packages and generated Bash, Zsh, and Fish completions.

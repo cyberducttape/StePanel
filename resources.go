@@ -795,8 +795,10 @@ func resourceProfileEffects(before, proposed ResourceProfile, status rootbroker.
 			formatPHPBytes(oldP95), before.PHPWorkers, formatPHPBytes(newP95), proposed.PHPWorkers,
 			(int64(newP95)-int64(oldP95))/(1024*1024), formatPHPBytes(newObservedMax))
 		if status.HostMemory != nil {
-			effect += fmt.Sprintf(" Host MemAvailable is currently %s; after the estimated P95 change, approximately %s would remain (before unrelated workload changes).",
-				formatPHPBytes(status.HostMemory.AvailableBytes), projectedMemoryHeadroom(status.HostMemory.AvailableBytes, oldP95, newP95))
+			effect += fmt.Sprintf(" Host MemAvailable is currently %s. Starting from the sampled current pool RSS, estimated host headroom if this pool grew to the proposed maximum is %s using P95 worker RSS, or %s using the largest observed worker (before unrelated workload changes).",
+				formatPHPBytes(status.HostMemory.AvailableBytes),
+				projectedMemoryHeadroom(status.HostMemory.AvailableBytes, pool.WorkerMemory.TotalRSSBytes, newP95),
+				projectedMemoryHeadroom(status.HostMemory.AvailableBytes, pool.WorkerMemory.TotalRSSBytes, newObservedMax))
 		}
 		effect += " These instantaneous, shared-page-inclusive projections are planning estimates, not reservations or a sustained-load guarantee."
 		effects = append(effects, effect)
@@ -807,15 +809,15 @@ func resourceProfileEffects(before, proposed ResourceProfile, status rootbroker.
 	return effects
 }
 
-func projectedMemoryHeadroom(available, oldDemand, newDemand uint64) string {
-	if newDemand >= oldDemand {
-		delta := newDemand - oldDemand
+func projectedMemoryHeadroom(available, observedPoolRSS, projectedPoolRSS uint64) string {
+	if projectedPoolRSS > observedPoolRSS {
+		delta := projectedPoolRSS - observedPoolRSS
 		if delta >= available {
 			return "0 MiB; the estimate exceeds current available memory by " + formatPHPBytes(delta-available)
 		}
 		return formatPHPBytes(available - delta)
 	}
-	return formatPHPBytes(available + (oldDemand - newDemand))
+	return formatPHPBytes(available)
 }
 
 func (a *App) siteFPMStatusSnapshot(parent context.Context, site string) rootbroker.FPMStatus {

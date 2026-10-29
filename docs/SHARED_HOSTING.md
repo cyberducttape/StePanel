@@ -180,11 +180,12 @@ slow-request and worker RSS samples, the site's systemd resource counters,
 bounded site-tree usage, and estimated quota headroom. The FPM status includes
 host `MemAvailable` for administrators. Worker changes require a preview: it
 estimates pool RSS at the proposed worker count from sampled P95 and largest
-worker RSS, and estimates the resulting host headroom against the current
-`MemAvailable` value. These are instantaneous planning estimates (RSS includes
-shared pages), not memory reservations or a peak-load guarantee. Customers do
-not receive aggregate host memory figures. Recommendations remain advisory;
-they do not change PHP-FPM settings automatically.
+worker RSS. Host headroom projections start from the sampled current pool RSS,
+so currently running workers are not charged against `MemAvailable` twice.
+These are instantaneous planning estimates (RSS includes shared pages), not
+memory reservations or a peak-load guarantee. Customers do not receive
+aggregate host memory figures. Recommendations remain advisory; they do not
+change PHP-FPM settings automatically.
 
 ## Staging sites
 
