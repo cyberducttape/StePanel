@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
@@ -40,23 +42,23 @@ const (
 )
 
 func (a *App) snapshotVhost(name string) (vhostSnapshot, error) {
-	path, err := safePath(a.Config.VHostRoot, name)
-	if err != nil {
-		return vhostSnapshot{}, err
-	}
-	info, err := os.Lstat(path)
+	file, info, err := openManagedVhost(a.Config.VHostRoot, name)
 	if os.IsNotExist(err) {
 		return vhostSnapshot{}, nil
 	}
 	if err != nil {
 		return vhostSnapshot{}, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > 2<<20 {
+	defer file.Close()
+	if info.Size() > 2<<20 {
 		return vhostSnapshot{}, errors.New("managed vhost is not a bounded regular file")
 	}
-	data, err := os.ReadFile(path)
+	data, err := io.ReadAll(io.LimitReader(file, (2<<20)+1))
 	if err != nil {
 		return vhostSnapshot{}, err
+	}
+	if len(data) > 2<<20 {
+		return vhostSnapshot{}, errors.New("managed vhost exceeds 2 MiB")
 	}
 	digest := sha256.Sum256(data)
 	return vhostSnapshot{Exists: true, SHA256: fmt.Sprintf("%x", digest), Bytes: info.Size()}, nil
@@ -66,17 +68,17 @@ func (a *App) preserveVhostForRecovery(name string, expected vhostSnapshot) (str
 	if !expected.Exists {
 		return "", nil
 	}
-	path, err := safePath(a.Config.VHostRoot, name)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 2<<20 {
+	file, info, err := openManagedVhost(a.Config.VHostRoot, name)
+	if err != nil || info.Size() > 2<<20 {
 		return "", errors.New("current vhost is unavailable for recovery snapshot")
 	}
-	data, err := os.ReadFile(path)
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, (2<<20)+1))
 	if err != nil {
 		return "", err
+	}
+	if len(data) > 2<<20 {
+		return "", errors.New("current vhost exceeds 2 MiB")
 	}
 	digest := sha256.Sum256(data)
 	if fmt.Sprintf("%x", digest) != expected.SHA256 {
@@ -130,6 +132,39 @@ func (a *App) preserveVhostForRecovery(name string, expected vhostSnapshot) (str
 		return "", err
 	}
 	return filepath.Join("webserver-config", filename), nil
+}
+
+// openManagedVhost opens a single managed configuration file relative to the
+// configured vhost directory, rejecting path components and replacement races.
+func openManagedVhost(rootPath, name string) (*os.File, os.FileInfo, error) {
+	if name == "" || filepath.Base(name) != name || name == "." || name == ".." || !siteVHostNamePattern.MatchString(name) {
+		return nil, nil, errors.New("invalid managed vhost name")
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer root.Close()
+	before, err := root.Lstat(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, errors.New("managed vhost is not a regular file")
+	}
+	file, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	after, err := file.Stat()
+	if err != nil || !after.Mode().IsRegular() || !os.SameFile(before, after) {
+		_ = file.Close()
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, errors.New("managed vhost changed while opening")
+	}
+	return file, after, nil
 }
 
 func (a *App) routeStateFor(name string) (RouteDesired, bool) {

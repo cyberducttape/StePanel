@@ -1400,6 +1400,11 @@ textarea[aria-invalid="true"] {
 .incident-finding { min-width: 0; padding: 12px; border: 1px solid var(--panel-border); border-left: 3px solid #8a94a6; border-radius: 8px; background: var(--panel-bg); }
 .incident-finding p { margin: 7px 0; overflow-wrap: anywhere; color: var(--panel-text); font-size: 13px; }
 .incident-finding small { color: var(--panel-muted); line-height: 1.45; }
+.incident-evidence { margin-top: 14px; }
+.incident-evidence h4 { margin: 0 0 8px; }
+.incident-evidence section { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel-bg); }
+.incident-evidence strong { display: block; margin-bottom: 6px; }
+.incident-evidence pre { margin: 0; max-height: 12rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--panel-muted); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .incident-critical { border-left-color: #c84747; }
 .incident-warning { border-left-color: #bd8120; }
 .incident-unknown { border-left-color: #77849a; }

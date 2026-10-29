@@ -621,6 +621,11 @@ paths:
     get:
       summary: Measure bounded regular-file usage for a site without following symlinks
       responses: {'200': {description: Bytes, file count, directory count and completeness}}
+  /api/sites/diagnostics/:
+    get:
+      summary: Correlate site-scoped database, filesystem, quota and TLS evidence
+      description: Read-only diagnostic snapshot; database names require database:read, and local certificate metadata does not prove a live TLS handshake or application database login.
+      responses: {'200': {description: Site diagnostics with explicit unavailable and unverified states}}
   /api/account/hosting:
     get:
       summary: Read the caller's hosting account, its Unix user and home, and each accessible site's placement and document root

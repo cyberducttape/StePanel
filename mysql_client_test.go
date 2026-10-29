@@ -13,9 +13,12 @@ import (
 func TestNewMySQLCommandKeepsCredentialsOutOfArgvAndEnvironment(t *testing.T) {
 	t.Setenv("MYSQL_PWD", "inherited-secret")
 	cfg := Config{
-		DBHost:     "db.example.test",
-		DBUser:     "site-user",
-		DBPassword: " leading p'a\\\"ss\\\\word\nline ",
+		DBHost: "db.example.test",
+		DBUser: "site-user",
+		// Match the supported managed-database password alphabet; quotes,
+		// control characters, and surrounding whitespace are rejected at API
+		// admission and differ across MySQL-compatible option parsers.
+		DBPassword: "site-db-credential-2026!@#",
 	}
 	query := "CREATE USER 'site-user' IDENTIFIED BY 'sql-secret'"
 	cmd, cleanup, err := newMySQLCommand(context.Background(), cfg, "--batch")
@@ -65,7 +68,7 @@ func TestNewMySQLCommandKeepsCredentialsOutOfArgvAndEnvironment(t *testing.T) {
 	if parser, err := exec.LookPath("my_print_defaults"); err == nil {
 		parsed, parseErr := exec.Command(parser, "--defaults-extra-file="+optionPath, "client").Output()
 		if parseErr != nil || string(parsed) != "--password="+cfg.DBPassword+"\n" {
-			t.Fatal("MySQL option-file parser did not recover the original password")
+			t.Fatalf("MySQL option-file parser did not recover the original password (output %q, error %v)", parsed, parseErr)
 		}
 	}
 }

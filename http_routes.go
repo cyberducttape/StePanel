@@ -76,6 +76,7 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 	mux.Handle("/api/sites/php/", allowMethods(a.Auth.Require(http.HandlerFunc(a.phpRuntime)), http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut))
 	mux.Handle("/api/sites/resources/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteResources)), http.MethodGet, http.MethodHead, http.MethodPut))
 	mux.Handle("/api/sites/usage/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteUsage)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/sites/diagnostics/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteDiagnostics)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/files/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteFiles)), http.MethodGet, http.MethodHead, http.MethodPut, http.MethodPost))
 	mux.Handle("/api/reconcile/resources", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.reconcileResources)), http.MethodPost))
 	mux.Handle("/api/reconcile/tasks", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.reconcileTasksHTTP)), http.MethodPost))

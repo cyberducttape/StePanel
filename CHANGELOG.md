@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Site incident assessment now correlates PHP-FPM and web-server error excerpts,
+  recent HTTP failures, site-owned database inventory, document-root metadata,
+  quota state, local certificate status, and recorded changes. Findings include
+  conservative next steps; diagnostic evidence is redacted and host checks
+  explicitly report when they cannot establish application-level health.
+- Certificate and managed vhost preview snapshots now use rooted file access,
+  strict names, bounded reads, and opened-file identity checks.
 - High-risk PHP runtime, domain route, certificate, and Caddy `.htaccess`
   changes now require a short-lived preview token bound to the observed prior
   state and proposed change. The preview shows service effects and recovery

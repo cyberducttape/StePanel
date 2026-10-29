@@ -311,7 +311,7 @@
 
   async function renderOverviewTab(site, panel, ctx) {
     const observe = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
-    const [overview, backups, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, activityResult, databaseResult] = await Promise.all([
+    const [overview, backups, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, accessLogResult, activityResult, databaseResult, siteDiagnosticResult] = await Promise.all([
       ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
       observe(ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=500`)),
       observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
@@ -321,8 +321,10 @@
       observe(ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`)),
       ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=error&lines=100`)) : Promise.resolve(null),
       ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=php-fpm&lines=100`)) : Promise.resolve(null),
+      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=access&lines=100`)) : Promise.resolve(null),
       ctx.isAdministrator ? observe(ctx.getJSON(`/api/audit/events?target=${encodeURIComponent(site)}&limit=8`)) : Promise.resolve(null),
       ctx.isAdministrator ? observe(ctx.getJSON('/api/database/diagnostics')) : Promise.resolve(null),
+      observe(ctx.getJSON(`/api/sites/diagnostics/${encodeURIComponent(site)}`)),
     ]);
 
     const routes = overview.routes || [];
@@ -387,7 +389,7 @@
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'A quick read on whether this site is healthy: what is deployed, when it last backed up, and what changed most recently.'),
       grid,
-      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, lastDeployment, webLogResult, phpLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok }),
+      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, lastDeployment, webLogResult, phpLogResult, accessLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok, siteDiagnostics: siteDiagnosticResult && siteDiagnosticResult.ok ? siteDiagnosticResult.value : null, siteDiagnosticsAvailable: siteDiagnosticResult && siteDiagnosticResult.ok }),
     );
 
     if (ctx.isAdministrator) {
@@ -411,7 +413,7 @@
   function renderIncidentAssessment(signals) {
     const findings = [];
     const add = (level, title, evidence, next) => findings.push({ level, title, evidence, next });
-    const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, lastDeployment, webLogResult, phpLogResult, canReadLogs, latestChange, databaseDiagnostics, databaseDiagnosticsAvailable } = signals;
+    const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, lastDeployment, webLogResult, phpLogResult, accessLogResult, canReadLogs, latestChange, databaseDiagnostics, databaseDiagnosticsAvailable, siteDiagnostics, siteDiagnosticsAvailable } = signals;
     const applications = overview.applications || [];
     const unhealthy = applications.filter((app) => !['applied', 'running'].includes(String(app.state || '').toLowerCase()));
     if (unhealthy.length) add('critical', 'Application is not reported as running', unhealthy.map((app) => `${app.domain}: ${app.state || 'unknown state'}`).join('; '), 'Review the deployment history and application logs before retrying activation.');
@@ -428,7 +430,8 @@
       }
       if (usageAvailable && usageData && Number.isFinite(Number(profile.disk_mb)) && Number(profile.disk_mb) > 0) {
         const limit = Number(profile.disk_mb) * 1024 * 1024;
-        if (usageData.bytes >= limit * 0.9) add('warning', 'Site is near its configured disk allowance', `${formatBytes(usageData.bytes)} of ${formatBytes(limit)} in regular-file content (${Math.min(100, Math.round(usageData.bytes / limit * 100))}%).`, 'Review old releases, uploads, and backup policy before the site reaches its configured limit.');
+        if (usageData.bytes >= limit * 0.9) add('warning', 'Site is near its configured disk allowance', `${formatBytes(usageData.bytes)} of ${formatBytes(limit)} in regular-file content (${Math.min(100, Math.round(usageData.bytes / limit * 100))}%).`, 'Review old releases, uploads, and backup policy before the site reaches its configured limit. Do not raise the limit until host free space and inode headroom are checked.');
+        if (profile.filesystem_quota_state !== 'enforced') add('unknown', 'Disk quota enforcement is not confirmed', `Configured allowance is ${formatBytes(limit)}, but quota state is ${profile.filesystem_quota_state || 'unknown'}.`, 'Ask an administrator to verify the filesystem quota from the host; measured tree size alone does not prove enforcement.');
       }
       const fpm = resourceData.fpm_status || {};
       const pools = Array.isArray(fpm.pools) ? fpm.pools : [];
@@ -463,6 +466,24 @@
     if (lastDeployment && ['failed', 'dead-letter'].includes(String(lastDeployment.state || '').toLowerCase())) {
       add('warning', 'Most recent deployment failed', `${lastDeployment.stage || 'Deployment'} · ${lastDeployment.state}`, 'Open deployment history and inspect the associated durable job before retrying.');
     }
+    if (siteDiagnosticsAvailable && siteDiagnostics) {
+      const siteDB = siteDiagnostics.database || {};
+      if (!siteDB.available) {
+        add('warning', 'Site database inventory could not be verified', siteDB.detail || 'The managed database probe did not complete.', 'Check the database service and helper status. After the engine is healthy, verify the application credentials with a read-only application health check.');
+      } else if (!(siteDB.databases || []).length) {
+        add('warning', 'No managed database is assigned to this site', `The ${siteDB.engine || 'database'} engine responded, but its inventory contains no database owned by this site.`, 'If this application needs a database, verify its intended database ownership and import state before changing wp-config.php.');
+      }
+      const filesystem = siteDiagnostics.filesystem || {};
+      if (filesystem.status === 'failed') add('critical', 'Site document root is unavailable', filesystem.detail, 'Restore the document root from a verified recovery point or correct its path through the managed site workflow. Do not run recursive chown as a first response.');
+      else if (filesystem.status === 'observed') add('guidance', 'Filesystem permission evidence', `Document-root mode ${filesystem.mode}; owner UID ${filesystem.owner_uid ?? 'unknown'}, GID ${filesystem.owner_gid ?? 'unknown'}. ${filesystem.detail || ''}`, 'If logs show permission denied, compare these values with the configured web/PHP service identity and parent-directory traversal. Use the site permission repair workflow rather than broad recursive permission changes.');
+      for (const cert of (siteDiagnostics.tls || [])) {
+        if (['expired', 'expiring', 'missing', 'hostname_mismatch', 'failed'].includes(cert.status)) {
+          add(cert.status === 'expired' || cert.status === 'hostname_mismatch' ? 'critical' : 'warning', `TLS ${cert.status.replace('_', ' ')} for ${cert.domain}`, `${cert.detail || ''}${cert.not_after ? ` Expires ${new Date(cert.not_after).toLocaleString()}.` : ''}`, 'Confirm DNS points to this host and the route is applied, then use the certificate workflow to renew or issue the certificate. Avoid deleting certificate files manually.');
+        } else if (cert.status === 'unknown') add('unknown', `TLS status not verified for ${cert.domain}`, cert.detail || 'Certificate status is unavailable.', 'Check the live site over HTTPS from an external probe; this panel does not claim a successful handshake from local certificate metadata.');
+      }
+    } else {
+      add('unknown', 'Site-specific host diagnostics are unavailable', 'Database ownership, document-root metadata, and certificate evidence could not be collected.', 'Check the panel service and managed database helper, then refresh this snapshot.');
+    }
     if (databaseDiagnosticsAvailable && databaseDiagnostics && databaseDiagnostics.available) {
       const values = databaseDiagnostics.values || {};
       if (Number(values.blocked_sessions) > 0 || Number(values.long_transactions) > 0) {
@@ -471,6 +492,11 @@
     } else if (databaseDiagnosticsAvailable === false) {
       add('unknown', 'Database diagnostics are unavailable', 'The host database diagnostic probe did not return usable measurements.', 'Check database service health and its restricted diagnostic helper.');
     }
+    const excerpts = [];
+    const safeExcerpt = (line) => String(line)
+      .replace(/((?:password|passwd|token|secret|api[_-]?key)\s*[=:]\s*)[^\s&,;]+/ig, '$1[redacted]')
+      .replace(/(authorization\s*[=:]\s*)[^,;]+/ig, '$1[redacted]')
+      .slice(0, 260);
     const inspectLog = (result, label, saturation) => {
       if (!canReadLogs) return;
       if (!result || !result.ok) {
@@ -478,13 +504,29 @@
         return;
       }
       const lines = result.value.lines || [];
-      const pattern = saturation ? /max_children|reached pm\.max_children|listen queue/i : /\b(error|critical|crit|fatal|emerg|failed)\b/i;
+      const pattern = /\b(error|critical|crit|fatal|emerg|failed|denied|no space|timed? ?out|refused|unavailable|upstream|database connection|certificate|ssl|tls)\b|max_children|reached pm\.max_children|listen queue/i;
       const matches = lines.filter((line) => pattern.test(line));
-      if (matches.length) add('warning', saturation ? 'PHP-FPM saturation signal found' : `${label} errors appear in the recent log tail`, `${matches.length} matching line(s) in the latest ${lines.length} lines. Log content is not copied into this summary.`, 'Open Logs and correlate timestamps with recent deployments and workload changes.');
+      if (matches.length) {
+        const evidence = matches.slice(-4).map(safeExcerpt);
+        excerpts.push({ label, lines: evidence });
+        const joined = matches.join('\n').toLowerCase();
+        const pressure = saturation && /max_children|listen queue/.test(joined);
+        let next = 'Compare the log timestamps with the latest configuration change and request failures; inspect the full bounded log tail before applying a change.';
+        if (/no space|disk quota|quota exceeded|inode/.test(joined)) next = 'Check filesystem free bytes, inodes, and this site’s enforced quota. Free or archive known data safely; do not delete files based only on log messages.';
+        else if (/permission denied|access denied/.test(joined)) next = 'Verify document-root ownership, directory traversal bits, ACLs, and the PHP/web service identity. Apply a narrow site-level permission repair; avoid recursive world-writable changes.';
+        else if (/could not connect|connection refused|sqlstate|error establishing a database connection|too many connections/.test(joined)) next = 'Check database service availability and site database ownership/credentials. Test with the application’s protected credential path; never put passwords in a command line or diagnostic report.';
+        else if (/certificate|ssl|tls|handshake/.test(joined)) next = 'Check route application, DNS, certificate hostname and expiry, then validate the live HTTPS handshake before renewing or changing TLS settings.';
+        else if (/upstream|connect\(\) to unix|php-fpm|primary script unknown/.test(joined)) next = 'Check PHP-FPM pool state, socket path/permissions, and the selected PHP runtime. Validate the pool configuration before restarting the service.';
+        add(pressure ? 'warning' : 'critical', pressure ? 'PHP-FPM log reports worker pressure' : `${label} log contains actionable errors`, `${matches.length} relevant line(s) in the latest ${lines.length}. Excerpts below preserve the observed message.`, next);
+      }
     };
     inspectLog(webLogResult, 'Web-server', false);
     inspectLog(phpLogResult, 'PHP-FPM', true);
-    const unknowns = ['Per-site database query latency is not measured. Available blocked-session and long-transaction counts are host-wide and are not attributed to this site.'];
+    if (accessLogResult && accessLogResult.ok) {
+      const failures = (accessLogResult.value.lines || []).filter((line) => /"\s*[45]\d\d\s/.test(line));
+      if (failures.length) excerpts.push({ label: 'Recent HTTP 4xx/5xx requests', lines: failures.slice(-4).map(safeExcerpt) });
+    }
+    const unknowns = ['Application-level database login and query latency are not tested with the customer’s credentials. The database inventory confirms helper access and ownership only.'];
     if (!canReadLogs) unknowns.push('Recent web-server and PHP-FPM logs are hidden because this account lacks logs:read.');
     if (!resourceAvailable || !resourceData || !resourceData.fpm_status || !resourceData.fpm_status.available) unknowns.push('Live PHP-FPM counters are unavailable unless the installed root broker can safely query a managed pool.');
     const levelLabel = { critical: 'Action needed', warning: 'Review', unknown: 'Not verified', guidance: 'Performance guidance' };
@@ -495,6 +537,10 @@
         el('p', {}, finding.evidence),
         el('small', {}, finding.next),
       ]))) : el('p', { className: 'incident-clear' }, 'No failing signal was found in the available snapshot. This does not establish application health by itself.'),
+      excerpts.length ? el('div', { className: 'incident-evidence' }, [
+        el('h4', {}, 'Relevant log evidence'),
+        ...excerpts.map((group) => el('section', {}, [el('strong', {}, group.label), el('pre', {}, group.lines.join('\n'))])),
+      ]) : null,
       latestChange ? el('div', { className: 'incident-recent-change' }, [
         el('strong', {}, 'Most recent recorded change'),
         el('span', {}, `${latestChange.action || 'Change'} · ${latestChange.detail || 'No additional detail recorded'}`),

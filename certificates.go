@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/mail"
 	"os"
@@ -102,21 +103,36 @@ type certificateLineageSnapshot struct {
 }
 
 func certificateLineageState(domain string) (certificateLineageSnapshot, error) {
-	path := filepath.Join("/etc/letsencrypt/live", domain, "fullchain.pem")
-	info, err := os.Stat(path)
+	if !domainname.Valid(domain) {
+		return certificateLineageSnapshot{}, fmt.Errorf("invalid certificate domain")
+	}
+	// Certbot's live entries are symlinks into archive/, so root the lookup at
+	// /etc/letsencrypt and keep the validated domain as a single path segment.
+	root, err := os.OpenRoot("/etc/letsencrypt")
+	if err != nil {
+		return certificateLineageSnapshot{}, err
+	}
+	defer root.Close()
+	path := filepath.Join("live", domain, "fullchain.pem")
+	file, err := root.Open(path)
 	if os.IsNotExist(err) {
 		return certificateLineageSnapshot{}, nil
 	}
 	if err != nil {
 		return certificateLineageSnapshot{}, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > 4<<20 {
-		return certificateLineageSnapshot{}, fmt.Errorf("certificate lineage is not a bounded regular file")
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !opened.Mode().IsRegular() || opened.Size() > 4<<20 {
+		return certificateLineageSnapshot{}, fmt.Errorf("certificate lineage changed while opening")
 	}
-	data, err := os.ReadFile(path)
+	data, err := io.ReadAll(io.LimitReader(file, 4<<20+1))
 	if err != nil {
 		return certificateLineageSnapshot{}, err
 	}
+	if len(data) > 4<<20 {
+		return certificateLineageSnapshot{}, fmt.Errorf("certificate lineage exceeds 4 MiB")
+	}
 	digest := sha256.Sum256(data)
-	return certificateLineageSnapshot{Exists: true, SHA256: fmt.Sprintf("%x", digest), Bytes: info.Size()}, nil
+	return certificateLineageSnapshot{Exists: true, SHA256: fmt.Sprintf("%x", digest), Bytes: int64(len(data))}, nil
 }
