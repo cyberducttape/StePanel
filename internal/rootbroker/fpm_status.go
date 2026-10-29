@@ -73,15 +73,16 @@ type FPMStatusPool struct {
 // PHP-FPM workers. RSS includes shared mappings, so it is an upper-biased
 // estimate of private memory and must not be treated as an enforced limit.
 type FPMWorkerMemory struct {
-	SampledWorkers                 int    `json:"sampled_workers"`
-	TotalRSSBytes                  uint64 `json:"total_rss_bytes"`
-	MeanRSSBytes                   uint64 `json:"mean_rss_bytes"`
-	P95RSSBytes                    uint64 `json:"p95_rss_bytes"`
-	MaxRSSBytes                    uint64 `json:"max_rss_bytes"`
-	ProjectedRSSAtMaxChildrenBytes uint64 `json:"projected_rss_at_max_children_bytes"`
-	OneAdditionalWorkerBytes       uint64 `json:"one_additional_worker_bytes"`
-	Estimate                       string `json:"estimate"`
-	Source                         string `json:"source"`
+	SampledWorkers                    int    `json:"sampled_workers"`
+	TotalRSSBytes                     uint64 `json:"total_rss_bytes"`
+	MeanRSSBytes                      uint64 `json:"mean_rss_bytes"`
+	P95RSSBytes                       uint64 `json:"p95_rss_bytes"`
+	MaxRSSBytes                       uint64 `json:"max_rss_bytes"`
+	ProjectedRSSAtMaxChildrenBytes    uint64 `json:"projected_rss_at_max_children_bytes"`
+	ProjectedMaxRSSAtMaxChildrenBytes uint64 `json:"projected_max_rss_at_max_children_bytes"`
+	OneAdditionalWorkerBytes          uint64 `json:"one_additional_worker_bytes"`
+	Estimate                          string `json:"estimate"`
+	Source                            string `json:"source"`
 }
 
 type fpmPoolConfig struct {
@@ -151,8 +152,9 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		memory, memoryErr := sampleFPMWorkerMemory("/proc", uid, site, pool.version)
 		if memoryErr == nil {
 			memory.ProjectedRSSAtMaxChildrenBytes = memory.P95RSSBytes * pool.max
+			memory.ProjectedMaxRSSAtMaxChildrenBytes = memory.MaxRSSBytes * pool.max
 			memory.OneAdditionalWorkerBytes = memory.P95RSSBytes
-			memory.Estimate = "P95 of this instantaneous worker sample multiplied by configured max_children; not a memory limit or sustained-load forecast"
+			memory.Estimate = "P95 and largest-observed worker RSS from one instantaneous sample multiplied by configured max_children; shared pages are included, and neither projection is a memory limit or sustained-load forecast"
 			item.WorkerMemory = memory
 		} else {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s worker memory could not be sampled.", pool.version))

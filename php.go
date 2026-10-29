@@ -246,9 +246,11 @@ func (a *App) phpProfileResourceImpact(site string, before, proposed PHPProfile)
 		if pool.State != "available" || pool.WorkerMemory == nil {
 			continue
 		}
-		effect += fmt.Sprintf(" PHP %s instantaneous worker RSS sample: %d worker(s), P95 %s; configured max_children %d projects to about %s RSS at that sample's P95.",
-			pool.PHPVersion, pool.WorkerMemory.SampledWorkers, formatPHPBytes(pool.WorkerMemory.P95RSSBytes), pool.MaxChildren,
-			formatPHPBytes(pool.WorkerMemory.ProjectedRSSAtMaxChildrenBytes))
+		effect += fmt.Sprintf(" PHP %s instantaneous worker RSS sample: %d worker(s), P95 %s, largest observed %s; configured max_children %d projects to about %s at P95 and %s using the largest observed worker.",
+			pool.PHPVersion, pool.WorkerMemory.SampledWorkers, formatPHPBytes(pool.WorkerMemory.P95RSSBytes),
+			formatPHPBytes(pool.WorkerMemory.MaxRSSBytes), pool.MaxChildren,
+			formatPHPBytes(pool.WorkerMemory.ProjectedRSSAtMaxChildrenBytes),
+			formatPHPBytes(pool.WorkerMemory.ProjectedMaxRSSAtMaxChildrenBytes))
 	}
 	effect += " RSS includes shared mappings and one snapshot is not a sustained-load forecast; compare repeated peak-period samples with host headroom before increasing worker limits."
 	return []string{effect}

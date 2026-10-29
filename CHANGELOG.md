@@ -22,6 +22,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   view now puts the quota estimate beside live usage and renders PHP-FPM
   recommendation evidence and next steps beside the measured pool counters.
 
+- PHP-FPM worker sizing previews now show two measured projections at the
+  proposed worker count: the per-worker P95 estimate and an observed upper
+  estimate based on the largest worker in the sample. This makes the likely
+  memory effect easier to assess without treating one instantaneous sample as
+  a reservation or sustained-load guarantee; the settings remain previewed
+  and administrator-approved before application.
+
 - PHP-FPM resource details now show the summed RSS of the sampled site workers,
   distinguish it from the separately measured systemd-slice memory, and include
   the sample time, current and peak request queue, slow-request count, and

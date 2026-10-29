@@ -467,8 +467,10 @@
         });
         livePools.filter((pool) => pool.worker_memory).forEach((pool) => {
           const memory = pool.worker_memory;
+          const maxObservedProjection = Number(memory.projected_max_rss_at_max_children_bytes)
+            || Number(memory.max_rss_bytes || 0) * Number(pool.max_children || 0);
           add('guidance', `Measured PHP-FPM memory · PHP ${pool.php_version || 'default'}`,
-            `${memory.sampled_workers} workers sampled: mean ${formatBytes(memory.mean_rss_bytes)}, P95 ${formatBytes(memory.p95_rss_bytes)}, maximum ${formatBytes(memory.max_rss_bytes)}. At max_children ${pool.max_children}, the sample projects approximately ${formatBytes(memory.projected_rss_at_max_children_bytes)} RSS; one more worker would add about ${formatBytes(memory.one_additional_worker_bytes)} at sampled P95. ${memory.estimate || ''}`,
+            `${memory.sampled_workers} workers sampled: mean ${formatBytes(memory.mean_rss_bytes)}, P95 ${formatBytes(memory.p95_rss_bytes)}, maximum ${formatBytes(memory.max_rss_bytes)}. At max_children ${pool.max_children}, estimated pool RSS is ${formatBytes(memory.projected_rss_at_max_children_bytes)} at P95 and ${formatBytes(maxObservedProjection)} using the largest observed worker; one more worker adds about ${formatBytes(memory.one_additional_worker_bytes)} at sampled P95. ${memory.estimate || ''}`,
             'Compare multiple peak-period samples with host available memory before adjusting PHP workers. RSS includes shared pages and is not an enforced per-site memory limit.');
         });
       }
@@ -1702,8 +1704,10 @@
           : 'time unavailable';
         panel.append(el('h5', {}, 'PHP-FPM measurements'), el('p', { className: 'import-note' }, `Live pool counters and process RSS sampled ${sampledAt}. Worker RSS includes shared mappings and is an instantaneous estimate, not private-memory accounting or a sustained-load forecast.`), el('div', { className: 'resource-list' }, pools.map((pool) => {
           const memory = pool.worker_memory;
+          const maxObservedProjection = memory && (Number(memory.projected_max_rss_at_max_children_bytes)
+            || Number(memory.max_rss_bytes || 0) * Number(pool.max_children || 0));
           const details = memory
-            ? `${memory.sampled_workers} worker(s) sampled · current summed RSS ${formatBytes(memory.total_rss_bytes)} · mean ${formatBytes(memory.mean_rss_bytes)} · P95 ${formatBytes(memory.p95_rss_bytes)} · projected ${formatBytes(memory.projected_rss_at_max_children_bytes)} at max_children ${pool.max_children}`
+            ? `${memory.sampled_workers} worker(s) sampled · current summed RSS ${formatBytes(memory.total_rss_bytes)} · mean ${formatBytes(memory.mean_rss_bytes)} · P95 ${formatBytes(memory.p95_rss_bytes)} · projected ${formatBytes(memory.projected_rss_at_max_children_bytes)} at P95 or ${formatBytes(maxObservedProjection)} using the largest observed worker, at max_children ${pool.max_children}`
             : 'Worker RSS unavailable; FPM queue and slow-request counters remain available.';
           return el('article', { className: 'resource-list-item' }, [el('div', { className: 'item-meta' }, [el('strong', {}, `PHP ${pool.php_version || 'default'} · ${pool.active_processes} active / ${pool.idle_processes} idle / ${pool.max_children} max`), el('small', {}, details)]), el('small', {}, `Request queue now ${pool.listen_queue} (historical peak ${pool.max_listen_queue || 0}); slow requests since FPM start ${pool.slow_requests}; max-children events ${pool.max_children_reached}. A nonzero historical counter is evidence to investigate, not proof of current pressure.`)]);
         })));
