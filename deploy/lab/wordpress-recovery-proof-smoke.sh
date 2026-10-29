@@ -312,14 +312,32 @@ code = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7fffffff) % 100000
 print(f"{code:06d}")
 PY
 )
-cookies="$work/cookies.txt"
-curl --fail --silent --show-error --max-time 10 -c "$cookies" "$PANEL/login" >/dev/null
-curl --fail --silent --show-error --max-time 10 -L -b "$cookies" -c "$cookies" \
+login_headers="$work/login.headers"
+# This installed-host smoke reaches the panel over loopback HTTP. Production
+# correctly marks both cookies Secure, so curl will not save them to an HTTP
+# cookie jar. Capture the values from the successful login response instead;
+# Secure is a browser transport policy, not a server-side cookie validation.
+curl --fail --silent --show-error --max-time 10 -D "$login_headers" -o /dev/null \
   --data-urlencode "username=$STEPANEL_ADMIN_USERNAME" \
   --data-urlencode "password=$STEPANEL_ADMIN_PASSWORD" \
   --data-urlencode "totp=$totp" "$PANEL/login" >/dev/null
-session=$(awk '$6 == "stepanel_session" { print $7 }' "$cookies")
-csrf=$(awk '$6 == "stepanel_csrf" { print $7 }' "$cookies")
+mapfile -t issued_cookies < <(python3 - "$login_headers" <<'PY'
+import sys
+
+cookies = {}
+with open(sys.argv[1], encoding="latin-1") as headers:
+    for line in headers:
+        if line.lower().startswith("set-cookie:"):
+            pair = line.split(":", 1)[1].strip().split(";", 1)[0]
+            name, value = pair.split("=", 1)
+            if name in {"stepanel_session", "stepanel_csrf"}:
+                cookies[name] = value
+print(cookies.get("stepanel_session", ""))
+print(cookies.get("stepanel_csrf", ""))
+PY
+)
+session=${issued_cookies[0]:-}
+csrf=${issued_cookies[1]:-}
 [[ -n $session && -n $csrf ]] || { echo 'installed panel login did not issue session and CSRF cookies' >&2; exit 1; }
 cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
