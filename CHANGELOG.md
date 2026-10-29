@@ -85,6 +85,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Push-triggered installed-host smokes now cancel superseded push runs instead
+  of serially blocking current-source CI behind stale disposable-host work.
+  Scheduled and manually dispatched recovery evidence remains non-cancellable,
+  and repeated recovery shards retain separate concurrency groups.
+
 - Main-branch CI now cancels superseded integration runs so a queued test run
   for an obsolete commit cannot block validation of the current source.
 - Corrected Go formatting in the authentication configuration so the

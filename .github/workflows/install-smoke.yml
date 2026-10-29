@@ -89,11 +89,12 @@ on:
           - rocky-9-caddy-mariadb
 
 concurrency:
-  # Preserve long-running scheduled and release-candidate evidence. Repeated
-  # recovery shards must have independent groups so GitHub does not replace
-  # all but the latest pending shard for the same workflow event.
+  # A push smoke validates one disposable host for the latest source, so an
+  # obsolete push may be cancelled instead of blocking CI behind stale work.
+  # Preserve scheduled/manual recovery evidence and keep repeated shards in
+  # independent groups.
   group: stepanel-install-smoke-${{ github.ref }}-${{ github.event_name }}-${{ inputs.recovery_matrix_shard || 'default' }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 permissions:
   contents: read
