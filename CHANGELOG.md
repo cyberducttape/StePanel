@@ -46,6 +46,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Removed the retired CRDA workflow and its version-tagged GitHub Actions;
+  the workflow is no longer part of the pull-request action pin check.
 - CSRF tokens are derived from the session with the server secret instead of
   being an independent double-submit cookie. A sibling subdomain (same site,
   so SameSite cookies still flow) can no longer plant a matching cookie and
