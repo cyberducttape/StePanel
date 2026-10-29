@@ -16,7 +16,7 @@ command -v python3 >/dev/null || { echo 'cpmove import smoke requires python3' >
 
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
-cookies="$work/cookies.txt"
+login_headers="$work/login.headers"
 
 # site_doc_root SITE prints the site's document root: /home/USER/DIRECTORY
 # for a site placed in a hosting account (ADR-0007), else the legacy tree.
@@ -51,12 +51,10 @@ for attempt in 1 2; do
     # have crossed a counter boundary after code generation. Retry only a 401,
     # and only with a fresh code; throttling and transport failures stay fatal.
     sleep $((31 - $(date +%s) % 30))
-    : > "$cookies"
+    : > "$login_headers"
   fi
   totp=$(generate_totp)
-  curl --fail --silent --show-error --max-time 10 -c "$cookies" "$PANEL/login" >/dev/null
-  login_status=$(curl --silent --show-error --max-time 10 -L \
-    -b "$cookies" -c "$cookies" \
+  login_status=$(curl -q --silent --show-error --max-time 10 -D "$login_headers" \
     --output "$work/login-response.html" --write-out '%{http_code}' \
     --data-urlencode "username=$STEPANEL_ADMIN_USERNAME" \
     --data-urlencode "password=$STEPANEL_ADMIN_PASSWORD" \
@@ -65,16 +63,35 @@ for attempt in 1 2; do
   if [[ $login_status == 401 && $attempt == 1 ]]; then
     continue
   fi
-  [[ $login_status == 200 ]] || {
+  [[ $login_status == 303 ]] || {
     echo "installed panel login returned HTTP ${login_status:-unknown}" >&2
     exit 1
   }
   break
 done
 
-session=$(awk '$6 == "stepanel_session" {print $7}' "$cookies")
-csrf=$(awk '$6 == "stepanel_csrf" {print $7}' "$cookies")
-[[ -n $session && -n $csrf ]] || { echo 'installed panel login did not issue session and CSRF cookies' >&2; exit 1; }
+mapfile -t issued_cookies < <(python3 - "$login_headers" <<'PY'
+import sys
+
+cookies = {}
+with open(sys.argv[1], encoding="latin-1") as headers:
+    for line in headers:
+        if line.lower().startswith("set-cookie:"):
+            pair = line.split(":", 1)[1].strip().split(";", 1)[0]
+            name, value = pair.split("=", 1)
+            if name in {"stepanel_session", "stepanel_csrf"}:
+                cookies[name] = value
+print(cookies.get("stepanel_session", ""))
+print(cookies.get("stepanel_csrf", ""))
+PY
+)
+session=${issued_cookies[0]:-}
+csrf=${issued_cookies[1]:-}
+if [[ -z $session || -z $csrf ]]; then
+  cookie_names=$(sed -nE 's/^[Ss]et-[Cc]ookie:[[:space:]]*([^=;]+)=.*/\1/p' "$login_headers" | paste -sd, -)
+  echo "installed panel login did not issue session and CSRF cookies (received: ${cookie_names:-none})" >&2
+  exit 1
+fi
 cookie_header="stepanel_session=$session; stepanel_csrf=$csrf"
 
 mkdir -p "$work/cpmove-$CPMOVE_SMOKE_SITE/homedir/public_html"

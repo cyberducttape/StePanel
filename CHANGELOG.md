@@ -40,10 +40,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
-- The installed-host WordPress recovery smoke now reads Secure cookie values
-  from the login response headers when exercising the panel over loopback
-  HTTP and ignores ambient curl configuration. This preserves production
-  cookie policy while making the smoke's authentication request deterministic.
+- Installed-host cPanel import and WordPress recovery smokes now read Secure
+  cookie values from login response headers when exercising the panel over
+  loopback HTTP, while ignoring ambient curl configuration. This preserves
+  production cookie policy and keeps lab authentication deterministic.
 - WordPress staging promotion now rejects empty or identical staging and
   production sites before taking mutation locks, matching the preview.
 - The Go client refuses redirects that would carry the bearer token to a
