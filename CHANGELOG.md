@@ -10,6 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - High-backlog SQLite queue benchmarks now report claim p50/p95/p99 and
   post-sample passive-checkpoint latency, remaining frames, and WAL file size.
+- The SQLite session-under-job-load benchmark now reports worker claim,
+  SQLite-busy, job re-arm, and session-rejection counts instead of hiding
+  background write failures.
 - Record a current-source SQLite queue benchmark at 1K, 10K, and 100K jobs;
   the temporary ordered index did not improve the measured claim workload.
 - Site incident snapshots can query aggregate PHP-FPM pool counters through a

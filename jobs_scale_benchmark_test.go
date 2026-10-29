@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/session"
+	stateerrors "github.com/cyberducttape/StePanel/internal/state"
 )
 
 // seedJobScale models a busy single host: a long completed history spread
@@ -146,6 +148,7 @@ func BenchmarkSessionValidationUnderJobLoad(b *testing.B) {
 			}
 			stop := make(chan struct{})
 			var background sync.WaitGroup
+			var claimErrors, claimBusyErrors, rearmErrors, sessionRejections atomic.Uint64
 			pace := func(interval time.Duration) bool {
 				if interval == 0 {
 					select {
@@ -178,10 +181,19 @@ func BenchmarkSessionValidationUnderJobLoad(b *testing.B) {
 					owner := fmt.Sprintf("bench-worker-%d", worker)
 					for pace(load.claimEvery) {
 						item, ok, err := jobs.ClaimNext(owner)
-						if err != nil || !ok {
+						if err != nil {
+							claimErrors.Add(1)
+							if stateerrors.Classify("benchmark_claim", err, "").Category == stateerrors.Temporary {
+								claimBusyErrors.Add(1)
+							}
 							continue
 						}
-						_, _ = db.Exec(`UPDATE jobs SET state = 'queued', lease_owner = NULL, lease_expires_at = NULL WHERE id = ?`, item.ID)
+						if !ok {
+							continue
+						}
+						if _, err := db.Exec(`UPDATE jobs SET state = 'queued', lease_owner = NULL, lease_expires_at = NULL WHERE id = ?`, item.ID); err != nil {
+							rearmErrors.Add(1)
+						}
 					}
 				}(i)
 			}
@@ -197,6 +209,7 @@ func BenchmarkSessionValidationUnderJobLoad(b *testing.B) {
 				b.StartTimer()
 				start := time.Now()
 				if !registry.Valid("session-1", "admin", expiry) {
+					sessionRejections.Add(1)
 					b.Fatal("session rejected")
 				}
 				latencies = append(latencies, time.Since(start))
@@ -211,6 +224,10 @@ func BenchmarkSessionValidationUnderJobLoad(b *testing.B) {
 			b.ReportMetric(percentile(0.50), "p50_µs")
 			b.ReportMetric(percentile(0.90), "p90_µs")
 			b.ReportMetric(percentile(0.99), "p99_µs")
+			b.ReportMetric(float64(claimErrors.Load()), "claim_errors")
+			b.ReportMetric(float64(claimBusyErrors.Load()), "claim_busy_errors")
+			b.ReportMetric(float64(rearmErrors.Load()), "rearm_errors")
+			b.ReportMetric(float64(sessionRejections.Load()), "session_rejections")
 		})
 	}
 }
