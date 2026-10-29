@@ -1,6 +1,7 @@
 package stepanel
 
 import (
+	"errors"
 	"slices"
 	"testing"
 )
@@ -81,6 +82,58 @@ func TestCPMoveMigrationEvidenceReportsDomainPlacementFailure(t *testing.T) {
 		return
 	}
 	t.Fatal("domain placement evidence is missing")
+}
+
+func TestCPMoveComponentReportUsesExplicitDispositionForEachItem(t *testing.T) {
+	info := CPMoveInfo{User: "source", HasHome: true, Databases: []string{"wpdb"}, Mailboxes: []string{"example.test/alice"}, DNSZones: []string{"example.test"}, CronSchedules: []string{"0 2 * * *"}}
+	result := ImportResult{User: "destination", FilesRestored: true, DatabasesRestored: []string{"destination_wpdb"}, MailStaged: true, Domains: []ImportedDomain{{Domain: "shop.example.test", Site: "shop"}}}
+	result.Evidence = []MigrationEvidence{{Category: "domains", SourceItems: []string{"shop.example.test"}}}
+	components := buildMigrationComponents(info, result, true, nil)
+	want := map[string]MigrationDisposition{
+		"account:source":                      MigrationTransformed,
+		"website_files:cPanel home directory": MigrationImported,
+		"databases:wpdb":                      MigrationTransformed,
+		"mailboxes:example.test/alice":        MigrationTransformed,
+		"domains:shop.example.test":           MigrationTransformed,
+		"dns:example.test":                    MigrationUnsupported,
+		"cron_jobs:0 2 * * *":                 MigrationUnsupported,
+	}
+	for _, component := range components {
+		key := component.Category + ":" + component.Source
+		if got, ok := want[key]; ok {
+			if component.Disposition != got {
+				t.Errorf("%s disposition = %q, want %q", key, component.Disposition, got)
+			}
+			delete(want, key)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing component dispositions: %#v; report %#v", want, components)
+	}
+}
+
+func TestCPMoveCompatibilityFlagsUnsupportedDatabaseEngineAndCutover(t *testing.T) {
+	checks := cpmoveCompatibilityChecks(Config{DBEngine: "postgresql"}, CPMoveInfo{Entries: 4, ExpandedBytes: 1024, Databases: []string{"wpdb"}, DNSZones: []string{"example.test"}})
+	byName := make(map[string]MigrationCheck, len(checks))
+	for _, check := range checks {
+		byName[check.Name] = check
+	}
+	if byName["Database engine"].Status != "blocked" || byName["DNS and scheduled tasks"].Status != "warning" || byName["Application compatibility"].Status != "unknown" {
+		t.Fatalf("compatibility checks = %#v", checks)
+	}
+}
+
+func TestFailedCPMoveDoesNotClaimRolledBackDataWasImported(t *testing.T) {
+	info := CPMoveInfo{User: "alice", HasHome: true, Databases: []string{"wp"}, Mailboxes: []string{"example.test/alice"}}
+	result := ImportResult{User: "alice", FilesRestored: true, DatabasesRestored: []string{"alice_wp"}, MailStaged: true}
+	components := buildMigrationComponents(info, result, true, errors.New("injected post-activation failure"))
+	for _, component := range components {
+		if component.Category == "website_files" || component.Category == "databases" || component.Category == "mailboxes" {
+			if component.Disposition != MigrationFailed {
+				t.Errorf("%s disposition = %q after failed import, want failed", component.Category, component.Disposition)
+			}
+		}
+	}
 }
 
 func TestCronScheduleReportsOnlyScheduleSyntax(t *testing.T) {

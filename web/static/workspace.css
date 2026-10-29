@@ -1421,6 +1421,22 @@ textarea[aria-invalid="true"] {
 .migration-evidence-item p { margin: 6px 0 0; color: var(--panel-muted); }
 .migration-evidence-not_inspected,
 .migration-evidence-not_selected { border-left: 3px solid #bd8120; }
+.migration-preview { display:grid; gap:10px; margin-top:14px; padding:14px; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel-bg); }
+.migration-preview h3 { margin:0; }
+.migration-checks,.migration-plan { display:grid; gap:7px; margin:0; padding:0; list-style:none; }
+.migration-checks li,.migration-plan li { display:grid; gap:3px; padding:9px 11px; border:1px solid var(--panel-border); border-radius:7px; }
+.migration-checks li[data-state="passed"] { border-left:3px solid #25815b; }
+.migration-checks li[data-state="warning"],.migration-checks li[data-state="unknown"] { border-left:3px solid #bd8120; }
+.migration-checks li[data-state="blocked"] { border-left:3px solid #c54e4e; }
+.migration-plan li[data-disposition="unsupported"] { border-left:3px solid #bd8120; }
+.migration-plan small { color:var(--panel-muted); }
+.migration-report-table { width:100%; border-collapse:collapse; font-size:12px; }
+.migration-report-table th,.migration-report-table td { padding:8px; text-align:left; vertical-align:top; border-bottom:1px solid var(--panel-border); overflow-wrap:anywhere; }
+.migration-report-table tr[data-disposition="failed"] td:nth-child(4) { color:#b42318; font-weight:700; }
+.migration-report-table tr[data-disposition="unsupported"] td:nth-child(4),.migration-report-table tr[data-disposition="skipped"] td:nth-child(4) { color:#98620e; font-weight:700; }
+.migration-rehearsal { grid-column:1/-1; padding:10px 12px; border-left:3px solid var(--appearance-accent); background:var(--panel-bg); }
+.migration-report-download { display:inline-flex; margin-top:10px; }
+.migration-report-summary { grid-column:1/-1; overflow-wrap:anywhere; color:var(--panel-muted); font-size:12px; }
 .recovery-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 18px; margin: 0 0 14px; }
 .recovery-facts dt { color: var(--panel-muted); font-size: 11px; margin-bottom: 2px; }
 .recovery-facts dd { margin: 0; display: flex; flex-direction: column; gap: 2px; }

@@ -50,23 +50,25 @@ type CPMoveInfo struct {
 // Archive-derived names and paths remain server-side so they cannot become
 // browser-controlled markup through the inspection response.
 type CPMoveInspectionResponse struct {
-	UploadID          string `json:"upload_id,omitempty"`
-	ArchiveBytes      int64  `json:"archive_bytes"`
-	ExpandedBytes     int64  `json:"expanded_bytes"`
-	DatabaseBytes     int64  `json:"database_bytes"`
-	RequiredFreeBytes int64  `json:"required_free_bytes"`
-	Entries           int    `json:"entries"`
-	HasHome           bool   `json:"has_home"`
-	HasMySQL          bool   `json:"has_mysql"`
-	HasMail           bool   `json:"has_mail"`
-	DatabaseCount     int    `json:"database_count"`
-	MailboxCount      int    `json:"mailbox_count"`
-	DNSZoneCount      int    `json:"dns_zone_count"`
-	CronJobCount      int    `json:"cron_job_count"`
+	UploadID          string                      `json:"upload_id,omitempty"`
+	ArchiveBytes      int64                       `json:"archive_bytes"`
+	ExpandedBytes     int64                       `json:"expanded_bytes"`
+	DatabaseBytes     int64                       `json:"database_bytes"`
+	RequiredFreeBytes int64                       `json:"required_free_bytes"`
+	Entries           int                         `json:"entries"`
+	HasHome           bool                        `json:"has_home"`
+	HasMySQL          bool                        `json:"has_mysql"`
+	HasMail           bool                        `json:"has_mail"`
+	DatabaseCount     int                         `json:"database_count"`
+	MailboxCount      int                         `json:"mailbox_count"`
+	DNSZoneCount      int                         `json:"dns_zone_count"`
+	CronJobCount      int                         `json:"cron_job_count"`
+	Components        []MigrationPreviewComponent `json:"components"`
+	Compatibility     []MigrationCheck            `json:"compatibility"`
 }
 
 func (info CPMoveInfo) response(uploadID string) CPMoveInspectionResponse {
-	return CPMoveInspectionResponse{
+	response := CPMoveInspectionResponse{
 		UploadID:          uploadID,
 		ArchiveBytes:      info.ArchiveBytes,
 		ExpandedBytes:     info.ExpandedBytes,
@@ -81,6 +83,88 @@ func (info CPMoveInfo) response(uploadID string) CPMoveInspectionResponse {
 		DNSZoneCount:      len(info.DNSZones) + info.DNSZoneOmitted,
 		CronJobCount:      len(info.CronSchedules) + info.CronOmitted,
 	}
+	response.Components = previewCPMoveComponents(info)
+	return response
+}
+
+func previewCPMoveComponents(info CPMoveInfo) []MigrationPreviewComponent {
+	var components []MigrationPreviewComponent
+	if info.HasHome {
+		components = append(components, MigrationPreviewComponent{Category: "website_files", Source: "cPanel home directory", PlannedDisposition: MigrationImported, Details: "Public document roots are scanned and activated into isolated site directories."})
+	} else {
+		components = append(components, MigrationPreviewComponent{Category: "website_files", Source: "website files", PlannedDisposition: MigrationSkipped, Details: "No home directory entries were found."})
+	}
+	for _, name := range info.Databases {
+		components = append(components, MigrationPreviewComponent{Category: "databases", Source: name, PlannedDisposition: MigrationTransformed, Details: "Database names and credentials are mapped to destination-managed identities; import is optional."})
+	}
+	for _, name := range info.Mailboxes {
+		components = append(components, MigrationPreviewComponent{Category: "mailboxes", Source: name, PlannedDisposition: MigrationTransformed, Details: "Mailbox files are staged privately; delivery, credentials, aliases, and MX are not activated."})
+	}
+	for _, name := range info.DNSZones {
+		components = append(components, MigrationPreviewComponent{Category: "dns", Source: name, PlannedDisposition: MigrationUnsupported, Details: "DNS zone records are not imported and require provider-side cutover review."})
+	}
+	for _, schedule := range info.CronSchedules {
+		components = append(components, MigrationPreviewComponent{Category: "cron_jobs", Source: schedule, PlannedDisposition: MigrationUnsupported, Details: "Cron commands are intentionally not imported; review them and recreate explicitly."})
+	}
+	if info.DNSZoneOmitted > 0 || info.CronOmitted > 0 {
+		components = append(components, MigrationPreviewComponent{Category: "archive_inventory", Source: "additional inventory entries", PlannedDisposition: MigrationSkipped, Details: "The inspection report bounds displayed items; omitted counts are shown in the summary."})
+	}
+	return components
+}
+
+func cpmoveCompatibilityChecks(cfg Config, info CPMoveInfo) []MigrationCheck {
+	checks := []MigrationCheck{{Name: "Archive structure", Status: "passed", Details: fmt.Sprintf("Validated %d archive entries and %s expanded content against archive path and type policies.", info.Entries, humanBytes(info.ExpandedBytes))}}
+	if mysqlCompatible(cfg) {
+		checks = append(checks, MigrationCheck{Name: "Database engine", Status: "passed", Details: "Destination supports MySQL/MariaDB cPanel dumps; each database is still validated during import."})
+	} else if len(info.Databases) > 0 {
+		checks = append(checks, MigrationCheck{Name: "Database engine", Status: "blocked", Details: "Destination database engine cannot import cPanel MySQL/MariaDB dumps. Website files may be imported without databases."})
+	} else {
+		checks = append(checks, MigrationCheck{Name: "Database engine", Status: "unknown", Details: "No database dumps were found in the archive."})
+	}
+	checks = append(checks,
+		MigrationCheck{Name: "Application compatibility", Status: "unknown", Details: "Source PHP version and required extensions are not declared reliably in cpmove archives; the post-import rehearsal determines runtime compatibility when supported."},
+		MigrationCheck{Name: "DNS and scheduled tasks", Status: "warning", Details: "DNS records and cron commands are not activated by import; the report includes manual cutover dispositions."},
+		MigrationCheck{Name: "Mail service", Status: "warning", Details: "Mailbox data can be staged, but mail identities, delivery configuration, aliases, and DNS cutover are not migrated."},
+	)
+	if info.RequiredFreeBytes > 0 {
+		checks = append(checks, MigrationCheck{Name: "Storage admission", Status: "passed", Details: fmt.Sprintf("Current archive staging admission passed at an estimated %s; space is checked again immediately before import.", humanBytes(info.RequiredFreeBytes))})
+	}
+	return checks
+}
+
+func applyRehearsalCompatibility(checks []MigrationCheck, rehearsal *MigrationRehearsal) {
+	if rehearsal == nil {
+		return
+	}
+	for i := range checks {
+		if checks[i].Name != "Application compatibility" {
+			continue
+		}
+		switch rehearsal.Status {
+		case "passed":
+			checks[i].Status, checks[i].Details = "passed", "Disposable WordPress database restore and application HTTP checks passed."
+		case "failed":
+			checks[i].Status, checks[i].Details = "blocked", "The disposable WordPress application rehearsal failed; inspect the report and job diagnostics."
+		case "unsupported":
+			checks[i].Status, checks[i].Details = "warning", rehearsal.Details
+		case "skipped":
+			checks[i].Status, checks[i].Details = "unknown", rehearsal.Details
+		}
+		return
+	}
+}
+
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for value := n / unit; value >= unit; value /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 const maxCPMoveExpandedBytes int64 = 80 << 30
@@ -178,25 +262,77 @@ type ImportResult struct {
 	// account (ADR-0007): the main domain is served from public_html, addon
 	// and subdomains become their own sites beside it, and parked domains
 	// are aliases of the main site waiting for a route.
-	Account       string              `json:"account,omitempty"`
-	MainDomain    string              `json:"main_domain,omitempty"`
-	ParkedDomains []string            `json:"parked_domains,omitempty"`
-	Domains       []ImportedDomain    `json:"domains,omitempty"`
-	DomainErrors  []string            `json:"domain_errors,omitempty"`
-	Evidence      []MigrationEvidence `json:"migration_evidence,omitempty"`
+	Account                  string               `json:"account,omitempty"`
+	MainDomain               string               `json:"main_domain,omitempty"`
+	ParkedDomains            []string             `json:"parked_domains,omitempty"`
+	Domains                  []ImportedDomain     `json:"domains,omitempty"`
+	DomainErrors             []string             `json:"domain_errors,omitempty"`
+	Evidence                 []MigrationEvidence  `json:"migration_evidence,omitempty"`
+	Components               []MigrationComponent `json:"components,omitempty"`
+	Compatibility            []MigrationCheck     `json:"compatibility,omitempty"`
+	Rehearsal                *MigrationRehearsal  `json:"application_rehearsal,omitempty"`
+	ReportCreatedAt          time.Time            `json:"report_created_at,omitempty"`
+	SourceArchive            string               `json:"source_archive,omitempty"`
+	ArchiveSHA256            string               `json:"archive_sha256,omitempty"`
+	ArchiveBytes             int64                `json:"archive_bytes,omitempty"`
+	ExpandedBytes            int64                `json:"expanded_bytes,omitempty"`
+	StartedAt                time.Time            `json:"started_at,omitempty"`
+	FinishedAt               time.Time            `json:"finished_at,omitempty"`
+	DatabaseRestoreRequested bool                 `json:"database_restore_requested"`
 }
 
-// MigrationEvidence records observed source items and their destination
-// disposition. A not_inspected category is explicit; absence of evidence is
-// never presented as a successful migration.
+// MigrationDisposition is the final operator-facing outcome for one source
+// component. Planned actions are represented separately in preview responses.
+type MigrationDisposition string
+
+const (
+	MigrationImported    MigrationDisposition = "imported"
+	MigrationTransformed MigrationDisposition = "transformed"
+	MigrationSkipped     MigrationDisposition = "skipped"
+	MigrationUnsupported MigrationDisposition = "unsupported"
+	MigrationFailed      MigrationDisposition = "failed"
+)
+
+type MigrationComponent struct {
+	Category    string               `json:"category"`
+	Source      string               `json:"source"`
+	Target      string               `json:"target,omitempty"`
+	Disposition MigrationDisposition `json:"disposition"`
+	Details     string               `json:"details,omitempty"`
+}
+
+type MigrationPreviewComponent struct {
+	Category           string               `json:"category"`
+	Source             string               `json:"source"`
+	PlannedDisposition MigrationDisposition `json:"planned_disposition"`
+	Details            string               `json:"details,omitempty"`
+}
+
+type MigrationCheck struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"` // passed, warning, blocked, unknown
+	Details string `json:"details"`
+}
+
+type MigrationRehearsal struct {
+	Status      string    `json:"status"` // passed, unsupported, skipped, failed
+	CompletedAt time.Time `json:"completed_at,omitempty"`
+	DurationMS  int64     `json:"duration_ms,omitempty"`
+	Checks      []string  `json:"checks,omitempty"`
+	Details     string    `json:"details,omitempty"`
+}
+
+// MigrationEvidence preserves the category-oriented report for API clients.
+// Components is the authoritative item-by-item disposition inventory.
 type MigrationEvidence struct {
-	Category         string   `json:"category"`
-	Status           string   `json:"status"` // completed, not_selected, not_inspected
-	SourceItems      []string `json:"source_items,omitempty"`
-	ImportedItems    []string `json:"imported_items,omitempty"`
-	SkippedItems     []string `json:"skipped_items,omitempty"`
-	OmittedItemCount int      `json:"omitted_item_count,omitempty"`
-	Details          string   `json:"details,omitempty"`
+	Category         string               `json:"category"`
+	Status           string               `json:"status"` // completed, not_selected, not_inspected
+	Disposition      MigrationDisposition `json:"disposition,omitempty"`
+	SourceItems      []string             `json:"source_items,omitempty"`
+	ImportedItems    []string             `json:"imported_items,omitempty"`
+	SkippedItems     []string             `json:"skipped_items,omitempty"`
+	OmittedItemCount int                  `json:"omitted_item_count,omitempty"`
+	Details          string               `json:"details,omitempty"`
 }
 
 const maxMigrationEvidenceItems = 500
@@ -390,6 +526,10 @@ func RestoreCPMoveContext(ctx context.Context, cfg Config, file multipart.File, 
 // under ImportRoot. Keeping the durable upload as the extraction source avoids
 // copying a large archive into every restore stage.
 func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string, header *multipart.FileHeader, site SiteCapability, databases bool, ledgers ...*capacityLedger) (ImportResult, error) {
+	return restoreCPMoveArchiveContextWithApp(ctx, cfg, archive, header, site, databases, nil, ledgers...)
+}
+
+func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive string, header *multipart.FileHeader, site SiteCapability, databases bool, app *App, ledgers ...*capacityLedger) (ImportResult, error) {
 	if databases {
 		var ledger *capacityLedger
 		if len(ledgers) > 0 {
@@ -601,7 +741,159 @@ func restoreCPMoveArchiveContext(ctx context.Context, cfg Config, archive string
 		result.Domains, result.DomainErrors = restoreCPMoveDomainSites(ctx, cfg, db, manager, user, plan)
 	}
 	result.Evidence = buildCPMoveMigrationEvidence(archiveInfo, result, databases, plan, domainInventoryErr)
+	result.Compatibility = cpmoveCompatibilityChecks(cfg, archiveInfo)
+	result.ReportCreatedAt = time.Now().UTC()
+	if app != nil && wordpressProofEnabled(cfg, false) {
+		proofStarted := time.Now()
+		proof, proofErr := app.proveWordPressRestore(ctx, root, archiveInfo.Databases)
+		rehearsal := &MigrationRehearsal{CompletedAt: time.Now().UTC(), DurationMS: time.Since(proofStarted).Milliseconds()}
+		switch {
+		case errors.Is(proofErr, errRecoveryProofUnsupported):
+			rehearsal.Status, rehearsal.Details = "unsupported", proofErr.Error()
+		case proofErr != nil:
+			rehearsal.Status, rehearsal.Details = "failed", "The imported application did not pass its disposable WordPress restore and HTTP proof; inspect the job diagnostics."
+		default:
+			rehearsal.Status, rehearsal.Checks = "passed", proof.Checks
+			rehearsal.Details = "The archive was restored into a disposable site, its database was imported, and the application HTTP checks passed."
+		}
+		result.Rehearsal = rehearsal
+	} else if app != nil {
+		result.Rehearsal = &MigrationRehearsal{Status: "skipped", Details: "The built-in WordPress recovery proof is not enabled or its site, database, and web-server helpers are unavailable."}
+	}
+	applyRehearsalCompatibility(result.Compatibility, result.Rehearsal)
+	result.Components = buildMigrationComponents(archiveInfo, result, databases, nil)
 	return result, nil
+}
+
+func buildMigrationComponents(info CPMoveInfo, result ImportResult, databasesSelected bool, operationErr error) []MigrationComponent {
+	components := make([]MigrationComponent, 0, len(info.Databases)+len(info.Mailboxes)+len(info.DNSZones)+len(info.CronSchedules)+4)
+	add := func(category, source, target string, disposition MigrationDisposition, details string) {
+		components = append(components, MigrationComponent{Category: category, Source: source, Target: target, Disposition: disposition, Details: details})
+	}
+	failed := operationErr != nil
+	accountTarget := result.Account
+	if accountTarget == "" {
+		accountTarget = result.User
+	}
+	accountDisposition := MigrationTransformed
+	accountDetails := "Source account mapped to the selected destination account."
+	if failed {
+		accountDisposition, accountDetails = MigrationFailed, "Import did not complete; inspect job diagnostics and recovery state."
+	}
+	add("account", info.User, accountTarget, accountDisposition, accountDetails)
+	if info.HasHome {
+		disposition, target, details := MigrationImported, "main site document root", "Website files were activated through the site staging workflow."
+		if failed {
+			disposition, target, details = MigrationFailed, "", "The import did not complete; inspect job diagnostics and recovery state."
+		} else if !result.FilesRestored {
+			disposition, target, details = MigrationSkipped, "", "No public_html document root was present."
+		}
+		add("website_files", "cPanel home directory", target, disposition, details)
+	}
+	for _, source := range info.Databases {
+		switch {
+		case !databasesSelected:
+			add("databases", source, "", MigrationSkipped, "Database restoration was not selected.")
+		case failed:
+			add("databases", source, "", MigrationFailed, "The database restore operation did not complete; inspect the durable job and recovery state.")
+		default:
+			target := ""
+			for _, restored := range result.DatabasesRestored {
+				if strings.HasSuffix(restored, "_"+source) || restored == source {
+					target = restored
+					break
+				}
+			}
+			if target == "" {
+				disposition, details := MigrationFailed, "No successful destination database was recorded."
+				if failed {
+					details = "Database import did not complete; consult job diagnostics and recovery state."
+				}
+				add("databases", source, "", disposition, details)
+			} else {
+				add("databases", source, target, MigrationTransformed, "Imported under a destination-managed database identity.")
+			}
+		}
+	}
+	for _, source := range info.Mailboxes {
+		if failed {
+			add("mailboxes", source, "", MigrationFailed, "The import did not complete; inspect the durable job and recovery state.")
+		} else if result.MailStaged {
+			add("mailboxes", source, source, MigrationTransformed, "Mailbox data was staged privately; delivery and credentials require separate setup.")
+		} else if failed && len(result.MailErrors) > 0 {
+			add("mailboxes", source, "", MigrationFailed, "Mailbox staging failed; consult job diagnostics.")
+		} else {
+			add("mailboxes", source, "", MigrationSkipped, "Mailbox data was not staged on this destination.")
+		}
+	}
+	for _, evidence := range result.Evidence {
+		if evidence.Category != "domains" {
+			continue
+		}
+		for _, source := range evidence.SourceItems {
+			if source == "" {
+				continue
+			}
+			found := false
+			if source == result.MainDomain && source != "" {
+				disposition, details := MigrationTransformed, "Main domain content was placed in the destination account; DNS and route cutover are separate."
+				if failed {
+					disposition, details = MigrationFailed, "Domain import did not complete; inspect job diagnostics."
+				}
+				add("domains", source, result.User, disposition, details)
+				found = true
+			}
+			for _, parked := range result.ParkedDomains {
+				if source == parked {
+					disposition, details := MigrationTransformed, "Parked-domain mapping was recorded; DNS and route activation remain separate."
+					if failed {
+						disposition, details = MigrationFailed, "Domain import did not complete; inspect job diagnostics."
+					}
+					add("domains", source, result.User+" (route pending)", disposition, details)
+					found = true
+					break
+				}
+			}
+			for _, domain := range result.Domains {
+				if found {
+					break
+				}
+				if domain.Domain == source {
+					disposition, details := MigrationTransformed, "Domain content was placed in its own destination site; route and DNS cutover are separate."
+					if failed {
+						disposition, details = MigrationFailed, "Domain import did not complete; inspect job diagnostics."
+					}
+					add("domains", source, domain.Site, disposition, details)
+					found = true
+					break
+				}
+			}
+			if !found {
+				disposition, details := MigrationSkipped, "Domain is not activated by this import workflow."
+				for _, skipped := range evidence.SkippedItems {
+					if strings.HasPrefix(skipped, source+":") {
+						details = strings.TrimSpace(strings.TrimPrefix(skipped, source+":"))
+						break
+					}
+				}
+				if failed {
+					disposition, details = MigrationFailed, "Domain import did not complete; inspect job diagnostics."
+				}
+				add("domains", source, "", disposition, details)
+			}
+		}
+		break
+	}
+	for _, domain := range result.Domains {
+		add("domains", domain.Domain, domain.Site, MigrationTransformed, "Domain files were placed into a separate destination site; DNS and route cutover remain separate.")
+	}
+	for _, zone := range info.DNSZones {
+		add("dns", zone, "", MigrationUnsupported, "DNS records are not imported; review and apply them at the authoritative DNS provider.")
+	}
+	for _, schedule := range info.CronSchedules {
+		add("cron_jobs", schedule, "", MigrationUnsupported, "Command text is intentionally not retained or executed; review and recreate this schedule explicitly.")
+	}
+	return components
 }
 
 func buildCPMoveMigrationEvidence(info CPMoveInfo, result ImportResult, databasesSelected bool, plan cpmoveDomainPlan, domainInventoryErr error) []MigrationEvidence {
@@ -718,6 +1010,22 @@ func buildCPMoveMigrationEvidence(info CPMoveInfo, result ImportResult, database
 		cron.Details = "No readable scheduled tasks were found in the archive. Verify the source account crontab before cutover."
 	}
 	evidence = append(evidence, boundMigrationEvidence(dns), boundMigrationEvidence(cron))
+	for i := range evidence {
+		switch {
+		case evidence[i].Category == "dns" || evidence[i].Category == "cron_jobs":
+			if len(evidence[i].SourceItems) > 0 {
+				evidence[i].Disposition = MigrationUnsupported
+			} else {
+				evidence[i].Disposition = MigrationSkipped
+			}
+		case evidence[i].Status == "not_selected" || evidence[i].Status == "not_inspected":
+			evidence[i].Disposition = MigrationSkipped
+		case evidence[i].Category == "account" || evidence[i].Category == "databases" || evidence[i].Category == "mailboxes" || evidence[i].Category == "domains":
+			evidence[i].Disposition = MigrationTransformed
+		default:
+			evidence[i].Disposition = MigrationImported
+		}
+	}
 	return evidence
 }
 

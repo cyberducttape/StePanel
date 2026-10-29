@@ -223,6 +223,33 @@ func TestWordPressProofRestoresAndServesThrowawaySite(t *testing.T) {
 	f.assertTornDown(t)
 }
 
+func TestWordPressProofPlanAcceptsCPMoveArchiveLayout(t *testing.T) {
+	stage := t.TempDir()
+	public := filepath.Join(stage, "homedir", "public_html")
+	if err := os.MkdirAll(public, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(stage, "mysql"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{
+		filepath.Join(public, "wp-config.php"):       proofTestConfig,
+		filepath.Join(public, "wp-settings.php"):     "<?php\n",
+		filepath.Join(stage, "mysql", "shop_db.sql"): "CREATE TABLE wp_options (option_name TEXT);\n",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := planWordPressProof(Config{DBEngine: "mariadb", WebServer: "apache"}, stage, []string{"shop_db"})
+	if err != nil {
+		t.Fatalf("plan cpmove WordPress proof: %v", err)
+	}
+	if plan.public != public || plan.dump != filepath.Join(stage, "mysql", "shop_db.sql") {
+		t.Fatalf("proof plan paths = public %q dump %q", plan.public, plan.dump)
+	}
+}
+
 func TestWordPressProofFailsAndTearsDownWhenDatabaseIsUnreachable(t *testing.T) {
 	f := newWordPressProofFixture(t, proofTestConfig)
 	serveProofWebServer(t, func(w http.ResponseWriter, _ *http.Request) {

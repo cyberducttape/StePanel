@@ -834,6 +834,34 @@ func TestDurableQueueClaimRetryAndDeadLetter(t *testing.T) {
 	}
 }
 
+func TestDurableFailureRetainsPartialHandlerOutput(t *testing.T) {
+	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := newJobsWithDB(db, 1)
+	queued, err := jobs.Enqueue("cpmove.restore", "site", "migration", []byte(`{"site":"site"}`), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, ok, err := jobs.ClaimNext("worker", "cpmove.restore")
+	if err != nil || !ok {
+		t.Fatalf("claim = %#v, ok=%v, err=%v", claimed, ok, err)
+	}
+	partial := []byte(`{"user":"site","components":[{"category":"databases","source":"wpdb","disposition":"failed"}]}`)
+	if err := jobs.failClaimWithOutput(queued.ID, "worker", "migration failed", false, partial); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := jobs.GetWithError(queued.ID)
+	if err != nil || !ok {
+		t.Fatalf("read failed job = %#v, ok=%v, err=%v", got, ok, err)
+	}
+	if got.State != "dead-letter" || got.Result == nil || len(got.Result.Components) != 1 || got.Result.Components[0].Disposition != MigrationFailed {
+		t.Fatalf("failed migration did not retain partial report: %#v", got)
+	}
+}
+
 func TestClaimNextQuarantinesUnreadablePayloadAndContinuesOwnerQueue(t *testing.T) {
 	db, err := openControlPlaneDB(filepath.Join(t.TempDir(), "control.db"))
 	if err != nil {

@@ -823,6 +823,10 @@ func (j *Jobs) FailClaim(id, owner, message string) error {
 }
 
 func (j *Jobs) failClaim(id, owner, message string, retry bool) error {
+	return j.failClaimWithOutput(id, owner, message, retry, nil)
+}
+
+func (j *Jobs) failClaimWithOutput(id, owner, message string, retry bool, output []byte) error {
 	if j.db == nil || id == "" || owner == "" {
 		return errors.New("durable failure requires a job ID and owner")
 	}
@@ -833,6 +837,9 @@ func (j *Jobs) failClaim(id, owner, message string, retry bool) error {
 		return errJobLeaseNotHeld
 	}
 	previous := *item
+	if len(output) > 0 {
+		item.Output = append([]byte(nil), output...)
+	}
 	item.Attempts++
 	item.Error = strings.TrimSpace(message)
 	item.LeaseOwner = ""
@@ -1292,7 +1299,7 @@ func (j *Jobs) RunWorker(ctx context.Context, owner string, kinds []string, poll
 				return handler(handlerCtx, item)
 			}()
 			if err != nil {
-				if failErr := j.failClaim(item.ID, owner, err.Error(), !isNonRetryableJobError(err)); failErr != nil {
+				if failErr := j.failClaimWithOutput(item.ID, owner, err.Error(), !isNonRetryableJobError(err), output); failErr != nil {
 					heartbeat.mu.Lock()
 					delete(heartbeat.currentJobs, item.ID)
 					heartbeat.mu.Unlock()
