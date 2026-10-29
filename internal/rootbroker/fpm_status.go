@@ -189,7 +189,7 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s worker memory could not be sampled.", pool.version))
 		}
 		item.AtCapacity, item.Saturated = fpmPoolIndicators(stats.Active, stats.Queue, pool.max)
-		guidance := fpmPoolGuidance(pool.version, item)
+		guidance := FPMGuidanceForPool(pool.version, item)
 		addFPMHostMemoryGuidance(&guidance, item, result.HostMemory)
 		result.PerformanceGuidance = append(result.PerformanceGuidance, guidance)
 		result.Available = true
@@ -381,7 +381,9 @@ func fpmPoolIndicators(active, queue, maxChildren uint64) (atCapacity, saturated
 	return maxChildren > 0 && active >= maxChildren, queue > 0
 }
 
-func fpmPoolGuidance(version string, pool FPMStatusPool) FPMGuidance {
+// FPMGuidanceForPool returns workload guidance from pool-level measurements
+// only. Host-memory context is added separately for administrator responses.
+func FPMGuidanceForPool(version string, pool FPMStatusPool) FPMGuidance {
 	threshold := pool.SlowRequestThreshold
 	if threshold == "" {
 		threshold = "not configured"

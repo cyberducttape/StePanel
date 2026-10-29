@@ -66,7 +66,7 @@ func TestProcRSSBytesRejectsMalformedStatus(t *testing.T) {
 
 func TestFPMPoolGuidanceIncludesWorkerMemory(t *testing.T) {
 	pool := FPMStatusPool{MaxChildren: 4, WorkerMemory: &FPMWorkerMemory{SampledWorkers: 2, MeanRSSBytes: 32 << 20, P95RSSBytes: 40 << 20, MaxRSSBytes: 40 << 20, ProjectedRSSAtMaxChildrenBytes: 160 << 20, OneAdditionalWorkerBytes: 40 << 20}}
-	guidance := fpmPoolGuidance("8.3", pool)
+	guidance := FPMGuidanceForPool("8.3", pool)
 	if !strings.Contains(guidance.Evidence, "160.0 MiB") || !strings.Contains(guidance.Recommendation, "host memory headroom") {
 		t.Fatalf("guidance = %#v", guidance)
 	}

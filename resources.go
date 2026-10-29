@@ -642,6 +642,7 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		if !a.Auth.IsAdministrator(r) {
 			fpmStatus.HostMemory = nil
 			fpmStatus.Pools = append([]rootbroker.FPMStatusPool(nil), fpmStatus.Pools...)
+			fpmStatus.PerformanceGuidance = make([]rootbroker.FPMGuidance, 0, len(fpmStatus.Pools))
 			for i := range fpmStatus.Pools {
 				if fpmStatus.Pools[i].WorkerMemory != nil {
 					// The status snapshot may be backed by the short-lived cache;
@@ -650,6 +651,12 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 					memory.EstimatedWorkerCeiling = 0
 					memory.WorkerCeilingBasis = ""
 					fpmStatus.Pools[i].WorkerMemory = &memory
+				}
+				if fpmStatus.Pools[i].State == "available" {
+					// Rebuild guidance without host-level memory context. Redacting
+					// only structured fields would leak MemAvailable in its prose.
+					fpmStatus.PerformanceGuidance = append(fpmStatus.PerformanceGuidance,
+						rootbroker.FPMGuidanceForPool(fpmStatus.Pools[i].PHPVersion, fpmStatus.Pools[i]))
 				}
 			}
 		}

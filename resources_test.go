@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 )
@@ -49,6 +50,57 @@ func TestResourceProfileApplyRequiresFreshPreview(t *testing.T) {
 	store.values["demo"] = changed
 	if response := request(http.MethodPut, preview.PreviewToken); response.Code != http.StatusConflict {
 		t.Fatalf("stale resource preview status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestCustomerResourceResponseRedactsHostMemoryAndPreservesAdminCache(t *testing.T) {
+	app := &App{
+		Auth:      Auth{Username: "admin"},
+		Accounts:  &AccountStore{accounts: map[string]HostingAccount{"customer": {Username: "customer", Sites: []string{"demo"}}}},
+		Resources: &ResourceStore{values: map[string]ResourceProfile{}},
+		fpmStatusCache: map[string]fpmStatusCacheEntry{"demo": {
+			status: rootbroker.FPMStatus{
+				Available:  true,
+				HostMemory: &rootbroker.FPMHostMemory{AvailableBytes: 8 << 30},
+				Pools: []rootbroker.FPMStatusPool{{PHPVersion: "8.3", State: "available", MaxChildren: 8,
+					WorkerMemory: &rootbroker.FPMWorkerMemory{SampledWorkers: 4, P95RSSBytes: 64 << 20, EstimatedWorkerCeiling: 42, WorkerCeilingBasis: "host-secret-capacity-basis"}}},
+				PerformanceGuidance: []rootbroker.FPMGuidance{{PHPVersion: "8.3", Title: "Host memory", Evidence: "host-secret-memavailable-value", Recommendation: "host-secret-capacity-basis"}},
+			},
+			expiresAt: time.Now().Add(time.Minute),
+		}},
+	}
+	request := func(username string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/sites/resources/demo", nil)
+		req = req.WithContext(context.WithValue(req.Context(), apiTokenUsernameKey{}, username))
+		response := httptest.NewRecorder()
+		app.siteResources(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("resource status for %s = %d: %s", username, response.Code, response.Body.String())
+		}
+		return response
+	}
+
+	customer := request("customer")
+	var customerBody struct {
+		FPMStatus rootbroker.FPMStatus `json:"fpm_status"`
+	}
+	if err := json.Unmarshal(customer.Body.Bytes(), &customerBody); err != nil {
+		t.Fatal(err)
+	}
+	if customerBody.FPMStatus.HostMemory != nil || len(customerBody.FPMStatus.Pools) != 1 || customerBody.FPMStatus.Pools[0].WorkerMemory.EstimatedWorkerCeiling != 0 {
+		t.Fatalf("customer status retained structured host memory: %#v", customerBody.FPMStatus)
+	}
+	if strings.Contains(customer.Body.String(), "host-secret") || strings.Contains(customer.Body.String(), "available_bytes") {
+		t.Fatalf("customer response disclosed host memory: %s", customer.Body.String())
+	}
+	if len(customerBody.FPMStatus.PerformanceGuidance) == 0 || strings.Contains(customerBody.FPMStatus.PerformanceGuidance[0].Evidence, "host-secret") {
+		t.Fatalf("customer response lost generic guidance or retained host context: %#v", customerBody.FPMStatus.PerformanceGuidance)
+	}
+
+	admin := request("admin")
+	if !strings.Contains(admin.Body.String(), "host-secret-memavailable-value") || !strings.Contains(admin.Body.String(), `"estimated_worker_ceiling":42`) {
+		t.Fatalf("customer redaction changed cached admin status: %s", admin.Body.String())
 	}
 }
 

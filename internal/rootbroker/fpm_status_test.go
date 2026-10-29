@@ -105,11 +105,11 @@ func TestParseFPMStatusNumericFormsAndSaturationSemantics(t *testing.T) {
 }
 
 func TestFPMGuidanceIsEvidenceBoundAndNeverAppliesChanges(t *testing.T) {
-	quiet := fpmPoolGuidance("8.3", FPMStatusPool{ActiveProcesses: 1, IdleProcesses: 3, MaxChildren: 4, SlowRequestThreshold: "5s"})
+	quiet := FPMGuidanceForPool("8.3", FPMStatusPool{ActiveProcesses: 1, IdleProcesses: 3, MaxChildren: 4, SlowRequestThreshold: "5s"})
 	if quiet.State != "no-change" || !quiet.OperatorApprovalNeeded || !strings.Contains(quiet.Evidence, "One sample") || !strings.Contains(quiet.Evidence, "threshold: 5s") || !strings.Contains(quiet.Recommendation, "sustained samples") {
 		t.Fatalf("quiet-pool guidance = %#v", quiet)
 	}
-	pressured := fpmPoolGuidance("8.3", FPMStatusPool{ActiveProcesses: 4, MaxChildren: 4, ListenQueue: 2, Saturated: true, MaxChildrenReached: 3})
+	pressured := FPMGuidanceForPool("8.3", FPMStatusPool{ActiveProcesses: 4, MaxChildren: 4, ListenQueue: 2, Saturated: true, MaxChildrenReached: 3})
 	if pressured.State != "review" || !pressured.OperatorApprovalNeeded || !strings.Contains(pressured.Evidence, "2 queued") || !strings.Contains(pressured.Recommendation, "will not apply") {
 		t.Fatalf("pressured-pool guidance = %#v", pressured)
 	}
