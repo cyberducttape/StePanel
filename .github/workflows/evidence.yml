@@ -22,10 +22,11 @@ on:
         type: string
         default: ''
 
-# Only the newest report matters; a later run supersedes an earlier one.
+# Keep reports independent by source commit. Several tracked workflows complete
+# close together for one push; they must not cancel the report already running.
 concurrency:
-  group: stepanel-release-evidence
-  cancel-in-progress: true
+  group: stepanel-release-evidence-${{ github.event.workflow_run.head_sha || inputs.commit || github.sha }}
+  cancel-in-progress: false
 
 permissions:
   actions: read

@@ -101,6 +101,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Release evidence workflows now use per-source-commit concurrency and never
+  cancel an in-progress report. Closely timed CI, CodeQL, documentation, and
+  installed-smoke completions can no longer cancel each other's exact-source
+  release evidence before its artifact is published.
+
 - Record a full repository production-gate pass on the current code-equivalent
   source, including race tests, coverage floors, recovery drills, benchmarks,
   mixed HTTP load, and documentation contracts. Keep real-host power-loss,
