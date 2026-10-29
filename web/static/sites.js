@@ -1644,7 +1644,10 @@
 
     // Resource profiles are administrator-configured but tenant-readable so
     // customers can see the envelope their plan is actually enforcing.
-    const resources = await ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`).catch((error) => ({ __error: error }));
+    const [resources, usage] = await Promise.all([
+      ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`).catch((error) => ({ __error: error })),
+      ctx.getJSON(`/api/sites/usage/${encodeURIComponent(site)}`).catch((error) => ({ __error: error })),
+    ]);
     if (resources.__error) {
       panel.append(errorState('Resource profile', resources.__error));
     } else if (resources) {
@@ -1677,6 +1680,21 @@
       if (tasksCurrent !== 'unknown') memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Tasks now'), el('strong', {}, `${tasksCurrent} / ${observedValue('TasksMax')}`)]));
       if (Number.isFinite(cpuNS) && cpuNS >= 0) memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Managed service CPU time'), el('strong', {}, `${(cpuNS / 1e9).toFixed(1)} s`), el('small', {}, 'cumulative since slice start; not a utilization percentage')]));
       if (memoryCards.length) panel.append(el('h5', {}, 'Observed site resource use'), el('div', { className: 'overview-grid' }, memoryCards));
+      if (usage && !usage.__error && usage.quota) {
+        const quota = usage.quota;
+        const quotaDetails = Number.isFinite(Number(quota.estimated_remaining_bytes))
+          ? `${formatBytes(Number(quota.tree_bytes || 0))} measured in this site tree · up to ${formatBytes(Number(quota.estimated_remaining_bytes))} estimated allowance remaining.`
+          : `${formatBytes(Number(usage.bytes || 0))} measured in this site tree; no disk quota is configured, so quota headroom is unknown.`;
+        panel.append(el('h5', {}, 'Filesystem quota headroom'), el('article', { className: 'resource-list-item' }, [
+          el('div', { className: 'item-meta' }, [
+            el('strong', {}, quota.enforced ? 'Kernel quota marked enforced' : 'Quota enforcement unconfirmed'),
+            el('small', {}, quotaDetails),
+          ]),
+          el('small', {}, `${quota.scope_note || 'The measurement covers this site tree only.'}${usage.complete === false ? ' The tree scan reached its safety bound, so measured usage is incomplete.' : ''}`),
+        ]));
+      } else if (usage && usage.__error) {
+        panel.append(el('p', { className: 'import-note' }, `Filesystem usage could not be measured: ${usage.__error.message || 'request failed'}. Quota headroom is unknown.`));
+      }
       const pools = (fpm.pools || []).filter((pool) => pool.state === 'available');
       if (pools.length) {
         panel.append(el('h5', {}, 'PHP-FPM measurements'), el('div', { className: 'resource-list' }, pools.map((pool) => {
@@ -1686,6 +1704,16 @@
             : 'Worker RSS unavailable; FPM queue and slow-request counters remain available.';
           return el('article', { className: 'resource-list-item' }, [el('div', { className: 'item-meta' }, [el('strong', {}, `PHP ${pool.php_version || 'default'} · ${pool.active_processes} active / ${pool.idle_processes} idle / ${pool.max_children} max`), el('small', {}, details)]), el('small', {}, `Queue ${pool.listen_queue}; slow requests since FPM start ${pool.slow_requests}; max-children events ${pool.max_children_reached}.`)]);
         })));
+      }
+      const guidance = Array.isArray(fpm.performance_guidance) ? fpm.performance_guidance : [];
+      if (guidance.length) {
+        panel.append(el('h5', {}, 'PHP-FPM recommendations'), el('div', { className: 'resource-list' }, guidance.map((item) => el('article', { className: 'resource-list-item' }, [
+          el('div', { className: 'item-meta' }, [
+            el('strong', {}, `${item.php_version ? `PHP ${item.php_version} · ` : ''}${item.title}`),
+            el('small', {}, item.evidence || 'No supporting sample was returned.'),
+          ]),
+          el('small', {}, `${item.recommendation || 'Review the pool measurements.'}${item.operator_approval_needed ? ' Any configuration change requires administrator approval and a separate preview.' : ''}`),
+        ]))));
       }
       if (!fpm.available) panel.append(el('p', { className: 'import-note' }, fpm.detail || 'Live PHP-FPM measurements are unavailable.'));
       if (ctx.isAdministrator && configured) {

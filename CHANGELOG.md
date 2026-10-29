@@ -18,7 +18,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   Filesystem usage reports bounded site-tree bytes and an account-quota
   remaining-space upper bound, clearly marked as an estimate because other
   account content may share the enforced quota. Recommendations remain
-  review-only; no worker limit is changed automatically.
+  review-only; no worker limit is changed automatically. The resource settings
+  view now puts the quota estimate beside live usage and renders PHP-FPM
+  recommendation evidence and next steps beside the measured pool counters.
 
 - A stable `/api/v1` automation namespace now backs the supported Go and
   TypeScript client packages and generated Bash, Zsh, and Fish completions.
