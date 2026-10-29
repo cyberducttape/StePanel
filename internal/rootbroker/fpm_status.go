@@ -316,9 +316,10 @@ func fpmPoolGuidance(version string, pool FPMStatusPool) FPMGuidance {
 		guidance.Recommendation = "This pool has reached its worker ceiling or recorded slow requests historically, but this sample has no waiting requests. Check repeated samples and per-worker memory before an administrator considers changing the worker limit."
 	}
 	if pool.WorkerMemory != nil {
-		memoryEvidence := fmt.Sprintf(" Current worker RSS sample: %d worker(s), mean %s, P95 %s, maximum %s; projected RSS at max_children %d is approximately %s, and one additional worker would add about %s at the sampled P95.",
+		memoryEvidence := fmt.Sprintf(" Current worker RSS sample: %d worker(s), mean %s, P95 %s, maximum %s; projected RSS at max_children %d is approximately %s at P95 or %s using the largest observed worker, and one additional worker would add about %s at the sampled P95.",
 			pool.WorkerMemory.SampledWorkers, formatBytes(pool.WorkerMemory.MeanRSSBytes), formatBytes(pool.WorkerMemory.P95RSSBytes),
-			formatBytes(pool.WorkerMemory.MaxRSSBytes), pool.MaxChildren, formatBytes(pool.WorkerMemory.ProjectedRSSAtMaxChildrenBytes), formatBytes(pool.WorkerMemory.OneAdditionalWorkerBytes))
+			formatBytes(pool.WorkerMemory.MaxRSSBytes), pool.MaxChildren, formatBytes(pool.WorkerMemory.ProjectedRSSAtMaxChildrenBytes),
+			formatBytes(pool.WorkerMemory.ProjectedMaxRSSAtMaxChildrenBytes), formatBytes(pool.WorkerMemory.OneAdditionalWorkerBytes))
 		guidance.Evidence += memoryEvidence
 		guidance.Recommendation += " Compare this instantaneous, shared-page-inclusive estimate with host memory headroom and repeat it during representative peak traffic before changing max_children."
 	}
