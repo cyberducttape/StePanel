@@ -58,6 +58,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   request and queue counters, quota estimate, recommendation evidence, and
   approval-before-preview guidance.
 
+- PHP-FPM resource status now includes a bounded host `MemAvailable` sample for
+  administrators. Worker-count previews compare the measured before/after P95
+  pool-RSS estimate with current host headroom and show estimated remaining
+  memory after the change; the dashboard labels it as host-wide, transient
+  capacity rather than a reservation. Customer-scoped resource responses omit
+  aggregate host memory. Existing slow-request, queue, worker-RSS, site usage,
+  and quota signals remain alongside review-only recommendations.
+
 - A stable `/api/v1` automation namespace now backs the supported Go and
   TypeScript client packages and generated Bash, Zsh, and Fish completions.
   `stepanelctl` uses the same API workflows as the dashboard for site creation,

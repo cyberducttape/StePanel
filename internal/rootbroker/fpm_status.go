@@ -36,10 +36,20 @@ var fpmSitePattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 type FPMStatus struct {
 	Available           bool            `json:"available"`
 	CollectedAt         time.Time       `json:"collected_at"`
+	HostMemory          *FPMHostMemory  `json:"host_memory,omitempty"`
 	Pools               []FPMStatusPool `json:"pools"`
 	Warnings            []string        `json:"warnings"`
 	PerformanceGuidance []FPMGuidance   `json:"performance_guidance"`
 	Detail              string          `json:"detail,omitempty"`
+}
+
+// FPMHostMemory is a host-wide snapshot used to put a site's projected pool
+// demand in context. It is not reserved capacity: other workloads may consume
+// the available memory immediately after this sample.
+type FPMHostMemory struct {
+	AvailableBytes uint64    `json:"available_bytes"`
+	CollectedAt    time.Time `json:"collected_at"`
+	Source         string    `json:"source"`
 }
 
 // FPMGuidance links a read-only recommendation to its counters. It never
@@ -109,6 +119,9 @@ func collectFPMStatus(ctx context.Context, site, siteUser string) (FPMStatus, er
 
 func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig string, poolRoots []string) (FPMStatus, error) {
 	result := FPMStatus{CollectedAt: time.Now().UTC(), Pools: []FPMStatusPool{}, Warnings: []string{}, PerformanceGuidance: []FPMGuidance{}}
+	if available, err := readMemAvailableBytes("/proc/meminfo"); err == nil {
+		result.HostMemory = &FPMHostMemory{AvailableBytes: available, CollectedAt: result.CollectedAt, Source: "/proc/meminfo MemAvailable"}
+	}
 	socketRoot, err := readFPMSocketRoot(identityConfig)
 	if err != nil {
 		return result, err
@@ -172,6 +185,33 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 		result.Detail = "PHP-FPM status is partial; one or more configured pools could not be sampled."
 	}
 	return result, nil
+}
+
+func readMemAvailableBytes(path string) (uint64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(io.LimitReader(file, 64<<10))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) == 0 || fields[0] != "MemAvailable:" {
+			continue
+		}
+		if len(fields) != 3 || fields[2] != "kB" {
+			return 0, errors.New("invalid MemAvailable field")
+		}
+		kb, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil || kb > ^uint64(0)/1024 {
+			return 0, errors.New("invalid MemAvailable value")
+		}
+		return kb * 1024, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return 0, errors.New("MemAvailable is missing")
 }
 
 func sampleFPMWorkerMemory(procRoot string, uid uint32, site, version string) (*FPMWorkerMemory, error) {

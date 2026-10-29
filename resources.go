@@ -637,6 +637,11 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 			observed = a.resourceObserved(r.Context(), site)
 		}
 		fpmStatus := a.siteFPMStatusSnapshot(r.Context(), site)
+		// Host-wide memory headroom is operationally useful to administrators,
+		// but should not disclose aggregate host utilization to site customers.
+		if !a.Auth.IsAdministrator(r) {
+			fpmStatus.HostMemory = nil
+		}
 		writeJSON(w, 200, map[string]any{"configured": ok, "profile": p, "observed": observed, "fpm_status": fpmStatus, "enforcement": "systemd slice for managed apps/workers/scheduled tasks; isolated PHP-FPM max_children"})
 		return
 	}
@@ -785,15 +790,32 @@ func resourceProfileEffects(before, proposed ResourceProfile, status rootbroker.
 		oldP95 := perWorker * uint64(before.PHPWorkers)
 		newP95 := perWorker * uint64(proposed.PHPWorkers)
 		newObservedMax := pool.WorkerMemory.MaxRSSBytes * uint64(proposed.PHPWorkers)
-		effects = append(effects, fmt.Sprintf("PHP %s measured worker RSS across %d sampled process(es): P95 %s and largest observed worker %s. The estimated pool RSS changes from %s at %d workers to %s at %d workers (change %+d MiB) at measured P95; the proposed profile also projects %s using the largest observed worker. These instantaneous, shared-page-inclusive projections are planning estimates, not reservations or a sustained-load guarantee.",
+		effect := fmt.Sprintf("PHP %s measured worker RSS across %d sampled process(es): P95 %s and largest observed worker %s. The estimated pool RSS changes from %s at %d workers to %s at %d workers (change %+d MiB) at measured P95; the proposed profile also projects %s using the largest observed worker.",
 			pool.PHPVersion, pool.WorkerMemory.SampledWorkers, formatPHPBytes(perWorker), formatPHPBytes(pool.WorkerMemory.MaxRSSBytes),
 			formatPHPBytes(oldP95), before.PHPWorkers, formatPHPBytes(newP95), proposed.PHPWorkers,
-			(int64(newP95)-int64(oldP95))/(1024*1024), formatPHPBytes(newObservedMax)))
+			(int64(newP95)-int64(oldP95))/(1024*1024), formatPHPBytes(newObservedMax))
+		if status.HostMemory != nil {
+			effect += fmt.Sprintf(" Host MemAvailable is currently %s; after the estimated P95 change, approximately %s would remain (before unrelated workload changes).",
+				formatPHPBytes(status.HostMemory.AvailableBytes), projectedMemoryHeadroom(status.HostMemory.AvailableBytes, oldP95, newP95))
+		}
+		effect += " These instantaneous, shared-page-inclusive projections are planning estimates, not reservations or a sustained-load guarantee."
+		effects = append(effects, effect)
 	}
 	if !memoryObserved {
 		effects = append(effects, "PHP-FPM worker memory could not be measured; no memory-based worker sizing estimate is available. Collect representative measurements before increasing max_children.")
 	}
 	return effects
+}
+
+func projectedMemoryHeadroom(available, oldDemand, newDemand uint64) string {
+	if newDemand >= oldDemand {
+		delta := newDemand - oldDemand
+		if delta >= available {
+			return "0 MiB; the estimate exceeds current available memory by " + formatPHPBytes(delta-available)
+		}
+		return formatPHPBytes(available - delta)
+	}
+	return formatPHPBytes(available + (oldDemand - newDemand))
 }
 
 func (a *App) siteFPMStatusSnapshot(parent context.Context, site string) rootbroker.FPMStatus {

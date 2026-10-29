@@ -1676,6 +1676,9 @@
       const tasksCurrent = observedValue('TasksCurrent');
       const fpm = resources.fpm_status || {};
       const memoryCards = [];
+      if (ctx.isAdministrator && fpm.host_memory && Number.isFinite(Number(fpm.host_memory.available_bytes))) {
+        memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Host memory available'), el('strong', {}, formatBytes(fpm.host_memory.available_bytes)), el('small', {}, `Host-wide MemAvailable sample${fpm.host_memory.collected_at ? ` · ${new Date(fpm.host_memory.collected_at).toLocaleTimeString()}` : ''}; other workloads can consume it.`)]));
+      }
       if (Number.isFinite(memoryCurrent) && memoryCurrent >= 0) {
         memoryCards.push(el('article', { className: 'overview-stat' }, [el('span', { className: 'stat-label' }, 'Managed service memory now'), el('strong', {}, formatBytes(memoryCurrent)), el('small', {}, Number.isFinite(memoryMax) && memoryMax > 0 ? `of ${formatBytes(memoryMax)} cgroup limit; PHP-FPM is reported separately below` : 'cgroup limit unavailable; PHP-FPM is reported separately below')]));
       }
@@ -1702,7 +1705,7 @@
         const sampledAt = fpm.collected_at && Number.isFinite(Date.parse(fpm.collected_at))
           ? new Date(fpm.collected_at).toLocaleString()
           : 'time unavailable';
-        panel.append(el('h5', {}, 'PHP-FPM measurements'), el('p', { className: 'import-note' }, `Live pool counters and process RSS sampled ${sampledAt}. Worker RSS includes shared mappings and is an instantaneous estimate, not private-memory accounting or a sustained-load forecast.`), el('div', { className: 'resource-list' }, pools.map((pool) => {
+        panel.append(el('h5', {}, 'PHP-FPM measurements'), el('p', { className: 'import-note' }, `Live pool counters and process RSS sampled ${sampledAt}. Worker RSS includes shared mappings and is an instantaneous estimate, not private-memory accounting or a sustained-load forecast. Host MemAvailable is sampled separately and is not reserved for this site.`), el('div', { className: 'resource-list' }, pools.map((pool) => {
           const memory = pool.worker_memory;
           const maxObservedProjection = memory && (Number(memory.projected_max_rss_at_max_children_bytes)
             || Number(memory.max_rss_bytes || 0) * Number(pool.max_children || 0));
