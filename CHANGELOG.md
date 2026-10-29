@@ -12,7 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   compatibility checks before import, then records imported, transformed,
   skipped, unsupported, and failed outcomes in a downloadable report. When the
   built-in WordPress proof prerequisites are available, imports also rehearse
-  the archive in a disposable site and report application-level checks.
+  the archive in a disposable site and report application-level checks. Large
+  component inventories and job output are bounded and report omitted detail
+  counts without losing aggregate component totals.
 
 - High-backlog SQLite queue benchmarks now report claim p50/p95/p99 and
   post-sample passive-checkpoint latency, remaining frames, and WAL file size.

@@ -212,7 +212,9 @@
       const evidence = value.migration_evidence || [];
       const dispositions = value.components || [];
       const needsReview = job.state !== 'completed' || dispositions.some((item) => ['skipped', 'unsupported', 'failed'].includes(item.disposition)) || (value.application_rehearsal && value.application_rehearsal.status !== 'passed');
-      StepanelUI.setStatus(result, `${job.state === 'completed' ? 'Import completed' : `Import ${job.state}`}${needsReview ? ' · review the component dispositions and cutover findings' : ''}: files ${value.files_restored ? 'restored' : 'not present'}, ${window.StepanelUI.plural((value.databases_restored || []).length, 'database')}, ${window.StepanelUI.plural((value.mailboxes_staged || []).length, 'mailbox', 'mailboxes')} staged.`, needsReview ? 'warning' : 'success');
+      const databaseTotal = value.databases_restored_total ?? (value.databases_restored || []).length;
+      const mailboxTotal = value.mailboxes_staged_total ?? (value.mailboxes_staged || []).length;
+      StepanelUI.setStatus(result, `${job.state === 'completed' ? 'Import completed' : `Import ${job.state}`}${needsReview ? ' · review the component dispositions and cutover findings' : ''}: files ${value.files_restored ? 'restored' : 'not present'}, ${window.StepanelUI.plural(databaseTotal, 'database')}, ${window.StepanelUI.plural(mailboxTotal, 'mailbox', 'mailboxes')} staged.`, needsReview ? 'warning' : 'success');
       if (value.source_archive) {
         const summaryLine = document.createElement('p'); summaryLine.className = 'migration-report-summary';
         summaryLine.textContent = `Source: ${value.source_archive} · ${formatBytes(value.archive_bytes)} compressed / ${formatBytes(value.expanded_bytes)} expanded · SHA-256 ${value.archive_sha256 || 'not recorded'}${value.finished_at ? ` · finished ${new Date(value.finished_at).toLocaleString()}` : ''}`;

@@ -89,23 +89,24 @@ func (info CPMoveInfo) response(uploadID string) CPMoveInspectionResponse {
 
 func previewCPMoveComponents(info CPMoveInfo) []MigrationPreviewComponent {
 	var components []MigrationPreviewComponent
+	appendItems := func(category string, values []string, disposition MigrationDisposition, details string) {
+		shown := min(len(values), maxMigrationEvidenceItems)
+		for _, name := range values[:shown] {
+			components = append(components, MigrationPreviewComponent{Category: category, Source: name, PlannedDisposition: disposition, Details: details})
+		}
+		if omitted := len(values) - shown; omitted > 0 {
+			components = append(components, MigrationPreviewComponent{Category: category, Source: fmt.Sprintf("%d additional items", omitted), PlannedDisposition: disposition, Details: "The preview list is bounded; the import report includes a bounded item list and omitted count."})
+		}
+	}
 	if info.HasHome {
 		components = append(components, MigrationPreviewComponent{Category: "website_files", Source: "cPanel home directory", PlannedDisposition: MigrationImported, Details: "Public document roots are scanned and activated into isolated site directories."})
 	} else {
 		components = append(components, MigrationPreviewComponent{Category: "website_files", Source: "website files", PlannedDisposition: MigrationSkipped, Details: "No home directory entries were found."})
 	}
-	for _, name := range info.Databases {
-		components = append(components, MigrationPreviewComponent{Category: "databases", Source: name, PlannedDisposition: MigrationTransformed, Details: "Database names and credentials are mapped to destination-managed identities; import is optional."})
-	}
-	for _, name := range info.Mailboxes {
-		components = append(components, MigrationPreviewComponent{Category: "mailboxes", Source: name, PlannedDisposition: MigrationTransformed, Details: "Mailbox files are staged privately; delivery, credentials, aliases, and MX are not activated."})
-	}
-	for _, name := range info.DNSZones {
-		components = append(components, MigrationPreviewComponent{Category: "dns", Source: name, PlannedDisposition: MigrationUnsupported, Details: "DNS zone records are not imported and require provider-side cutover review."})
-	}
-	for _, schedule := range info.CronSchedules {
-		components = append(components, MigrationPreviewComponent{Category: "cron_jobs", Source: schedule, PlannedDisposition: MigrationUnsupported, Details: "Cron commands are intentionally not imported; review them and recreate explicitly."})
-	}
+	appendItems("databases", info.Databases, MigrationTransformed, "Database names and credentials are mapped to destination-managed identities; import is optional.")
+	appendItems("mailboxes", info.Mailboxes, MigrationTransformed, "Mailbox files are staged privately; delivery, credentials, aliases, and MX are not activated.")
+	appendItems("dns", info.DNSZones, MigrationUnsupported, "DNS zone records are not imported and require provider-side cutover review.")
+	appendItems("cron_jobs", info.CronSchedules, MigrationUnsupported, "Cron commands are intentionally not imported; review them and recreate explicitly.")
 	if info.DNSZoneOmitted > 0 || info.CronOmitted > 0 {
 		components = append(components, MigrationPreviewComponent{Category: "archive_inventory", Source: "additional inventory entries", PlannedDisposition: MigrationSkipped, Details: "The inspection report bounds displayed items; omitted counts are shown in the summary."})
 	}
@@ -279,6 +280,13 @@ type ImportResult struct {
 	StartedAt                time.Time            `json:"started_at,omitempty"`
 	FinishedAt               time.Time            `json:"finished_at,omitempty"`
 	DatabaseRestoreRequested bool                 `json:"database_restore_requested"`
+	OmittedComponentCount    int                  `json:"omitted_component_count,omitempty"`
+	DatabasesRestoredTotal   int                  `json:"databases_restored_total,omitempty"`
+	DatabaseErrorCount       int                  `json:"database_error_count,omitempty"`
+	MailboxesStagedTotal     int                  `json:"mailboxes_staged_total,omitempty"`
+	MailErrorCount           int                  `json:"mail_error_count,omitempty"`
+	DomainsImportedTotal     int                  `json:"domains_imported_total,omitempty"`
+	DomainErrorCount         int                  `json:"domain_error_count,omitempty"`
 }
 
 // MigrationDisposition is the final operator-facing outcome for one source
@@ -336,6 +344,20 @@ type MigrationEvidence struct {
 }
 
 const maxMigrationEvidenceItems = 500
+
+func boundMigrationStrings(values []string) ([]string, int) {
+	if len(values) <= maxMigrationEvidenceItems {
+		return values, 0
+	}
+	return values[:maxMigrationEvidenceItems], len(values) - maxMigrationEvidenceItems
+}
+
+func boundImportedDomains(values []ImportedDomain) ([]ImportedDomain, int) {
+	if len(values) <= maxMigrationEvidenceItems {
+		return values, 0
+	}
+	return values[:maxMigrationEvidenceItems], len(values) - maxMigrationEvidenceItems
+}
 
 // ImportedDomain is an addon or subdomain restored as its own site.
 type ImportedDomain struct {
@@ -688,9 +710,12 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 
 	result := ImportResult{User: user, Home: home, FilesRestored: source != "", StagedAt: stage}
 	if databases {
-		result.DatabasesRestored, result.DatabaseErrors = restoreSQLContext(ctx, cfg, root, user, txn, ledgers...)
-		if len(result.DatabaseErrors) > 0 {
-			return result, fmt.Errorf("database restore completed with %d error(s)", len(result.DatabaseErrors))
+		restored, databaseErrors := restoreSQLContext(ctx, cfg, root, user, txn, ledgers...)
+		result.DatabasesRestoredTotal, result.DatabaseErrorCount = len(restored), len(databaseErrors)
+		result.DatabasesRestored, _ = boundMigrationStrings(restored)
+		result.DatabaseErrors, _ = boundMigrationStrings(databaseErrors)
+		if result.DatabaseErrorCount > 0 {
+			return result, fmt.Errorf("database restore completed with %d error(s)", result.DatabaseErrorCount)
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -725,8 +750,11 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 		}
 	}
 	result.MailStaged, result.MailboxesStaged, result.MailErrors = restoreMailContext(ctx, cfg, root, user)
-	if len(result.MailErrors) > 0 {
-		return result, fmt.Errorf("mail restore completed with %d error(s)", len(result.MailErrors))
+	result.MailboxesStagedTotal, result.MailErrorCount = len(result.MailboxesStaged), len(result.MailErrors)
+	result.MailboxesStaged, _ = boundMigrationStrings(result.MailboxesStaged)
+	result.MailErrors, _ = boundMigrationStrings(result.MailErrors)
+	if result.MailErrorCount > 0 {
+		return result, fmt.Errorf("mail restore completed with %d error(s)", result.MailErrorCount)
 	}
 	if err := siteHelperContext(ctx, cfg, "seal", user); err != nil {
 		return result, fmt.Errorf("seal isolated site: %w", err)
@@ -739,6 +767,9 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 	if intoAccount {
 		result.Account, result.MainDomain, result.ParkedDomains = user, plan.MainDomain, plan.Parked
 		result.Domains, result.DomainErrors = restoreCPMoveDomainSites(ctx, cfg, db, manager, user, plan)
+		result.DomainsImportedTotal, result.DomainErrorCount = len(result.Domains), len(result.DomainErrors)
+		result.Domains, _ = boundImportedDomains(result.Domains)
+		result.DomainErrors, _ = boundMigrationStrings(result.DomainErrors)
 	}
 	result.Evidence = buildCPMoveMigrationEvidence(archiveInfo, result, databases, plan, domainInventoryErr)
 	result.Compatibility = cpmoveCompatibilityChecks(cfg, archiveInfo)
@@ -761,13 +792,19 @@ func restoreCPMoveArchiveContextWithApp(ctx context.Context, cfg Config, archive
 		result.Rehearsal = &MigrationRehearsal{Status: "skipped", Details: "The built-in WordPress recovery proof is not enabled or its site, database, and web-server helpers are unavailable."}
 	}
 	applyRehearsalCompatibility(result.Compatibility, result.Rehearsal)
-	result.Components = buildMigrationComponents(archiveInfo, result, databases, nil)
+	result.Components, result.OmittedComponentCount = buildMigrationComponents(archiveInfo, result, databases, nil)
 	return result, nil
 }
 
-func buildMigrationComponents(info CPMoveInfo, result ImportResult, databasesSelected bool, operationErr error) []MigrationComponent {
+func buildMigrationComponents(info CPMoveInfo, result ImportResult, databasesSelected bool, operationErr error) ([]MigrationComponent, int) {
 	components := make([]MigrationComponent, 0, len(info.Databases)+len(info.Mailboxes)+len(info.DNSZones)+len(info.CronSchedules)+4)
+	counts, omitted := map[string]int{}, map[string]int{}
 	add := func(category, source, target string, disposition MigrationDisposition, details string) {
+		if counts[category] >= maxMigrationEvidenceItems {
+			omitted[category]++
+			return
+		}
+		counts[category]++
 		components = append(components, MigrationComponent{Category: category, Source: source, Target: target, Disposition: disposition, Details: details})
 	}
 	failed := operationErr != nil
@@ -790,6 +827,10 @@ func buildMigrationComponents(info CPMoveInfo, result ImportResult, databasesSel
 		}
 		add("website_files", "cPanel home directory", target, disposition, details)
 	}
+	restoredDatabaseNames := make(map[string]struct{}, len(result.DatabasesRestored))
+	for _, name := range result.DatabasesRestored {
+		restoredDatabaseNames[name] = struct{}{}
+	}
 	for _, source := range info.Databases {
 		switch {
 		case !databasesSelected:
@@ -798,11 +839,10 @@ func buildMigrationComponents(info CPMoveInfo, result ImportResult, databasesSel
 			add("databases", source, "", MigrationFailed, "The database restore operation did not complete; inspect the durable job and recovery state.")
 		default:
 			target := ""
-			for _, restored := range result.DatabasesRestored {
-				if strings.HasSuffix(restored, "_"+source) || restored == source {
-					target = restored
-					break
-				}
+			if _, ok := restoredDatabaseNames[source]; ok {
+				target = source
+			} else if _, ok := restoredDatabaseNames[result.User+"_"+source]; ok {
+				target = result.User + "_" + source
 			}
 			if target == "" {
 				disposition, details := MigrationFailed, "No successful destination database was recorded."
@@ -893,7 +933,21 @@ func buildMigrationComponents(info CPMoveInfo, result ImportResult, databasesSel
 	for _, schedule := range info.CronSchedules {
 		add("cron_jobs", schedule, "", MigrationUnsupported, "Command text is intentionally not retained or executed; review and recreate this schedule explicitly.")
 	}
-	return components
+	totalOmitted := 0
+	for category, count := range omitted {
+		totalOmitted += count
+		disposition := MigrationTransformed
+		details := "Additional items followed the same category workflow; their individual names are omitted from this bounded report."
+		if failed {
+			disposition, details = MigrationFailed, "Additional items were not confirmed as imported because the operation failed; inspect recovery state."
+		} else if category == "dns" || category == "cron_jobs" {
+			disposition, details = MigrationUnsupported, "Additional items were inventoried but are not activated by this migration workflow."
+		} else if category == "databases" && !databasesSelected || category == "mailboxes" && !result.MailStaged {
+			disposition, details = MigrationSkipped, "Additional items were omitted from the itemized report and were not imported."
+		}
+		components = append(components, MigrationComponent{Category: category, Source: fmt.Sprintf("%d additional items (bounded report)", count), Disposition: disposition, Details: details})
+	}
+	return components, totalOmitted
 }
 
 func buildCPMoveMigrationEvidence(info CPMoveInfo, result ImportResult, databasesSelected bool, plan cpmoveDomainPlan, domainInventoryErr error) []MigrationEvidence {
