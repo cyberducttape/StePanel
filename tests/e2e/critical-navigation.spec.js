@@ -113,6 +113,46 @@ test('site overview makes backup failures explicit', async ({ page }) => {
   await expect(page.locator('.overview-stat').filter({ hasText: 'Last verified backup' })).toContainText('Backup API unavailable');
 });
 
+test('site settings expose measured PHP-FPM demand and quota evidence', async ({ page }) => {
+  const site = { site: 'e2e-resource', routes: [], applications: [], database_count: 0 };
+  await page.route('**/api/sites/overview', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sites: [site] }) }));
+  await page.route('**/api/sites/overview/e2e-resource', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(site) }));
+  await page.route('**/api/sites/environment/e2e-resource', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ environment: {} }) }));
+  await page.route('**/api/sites/usage/e2e-resource', (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ bytes: 400 * 1024 * 1024, files: 1500, complete: true, quota: { enforced: true, tree_bytes: 400 * 1024 * 1024, estimated_remaining_bytes: 624 * 1024 * 1024, scope_note: 'Account quota is shared by its sites.' } }),
+  }));
+  await page.route('**/api/sites/resources/e2e-resource', (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({
+      configured: true,
+      profile: { cpu_percent: 100, cpu_weight: 100, memory_high_mb: 460, memory_mb: 512, io_weight: 100, tasks_max: 128, php_workers: 4, disk_mb: 1024, inodes: 10000, state: 'applied' },
+      observed: { state: 'active', MemoryCurrent: String(192 * 1024 * 1024), MemoryMax: String(512 * 1024 * 1024), CPUUsageNSec: '9000000000', TasksCurrent: '12', TasksMax: '128' },
+      fpm_status: {
+        available: true, collected_at: '2026-10-29T08:00:00Z',
+        pools: [{ php_version: '8.3', state: 'available', active_processes: 3, idle_processes: 1, total_processes: 4, max_children: 4, listen_queue: 2, max_listen_queue: 5, max_children_reached: 7, slow_requests: 11,
+          worker_memory: { sampled_workers: 2, total_rss_bytes: 156 * 1024 * 1024, mean_rss_bytes: 78 * 1024 * 1024, p95_rss_bytes: 92 * 1024 * 1024, max_rss_bytes: 92 * 1024 * 1024, projected_rss_at_max_children_bytes: 368 * 1024 * 1024, one_additional_worker_bytes: 92 * 1024 * 1024, estimate: 'instantaneous sample', source: '/proc' } }],
+        performance_guidance: [{ php_version: '8.3', title: 'Review PHP-FPM capacity under sustained load', state: 'review', evidence: '3 active, 2 queued; P95 worker RSS 92 MiB.', recommendation: 'Investigate slow requests and compare repeated samples with memory headroom.', operator_approval_needed: true }],
+      },
+    }),
+  }));
+
+  await page.reload();
+  await page.getByRole('link', { name: 'Sites', exact: true }).click();
+  await page.getByRole('button', { name: /Manage site/ }).first().click();
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  const panel = page.locator('#workspace-panel');
+  await expect(panel).toContainText('Filesystem quota headroom');
+  await expect(panel).toContainText('624.0 MB estimated allowance remaining');
+  await expect(panel).toContainText('PHP-FPM measurements');
+  await expect(panel).toContainText('current summed RSS 156.0 MB');
+  await expect(panel).toContainText('sampled 10/29/2026');
+  await expect(panel).toContainText('Request queue now 2 (historical peak 5)');
+  await expect(panel).toContainText('slow requests since FPM start 11');
+  await expect(panel).toContainText('P95 worker RSS 92 MiB');
+  await expect(panel).toContainText('administrator approval and a separate preview');
+});
+
 test('navigation: cPanel migration controls render', async ({ page }) => {
   await page.getByRole('link', { name: 'Migrations' }).click();
   await expect(page.locator('#cpmoveForm')).toBeVisible();

@@ -28,6 +28,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   max-children events. The view labels RSS as instantaneous and
   shared-page-inclusive so operators can compare measured demand and previewed
   worker-count effects without mistaking estimates for enforced memory limits.
+  A browser regression fixture now checks the displayed memory sample, slow
+  request and queue counters, quota estimate, recommendation evidence, and
+  approval-before-preview guidance.
 
 - A stable `/api/v1` automation namespace now backs the supported Go and
   TypeScript client packages and generated Bash, Zsh, and Fish completions.
