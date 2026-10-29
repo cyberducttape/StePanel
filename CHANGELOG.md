@@ -72,6 +72,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Corrected Go formatting in the authentication configuration so the
+  repository-wide formatting gate passes.
 - Authenticated non-production listeners now require HTTPS whenever they bind
   beyond loopback, preventing session and CSRF cookies from being issued
   without the `Secure` attribute on a network-accessible HTTP endpoint. Cookie

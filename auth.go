@@ -34,11 +34,11 @@ type Auth struct {
 	// SecureCookies is derived from the validated transport configuration.
 	// It may be false only for loopback development or the isolated install
 	// smoke override; non-loopback HTTP configurations are rejected at startup.
-	Enabled, SecureCookies                   bool
-	TOTPEnabled                              bool
-	TrustedProxies                           authpolicy.TrustedProxies
-	totpSecret                               []byte
-	totpReplay                               *totpReplayState
+	Enabled, SecureCookies bool
+	TOTPEnabled            bool
+	TrustedProxies         authpolicy.TrustedProxies
+	totpSecret             []byte
+	totpReplay             *totpReplayState
 	// loginLimiter is the client-wide abuse bucket. It counts every failed
 	// attempt from a client address and is never reset by a successful
 	// login, so authenticating to one account cannot launder failed guesses
