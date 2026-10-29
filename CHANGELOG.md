@@ -8,6 +8,65 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- A stable `/api/v1` automation namespace now backs the supported Go and
+  TypeScript client packages and generated Bash, Zsh, and Fish completions.
+  `stepanelctl` uses the same API workflows as the dashboard for site creation,
+  backups, staging restore, cPanel migration, durable job watching, redacted
+  support bundles, and JSON scripted provisioning. WordPress secrets are read
+  from stdin; provisioning plan files must be private.
+- WordPress site creation now provisions a per-site PHP-FPM pool, managed
+  database and credentials, HTTPS route, conservative security settings, an
+  integrity-verified database-inclusive first recovery point, and a daily
+  backup schedule. The completion report separates archive integrity from an
+  application-level restore rehearsal and HTTP smoke check.
+- WordPress staging clones now use a separate managed database, URL rewriting,
+  Basic Auth and noindex protection, and retain a production relationship for
+  guarded promotion. Promotion previews the effects, creates a verified
+  production safety backup, imports into a new database instead of overwriting
+  the live database, retains the prior production database, and checks the
+  promoted WordPress database before reporting success.
+
+### Fixed
+
+- The MySQL credential-file test now accepts MariaDB's redacted
+  `my_print_defaults` output while continuing to verify the exact private
+  option-file contents and filesystem permissions.
+
+- Site incident assessment now correlates PHP-FPM and web-server error excerpts,
+  recent HTTP failures, site-owned database inventory, document-root metadata,
+  quota state, local certificate status, and recorded changes. Findings include
+  conservative next steps; diagnostic evidence is redacted and host checks
+  explicitly report when they cannot establish application-level health.
+- Certificate and managed vhost preview snapshots now use rooted file access,
+  strict names, bounded reads, and opened-file identity checks.
+- High-risk PHP runtime, domain route, certificate, and Caddy `.htaccess`
+  changes now require a short-lived preview token bound to the observed prior
+  state and proposed change. The preview shows service effects and recovery
+  steps; stale previews are rejected. Prior vhost files are retained as
+  permission-restricted recovery snapshots before replacement or removal.
+  Installer dry-run output now identifies the database package/version plan
+  and distinguishes customer database recovery from the control-plane schema
+  snapshot.
+
+- cPanel migration now previews component-level transfer dispositions and
+  compatibility checks before import, then records imported, transformed,
+  skipped, unsupported, and failed outcomes in a downloadable report. When the
+  built-in WordPress proof prerequisites are available, imports also rehearse
+  the archive in a disposable site and report application-level checks. Large
+  component inventories and job output are bounded and report omitted detail
+  counts without losing aggregate component totals, including failed durable
+  import reports.
+
+- High-backlog SQLite queue benchmarks now report claim p50/p95/p99 and
+  post-sample passive-checkpoint latency, remaining frames, and WAL file size.
+- The SQLite session-under-job-load benchmark now reports worker claim,
+  SQLite-busy, job re-arm, and session-rejection counts instead of hiding
+  background write failures.
+- Record a current-source SQLite queue benchmark at 1K, 10K, and 100K jobs;
+  the temporary ordered index did not improve the measured claim workload.
+- Record three 500-sample session-validation runs under idle, target-like
+  500-site queue activity, and saturated job polling; no claim, busy, re-arm,
+  or session errors were observed in this developer-host experiment.
 - Site incident snapshots can query aggregate PHP-FPM pool counters through a
   typed root-broker FastCGI request. Managed pools enable a private status path
   that Caddy and Apache explicitly deny to public requests; the incident view
@@ -18,6 +77,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Removed the retired CRDA workflow and its version-tagged GitHub Actions;
+  the workflow is no longer part of the pull-request action pin check.
 - CSRF tokens are derived from the session with the server secret instead of
   being an independent double-submit cookie. A sibling subdomain (same site,
   so SameSite cookies still flow) can no longer plant a matching cookie and
@@ -43,6 +104,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   workflow runs from jobs that are actually in progress.
 - Exact-source release evidence reports ext4 and XFS quota smoke results
   independently, so a newer queued filesystem run cannot hide another run.
+- MySQL query text is sent through standard input for every query, and the
+  WPress/cPanel clients read passwords from short-lived mode-0600 option files
+  instead of argv or `MYSQL_PWD`.
+- Bounded subprocess diagnostics retain initial context and final error output,
+  with an explicit count of omitted bytes; configured MySQL passwords are
+  redacted from captured output and errors.
+- cPanel restore now validates the normalized database name against the
+  database-identifier contract before lookup, helper dispatch, import, create,
+  or deletion, and uses validated quoting for SQL DDL.
+- Browser uploads now have an absolute timeout and configurable no-progress
+  timeout. cPanel and WPress restore forms show transfer progress and provide
+  cancellation with a clear retry path.
+- Helper cancellation now refuses an already-canceled operation before
+  starting its subprocess; cancellation tests cover continuous output and
+  blocked stdin. Security documentation clarifies that process groups do not
+  contain descendants that deliberately detach, and per-command cgroup
+  containment remains an open hardening item.
+- Site filesystem recovery journals now use a typed, validated phase
+  transition contract. Unknown persisted phases are rejected for quarantine
+  and operator review instead of being guessed as rollback work.
 
 ### Testing
 
@@ -70,6 +151,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   and physical-host certification gates.
 - Add coverage for exact-source gate parsing, freshness reporting, Git file reads,
   and API error handling; `internal/evidence` now exceeds its enforced 85% floor.
+- Cover tail-preserving command output, SQL-on-stdin behavior, credential
+  isolation, option-file cleanup, and option-file parsing when the local MySQL
+  utility is available.
+- Reject hostile cPanel database names (including backticks, SQL metacharacters,
+  Unicode, malformed UTF-8, and over-limit names) while accepting the maximum
+  supported identifier; exercise browser upload progress and stall cancellation.
+- Verify pre-canceled commands do not start and that cancellation stops
+  continuously writing or stdin-blocked subprocesses.
+- Cover allowed and forbidden filesystem-journal phase transitions, including
+  rejection of an unknown persisted phase during journal loading.
 - Make the Git staging quota fail-closed test use an explicitly absent broker
   socket, preventing fallback to a potentially blocking privileged subprocess.
 - Record the current-source-equivalent Ubuntu/Caddy installed recovery smoke,

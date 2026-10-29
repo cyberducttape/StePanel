@@ -52,10 +52,10 @@ var typedTimeouts = map[string]map[string]time.Duration{
 	// wp-cli boots WordPress for every call; updates download packages and
 	// search-replace rewrites every table.
 	"wordpress": {
-		"status": timeoutLifecycle, "maintenance-status": timeoutLifecycle, "maintenance-activate": timeoutLifecycle, "maintenance-deactivate": timeoutLifecycle,
-		"option-get": timeoutLifecycle, "option-update": timeoutLifecycle, "config-create": timeoutLifecycle, "config-set": timeoutLifecycle, "config-set-password": timeoutLifecycle,
+		"status": timeoutLifecycle, "db-check": timeoutLifecycle, "maintenance-status": timeoutLifecycle, "maintenance-activate": timeoutLifecycle, "maintenance-deactivate": timeoutLifecycle,
+		"option-get": timeoutLifecycle, "option-update": timeoutLifecycle, "config-get": timeoutLifecycle, "config-create": timeoutLifecycle, "config-set": timeoutLifecycle, "config-set-password": timeoutLifecycle, "core-install": timeoutLifecycle,
 		"rewrite-flush": timeoutLifecycle, "cache-flush": timeoutLifecycle,
-		"core-update": timeoutBuild, "plugin-update-all": timeoutBuild, "theme-update-all": timeoutBuild, "cron-run-due": timeoutBuild,
+		"core-download": timeoutBuild, "core-update": timeoutBuild, "plugin-update-all": timeoutBuild, "theme-update-all": timeoutBuild, "cron-run-due": timeoutBuild,
 		"search-replace": timeoutDatabase,
 	},
 	"db": {

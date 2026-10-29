@@ -25,7 +25,11 @@ import (
 // lease another process now holds. A nil lockSite (tests without a control
 // plane database) runs unlocked.
 func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, resources ...*ResourceStore) []error {
-	return recoverInterruptedState(cfg, siteManager, lockSite, "", resources...)
+	return recoverUncleanShutdownWithRoutes(cfg, siteManager, lockSite, nil, resources...)
+}
+
+func recoverUncleanShutdownWithRoutes(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, routes *RouteStore, resources ...*ResourceStore) []error {
+	return recoverInterruptedStateWithRoutes(cfg, siteManager, lockSite, "", routes, resources...)
 }
 
 // recoverInterruptedState is recoverUncleanShutdown limited to one site when
@@ -33,6 +37,10 @@ func recoverUncleanShutdown(cfg Config, siteManager siteauthority.Manager, lockS
 // lease, when it finds a site operation that a crash interrupted, so the site
 // is repaired without waiting for the panel to restart.
 func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, site string, resources ...*ResourceStore) []error {
+	return recoverInterruptedStateWithRoutes(cfg, siteManager, lockSite, site, nil, resources...)
+}
+
+func recoverInterruptedStateWithRoutes(cfg Config, siteManager siteauthority.Manager, lockSite siteLocker, site string, routes *RouteStore, resources ...*ResourceStore) []error {
 	var failures []error
 	databaseRecoveries, err := recoverTransactionDatabases(cfg, cfg.RecoveryRoot, lockSite, site)
 	if err != nil {
@@ -99,6 +107,14 @@ func recoverInterruptedState(cfg Config, siteManager siteauthority.Manager, lock
 				failures = append(failures, fmt.Errorf("finalize interrupted site creation %s: %w", id, deleteErr))
 				log.Printf("finalize interrupted site creation %s: %v", id, deleteErr)
 				continue
+			}
+			if txn.Kind == siteCreationTransactionKind && routes != nil {
+				if routeErr := routes.removeSite(AuthorizedSite{site: txn.Site}); routeErr != nil {
+					unlock()
+					failures = append(failures, fmt.Errorf("remove desired routes for interrupted site creation %s: %w", id, routeErr))
+					log.Printf("remove desired routes for interrupted site creation %s: %v", id, routeErr)
+					continue
+				}
 			}
 			if db := sitePlacementDB.Load(); db != nil && txn.Kind == siteCreationTransactionKind {
 				if unplaceErr := unplaceSite(siteCtx, cfg, db, txn.Site); unplaceErr != nil {

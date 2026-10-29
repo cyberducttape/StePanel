@@ -149,9 +149,11 @@ func planWordPressProof(cfg Config, stage string, databases []string) (wordpress
 	unsupported := func(format string, args ...any) error {
 		return fmt.Errorf("%w: %s", errRecoveryProofUnsupported, fmt.Sprintf(format, args...))
 	}
-	public, err := safePath(stage, "site", "public")
-	if err != nil {
-		return wordpressProofPlan{}, err
+	// cpmove extraction keeps the source layout (homedir/public_html and
+	// mysql/*.sql), while native backups use site/public and databases/*.sql.
+	public := firstExisting(filepath.Join(stage, "site", "public"), filepath.Join(stage, "homedir", "public_html"))
+	if public == "" {
+		return wordpressProofPlan{}, unsupported("the archive has no supported public document root")
 	}
 	configPath := filepath.Join(public, "wp-config.php")
 	file, info, err := openRegularNoFollow(configPath, nil)
@@ -199,9 +201,9 @@ func planWordPressProof(cfg Config, stage string, databases []string) (wordpress
 	if !found || !slices.Contains(databases, database) {
 		return wordpressProofPlan{}, unsupported("the backup does not include the database named by wp-config.php DB_NAME")
 	}
-	dump, err := safePath(stage, "databases", database+".sql")
-	if err != nil {
-		return wordpressProofPlan{}, err
+	dump := firstExistingRegular(filepath.Join(stage, "databases", database+".sql"), filepath.Join(stage, "mysql", database+".sql"))
+	if dump == "" {
+		return wordpressProofPlan{}, unsupported("the archive does not contain the WordPress database dump")
 	}
 	id, err := randomProofHex(4)
 	if err != nil {
@@ -227,6 +229,16 @@ func planWordPressProof(cfg Config, stage string, databases []string) (wordpress
 		return wordpressProofPlan{}, err
 	}
 	return plan, nil
+}
+
+func firstExistingRegular(paths ...string) string {
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		if err == nil && info.Mode().IsRegular() {
+			return path
+		}
+	}
+	return ""
 }
 
 func randomProofHex(bytes int) (string, error) {

@@ -26,7 +26,7 @@
   const postJSON = (path, body) => api.post(path, body ?? {});
   const putJSON = (path, body) => api.put(path, body ?? {});
   const patchJSON = (path, body) => api.patch(path, body ?? {});
-  const deleteJSON = (path) => api.delete(path);
+  const deleteJSON = (path, body) => api.delete(path, body === undefined ? {} : { json: body });
   // Builds, deployments, dependency installs, and staging restores answer
   // with a durable job. Follow it to the end and return the operation's
   // result, or throw its error, so callers read like a synchronous request.
@@ -311,7 +311,7 @@
 
   async function renderOverviewTab(site, panel, ctx) {
     const observe = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
-    const [overview, backups, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, activityResult, databaseResult] = await Promise.all([
+    const [overview, backups, deploymentList, usage, php, recoveryResult, resourceResult, webLogResult, phpLogResult, accessLogResult, activityResult, databaseResult, siteDiagnosticResult] = await Promise.all([
       ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
       observe(ctx.getJSON(`/api/backups?site=${encodeURIComponent(site)}&limit=500`)),
       observe(ctx.getJSON(`/api/deployments?site=${encodeURIComponent(site)}`)),
@@ -321,8 +321,10 @@
       observe(ctx.getJSON(`/api/sites/resources/${encodeURIComponent(site)}`)),
       ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=error&lines=100`)) : Promise.resolve(null),
       ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=php-fpm&lines=100`)) : Promise.resolve(null),
+      ctx.can('logs:read') ? observe(ctx.getJSON(`/api/sites/logs/${encodeURIComponent(site)}?source=access&lines=100`)) : Promise.resolve(null),
       ctx.isAdministrator ? observe(ctx.getJSON(`/api/audit/events?target=${encodeURIComponent(site)}&limit=8`)) : Promise.resolve(null),
       ctx.isAdministrator ? observe(ctx.getJSON('/api/database/diagnostics')) : Promise.resolve(null),
+      observe(ctx.getJSON(`/api/sites/diagnostics/${encodeURIComponent(site)}`)),
     ]);
 
     const routes = overview.routes || [];
@@ -387,7 +389,7 @@
     panel.replaceChildren(
       el('p', { className: 'panel-intro' }, 'A quick read on whether this site is healthy: what is deployed, when it last backed up, and what changed most recently.'),
       grid,
-      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, lastDeployment, webLogResult, phpLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok }),
+      renderIncidentAssessment({ overview, phpData, phpAvailable: php.ok, resourceData, resourceAvailable: resourceResult.ok, usageData, usageAvailable: usage.ok, lastDeployment, webLogResult, phpLogResult, accessLogResult, canReadLogs: ctx.can('logs:read'), latestChange: activityResult && activityResult.ok ? (activityResult.value.events || [])[0] : null, databaseDiagnostics: databaseResult && databaseResult.ok ? databaseResult.value : null, databaseDiagnosticsAvailable: databaseResult && databaseResult.ok, siteDiagnostics: siteDiagnosticResult && siteDiagnosticResult.ok ? siteDiagnosticResult.value : null, siteDiagnosticsAvailable: siteDiagnosticResult && siteDiagnosticResult.ok }),
     );
 
     if (ctx.isAdministrator) {
@@ -411,7 +413,7 @@
   function renderIncidentAssessment(signals) {
     const findings = [];
     const add = (level, title, evidence, next) => findings.push({ level, title, evidence, next });
-    const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, lastDeployment, webLogResult, phpLogResult, canReadLogs, latestChange, databaseDiagnostics, databaseDiagnosticsAvailable } = signals;
+    const { overview, phpData, phpAvailable, resourceData, resourceAvailable, usageData, usageAvailable, lastDeployment, webLogResult, phpLogResult, accessLogResult, canReadLogs, latestChange, databaseDiagnostics, databaseDiagnosticsAvailable, siteDiagnostics, siteDiagnosticsAvailable } = signals;
     const applications = overview.applications || [];
     const unhealthy = applications.filter((app) => !['applied', 'running'].includes(String(app.state || '').toLowerCase()));
     if (unhealthy.length) add('critical', 'Application is not reported as running', unhealthy.map((app) => `${app.domain}: ${app.state || 'unknown state'}`).join('; '), 'Review the deployment history and application logs before retrying activation.');
@@ -428,7 +430,8 @@
       }
       if (usageAvailable && usageData && Number.isFinite(Number(profile.disk_mb)) && Number(profile.disk_mb) > 0) {
         const limit = Number(profile.disk_mb) * 1024 * 1024;
-        if (usageData.bytes >= limit * 0.9) add('warning', 'Site is near its configured disk allowance', `${formatBytes(usageData.bytes)} of ${formatBytes(limit)} in regular-file content (${Math.min(100, Math.round(usageData.bytes / limit * 100))}%).`, 'Review old releases, uploads, and backup policy before the site reaches its configured limit.');
+        if (usageData.bytes >= limit * 0.9) add('warning', 'Site is near its configured disk allowance', `${formatBytes(usageData.bytes)} of ${formatBytes(limit)} in regular-file content (${Math.min(100, Math.round(usageData.bytes / limit * 100))}%).`, 'Review old releases, uploads, and backup policy before the site reaches its configured limit. Do not raise the limit until host free space and inode headroom are checked.');
+        if (profile.filesystem_quota_state !== 'enforced') add('unknown', 'Disk quota enforcement is not confirmed', `Configured allowance is ${formatBytes(limit)}, but quota state is ${profile.filesystem_quota_state || 'unknown'}.`, 'Ask an administrator to verify the filesystem quota from the host; measured tree size alone does not prove enforcement.');
       }
       const fpm = resourceData.fpm_status || {};
       const pools = Array.isArray(fpm.pools) ? fpm.pools : [];
@@ -463,6 +466,24 @@
     if (lastDeployment && ['failed', 'dead-letter'].includes(String(lastDeployment.state || '').toLowerCase())) {
       add('warning', 'Most recent deployment failed', `${lastDeployment.stage || 'Deployment'} · ${lastDeployment.state}`, 'Open deployment history and inspect the associated durable job before retrying.');
     }
+    if (siteDiagnosticsAvailable && siteDiagnostics) {
+      const siteDB = siteDiagnostics.database || {};
+      if (!siteDB.available) {
+        add('warning', 'Site database inventory could not be verified', siteDB.detail || 'The managed database probe did not complete.', 'Check the database service and helper status. After the engine is healthy, verify the application credentials with a read-only application health check.');
+      } else if (!(siteDB.databases || []).length) {
+        add('warning', 'No managed database is assigned to this site', `The ${siteDB.engine || 'database'} engine responded, but its inventory contains no database owned by this site.`, 'If this application needs a database, verify its intended database ownership and import state before changing wp-config.php.');
+      }
+      const filesystem = siteDiagnostics.filesystem || {};
+      if (filesystem.status === 'failed') add('critical', 'Site document root is unavailable', filesystem.detail, 'Restore the document root from a verified recovery point or correct its path through the managed site workflow. Do not run recursive chown as a first response.');
+      else if (filesystem.status === 'observed') add('guidance', 'Filesystem permission evidence', `Document-root mode ${filesystem.mode}; owner UID ${filesystem.owner_uid ?? 'unknown'}, GID ${filesystem.owner_gid ?? 'unknown'}. ${filesystem.detail || ''}`, 'If logs show permission denied, compare these values with the configured web/PHP service identity and parent-directory traversal. Use the site permission repair workflow rather than broad recursive permission changes.');
+      for (const cert of (siteDiagnostics.tls || [])) {
+        if (['expired', 'expiring', 'missing', 'hostname_mismatch', 'failed'].includes(cert.status)) {
+          add(cert.status === 'expired' || cert.status === 'hostname_mismatch' ? 'critical' : 'warning', `TLS ${cert.status.replace('_', ' ')} for ${cert.domain}`, `${cert.detail || ''}${cert.not_after ? ` Expires ${new Date(cert.not_after).toLocaleString()}.` : ''}`, 'Confirm DNS points to this host and the route is applied, then use the certificate workflow to renew or issue the certificate. Avoid deleting certificate files manually.');
+        } else if (cert.status === 'unknown') add('unknown', `TLS status not verified for ${cert.domain}`, cert.detail || 'Certificate status is unavailable.', 'Check the live site over HTTPS from an external probe; this panel does not claim a successful handshake from local certificate metadata.');
+      }
+    } else {
+      add('unknown', 'Site-specific host diagnostics are unavailable', 'Database ownership, document-root metadata, and certificate evidence could not be collected.', 'Check the panel service and managed database helper, then refresh this snapshot.');
+    }
     if (databaseDiagnosticsAvailable && databaseDiagnostics && databaseDiagnostics.available) {
       const values = databaseDiagnostics.values || {};
       if (Number(values.blocked_sessions) > 0 || Number(values.long_transactions) > 0) {
@@ -471,6 +492,11 @@
     } else if (databaseDiagnosticsAvailable === false) {
       add('unknown', 'Database diagnostics are unavailable', 'The host database diagnostic probe did not return usable measurements.', 'Check database service health and its restricted diagnostic helper.');
     }
+    const excerpts = [];
+    const safeExcerpt = (line) => String(line)
+      .replace(/((?:password|passwd|token|secret|api[_-]?key)\s*[=:]\s*)[^\s&,;]+/ig, '$1[redacted]')
+      .replace(/(authorization\s*[=:]\s*)[^,;]+/ig, '$1[redacted]')
+      .slice(0, 260);
     const inspectLog = (result, label, saturation) => {
       if (!canReadLogs) return;
       if (!result || !result.ok) {
@@ -478,13 +504,29 @@
         return;
       }
       const lines = result.value.lines || [];
-      const pattern = saturation ? /max_children|reached pm\.max_children|listen queue/i : /\b(error|critical|crit|fatal|emerg|failed)\b/i;
+      const pattern = /\b(error|critical|crit|fatal|emerg|failed|denied|no space|timed? ?out|refused|unavailable|upstream|database connection|certificate|ssl|tls)\b|max_children|reached pm\.max_children|listen queue/i;
       const matches = lines.filter((line) => pattern.test(line));
-      if (matches.length) add('warning', saturation ? 'PHP-FPM saturation signal found' : `${label} errors appear in the recent log tail`, `${matches.length} matching line(s) in the latest ${lines.length} lines. Log content is not copied into this summary.`, 'Open Logs and correlate timestamps with recent deployments and workload changes.');
+      if (matches.length) {
+        const evidence = matches.slice(-4).map(safeExcerpt);
+        excerpts.push({ label, lines: evidence });
+        const joined = matches.join('\n').toLowerCase();
+        const pressure = saturation && /max_children|listen queue/.test(joined);
+        let next = 'Compare the log timestamps with the latest configuration change and request failures; inspect the full bounded log tail before applying a change.';
+        if (/no space|disk quota|quota exceeded|inode/.test(joined)) next = 'Check filesystem free bytes, inodes, and this site’s enforced quota. Free or archive known data safely; do not delete files based only on log messages.';
+        else if (/permission denied|access denied/.test(joined)) next = 'Verify document-root ownership, directory traversal bits, ACLs, and the PHP/web service identity. Apply a narrow site-level permission repair; avoid recursive world-writable changes.';
+        else if (/could not connect|connection refused|sqlstate|error establishing a database connection|too many connections/.test(joined)) next = 'Check database service availability and site database ownership/credentials. Test with the application’s protected credential path; never put passwords in a command line or diagnostic report.';
+        else if (/certificate|ssl|tls|handshake/.test(joined)) next = 'Check route application, DNS, certificate hostname and expiry, then validate the live HTTPS handshake before renewing or changing TLS settings.';
+        else if (/upstream|connect\(\) to unix|php-fpm|primary script unknown/.test(joined)) next = 'Check PHP-FPM pool state, socket path/permissions, and the selected PHP runtime. Validate the pool configuration before restarting the service.';
+        add(pressure ? 'warning' : 'critical', pressure ? 'PHP-FPM log reports worker pressure' : `${label} log contains actionable errors`, `${matches.length} relevant line(s) in the latest ${lines.length}. Excerpts below preserve the observed message.`, next);
+      }
     };
     inspectLog(webLogResult, 'Web-server', false);
     inspectLog(phpLogResult, 'PHP-FPM', true);
-    const unknowns = ['Per-site database query latency is not measured. Available blocked-session and long-transaction counts are host-wide and are not attributed to this site.'];
+    if (accessLogResult && accessLogResult.ok) {
+      const failures = (accessLogResult.value.lines || []).filter((line) => /"\s*[45]\d\d\s/.test(line));
+      if (failures.length) excerpts.push({ label: 'Recent HTTP 4xx/5xx requests', lines: failures.slice(-4).map(safeExcerpt) });
+    }
+    const unknowns = ['Application-level database login and query latency are not tested with the customer’s credentials. The database inventory confirms helper access and ownership only.'];
     if (!canReadLogs) unknowns.push('Recent web-server and PHP-FPM logs are hidden because this account lacks logs:read.');
     if (!resourceAvailable || !resourceData || !resourceData.fpm_status || !resourceData.fpm_status.available) unknowns.push('Live PHP-FPM counters are unavailable unless the installed root broker can safely query a managed pool.');
     const levelLabel = { critical: 'Action needed', warning: 'Review', unknown: 'Not verified', guidance: 'Performance guidance' };
@@ -495,6 +537,10 @@
         el('p', {}, finding.evidence),
         el('small', {}, finding.next),
       ]))) : el('p', { className: 'incident-clear' }, 'No failing signal was found in the available snapshot. This does not establish application health by itself.'),
+      excerpts.length ? el('div', { className: 'incident-evidence' }, [
+        el('h4', {}, 'Relevant log evidence'),
+        ...excerpts.map((group) => el('section', {}, [el('strong', {}, group.label), el('pre', {}, group.lines.join('\n'))])),
+      ]) : null,
       latestChange ? el('div', { className: 'incident-recent-change' }, [
         el('strong', {}, 'Most recent recorded change'),
         el('span', {}, `${latestChange.action || 'Change'} · ${latestChange.detail || 'No additional detail recorded'}`),
@@ -521,20 +567,48 @@
     const routes = overview.routes || [];
     const output = ctx.statusOutput();
 
+    const previewAndConnect = async (domain) => {
+      const preview = await ctx.postJSON('/api/sites/deploy', { site, domain });
+      const confirmed = await ctx.confirmDangerous({
+        title: `Review domain change for ${domain}`,
+        message: 'This writes a virtual-host configuration and reloads the web server. DNS is not changed by StePanel.',
+        facts: [
+          ['Site', site],
+          ['Domain', domain],
+          ['Vhost file', preview.proposed.vhost_path],
+          ['Effects', preview.effects.join(' ')],
+          ['Recovery', preview.recovery_plan.join(' ')],
+          ['Preview expires', new Date(preview.expires_at).toLocaleString()],
+        ],
+        confirmText: domain,
+        actionLabel: 'Apply domain change',
+      });
+      if (!confirmed) return false;
+      return await ctx.postJSON('/api/sites/deploy', { site, domain, preview_token: preview.preview_token });
+    };
+
     const list = el('ul', { className: 'resource-list' }, routes.length ? routes.map((route) => el('li', { className: 'resource-list-item' }, [
       el('div', { className: 'item-meta' }, [el('strong', {}, route.domain), el('small', {}, 'Active route')]),
       ctx.can('site:deploy') ? el('div', { className: 'item-actions' }, [ctx.button('Remove', async () => {
-        const confirmed = await ctx.confirmDangerous({
-          title: `Remove ${route.domain}?`,
-          message: 'The route stops serving this domain immediately. DNS still points here until you update it elsewhere.',
-          facts: [['Domain', route.domain], ['Site', site]],
-          confirmText: route.domain,
-          actionLabel: 'Remove domain',
-        });
-        if (!confirmed) return;
         try {
-          await ctx.deleteJSON(`/api/sites/${encodeURIComponent(vhostConfigName(site, route.domain))}`);
-          output.textContent = `${route.domain} removed.`;
+          const name = vhostConfigName(site, route.domain);
+          const preview = await ctx.postJSON('/api/sites/route-delete-preview', { name });
+          const confirmed = await ctx.confirmDangerous({
+            title: `Review removal of ${route.domain}`,
+            message: 'The route will stop serving this domain and the web server will reload. DNS, site files, databases, and mail are not changed.',
+            facts: [
+              ['Domain', route.domain], ['Site', site],
+              ['Vhost file', preview.proposed.vhost_path],
+              ['Effects', preview.effects.join(' ')],
+              ['Recovery', preview.recovery_plan.join(' ')],
+              ['Preview expires', new Date(preview.expires_at).toLocaleString()],
+            ],
+            confirmText: route.domain,
+            actionLabel: 'Remove domain route',
+          });
+          if (!confirmed) return;
+          const result = await ctx.deleteJSON(`/api/sites/${encodeURIComponent(name)}`, { preview_token: preview.preview_token });
+          output.textContent = `${route.domain} removed.${result.recovery_snapshot ? ` Recovery snapshot: ${result.recovery_snapshot}` : ''}`;
           renderDomainsTab(site, panel, ctx);
         } catch (error) { output.textContent = error.message; }
       }, { className: 'danger' })]) : null,
@@ -553,8 +627,9 @@
           const domain = domainInput.querySelector('input').value.trim();
           output.textContent = 'Adding domain route…';
           try {
-            await ctx.postJSON('/api/sites/deploy', { site, domain });
-            output.textContent = 'Route added.';
+            const result = await previewAndConnect(domain);
+            if (!result) { output.textContent = 'Domain change cancelled.'; return; }
+            output.textContent = `Route added.${result.recovery_snapshot ? ` Recovery snapshot: ${result.recovery_snapshot}` : ''}`;
             renderDomainsTab(site, panel, ctx);
           } catch (error) { output.textContent = error.message; }
         },
@@ -590,8 +665,9 @@
                 output.textContent = 'Checking DNS…';
                 try {
                   await ctx.postJSON('/api/sites/domains/verify', { site, domain: claim.domain });
-                  await ctx.postJSON('/api/sites/deploy', { site, domain: claim.domain });
-                  output.textContent = 'Domain verified and route added.';
+                  const result = await previewAndConnect(claim.domain);
+                  if (!result) { output.textContent = 'Domain route change cancelled.'; return; }
+                  output.textContent = `Domain verified and route added.${result.recovery_snapshot ? ` Recovery snapshot: ${result.recovery_snapshot}` : ''}`;
                   renderDomainsTab(site, panel, ctx);
                 } catch (error) { output.textContent = error.message; }
               },
@@ -627,9 +703,9 @@
       const form = el('form', {
         className: 'import-form', onSubmit: async (event) => {
           event.preventDefault();
-          phpOutput.textContent = 'Applying PHP runtime…';
+          phpOutput.textContent = 'Preparing PHP change preview…';
           try {
-            await ctx.putJSON(`/api/sites/php/${encodeURIComponent(site)}`, {
+            const change = {
               version: versionField.querySelector('select').value,
               memory_limit: memoryField.querySelector('input').value,
               max_execution_time: Number(timeoutField.querySelector('input').value),
@@ -639,7 +715,24 @@
               opcache: opcacheField.querySelector('input').checked,
               display_errors: current.display_errors,
               error_reporting: current.error_reporting,
+            };
+            const preview = await ctx.postJSON(`/api/sites/php/${encodeURIComponent(site)}`, change);
+            const confirmed = await ctx.confirmDangerous({
+              title: 'Review PHP runtime change',
+              message: 'StePanel will update the PHP-FPM pool and reload its service. Requests may briefly fail during activation.',
+              facts: [
+                ['Current PHP', preview.before.configured ? `PHP ${preview.before.profile.version}` : 'No saved profile'],
+                ['Proposed PHP', `PHP ${preview.proposed.version}`],
+              ['Profile changes', `memory ${preview.proposed.memory_limit}; execution ${preview.proposed.max_execution_time}s; upload ${preview.proposed.upload_max_filesize}; post ${preview.proposed.post_max_size}; input vars ${preview.proposed.max_input_vars}; OPcache ${preview.proposed.opcache ? 'on' : 'off'}; display errors ${preview.proposed.display_errors ? 'on' : 'off'}; reporting ${preview.proposed.error_reporting}`],
+              ['Host changes', preview.effects.join(' ')],
+                ['Recovery', preview.recovery_plan.join(' ')],
+                ['Preview expires', new Date(preview.expires_at).toLocaleString()],
+              ],
+              confirmText: site,
+              actionLabel: 'Apply PHP change',
             });
+            if (!confirmed) { phpOutput.textContent = 'PHP change cancelled.'; return; }
+            await ctx.putJSON(`/api/sites/php/${encodeURIComponent(site)}`, { ...change, preview_token: preview.preview_token });
             phpOutput.textContent = 'PHP runtime applied.';
           } catch (error) { phpOutput.textContent = error.message; }
         },
@@ -1007,6 +1100,103 @@
     ]);
     const backups = (data.backups || []).sort((a, b) => new Date(b.created_at || b.verified_at) - new Date(a.created_at || a.verified_at));
     const output = ctx.statusOutput();
+    const cloneToStaging = async () => {
+      try {
+        const [overview, inventory] = await Promise.all([
+          ctx.getJSON(`/api/sites/overview/${encodeURIComponent(site)}`),
+          ctx.getJSON('/api/databases'),
+        ]);
+        const databases = (inventory.databases || []).filter((item) => item.site === site);
+        if (!databases.length) throw new Error('No managed production database is registered to this site.');
+        const confirmation = await ctx.confirmDangerous({
+          title: `Clone ${site} to staging?`,
+          message: 'StePanel creates a separate site identity and database, rewrites WordPress URLs, protects the route with Basic Auth and noindex, and records the production origin for later guarded promotion. Production files and database are read-only during cloning.',
+          facts: [['Source site', site], ['Production databases', databases.map((item) => item.name).join(', ')]],
+          confirmText: `CLONE ${site}`,
+          actionLabel: 'Create staging clone',
+          extraFields: [
+            { name: 'staging_site', label: 'New staging site name', placeholder: `${site}-stage` },
+            { name: 'domain', label: 'Staging domain', placeholder: 'staging.example.com' },
+            { name: 'source_database', label: 'Production database', options: databases.map((item) => ({ value: item.name, label: item.name })) },
+            { name: 'target_database', label: 'New staging database name', placeholder: `${site}_stage` },
+            { name: 'target_user', label: 'New staging database user', placeholder: `${site}_stage` },
+            { name: 'target_password', label: 'Staging database password', type: 'password', placeholder: '20+ supported characters' },
+            { name: 'auth_user', label: 'Staging Basic Auth username', placeholder: 'reviewer' },
+            { name: 'auth_password', label: 'Staging Basic Auth password', type: 'password', placeholder: '12+ characters' },
+          ],
+        });
+        if (!confirmation.confirmed) return;
+        const values = confirmation.values;
+        const stagingSite = values.staging_site.toLowerCase();
+        if (!/^[a-z0-9_-]{1,32}$/.test(stagingSite)) throw new Error('Staging site name must use lowercase letters, digits, dashes, or underscores.');
+        output.textContent = 'Creating an isolated staging site and PHP-FPM pool…';
+        const created = await ctx.postJSON('/api/sites', {
+          site: stagingSite,
+          template: 'php',
+          account: overview.account || '',
+          kind: overview.account ? 'addon' : '',
+          domain: values.domain.toLowerCase(),
+        });
+        let siteJob;
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          siteJob = await ctx.getJSON(`/api/jobs/${encodeURIComponent(created.job_id)}`);
+          if (['completed', 'failed', 'cancelled', 'dead-letter'].includes(siteJob.state)) break;
+        }
+        if (!siteJob || siteJob.state !== 'completed') throw new Error(siteJob?.error || `Staging site setup is still running (${created.job_id}).`);
+        output.textContent = 'Copying WordPress files and cloning the database into the isolated staging account…';
+        const result = await ctx.runOperation('/api/staging', {
+          source: site,
+          site: stagingSite,
+          domain: values.domain.toLowerCase(),
+          files: true,
+          environment: true,
+          database: true,
+          source_database: values.source_database,
+          target_database: values.target_database.toLowerCase(),
+          target_user: values.target_user.toLowerCase(),
+          target_password: values.target_password,
+          no_index: true,
+          basic_auth: true,
+          auth_user: values.auth_user,
+          auth_password: values.auth_password,
+        });
+        output.textContent = result.wordpress_promotion_ready
+          ? `Staging is live at https://${result.domain}. Basic Auth and noindex are enabled. Its database is isolated, and promotion back to ${site} is available with a pre-promotion backup and retained prior database.`
+          : `Staging site created at https://${result.domain}.`;
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    };
+    const promoteFromStaging = async () => {
+      const sourceInput = await ctx.confirmDangerous({
+        title: `Prepare promotion to ${site}`,
+        message: 'Enter the StePanel staging site name. The preview checks the recorded production relationship and both managed database ownership records.',
+        facts: [['Production site', site]],
+        confirmText: site,
+        actionLabel: 'Build promotion preview',
+        extraFields: [{ name: 'source', label: 'Staging site name', placeholder: `${site}-stage` }],
+      });
+      if (!sourceInput.confirmed) return;
+      const source = sourceInput.values.source.toLowerCase();
+      output.textContent = 'Checking staging relationship and database ownership…';
+      try {
+        const preview = await ctx.postJSON('/api/staging/promote/preview', { source, site });
+        const confirm = await ctx.confirmDangerous({
+          title: `Promote ${source} to ${site}?`,
+          message: `${preview.effects.join(' ')} ${preview.recovery_plan.join(' ')}`,
+          facts: [['Production domain', preview.proposed.production_domain], ['Staging database', preview.proposed.source_database], ['Current production database', preview.before.active_production_database]],
+          confirmText: `PROMOTE ${site}`,
+          actionLabel: 'Queue guarded promotion',
+        });
+        if (!confirm.confirmed) return;
+        output.textContent = 'Creating the production safety backup, candidate database, and transactional file cutover…';
+        const result = await ctx.runOperation('/api/staging/promote', { source, site, preview_token: preview.preview_token });
+        output.textContent = `Promotion completed for https://${result.domain}. Database ${result.database} passed WP-CLI validation. Previous database ${result.previous_database_retained} remains intact; safety backup ${result.safety_backup} is retained. Validate the public site before removing either recovery copy.`;
+      } catch (error) {
+        output.textContent = error.message;
+      }
+    };
     const restoreToStaging = async (backup, includeDatabase) => {
       const backupName = backup.name || backup.path;
       const databaseNames = (backup.databases || []).filter((name) => /^[A-Za-z0-9_]+$/.test(name));
@@ -1049,15 +1239,17 @@
     panel.replaceChildren(
       recoveryStatus && recoveryStatus.__error ? errorState('Recovery status', recoveryStatus.__error) : recoveryStatus ? renderRecoveryStatus(recoveryStatus, ctx) : null,
       el('p', { className: 'panel-intro' }, 'Backups are checksummed and, when a signing key is configured, cryptographically signed and verified before they are trusted for restore.'),
-      el('div', { className: 'workspace-panel-actions' }, ctx.can('backup:create') ? [
-        ctx.button('Create verified backup', async () => {
+      el('div', { className: 'workspace-panel-actions' }, [
+        ctx.can('site:deploy') ? ctx.button('Clone WordPress to staging', cloneToStaging) : null,
+        ctx.can('site:deploy') ? ctx.button('Promote staging to production', promoteFromStaging, { className: 'danger' }) : null,
+        ctx.can('backup:create') ? ctx.button('Create verified backup', async () => {
           output.textContent = 'Creating a verified backup…';
           try {
             const result = await ctx.postJSON('/api/backups', { site, include_databases: true });
             output.textContent = `Backup queued (job ${result.job_id}). Refresh in a moment to see it listed.`;
           } catch (error) { output.textContent = error.message; }
-        }),
-      ] : [el('span', { className: 'import-note' }, 'Your role can review backups but cannot create them.')]),
+        }) : null,
+      ]),
       output,
       data.__error ? errorState('Backup inventory', data.__error) : el('ul', { className: 'resource-list' }, backups.length ? backups.map((backup) => el('li', { className: 'resource-list-item' }, [
         el('div', { className: 'item-meta' }, [
@@ -1547,6 +1739,18 @@
   const createForm = document.querySelector('#siteCreateForm');
   if (createForm) {
     const createStatus = createForm.querySelector('#siteCreateStatus');
+    const templateSelect = createForm.elements.template;
+    const wordpressFields = createForm.querySelector('#wordpressCreateFields');
+    const domainInput = createForm.elements.domain;
+    const wordpressInputs = ['title', 'admin_user', 'admin_email', 'admin_password'].map((name) => createForm.elements[name]).filter(Boolean);
+    const updateTemplateFields = () => {
+      const wordpress = templateSelect.value === 'wordpress';
+      wordpressFields.hidden = !wordpress;
+      domainInput.required = wordpress;
+      wordpressInputs.forEach((input) => { input.required = wordpress; });
+    };
+    templateSelect.addEventListener('change', updateTemplateFields);
+    updateTemplateFields();
     const terminal = new Set(['completed', 'failed', 'cancelled', 'dead-letter']);
     createForm.addEventListener('submit', withBusySubmit(async (event) => {
       event.preventDefault();
@@ -1555,17 +1759,36 @@
       // Where the site lives in its hosting account (ADR-0007).
       const optional = (name) => (createForm.elements[name] ? createForm.elements[name].value.trim() : '');
       const placement = { account: optional('account'), kind: optional('kind'), domain: optional('domain').toLowerCase() };
+      const wordpress = template === 'wordpress' ? {
+        title: optional('title'),
+        admin_user: optional('admin_user'),
+        admin_email: optional('admin_email'),
+        admin_password: createForm.elements.admin_password.value,
+      } : {};
+      if (template === 'wordpress') {
+        const confirmed = await confirmDangerous({
+          title: `Create WordPress site ${site}?`,
+          message: `StePanel will create a dedicated PHP-FPM pool and database for ${placement.domain}, publish its route, configure HTTPS, and create the first database-inclusive recovery point. DNS must already point to this server for public certificate issuance.`,
+          confirmText: site,
+          actionLabel: 'Create WordPress site',
+        });
+        if (!confirmed) return;
+      }
       createStatus.textContent = `Queuing ${site}…`;
       try {
-        const queued = await postJSON('/api/sites', { site, template, ...placement });
+        const queued = await postJSON('/api/sites', { site, template, ...placement, ...wordpress });
         createStatus.textContent = `Creating ${site}: preparing its account and PHP pool…`;
         for (let attempt = 0; attempt < 90; attempt += 1) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           const job = await getJSON(`/api/jobs/${encodeURIComponent(queued.job_id)}`);
           if (!terminal.has(job.state)) continue;
           if (job.state === 'completed') {
-            createStatus.textContent = `${site} is ready. Connect a domain from its workspace.`;
+            const result = job.output || {};
+            createStatus.textContent = template === 'wordpress'
+              ? `${site} is ready at ${result.domain || placement.domain}. ${result.https || 'HTTPS configuration is active.'} Database: ${result.database || 'created'}. Integrity-verified recovery point: ${result.recovery_point || 'check Backups'}${result.recovery_verified_at ? ` (${new Date(result.recovery_verified_at).toLocaleString()})` : ''}. ${result.recovery_evidence || ''} Backups: ${result.backup_schedule || 'check schedule status'}.`
+              : `${site} is ready. Connect a domain from its workspace.`;
             createForm.reset();
+            updateTemplateFields();
             await loadGrid();
             openWorkspace(site);
           } else {

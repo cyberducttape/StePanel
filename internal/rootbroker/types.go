@@ -136,10 +136,14 @@ type WordPressRequest struct {
 	Search  string `json:"search,omitempty"`
 	Replace string `json:"replace,omitempty"`
 	// Database settings for config-create.
-	DBName   string `json:"db_name,omitempty"`
-	DBUser   string `json:"db_user,omitempty"`
-	DBHost   string `json:"db_host,omitempty"`
-	DBPrefix string `json:"db_prefix,omitempty"`
+	DBName     string `json:"db_name,omitempty"`
+	DBUser     string `json:"db_user,omitempty"`
+	DBHost     string `json:"db_host,omitempty"`
+	DBPrefix   string `json:"db_prefix,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Title      string `json:"title,omitempty"`
+	AdminUser  string `json:"admin_user,omitempty"`
+	AdminEmail string `json:"admin_email,omitempty"`
 	// Secret is written to wp-cli's stdin for --prompt; it never reaches argv.
 	Secret string `json:"secret,omitempty"`
 }

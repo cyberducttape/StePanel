@@ -9,10 +9,10 @@ func TestCommandPath(t *testing.T) {
 		want string
 		ok   bool
 	}{
-		{name: "production doctor", args: []string{"doctor", "--production"}, want: "/api/admin/production-readiness", ok: true},
-		{name: "doctor defaults to production report", args: []string{"doctor"}, want: "/api/admin/production-readiness", ok: true},
-		{name: "job watch", args: []string{"jobs", "watch", "site-create-1"}, want: "/api/jobs/site-create-1", ok: true},
-		{name: "site inspect", args: []string{"site", "inspect", "example"}, want: "/api/sites/overview/example", ok: true},
+		{name: "production doctor", args: []string{"doctor", "--production"}, want: "/api/v1/admin/production-readiness", ok: true},
+		{name: "doctor defaults to production report", args: []string{"doctor"}, want: "/api/v1/admin/production-readiness", ok: true},
+		{name: "job watch", args: []string{"jobs", "watch", "site-create-1"}, want: "/api/v1/jobs/site-create-1", ok: true},
+		{name: "site inspect", args: []string{"site", "inspect", "example"}, want: "/api/v1/sites/overview/example", ok: true},
 		{name: "unknown mutation", args: []string{"site", "delete", "example"}, ok: false},
 	}
 	for _, test := range tests {

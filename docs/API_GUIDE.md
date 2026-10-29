@@ -419,7 +419,81 @@ reconciliation.
 
 ## Machine-readable contract
 
-Use [openapi.yaml](openapi.yaml) with Swagger UI, Redoc, `openapi-generator`,
-or another API tool. It defines request schemas, response codes, security
-schemes, multipart uploads, and the complete endpoint inventory. Keep this
-guide and the YAML synchronized when adding or changing an endpoint.
+`/api/v1` is the supported stable automation namespace. Existing `/api`
+endpoints remain compatibility aliases for the dashboard and current scripts;
+new integrations should use `/api/v1`. Compatible additions remain in v1,
+while a future incompatible contract will use a new versioned prefix. The API
+uses the same durable jobs, authorization scopes, validation, and preview
+requirements as dashboard actions.
+
+Use [openapi.yaml](openapi.yaml) with Swagger UI, Redoc, or another OpenAPI
+tool. It is the contract source for the generated Go and TypeScript SDK
+operation catalogs and the Bash, Zsh, and Fish completions. Regenerate with
+`make api-generate`; `make api-check` verifies checked-in artifacts are current.
+
+### CLI automation
+
+`stepanelctl` uses a scoped bearer token from `STEPANEL_TOKEN`. It calls the
+same API operations as the dashboard; the server remains authoritative for
+permissions, capacity admission, confirmation, and durable job state.
+
+```sh
+stepanelctl sites list
+stepanelctl site create --site example --template php --wait
+stepanelctl backup create --site example --include-databases --wait
+stepanelctl restore staging --backup BACKUP_NAME --site example-stage \
+  --domain stage.example.com --source-site example --wait
+stepanelctl restore files --backup BACKUP_NAME --site example \
+  --confirm RESTORE_FILES --wait
+stepanelctl restore database --backup BACKUP_NAME --site example \
+  --database example_wp --confirm RESTORE_DATABASE --wait
+stepanelctl migration inspect --file ./cpmove-account.tar.gz
+stepanelctl migration import --upload-id UPLOAD_ID --username example \
+  --confirm IMPORT --restore-databases --wait
+stepanelctl diagnostics collect --output ./stepanel-support.zip
+```
+
+For WordPress creation, add `--domain`, `--title`, `--admin-user`, and
+`--admin-email`, then pass the administrator password through stdin with
+`--admin-password-stdin`. This keeps it out of process arguments. A migration
+inspection response contains the compatibility findings and `upload_id` used
+by the import step. Imports require the exact `IMPORT` confirmation.
+
+Scripted site provisioning accepts a JSON plan. Since it can contain
+credentials, create it with mode `0600`; the CLI refuses group/world-readable
+plan files. Each site submission uses the ordinary `POST /api/v1/sites`
+contract and can optionally wait for its durable job:
+
+```json
+{
+  "sites": [
+    {"site": "docs", "template": "php"},
+    {"site": "store", "template": "wordpress", "domain": "store.example.com",
+     "title": "Store", "admin_user": "siteadmin", "admin_email": "ops@example.com",
+     "admin_password": "provide-a-unique-secret-of-at-least-20-characters"}
+  ]
+}
+```
+
+```sh
+chmod 600 ./sites.json
+stepanelctl provision apply --file ./sites.json --wait
+```
+
+Install completions by copying the output into the shell's completion
+directory, or source it for the current session:
+
+```sh
+stepanelctl completion bash > ~/.local/share/bash-completion/completions/stepanelctl
+stepanelctl completion zsh > ~/.zsh/completions/_stepanelctl
+stepanelctl completion fish > ~/.config/fish/completions/stepanelctl.fish
+```
+
+The Go SDK is in `sdk/go/stepanel`; the generated TypeScript client and
+contract operations are in `sdk/typescript/client.gen.ts`. Both use generated
+OpenAPI operation IDs for stable routes, and responses expose request IDs for
+support correlation. In Go, `Client.JSONOperation(ctx, "createSite", body,
+headers)` sends a contract-defined operation; `UploadOperation` streams the
+migration archive with its known content length for server-side disk admission.
+Mutating API-token calls do not require browser CSRF tokens; a browser session
+continues to use the same CSRF flow described above.

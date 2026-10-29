@@ -1,0 +1,3 @@
+#compdef stepanelctl
+# Generated from docs/openapi.yaml by scripts/generate-api-artifacts.py.
+_arguments '1:command:((backup capabilities completion diagnostics doctor jobs migration provision restore site sites status))' '*:argument:()'

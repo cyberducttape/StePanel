@@ -5,12 +5,20 @@ on:
     branches: [main]
     paths:
       - '**/*.md'
+      - 'docs/openapi.yaml'
+      - 'scripts/generate-api-artifacts.py'
+      - 'sdk/**'
+      - 'completions/**'
       - 'scripts/check-docs-links.sh'
       - 'scripts/check-docs-references.py'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - '**/*.md'
+      - 'docs/openapi.yaml'
+      - 'scripts/generate-api-artifacts.py'
+      - 'sdk/**'
+      - 'completions/**'
       - 'scripts/check-docs-links.sh'
       - 'scripts/check-docs-references.py'
       - '.github/workflows/docs.yml'
@@ -29,6 +37,8 @@ jobs:
         run: bash scripts/check-docs-links.sh docs
       - name: Check documentation source references
         run: python3 scripts/check-docs-references.py
+      - name: Check generated API SDKs and completions
+        run: python3 scripts/generate-api-artifacts.py --check
       # CI integration ignores Markdown-only pushes, so the Go tests that
       # hold the documentation to the code's contract run here as well.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

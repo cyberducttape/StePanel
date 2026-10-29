@@ -9,14 +9,16 @@ recovery, and resource evidence defined there.
 
 ## Durable job-claim latency
 
-The latest high-backlog claim experiment is recorded in the
-[queue benchmark report](lab-results/2026-10-18-queue-claim-benchmark-a8d0340.md).
-On a Linux laptop (AMD Ryzen 7 7735U, Go 1.26.9), 100,000 queued jobs arranged
-behind ten owners with unexpired running leases took a median 231.8 ms per
-claim to reach the next eligible owner. A temporary ordered index measured
-236.7 ms; a grouped-owner-head query measured 291.2 ms. Neither alternative
-improved the measured workload. This pathological fixture is useful for
-regression comparisons, not a production throughput promise.
+The current-source high-backlog claim experiment is recorded in the
+[2026-10-29 queue and WAL benchmark report](lab-results/2026-10-29-queue-claim-benchmark-1f6de4c.md).
+On a Linux workstation (AMD Ryzen 7 7735U, Go 1.26.10), 100,000 queued jobs
+arranged behind ten owners with unexpired running leases measured p50/p95/p99
+claim latency of 229/249/291 ms with existing indexes. A temporary ordered
+index measured 240/411/539 ms in one 100-sample run, so it does not justify a
+production schema change. The earlier repeated experiment is retained in the
+[2026-10-18 report](lab-results/2026-10-18-queue-claim-benchmark-a8d0340.md).
+These pathological fixtures support regression comparisons, not production
+throughput promises.
 
 Other measurements cover session validation and job listing at
 [`LOAD_BASELINE_2026-10-02.md`](LOAD_BASELINE_2026-10-02.md), and synthetic HTTP

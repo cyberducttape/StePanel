@@ -27,6 +27,7 @@ type PHPProfile struct {
 	OPcache           bool   `json:"opcache"`
 	DisplayErrors     bool   `json:"display_errors"`
 	ErrorReporting    string `json:"error_reporting"`
+	PreviewToken      string `json:"preview_token,omitempty"`
 	State             string `json:"state,omitempty"`
 	LastError         string `json:"last_error,omitempty"`
 }
@@ -134,7 +135,7 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"site": site, "profile": p, "configured": ok, "versions": installedPHPVersions(), "extensions": []string{"curl", "gd", "intl", "mbstring", "mysqli", "opcache", "zip"}})
 		return
 	}
-	if r.Method != http.MethodPut || !a.Auth.CSRF(r) {
+	if (r.Method != http.MethodPut && r.Method != http.MethodPost) || !a.Auth.CSRF(r) {
 		http.Error(w, "invalid request", 403)
 		return
 	}
@@ -162,6 +163,29 @@ func (a *App) phpRuntime(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "PHP profile mutation cancelled because the mutation lock was lost", http.StatusConflict)
 		return
 	}
+	current, configured := a.PHP.get(access)
+	before := struct {
+		Configured bool       `json:"configured"`
+		Profile    PHPProfile `json:"profile"`
+	}{configured, current}
+	proposed := p
+	proposed.PreviewToken = ""
+	if r.Method == http.MethodPost {
+		preview, err := a.makeChangePreview("php.runtime:"+site, before, proposed,
+			[]string{"Update the site's PHP-FPM pool configuration.", "Restart or reload the site's PHP-FPM service; requests may briefly fail during activation."},
+			[]string{"Restore the previous PHP runtime profile shown in this preview and reapply it.", "If activation fails, StePanel retains the desired profile as pending reconciliation; inspect the PHP-FPM pool and service before retrying."})
+		if err != nil {
+			http.Error(w, "could not create PHP change preview", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, preview)
+		return
+	}
+	if err := changePreviewRequired(p.PreviewToken); err != nil || !a.verifyChangePreview(p.PreviewToken, "php.runtime:"+site, before, proposed) {
+		http.Error(w, "PHP profile changed or its preview expired; generate a new preview", http.StatusConflict)
+		return
+	}
+	p.PreviewToken = ""
 	p.State, p.LastError = "pending", ""
 	if e := a.PHP.save(access, p); e != nil {
 		http.Error(w, "could not persist desired PHP profile", 503)

@@ -5,26 +5,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os/exec"
 	"regexp"
 	"strings"
 
+	"github.com/cyberducttape/StePanel/internal/domainname"
 	stepanelhelper "github.com/cyberducttape/StePanel/internal/helper"
 )
 
 const maxWordPressValue = 4096
 
 var (
-	wordPressThemePattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`)
-	wordPressPluginPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(/[A-Za-z0-9][A-Za-z0-9._-]{0,99})?\.php$`)
-	wordPressDBNamePattern   = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
-	wordPressDBHostPattern   = regexp.MustCompile(`^[A-Za-z0-9_.][A-Za-z0-9_.:/-]{0,254}$`)
-	wordPressDBPrefixPattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
+	wordPressThemePattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`)
+	wordPressPluginPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(/[A-Za-z0-9][A-Za-z0-9._-]{0,99})?\.php$`)
+	wordPressDBNamePattern    = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
+	wordPressDBHostPattern    = regexp.MustCompile(`^[A-Za-z0-9_.][A-Za-z0-9_.:/-]{0,254}$`)
+	wordPressDBPrefixPattern  = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
+	wordPressAdminUserPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,60}$`)
 )
 
 // wordPressReadOnlyActions do not change the site and need no fencing token.
-var wordPressReadOnlyActions = map[string]bool{"status": true, "maintenance-status": true, "option-get": true}
+var wordPressReadOnlyActions = map[string]bool{"status": true, "db-check": true, "maintenance-status": true, "option-get": true, "config-get": true}
 
 // WordPressArgs returns the wp-cli arguments (after --path) for a validated
 // request. It is the single argv builder for the broker and for development
@@ -40,6 +43,25 @@ func WordPressArgs(req *WordPressRequest) ([]string, error) {
 	switch req.Action {
 	case "status":
 		return []string{"core", "version", "--format=json"}, nil
+	case "db-check":
+		return append(skip, "db", "check"), nil
+	case "core-download":
+		return []string{"core", "download"}, nil
+	case "core-install":
+		parsedURL, err := url.Parse(req.URL)
+		if err != nil || parsedURL.Scheme != "https" || !domainname.Valid(parsedURL.Hostname()) || parsedURL.Port() != "" || parsedURL.User != nil || (parsedURL.Path != "" && parsedURL.Path != "/") || parsedURL.RawQuery != "" || parsedURL.Fragment != "" || strings.ContainsAny(req.Title, "\x00\r\n") || strings.TrimSpace(req.Title) == "" || len(req.Title) > 150 {
+			return nil, errors.New("invalid WordPress installation URL or title")
+		}
+		if !wordPressAdminUserPattern.MatchString(req.AdminUser) {
+			return nil, errors.New("invalid WordPress administrator username")
+		}
+		if address, err := mail.ParseAddress(req.AdminEmail); err != nil || address.Address != req.AdminEmail || len(req.AdminEmail) > 254 {
+			return nil, errors.New("invalid WordPress administrator email")
+		}
+		if len(req.Secret) < 20 || len(req.Secret) > 128 || strings.ContainsAny(req.Secret, "\x00\r\n") {
+			return nil, errors.New("invalid WordPress administrator password")
+		}
+		return []string{"core", "install", "--url=" + req.URL, "--title=" + req.Title, "--admin_user=" + req.AdminUser, "--admin_email=" + req.AdminEmail, "--prompt=admin_password", "--skip-email"}, nil
 	case "core-update":
 		return []string{"core", "update"}, nil
 	case "plugin-update-all":
@@ -59,6 +81,11 @@ func WordPressArgs(req *WordPressRequest) ([]string, error) {
 			return nil, errors.New("unsupported WordPress option")
 		}
 		return append(skip, "option", "get", req.Name), nil
+	case "config-get":
+		if req.Name != "DB_NAME" && req.Name != "DB_USER" && req.Name != "DB_HOST" {
+			return nil, errors.New("unsupported WordPress configuration value")
+		}
+		return []string{"config", "get", req.Name}, nil
 	case "option-update":
 		switch req.Name {
 		case "home", "siteurl":
@@ -116,6 +143,19 @@ func WordPressArgs(req *WordPressRequest) ([]string, error) {
 		case "DB_HOST":
 			if !wordPressDBHostPattern.MatchString(req.Value) {
 				return nil, errors.New("invalid WordPress database host")
+			}
+		case "DISALLOW_FILE_EDIT", "FORCE_SSL_ADMIN", "WP_AUTO_UPDATE_CORE", "WP_DEBUG", "WP_DEBUG_DISPLAY":
+			want := "true"
+			if req.Name == "WP_DEBUG" || req.Name == "WP_DEBUG_DISPLAY" {
+				want = "false"
+			}
+			if req.Value != want {
+				return nil, fmt.Errorf("WordPress security constant %s must be %s", req.Name, want)
+			}
+			return []string{"config", "set", req.Name, req.Value, "--type=constant", "--raw"}, nil
+		case "WP_ENVIRONMENT_TYPE":
+			if req.Value != "production" {
+				return nil, errors.New("new WordPress sites must use the production environment type")
 			}
 		default:
 			return nil, errors.New("unsupported WordPress configuration constant")
@@ -185,7 +225,7 @@ func (b *Broker) handleWordPressRequest(ctx context.Context, req *WordPressReque
 		return &Response{OK: false, Error: err.Error()}, nil
 	}
 	switch req.Action {
-	case "status", "core-update", "plugin-update-all", "theme-update-all", "cron-run-due", "maintenance-activate", "maintenance-deactivate", "maintenance-status", "option-get", "option-update", "search-replace", "rewrite-flush", "cache-flush", "config-create", "config-set", "config-set-password":
+	case "status", "db-check", "core-download", "core-install", "core-update", "plugin-update-all", "theme-update-all", "cron-run-due", "maintenance-activate", "maintenance-deactivate", "maintenance-status", "option-get", "config-get", "option-update", "search-replace", "rewrite-flush", "cache-flush", "config-create", "config-set", "config-set-password":
 	default:
 		return &Response{OK: false, Error: "unsupported WordPress action"}, nil
 	}

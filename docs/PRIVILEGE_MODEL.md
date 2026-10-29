@@ -46,8 +46,9 @@ deploy/integrations/stepanel-{site,app,db,vhost,proxy,git,runner}ctl, stepanel-c
 Commands that load a site's own code run as that site's isolated account, never
 as root or `stepanel`. WordPress is the main case: wp-cli executes
 `wp-config.php` and WordPress core from the site tree. The typed `wordpress`
-request names one operation (maintenance mode, option update, search-replace,
-`wp-config.php` settings, updates). The broker builds the wp-cli arguments
+request names one operation (core download and install, database integrity
+check, maintenance mode, option update, search-replace, `wp-config.php`
+settings, and updates). The broker builds the wp-cli arguments
 from fixed patterns, so uploaded archive metadata cannot become wp-cli options
 such as `--exec` or `--require`. `stepanel-appctl wp` then runs the fixed
 `/usr/local/bin/wp` against the site's `public` directory through

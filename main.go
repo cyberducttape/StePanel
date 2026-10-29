@@ -637,7 +637,7 @@ func Main() {
 				failures = append(failures, err)
 			}
 		}
-		recoveryFailures := recoverUncleanShutdown(cfg, siteManager, app.acquireSiteMutationLockContext, app.Resources)
+		recoveryFailures := recoverUncleanShutdownWithRoutes(cfg, siteManager, app.acquireSiteMutationLockContext, app.Routes, app.Resources)
 		for _, quarantined := range quarantinedJournals(errors.Join(recoveryFailures...)) {
 			app.observeStateError(state.NewCorruptionError("recovery_journal", quarantined.cause, "quarantined "+filepath.Base(quarantined.dir)))
 		}
@@ -1059,7 +1059,9 @@ func (a *App) inspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not persist upload", 500)
 		return
 	}
-	writeJSON(w, 200, info.response(uploadID))
+	preview := info.response(uploadID)
+	preview.Compatibility = cpmoveCompatibilityChecks(a.Config, info)
+	writeJSON(w, 200, preview)
 }
 
 type durableCPMoveRequest struct {
@@ -1084,9 +1086,10 @@ type durableBackupRequest struct {
 }
 
 type durableCertificateRequest struct {
-	Domain string `json:"domain"`
-	Email  string `json:"email"`
-	Actor  string `json:"actor"`
+	Domain string                     `json:"domain"`
+	Email  string                     `json:"email"`
+	Actor  string                     `json:"actor"`
+	Before certificateLineageSnapshot `json:"before"`
 }
 
 type durableWPressRequest struct {
@@ -1153,14 +1156,49 @@ func (a *App) handleCPMoveJob(ctx context.Context, item Job) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	reportStarted := time.Now().UTC()
 	a.Metrics.RestoreStarted()
-	result, restoreErr := restoreCPMoveArchiveContext(operationCtx, a.Config, upload.Path, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs, a.capacityLedger())
+	result, restoreErr := restoreCPMoveArchiveContextWithApp(operationCtx, a.Config, upload.Path, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, access, request.RestoreDBs, a, a.capacityLedger())
+	result.SourceArchive = request.Filename
+	result.ArchiveSHA256 = upload.SHA256
+	result.ArchiveBytes = upload.Size
+	result.ExpandedBytes = upload.ExpandedBytes
+	result.StartedAt = reportStarted
+	result.FinishedAt = time.Now().UTC()
+	result.ReportCreatedAt = result.FinishedAt
+	result.DatabaseRestoreRequested = request.RestoreDBs
 	a.Metrics.RestoreFinished(restoreErr)
 	if restoreErr != nil {
 		intent.Failed(restoreErr.Error())
-		return nil, restoreErr
+		if reportFile, openErr := os.Open(upload.Path); openErr == nil {
+			info, inspectErr := inspectCPMove(reportFile, &multipart.FileHeader{Filename: request.Filename, Size: request.Size}, a.Config.MaxEntries)
+			_ = reportFile.Close()
+			if inspectErr == nil {
+				result.Compatibility = cpmoveCompatibilityChecks(a.Config, info)
+				result.Evidence = buildCPMoveMigrationEvidence(info, result, request.RestoreDBs, cpmoveDomainPlan{}, nil)
+				for i := range result.Evidence {
+					result.Evidence[i].Status = "failed"
+					result.Evidence[i].Disposition = MigrationFailed
+					if result.Evidence[i].Category == "dns" || result.Evidence[i].Category == "cron_jobs" {
+						result.Evidence[i].Disposition = MigrationUnsupported
+					}
+				}
+				result.Rehearsal = &MigrationRehearsal{Status: "skipped", Details: "Application rehearsal did not run because the import did not complete."}
+				result.ReportCreatedAt = time.Now().UTC()
+				result.Components, result.OmittedComponentCount = buildMigrationComponents(info, result, request.RestoreDBs, restoreErr)
+			}
+		}
+		partial, marshalErr := json.Marshal(result)
+		if marshalErr != nil {
+			return nil, restoreErr
+		}
+		return partial, restoreErr
 	}
-	intent.Completed(result.StagedAt)
+	completionDetail := result.StagedAt
+	if result.Rehearsal != nil {
+		completionDetail += "; application rehearsal=" + result.Rehearsal.Status
+	}
+	intent.Completed(completionDetail)
 	removeUpload = true
 
 	// Invalidate metadata caches after successful site restore
@@ -1277,6 +1315,10 @@ func (a *App) handleCertificateJob(ctx context.Context, item Job) ([]byte, error
 	}
 	if !domainname.Valid(request.Domain) || request.Email == "" || request.Actor == "" {
 		return nil, errors.New("invalid durable certificate job payload")
+	}
+	lineage, err := certificateLineageState(request.Domain)
+	if err != nil || lineage != request.Before {
+		return nil, errors.New("certificate lineage changed after preview and before execution")
 	}
 	certificateCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()

@@ -1,7 +1,10 @@
 package stepanel
 
 import (
+	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -81,6 +84,97 @@ func TestCPMoveMigrationEvidenceReportsDomainPlacementFailure(t *testing.T) {
 		return
 	}
 	t.Fatal("domain placement evidence is missing")
+}
+
+func TestCPMoveComponentReportUsesExplicitDispositionForEachItem(t *testing.T) {
+	info := CPMoveInfo{User: "source", HasHome: true, Databases: []string{"wpdb"}, Mailboxes: []string{"example.test/alice"}, DNSZones: []string{"example.test"}, CronSchedules: []string{"0 2 * * *"}}
+	result := ImportResult{User: "destination", FilesRestored: true, DatabasesRestored: []string{"destination_wpdb"}, MailStaged: true, Domains: []ImportedDomain{{Domain: "shop.example.test", Site: "shop"}}}
+	result.Evidence = []MigrationEvidence{{Category: "domains", SourceItems: []string{"shop.example.test"}}}
+	components, omitted := buildMigrationComponents(info, result, true, nil)
+	if omitted != 0 {
+		t.Fatalf("unexpected omitted components: %d", omitted)
+	}
+	want := map[string]MigrationDisposition{
+		"account:source":                      MigrationTransformed,
+		"website_files:cPanel home directory": MigrationImported,
+		"databases:wpdb":                      MigrationTransformed,
+		"mailboxes:example.test/alice":        MigrationTransformed,
+		"domains:shop.example.test":           MigrationTransformed,
+		"dns:example.test":                    MigrationUnsupported,
+		"cron_jobs:0 2 * * *":                 MigrationUnsupported,
+	}
+	for _, component := range components {
+		key := component.Category + ":" + component.Source
+		if got, ok := want[key]; ok {
+			if component.Disposition != got {
+				t.Errorf("%s disposition = %q, want %q", key, component.Disposition, got)
+			}
+			delete(want, key)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing component dispositions: %#v; report %#v", want, components)
+	}
+}
+
+func TestCPMoveCompatibilityFlagsUnsupportedDatabaseEngineAndCutover(t *testing.T) {
+	checks := cpmoveCompatibilityChecks(Config{DBEngine: "postgresql"}, CPMoveInfo{Entries: 4, ExpandedBytes: 1024, Databases: []string{"wpdb"}, DNSZones: []string{"example.test"}})
+	byName := make(map[string]MigrationCheck, len(checks))
+	for _, check := range checks {
+		byName[check.Name] = check
+	}
+	if byName["Database engine"].Status != "blocked" || byName["DNS and scheduled tasks"].Status != "warning" || byName["Application compatibility"].Status != "unknown" {
+		t.Fatalf("compatibility checks = %#v", checks)
+	}
+}
+
+func TestFailedCPMoveDoesNotClaimRolledBackDataWasImported(t *testing.T) {
+	info := CPMoveInfo{User: "alice", HasHome: true, Databases: []string{"wp"}, Mailboxes: []string{"example.test/alice"}}
+	result := ImportResult{User: "alice", FilesRestored: true, DatabasesRestored: []string{"alice_wp"}, MailStaged: true}
+	components, omitted := buildMigrationComponents(info, result, true, errors.New("injected post-activation failure"))
+	if omitted != 0 {
+		t.Fatalf("unexpected omitted components: %d", omitted)
+	}
+	for _, component := range components {
+		if component.Category == "website_files" || component.Category == "databases" || component.Category == "mailboxes" {
+			if component.Disposition != MigrationFailed {
+				t.Errorf("%s disposition = %q after failed import, want failed", component.Category, component.Disposition)
+			}
+		}
+	}
+}
+
+func TestCPMovePreviewAndReportBoundLargeComponentInventories(t *testing.T) {
+	info := CPMoveInfo{Databases: make([]string, maxMigrationEvidenceItems+12)}
+	for i := range info.Databases {
+		info.Databases[i] = fmt.Sprintf("db_%03d", i)
+	}
+	preview := previewCPMoveComponents(info)
+	if len(preview) != maxMigrationEvidenceItems+2 {
+		t.Fatalf("preview has %d entries, want bounded database rows plus file summary", len(preview))
+	}
+	result := ImportResult{User: "alice", DatabasesRestored: append([]string(nil), info.Databases...)}
+	components, omitted := buildMigrationComponents(info, result, true, nil)
+	if omitted != 12 {
+		t.Fatalf("omitted components = %d, want 12", omitted)
+	}
+	databaseRows, summaries := 0, 0
+	for _, component := range components {
+		if component.Category != "databases" {
+			continue
+		}
+		if strings.Contains(component.Source, "additional items") {
+			summaries++
+			if component.Disposition != MigrationTransformed {
+				t.Errorf("omitted database summary disposition = %q", component.Disposition)
+			}
+		} else {
+			databaseRows++
+		}
+	}
+	if databaseRows != maxMigrationEvidenceItems || summaries != 1 {
+		t.Fatalf("database report rows=%d summaries=%d", databaseRows, summaries)
+	}
 }
 
 func TestCronScheduleReportsOnlyScheduleSyntax(t *testing.T) {

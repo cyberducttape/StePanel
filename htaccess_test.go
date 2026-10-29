@@ -68,6 +68,9 @@ func TestHTAccessApplyUsesCaddyHelper(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(webRoot, "sites", "demo", "public"), 0750); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "vhosts"), 0750); err != nil {
+		t.Fatal(err)
+	}
 	inputPath := filepath.Join(root, "helper-input")
 	argsPath := filepath.Join(root, "helper-args")
 	helper := filepath.Join(root, "vhostctl")
@@ -77,16 +80,28 @@ func TestHTAccessApplyUsesCaddyHelper(t *testing.T) {
 	}
 	t.Setenv("TEST_ARGS", argsPath)
 	t.Setenv("TEST_INPUT", inputPath)
-	app := &App{Config: Config{WebServer: "caddy", WebRoot: webRoot, VHostCtl: helper}, Auth: Auth{}}
-	body, err := json.Marshal(htaccessRequest{Site: "demo", Domain: "demo.example.test", Content: wordpressHTAccess, Action: "apply"})
+	app := &App{Config: Config{WebServer: "caddy", WebRoot: webRoot, VHostRoot: filepath.Join(root, "vhosts"), VHostCtl: helper}, Auth: Auth{}}
+	body, err := json.Marshal(htaccessRequest{Site: "demo", Domain: "demo.example.test", Content: wordpressHTAccess, Action: "preview"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/caddy/htaccess", bytes.NewReader(body))
+	previewResponse := httptest.NewRecorder()
+	app.htaccessMigration(previewResponse, httptest.NewRequest(http.MethodPost, "/api/caddy/htaccess", bytes.NewReader(body)))
+	if previewResponse.Code != http.StatusOK {
+		t.Fatalf("preview status = %d, body = %s", previewResponse.Code, previewResponse.Body.String())
+	}
+	var preview htaccessConversion
+	if err := json.Unmarshal(previewResponse.Body.Bytes(), &preview); err != nil || preview.PreviewToken == "" {
+		t.Fatalf("invalid web-server preview %#v: %v", preview, err)
+	}
+	applyBody, err := json.Marshal(htaccessRequest{Site: "demo", Domain: "demo.example.test", Content: wordpressHTAccess, Action: "apply", PreviewToken: preview.PreviewToken})
+	if err != nil {
+		t.Fatal(err)
+	}
 	response := httptest.NewRecorder()
-	app.htaccessMigration(response, request)
+	app.htaccessMigration(response, httptest.NewRequest(http.MethodPost, "/api/caddy/htaccess", bytes.NewReader(applyBody)))
 	if response.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+		t.Fatalf("apply status = %d, body = %s", response.Code, response.Body.String())
 	}
 	assertTestFile(t, argsPath, "import-htaccess demo demo.example.test\n")
 	data, err := os.ReadFile(inputPath)

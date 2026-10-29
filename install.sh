@@ -347,6 +347,28 @@ done
 echo "  unix login accounts (uid >= 1000): $(awk -F: '$3 >= 1000 && $3 < 65534' /etc/passwd | wc -l)"
 echo "PROPOSED CHANGES:"
 echo "  INSTALL packages: php php-cli php-fpm $DB_PHP_PACKAGE php-curl php-mbstring php-xml acl quota e2fsprogs xfsprogs tar gzip ca-certificates openssl git util-linux sudo logrotate $PROCPS_PACKAGE $WEB_PACKAGE $DB_PACKAGE"
+db_installed_version=not-installed
+db_candidate_version=unknown
+db_plan_package=$DB_PACKAGE
+if [[ "$DB_ENGINE" == postgresql && "$PKG" == apt ]]; then db_plan_package=postgresql; fi
+if [[ "$PKG" == apt ]]; then
+  db_installed_version=$(dpkg-query -W -f='${Version}' "$db_plan_package" 2>/dev/null || true)
+  db_installed_version=${db_installed_version:-not-installed}
+  db_candidate_version=$(apt-cache policy "$db_plan_package" 2>/dev/null | awk '$1 == "Candidate:" {print $2; exit}')
+else
+  db_installed_version=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}' "$db_plan_package" 2>/dev/null || true)
+  db_installed_version=${db_installed_version:-not-installed}
+  if command -v dnf >/dev/null 2>&1; then
+    db_candidate_version=$(dnf repoquery --latest-limit=1 --qf '%{version}-%{release}.%{arch}' "$db_plan_package" 2>/dev/null | head -n 1 || true)
+  fi
+fi
+db_candidate_version=${db_candidate_version:-unknown}
+if [[ "$DB_VERSION" == default ]]; then db_requested_version="package-manager default ($db_candidate_version)"; else db_requested_version=$DB_VERSION; fi
+echo "  DATABASE CHANGE PLAN: engine=$DB_ENGINE package=$db_plan_package installed=$db_installed_version requested=$db_requested_version"
+echo "  DATABASE RECOVERY PLAN: take and verify an engine-native backup before any server package or major-version change; installer rollback restores StePanel control-plane state, not customer database files or engine data directories"
+if [[ -f "$ENV_FILE" ]]; then
+  echo "  CONTROL-PLANE RECOVERY: installer snapshots the SQLite control-plane database before schema migration; see docs/STATE.md for restore and rollback steps"
+fi
 if [[ "$PKG" == "dnf" ]] && command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
   echo '  INSTALL SELinux policy tools: policycoreutils-python-utils'
 fi

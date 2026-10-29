@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -34,9 +36,12 @@ func BenchmarkClaimNextQueueDepth(b *testing.B) {
 
 				b.ReportMetric(float64(depth), "queued")
 				b.ReportMetric(float64(claimBenchmarkStalledOwners), "stalled_owners")
+				latencies := make([]time.Duration, 0, b.N)
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
+					started := time.Now()
 					claimed, ok, err := jobs.ClaimNext("claim-benchmark-worker", "site.backup")
+					latencies = append(latencies, time.Since(started))
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -53,8 +58,60 @@ func BenchmarkClaimNextQueueDepth(b *testing.B) {
 					}
 					b.StartTimer()
 				}
+				b.StopTimer()
+				sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+				b.ReportMetric(float64(benchmarkPercentile(latencies, 50).Microseconds()), "p50_claim_µs")
+				b.ReportMetric(float64(benchmarkPercentile(latencies, 95).Microseconds()), "p95_claim_µs")
+				b.ReportMetric(float64(benchmarkPercentile(latencies, 99).Microseconds()), "p99_claim_µs")
+				reportBenchmarkWAL(b, db)
 			})
 		}
+	}
+}
+
+func benchmarkPercentile(samples []time.Duration, percentile int) time.Duration {
+	if len(samples) == 0 {
+		return 0
+	}
+	index := (len(samples)*percentile+99)/100 - 1
+	return samples[min(index, len(samples)-1)]
+}
+
+// reportBenchmarkWAL records a passive checkpoint after timing stops. These
+// are end-of-sample diagnostics, not checkpoint latency under a sustained
+// production workload.
+func reportBenchmarkWAL(b *testing.B, db *sql.DB) {
+	b.Helper()
+	started := time.Now()
+	var busy, frames, checkpointed int
+	if err := db.QueryRow(`PRAGMA wal_checkpoint(PASSIVE)`).Scan(&busy, &frames, &checkpointed); err != nil {
+		b.Fatalf("passive WAL checkpoint: %v", err)
+	}
+	b.ReportMetric(float64(time.Since(started).Microseconds()), "passive_checkpoint_µs")
+	b.ReportMetric(float64(busy), "checkpoint_busy")
+	b.ReportMetric(float64(max(frames-checkpointed, 0)), "wal_frames_remaining")
+	rows, err := db.Query(`PRAGMA database_list`)
+	if err != nil {
+		b.Fatalf("list benchmark databases: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sequence int
+		var name, path string
+		if err := rows.Scan(&sequence, &name, &path); err != nil {
+			b.Fatalf("read benchmark database path: %v", err)
+		}
+		if name == "main" && path != "" {
+			if info, err := os.Stat(path + "-wal"); err == nil {
+				b.ReportMetric(float64(info.Size()), "wal_bytes_after_checkpoint")
+			} else if !os.IsNotExist(err) {
+				b.Fatalf("stat benchmark WAL: %v", err)
+			}
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		b.Fatalf("read benchmark database list: %v", err)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -46,6 +47,7 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 	mux.Handle("/api/ssh/action", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.sshAction)), http.MethodPost))
 	mux.Handle("/api/security/scan", allowMethods(a.Auth.RequireAdministrator(a.limitConcurrentResource(http.HandlerFunc(a.malwareScan), "malware_scan")), http.MethodPost))
 	mux.Handle("/api/certificates/issue", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.issueCertificate)), http.MethodPost))
+	mux.Handle("/api/certificates/preview", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.issueCertificate)), http.MethodPost))
 	mux.Handle("/api/node/versions", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.nodeVersions)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/node/select", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.selectNode)), http.MethodPost))
 	mux.Handle("/api/node/tooling", allowMethods(a.Auth.Require(a.siteOperation("node.tooling")), http.MethodPost))
@@ -72,18 +74,22 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 	mux.Handle("/api/python/deploy", allowMethods(a.Auth.Require(a.siteOperation("python.deploy")), http.MethodPost))
 	mux.Handle("/api/python/", allowMethods(a.Auth.Require(http.HandlerFunc(a.pythonAction)), http.MethodPost))
 	mux.Handle("/api/composer/", allowMethods(a.Auth.Require(a.siteOperation("composer.install")), http.MethodGet, http.MethodHead, http.MethodPost))
-	mux.Handle("/api/sites/php/", allowMethods(a.Auth.Require(http.HandlerFunc(a.phpRuntime)), http.MethodGet, http.MethodHead, http.MethodPut))
+	mux.Handle("/api/sites/php/", allowMethods(a.Auth.Require(http.HandlerFunc(a.phpRuntime)), http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut))
 	mux.Handle("/api/sites/resources/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteResources)), http.MethodGet, http.MethodHead, http.MethodPut))
 	mux.Handle("/api/sites/usage/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteUsage)), http.MethodGet, http.MethodHead))
+	mux.Handle("/api/sites/diagnostics/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteDiagnostics)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/files/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteFiles)), http.MethodGet, http.MethodHead, http.MethodPut, http.MethodPost))
 	mux.Handle("/api/reconcile/resources", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.reconcileResources)), http.MethodPost))
 	mux.Handle("/api/reconcile/tasks", allowMethods(a.Auth.RequireAdministrator(http.HandlerFunc(a.reconcileTasksHTTP)), http.MethodPost))
 	mux.Handle("/api/staging", allowMethods(a.Auth.Require(a.siteOperation("staging.create")), http.MethodPost))
+	mux.Handle("/api/staging/promote/preview", allowMethods(a.Auth.Require(http.HandlerFunc(a.stagingPromotionPreview)), http.MethodPost))
+	mux.Handle("/api/staging/promote", allowMethods(a.Auth.Require(a.siteOperation("staging.promote")), http.MethodPost))
 	mux.Handle("/api/runner/build", allowMethods(a.Auth.Require(a.siteOperation("runner.build")), http.MethodPost))
 	mux.Handle("/api/deployments", allowMethods(a.Auth.Require(http.HandlerFunc(a.deployments)), http.MethodGet, http.MethodHead, http.MethodPost))
 	mux.Handle("/api/deployments/run", allowMethods(a.Auth.Require(a.siteOperation("release.pipeline")), http.MethodPost))
 	mux.Handle("/api/sites/logs/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteLogs)), http.MethodGet, http.MethodHead))
 	mux.Handle("/api/sites/deploy", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteDeploy)), http.MethodPost))
+	mux.Handle("/api/sites/route-delete-preview", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteRouteDeletePreview)), http.MethodPost))
 	mux.Handle("/api/sites/domains/claim", allowMethods(a.Auth.Require(http.HandlerFunc(a.domainClaim)), http.MethodPost))
 	mux.Handle("/api/sites/domains/verify", allowMethods(a.Auth.Require(http.HandlerFunc(a.domainVerify)), http.MethodPost))
 	mux.Handle("/api/sites/", allowMethods(a.Auth.Require(http.HandlerFunc(a.siteManage)), http.MethodDelete))
@@ -154,5 +160,17 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 		metricsHandler = a.Auth.RequireAdministrator(metricsHandler)
 	}
 	mux.Handle("/metrics", allowMethods(metricsHandler, http.MethodGet, http.MethodHead))
+	// /api/v1 is the stable automation namespace. The dashboard's existing
+	// /api paths remain compatible and route to the same handlers and policies.
+	mux.Handle("/api/v1/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-StePanel-API-Version", "v1")
+		clone := r.Clone(r.Context())
+		clone.Pattern = ""
+		urlCopy := *r.URL
+		urlCopy.Path = "/api" + strings.TrimPrefix(r.URL.Path, "/api/v1")
+		urlCopy.RawPath = ""
+		clone.URL = &urlCopy
+		mux.ServeHTTP(w, clone)
+	}))
 	return mux
 }
