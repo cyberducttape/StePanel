@@ -10,11 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Prometheus now reports the presence and age of successful application-level
   recovery proofs for scheduled sites, along with the configured freshness
-  window and proof-inventory availability. A newer failed application
-  rehearsal clears the passing signal. Alerts distinguish missing or failed
-  latest proofs, stale proofs, and unavailable recovery history; archive-only
-  verification is not represented as application recovery evidence. Regression
-  coverage exercises failed, archive-only, and subsequent passing attempts.
+  window and proof-inventory availability. Durable rehearsal records now
+  distinguish an attempted application proof from the level actually proven,
+  so a newer failed attempt clears the passing signal while an unsupported or
+  skipped proof does not. Alerts distinguish missing or failed latest proofs,
+  stale proofs, and unavailable recovery history; archive-only verification is
+  not represented as application recovery evidence. Regression coverage
+  exercises a failed proof through the rehearsal job, archive-only runs, and
+  subsequent passing attempts.
 
 - Site resource views now show live systemd-slice memory, task count, cumulative
   CPU time, PHP-FPM active/idle/queued workers, slow-request counters, and

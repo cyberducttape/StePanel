@@ -196,6 +196,9 @@ the latest application-level rehearsal passed, and
 `stepanel_recovery_application_proof_age_seconds` reports its age.
 Archive-only rehearsals do not count; a newer failed application rehearsal
 clears the passing-proof signal until a later application rehearsal passes.
+The durable history records whether application proof actually ran separately
+from the highest level verified, so an unsupported or intentionally skipped
+proof does not masquerade as a failed application attempt.
 The freshness threshold is exposed as
 `stepanel_recovery_rehearsal_max_age_seconds` and is twice
 `STEPANEL_REHEARSAL_INTERVAL_HOURS`, matching the recovery-status policy.

@@ -169,6 +169,29 @@ func TestApplicationRecoveryProofRaisesRehearsalLevel(t *testing.T) {
 	}
 }
 
+func TestFailedApplicationProofIsRecordedAsAttemptWithoutOverclaimingLevel(t *testing.T) {
+	f := newRecoveryFixture(t)
+	proof := filepath.Join(t.TempDir(), "recovery-proof-fail")
+	if err := os.WriteFile(proof, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	f.app.Config.RecoveryProofCommand = proof
+	if err := f.rehearse(t, context.Background(), durableBackupRehearsalRequest{Site: "account", Backup: f.backup, Actor: "admin"}); err == nil {
+		t.Fatal("failing application proof passed")
+	}
+	latest, err := f.app.Recovery.Latest(context.Background(), "account")
+	if err != nil || latest == nil {
+		t.Fatalf("latest rehearsal = %+v, %v", latest, err)
+	}
+	if !latest.ApplicationProofAttempted || latest.Level != recovery.LevelArchive || latest.Outcome != recovery.OutcomeFailed {
+		t.Fatalf("failed proof evidence overclaims or omits attempt: %+v", latest)
+	}
+	proofs, err := f.app.Recovery.LatestApplicationProofs(context.Background())
+	if err != nil || len(proofs) != 0 {
+		t.Fatalf("failed proof remains advertised as passing: %v, %v", proofs, err)
+	}
+}
+
 func TestUnsignedBackupDegradesVerifiedRecovery(t *testing.T) {
 	root := t.TempDir()
 	webRoot := filepath.Join(root, "www")

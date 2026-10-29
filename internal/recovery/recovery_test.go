@@ -67,6 +67,7 @@ func TestLatestApplicationProofsRequireLatestApplicationAttemptToPass(t *testing
 	ctx := context.Background()
 	applicationPass := rehearsal("demo", "app-pass", OutcomePassed, base)
 	applicationPass.Level = LevelApplication
+	applicationPass.ApplicationProofAttempted = true
 	archiveFailure := rehearsal("demo", "archive-fail", OutcomeFailed, base.Add(time.Hour))
 	if err := store.Record(ctx, applicationPass); err != nil {
 		t.Fatal(err)
@@ -80,7 +81,7 @@ func TestLatestApplicationProofsRequireLatestApplicationAttemptToPass(t *testing
 	}
 
 	applicationFailure := rehearsal("demo", "app-fail", OutcomeFailed, base.Add(2*time.Hour))
-	applicationFailure.Level = LevelApplication
+	applicationFailure.ApplicationProofAttempted = true
 	if err := store.Record(ctx, applicationFailure); err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +92,7 @@ func TestLatestApplicationProofsRequireLatestApplicationAttemptToPass(t *testing
 
 	applicationPass = rehearsal("demo", "app-pass-again", OutcomePassed, base.Add(3*time.Hour))
 	applicationPass.Level = LevelApplication
+	applicationPass.ApplicationProofAttempted = true
 	if err := store.Record(ctx, applicationPass); err != nil {
 		t.Fatal(err)
 	}

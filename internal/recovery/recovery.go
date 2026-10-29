@@ -66,22 +66,23 @@ type Phase struct {
 
 // Rehearsal is one recorded attempt to recover a backup.
 type Rehearsal struct {
-	ID              int64     `json:"id"`
-	Site            string    `json:"site"`
-	Backup          string    `json:"backup"`
-	BackupCreatedAt time.Time `json:"backup_created_at"`
-	Trigger         Trigger   `json:"trigger"`
-	Level           Level     `json:"level"`
-	Outcome         Outcome   `json:"outcome"`
-	StartedAt       time.Time `json:"started_at"`
-	FinishedAt      time.Time `json:"finished_at"`
-	DurationMS      int64     `json:"duration_ms"`
-	Phases          []Phase   `json:"phases,omitempty"`
-	Error           string    `json:"error,omitempty"`
-	Encrypted       bool      `json:"encrypted"`
-	FilesRestored   int       `json:"files_restored"`
-	BytesRestored   int64     `json:"bytes_restored"`
-	Databases       []string  `json:"databases,omitempty"`
+	ID                        int64     `json:"id"`
+	Site                      string    `json:"site"`
+	Backup                    string    `json:"backup"`
+	BackupCreatedAt           time.Time `json:"backup_created_at"`
+	Trigger                   Trigger   `json:"trigger"`
+	Level                     Level     `json:"level"`
+	Outcome                   Outcome   `json:"outcome"`
+	ApplicationProofAttempted bool      `json:"application_proof_attempted,omitempty"`
+	StartedAt                 time.Time `json:"started_at"`
+	FinishedAt                time.Time `json:"finished_at"`
+	DurationMS                int64     `json:"duration_ms"`
+	Phases                    []Phase   `json:"phases,omitempty"`
+	Error                     string    `json:"error,omitempty"`
+	Encrypted                 bool      `json:"encrypted"`
+	FilesRestored             int       `json:"files_restored"`
+	BytesRestored             int64     `json:"bytes_restored"`
+	Databases                 []string  `json:"databases,omitempty"`
 }
 
 // historyPerSite bounds stored rehearsals; older ones are pruned on write.
@@ -96,13 +97,14 @@ const Schema = `CREATE TABLE IF NOT EXISTS recovery_rehearsals (
     trigger TEXT NOT NULL,
     level TEXT NOT NULL,
     outcome TEXT NOT NULL,
+    application_attempted INTEGER NOT NULL DEFAULT 0 CHECK (application_attempted IN (0, 1)),
     started_at INTEGER NOT NULL,
     finished_at INTEGER NOT NULL,
     duration_ms INTEGER NOT NULL,
     detail BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS recovery_rehearsals_site_idx ON recovery_rehearsals(site, started_at DESC, id DESC);
-CREATE INDEX IF NOT EXISTS recovery_rehearsals_application_proof_idx ON recovery_rehearsals(site, level, started_at DESC, id DESC);`
+CREATE INDEX IF NOT EXISTS recovery_rehearsals_application_proof_idx ON recovery_rehearsals(site, application_attempted, started_at DESC, id DESC);`
 
 // Store persists rehearsal history in the control-plane database.
 type Store struct {
@@ -141,8 +143,8 @@ func (s *Store) Record(ctx context.Context, r Rehearsal) error {
 		return fmt.Errorf("begin rehearsal record: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO recovery_rehearsals (site, backup, backup_created_at, trigger, level, outcome, started_at, finished_at, duration_ms, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Site, r.Backup, unixNanoOrZero(r.BackupCreatedAt), string(r.Trigger), string(r.Level), string(r.Outcome), r.StartedAt.UTC().UnixNano(), r.FinishedAt.UTC().UnixNano(), r.DurationMS, data); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO recovery_rehearsals (site, backup, backup_created_at, trigger, level, outcome, application_attempted, started_at, finished_at, duration_ms, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Site, r.Backup, unixNanoOrZero(r.BackupCreatedAt), string(r.Trigger), string(r.Level), string(r.Outcome), boolInt(r.ApplicationProofAttempted), r.StartedAt.UTC().UnixNano(), r.FinishedAt.UTC().UnixNano(), r.DurationMS, data); err != nil {
 		return fmt.Errorf("insert rehearsal: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM recovery_rehearsals WHERE site = ? AND id NOT IN (SELECT id FROM recovery_rehearsals WHERE site = ? ORDER BY started_at DESC, id DESC LIMIT ?)`, r.Site, r.Site, historyPerSite); err != nil {
@@ -163,14 +165,22 @@ func unixNanoOrZero(t time.Time) int64 {
 	return t.UTC().UnixNano()
 }
 
-const rehearsalColumns = `id, site, backup, backup_created_at, trigger, level, outcome, started_at, finished_at, duration_ms, detail`
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+const rehearsalColumns = `id, site, backup, backup_created_at, trigger, level, outcome, application_attempted, started_at, finished_at, duration_ms, detail`
 
 func scanRehearsal(row interface{ Scan(...any) error }) (Rehearsal, error) {
 	var r Rehearsal
 	var backupCreated, started, finished int64
+	var applicationAttempted int
 	var trigger, level, outcome string
 	var data []byte
-	if err := row.Scan(&r.ID, &r.Site, &r.Backup, &backupCreated, &trigger, &level, &outcome, &started, &finished, &r.DurationMS, &data); err != nil {
+	if err := row.Scan(&r.ID, &r.Site, &r.Backup, &backupCreated, &trigger, &level, &outcome, &applicationAttempted, &started, &finished, &r.DurationMS, &data); err != nil {
 		return Rehearsal{}, err
 	}
 	var d detail
@@ -183,6 +193,7 @@ func scanRehearsal(row interface{ Scan(...any) error }) (Rehearsal, error) {
 	r.StartedAt = time.Unix(0, started).UTC()
 	r.FinishedAt = time.Unix(0, finished).UTC()
 	r.Trigger, r.Level, r.Outcome = Trigger(trigger), Level(level), Outcome(outcome)
+	r.ApplicationProofAttempted = applicationAttempted != 0
 	r.Phases, r.Error, r.Encrypted, r.FilesRestored, r.BytesRestored, r.Databases = d.Phases, d.Error, d.Encrypted, d.FilesRestored, d.BytesRestored, d.Databases
 	return r, nil
 }
@@ -197,17 +208,17 @@ func (s *Store) LatestPassed(ctx context.Context, site string) (*Rehearsal, erro
 	return s.one(ctx, `SELECT `+rehearsalColumns+` FROM recovery_rehearsals WHERE site = ? AND outcome = 'passed' ORDER BY started_at DESC, id DESC LIMIT 1`, site)
 }
 
-// LatestApplicationProofs returns a site's latest application-level rehearsal
-// only when that latest attempt passed. A newer failed application rehearsal
-// therefore invalidates the previously successful proof for operational
-// alerting. Archive-only rehearsals do not count as application proofs.
+// LatestApplicationProofs returns a site's latest attempted application proof
+// only when that attempt passed. A newer failed attempt invalidates a previous
+// proof; archive-only rehearsals and unsupported/skipped application proofs do
+// not count as attempts.
 func (s *Store) LatestApplicationProofs(ctx context.Context) (map[string]time.Time, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT r.site, r.finished_at
 		FROM recovery_rehearsals AS r
-		WHERE r.level='application' AND r.outcome='passed'
+		WHERE r.application_attempted=1 AND r.level='application' AND r.outcome='passed'
 		AND NOT EXISTS (
 			SELECT 1 FROM recovery_rehearsals AS newer
-			WHERE newer.site=r.site AND newer.level='application'
+			WHERE newer.site=r.site AND newer.application_attempted=1
 			AND (newer.started_at > r.started_at OR (newer.started_at = r.started_at AND newer.id > r.id))
 		)`)
 	if err != nil {

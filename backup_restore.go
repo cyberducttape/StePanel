@@ -475,6 +475,7 @@ func (a *App) rehearseBackupArchive(operationCtx context.Context, request durabl
 	}
 	run.end("validate")
 	if command := strings.TrimSpace(a.Config.RecoveryProofCommand); command != "" {
+		run.record.ApplicationProofAttempted = true
 		run.begin()
 		proofCtx, cancel := context.WithTimeout(operationCtx, 15*time.Minute)
 		proof := exec.CommandContext(proofCtx, command, request.Site, stage)
@@ -493,9 +494,11 @@ func (a *App) rehearseBackupArchive(operationCtx context.Context, request durabl
 		case errors.Is(proofErr, errRecoveryProofUnsupported):
 			result.ApplicationProofSkipped = proofErr.Error()
 		case proofErr != nil:
+			run.record.ApplicationProofAttempted = true
 			return backupRehearsalResult{}, fmt.Errorf("WordPress application recovery proof failed: %w", proofErr)
 		default:
 			run.end("application-proof")
+			run.record.ApplicationProofAttempted = true
 			run.record.Level = recovery.LevelApplication
 			result.ApplicationProof = &proof
 		}
