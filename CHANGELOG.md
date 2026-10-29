@@ -85,6 +85,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Reconcile the current exact-source installed-host smoke with the production
+  gate's supported-runtime evidence and record the successful local `make
+  check` result. The evidence report distinguishes the one passing
+  AlmaLinux 9/Caddy/MariaDB run from the still-open six-host current-source,
+  repeated recovery, physical power-loss, ENOSPC, and capacity-certification
+  gates.
 - The installed Caddy security smoke now creates document-root symlinks as the
   actual site account before requesting them over HTTPS, so the no-follow
   document-root boundary is exercised against tenant-created links rather than
