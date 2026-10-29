@@ -641,6 +641,7 @@ func (a *App) siteResources(w http.ResponseWriter, r *http.Request) {
 		// but should not disclose aggregate host utilization to site customers.
 		if !a.Auth.IsAdministrator(r) {
 			fpmStatus.HostMemory = nil
+			fpmStatus.Pools = append([]rootbroker.FPMStatusPool(nil), fpmStatus.Pools...)
 			for i := range fpmStatus.Pools {
 				if fpmStatus.Pools[i].WorkerMemory != nil {
 					// The status snapshot may be backed by the short-lived cache;

@@ -110,6 +110,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Customer resource responses now copy cached PHP-FPM pool snapshots before
+  removing administrator-only host-capacity estimates, so redaction cannot
+  alter the shared short-lived status cache or hide estimates from a later
+  administrator request.
+
 - Release evidence workflows now use per-source-commit concurrency and never
   cancel an in-progress report. Closely timed CI, CodeQL, documentation, and
   installed-smoke completions can no longer cancel each other's exact-source
