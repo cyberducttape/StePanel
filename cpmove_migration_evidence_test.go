@@ -82,3 +82,31 @@ func TestCPMoveMigrationEvidenceReportsDomainPlacementFailure(t *testing.T) {
 	}
 	t.Fatal("domain placement evidence is missing")
 }
+
+func TestCronScheduleReportsOnlyScheduleSyntax(t *testing.T) {
+	cases := map[string]string{
+		"*/5 * * * * /usr/bin/php cron.php":            "*/5 * * * *",
+		"0 3 * jan,feb mon-fri wget -q https://x":      "0 3 * jan,feb mon-fri",
+		"@daily /home/alice/backup.sh":                 "@daily",
+		"MAILTO=alice@example.test":                    "",
+		"export DB_PASSWORD=secret now run the script": "",
+		"echo foo bar baz qux secret-token":            "",
+		"curl -s https://user:pass@example.test/x y z": "",
+		"@reboot":                     "",
+		"@sometimes /bin/true":        "",
+		"5 4 * * sun":                 "",
+		"0 0 1 1 1 2 3 4 /bin/true x": "0 0 1 1 1",
+	}
+	for line, want := range cases {
+		got, ok := cronSchedule(line)
+		if want == "" {
+			if ok {
+				t.Errorf("cronSchedule(%q) = %q, want rejection", line, got)
+			}
+			continue
+		}
+		if !ok || got != want {
+			t.Errorf("cronSchedule(%q) = %q, %v; want %q", line, got, ok, want)
+		}
+	}
+}

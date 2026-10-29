@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -755,7 +756,10 @@ func (a *App) siteFPMStatusSnapshot(parent context.Context, site string) rootbro
 			status, err = client.SiteFPMStatus(ctx, site)
 		}
 		if err != nil {
-			status = rootbroker.FPMStatus{Available: false, CollectedAt: time.Now().UTC(), Pools: []rootbroker.FPMStatusPool{}, Warnings: []string{}, Detail: "Live PHP-FPM status could not be collected: " + err.Error()}
+			// Customers can read this snapshot; broker errors name host paths
+			// and configuration, so they go to the log only.
+			log.Printf("PHP-FPM status for site %s: %v", site, err)
+			status = rootbroker.FPMStatus{Available: false, CollectedAt: time.Now().UTC(), Pools: []rootbroker.FPMStatusPool{}, Warnings: []string{}, Detail: "Live PHP-FPM status could not be collected; an administrator can find the cause in the panel log."}
 		}
 	}
 	a.fpmStatusMu.Lock()

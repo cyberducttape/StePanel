@@ -31,11 +31,13 @@ pm.status_path = /stepanel-fpm-status
 	}
 
 	for name, input := range map[string][]byte{
-		"status disabled":         []byte(strings.ReplaceAll(string(valid), fpmStatusPath, "/status")),
-		"socket outside root":     []byte(strings.ReplaceAll(string(valid), "/run/php/stepanel-demo-8.3.sock", "/tmp/stepanel-demo.sock")),
-		"socket for another site": []byte(strings.ReplaceAll(string(valid), "stepanel-demo-8.3.sock", "stepanel-other-8.3.sock")),
-		"invalid max children":    []byte(strings.ReplaceAll(string(valid), "pm.max_children = 12", "pm.max_children = 0")),
-		"duplicate listen":        []byte(string(valid) + "listen = /run/php/stepanel-demo.sock\n"),
+		"status disabled":          []byte(strings.ReplaceAll(string(valid), fpmStatusPath, "/status")),
+		"socket outside root":      []byte(strings.ReplaceAll(string(valid), "/run/php/stepanel-demo-8.3.sock", "/tmp/stepanel-demo.sock")),
+		"socket for another site":  []byte(strings.ReplaceAll(string(valid), "stepanel-demo-8.3.sock", "stepanel-other-8.3.sock")),
+		"socket for prefix site":   []byte(strings.ReplaceAll(string(valid), "stepanel-demo-8.3.sock", "stepanel-demo-shop-8.3.sock")),
+		"socket for wrong version": []byte(strings.ReplaceAll(string(valid), "stepanel-demo-8.3.sock", "stepanel-demo-8.2.sock")),
+		"invalid max children":     []byte(strings.ReplaceAll(string(valid), "pm.max_children = 12", "pm.max_children = 0")),
+		"duplicate listen":         []byte(string(valid) + "listen = /run/php/stepanel-demo.sock\n"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseManagedFPMPool(input, "demo", "/run/php", "8.3"); err == nil {

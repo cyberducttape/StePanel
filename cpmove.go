@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/archivesafe"
+	"github.com/cyberducttape/StePanel/internal/domainname"
 	"github.com/cyberducttape/StePanel/internal/rootbroker"
 	"github.com/cyberducttape/StePanel/internal/sitelayout"
 )
@@ -301,8 +302,10 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 		}
 		if strings.HasPrefix(name, "dnszones/") && strings.HasSuffix(strings.ToLower(name), ".db") {
 			zone := filepath.Base(name)
-			zone = strings.TrimSuffix(zone, filepath.Ext(zone))
-			if zone != "" && !seenZones[zone] {
+			zone = strings.ToLower(strings.TrimSuffix(zone, filepath.Ext(zone)))
+			// Zone names come from archive file names; report only valid
+			// domain names so the evidence never echoes arbitrary text.
+			if domainname.Validate(zone) == nil && !seenZones[zone] {
 				if len(info.DNSZones) < maxMigrationEvidenceItems {
 					info.DNSZones = append(info.DNSZones, zone)
 				} else {
@@ -328,19 +331,12 @@ func inspectCPMove(file multipart.File, header *multipart.FileHeader, maxEntries
 				if line == "" || strings.HasPrefix(line, "#") {
 					continue
 				}
-				fields := strings.Fields(line)
-				scheduleFields := 5
-				if strings.HasPrefix(fields[0], "@") {
-					scheduleFields = 1
-				} else if len(fields) < 6 {
+				// Record only the schedule. Commands can contain secrets and are
+				// not imported by this workflow.
+				schedule, ok := cronSchedule(line)
+				if !ok {
 					continue
 				}
-				if strings.Contains(fields[0], "=") {
-					continue
-				}
-				// Record only the five-field schedule. Commands can contain secrets
-				// and are not imported by this workflow.
-				schedule := strings.Join(fields[:scheduleFields], " ")
 				if len(info.CronSchedules) < maxMigrationEvidenceItems {
 					info.CronSchedules = append(info.CronSchedules, schedule)
 				} else {
@@ -724,6 +720,40 @@ func buildCPMoveMigrationEvidence(info CPMoveInfo, result ImportResult, database
 	}
 	evidence = append(evidence, boundMigrationEvidence(dns), boundMigrationEvidence(cron))
 	return evidence
+}
+
+var (
+	cronNumericField = regexp.MustCompile(`^[0-9*/,-]{1,64}$`)
+	cronNamedField   = regexp.MustCompile(`^(?:[0-9*]+|[A-Za-z]{3})(?:[-/,](?:[0-9*]+|[A-Za-z]{3})){0,15}$`)
+	cronMacros       = map[string]bool{"@reboot": true, "@yearly": true, "@annually": true, "@monthly": true, "@weekly": true, "@daily": true, "@midnight": true, "@hourly": true}
+)
+
+// cronSchedule returns the schedule of a crontab job line. A line whose
+// leading fields are not schedule syntax (an environment assignment or a
+// malformed entry) is rejected rather than reporting part of its command.
+func cronSchedule(line string) (string, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return "", false
+	}
+	if strings.HasPrefix(fields[0], "@") {
+		macro := strings.ToLower(fields[0])
+		return macro, cronMacros[macro]
+	}
+	if len(fields) < 6 {
+		return "", false
+	}
+	for i, field := range fields[:5] {
+		// Only month and weekday may use names (jan, mon).
+		pattern := cronNumericField
+		if i >= 3 {
+			pattern = cronNamedField
+		}
+		if !pattern.MatchString(field) {
+			return "", false
+		}
+	}
+	return strings.Join(fields[:5], " "), true
 }
 
 func containsImportedDomain(imported []ImportedDomain, domain string) bool {

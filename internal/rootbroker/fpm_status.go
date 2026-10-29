@@ -107,14 +107,16 @@ func collectFPMStatusFrom(ctx context.Context, site, siteUser, identityConfig st
 	}
 	for _, pool := range pools {
 		item := FPMStatusPool{PHPVersion: pool.version, MaxChildren: pool.max, State: "unavailable"}
+		// Warnings reach the site's customers, so they never carry socket
+		// paths or raw system errors.
 		if err := verifyFPMSocket(pool.socket, socketRoot, uid); err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s pool socket is unavailable or unsafe: %v", pool.version, err))
+			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s pool socket is unavailable or failed its ownership check.", pool.version))
 			result.Pools = append(result.Pools, item)
 			continue
 		}
 		stats, err := requestFPMStatus(ctx, pool.socket)
 		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s pool status could not be read: %v", pool.version, err))
+			result.Warnings = append(result.Warnings, fmt.Sprintf("PHP %s pool status could not be read.", pool.version))
 			result.Pools = append(result.Pools, item)
 			continue
 		}
@@ -316,8 +318,14 @@ func parseManagedFPMPool(data []byte, site, socketRoot, version string) (fpmPool
 	if !filepath.IsAbs(listen) || filepath.Dir(listen) != socketRoot || filepath.Clean(listen) != listen || strings.ContainsAny(listen, "\x00\r\n\t ") {
 		return fpmPoolConfig{}, errors.New("pool socket is outside the configured socket root")
 	}
-	base := filepath.Base(listen)
-	if !strings.HasPrefix(base, "stepanel-"+site) || !strings.HasSuffix(base, ".sock") || strings.ContainsAny(base, "/\\") {
+	// stepanel-sitectl names a pool socket stepanel-<site>-<version>.sock, or
+	// stepanel-<site>.sock for an unversioned pool directory. A prefix match
+	// would let site "foo" accept the socket of site "foo-bar".
+	wantedSocket := "stepanel-" + site + ".sock"
+	if version != "default" {
+		wantedSocket = "stepanel-" + site + "-" + version + ".sock"
+	}
+	if filepath.Base(listen) != wantedSocket {
 		return fpmPoolConfig{}, errors.New("pool socket name does not match the site")
 	}
 	max, err := strconv.ParseUint(values["pm.max_children"], 10, 16)
@@ -368,7 +376,9 @@ func requestFPMStatus(ctx context.Context, socket string) (fpmNumericStatus, err
 	}
 	defer conn.Close()
 	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
+		if err := conn.SetDeadline(deadline); err != nil {
+			return fpmNumericStatus{}, fmt.Errorf("set PHP-FPM status deadline: %w", err)
+		}
 	}
 	if err := sendFCGIRequest(conn); err != nil {
 		return fpmNumericStatus{}, err

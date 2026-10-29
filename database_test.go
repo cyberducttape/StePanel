@@ -99,8 +99,13 @@ func TestDatabaseDeletionPreviewDescribesEffectsAndBindsInventory(t *testing.T) 
 	}
 	changed := item
 	changed.Bytes++
+	if preview.PreviewToken != makeDatabaseDeletionPreview(changed, "mysql").PreviewToken {
+		t.Fatal("live database growth invalidated the deletion preview")
+	}
+	changed = item
+	changed.User = "other_user"
 	if preview.PreviewToken == makeDatabaseDeletionPreview(changed, "mysql").PreviewToken {
-		t.Fatal("database size change did not invalidate deletion preview")
+		t.Fatal("database user change did not invalidate deletion preview")
 	}
 	if preview.PreviewToken == makeDatabaseDeletionPreview(item, "postgresql").PreviewToken {
 		t.Fatal("database engine change did not invalidate deletion preview")
@@ -133,15 +138,14 @@ func TestDatabaseDeleteRejectsInventoryChangedAfterPreview(t *testing.T) {
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" = inventory ]; then\n" +
 		"  n=0; [ ! -f \"$TEST_DB_COUNT\" ] || read -r n < \"$TEST_DB_COUNT\"; n=$((n+1)); echo \"$n\" > \"$TEST_DB_COUNT\"\n" +
-		"  size=4096; [ \"$n\" -lt 2 ] || size=8192\n" +
-		"  printf 'site_db\\tsite\\tsite_user\\t%s\\tutf8mb4\\n' \"$size\"\n" +
+		"  printf 'site_db\\tsite\\tsite_user\\t8192\\tlatin1\\n'\n" +
 		"else printf '%s\\n' \"$*\" >> \"$TEST_DB_CALLS\"; fi\n"
 	if err := os.WriteFile(helper, []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TEST_DB_COUNT", counter)
 	t.Setenv("TEST_DB_CALLS", calls)
-	preview := makeDatabaseDeletionPreview(DatabaseResource{Name: "site_db", Site: "site", User: "site_user", Bytes: 4096}, "mysql")
+	preview := makeDatabaseDeletionPreview(DatabaseResource{Name: "site_db", Site: "site", User: "site_user", Bytes: 4096, Encoding: "utf8mb4"}, "mysql")
 	app := &App{Config: Config{DBEngine: "mysql", DBCtl: helper, WebRoot: root}, Auth: Auth{Username: "admin"}}
 	body := `{"user":"site_user","confirm":"DROP site_db","preview_token":"` + preview.PreviewToken + `"}`
 	response := httptest.NewRecorder()

@@ -448,6 +448,51 @@ func TestGitRollbackRejectsStalePreview(t *testing.T) {
 	}
 }
 
+func TestGitRollbackPreviewToleratesLiveWritesToActiveRelease(t *testing.T) {
+	webRoot := filepath.Join(t.TempDir(), "www")
+	siteRoot := filepath.Join(webRoot, "sites", "example")
+	publicRoot := filepath.Join(siteRoot, "public")
+	previousRoot := filepath.Join(siteRoot, ".stepanel-previous-old")
+	for _, root := range []string{publicRoot, previousRoot} {
+		if err := os.MkdirAll(root, 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(previousRoot, "version"), []byte("previous"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{Config: Config{WebRoot: webRoot, MaxEntries: 100}}
+	preview, err := app.buildGitRollbackPreview("example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A running application writes a cache file into its active release.
+	if err := os.WriteFile(filepath.Join(publicRoot, "cache.tmp"), []byte("live"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	again, err := app.buildGitRollbackPreview("example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.PreviewToken != preview.PreviewToken {
+		t.Fatal("a live write to the active release invalidated the rollback preview")
+	}
+	// Replacing the active release directory (a deploy) must invalidate it.
+	if err := os.Rename(publicRoot, filepath.Join(siteRoot, ".stepanel-previous-new")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(publicRoot, 0750); err != nil {
+		t.Fatal(err)
+	}
+	replaced, err := app.buildGitRollbackPreview("example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replaced.PreviewToken == preview.PreviewToken {
+		t.Fatal("replacing the active release kept the rollback preview valid")
+	}
+}
+
 func TestValidateGitReleaseRejectsSymlinksAndEntryFloods(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("ok"), 0600); err != nil {

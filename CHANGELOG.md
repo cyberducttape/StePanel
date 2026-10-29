@@ -18,6 +18,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Git rollback previews bind the active release by directory identity rather
+  than its contents, so a live application writing caches or uploads no longer
+  invalidates the confirmation; the rollback preview endpoint now answers HEAD.
+- Database deletion previews no longer bind the live database size, which
+  ordinary writes change between preview, safety backup, and DROP.
+- PHP-FPM status accepts only the exact socket name StePanel writes for the
+  site and PHP version, and customer-visible status text no longer carries
+  broker errors, socket paths, or raw system errors (they are logged instead).
+- cPanel migration evidence reports a cron schedule only when its fields are
+  valid schedule syntax, so a malformed line cannot place command text in the
+  report, and reports only DNS zone names that are valid domain names.
 - Import-stage cleanup now centralizes lock finalization and checks whether a
   stage path was recreated before unlinking its lock file; a three-process
   regression verifies serialized same-name stage recreation.
@@ -82,7 +93,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   passes but cleanup of the temporary site fails; startup recovery still retries
   cleanup from the open transaction.
 - Git rollback now requires an administrator-reviewed preview of the active and target releases, estimated file counts and sizes, document-root swap, and service impact. Execution rejects a stale preview if release-tree metadata changed before confirmation.
-- Database deletion now previews the affected database and managed user, the required verified safety backup, and service impact; deletion requires a matching inventory-bound preview token through an explicitly registered API route. The token covers engine, owner, size, user, and encoding.
+- Database deletion now previews the affected database and managed user, the required verified safety backup, and service impact; deletion requires a matching inventory-bound preview token through an explicitly registered API route. The token covers engine, owner, user, and encoding; the displayed size is informational because live writes change it.
 - Treat the bounded PHP-FPM status broker operation as read-only so production
   status probes do not require a mutation fencing lease; site mutations remain
   fenced.

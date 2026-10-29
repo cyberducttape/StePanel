@@ -480,7 +480,7 @@
       const lines = result.value.lines || [];
       const pattern = saturation ? /max_children|reached pm\.max_children|listen queue/i : /\b(error|critical|crit|fatal|emerg|failed)\b/i;
       const matches = lines.filter((line) => pattern.test(line));
-      if (matches.length) add(saturation ? 'warning' : 'warning', saturation ? 'PHP-FPM saturation signal found' : `${label} errors appear in the recent log tail`, `${matches.length} matching line(s) in the latest ${lines.length} lines. Log content is not copied into this summary.`, 'Open Logs and correlate timestamps with recent deployments and workload changes.');
+      if (matches.length) add('warning', saturation ? 'PHP-FPM saturation signal found' : `${label} errors appear in the recent log tail`, `${matches.length} matching line(s) in the latest ${lines.length} lines. Log content is not copied into this summary.`, 'Open Logs and correlate timestamps with recent deployments and workload changes.');
     };
     inspectLog(webLogResult, 'Web-server', false);
     inspectLog(phpLogResult, 'PHP-FPM', true);

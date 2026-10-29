@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/cyberducttape/StePanel/internal/domainname"
@@ -393,7 +394,7 @@ type gitRollbackPreview struct {
 // gitRollbackPreviewHandler describes the release swap and returns a token
 // that the mutation endpoint rechecks while holding the site's mutation lock.
 func (a *App) gitRollbackPreviewHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -431,7 +432,7 @@ func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
 	if err != nil {
 		return gitRollbackPreview{}, err
 	}
-	currentBytes, currentFiles, currentFingerprint, err := gitReleaseFingerprint(current, 1<<62, a.Config.MaxEntries, true)
+	currentBytes, currentFiles, _, err := gitReleaseFingerprint(current, 1<<62, a.Config.MaxEntries, true)
 	if err != nil {
 		return gitRollbackPreview{}, err
 	}
@@ -440,11 +441,18 @@ func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
 		return gitRollbackPreview{}, err
 	}
 	revision := fmt.Sprintf("%s:%d:%d:%s", filepath.Base(target), targetInfo.ModTime().UnixNano(), targetInfo.Size(), targetFingerprint)
+	// The active release is bound by directory identity, not content: a live
+	// application writing caches or uploads into it must not invalidate the
+	// preview, while a deploy or rollback replaces the directory itself.
 	currentInfo, err := os.Stat(current)
 	if err != nil {
 		return gitRollbackPreview{}, err
 	}
-	revision += fmt.Sprintf("|%s:%d:%d:%s", filepath.Base(current), currentInfo.ModTime().UnixNano(), currentInfo.Size(), currentFingerprint)
+	currentStat, ok := currentInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return gitRollbackPreview{}, errors.New("active release identity is unavailable")
+	}
+	revision += fmt.Sprintf("|%s:%d:%d", filepath.Base(current), currentStat.Dev, currentStat.Ino)
 	token := sha256.Sum256([]byte(site + "\x00" + location.DocRoot + "\x00" + revision))
 	return gitRollbackPreview{
 		Site: site, CurrentRelease: filepath.Base(current), TargetRelease: filepath.Base(target),
@@ -459,7 +467,6 @@ func (a *App) buildGitRollbackPreview(site string) (gitRollbackPreview, error) {
 // gitReleaseFingerprint returns bounded tree size and regular-file count. It
 // hashes directory metadata for an optimistic concurrency check without
 // reading application file contents during a preview.
-
 func gitReleaseFingerprint(root string, maxBytes int64, maxEntries int, allowSymlinks bool) (int64, int64, string, error) {
 	if maxEntries < 1 {
 		maxEntries = 100000

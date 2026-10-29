@@ -40,7 +40,9 @@ func makeDatabaseDeletionPreview(item DatabaseResource, engine string) databaseD
 	if engine == "" {
 		engine = "mysql"
 	}
-	identity := fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%s\x00%s", engine, item.Name, item.Site, item.Bytes, item.User, item.Encoding)
+	// Bind what the deletion affects, not its live size: ordinary writes
+	// change DATA_LENGTH between preview, safety backup, and DROP.
+	identity := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s", engine, item.Name, item.Site, item.User, item.Encoding)
 	token := sha256.Sum256([]byte(identity))
 	databaseEffect := fmt.Sprintf("Drop database %s.", item.Name)
 	if item.User != "" {
