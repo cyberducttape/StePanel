@@ -368,7 +368,7 @@ func (a Auth) sessionCSRFToken(r *http.Request) (string, int64) {
 }
 
 func (a Auth) setCSRFCookie(w http.ResponseWriter, token string, expiry int64) {
-	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", Value: token, Path: "/", Expires: time.Unix(expiry, 0), Secure: true, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "stepanel_csrf", Value: token, Path: "/", Expires: time.Unix(expiry, 0), Secure: a.SecureCookies, SameSite: http.SameSiteStrictMode})
 }
 
 // refreshCSRFCookie reissues the session-bound token when the browser holds

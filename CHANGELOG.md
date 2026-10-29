@@ -44,6 +44,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   cookie values from login response headers when exercising the panel over
   loopback HTTP, while ignoring ambient curl configuration. This preserves
   production cookie policy and keeps lab authentication deterministic.
+- CSRF cookies now use the same configured Secure transport policy as session
+  cookies. Both remain Secure in production; explicit loopback HTTP lab and
+  development configurations can now retain authenticated sessions normally.
 - WordPress staging promotion now rejects empty or identical staging and
   production sites before taking mutation locks, matching the preview.
 - The Go client refuses redirects that would carry the bearer token to a

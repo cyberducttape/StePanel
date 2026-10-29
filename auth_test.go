@@ -207,6 +207,43 @@ func csrfTestSession(t *testing.T) (Auth, []*http.Cookie, string) {
 	return auth, cookies, token
 }
 
+func TestLoginCookieSecureAttributesMatchConfiguredTransport(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		t.Run(strconv.FormatBool(secure), func(t *testing.T) {
+			t.Setenv("STEPANEL_ADMIN_PASSWORD", "correct horse battery staple")
+			t.Setenv("STEPANEL_ADMIN_PASSWORD_HASH", "")
+			t.Setenv("STEPANEL_ADMIN_TOTP_SECRET", "")
+			t.Setenv("STEPANEL_SESSION_SECRET", "12345678901234567890123456789012")
+			auth, err := NewAuth(secure)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := auth.ConfigureSessionStore(filepath.Join(t.TempDir(), "sessions.json")); err != nil {
+				t.Fatal(err)
+			}
+			login := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=admin&password=correct+horse+battery+staple"))
+			login.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			response := httptest.NewRecorder()
+			auth.Login(response, login)
+			if response.Code != http.StatusSeeOther {
+				t.Fatalf("login status = %d", response.Code)
+			}
+			seen := map[string]bool{}
+			for _, cookie := range response.Result().Cookies() {
+				if cookie.Name == "stepanel_session" || cookie.Name == "stepanel_csrf" {
+					seen[cookie.Name] = true
+					if cookie.Secure != secure {
+						t.Errorf("%s Secure = %t, want %t", cookie.Name, cookie.Secure, secure)
+					}
+				}
+			}
+			if !seen["stepanel_session"] || !seen["stepanel_csrf"] {
+				t.Fatalf("login omitted session or CSRF cookie: %#v", seen)
+			}
+		})
+	}
+}
+
 func TestCSRFMultipartRequiresHeaderWithoutParsingBody(t *testing.T) {
 	auth, cookies, token := csrfTestSession(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/upload", strings.NewReader("csrf="+token))
