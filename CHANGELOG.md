@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- A stable `/api/v1` automation namespace now backs the supported Go and
+  TypeScript client packages and generated Bash, Zsh, and Fish completions.
+  `stepanelctl` uses the same API workflows as the dashboard for site creation,
+  backups, staging restore, cPanel migration, durable job watching, redacted
+  support bundles, and JSON scripted provisioning. WordPress secrets are read
+  from stdin; provisioning plan files must be private.
 - WordPress site creation now provisions a per-site PHP-FPM pool, managed
   database and credentials, HTTPS route, conservative security settings, an
   integrity-verified database-inclusive first recovery point, and a daily

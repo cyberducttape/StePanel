@@ -3,56 +3,61 @@ info:
   title: StePanel API
   version: 0.7.0
   description: |
-    Authenticated server operations, service inventory, and migration API.
-    Mutating requests require the `stepanel_session` cookie and the matching
-    `stepanel_csrf` value in the `X-CSRF-Token` header or `csrf` form field.
+    Stable v1 automation API for server operations, site lifecycle, backups,
+    migrations, diagnostics, and durable jobs. Browser paths without /v1 remain
+    compatibility aliases and are not the SDK target.
+    Authenticate with a session cookie or scoped bearer API token. Mutating
+    browser-session requests require the matching `stepanel_csrf` value in
+    `X-CSRF-Token`; bearer tokens are scope checked by the server.
     Responses include an `X-Request-ID` correlation identifier.
 servers:
   - url: http://127.0.0.1:8090
 security:
   - sessionCookie: []
+  - bearerToken: []
 paths:
 
-  /api/health/operational:
+  /api/v1/health/operational:
     get:
       summary: Operational health diagnostics
       description: Administrator-only operational alerts; these do not determine service readiness.
       security:
         - sessionCookie: []
+        - bearerToken: []
       responses:
         '200':
           description: Operational health report
         '503':
           description: One or more operational checks are degraded
-  /api/database:
+  /api/v1/database:
     get:
       summary: Database engine and administration UI status
       responses:
         '200':
           description: Selected database engine, service health, client availability, and matching admin UI readiness
-  /api/database/diagnostics:
+  /api/v1/database/diagnostics:
     get:
       summary: Bounded database health counters
       responses:
         '200': {description: Connections, long transactions, blocking, deadlocks, and allocated database bytes}
         '503': {description: Restricted local database diagnostics are unavailable}
-  /api/database/settings:
+  /api/v1/database/settings:
     get:
       summary: Read-only effective database settings allowlist
       responses:
         '200': {description: Engine-specific capacity, logging, memory, and recovery settings}
-  /api/database/sessions:
+  /api/v1/database/sessions:
     get:
       summary: Active database session metadata without SQL text
       responses:
         '200': {description: Up to 200 sessions with age, state, and wait class}
-  /api/database/sessions/:
+  /api/v1/database/sessions/:
     delete:
       summary: Terminate one database session after exact confirmation
       responses:
         '204': {description: Session terminated and action audited}
         '422': {description: Confirmation must exactly match TERMINATE plus the session ID}
-  /api/databases:
+  /api/v1/databases:
     get:
       summary: List site-owned databases managed by StePanel
       responses:
@@ -62,7 +67,7 @@ paths:
       responses:
         '201': {description: Database and user created; password is never returned or stored by StePanel}
         '409': {description: Object already exists or provisioning failed safely}
-  /api/databases/:
+  /api/v1/databases/:
     get:
       summary: Inspect one managed database without exposing credentials
       responses:
@@ -77,7 +82,7 @@ paths:
       summary: Rotate a managed database user's password
       responses:
         '204': {description: Credential rotated; caller must update the application secret}
-  /api/databases/{name}/deletion-preview:
+  /api/v1/databases/{name}/deletion-preview:
     get:
       summary: Preview managed database deletion before confirmation
       description: Requires database:write scope. Returns current database inventory, verified safety-backup behavior, service impact, and a preview token bound to the inventory.
@@ -98,53 +103,53 @@ paths:
       responses:
         '200': {description: Control plane can safely accept work}
         '503': {description: Job persistence or a managed filesystem is unavailable or below its free-space floor}
-  /api/health:
+  /api/v1/health:
     get:
       security: []
       summary: Process health
       responses:
         '200': {description: Healthy process}
-  /api/services:
+  /api/v1/services:
     get:
       summary: Service inventory
       responses:
         '200': {description: Service inventory}
-  /api/node/versions:
+  /api/v1/node/versions:
     get:
       summary: List installed NVM Node versions
       responses:
         '200': {description: Installed versions}
-  /api/node/select:
+  /api/v1/node/select:
     post:
       summary: Select the Node version for a managed site
       responses:
         '200': {description: Version selected}
-  /api/node/tooling:
+  /api/v1/node/tooling:
     get:
       summary: Get Node.js runtime status
       responses:
         '200': {description: Node versions and tools}
-  /api/proxy:
+  /api/v1/proxy:
     get:
       summary: List managed reverse proxies
       responses:
         '200': {description: Managed reverse proxies}
-  /api/proxy/deploy:
+  /api/v1/proxy/deploy:
     post:
       summary: Deploy and reload a validated reverse proxy
       responses:
         '202': {description: Proxy deployed}
-  /api/proxy/test:
+  /api/v1/proxy/test:
     post:
       summary: Test a local or private backend
       responses:
         '200': {description: Backend reachability result}
-  /api/proxy/:
+  /api/v1/proxy/:
     delete:
       summary: Remove a managed reverse proxy
       responses:
         '200': {description: Proxy removed}
-  /api/caddy/htaccess:
+  /api/v1/caddy/htaccess:
     post:
       summary: Preview or apply a constrained Apache .htaccess conversion
       description: Applying requires Caddy and refuses unsupported directives unless allow_partial is explicitly enabled.
@@ -152,57 +157,57 @@ paths:
         '200': {description: Conversion preview}
         '202': {description: Converted rules validated and applied}
         '422': {description: Unsupported or invalid directives require operator review}
-  /api/apps:
+  /api/v1/apps:
     get:
       summary: List managed Node applications
       responses:
         '200': {description: Managed applications}
-  /api/apps/deploy:
+  /api/v1/apps/deploy:
     post:
       summary: Deploy a managed Node application
       responses:
         '202': {description: Application deployed}
-  /api/apps/:
+  /api/v1/apps/:
     post:
       summary: Start, stop, restart, or roll back an application
       responses:
         '202': {description: Action accepted}
-  /api/composer/:
+  /api/v1/composer/:
     get:
       summary: Inspect Composer project files and last operation
       responses:
         '200': {description: Composer status}
-  /api/python/:
+  /api/v1/python/:
     get:
       summary: List Python runtime configurations
       responses:
         '200': {description: Python projects}
-  /api/python/deploy:
+  /api/v1/python/deploy:
     post:
       summary: Deploy Python application
       responses:
         '202': {description: Deploy job queued}
-  /api/wordpress/:
+  /api/v1/wordpress/:
     get:
       summary: List WordPress sites
       responses:
         '200': {description: WordPress sites}
-  /api/wordpress/status/:
+  /api/v1/wordpress/status/:
     get:
       summary: Get WordPress site status
       responses:
         '200': {description: WordPress status}
-  /api/ftp:
+  /api/v1/ftp:
     get:
       summary: FTP service setup status
       responses:
         '200': {description: vsftpd status and safe setup defaults}
-  /api/security/audit:
+  /api/v1/security/audit:
     get:
       summary: Security posture checks
       responses:
         '200': {description: Security checks}
-  /api/audit/events:
+  /api/v1/audit/events:
     get:
       summary: Query verified audit and deployment history
       parameters:
@@ -212,12 +217,12 @@ paths:
       responses:
         '200': {description: Bounded events with verified, empty, or unconfigured integrity state}
         '503': {description: Audit-chain integrity verification failed}
-  /api/cloud:
+  /api/v1/cloud:
     get:
       summary: Read cloud server, DNS, load balancer, and snapshot inventory
       responses:
         '200': {description: Cloud inventory}
-  /api/cloud/action:
+  /api/v1/cloud/action:
     post:
       summary: Start, stop, reboot, or snapshot an existing cloud resource
       description: Linode snapshot requests require snapshot_label and confirm_snapshot_replacement=true because the provider may replace the current manual snapshot. Optional Idempotency-Key values deduplicate the exact request for 24 hours from admission, including across UTC midnight, and for longer if the job is still active; distinct submissions without a key always create distinct attempts.
@@ -226,7 +231,7 @@ paths:
       responses:
         '202': {description: Provider action queued; poll the returned job URL}
         '409': {description: Idempotency key was already used for a different request}
-  /api/cloud/dns:
+  /api/v1/cloud/dns:
     get:
       summary: List Linode DNS records
       responses:
@@ -243,12 +248,12 @@ paths:
       summary: Queue a Linode DNS record deletion
       responses:
         '202': {description: DNS change queued}
-  /api/dns/capabilities:
+  /api/v1/dns/capabilities:
     get:
       summary: Report the provider-neutral DNS adapter contract
       responses:
         '200': {description: Configured adapter, supported adapters, and DNSSEC status}
-  /api/cloud/loadbalancer:
+  /api/v1/cloud/loadbalancer:
     post:
       summary: Queue a Linode load-balancer backend add or removal
       description: Node additions accept address as an IP and port separately, then combine them into the provider's address-with-port field (IPv6 is bracketed). A label is required and weight must be from 1 through 255. Optional Idempotency-Key values deduplicate an exact request for 24 hours from admission, including across UTC midnight, and for longer if the job is still active.
@@ -257,7 +262,7 @@ paths:
       responses:
         '202': {description: Load-balancer change queued}
         '409': {description: Idempotency key was already used for a different request}
-  /api/cloud/snapshots:
+  /api/v1/cloud/snapshots:
     get:
       summary: List backups for one Linode instance (read-only)
       description: Linode backup inventory is instance-scoped. Snapshot deletion is not exposed because the documented API does not provide the assumed account-wide deletion operation.
@@ -266,19 +271,20 @@ paths:
       responses:
         '200': {description: Automatic and manual backup information for the selected Linode instance}
         '422': {description: Missing or invalid Linode instance ID}
-  /api/ssh:
+  /api/v1/ssh:
     get:
       summary: Inspect configured SSH servers with strict host-key checking
       responses:
         '200': {description: Reachability, OS, failed units, and root filesystem status}
-  /api/ssh/action:
+  /api/v1/ssh/action:
     post:
       summary: Queue an allowlisted SSH service restart or reboot
       responses:
         '202': {description: SSH action queued; poll the returned job URL}
-  /api/capabilities:
+  /api/v1/capabilities:
     get:
       summary: Report host capabilities (administrator only)
+      operationId: getCapabilities
       security:
         - sessionCookie: []
         - bearerToken: []
@@ -300,7 +306,7 @@ paths:
                       $ref: '#/components/schemas/Capability'
         '401': {description: Authentication required}
         '403': {description: Administrator access required}
-  /api/accounts:
+  /api/v1/accounts:
     get:
       summary: List shared-hosting customer accounts and plan limits (administrator only)
       responses:
@@ -311,7 +317,7 @@ paths:
       responses:
         '201': {description: Customer account created without password or TOTP secret disclosure}
         '422': {description: Invalid plan, assigned sites, password, or TOTP seed}
-  /api/accounts/:
+  /api/v1/accounts/:
     patch:
       summary: Update account plan/assignments or suspend account
       responses:
@@ -320,27 +326,27 @@ paths:
       summary: Remove a customer login
       responses:
         '204': {description: Customer login removed}
-  /api/account/password:
+  /api/v1/account/password:
     post:
       summary: Complete the authenticated customer's required password change
       responses:
         '204': {description: Password changed and session revoked}
-  /api/account/mfa:
+  /api/v1/account/mfa:
     post:
       summary: Complete the authenticated customer's required MFA enrollment
       responses:
         '204': {description: TOTP enrollment saved and session revoked}
-  /api/account/security:
+  /api/v1/account/security:
     get:
       summary: Customer security center
       responses:
         '200': {description: Security settings and controls}
-  /api/account/me:
+  /api/v1/account/me:
     get:
       summary: Return the authenticated customer's tenant-scoped plan, usage, and account status
       responses:
         '200': {description: Customer account view without credentials or recovery secrets}
-  /api/account/members:
+  /api/v1/account/members:
     get:
       summary: List members of the authenticated customer tenant (owner only)
       responses:
@@ -350,7 +356,7 @@ paths:
       responses:
         '201': {description: Tenant member created without password or TOTP secret disclosure}
         '422': {description: Invalid member identity, role, password, or MFA seed}
-  /api/account/members/:
+  /api/v1/account/members/:
     patch:
       summary: Change a tenant member role or suspension state (owner only)
       responses:
@@ -359,17 +365,17 @@ paths:
       summary: Remove a tenant member login (owner only)
       responses:
         '204': {description: Tenant member removed and credentials revoked}
-  /api/account/activity:
+  /api/v1/account/activity:
     get:
       summary: Return verified activity scoped to the authenticated customer's tenant
       responses:
         '200': {description: Tenant-scoped audit activity}
-  /api/account/sessions/revoke:
+  /api/v1/account/sessions/revoke:
     post:
       summary: Log out every other session for the authenticated customer, keeping the current one active
       responses:
         '204': {description: Other sessions revoked; the calling session remains valid}
-  /api/account/tokens:
+  /api/v1/account/tokens:
     get:
       summary: List the authenticated customer's API token metadata
       responses:
@@ -378,12 +384,12 @@ paths:
       summary: Create a customer-scoped API token; the secret is returned once
       responses:
         '201': {description: Token secret and metadata}
-  /api/account/tokens/:
+  /api/v1/account/tokens/:
     delete:
       summary: Revoke one customer API token
       responses:
         '204': {description: Token revoked}
-  /api/admin/tokens:
+  /api/v1/admin/tokens:
     get:
       summary: List administrator API token metadata
       description: Browser administrator session only; bearer tokens cannot manage credentials.
@@ -407,55 +413,58 @@ paths:
                   items: {type: string, enum: [admin:read, admin:operate]}
       responses:
         '201': {description: Token secret and metadata}
-  /api/admin/tokens/:
+  /api/v1/admin/tokens/:
     delete:
       summary: Revoke one administrator API token
       responses:
         '204': {description: Token revoked}
-  /api/admin/suspend:
+  /api/v1/admin/suspend:
     post:
       summary: Suspend a customer account
       responses:
         '200': {description: Account suspended}
-  /api/admin/unsuspend:
+  /api/v1/admin/unsuspend:
     post:
       summary: Unsuspend a customer account
       responses:
         '200': {description: Account unsuspended}
-  /api/admin/plan-status:
+  /api/v1/admin/plan-status:
     get:
       summary: Check resource plan enforcement status
       responses:
         '200': {description: Plan enforcement status}
-  /api/admin/migration-doctor:
+  /api/v1/admin/migration-doctor:
     post:
       summary: Analyze source server for migration compatibility
       responses:
         '200': {description: Migration analysis results}
-  /api/admin/migration-doctor/status:
+  /api/v1/admin/migration-doctor/status:
     get:
       summary: Check migration analysis status
       responses:
         '200': {description: Analysis status}
-  /api/admin/production-readiness:
+  /api/v1/admin/production-readiness:
     get:
       summary: Check production readiness status
+      operationId: checkProductionReadiness
       description: Check if the deployment meets production requirements including filesystem quotas, encryption keys, TLS, and offsite backups
       responses:
         '200': {description: Production readiness report with status of each requirement}
-  /api/admin/support-bundle:
+  /api/v1/admin/support-bundle:
     get:
       summary: Download a redacted operational support bundle
+      operationId: collectSupportBundle
+      x-stepanel-cli: diagnostics collect
       description: Administrator-only streamed ZIP containing runtime metadata, readiness, production checks, metrics, and non-secret job summaries. Credentials, keys, payloads, outputs, database contents, and raw customer logs are excluded.
       responses:
         '200': {description: Redacted support bundle ZIP archive}
-  /api/admin/resources/status:
+  /api/v1/admin/resources/status:
     get:
       summary: Host resource allocation and utilization
       description: Report current workload class utilization to prevent host I/O bottlenecks. Shows active concurrent operations per workload type (uploads, backups, extractions, malware scans, builds, database restores).
       responses:
         '200': {description: Resource budget status with per-workload-class utilization}
-  /api/security/scan:
+  /api/v1/security/scan:
     post:
       summary: Scan a managed site for suspicious PHP
       requestBody:
@@ -470,7 +479,7 @@ paths:
                 quarantine: {type: boolean}
       responses:
         '200': {description: Scan results}
-  /api/certificates/issue:
+  /api/v1/certificates/issue:
     post:
       summary: Queue a Let’s Encrypt certificate request after preview confirmation
       requestBody:
@@ -487,18 +496,20 @@ paths:
       responses:
         '202': {description: Certificate job queued}
         '409': {description: Preview expired or certificate lineage changed}
-  /api/certificates/preview:
+  /api/v1/certificates/preview:
     post:
       summary: Preview certificate issuance effects and recovery steps
       responses:
         '200': {description: Current lineage, proposed operation, expiry, and recovery plan}
-  /api/sites:
+  /api/v1/sites:
     get:
       summary: List managed PHP site routes or the authenticated tenant's assigned sites
       responses:
         '200': {description: Managed site vhost names}
     post:
       summary: Create a site from a template
+      operationId: createSite
+      x-stepanel-cli: site create
       description: >
         An administrator or active tenant owner may use this endpoint. It
         queues a durable site.create job that writes the
@@ -533,18 +544,22 @@ paths:
         '403': {description: Authentication, tenant authorization, or CSRF requirement failed}
         '409': {description: Site already exists}
         '422': {description: Invalid site name or unsupported template}
-  /api/sites/overview:
+  /api/v1/sites/overview:
     get:
       summary: List site-centric developer workspaces
+      operationId: listSites
+      x-stepanel-cli: sites list
       responses:
         '200': {description: Sites with document roots, routes, applications, and managed database counts}
-  /api/sites/overview/:
+  /api/v1/sites/overview/:
     get:
       summary: Inspect one site-centric developer workspace
+      operationId: inspectSite
+      x-stepanel-cli: site inspect
       responses:
         '200': {description: Site workspace details}
         '404': {description: Site not found}
-  /api/sites/recovery/:
+  /api/v1/sites/recovery/:
     get:
       summary: Recovery status for one site, from backups, offsite copies, and restore rehearsals
       description: >
@@ -557,7 +572,7 @@ paths:
         '403': {description: Site is not assigned to this account}
         '422': {description: Invalid site}
         '503': {description: Recovery history is unavailable}
-  /api/sites/deploy:
+  /api/v1/sites/deploy:
     post:
       summary: Preview a domain route change or apply it with its preview token
       requestBody:
@@ -577,13 +592,13 @@ paths:
         '409': {description: Preview expired or the route state changed}
         '422': {description: Invalid route or missing site document root}
         '503': {description: Host validation or web server reload failed}
-  /api/sites/route-delete-preview:
+  /api/v1/sites/route-delete-preview:
     post:
       summary: Preview removal of a managed domain route
       responses:
         '200': {description: Current vhost state, effects, recovery plan, and expiring token}
         '409': {description: Route has no durable ownership record}
-  /api/sites/environment/:
+  /api/v1/sites/environment/:
     get:
       summary: Read site environment metadata with secrets masked
       responses:
@@ -597,7 +612,7 @@ paths:
     delete:
       summary: Delete all site environment variables
       responses: {'204': {description: Environment deleted}}
-  /api/sites/php/:
+  /api/v1/sites/php/:
     get:
       summary: Inspect a site PHP runtime profile and installed versions
       responses: {'200': {description: Runtime profile and capability inventory}}
@@ -609,39 +624,39 @@ paths:
     post:
       summary: Preview a per-site PHP-FPM profile change and recovery plan
       responses: {'200': {description: Current and proposed profiles with expiring token}}
-  /api/sites/redis/:
+  /api/v1/sites/redis/:
     get:
       summary: List Redis allocations
       responses: {'200': {description: Redis metadata}}
-  /api/sites/resources/:
+  /api/v1/sites/resources/:
     get:
       summary: Inspect a per-site resource profile and its enforcement scope
       responses: {'200': {description: Desired/applied resource profile}}
     put:
       summary: Apply CPU, memory, I/O, task and PHP-FPM worker ceilings for a site
       responses: {'202': {description: Systemd slice and FPM profile applied}}
-  /api/reconcile/resources:
+  /api/v1/reconcile/resources:
     post:
       summary: Reconcile pending/inactive desired resource profiles with systemd and PHP-FPM
       responses: {'200': {description: Reconciled and failed site lists}}
-  /api/reconcile/tasks:
+  /api/v1/reconcile/tasks:
     post:
       summary: Reconcile pending or deleted scheduled-task desired state with systemd
       responses: {'200': {description: Reconciled and failed task lists}}
-  /api/sites/usage/:
+  /api/v1/sites/usage/:
     get:
       summary: Measure bounded regular-file usage for a site without following symlinks
       responses: {'200': {description: Bytes, file count, directory count and completeness}}
-  /api/sites/diagnostics/:
+  /api/v1/sites/diagnostics/:
     get:
       summary: Correlate site-scoped database, filesystem, quota and TLS evidence
       description: Read-only diagnostic snapshot; database names require database:read, and local certificate metadata does not prove a live TLS handshake or application database login.
       responses: {'200': {description: Site diagnostics with explicit unavailable and unverified states}}
-  /api/account/hosting:
+  /api/v1/account/hosting:
     get:
       summary: Read the caller's hosting account, its Unix user and home, and each accessible site's placement and document root
       responses: {'200': {description: Account, Unix user, home directory and sites (main site first)}, '403': {description: Not a customer account}}
-  /api/sites/files/:
+  /api/v1/sites/files/:
     get:
       summary: List a directory or read a file inside a hosting-account site's document root
       description: "GET /api/sites/files/{site}?path=P lists a directory (files:read). GET /api/sites/files/{site}/content?path=P returns a file of at most 2 MiB as JSON, or as an attachment with download=1. Paths are relative to the document root; '..', empty and '.' components, control characters and symbolic links are refused. Legacy sites outside a hosting account answer 409."
@@ -654,60 +669,105 @@ paths:
       summary: Create a directory, rename or delete inside a hosting-account site's document root
       description: "POST /api/sites/files/{site}/mkdir {path}, /rename {path, destination} (never replaces an existing destination) and /delete {path} (recursive; a symbolic link is removed, never followed). Requires files:write."
       responses: {'200': {description: Change applied}, '422': {description: Refused, with the reason}}
-  /api/security/center:
+  /api/v1/security/center:
     get:
       summary: Read administrator host security and operational posture
       responses: {'200': {description: Existing security checks, webserver-specific WAF capability, service states, disk/inode and backup posture}}
-  /api/backups/restore-to-staging:
+  /api/v1/backups/restore-to-staging:
     post:
       summary: Restore verified backup files into a new isolated staging site
+      operationId: restoreBackupToStaging
+      x-stepanel-cli: restore staging
       description: Refuses existing destinations and can optionally provision a new explicitly named managed database and import one selected verified dump. Existing destination databases are refused and a failed import is cleaned up.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [backup, site, domain]
+              properties:
+                backup: {type: string, description: Verified backup identifier accepted by the dashboard workflow}
+                source_site: {type: string}
+                site: {type: string, pattern: '^[a-z0-9_-]{1,32}$'}
+                domain: {type: string, format: hostname}
+                database: {type: string, description: Optional dump selected for staging database import}
+                target_database: {type: string}
+                target_user: {type: string}
+                target_password: {type: string, writeOnly: true}
       responses: {'202': {description: Files restored and staging route activated}}
-  /api/backups/verify:
+  /api/v1/backups/verify:
     post:
       summary: Verify a backup archive and optional authenticated manifest
       description: Performs archive, entry, checksum, and manifest-signature checks without extracting or changing host state.
       responses: {'200': {description: Verified backup and consistency classification}}
-  /api/backups/rehearse:
+  /api/v1/backups/rehearse:
     post:
       summary: Queue a disposable restore rehearsal
       description: Verifies the signed backup, extracts it into a temporary isolated directory, validates the site tree and database dumps, then removes the temporary directory. It never activates a site or imports a database.
       responses: {'202': {description: Restore rehearsal job queued}}
-  /api/backups/restore-files:
+  /api/v1/backups/restore-files:
     post:
       summary: Queue an administrator-only verified files-only site restore
+      operationId: restoreBackupFiles
+      x-stepanel-cli: restore files
       description: Verifies the archive and optional manifest signature, then atomically replaces site files through the recovery journal. Databases are preserved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [backup, site, confirm]
+              properties:
+                backup: {type: string}
+                site: {type: string}
+                confirm: {type: string, enum: [RESTORE_FILES]}
       responses: {'202': {description: Restore job queued}}
-  /api/backups/restore-database:
+  /api/v1/backups/restore-database:
     post:
       summary: Queue an administrator-only verified database restore
+      operationId: restoreBackupDatabase
+      x-stepanel-cli: restore database
       description: Creates a verified safety backup, then imports the selected dump into an existing managed database registered to the site. Schema rollback remains manual.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [backup, site, database, confirm]
+              properties:
+                backup: {type: string}
+                site: {type: string}
+                database: {type: string}
+                confirm: {type: string, enum: [RESTORE_DATABASE]}
       responses: {'202': {description: Database restore job queued}}
-  /api/backups/restore-offsite-files:
+  /api/v1/backups/restore-offsite-files:
     post:
       summary: Queue an administrator-only verified off-site files restore
       description: Retrieves only the fixed backup objects for the configured rclone site/backup layout, verifies them, and atomically restores files while preserving databases.
       responses: {'202': {description: Off-site restore job queued}}
-  /api/backups/restore-offsite-database:
+  /api/v1/backups/restore-offsite-database:
     post:
       summary: Queue an administrator-only verified off-site database restore
       description: Retrieves fixed remote backup objects, creates a local safety backup, and imports the selected dump into an existing managed database. Schema rollback remains manual.
       responses: {'202': {description: Off-site database restore job queued}}
-  /api/backups/restore-offsite-to-staging:
+  /api/v1/backups/restore-offsite-to-staging:
     post:
       summary: Restore a verified off-site backup into a new staging site
       description: Downloads only the fixed provider-layout objects, verifies the archive and signature, enforces source-site ownership, and uses the recovery-journaled staging flow. Existing destinations are refused; an optional selected dump is imported into a newly provisioned managed staging database.
       responses: {'202': {description: Verified off-site staging restore accepted}}
-  /api/runner/build:
+  /api/v1/runner/build:
     post:
       summary: Execute a validated build definition in the rootless Podman runner
       responses: {'202': {description: Build completed with artifact output}}
-  /api/deployments:
+  /api/v1/deployments:
     get:
       summary: List durable sandbox-build and atomic-release activation records
       parameters: [{name: site, in: query, required: false, schema: {type: string}}]
       responses: {'200': {description: Site-scoped deployment records}}
-  /api/deployments/run:
+  /api/v1/deployments/run:
     post:
       summary: Run a preview sandbox-build-to-atomic-activation release pipeline
       description: Checks out source outside the live document root, optionally creates a verified backup, requires the runner to write a complete /artifact tree, validates it, and atomically activates it. Database migrations and post-activation health checks are intentionally not yet automated.
@@ -726,12 +786,12 @@ paths:
                 commands: {type: array, items: {type: string}, maxItems: 16}
                 backup_before_activate: {type: boolean, default: false}
       responses: {'202': {description: Built release atomically activated}}
-  /api/staging:
+  /api/v1/staging:
     post:
       summary: Create a recovery-journaled staging site from safe file copies
       description: Staging routes use no-index by default. WordPress file clones require an independently managed staging database, Basic Auth, and noindex; the staging URL and database settings are rewritten, and a managed origin record enables guarded promotion. On Caddy or Apache, set basic_auth with auth_user and auth_password to enable helper-managed Basic Auth; the plaintext password is never persisted. OpenLiteSpeed staging rejects Basic Auth. Database cloning validates source ownership and imports into a new database.
       responses: {'202': {description: Staging site created}}
-  /api/staging/promote/preview:
+  /api/v1/staging/promote/preview:
     post:
       summary: Preview promotion of a managed WordPress staging clone
       description: Requires access to both sites and site:deploy. Verifies the recorded clone relationship, active routes, and managed database ownership, then returns a short-lived preview token bound to the observed state.
@@ -748,7 +808,7 @@ paths:
       responses:
         '200': {description: Proposed file/database changes, safety backup, and recovery plan}
         '409': {description: Staging relationship or current site state is invalid}
-  /api/staging/promote:
+  /api/v1/staging/promote:
     post:
       summary: Queue guarded WordPress staging promotion
       description: Requires a current preview token. Creates a verified production safety backup, imports staging data into a new production-owned database, activates files under maintenance mode, rewrites WordPress URLs, checks database integrity, and retains the former production database.
@@ -767,7 +827,7 @@ paths:
         '202': {description: Durable promotion job queued}
         '409': {description: Preview expired or site state changed}
         '503': {description: Safety backup or required managed service unavailable}
-  /api/tasks/:
+  /api/v1/tasks/:
     get:
       summary: List bounded systemd-timer scheduled tasks for a site
       description: Returns the effective timer state and bounded execution history for each task.
@@ -779,16 +839,16 @@ paths:
     delete:
       summary: Remove a scheduled task service and timer
       responses: {'204': {description: Scheduled task removed}}
-  /api/tasks/{site}/{name}/kill:
+  /api/v1/tasks/{site}/{name}/kill:
     post:
       summary: Stop the active run of a scheduled task
       description: Sends SIGTERM to all processes in the task service; systemd force-kills remaining processes after the configured stop grace period.
       responses: {'202': {description: Stop requested}}
-  /api/sites/logs/:
+  /api/v1/sites/logs/:
     get:
       summary: Read bounded, filtered site logs from allowlisted sources
       responses: {'200': {description: Log lines or downloadable text}}
-  /api/sites/access/:
+  /api/v1/sites/access/:
     get:
       summary: Inspect site SSH/SFTP policy and public-key fingerprints
       responses: {'200': {description: Access policy and application state; private keys are never returned}}
@@ -807,11 +867,11 @@ paths:
       responses:
         '204': {description: SSH key revoked}
         '502': {description: Desired revocation persisted and is pending helper reconciliation}
-  /api/workers/:
+  /api/v1/workers/:
     get:
       summary: List managed background workers for a site
       responses: {'200': {description: Worker definitions}}
-  /api/sites/git-deploy:
+  /api/v1/sites/git-deploy:
     post:
       summary: Checkout and atomically activate a Git release
       description: The repository hostname must be present in STEPANEL_GIT_ALLOWED_HOSTS. Public HTTPS URLs and private git@host:path.git URLs authenticated by a per-site deploy key are accepted. Symlinks and non-regular files are rejected, Git metadata is removed, and repository build scripts are not executed. Use a separately sandboxed build runner for source builds.
@@ -830,7 +890,7 @@ paths:
         '202': {description: Release activated and previous site release preserved}
         '422': {description: Invalid site, repository, or ref}
         '502': {description: Git checkout or commit identification failed}
-  /api/sites/git-key/:
+  /api/v1/sites/git-key/:
     get:
       summary: Inspect whether a site deploy key is configured and return its public key
       responses: {'200': {description: Deploy-key metadata; no private key material is ever returned}}
@@ -840,7 +900,7 @@ paths:
     delete:
       summary: Retire a site deploy key
       responses: {'204': {description: Deploy key retired}}
-  /api/sites/git-webhook/:
+  /api/v1/sites/git-webhook/:
     post:
       summary: Deploy a signed Git webhook payload
       parameters:
@@ -859,7 +919,7 @@ paths:
       responses:
         '202': {description: Deployment accepted}
         '401': {description: Invalid signature}
-  /api/admin/webhooks/:
+  /api/v1/admin/webhooks/:
     post:
       summary: Create or replace a per-site signed webhook authorization
       description: The site is the path suffix. A generated secret is returned once when the request omits secret. At least one repository and one ref allowlist entry are required.
@@ -885,14 +945,14 @@ paths:
       summary: Disable a site's signed webhook authorization
       responses:
         '204': {description: Webhook authorization disabled}
-  /api/sites/git-rollback/preview:
+  /api/v1/sites/git-rollback/preview:
     get:
       summary: Preview the current-to-previous Git release swap
       description: Administrator-only. The returned preview token must be submitted with the rollback request and is checked again under the site mutation lock.
       responses:
         '200': {description: Release identities, file counts and sizes, document-root change, service effect, and preview token}
         '409': {description: A safe rollback preview could not be produced}
-  /api/sites/git-rollback:
+  /api/v1/sites/git-rollback:
     post:
       summary: Atomically restore the latest preserved Git site release
       requestBody:
@@ -909,7 +969,7 @@ paths:
       responses:
         '200': {description: Previous release activated and replaced release preserved}
         '409': {description: No valid previous release is available}
-  /api/sites/:
+  /api/v1/sites/:
     delete:
       summary: Remove a managed PHP site route using its current preview token
       requestBody:
@@ -924,7 +984,7 @@ paths:
       responses:
         '200': {description: Vhost removed, web server reloaded, and prior config snapshot retained}
         '404': {description: Managed route not found}
-  /api/sites/domains/claim:
+  /api/v1/sites/domains/claim:
     post:
       summary: Create or return the DNS TXT claim needed for customer route activation
       requestBody:
@@ -941,7 +1001,7 @@ paths:
         '201': {description: TXT record name and value to publish}
         '403': {description: Site is not assigned to the authenticated customer}
         '409': {description: Domain is already claimed by another site}
-  /api/sites/domains/verify:
+  /api/v1/sites/domains/verify:
     post:
       summary: Verify the customer DNS TXT claim for a domain
       requestBody:
@@ -957,7 +1017,7 @@ paths:
       responses:
         '200': {description: Domain ownership verified}
         '409': {description: TXT record is missing or does not match}
-  /api/sites/terminate:
+  /api/v1/sites/terminate:
     post:
       summary: Queue a confirmed administrator site termination
       description: Creates and verifies a retained backup, removes managed databases, routes, application services, SSH/PHP/quota state, durable site state, and tenant ownership. The confirmation must exactly match DELETE plus the site name.
@@ -977,13 +1037,17 @@ paths:
         '200': {description: Deterministic termination plan returned when dry_run is true}
         '404': {description: Site document root not found}
         '503': {description: Termination cannot proceed because a required helper or backup is unavailable}
-  /api/backups:
+  /api/v1/backups:
     get:
       summary: List published site backup summaries
+      operationId: listBackups
+      x-stepanel-cli: backup list
       responses:
         '200': {description: Backup paths, checksums, sizes, databases, and verification times}
     post:
       summary: Queue a verified site backup
+      operationId: createBackup
+      x-stepanel-cli: backup create
       requestBody:
         required: true
         content:
@@ -996,7 +1060,7 @@ paths:
                 include_databases: {type: boolean, default: false}
       responses:
         '202': {description: Backup job queued}
-  /api/backup-schedules:
+  /api/v1/backup-schedules:
     get:
       summary: List scheduled site backups
       responses:
@@ -1011,9 +1075,11 @@ paths:
         '204': {description: Schedule deleted}
         '422': {description: Invalid site or unavailable managed-database helper}
         '429': {description: Site already has an active restore or backup job}
-  /api/cpmove/inspect:
+  /api/v1/cpmove/inspect:
     post:
       summary: Inspect a cPanel backup archive
+      operationId: inspectMigrationArchive
+      x-stepanel-cli: migration inspect
       requestBody:
         required: true
         content:
@@ -1029,9 +1095,11 @@ paths:
         '411': {description: No Content-Length and no configured upload ceiling to admit against}
         '413': {description: Archive exceeds STEPANEL_MAX_UPLOAD_BYTES}
         '507': {description: Insufficient free space for the archive, extraction, staging, and reserve after outstanding upload reservations}
-  /api/cpmove/import:
+  /api/v1/cpmove/import:
     post:
       summary: Queue a cPanel restore
+      operationId: importMigrationArchive
+      x-stepanel-cli: migration import
       parameters:
         - name: Idempotency-Key
           in: header
@@ -1052,12 +1120,12 @@ paths:
                 restore_databases: {type: string}
       responses:
         '202': {description: Restore job queued}
-  /api/wpress/preflight:
+  /api/v1/wpress/preflight:
     get:
       summary: Check WordPress restore dependencies
       responses:
         '200': {description: wpress-extract, WP-CLI, and database client availability}
-  /api/wpress/import:
+  /api/v1/wpress/import:
     post:
       summary: Queue an All-in-One WP Migration restore
       description: Every form field must precede the backup file part; fields are validated before any archive byte is accepted.
@@ -1085,12 +1153,14 @@ paths:
         '411': {description: No Content-Length and no configured upload ceiling to admit against}
         '413': {description: Archive exceeds STEPANEL_MAX_UPLOAD_BYTES}
         '507': {description: Insufficient free space for the archive, extraction, staging, and reserve}
-  /api/jobs:
+  /api/v1/jobs:
     get:
       summary: List recent persistent jobs
+      operationId: listJobs
+      x-stepanel-cli: jobs list
       responses:
         '200': {description: Up to 100 jobs, newest first}
-  /api/jobs/events:
+  /api/v1/jobs/events:
     get:
       summary: Stream persistent job changes
       description: Authenticated server-sent events stream with an initial job snapshot and subsequent durable state changes. A comment heartbeat is sent every 25 seconds and the credential is re-checked at each heartbeat; the server closes the stream after 25-30 minutes, when a write stalls, or when the credential is revoked, and clients should reconnect with backoff.
@@ -1098,9 +1168,11 @@ paths:
         '200': {description: text/event-stream job snapshot and updates}
         '401': {description: Authentication required}
         '429': {description: Too many open streams (8 per principal, 256 per host); honor Retry-After}
-  /api/jobs/:
+  /api/v1/jobs/:
     get:
       summary: Read a background job
+      operationId: getJob
+      x-stepanel-cli: jobs watch
       responses:
         '200': {description: Job state}
         '404': {description: Job not found}
@@ -1110,7 +1182,7 @@ paths:
         '202': {description: Cancellation requested or job requeued}
         '403': {description: Administrator authentication and CSRF validation required}
         '409': {description: Job is no longer cancellable or not a dead-letter record}
-  /api/admin/archive/inspect:
+  /api/v1/admin/archive/inspect:
     post:
       summary: Inspect archive for migration requirements
       description: Analyzes an archive without importing it. Returns site type, PHP version, database requirements, and any issues.
@@ -1118,7 +1190,7 @@ paths:
         '200': {description: Archive inspection results}
         '400': {description: Invalid archive or URL}
         '403': {description: Administrator authentication required}
-  /api/admin/archive/inspect/status:
+  /api/v1/admin/archive/inspect/status:
     get:
       summary: Check archive inspection job status
       parameters:
@@ -1126,7 +1198,7 @@ paths:
       responses:
         '200': {description: Inspection status and results}
         '404': {description: Job not found}
-  /api/admin/archive/import:
+  /api/v1/admin/archive/import:
     post:
       summary: Queue an archive import
       description: "Begins importing a website from an archive into a new site in a hosting account. Body: url, config_path, site_name, and optional account (defaults to the site name), kind (main, addon or subdomain) and domain, database_password and auto_restore_db. Files are extracted and the database is located."
@@ -1135,7 +1207,7 @@ paths:
         '400': {description: Invalid archive or requirements}
         '422': {description: The hosting-account placement is invalid}
         '403': {description: Administrator authentication required}
-  /api/admin/archive/import/status:
+  /api/v1/admin/archive/import/status:
     get:
       summary: Check archive import job status
       parameters:

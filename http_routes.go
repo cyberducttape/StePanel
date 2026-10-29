@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -159,5 +160,17 @@ func (a *App) registerRoutes(staticAssets fs.FS) *http.ServeMux {
 		metricsHandler = a.Auth.RequireAdministrator(metricsHandler)
 	}
 	mux.Handle("/metrics", allowMethods(metricsHandler, http.MethodGet, http.MethodHead))
+	// /api/v1 is the stable automation namespace. The dashboard's existing
+	// /api paths remain compatible and route to the same handlers and policies.
+	mux.Handle("/api/v1/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-StePanel-API-Version", "v1")
+		clone := r.Clone(r.Context())
+		clone.Pattern = ""
+		urlCopy := *r.URL
+		urlCopy.Path = "/api" + strings.TrimPrefix(r.URL.Path, "/api/v1")
+		urlCopy.RawPath = ""
+		clone.URL = &urlCopy
+		mux.ServeHTTP(w, clone)
+	}))
 	return mux
 }

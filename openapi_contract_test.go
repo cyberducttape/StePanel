@@ -68,6 +68,12 @@ func getRegisteredRoutes(t *testing.T) []string {
 	for _, match := range matches {
 		if len(match) > 1 {
 			route := match[1]
+			if route == "/api/v1/" {
+				continue
+			}
+			if strings.HasPrefix(route, "/api/v1/") {
+				route = "/api" + strings.TrimPrefix(route, "/api/v1")
+			}
 			// Normalize route (remove trailing {param})
 			// /api/foo/{id} -> /api/foo/...
 			route = regexp.MustCompile(`\{[^}]+\}`).ReplaceAllString(route, "{id}")
@@ -96,6 +102,9 @@ func getDocumentedRoutes(t *testing.T) []string {
 		matches := pattern.FindStringSubmatch(line)
 		if len(matches) > 1 {
 			route := regexp.MustCompile(`\{[^}]+\}`).ReplaceAllString(matches[1], "{id}")
+			if strings.HasPrefix(route, "/api/v1/") {
+				route = "/api" + strings.TrimPrefix(route, "/api/v1")
+			}
 			routes[route] = true
 		}
 	}
