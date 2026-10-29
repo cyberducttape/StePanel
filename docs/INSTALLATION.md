@@ -432,6 +432,11 @@ Container deployments must either mount application TLS certificates or set
 `STEPANEL_TLS_TERMINATED=1` only behind an ingress that enforces HTTPS. The
 Kubernetes, Helm, and Terraform examples assume that trusted ingress boundary;
 generic Docker deployments still require the operator to provide it explicitly.
+Production, TLS-terminated, and direct-TLS deployments set the `Secure`
+attribute on session and CSRF cookies. A listener without TLS may bind only to
+loopback; authenticated non-loopback listeners are rejected unless HTTPS is
+served directly or terminated by a trusted ingress. Plain HTTP is intended only
+for local development and isolated installation smoke tests.
 
 **Important:** When proxying StePanel, configure your reverse proxy to allow
 long-running requests. Uploads (20 GB at typical bandwidth requires 30

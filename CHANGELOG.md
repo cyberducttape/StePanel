@@ -56,7 +56,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   beyond loopback, preventing session and CSRF cookies from being issued
   without the `Secure` attribute on a network-accessible HTTP endpoint. Cookie
   security now follows production, TLS-termination, or direct-TLS configuration;
-  the explicit install-smoke HTTP override remains limited to loopback.
+  the explicit install-smoke HTTP override remains limited to loopback. The
+  installation guide documents this boundary, and changes to authentication,
+  startup, or configuration code now trigger installed-host smoke validation.
 - The customer website overview now exposes its labelled container as a region,
   satisfying ARIA naming rules and preserving a clear landmark for screen-reader
   navigation.
